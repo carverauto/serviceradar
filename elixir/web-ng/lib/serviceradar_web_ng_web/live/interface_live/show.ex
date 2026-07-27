@@ -524,7 +524,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     class={if(is_favorited, do: "text-amber-500", else: "text-sr-muted/50")}
                     phx-click="toggle_favorite"
                     title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
-                    aria-label={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                    aria-label={
+                      if is_favorited, do: "Remove from favorites", else: "Add to favorites"
+                    }
                   >
                     <.icon
                       name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
@@ -704,7 +706,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                           Group metrics together to display on a single chart.
                         </p>
                       </div>
-                      <.ui_button type="button" size="xs" variant="primary" phx-click="open_group_modal">
+                      <.ui_button
+                        type="button"
+                        size="xs"
+                        variant="primary"
+                        phx-click="open_group_modal"
+                      >
                         <.icon name="hero-plus-mini" class="size-3" /> New Group
                       </.ui_button>
                     </div>
@@ -966,7 +973,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <dialog class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_group_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_group_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1078,7 +1090,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <dialog class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-3xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_metric_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_metric_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1232,7 +1249,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 <label class="flex items-center justify-between gap-2">
                   <span class="text-xs font-medium text-sr-ink">Event Severity</span>
                 </label>
-                <select name="metric[event_severity]" class={ui_field_class(size: "sm", class: "w-full")}>
+                <select
+                  name="metric[event_severity]"
+                  class={ui_field_class(size: "sm", class: "w-full")}
+                >
                   <option value="info" selected={@form[:event_severity].value == "info"}>
                     Info
                   </option>
@@ -1337,7 +1357,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 <label class="flex items-center justify-between gap-2">
                   <span class="text-xs font-medium text-sr-ink">Alert Severity</span>
                 </label>
-                <select name="metric[alert_severity]" class={ui_field_class(size: "sm", class: "w-full")}>
+                <select
+                  name="metric[alert_severity]"
+                  class={ui_field_class(size: "sm", class: "w-full")}
+                >
                   <option value="info" selected={@form[:alert_severity].value == "info"}>
                     Info
                   </option>

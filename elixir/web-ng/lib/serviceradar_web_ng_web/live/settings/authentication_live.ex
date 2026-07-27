@@ -264,9 +264,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     enforced on the server. Regular accounts are SSO-only; enable
                     <span class="font-medium">Local password login</span>
                     on an account in
-                    <.link navigate={~p"/settings/auth/users"} class="text-sr-brand hover:underline">Users</.link>
+                    <.link navigate={~p"/settings/auth/users"} class="text-sr-brand hover:underline">
+                      Users
+                    </.link>
                     to let it keep password access. The
-                    <code class="bg-sr-control px-1 rounded">SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN</code>
+                    <code class="bg-sr-control px-1 rounded">
+                      SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN
+                    </code>
                     environment switch is the break-glass recovery path.
                   </div>
                 </div>
@@ -537,7 +541,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="flex items-center gap-3">
-          <.ui_button type="button" phx-click="test_oidc" disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""} size="sm" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="test_oidc"
+            disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""}
+            size="sm"
+            variant="outline"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -631,7 +641,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             placeholder={ServiceRadarWebNGWeb.Endpoint.url()}
           />
           <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">Service Provider entity ID (defaults to base URL)</span>
+            <span class="text-xs text-sr-muted">
+              Service Provider entity ID (defaults to base URL)
+            </span>
           </label>
         </div>
 
@@ -663,7 +675,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             placeholder="Paste IdP metadata XML here..."
           ><%= @form[:saml_idp_metadata_xml].value %></textarea>
           <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">Alternative: paste the IdP metadata XML directly</span>
+            <span class="text-xs text-sr-muted">
+              Alternative: paste the IdP metadata XML directly
+            </span>
           </label>
         </div>
 
@@ -693,7 +707,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="flex items-center gap-3">
-          <.ui_button type="button" phx-click="test_saml" disabled={ (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") && (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "") } size="sm" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="test_saml"
+            disabled={
+              (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") &&
+                (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")
+            }
+            size="sm"
+            variant="outline"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -778,7 +801,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
           ><%= @form[:jwt_public_key_pem].value %></textarea>
           <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">Alternative to JWKS: paste the public key directly</span>
+            <span class="text-xs text-sr-muted">
+              Alternative to JWKS: paste the public key directly
+            </span>
           </label>
         </div>
 
@@ -869,7 +894,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <label class="flex items-center justify-between gap-2">
-          <span class="text-xs text-sr-muted">Use dot notation for nested claims (e.g., "user.email")</span>
+          <span class="text-xs text-sr-muted">
+            Use dot notation for nested claims (e.g., "user.email")
+          </span>
         </label>
       </div>
     </.ui_panel>

@@ -47,7 +47,10 @@ defmodule ServiceRadarWebNGWeb.AuthLive.LocalSignIn do
         </div>
 
         <div class="mb-6 flex gap-3 rounded-sr-surface border border-amber-500/30 bg-amber-500/10 p-4 text-sr-ink">
-          <.icon name="hero-exclamation-triangle" class="size-6 shrink-0 text-amber-600 dark:text-amber-300" />
+          <.icon
+            name="hero-exclamation-triangle"
+            class="size-6 shrink-0 text-amber-600 dark:text-amber-300"
+          />
           <span class="text-sm text-sr-muted">
             This login is for administrators only. Regular users should authenticate through
             the organization's identity provider.

@@ -519,7 +519,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         </div>
 
         <div class="flex justify-end">
-          <.ui_button type="submit" data-confirm={ @retention_lowering? && "Lowering MTR retention may expire older trace and hop history sooner. Continue?" } size="sm" variant="primary">
+          <.ui_button
+            type="submit"
+            data-confirm={
+              @retention_lowering? &&
+                "Lowering MTR retention may expire older trace and hop history sooner. Continue?"
+            }
+            size="sm"
+            variant="primary"
+          >
             Save Retention
           </.ui_button>
         </div>
@@ -578,13 +586,31 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <.ui_button type="button" phx-click="toggle_profile" phx-value-id={profile.id} size="xs" variant="ghost">
+                  <.ui_button
+                    type="button"
+                    phx-click="toggle_profile"
+                    phx-value-id={profile.id}
+                    size="xs"
+                    variant="ghost"
+                  >
                     {if profile.enabled, do: "Disable", else: "Enable"}
                   </.ui_button>
-                  <.ui_button navigate={~p"/settings/networks/mtr/#{profile.id}/edit"} size="xs" variant="ghost">
+                  <.ui_button
+                    navigate={~p"/settings/networks/mtr/#{profile.id}/edit"}
+                    size="xs"
+                    variant="ghost"
+                  >
                     Edit
                   </.ui_button>
-                  <.ui_button type="button" phx-click="delete_profile" phx-value-id={profile.id} data-confirm="Delete this MTR profile?" size="xs" variant="ghost" class="text-error">
+                  <.ui_button
+                    type="button"
+                    phx-click="delete_profile"
+                    phx-value-id={profile.id}
+                    data-confirm="Delete this MTR profile?"
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
+                  >
                     Delete
                   </.ui_button>
                 </div>
@@ -631,7 +657,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       <.form for={@form} phx-change="validate_profile" phx-submit="save_profile" class="space-y-6">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Profile Name</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+            </label>
             <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <label class="flex items-center gap-2 mt-8 cursor-pointer">
@@ -649,7 +677,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             Device Scope
           </h3>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+            </label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
                 <.srql_editor
@@ -810,7 +840,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Selector Limit</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Selector Limit</span>
+            </label>
             <.input
               type="number"
               field={@form[:selector_limit]}
@@ -819,7 +851,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Preferred Agent</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Preferred Agent</span>
+            </label>
             <.input
               type="select"
               field={@form[:preferred_agent_id]}
@@ -830,7 +864,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Partition (optional)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Partition (optional)</span>
+            </label>
             <.input
               type="text"
               field={@form[:partition_id]}
@@ -842,7 +878,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Protocol</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Protocol</span>
+            </label>
             <.input
               type="select"
               field={@form[:baseline_protocol]}
@@ -851,7 +889,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Bulk Execution Profile</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Bulk Execution Profile</span>
+            </label>
             <.input
               type="select"
               field={@form[:bulk_execution_profile]}
@@ -860,7 +900,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Baseline Interval (sec)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Baseline Interval (sec)</span>
+            </label>
             <.input
               type="number"
               field={@form[:baseline_interval_sec]}
@@ -869,7 +911,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Extra Canary Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Extra Canary Agents</span>
+            </label>
             <.input
               type="number"
               field={@form[:baseline_canary_vantages]}
@@ -878,7 +922,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Incident Cooldown (sec)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Incident Cooldown (sec)</span>
+            </label>
             <.input
               type="number"
               field={@form[:incident_cooldown_sec]}
@@ -887,7 +933,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Incident Fanout</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Incident Fanout</span>
+            </label>
             <.input
               type="number"
               field={@form[:incident_fanout_max_agents]}
@@ -896,7 +944,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Consensus Mode</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Mode</span>
+            </label>
             <.input
               type="select"
               field={@form[:consensus_mode]}
@@ -909,7 +959,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Consensus Threshold</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Threshold</span>
+            </label>
             <.input
               type="number"
               field={@form[:consensus_threshold]}
@@ -920,7 +972,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Consensus Min Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Min Agents</span>
+            </label>
             <.input
               type="number"
               field={@form[:consensus_min_agents]}
@@ -936,7 +990,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             field={@form[:recovery_capture]}
             class={ui_checkbox_class()}
           />
-          <span class="text-sm font-medium text-sr-ink">Run recovery capture MTR on return-to-healthy transitions</span>
+          <span class="text-sm font-medium text-sr-ink">
+            Run recovery capture MTR on return-to-healthy transitions
+          </span>
         </label>
 
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">

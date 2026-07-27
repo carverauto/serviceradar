@@ -153,10 +153,20 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
             <.ui_button phx-click="refresh" size="sm" variant="outline">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
-            <.ui_button :if={@selected_session_id} href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"} size="sm" variant="outline">
+            <.ui_button
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"}
+              size="sm"
+              variant="outline"
+            >
               <.icon name="hero-photo" class="size-4" /> Export SVG
             </.ui_button>
-            <.ui_button :if={@selected_session_id} href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"} size="sm" variant="outline">
+            <.ui_button
+              :if={@selected_session_id}
+              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"}
+              size="sm"
+              variant="outline"
+            >
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export JSON
             </.ui_button>
             <.ui_button navigate={~p"/spatial"} size="sm" variant="ghost">
@@ -193,7 +203,10 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                       Recent survey
                     </span>
                   </span>
-                  <select name="survey[session_id]" class={ui_field_class(size: "sm", class: "w-full")}>
+                  <select
+                    name="survey[session_id]"
+                    class={ui_field_class(size: "sm", class: "w-full")}
+                  >
                     <option :if={@sessions == []} value="">No surveys</option>
                     <option
                       :for={session <- @sessions}
@@ -266,7 +279,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <div class="font-semibold">{candidate.label}</div>
                     <div class="text-xs text-sr-muted">{candidate.session_id}</div>
                   </div>
-                  <.ui_button type="button" phx-click="load_selector_candidate" phx-value-session-id={candidate.session_id} size="xs" variant="primary">
+                  <.ui_button
+                    type="button"
+                    phx-click="load_selector_candidate"
+                    phx-value-session-id={candidate.session_id}
+                    size="xs"
+                    variant="primary"
+                  >
                     Load Survey
                   </.ui_button>
                 </div>

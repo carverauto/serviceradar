@@ -111,7 +111,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
           </div>
 
           <div class="shrink-0 flex items-center gap-2">
-            <.ui_button :if={@selected_node_id} type="button" phx-click="clear_selection" phx-target={@myself} size="sm" variant="ghost">
+            <.ui_button
+              :if={@selected_node_id}
+              type="button"
+              phx-click="clear_selection"
+              phx-target={@myself}
+              size="sm"
+              variant="ghost"
+            >
               Clear
             </.ui_button>
           </div>

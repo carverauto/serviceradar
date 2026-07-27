@@ -56,7 +56,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
             <span class="font-mono text-[10px] text-sr-muted">
               bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
             </span>
-            <.ui_button :if={!(@topology_layers.inferred and @topology_layers.endpoints)} type="button" phx-click="enable_attachment_layers" size="xs" variant="warning" class="h-7 min-h-7">
+            <.ui_button
+              :if={!(@topology_layers.inferred and @topology_layers.endpoints)}
+              type="button"
+              phx-click="enable_attachment_layers"
+              size="xs"
+              variant="warning"
+              class="h-7 min-h-7"
+            >
               Show attachment layers
             </.ui_button>
           </div>
@@ -73,7 +80,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               <div class="text-[10px] uppercase tracking-wide text-sr-muted">
                 Controls
               </div>
-              <.ui_button type="button" phx-click="toggle_controls_panel" title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"} size="xs" variant="ghost" class="h-6 min-h-6 px-2">
+              <.ui_button
+                type="button"
+                phx-click="toggle_controls_panel"
+                title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"}
+                size="xs"
+                variant="ghost"
+                class="h-6 min-h-6 px-2"
+              >
                 {if @controls_collapsed, do: "Expand", else: "Collapse"}
               </.ui_button>
             </div>
@@ -97,7 +111,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               >
                 Auto
               </button>
-              <.ui_button type="button" phx-click="reset_view" title="Reset view to fit all nodes" size="xs" variant="ghost" class="h-7 min-h-7">
+              <.ui_button
+                type="button"
+                phx-click="reset_view"
+                title="Reset view to fit all nodes"
+                size="xs"
+                variant="ghost"
+                class="h-7 min-h-7"
+              >
                 Reset
               </.ui_button>
             </div>
@@ -145,7 +166,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                     Detail
                   </button>
                 </div>
-                <.ui_button type="button" phx-click="reset_view" title="Reset view and sr-ui-collapse expanded endpoint clusters" size="xs" variant="ghost" class="h-7 min-h-7 w-full mt-1">
+                <.ui_button
+                  type="button"
+                  phx-click="reset_view"
+                  title="Reset view and sr-ui-collapse expanded endpoint clusters"
+                  size="xs"
+                  variant="ghost"
+                  class="h-7 min-h-7 w-full mt-1"
+                >
                   Reset / Collapse
                 </.ui_button>
               </div>
@@ -420,8 +448,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
     do:
       "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-brand"
 
-  def overlay_zoom_button_class(false),
-    do: overlay_filter_button_class(false)
+  def overlay_zoom_button_class(false), do: overlay_filter_button_class(false)
 
   def format_bitmap_meta(nil), do: "—"
 

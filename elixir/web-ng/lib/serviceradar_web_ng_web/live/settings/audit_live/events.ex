@@ -328,7 +328,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       <div class="sr-ui-modal-box max-w-2xl">
         <div class="flex items-start justify-between gap-4">
           <h2 class="text-lg font-semibold">Audit Event</h2>
-          <.ui_icon_button type="button" phx-click="close-event" aria-label="Close" size="sm" variant="ghost">
+          <.ui_icon_button
+            type="button"
+            phx-click="close-event"
+            aria-label="Close"
+            size="sm"
+            variant="ghost"
+          >
             <.icon name="hero-x-mark" class="size-5" />
           </.ui_icon_button>
         </div>
@@ -373,7 +379,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
           <.ui_button navigate={~p"/settings/audit/events/#{@event.id}"} size="sm" variant="ghost">
             Open full page
           </.ui_button>
-          <.ui_button type="button" phx-click="close-event" size="sm" variant="neutral">Close</.ui_button>
+          <.ui_button type="button" phx-click="close-event" size="sm" variant="neutral">
+            Close
+          </.ui_button>
         </div>
       </div>
       <button

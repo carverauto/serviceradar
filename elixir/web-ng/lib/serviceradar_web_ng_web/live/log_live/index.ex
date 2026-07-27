@@ -4584,12 +4584,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @graph_mode,
           @view
         ) %>
-      <table class={ui_table_class(
-        size: if(@compact?, do: "xs", else: "sm"),
-        zebra: true,
-        fixed: true,
-        class: "w-full"
-      )}>
+      <table class={
+        ui_table_class(
+          size: if(@compact?, do: "xs", else: "sm"),
+          zebra: true,
+          fixed: true,
+          class: "w-full"
+        )
+      }>
         <thead>
           <tr>
             <th class="w-40">Time</th>
@@ -5134,10 +5136,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
 
         <div class="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden p-3 lg:grid-cols-3">
-          <.ui_panel class="min-h-0 min-w-0 max-h-full overflow-y-auto lg:col-span-2" body_class="!p-0">
+          <.ui_panel
+            class="min-h-0 min-w-0 max-h-full overflow-y-auto lg:col-span-2"
+            body_class="!p-0"
+          >
             <div class="divide-y divide-sr-line">
               <div class="p-4">
-                <div class="text-xs font-medium uppercase tracking-wider text-sr-muted">Endpoints</div>
+                <div class="text-xs font-medium uppercase tracking-wider text-sr-muted">
+                  Endpoints
+                </div>
                 <div class="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-sr-muted">

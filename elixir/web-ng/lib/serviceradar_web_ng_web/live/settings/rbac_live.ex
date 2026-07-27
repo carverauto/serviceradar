@@ -551,14 +551,36 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         </div>
         <div class="flex items-center gap-2">
           <div class={ui_join_class(class: @locked && "opacity-50")}>
-            <.ui_button type="button" disabled={@locked} phx-click="set_profile_permissions" phx-value-profile-id={@profile.id} phx-value-mode="all" size="xs" variant="neutral">
+            <.ui_button
+              type="button"
+              disabled={@locked}
+              phx-click="set_profile_permissions"
+              phx-value-profile-id={@profile.id}
+              phx-value-mode="all"
+              size="xs"
+              variant="neutral"
+            >
               All
             </.ui_button>
-            <.ui_button type="button" disabled={@locked} phx-click="set_profile_permissions" phx-value-profile-id={@profile.id} phx-value-mode="none" size="xs" variant="neutral">
+            <.ui_button
+              type="button"
+              disabled={@locked}
+              phx-click="set_profile_permissions"
+              phx-value-profile-id={@profile.id}
+              phx-value-mode="none"
+              size="xs"
+              variant="neutral"
+            >
               None
             </.ui_button>
           </div>
-          <.ui_button :if={@dirty} phx-click="save_profile" phx-value-profile-id={@profile.id} size="xs" variant="primary">
+          <.ui_button
+            :if={@dirty}
+            phx-click="save_profile"
+            phx-value-profile-id={@profile.id}
+            size="xs"
+            variant="primary"
+          >
             Save
           </.ui_button>
           <.ui_dropdown align="end">
@@ -568,7 +590,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
               </.ui_icon_button>
             </:trigger>
             <:item>
-              <button type="button" phx-click="open_new_profile" phx-value-clone-source-id={@profile.id}>
+              <button
+                type="button"
+                phx-click="open_new_profile"
+                phx-value-clone-source-id={@profile.id}
+              >
                 <.icon name="hero-document-duplicate" class="size-4" /> Clone
               </button>
             </:item>
@@ -740,7 +766,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <.input field={@form[:name]} type="text" label="Profile Name" required />
           <.input field={@form[:description]} type="text" label="Description" />
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="close_new_profile" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="close_new_profile" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Create</.ui_button>
           </div>
         </.form>
@@ -766,8 +794,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           Users assigned to this profile will fall back to their role defaults.
         </p>
         <div class="sr-ui-modal-action">
-          <.ui_button type="button" phx-click="close_delete_profile" size="sm" variant="ghost">Cancel</.ui_button>
-          <.ui_button type="button" phx-click="delete_profile" phx-value-profile-id={@profile.id} size="sm" variant="danger">
+          <.ui_button type="button" phx-click="close_delete_profile" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button
+            type="button"
+            phx-click="delete_profile"
+            phx-value-profile-id={@profile.id}
+            size="sm"
+            variant="danger"
+          >
             Delete
           </.ui_button>
         </div>

@@ -44,7 +44,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
       <.state_alert state={@bundle.operation.state} subject="Operation" />
 
-      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="operation-evidence-heading">
+      <section
+        class="sr-ui-card card-border bg-sr-surface"
+        aria-labelledby="operation-evidence-heading"
+      >
         <div class="sr-ui-card-body gap-4">
           <div>
             <h2 id="operation-evidence-heading" class="sr-ui-card-title text-base">
@@ -309,7 +312,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp diagnostics(assigns) do
     ~H"""
-    <section class="rounded-sr-surface border border-sr-line p-3" aria-label={"#{@subject} diagnostics"}>
+    <section
+      class="rounded-sr-surface border border-sr-line p-3"
+      aria-label={"#{@subject} diagnostics"}
+    >
       <h3 class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
         Safe diagnostics
       </h3>
@@ -343,7 +349,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     ~H"""
     <div class="stat min-w-0">
       <div class="sr-ui-stat-title">{@label}</div>
-      <div class={["sr-ui-stat-value text-sm break-all", @mono && "font-mono"]}>{display(@value)}</div>
+      <div class={["sr-ui-stat-value text-sm break-all", @mono && "font-mono"]}>
+        {display(@value)}
+      </div>
     </div>
     """
   end

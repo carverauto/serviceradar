@@ -61,10 +61,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
             :if={@editing_panel_id != "new"}
             class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-sr-line bg-sr-surface p-3"
           >
-            <.ui_button type="button" phx-click="duplicate_panel" phx-value-id={@editing_panel_id} size="sm" variant="neutral">
+            <.ui_button
+              type="button"
+              phx-click="duplicate_panel"
+              phx-value-id={@editing_panel_id}
+              size="sm"
+              variant="neutral"
+            >
               <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
             </.ui_button>
-            <.ui_button type="button" phx-click="delete_panel" phx-value-id={@editing_panel_id} size="sm" variant="outline">
+            <.ui_button
+              type="button"
+              phx-click="delete_panel"
+              phx-value-id={@editing_panel_id}
+              size="sm"
+              variant="outline"
+            >
               <.icon name="hero-trash" class="size-4" /> Delete
             </.ui_button>
             <form

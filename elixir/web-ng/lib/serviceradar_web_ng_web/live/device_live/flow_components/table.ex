@@ -37,7 +37,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
       <div class="p-4">
         <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
           <span>{@error}</span>
-          <.ui_button type="button" phx-click="switch_tab" phx-value-tab="flows" size="xs" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="switch_tab"
+            phx-value-tab="flows"
+            size="xs"
+            variant="outline"
+          >
             Retry
           </.ui_button>
         </div>
@@ -132,7 +138,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       />
                     </td>
                     <td class="text-right">
-                      <.ui_button navigate={ ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}" } size="xs" variant="ghost">
+                      <.ui_button
+                        navigate={
+                          ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}"
+                        }
+                        size="xs"
+                        variant="ghost"
+                      >
                         Details
                       </.ui_button>
                     </td>

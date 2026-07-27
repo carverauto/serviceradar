@@ -70,7 +70,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
     <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-3xl max-h-[80vh]">
         <form method="dialog">
-          <.ui_icon_button type="button" phx-click="close_template_browser" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            type="button"
+            phx-click="close_template_browser"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>

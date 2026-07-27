@@ -126,7 +126,15 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                           <code class="text-xs bg-sr-subtle px-2 py-1 rounded">
                             {client.id |> to_string() |> String.slice(0..7)}...
                           </code>
-                          <.ui_button type="button" phx-click="copy_client_id" phx-value-id={client.id} title="Copy full Client ID" size="xs" variant="ghost" class="ml-1">
+                          <.ui_button
+                            type="button"
+                            phx-click="copy_client_id"
+                            phx-value-id={client.id}
+                            title="Copy full Client ID"
+                            size="xs"
+                            variant="ghost"
+                            class="ml-1"
+                          >
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
@@ -145,7 +153,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         </td>
                         <td>
                           <%= for scope <- client.scopes do %>
-                            <.ui_badge size="sm" variant={scope_badge_variant(scope)}>{scope}</.ui_badge>
+                            <.ui_badge size="sm" variant={scope_badge_variant(scope)}>
+                              {scope}
+                            </.ui_badge>
                           <% end %>
                         </td>
                         <td>
@@ -167,7 +177,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                           <%= if is_nil(client.revoked_at) do %>
                             <.ui_dropdown align="end">
                               <:trigger>
-                                <.ui_icon_button size="xs" variant="ghost" aria-label="Credential actions">
+                                <.ui_icon_button
+                                  size="xs"
+                                  variant="ghost"
+                                  aria-label="Credential actions"
+                                >
                                   <.icon name="hero-ellipsis-vertical" class="size-4" />
                                 </.ui_icon_button>
                               </:trigger>
@@ -193,7 +207,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                               </:item>
                             </.ui_dropdown>
                           <% else %>
-                            <.ui_button phx-click="delete_client" phx-value-id={client.id} size="xs" variant="ghost" class="text-error">
+                            <.ui_button
+                              phx-click="delete_client"
+                              phx-value-id={client.id}
+                              size="xs"
+                              variant="ghost"
+                              class="text-error"
+                            >
                               Delete
                             </.ui_button>
                           <% end %>

@@ -147,8 +147,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :size, :string, default: "sm", values: ~w(xs sm md)
   attr :class, :any, default: nil
 
-  attr :rest, :global,
-    include: ~w(phx-click phx-value-id phx-value-uid title data-tip data-role)
+  attr :rest, :global, include: ~w(phx-click phx-value-id phx-value-uid title data-tip data-role)
 
   slot :inner_block, required: true
 
@@ -166,8 +165,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   def badge_variant_for(nil), do: "ghost"
   def badge_variant_for(""), do: "ghost"
 
-  def badge_variant_for(value) when is_atom(value),
-    do: value |> Atom.to_string() |> badge_variant_for()
+  def badge_variant_for(value) when is_atom(value), do: value |> Atom.to_string() |> badge_variant_for()
 
   def badge_variant_for(value) when is_binary(value) do
     case String.downcase(String.trim(value)) do
@@ -800,8 +798,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp calculate_total_pages(nil, _limit), do: nil
 
-  defp calculate_total_pages(total, limit)
-       when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
+  defp calculate_total_pages(total, limit) when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
     ceil(total / limit)
   end
 
@@ -828,8 +825,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp normalize_query_params(_), do: %{}
 
-  defp pagination_text(count, _limit, total)
-       when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
+  defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
     "Showing #{count} of #{format_number(total)} result#{if total == 1, do: "", else: "s"}"
   end
 

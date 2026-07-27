@@ -228,7 +228,12 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                     label="User"
                     options={user_select_options(@users)}
                   />
-                  <.ui_button type="submit" disabled={@user_groups == [] or @users == []} size="sm" variant="neutral">
+                  <.ui_button
+                    type="submit"
+                    disabled={@user_groups == [] or @users == []}
+                    size="sm"
+                    variant="neutral"
+                  >
                     <.icon name="hero-user-plus" class="size-4" /> Add Member
                   </.ui_button>
                 </.form>

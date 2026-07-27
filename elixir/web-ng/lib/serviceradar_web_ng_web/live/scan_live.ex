@@ -357,13 +357,22 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
 
       <div :if={@error} class={ui_alert_class(variant: "error", class: "text-sm")}>{@error}</div>
 
-      <div :if={@missing_ips != []} class={ui_alert_class(variant: "warning", class: "flex-col items-start gap-2 text-sm")}>
+      <div
+        :if={@missing_ips != []}
+        class={ui_alert_class(variant: "warning", class: "flex-col items-start gap-2 text-sm")}
+      >
         <div>
           These targets are not in inventory (scanning is restricted to known devices):
           <span class="font-mono">{Enum.join(Enum.take(@missing_ips, 20), ", ")}</span>
           <span :if={length(@missing_ips) > 20}>… (+{length(@missing_ips) - 20} more)</span>
         </div>
-        <.ui_button :if={@can_add_devices} type="button" phx-click="add_missing" size="sm" variant="primary">
+        <.ui_button
+          :if={@can_add_devices}
+          type="button"
+          phx-click="add_missing"
+          size="sm"
+          variant="primary"
+        >
           Add {length(@missing_ips)} missing device(s) to inventory
         </.ui_button>
       </div>
@@ -372,7 +381,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="flex flex-col gap-1.5">
             <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Targets (IP per line or comma-separated)</span>
+              <span class="text-sm font-medium text-sr-ink">
+                Targets (IP per line or comma-separated)
+              </span>
             </label>
             <textarea
               name="scan[targets]"
@@ -392,7 +403,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
 
           <div class="space-y-3">
             <div class="flex flex-col gap-1.5">
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Egress agent</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Egress agent</span>
+              </label>
               <select name="scan[agent_id]" class={ui_field_class()}>
                 <option value="">Select an agent…</option>
                 <option
@@ -442,7 +455,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">TCP ports (comma-separated)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">TCP ports (comma-separated)</span>
+              </label>
               <input
                 name="scan[ports]"
                 value={@form["ports"]}
@@ -530,7 +545,13 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                   </.ui_badge>
                 </td>
                 <td>
-                  <.ui_button type="button" phx-click="select_run" phx-value-id={run.id} size="xs" variant="ghost">
+                  <.ui_button
+                    type="button"
+                    phx-click="select_run"
+                    phx-value-id={run.id}
+                    size="xs"
+                    variant="ghost"
+                  >
                     View
                   </.ui_button>
                 </td>

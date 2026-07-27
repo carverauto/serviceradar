@@ -154,7 +154,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                 Make Windows desktops available through trusted edge agents.
               </p>
             </div>
-            <.ui_button navigate={~p"/settings/networks/desktop-targets/new"} size="sm" variant="primary">
+            <.ui_button
+              navigate={~p"/settings/networks/desktop-targets/new"}
+              size="sm"
+              variant="primary"
+            >
               Add RDP Host
             </.ui_button>
           </div>
@@ -232,13 +236,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-2">
-                        <.ui_button navigate={~p"/settings/networks/desktop-targets/#{target.id}/edit"} size="xs" variant="ghost">
+                        <.ui_button
+                          navigate={~p"/settings/networks/desktop-targets/#{target.id}/edit"}
+                          size="xs"
+                          variant="ghost"
+                        >
                           Edit
                         </.ui_button>
-                        <.ui_button :if={target.enabled} type="button" phx-click="disable_target" phx-value-id={target.id} size="xs" variant="ghost">
+                        <.ui_button
+                          :if={target.enabled}
+                          type="button"
+                          phx-click="disable_target"
+                          phx-value-id={target.id}
+                          size="xs"
+                          variant="ghost"
+                        >
                           Disable
                         </.ui_button>
-                        <.ui_button :if={!target.enabled} type="button" phx-click="enable_target" phx-value-id={target.id} size="xs" variant="ghost">
+                        <.ui_button
+                          :if={!target.enabled}
+                          type="button"
+                          phx-click="enable_target"
+                          phx-value-id={target.id}
+                          size="xs"
+                          variant="ghost"
+                        >
                           Enable
                         </.ui_button>
                       </div>
@@ -364,7 +386,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
             <%= if @credential_rule_options == [] do %>
               <div class="rounded-lg border border-info/40 bg-info/10 p-3 text-sm">
                 No credential rules exist yet.
-                <.link navigate={~p"/settings/networks/credentials/new"} class="text-sr-brand hover:underline">
+                <.link
+                  navigate={~p"/settings/networks/credentials/new"}
+                  class="text-sr-brand hover:underline"
+                >
                   Create a credential rule
                 </.link>
                 if you want stored/brokered credentials. Users can still connect by entering
@@ -456,7 +481,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           </div>
         </.form>
       </div>
-      <.link navigate={~p"/settings/networks/desktop-targets"} class="sr-ui-modal-backdrop">Close</.link>
+      <.link navigate={~p"/settings/networks/desktop-targets"} class="sr-ui-modal-backdrop">
+        Close
+      </.link>
     </div>
     """
   end

@@ -45,7 +45,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
                 <.ui_badge size="sm" variant="outline">{grant.access}</.ui_badge>
               </div>
             </div>
-            <.ui_button type="button" phx-click="revoke_grant" phx-value-id={grant.id} size="xs" variant="outline">
+            <.ui_button
+              type="button"
+              phx-click="revoke_grant"
+              phx-value-id={grant.id}
+              size="xs"
+              variant="outline"
+            >
               <.icon name="hero-trash" class="size-4" /> Revoke
             </.ui_button>
           </div>
@@ -145,13 +151,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
                 <.ui_badge size="sm" variant="outline">
                   {schedule.last_status || if(schedule.enabled, do: "enabled", else: "disabled")}
                 </.ui_badge>
-                <.ui_button type="button" phx-click="toggle_report_schedule" phx-value-id={schedule.id} size="xs" variant="ghost">
+                <.ui_button
+                  type="button"
+                  phx-click="toggle_report_schedule"
+                  phx-value-id={schedule.id}
+                  size="xs"
+                  variant="ghost"
+                >
                   <.icon
                     name={if(schedule.enabled, do: "hero-pause", else: "hero-play")}
                     class="size-4"
                   />
                 </.ui_button>
-                <.ui_button type="button" phx-click="delete_report_schedule" phx-value-id={schedule.id} size="xs" variant="ghost" class="text-error">
+                <.ui_button
+                  type="button"
+                  phx-click="delete_report_schedule"
+                  phx-value-id={schedule.id}
+                  size="xs"
+                  variant="ghost"
+                  class="text-error"
+                >
                   <.icon name="hero-trash" class="size-4" />
                 </.ui_button>
               </div>

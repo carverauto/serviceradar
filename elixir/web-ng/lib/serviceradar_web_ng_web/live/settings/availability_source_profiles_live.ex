@@ -272,16 +272,42 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                       </td>
                       <td>
                         <div class="flex justify-end gap-1">
-                          <.ui_button type="button" phx-click="edit_profile" phx-value-id={profile.id} aria-label="Edit profile" title="Edit profile" size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="edit_profile"
+                            phx-value-id={profile.id}
+                            aria-label="Edit profile"
+                            title="Edit profile"
+                            size="xs"
+                            variant="ghost"
+                          >
                             <.icon name="hero-pencil-square" class="size-4" />
                           </.ui_button>
-                          <.ui_button type="button" phx-click="toggle_profile" phx-value-id={profile.id} aria-label="Toggle profile" title="Toggle profile" size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="toggle_profile"
+                            phx-value-id={profile.id}
+                            aria-label="Toggle profile"
+                            title="Toggle profile"
+                            size="xs"
+                            variant="ghost"
+                          >
                             <.icon
                               name={if profile.enabled, do: "hero-pause", else: "hero-play"}
                               class="size-4"
                             />
                           </.ui_button>
-                          <.ui_button type="button" phx-click="delete_profile" phx-value-id={profile.id} data-confirm="Delete this availability source profile?" aria-label="Delete profile" title="Delete profile" size="xs" variant="ghost" class="text-error">
+                          <.ui_button
+                            type="button"
+                            phx-click="delete_profile"
+                            phx-value-id={profile.id}
+                            data-confirm="Delete this availability source profile?"
+                            aria-label="Delete profile"
+                            title="Delete profile"
+                            size="xs"
+                            variant="ghost"
+                            class="text-error"
+                          >
                             <.icon name="hero-trash" class="size-4" />
                           </.ui_button>
                         </div>

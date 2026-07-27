@@ -1566,7 +1566,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <dialog class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-3xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_create_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1682,7 +1687,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <dialog class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-4xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_details_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1857,7 +1867,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               >
                 <.live_file_input
                   upload={@uploads.wasm_blob}
-                  class={ui_field_class(class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-sr-ink")}
+                  class={
+                    ui_field_class(
+                      class:
+                        "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-sr-ink"
+                    )
+                  }
                   phx-change="wasm_upload_change"
                 />
 
@@ -1875,7 +1890,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <% end %>
 
                 <div class="flex justify-end">
-                  <.ui_button type="submit" disabled={@uploads.wasm_blob.entries == []} size="sm" variant="primary">
+                  <.ui_button
+                    type="submit"
+                    disabled={@uploads.wasm_blob.entries == []}
+                    size="sm"
+                    variant="primary"
+                  >
                     Upload Wasm
                   </.ui_button>
                 </div>
@@ -1960,7 +1980,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div
                 id="legacy-recovery-confirmation"
                 role="alert"
-                class={ui_alert_class(variant: "warning", class: "alert-vertical sm:alert-horizontal")}
+                class={
+                  ui_alert_class(variant: "warning", class: "alert-vertical sm:alert-horizontal")
+                }
               >
                 <div>
                   <div class="font-semibold">{legacy_confirmation_title(@recovery_confirmation)}</div>
@@ -1969,10 +1991,24 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </p>
                 </div>
                 <div class="flex shrink-0 flex-wrap gap-2">
-                  <.ui_button id="confirm-legacy-recovery" type="button" phx-click="confirm_legacy_recovery" phx-value-id={@recovery_confirmation.id} phx-value-kind={@recovery_confirmation.kind} size="sm" variant="warning">
+                  <.ui_button
+                    id="confirm-legacy-recovery"
+                    type="button"
+                    phx-click="confirm_legacy_recovery"
+                    phx-value-id={@recovery_confirmation.id}
+                    phx-value-kind={@recovery_confirmation.kind}
+                    size="sm"
+                    variant="warning"
+                  >
                     {legacy_confirmation_action_label(@recovery_confirmation)}
                   </.ui_button>
-                  <.ui_button id="cancel-legacy-recovery" type="button" phx-click="cancel_legacy_recovery" size="sm" variant="ghost">
+                  <.ui_button
+                    id="cancel-legacy-recovery"
+                    type="button"
+                    phx-click="cancel_legacy_recovery"
+                    size="sm"
+                    variant="ghost"
+                  >
                     Cancel
                   </.ui_button>
                 </div>
@@ -2045,12 +2081,42 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                       </div>
                       <div class="flex flex-wrap items-center gap-2">
                         <%= if legacy_kind == :manual and manual_legacy_state == :actionable do %>
-                          <.ui_button id={"request-manual-reapproval-#{assignment.id}"} type="button" phx-click="request_legacy_recovery" phx-value-id={assignment.id} phx-value-kind="manual" disabled={ not manual_recovery_action_enabled?( @can_assign_plugins, manual_recovery ) } size="xs" variant="warning">
+                          <.ui_button
+                            id={"request-manual-reapproval-#{assignment.id}"}
+                            type="button"
+                            phx-click="request_legacy_recovery"
+                            phx-value-id={assignment.id}
+                            phx-value-kind="manual"
+                            disabled={
+                              not manual_recovery_action_enabled?(
+                                @can_assign_plugins,
+                                manual_recovery
+                              )
+                            }
+                            size="xs"
+                            variant="warning"
+                          >
                             {manual_recovery_action_label(manual_recovery)}
                           </.ui_button>
                         <% end %>
                         <%= if legacy_kind == :policy do %>
-                          <.ui_button id={"request-policy-reconciliation-#{assignment.id}"} type="button" phx-click="request_legacy_recovery" phx-value-id={assignment.id} phx-value-kind="policy" disabled={ not policy_recovery_action_enabled?( @can_assign_plugins, @can_reconcile_credential_rules, credential_rule_recovery?, policy_recovery ) } size="xs" variant="warning">
+                          <.ui_button
+                            id={"request-policy-reconciliation-#{assignment.id}"}
+                            type="button"
+                            phx-click="request_legacy_recovery"
+                            phx-value-id={assignment.id}
+                            phx-value-kind="policy"
+                            disabled={
+                              not policy_recovery_action_enabled?(
+                                @can_assign_plugins,
+                                @can_reconcile_credential_rules,
+                                credential_rule_recovery?,
+                                policy_recovery
+                              )
+                            }
+                            size="xs"
+                            variant="warning"
+                          >
                             {policy_recovery_action_label(
                               @can_reconcile_credential_rules,
                               credential_rule_recovery?,
@@ -2063,7 +2129,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <% end %>
                         <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
                           <%= if upgrade_target do %>
-                            <.ui_button id={"upgrade-assignment-#{assignment.id}"} type="button" phx-click="upgrade_assignment" phx-value-id={assignment.id} phx-value-target-package-id={upgrade_target.id} data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"} size="xs" variant="primary">
+                            <.ui_button
+                              id={"upgrade-assignment-#{assignment.id}"}
+                              type="button"
+                              phx-click="upgrade_assignment"
+                              phx-value-id={assignment.id}
+                              phx-value-target-package-id={upgrade_target.id}
+                              data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"}
+                              size="xs"
+                              variant="primary"
+                            >
                               Upgrade
                             </.ui_button>
                           <% end %>
@@ -2079,7 +2154,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                                 name="assignment_upgrade[target_package_id]"
                                 aria-label={"Change version for #{assignment.agent_uid}"}
                                 required
-                                class={ui_field_class(size: "xs", class: "w-auto min-w-[4.75rem] shrink-0")}
+                                class={
+                                  ui_field_class(size: "xs", class: "w-auto min-w-[4.75rem] shrink-0")
+                                }
                               >
                                 <option value="" selected disabled>Change version</option>
                                 <%= for target <- approved_targets do %>
@@ -2088,14 +2165,26 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                                   </option>
                                 <% end %>
                               </select>
-                              <.ui_button id={"apply-assignment-version-#{assignment.id}"} type="submit" size="xs" variant="ghost">
+                              <.ui_button
+                                id={"apply-assignment-version-#{assignment.id}"}
+                                type="submit"
+                                size="xs"
+                                variant="ghost"
+                              >
                                 Apply
                               </.ui_button>
                             </form>
                           <% end %>
                         <% end %>
                         <%= if is_nil(legacy_kind) do %>
-                          <.ui_button type="button" phx-click="delete_assignment" phx-value-id={assignment.id} data-confirm="Remove this assignment?" size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="delete_assignment"
+                            phx-value-id={assignment.id}
+                            data-confirm="Remove this assignment?"
+                            size="xs"
+                            variant="ghost"
+                          >
                             Remove
                           </.ui_button>
                         <% end %>
@@ -2321,7 +2410,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 ><%= @assignment_form["resources_override"] %></textarea>
               </div>
               <div class="flex justify-end">
-                <.ui_button type="submit" disabled={@package.status != :approved or not blob_present?(@blob_present)} size="sm" variant="primary">
+                <.ui_button
+                  type="submit"
+                  disabled={@package.status != :approved or not blob_present?(@blob_present)}
+                  size="sm"
+                  variant="primary"
+                >
                   Assign
                 </.ui_button>
               </div>
@@ -2347,7 +2441,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="flex items-center justify-between gap-2">
-                <span class="text-sm font-medium text-sr-ink">Approved Capabilities (comma separated)</span>
+                <span class="text-sm font-medium text-sr-ink">
+                  Approved Capabilities (comma separated)
+                </span>
               </label>
               <input
                 type="text"
@@ -2404,7 +2500,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <.ui_button type="submit" disabled={!@can_approve_plugins} size="sm" variant="primary">
                 Approve
               </.ui_button>
-              <.ui_button type="button" phx-click="deny_package" phx-value-id={@package.id} disabled={!@can_approve_plugins} size="sm" variant="outline">
+              <.ui_button
+                type="button"
+                phx-click="deny_package"
+                phx-value-id={@package.id}
+                disabled={!@can_approve_plugins}
+                size="sm"
+                variant="outline"
+              >
                 Deny
               </.ui_button>
               <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-sr-muted">
@@ -2413,22 +2516,43 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <% end %>
 
             <%= if @package.status == :approved do %>
-              <.ui_button type="button" phx-click="revoke_package" phx-value-id={@package.id} size="sm" variant="outline">
+              <.ui_button
+                type="button"
+                phx-click="revoke_package"
+                phx-value-id={@package.id}
+                size="sm"
+                variant="outline"
+              >
                 Revoke
               </.ui_button>
             <% end %>
 
             <%= if @package.status in [:denied, :revoked] do %>
-              <.ui_button type="button" phx-click="restage_package" phx-value-id={@package.id} size="sm" variant="outline">
+              <.ui_button
+                type="button"
+                phx-click="restage_package"
+                phx-value-id={@package.id}
+                size="sm"
+                variant="outline"
+              >
                 Move to Staged
               </.ui_button>
             <% end %>
 
-            <.ui_button type="button" phx-click="delete_package" phx-value-id={@package.id} data-confirm="Delete this package and remove all assignments?" size="sm" variant="outline">
+            <.ui_button
+              type="button"
+              phx-click="delete_package"
+              phx-value-id={@package.id}
+              data-confirm="Delete this package and remove all assignments?"
+              size="sm"
+              variant="outline"
+            >
               Delete Package
             </.ui_button>
 
-            <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
+            <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">
+              Close
+            </.ui_button>
           </div>
         </form>
       </div>
@@ -2826,8 +2950,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp catalog_row_status_variant(%{package: nil, import_ready: true}), do: "success"
   defp catalog_row_status_variant(%{package: nil}), do: "ghost"
 
-  defp catalog_row_status_variant(%{package: package}),
-    do: package_status_badge_variant(package.status)
+  defp catalog_row_status_variant(%{package: package}), do: package_status_badge_variant(package.status)
 
   defp catalog_row_updated_at(%{package: nil}), do: nil
   defp catalog_row_updated_at(%{package: package}), do: package.updated_at || package.inserted_at
@@ -2948,7 +3071,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
       <div class={ui_join_class()}>
-        <.ui_button id={"#{@id_prefix}-prev-page"} type="button" phx-click={@event} phx-value-page={@page - 1} disabled={@page <= 1} size="xs" variant="neutral">
+        <.ui_button
+          id={"#{@id_prefix}-prev-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page - 1}
+          disabled={@page <= 1}
+          size="xs"
+          variant="neutral"
+        >
           Previous
         </.ui_button>
         <.ui_button type="button" disabled size="xs" variant="ghost">
@@ -4600,8 +4731,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp package_status_badge_variant(:staged), do: "warning"
   defp package_status_badge_variant("staged"), do: "warning"
 
-  defp package_status_badge_variant(status) when status in [:denied, :revoked, "denied", "revoked"],
-    do: "error"
+  defp package_status_badge_variant(status) when status in [:denied, :revoked, "denied", "revoked"], do: "error"
 
   defp package_status_badge_variant(_status), do: "ghost"
 

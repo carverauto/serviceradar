@@ -265,7 +265,15 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
           >
             <div class="flex flex-wrap items-center gap-2 rounded-lg border border-sr-line bg-sr-subtle/40 p-3">
               <span class="font-mono text-sm break-all">{@generated_key}</span>
-              <.ui_button type="button" id="copy-ingestion-key" phx-hook=".CopyText" data-copy={@generated_key} title="Copy ingestion key" size="xs" variant="ghost">
+              <.ui_button
+                type="button"
+                id="copy-ingestion-key"
+                phx-hook=".CopyText"
+                data-copy={@generated_key}
+                title="Copy ingestion key"
+                size="xs"
+                variant="ghost"
+              >
                 Copy
               </.ui_button>
             </div>
@@ -363,7 +371,14 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             <.ui_button type="submit" id="first-data-check" size="sm" variant="primary">
               <.icon name="hero-magnifying-glass" class="size-4" /> Check
             </.ui_button>
-            <.ui_button :if={@checking?} type="button" id="first-data-stop" phx-click="stop_check" size="sm" variant="neutral">
+            <.ui_button
+              :if={@checking?}
+              type="button"
+              id="first-data-stop"
+              phx-click="stop_check"
+              size="sm"
+              variant="neutral"
+            >
               Stop
             </.ui_button>
             <span :if={@checking?} id="first-data-polling" class="text-xs text-sr-muted">
@@ -387,7 +402,10 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 <.signal_status result={@check_results[signal]} />
               </div>
               <div :if={signal == :traces && trace_link(@check_results[signal])} class="text-xs">
-                <.link navigate={trace_link(@check_results[signal])} class="text-sr-brand hover:underline">
+                <.link
+                  navigate={trace_link(@check_results[signal])}
+                  class="text-sr-brand hover:underline"
+                >
                   Open first trace
                 </.link>
               </div>
@@ -425,7 +443,16 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
     <div id={@id} class="space-y-1 rounded-lg border border-sr-line p-3">
       <div class="flex items-center justify-between">
         <span class="text-sm font-medium">{@label}</span>
-        <.ui_button :if={@value != ""} type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@value} title={"Copy #{@label} endpoint"} size="xs" variant="ghost">
+        <.ui_button
+          :if={@value != ""}
+          type="button"
+          id={"#{@id}-copy"}
+          phx-hook=".CopyText"
+          data-copy={@value}
+          title={"Copy #{@label} endpoint"}
+          size="xs"
+          variant="ghost"
+        >
           Copy
         </.ui_button>
       </div>
@@ -443,7 +470,16 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
   defp snippet_block(assigns) do
     ~H"""
     <div id={@id} class="relative">
-      <.ui_button type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@content} title="Copy snippet" size="xs" variant="ghost" class="absolute right-2 top-2">
+      <.ui_button
+        type="button"
+        id={"#{@id}-copy"}
+        phx-hook=".CopyText"
+        data-copy={@content}
+        title="Copy snippet"
+        size="xs"
+        variant="ghost"
+        class="absolute right-2 top-2"
+      >
         Copy
       </.ui_button>
       <pre class="overflow-x-auto rounded-lg bg-sr-subtle/60 p-3 pr-16 font-mono text-xs leading-relaxed"><code>{@content}</code></pre>

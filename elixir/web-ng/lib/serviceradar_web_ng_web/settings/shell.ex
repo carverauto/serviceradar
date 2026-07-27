@@ -95,7 +95,14 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           </p>
         </div>
 
-        <.ui_button type="button" data-command-palette-open title="Search settings (Ctrl+K)" size="sm" variant="ghost" class="gap-2 border border-sr-line bg-sr-surface font-normal text-sr-muted">
+        <.ui_button
+          type="button"
+          data-command-palette-open
+          title="Search settings (Ctrl+K)"
+          size="sm"
+          variant="ghost"
+          class="gap-2 border border-sr-line bg-sr-surface font-normal text-sr-muted"
+        >
           <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
           <span class="hidden sm:inline">Press Ctrl+K to jump anywhere</span>
           <span class="ml-1 flex items-center gap-0.5">
@@ -342,9 +349,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 <:item :for={view <- @views}>
                   <.link
                     navigate={view.route}
-                    class={
-                      active_view?(@active_view, view) && "font-semibold text-sr-brand"
-                    }
+                    class={active_view?(@active_view, view) && "font-semibold text-sr-brand"}
                   >
                     <.icon name={view.icon} class="size-4 shrink-0" />
                     <span class="truncate">{view.title}</span>
@@ -492,7 +497,10 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
 
         <div class="flex items-center gap-3 border-t border-sr-line px-3 py-2 text-xs text-sr-muted">
           <span>Navigation:</span>
-          <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">↑</kbd> <kbd class="sr-ui-kbd sr-ui-kbd-xs">↓</kbd> Arrow Keys</span>
+          <span>
+            <kbd class="sr-ui-kbd sr-ui-kbd-xs">↑</kbd> <kbd class="sr-ui-kbd sr-ui-kbd-xs">↓</kbd>
+            Arrow Keys
+          </span>
           <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">↵</kbd> Select</span>
           <span><kbd class="sr-ui-kbd sr-ui-kbd-xs">ESC</kbd> Close</span>
         </div>

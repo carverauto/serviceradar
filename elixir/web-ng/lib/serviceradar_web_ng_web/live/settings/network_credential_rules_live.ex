@@ -402,10 +402,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
                       <td>
                         <div class="flex justify-end gap-2">
-                          <.ui_button :if={plugin_integration_provider?(rule.provider, @integration_profiles)} type="button" phx-click="run_integration_now" phx-value-id={rule.id} disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={plugin_integration_provider?(rule.provider, @integration_profiles)}
+                            type="button"
+                            phx-click="run_integration_now"
+                            phx-value-id={rule.id}
+                            disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Run Now
                           </.ui_button>
-                          <.ui_button :if={testable_rule?(rule)} type="button" phx-click="test_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={testable_rule?(rule)}
+                            type="button"
+                            phx-click="test_rule"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Test
                           </.ui_button>
                           <span
@@ -420,19 +435,50 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                               Test
                             </.ui_button>
                           </span>
-                          <.ui_button :if={!plugin_integration_provider?(rule.provider, @integration_profiles)} type="button" phx-click="preview_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={!plugin_integration_provider?(rule.provider, @integration_profiles)}
+                            type="button"
+                            phx-click="preview_rule"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Preview
                           </.ui_button>
-                          <.ui_button type="button" phx-click="toggle_consumers" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="toggle_consumers"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Consumers
                           </.ui_button>
-                          <.ui_button navigate={~p"/settings/networks/credentials/#{rule.id}/edit"} size="xs" variant="ghost">
+                          <.ui_button
+                            navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Edit
                           </.ui_button>
-                          <.ui_button :if={rule.enabled} type="button" phx-click="disable_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={rule.enabled}
+                            type="button"
+                            phx-click="disable_rule"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Disable
                           </.ui_button>
-                          <.ui_button :if={!rule.enabled} type="button" phx-click="enable_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={!rule.enabled}
+                            type="button"
+                            phx-click="enable_rule"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Enable
                           </.ui_button>
                         </div>
@@ -947,7 +993,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 prompt="Select a secret"
                 required
               />
-              <.ui_button id="credential-rule-new-secret" type="button" phx-click="new_rule_secret" size="xs" variant="ghost">
+              <.ui_button
+                id="credential-rule-new-secret"
+                type="button"
+                phx-click="new_rule_secret"
+                size="xs"
+                variant="ghost"
+              >
                 New secret for this rule
               </.ui_button>
             </div>
@@ -1003,7 +1055,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   placeholder="pve-console-operators"
                 />
               </div>
-              <p class="flex items-center justify-between gap-2">Separate multiple selectors with commas or new lines.</p>
+              <p class="flex items-center justify-between gap-2">
+                Separate multiple selectors with commas or new lines.
+              </p>
             </fieldset>
             <.input
               :if={!@plugin_integration?}

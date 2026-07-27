@@ -293,16 +293,44 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                     <td>{format_datetime(host_key.last_seen_at)}</td>
                     <td class="text-right">
                       <div class="flex flex-wrap justify-end gap-2">
-                        <.ui_button :if={host_key.status == :pending} type="button" phx-click="trust_host_key" phx-value-id={host_key.id} size="xs" variant="primary">
+                        <.ui_button
+                          :if={host_key.status == :pending}
+                          type="button"
+                          phx-click="trust_host_key"
+                          phx-value-id={host_key.id}
+                          size="xs"
+                          variant="primary"
+                        >
                           Trust
                         </.ui_button>
-                        <.ui_button :if={host_key.status in [:pending, :conflict]} type="button" phx-click="reject_host_key" phx-value-id={host_key.id} size="xs" variant="outline">
+                        <.ui_button
+                          :if={host_key.status in [:pending, :conflict]}
+                          type="button"
+                          phx-click="reject_host_key"
+                          phx-value-id={host_key.id}
+                          size="xs"
+                          variant="outline"
+                        >
                           Reject
                         </.ui_button>
-                        <.ui_button :if={host_key.status == :trusted} type="button" phx-click="show_rotate" phx-value-id={host_key.id} size="xs" variant="ghost">
+                        <.ui_button
+                          :if={host_key.status == :trusted}
+                          type="button"
+                          phx-click="show_rotate"
+                          phx-value-id={host_key.id}
+                          size="xs"
+                          variant="ghost"
+                        >
                           Rotate
                         </.ui_button>
-                        <.ui_button :if={host_key.status not in [:revoked, :rejected]} type="button" phx-click="revoke_host_key" phx-value-id={host_key.id} size="xs" variant="outline">
+                        <.ui_button
+                          :if={host_key.status not in [:revoked, :rejected]}
+                          type="button"
+                          phx-click="revoke_host_key"
+                          phx-value-id={host_key.id}
+                          size="xs"
+                          variant="outline"
+                        >
                           Revoke
                         </.ui_button>
                       </div>
@@ -366,7 +394,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
           </p>
 
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="cancel_rotation" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="cancel_rotation" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" disabled={@candidates == []} size="sm" variant="primary">
               Rotate
             </.ui_button>

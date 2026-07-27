@@ -3,11 +3,10 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents
+  import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents, only: [var_input: 1]
   import ServiceRadarWebNGWeb.UIComponents
   # Reuse the device-detail Ansible panel's typed variable input so the bulk
   # "Run Task" modal renders an identical variable form.
-  import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents, only: [var_input: 1]
-
   alias ServiceRadarWebNG.Northbound.ActionForm
 
   # How many non-applicable device names to name before collapsing to "+N more".
@@ -59,199 +58,199 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         </div>
       </div>
 
-        <div :if={applicability_present?(@applicability)} class="mt-4 space-y-3">
-          <div
-            role="status"
-            class={[
-              "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
-              if(applicability_blocked?(@applicability),
-                do: "border-warning/30 bg-warning/10",
-                else: "border-info/20 bg-info/10"
-              )
-            ]}
-          >
-            <.icon
-              name={
-                if applicability_blocked?(@applicability),
-                  do: "hero-exclamation-triangle",
-                  else: "hero-check-circle"
-              }
-              class={[
-                "mt-0.5 size-5 shrink-0",
-                if(applicability_blocked?(@applicability), do: "text-warning", else: "text-info")
-              ]}
-            />
-            <div class="min-w-0">
-              <p class="font-medium text-sr-ink">{applicable_summary_text(@applicability)}</p>
-              <p
-                :if={applicability_blocked?(@applicability)}
-                class="mt-1 text-xs text-sr-muted"
-              >
-                Only AWX-managed devices can run Ansible tasks. Select at least one device that is in an AWX inventory.
-              </p>
-            </div>
-          </div>
-
-          <div
-            :if={non_applicable_any?(@applicability)}
-            role="alert"
-            class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm"
-          >
-            <div class="flex items-start gap-3">
-              <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
-              <div class="min-w-0">
-                <p class="font-medium text-sr-ink">
-                  Not in an AWX inventory (will be skipped):
-                </p>
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  <.ui_badge
-                    :for={entry <- non_applicable_visible(@applicability)}
-                    size="sm"
-                    variant="warning"
-                    class="max-w-full truncate"
-                    title={entry.uid}
-                  >
-                    {entry.label}
-                  </.ui_badge>
-                  <.ui_badge
-                    :if={non_applicable_more(@applicability) > 0}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    +{non_applicable_more(@applicability)} more
-                  </.ui_badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div :if={@error} role="alert" class={ui_alert_class(variant: "error", class: "mt-4")}>
-          <.icon name="hero-exclamation-circle" class="size-5" />
-          <span class="text-sm">{@error}</span>
-        </div>
-
-        <.form
-          for={@form}
-          id={"#{@id}-form"}
-          phx-change={@change_event}
-          phx-submit={@submit_event}
-          class="mt-5 space-y-4"
+      <div :if={applicability_present?(@applicability)} class="mt-4 space-y-3">
+        <div
+          role="status"
+          class={[
+            "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
+            if(applicability_blocked?(@applicability),
+              do: "border-warning/30 bg-warning/10",
+              else: "border-info/20 bg-info/10"
+            )
+          ]}
         >
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Task</span>
-            </label>
-            <select name="action[action_id]" class={ui_field_class(class: "w-full")}>
-              <%= for option <- @actions do %>
-                <option value={option.id} selected={@action && option.id == @action.id}>
-                  {option.label}
-                </option>
-              <% end %>
-            </select>
-          </div>
-
-          <div :if={@action} class="rounded-lg border border-sr-line bg-sr-subtle/60 p-3">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <.ui_badge size="sm" variant="ghost">{@action.provider_name}</.ui_badge>
-              <.ui_badge
-                size="sm"
-                variant={ActionForm.safety_badge_variant(@action.safety_classification)}
-              >
-                {ActionForm.humanize(@action.safety_classification)}
-              </.ui_badge>
-              <.ui_badge :if={@action.requires_confirmation} size="sm" variant="warning">
-                Confirmation required
-              </.ui_badge>
-              <.ui_badge size="sm" variant="ghost">
-                {@action.timeout_seconds}s timeout
-              </.ui_badge>
-            </div>
+          <.icon
+            name={
+              if applicability_blocked?(@applicability),
+                do: "hero-exclamation-triangle",
+                else: "hero-check-circle"
+            }
+            class={[
+              "mt-0.5 size-5 shrink-0",
+              if(applicability_blocked?(@applicability), do: "text-warning", else: "text-info")
+            ]}
+          />
+          <div class="min-w-0">
+            <p class="font-medium text-sr-ink">{applicable_summary_text(@applicability)}</p>
             <p
-              :if={ActionForm.present_text?(@action.description)}
-              class="mt-2 text-sm text-sr-muted"
+              :if={applicability_blocked?(@applicability)}
+              class="mt-1 text-xs text-sr-muted"
             >
-              {@action.description}
+              Only AWX-managed devices can run Ansible tasks. Select at least one device that is in an AWX inventory.
             </p>
           </div>
+        </div>
 
-          <%= if ansible_action?(@ansible_vars) do %>
-            <div :if={@ansible_vars != []} class="space-y-3">
-              <h4 class="text-sm font-medium text-sr-ink">Variables</h4>
-              <.var_input
-                :for={var <- @ansible_vars}
-                var={var}
-                value={Map.get(@ansible_var_values, var.name)}
-                name={"action[vars][#{var.name}]"}
-              />
-            </div>
-
-            <div
-              :if={@ansible_vars == []}
-              class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
-            >
-              This task requires no variables.
-            </div>
-
-            <div class="rounded-lg border border-sr-line">
-              <button
-                type="button"
-                phx-click={@toggle_raw_event}
-                class="flex w-full items-center justify-between px-3 py-2 text-sm text-sr-muted hover:text-sr-ink"
-              >
-                <span class="flex items-center gap-2 font-medium">
-                  <.icon name="hero-code-bracket" class="size-4" /> Advanced: raw extra_vars JSON
-                </span>
-                <.icon
-                  name={if @raw_extra_vars_open, do: "hero-chevron-up", else: "hero-chevron-down"}
-                  class="size-4"
-                />
-              </button>
-              <div :if={@raw_extra_vars_open} class="border-t border-sr-line p-3">
-                <p class="mb-2 text-xs text-sr-muted">
-                  Optional. Merged over the fields above (raw keys win). Leave blank to use the form values.
-                </p>
-                <textarea
-                  name="action[raw_extra_vars]"
-                  class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
-                  placeholder="{}"
-                >{@raw_extra_vars}</textarea>
+        <div
+          :if={non_applicable_any?(@applicability)}
+          role="alert"
+          class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm"
+        >
+          <div class="flex items-start gap-3">
+            <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
+            <div class="min-w-0">
+              <p class="font-medium text-sr-ink">
+                Not in an AWX inventory (will be skipped):
+              </p>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <.ui_badge
+                  :for={entry <- non_applicable_visible(@applicability)}
+                  size="sm"
+                  variant="warning"
+                  class="max-w-full truncate"
+                  title={entry.uid}
+                >
+                  {entry.label}
+                </.ui_badge>
+                <.ui_badge
+                  :if={non_applicable_more(@applicability) > 0}
+                  size="sm"
+                  variant="ghost"
+                >
+                  +{non_applicable_more(@applicability)} more
+                </.ui_badge>
               </div>
             </div>
-          <% else %>
-            <div :if={@properties != []} class="grid gap-4">
-              <%= for {name, schema} <- @properties do %>
-                <.northbound_action_field
-                  form={@form}
-                  name={name}
-                  schema={schema}
-                  required={MapSet.member?(@required, name)}
-                />
-              <% end %>
-            </div>
-
-            <div
-              :if={@properties == []}
-              class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
-            >
-              This task does not require additional input.
-            </div>
-          <% end %>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <.ui_button type="button" phx-click={@close_event} size="sm" variant="ghost">
-              Cancel
-            </.ui_button>
-            <.ui_button
-              type="submit"
-              disabled={launch_disabled?(@action, @applicability)}
-              size="sm"
-              variant="primary"
-            >
-              <.icon name="hero-play" class="size-4" /> Create Invocation
-            </.ui_button>
           </div>
-        </.form>
+        </div>
+      </div>
+
+      <div :if={@error} role="alert" class={ui_alert_class(variant: "error", class: "mt-4")}>
+        <.icon name="hero-exclamation-circle" class="size-5" />
+        <span class="text-sm">{@error}</span>
+      </div>
+
+      <.form
+        for={@form}
+        id={"#{@id}-form"}
+        phx-change={@change_event}
+        phx-submit={@submit_event}
+        class="mt-5 space-y-4"
+      >
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Task</span>
+          </label>
+          <select name="action[action_id]" class={ui_field_class(class: "w-full")}>
+            <%= for option <- @actions do %>
+              <option value={option.id} selected={@action && option.id == @action.id}>
+                {option.label}
+              </option>
+            <% end %>
+          </select>
+        </div>
+
+        <div :if={@action} class="rounded-lg border border-sr-line bg-sr-subtle/60 p-3">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <.ui_badge size="sm" variant="ghost">{@action.provider_name}</.ui_badge>
+            <.ui_badge
+              size="sm"
+              variant={ActionForm.safety_badge_variant(@action.safety_classification)}
+            >
+              {ActionForm.humanize(@action.safety_classification)}
+            </.ui_badge>
+            <.ui_badge :if={@action.requires_confirmation} size="sm" variant="warning">
+              Confirmation required
+            </.ui_badge>
+            <.ui_badge size="sm" variant="ghost">
+              {@action.timeout_seconds}s timeout
+            </.ui_badge>
+          </div>
+          <p
+            :if={ActionForm.present_text?(@action.description)}
+            class="mt-2 text-sm text-sr-muted"
+          >
+            {@action.description}
+          </p>
+        </div>
+
+        <%= if ansible_action?(@ansible_vars) do %>
+          <div :if={@ansible_vars != []} class="space-y-3">
+            <h4 class="text-sm font-medium text-sr-ink">Variables</h4>
+            <.var_input
+              :for={var <- @ansible_vars}
+              var={var}
+              value={Map.get(@ansible_var_values, var.name)}
+              name={"action[vars][#{var.name}]"}
+            />
+          </div>
+
+          <div
+            :if={@ansible_vars == []}
+            class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
+          >
+            This task requires no variables.
+          </div>
+
+          <div class="rounded-lg border border-sr-line">
+            <button
+              type="button"
+              phx-click={@toggle_raw_event}
+              class="flex w-full items-center justify-between px-3 py-2 text-sm text-sr-muted hover:text-sr-ink"
+            >
+              <span class="flex items-center gap-2 font-medium">
+                <.icon name="hero-code-bracket" class="size-4" /> Advanced: raw extra_vars JSON
+              </span>
+              <.icon
+                name={if @raw_extra_vars_open, do: "hero-chevron-up", else: "hero-chevron-down"}
+                class="size-4"
+              />
+            </button>
+            <div :if={@raw_extra_vars_open} class="border-t border-sr-line p-3">
+              <p class="mb-2 text-xs text-sr-muted">
+                Optional. Merged over the fields above (raw keys win). Leave blank to use the form values.
+              </p>
+              <textarea
+                name="action[raw_extra_vars]"
+                class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
+                placeholder="{}"
+              >{@raw_extra_vars}</textarea>
+            </div>
+          </div>
+        <% else %>
+          <div :if={@properties != []} class="grid gap-4">
+            <%= for {name, schema} <- @properties do %>
+              <.northbound_action_field
+                form={@form}
+                name={name}
+                schema={schema}
+                required={MapSet.member?(@required, name)}
+              />
+            <% end %>
+          </div>
+
+          <div
+            :if={@properties == []}
+            class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
+          >
+            This task does not require additional input.
+          </div>
+        <% end %>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <.ui_button type="button" phx-click={@close_event} size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button
+            type="submit"
+            disabled={launch_disabled?(@action, @applicability)}
+            size="sm"
+            variant="primary"
+          >
+            <.icon name="hero-play" class="size-4" /> Create Invocation
+          </.ui_button>
+        </div>
+      </.form>
     </.ui_modal>
     """
   end

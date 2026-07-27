@@ -157,7 +157,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
                       </td>
                       <td class="text-right">
                         <%= if session.status == :active and can_revoke_session?(session, assigns) do %>
-                          <.ui_button type="button" phx-click="revoke" phx-value-jti={session.jti} data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call." size="sm" variant="ghost" class="text-error">
+                          <.ui_button
+                            type="button"
+                            phx-click="revoke"
+                            phx-value-jti={session.jti}
+                            data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call."
+                            size="sm"
+                            variant="ghost"
+                            class="text-error"
+                          >
                             Revoke
                           </.ui_button>
                         <% end %>

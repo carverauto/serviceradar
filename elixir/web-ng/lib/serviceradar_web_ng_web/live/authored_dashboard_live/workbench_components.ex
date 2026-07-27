@@ -48,10 +48,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <.ui_button :if={AccessControls.can_manage?(@dashboard, access_assigns(assigns))} type="button" phx-click="new_panel" size="sm" variant="primary">
+          <.ui_button
+            :if={AccessControls.can_manage?(@dashboard, access_assigns(assigns))}
+            type="button"
+            phx-click="new_panel"
+            size="sm"
+            variant="primary"
+          >
             <.icon name="hero-plus" class="size-4" /> Add Panel
           </.ui_button>
-          <.ui_button :if={AccessControls.can_manage?(@dashboard, access_assigns(assigns))} type="button" phx-click="compact_layout" size="sm" variant="neutral">
+          <.ui_button
+            :if={AccessControls.can_manage?(@dashboard, access_assigns(assigns))}
+            type="button"
+            phx-click="compact_layout"
+            size="sm"
+            variant="neutral"
+          >
             <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
           </.ui_button>
           <.ui_button type="button" phx-click="close_settings" size="sm" variant="ghost">

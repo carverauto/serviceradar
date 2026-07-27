@@ -250,10 +250,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   label="Mode"
                   options={[{"Exists", "exists"}, {"Detail", "detail"}]}
                 />
-                <.ui_button type="submit" name="action" value="query" disabled={@query_running} size="sm" variant="primary">
+                <.ui_button
+                  type="submit"
+                  name="action"
+                  value="query"
+                  disabled={@query_running}
+                  size="sm"
+                  variant="primary"
+                >
                   <.icon name="hero-magnifying-glass" class="h-4 w-4" /> Check
                 </.ui_button>
-                <.ui_button type="submit" name="action" value="force_refresh" disabled={@force_refresh_running} size="sm" variant="outline">
+                <.ui_button
+                  type="submit"
+                  name="action"
+                  value="force_refresh"
+                  disabled={@force_refresh_running}
+                  size="sm"
+                  variant="outline"
+                >
                   <.icon name="hero-arrow-path" class="h-4 w-4" /> Refresh
                 </.ui_button>
               </div>
@@ -431,10 +445,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 Page {@current_page} of {@total_pages}
               </span>
               <div class={ui_join_class()}>
-                <.ui_button type="button" phx-click="endpoint_inventory_package_page" phx-value-page={@current_page - 1} disabled={@current_page <= 1} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page - 1}
+                  disabled={@current_page <= 1}
+                  size="xs"
+                  variant="neutral"
+                >
                   <.icon name="hero-chevron-left" class="h-3 w-3" /> Prev
                 </.ui_button>
-                <.ui_button type="button" phx-click="endpoint_inventory_package_page" phx-value-page={@current_page + 1} disabled={@current_page >= @total_pages} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page + 1}
+                  disabled={@current_page >= @total_pages}
+                  size="xs"
+                  variant="neutral"
+                >
                   Next <.icon name="hero-chevron-right" class="h-3 w-3" />
                 </.ui_button>
               </div>
@@ -458,7 +486,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     assigns = assign(assigns, :match_count, length(assigns.matches || []))
 
     ~H"""
-    <div :if={@show and @package} class="sr-ui-modal sr-ui-modal-open" data-testid="endpoint-package-modal">
+    <div
+      :if={@show and @package}
+      class="sr-ui-modal sr-ui-modal-open"
+      data-testid="endpoint-package-modal"
+    >
       <div class="sr-ui-modal-box max-w-3xl">
         <div class="mb-3 flex items-start justify-between gap-3">
           <div>
@@ -467,7 +499,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               {empty_dash(field(@package, :version))}
             </p>
           </div>
-          <.ui_button type="button" phx-click="endpoint_inventory_close_package" size="sm" variant="ghost">
+          <.ui_button
+            type="button"
+            phx-click="endpoint_inventory_close_package"
+            size="sm"
+            variant="ghost"
+          >
             Close
           </.ui_button>
         </div>
@@ -664,7 +701,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   {vulnerability_severity(match)}
                 </.ui_badge>
                 <.ui_badge :if={field(match, :kev)} size="xs" variant="error">KEV</.ui_badge>
-                <.ui_badge :if={field(match, :exploit_available)} size="xs" variant="warning">Exploit</.ui_badge>
+                <.ui_badge :if={field(match, :exploit_available)} size="xs" variant="warning">
+                  Exploit
+                </.ui_badge>
               </div>
               <div class="mt-1 font-mono text-[0.65rem] text-sr-muted">
                 CVSS {empty_dash(field(match, :cvss_score))}

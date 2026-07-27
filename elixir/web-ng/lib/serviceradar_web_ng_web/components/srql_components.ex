@@ -49,7 +49,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class={["fieldset mb-2", @class]}>
-      <label :if={@label} for={@id} class="flex items-center justify-between gap-2 mb-1">{@label}</label>
+      <label :if={@label} for={@id} class="flex items-center justify-between gap-2 mb-1">
+        {@label}
+      </label>
       <div
         :if={@compact}
         class="relative srql-input-frame"
@@ -321,7 +323,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           {display}
         </time>
       <% {:link, %{href: href, label: label}} -> %>
-        <a href={href} target="_blank" rel="noreferrer" class="text-sr-brand hover:underline font-mono text-[11px]">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          class="text-sr-brand hover:underline font-mono text-[11px]"
+        >
           {label}
         </a>
       <% {:severity, %{label: label, variant: variant}} -> %>

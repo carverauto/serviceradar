@@ -224,8 +224,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
           <form id="addon-fleet-filters" phx-change="filter" class="flex flex-wrap items-end gap-3">
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent</span></label>
-              <select name="filter[agent_uid]" class={ui_field_class(size: "sm", class: "min-w-[16rem]")}>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Agent</span>
+              </label>
+              <select
+                name="filter[agent_uid]"
+                class={ui_field_class(size: "sm", class: "min-w-[16rem]")}
+              >
                 <option value="">All agents</option>
                 <%= for {label, uid} <- @agent_options do %>
                   <option value={uid} selected={@filters["agent_uid"] == uid}>{label}</option>
@@ -234,8 +239,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
 
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Health category</span></label>
-              <select name="filter[category]" class={ui_field_class(size: "sm", class: "min-w-[12rem]")}>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Health category</span>
+              </label>
+              <select
+                name="filter[category]"
+                class={ui_field_class(size: "sm", class: "min-w-[12rem]")}
+              >
                 <option value="">All categories</option>
                 <%= for category <- @categories do %>
                   <option value={category} selected={@filters["category"] == category}>
@@ -246,8 +256,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
 
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Add-on</span></label>
-              <select name="filter[addon_id]" class={ui_field_class(size: "sm", class: "min-w-[12rem]")}>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Add-on</span>
+              </label>
+              <select
+                name="filter[addon_id]"
+                class={ui_field_class(size: "sm", class: "min-w-[12rem]")}
+              >
                 <option value="">All add-ons</option>
                 <%= for addon_id <- @addon_options do %>
                   <option value={addon_id} selected={@filters["addon_id"] == addon_id}>
@@ -319,23 +334,70 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-1">
-                        <.ui_button phx-click="toggle_rollout_details" phx-value-id={rollout.id} aria-expanded={to_string(expanded?)} size="xs" variant="ghost">
+                        <.ui_button
+                          phx-click="toggle_rollout_details"
+                          phx-value-id={rollout.id}
+                          aria-expanded={to_string(expanded?)}
+                          size="xs"
+                          variant="ghost"
+                        >
                           {if expanded?, do: "Hide details", else: "Details"}
                         </.ui_button>
                         <div :if={@can_manage_rollouts} class="flex justify-end gap-1">
-                          <.ui_button :if={rollout.state in [:pending, :running]} phx-click="rollout_action" phx-value-id={rollout.id} phx-value-operation="pause" size="xs" variant="ghost">
+                          <.ui_button
+                            :if={rollout.state in [:pending, :running]}
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="pause"
+                            size="xs"
+                            variant="ghost"
+                          >
                             Pause
                           </.ui_button>
-                          <.ui_button :if={rollout.state == :paused} phx-click="rollout_action" phx-value-id={rollout.id} phx-value-operation="resume" size="xs" variant="ghost">
+                          <.ui_button
+                            :if={rollout.state == :paused}
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="resume"
+                            size="xs"
+                            variant="ghost"
+                          >
                             Resume
                           </.ui_button>
-                          <.ui_button :if={rollout.state in [:failed, :rolled_back]} phx-click="rollout_action" phx-value-id={rollout.id} phx-value-operation="retry" data-confirm="Start a fresh health-gated attempt for this candidate?" size="xs" variant="ghost" class="text-info">
+                          <.ui_button
+                            :if={rollout.state in [:failed, :rolled_back]}
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="retry"
+                            data-confirm="Start a fresh health-gated attempt for this candidate?"
+                            size="xs"
+                            variant="ghost"
+                            class="text-info"
+                          >
                             Retry
                           </.ui_button>
-                          <.ui_button :if={rollout.state in [:pending, :running, :paused]} phx-click="rollout_action" phx-value-id={rollout.id} phx-value-operation="rollback" data-confirm="Roll every advanced target back to the prior package?" size="xs" variant="ghost" class="text-warning">
+                          <.ui_button
+                            :if={rollout.state in [:pending, :running, :paused]}
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="rollback"
+                            data-confirm="Roll every advanced target back to the prior package?"
+                            size="xs"
+                            variant="ghost"
+                            class="text-warning"
+                          >
                             Roll back
                           </.ui_button>
-                          <.ui_button :if={rollout.state in [:pending, :running, :paused]} phx-click="rollout_action" phx-value-id={rollout.id} phx-value-operation="cancel" data-confirm="Cancel this rollout and restore stable desired state?" size="xs" variant="ghost" class="text-error">
+                          <.ui_button
+                            :if={rollout.state in [:pending, :running, :paused]}
+                            phx-click="rollout_action"
+                            phx-value-id={rollout.id}
+                            phx-value-operation="cancel"
+                            data-confirm="Cancel this rollout and restore stable desired state?"
+                            size="xs"
+                            variant="ghost"
+                            class="text-error"
+                          >
                             Cancel
                           </.ui_button>
                         </div>
@@ -434,7 +496,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                           class={["hover:bg-sr-subtle/30", row.attention? && "bg-error/5"]}
                         >
                           <td class="align-top">
-                            <.ui_icon_button type="button" phx-click="toggle_details" phx-value-row={row_key(row)} aria-expanded={to_string(expanded?)} aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"} size="xs" variant="ghost">
+                            <.ui_icon_button
+                              type="button"
+                              phx-click="toggle_details"
+                              phx-value-row={row_key(row)}
+                              aria-expanded={to_string(expanded?)}
+                              aria-label={"Toggle details for #{row.addon_id} on #{row.agent_label}"}
+                              size="xs"
+                              variant="ghost"
+                            >
                               <.icon
                                 name={
                                   if expanded?, do: "hero-chevron-down", else: "hero-chevron-right"
@@ -857,12 +927,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
   defp rollout_target_state_badge_variant(state) when state in [:succeeded, :promoted], do: "success"
 
-  defp rollout_target_state_badge_variant(state) when state in [:waiting_health, :healthy_soak],
-    do: "info"
+  defp rollout_target_state_badge_variant(state) when state in [:waiting_health, :healthy_soak], do: "info"
 
-  defp rollout_target_state_badge_variant(state)
-       when state in [:failed, :rollback_pending, :rolled_back],
-       do: "error"
+  defp rollout_target_state_badge_variant(state) when state in [:failed, :rollback_pending, :rolled_back], do: "error"
 
   defp rollout_target_state_badge_variant(:excluded), do: "warning"
   defp rollout_target_state_badge_variant(_), do: "ghost"

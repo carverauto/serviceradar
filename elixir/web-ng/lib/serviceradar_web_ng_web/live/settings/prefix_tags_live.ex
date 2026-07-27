@@ -362,7 +362,10 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
               </div>
               <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
             </form>
-            <div :if={@preview_error} class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}>
+            <div
+              :if={@preview_error}
+              class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}
+            >
               {@preview_error}
             </div>
             <div :if={is_list(@preview_chain)} class="mt-3 space-y-2">
@@ -420,7 +423,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             <form phx-submit="save" id="prefix-tag-form" class="space-y-4">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Prefix (CIDR)</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Prefix (CIDR)</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[prefix]"
@@ -431,7 +436,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">VRF (optional)</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">VRF (optional)</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[vrf]"
@@ -441,7 +448,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                 </div>
                 <div class="flex flex-col gap-1.5 sm:col-span-2">
                   <label class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-medium text-sr-ink">Tags (comma or space separated)</span>
+                    <span class="text-sm font-medium text-sr-ink">
+                      Tags (comma or space separated)
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -453,7 +462,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Site</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Site</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[site]"
@@ -462,7 +473,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Role</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Role</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[role]"
@@ -471,7 +484,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Tenant</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Tenant</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[tenant]"
@@ -480,7 +495,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   />
                 </div>
                 <div class="flex flex-col gap-1.5">
-                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Status</span></label>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Status</span>
+                  </label>
                   <input
                     type="text"
                     name="prefix_tag[status]"

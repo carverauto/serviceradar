@@ -74,8 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       class="mb-4 rounded-xl border border-sr-line bg-sr-surface p-5"
     >
       <div class="flex items-center gap-3 text-sm text-sr-muted">
-        <.ui_spinner size="sm" />
-        Loading favorited interface metrics&hellip;
+        <.ui_spinner size="sm" /> Loading favorited interface metrics&hellip;
       </div>
     </div>
 
@@ -137,14 +136,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
               <span class="text-xs text-sr-muted">
                 {@selected_count} selected
               </span>
-              <.ui_button type="button" phx-click="clear_interface_selection" size="xs" variant="ghost">
+              <.ui_button
+                type="button"
+                phx-click="clear_interface_selection"
+                size="xs"
+                variant="ghost"
+              >
                 Clear
               </.ui_button>
-              <.ui_button :if={@can_launch_northbound} type="button" phx-click="run_task_for_interface_selection" disabled={@run_task_disabled?} title={@run_task_title} size="xs" variant="primary">
+              <.ui_button
+                :if={@can_launch_northbound}
+                type="button"
+                phx-click="run_task_for_interface_selection"
+                disabled={@run_task_disabled?}
+                title={@run_task_title}
+                size="xs"
+                variant="primary"
+              >
                 <.icon name="hero-play" class="size-3" />
                 {if @northbound_actions_loading, do: "Checking jobs...", else: "Run Task"}
               </.ui_button>
-              <.ui_button type="button" phx-click="open_interfaces_bulk_edit" size="xs" variant="outline">
+              <.ui_button
+                type="button"
+                phx-click="open_interfaces_bulk_edit"
+                size="xs"
+                variant="outline"
+              >
                 <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
               </.ui_button>
             </div>
@@ -153,7 +170,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         <div class="p-4">
           <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
             <span>{@error}</span>
-            <.ui_button type="button" phx-click="switch_tab" phx-value-tab="interfaces" size="xs" variant="outline">
+            <.ui_button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="interfaces"
+              size="xs"
+              variant="outline"
+            >
               Retry
             </.ui_button>
           </div>
@@ -203,7 +226,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       />
                     </td>
                     <td class="w-8 text-center">
-                      <.ui_button :if={iface_uid} type="button" phx-click="toggle_interface_favorite" phx-value-uid={iface_uid} title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"} size="xs" variant="ghost" class="p-0">
+                      <.ui_button
+                        :if={iface_uid}
+                        type="button"
+                        phx-click="toggle_interface_favorite"
+                        phx-value-uid={iface_uid}
+                        title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                        size="xs"
+                        variant="ghost"
+                        class="p-0"
+                      >
                         <.icon
                           name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
                           class={[
@@ -469,7 +501,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           </div>
         </div>
 
-        <div id="tags-input-container" class="flex flex-col gap-1.5 hidden" phx-hook="BulkEditTagsToggle">
+        <div
+          id="tags-input-container"
+          class="flex flex-col gap-1.5 hidden"
+          phx-hook="BulkEditTagsToggle"
+        >
           <label class="flex items-center justify-between gap-2">
             <span class="text-sm font-medium text-sr-ink">Tags</span>
           </label>

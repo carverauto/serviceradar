@@ -56,7 +56,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
           </.link>
           <div :if={@top_item == nil} class="text-sm text-sr-muted">{@empty_text}</div>
         </div>
-        <.ui_icon_button :if={@items != []} type="button" phx-click="open_breakdown_modal" phx-value-kind={@kind} title={"Browse #{@title}"} size="xs" variant="ghost" class="shrink-0">
+        <.ui_icon_button
+          :if={@items != []}
+          type="button"
+          phx-click="open_breakdown_modal"
+          phx-value-kind={@kind}
+          title={"Browse #{@title}"}
+          size="xs"
+          variant="ghost"
+          class="shrink-0"
+        >
           <.icon name="hero-chevron-down" class="size-3" />
         </.ui_icon_button>
       </div>

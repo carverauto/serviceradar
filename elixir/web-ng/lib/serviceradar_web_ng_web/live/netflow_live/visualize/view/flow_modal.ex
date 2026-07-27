@@ -21,7 +21,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
               {flow_get(@flow, ["time", "timestamp"]) || "—"}
             </div>
           </div>
-          <.ui_button type="button" phx-click="netflow_close" size="sm" variant="ghost">Close</.ui_button>
+          <.ui_button type="button" phx-click="netflow_close" size="sm" variant="ghost">
+            Close
+          </.ui_button>
         </div>
 
         <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>

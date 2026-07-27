@@ -90,8 +90,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
           href={~p"/auth/oidc"}
           class="inline-flex w-full min-h-12 items-center justify-center gap-2 rounded-sr-control border border-transparent bg-sr-brand px-4 text-base font-semibold text-sr-on-brand shadow-sr-button outline-none transition-[transform,background-color] duration-200 ease-sr-out hover:bg-sr-brand-strong focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px"
         >
-          <.icon name="hero-key" class="size-5" />
-          Sign in with Enterprise SSO
+          <.icon name="hero-key" class="size-5" /> Sign in with Enterprise SSO
         </a>
       <% end %>
 
@@ -102,9 +101,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
       --%>
       <%= if @force_local_login do %>
         <div class="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.16em] text-sr-muted">
-          <span class="h-px flex-1 bg-sr-line"></span>
-          Or
-          <span class="h-px flex-1 bg-sr-line"></span>
+          <span class="h-px flex-1 bg-sr-line"></span> Or <span class="h-px flex-1 bg-sr-line"></span>
         </div>
         <.password_form form={@form} />
       <% else %>

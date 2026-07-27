@@ -174,7 +174,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination do
         Showing {@range_start}–{@range_end} of {@filtered_total} {@unit}
       </span>
       <div class="flex items-center gap-1">
-        <.ui_button type="button" size="xs" variant="ghost" phx-click={@prev_event} disabled={@page <= 1}>
+        <.ui_button
+          type="button"
+          size="xs"
+          variant="ghost"
+          phx-click={@prev_event}
+          disabled={@page <= 1}
+        >
           <.icon name="hero-chevron-left" class="size-4" /> Prev
         </.ui_button>
         <span class="inline-flex min-h-7 items-center px-2 font-mono text-sr-muted">

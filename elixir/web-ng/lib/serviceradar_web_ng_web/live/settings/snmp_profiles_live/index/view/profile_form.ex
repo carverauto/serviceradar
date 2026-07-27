@@ -57,7 +57,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Profile Name</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:name]}
@@ -67,7 +69,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               />
             </div>
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Poll Interval (seconds)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Poll Interval (seconds)</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:poll_interval]}
@@ -80,7 +84,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Timeout (seconds)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Timeout (seconds)</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:timeout]}
@@ -90,7 +96,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               />
             </div>
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Retries</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Retries</span>
+              </label>
               <.input
                 type="number"
                 field={@form[:retries]}
@@ -102,7 +110,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </div>
 
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <.input
               type="textarea"
               field={@form[:description]}
@@ -121,7 +131,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">SNMP Version</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">SNMP Version</span>
+              </label>
               <.input
                 type="select"
                 field={@form[:version]}
@@ -137,7 +149,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
           <%= if @version in ["v1", "v2c"] do %>
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Community String</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Community String</span>
+              </label>
               <.input
                 type="password"
                 name="form[community]"
@@ -159,7 +173,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           <% else %>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Username</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Username</span>
+                </label>
                 <.input
                   type="text"
                   field={@form[:username]}
@@ -168,7 +184,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 />
               </div>
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Security Level</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Security Level</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:security_level]}
@@ -184,7 +202,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Auth Protocol</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Auth Protocol</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:auth_protocol]}
@@ -200,7 +220,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 />
               </div>
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Auth Password</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Auth Password</span>
+                </label>
                 <.input
                   type="password"
                   name="form[auth_password]"
@@ -218,7 +240,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Privacy Protocol</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Privacy Protocol</span>
+                </label>
                 <.input
                   type="select"
                   field={@form[:priv_protocol]}
@@ -232,7 +256,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 />
               </div>
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Privacy Password</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Privacy Password</span>
+                </label>
                 <.input
                   type="password"
                   name="form[priv_password]"
@@ -261,7 +287,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </h3>
 
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Agents</span>
+            </label>
             <% selected_agents = Enum.map(@form[:agent_ids].value || [], &to_string/1) %>
             <!-- Hidden empty entry so unchecking every box submits [] (legacy all-agents). -->
             <input type="hidden" name="form[agent_ids][]" value="" />
@@ -315,7 +343,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             
     <!-- Query Input with Builder Toggle -->
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+              </label>
               <div class="flex items-center gap-2">
                 <div class="flex-1">
                   <.input
@@ -469,7 +499,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Priority</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Priority</span>
+                </label>
                 <.input
                   type="number"
                   field={@form[:priority]}

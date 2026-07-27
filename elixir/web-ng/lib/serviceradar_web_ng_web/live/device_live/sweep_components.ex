@@ -160,7 +160,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
           <span class="text-sm font-semibold">IP Aliases</span>
           <span class="text-xs text-sr-muted">({@alias_count})</span>
         </div>
-        <.ui_button type="button" phx-click="toggle_aliases" aria-pressed={@show_stale} size="xs" variant="ghost">
+        <.ui_button
+          type="button"
+          phx-click="toggle_aliases"
+          aria-pressed={@show_stale}
+          size="xs"
+          variant="ghost"
+        >
           {@toggle_label}
         </.ui_button>
       </div>

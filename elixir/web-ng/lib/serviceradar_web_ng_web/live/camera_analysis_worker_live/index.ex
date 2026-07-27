@@ -210,7 +210,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                       <.ui_badge size="sm" variant={health_badge_variant(worker.health_status)}>
                         {worker.health_status || "unknown"}
                       </.ui_badge>
-                      <.ui_badge :if={worker.flapping} size="sm" variant="warning">flapping</.ui_badge>
+                      <.ui_badge :if={worker.flapping} size="sm" variant="warning">
+                        flapping
+                      </.ui_badge>
                       <.ui_badge :if={worker.alert_active} size="sm" variant="error">
                         alert: {worker.alert_state}
                       </.ui_badge>

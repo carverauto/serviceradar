@@ -455,10 +455,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </td>
             <td>
               <div class="flex gap-1">
-                <.ui_button type="button" phx-click="edit_controller" phx-value-id={ctrl.id} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="edit_controller"
+                  phx-value-id={ctrl.id}
+                  size="xs"
+                  variant="neutral"
+                >
                   Edit
                 </.ui_button>
-                <.ui_button type="button" phx-click="delete_controller" phx-value-id={ctrl.id} data-confirm={"Delete controller '#{ctrl.name}'? This cannot be undone."} size="xs" variant="outline">
+                <.ui_button
+                  type="button"
+                  phx-click="delete_controller"
+                  phx-value-id={ctrl.id}
+                  data-confirm={"Delete controller '#{ctrl.name}'? This cannot be undone."}
+                  size="xs"
+                  variant="outline"
+                >
                   Delete
                 </.ui_button>
               </div>
@@ -505,7 +518,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="controller[name]"
@@ -517,7 +532,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent ID</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Agent ID</span>
+            </label>
             <input
               type="text"
               name="controller[agent_id]"
@@ -529,7 +546,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="controller[description]"
@@ -539,7 +558,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Base URL</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Base URL</span>
+            </label>
             <input
               type="url"
               name="controller[base_url]"
@@ -550,7 +571,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div role="alert" class={ui_alert_class(variant: "info", class: "alert-soft md:col-span-2 text-sm")}>
+          <div
+            role="alert"
+            class={ui_alert_class(variant: "info", class: "alert-soft md:col-span-2 text-sm")}
+          >
             Use separate least-privilege AWX principals for sync, execution, and callback
             credential lifecycle. Callback may deliberately reuse execution, but it never
             falls back automatically.
@@ -723,7 +747,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">Cancel</.ui_button>
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
           <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create controller"}
           </.ui_button>
@@ -800,10 +826,23 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </td>
             <td>
               <div class="flex gap-1">
-                <.ui_button type="button" phx-click="edit_repository" phx-value-id={repo.id} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="edit_repository"
+                  phx-value-id={repo.id}
+                  size="xs"
+                  variant="neutral"
+                >
                   Edit
                 </.ui_button>
-                <.ui_button type="button" phx-click="delete_repository" phx-value-id={repo.id} data-confirm={"Delete repository '#{repo.name}'? Playbooks sourced from it will be removed too."} size="xs" variant="outline">
+                <.ui_button
+                  type="button"
+                  phx-click="delete_repository"
+                  phx-value-id={repo.id}
+                  data-confirm={"Delete repository '#{repo.name}'? Playbooks sourced from it will be removed too."}
+                  size="xs"
+                  variant="outline"
+                >
                   Delete
                 </.ui_button>
               </div>
@@ -833,7 +872,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="repository[name]"
@@ -845,7 +886,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Ref</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Ref</span>
+            </label>
             <input
               type="text"
               name="repository[git_ref]"
@@ -857,7 +900,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="repository[description]"
@@ -867,7 +912,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Git URL (HTTPS)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Git URL (HTTPS)</span>
+            </label>
             <input
               type="url"
               name="repository[git_url]"
@@ -909,7 +956,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">Cancel</.ui_button>
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
           <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create repository"}
           </.ui_button>
@@ -1008,13 +1057,32 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </td>
             <td>
               <div class="flex gap-1 flex-wrap">
-                <.ui_button type="button" phx-click="toggle_schedule" phx-value-id={sched.id} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="toggle_schedule"
+                  phx-value-id={sched.id}
+                  size="xs"
+                  variant="neutral"
+                >
                   {if sched.enabled, do: "Disable", else: "Enable"}
                 </.ui_button>
-                <.ui_button type="button" phx-click="edit_schedule" phx-value-id={sched.id} size="xs" variant="neutral">
+                <.ui_button
+                  type="button"
+                  phx-click="edit_schedule"
+                  phx-value-id={sched.id}
+                  size="xs"
+                  variant="neutral"
+                >
                   Edit
                 </.ui_button>
-                <.ui_button type="button" phx-click="delete_schedule" phx-value-id={sched.id} data-confirm={"Delete schedule '#{sched.name}'?"} size="xs" variant="outline">
+                <.ui_button
+                  type="button"
+                  phx-click="delete_schedule"
+                  phx-value-id={sched.id}
+                  data-confirm={"Delete schedule '#{sched.name}'?"}
+                  size="xs"
+                  variant="outline"
+                >
                   Delete
                 </.ui_button>
               </div>
@@ -1040,7 +1108,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       <.form for={@form} phx-change="validate_schedule" phx-submit="save_schedule" class="space-y-3">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="schedule[name]"
@@ -1075,7 +1145,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="schedule[description]"
@@ -1140,7 +1212,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Timezone</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Timezone</span>
+            </label>
             <input
               type="text"
               name="schedule[timezone]"
@@ -1171,7 +1245,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">Cancel</.ui_button>
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
           <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create schedule"}
           </.ui_button>

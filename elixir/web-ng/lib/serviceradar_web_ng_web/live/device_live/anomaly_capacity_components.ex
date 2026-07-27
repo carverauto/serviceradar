@@ -37,7 +37,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <.ui_button :if={@overview.anomaly_query} navigate={observability_href(@overview.anomaly_query)} size="xs" variant="neutral">
+            <.ui_button
+              :if={@overview.anomaly_query}
+              navigate={observability_href(@overview.anomaly_query)}
+              size="xs"
+              variant="neutral"
+            >
               Open findings
             </.ui_button>
             <.ui_button navigate="/observability/health" size="xs" variant="ghost">
@@ -76,8 +81,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 phx-change="anomaly_findings_filter"
               >
                 <label class="flex flex-col gap-1.5">
-                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Severity</span>
-                  <select name="anomaly_filters[severity]" class={ui_field_class(size: "sm", class: "w-full")}>
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">
+                    Severity
+                  </span>
+                  <select
+                    name="anomaly_filters[severity]"
+                    class={ui_field_class(size: "sm", class: "w-full")}
+                  >
                     <option value="all" selected={filter_value(@anomaly_filters, "severity") == "all"}>
                       All
                     </option>
@@ -105,8 +115,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   </select>
                 </label>
                 <label class="flex flex-col gap-1.5">
-                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Status</span>
-                  <select name="anomaly_filters[status]" class={ui_field_class(size: "sm", class: "w-full")}>
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">
+                    Status
+                  </span>
+                  <select
+                    name="anomaly_filters[status]"
+                    class={ui_field_class(size: "sm", class: "w-full")}
+                  >
                     <option value="all" selected={filter_value(@anomaly_filters, "status") == "all"}>
                       All
                     </option>
@@ -128,8 +143,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   </select>
                 </label>
                 <label class="flex flex-col gap-1.5">
-                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Sort</span>
-                  <select name="anomaly_filters[sort]" class={ui_field_class(size: "sm", class: "w-full")}>
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">
+                    Sort
+                  </span>
+                  <select
+                    name="anomaly_filters[sort]"
+                    class={ui_field_class(size: "sm", class: "w-full")}
+                  >
                     <option
                       value="newest"
                       selected={filter_value(@anomaly_filters, "sort") == "newest"}
@@ -225,7 +245,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     {filter_label(@overview.capacity_filter)}
                   </p>
                 </div>
-                <.ui_button :if={@overview.capacity_query} navigate={observability_href(@overview.capacity_query)} size="xs" variant="neutral">
+                <.ui_button
+                  :if={@overview.capacity_query}
+                  navigate={observability_href(@overview.capacity_query)}
+                  size="xs"
+                  variant="neutral"
+                >
                   Open SRQL
                 </.ui_button>
               </div>
@@ -349,7 +374,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         Showing {@range_start}–{@range_end} on this episode page
       </span>
       <div class={ui_join_class()}>
-        <.ui_button type="button" phx-click="anomaly_findings_prev_page" disabled={not @has_prev} size="xs" variant="ghost">
+        <.ui_button
+          type="button"
+          phx-click="anomaly_findings_prev_page"
+          disabled={not @has_prev}
+          size="xs"
+          variant="ghost"
+        >
           Prev
         </.ui_button>
         <span class="pointer-events-none inline-flex min-h-7 items-center justify-center px-2 text-xs font-semibold text-sr-muted">
@@ -359,7 +390,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             Page {@page}
           <% end %>
         </span>
-        <.ui_button type="button" phx-click="anomaly_findings_next_page" disabled={not @has_next} size="xs" variant="ghost">
+        <.ui_button
+          type="button"
+          phx-click="anomaly_findings_next_page"
+          disabled={not @has_next}
+          size="xs"
+          variant="ghost"
+        >
           Next
         </.ui_button>
       </div>
@@ -398,7 +435,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               {detail_title(@detail, @device_uid, @device_display_name)}
             </h3>
           </div>
-          <.ui_button type="button" phx-click="close_anomaly_capacity_detail" size="sm" variant="ghost">
+          <.ui_button
+            type="button"
+            phx-click="close_anomaly_capacity_detail"
+            size="sm"
+            variant="ghost"
+          >
             Close
           </.ui_button>
         </div>
@@ -452,7 +494,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
             <span>{detail_related_label(@detail)}</span>
-            <.ui_button navigate={observability_href(detail_related_query(@detail))} size="xs" variant="neutral">
+            <.ui_button
+              navigate={observability_href(detail_related_query(@detail))}
+              size="xs"
+              variant="neutral"
+            >
               Open trigger
             </.ui_button>
           </div>

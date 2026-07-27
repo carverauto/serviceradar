@@ -113,7 +113,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
           >
             <.icon name="hero-chart-bar" class="size-3" /> Metrics Enabled
           </.ui_button>
-          <.ui_button :if={has_any_filter?(@srql)} navigate={~p"/interfaces"} size="xs" variant="ghost">
+          <.ui_button
+            :if={has_any_filter?(@srql)}
+            navigate={~p"/interfaces"}
+            size="xs"
+            variant="ghost"
+          >
             <.icon name="hero-x-mark" class="size-3" /> Clear
           </.ui_button>
         </div>

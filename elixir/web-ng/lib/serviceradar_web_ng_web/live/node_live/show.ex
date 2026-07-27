@@ -293,7 +293,9 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Schedulers</div>
-          <div class="sr-ui-stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+          <div class="sr-ui-stat-value text-lg">
+            {@node_info.schedulers_online}/{@node_info.schedulers}
+          </div>
         </div>
 
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
@@ -354,7 +356,11 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <div class="flex-1">
               <span class="font-mono text-sm">{Map.get(gateway, :partition_id, "default")}</span>
             </div>
-            <.ui_button navigate={~p"/gateways/#{format_gateway_id(gateway)}"} size="xs" variant="ghost">
+            <.ui_button
+              navigate={~p"/gateways/#{format_gateway_id(gateway)}"}
+              size="xs"
+              variant="ghost"
+            >
               View
             </.ui_button>
           </div>

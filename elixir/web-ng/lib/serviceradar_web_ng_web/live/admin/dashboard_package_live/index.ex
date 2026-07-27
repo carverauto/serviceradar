@@ -424,13 +424,29 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-2">
-                        <.ui_button patch={~p"/settings/dashboards/packages/#{package.id}"} size="xs" variant="ghost">
+                        <.ui_button
+                          patch={~p"/settings/dashboards/packages/#{package.id}"}
+                          size="xs"
+                          variant="ghost"
+                        >
                           Details
                         </.ui_button>
-                        <.ui_button :if={@can_manage_packages and package.status != :enabled} phx-click="enable_package" phx-value-id={package.id} size="xs" variant="primary">
+                        <.ui_button
+                          :if={@can_manage_packages and package.status != :enabled}
+                          phx-click="enable_package"
+                          phx-value-id={package.id}
+                          size="xs"
+                          variant="primary"
+                        >
                           Enable
                         </.ui_button>
-                        <.ui_button :if={@can_manage_packages and package.status == :enabled} phx-click="disable_package" phx-value-id={package.id} size="xs" variant="outline">
+                        <.ui_button
+                          :if={@can_manage_packages and package.status == :enabled}
+                          phx-click="disable_package"
+                          phx-value-id={package.id}
+                          size="xs"
+                          variant="outline"
+                        >
                           Disable
                         </.ui_button>
                       </div>
@@ -546,14 +562,26 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 <span class="text-sm font-medium text-sr-ink">Manifest JSON</span>
                 <.live_file_input
                   upload={@uploads.manifest}
-                  class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
+                  class={
+                    ui_field_class(
+                      size: "sm",
+                      class:
+                        "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink"
+                    )
+                  }
                 />
               </label>
               <label class="flex flex-col gap-1.5">
                 <span class="text-sm font-medium text-sr-ink">Renderer artifact</span>
                 <.live_file_input
                   upload={@uploads.wasm}
-                  class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
+                  class={
+                    ui_field_class(
+                      size: "sm",
+                      class:
+                        "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink"
+                    )
+                  }
                 />
               </label>
             </div>
@@ -602,7 +630,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </div>
 
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="close_modal" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="close_modal" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import
             </.ui_button>
@@ -684,15 +714,30 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 <.ui_badge size="sm" variant={status_badge_variant(@package.status)}>
                   {status_label(@package.status)}
                 </.ui_badge>
-                <.ui_badge size="sm" variant={verification_badge_variant(@package.verification_status)}>
+                <.ui_badge
+                  size="sm"
+                  variant={verification_badge_variant(@package.verification_status)}
+                >
                   {@package.verification_status || "unverified"}
                 </.ui_badge>
               </div>
               <div class="mt-4 flex gap-2">
-                <.ui_button :if={@can_manage_packages and @package.status != :enabled} phx-click="enable_package" phx-value-id={@package.id} size="sm" variant="primary">
+                <.ui_button
+                  :if={@can_manage_packages and @package.status != :enabled}
+                  phx-click="enable_package"
+                  phx-value-id={@package.id}
+                  size="sm"
+                  variant="primary"
+                >
                   Enable
                 </.ui_button>
-                <.ui_button :if={@can_manage_packages and @package.status == :enabled} phx-click="disable_package" phx-value-id={@package.id} size="sm" variant="outline">
+                <.ui_button
+                  :if={@can_manage_packages and @package.status == :enabled}
+                  phx-click="disable_package"
+                  phx-value-id={@package.id}
+                  size="sm"
+                  variant="outline"
+                >
                   Disable
                 </.ui_button>
               </div>
@@ -713,7 +758,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                       >
                         /dashboards/{instance.route_slug}
                       </.link>
-                      <.ui_badge :if={instance.is_default} size="xs" variant="info">Default</.ui_badge>
+                      <.ui_badge :if={instance.is_default} size="xs" variant="info">
+                        Default
+                      </.ui_badge>
                       <.ui_badge size="xs" variant="ghost">
                         {placement_label(instance.placement)}
                       </.ui_badge>
@@ -721,10 +768,25 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     <div class="mt-1 truncate text-sr-muted">{instance.name}</div>
                   </div>
                   <div :if={@can_manage_packages} class="flex shrink-0 items-center gap-1">
-                    <.ui_icon_button :if={!instance.is_default} type="button" phx-click="set_default_instance" phx-value-id={instance.id} title="Set as default" size="xs" variant="ghost">
+                    <.ui_icon_button
+                      :if={!instance.is_default}
+                      type="button"
+                      phx-click="set_default_instance"
+                      phx-value-id={instance.id}
+                      title="Set as default"
+                      size="xs"
+                      variant="ghost"
+                    >
                       <.icon name="hero-star" class="size-3.5" />
                     </.ui_icon_button>
-                    <.ui_icon_button type="button" phx-click="edit_instance" phx-value-id={instance.id} title="Edit route settings" size="xs" variant="ghost">
+                    <.ui_icon_button
+                      type="button"
+                      phx-click="edit_instance"
+                      phx-value-id={instance.id}
+                      title="Edit route settings"
+                      size="xs"
+                      variant="ghost"
+                    >
                       <.icon name="hero-pencil" class="size-3.5" />
                     </.ui_icon_button>
                   </div>
@@ -756,7 +818,13 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     Create Dashboard Route
                   <% end %>
                 </div>
-                <.ui_button :if={editing_instance?(@instance_form)} type="button" phx-click="cancel_instance_edit" size="xs" variant="ghost">
+                <.ui_button
+                  :if={editing_instance?(@instance_form)}
+                  type="button"
+                  phx-click="cancel_instance_edit"
+                  size="xs"
+                  variant="ghost"
+                >
                   Cancel
                 </.ui_button>
               </div>

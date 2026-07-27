@@ -372,7 +372,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Severity cap</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Severity cap
+                          </span>
                           <select
                             name={"anomaly[classes][#{class_key}][severity_cap]"}
                             class={ui_field_class(size: "sm", class: "w-full")}
@@ -384,7 +386,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Drift min effect</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Drift min effect
+                          </span>
                           <input
                             type="number"
                             step="0.1"
@@ -417,7 +421,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Confirm multiplier</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Confirm multiplier
+                          </span>
                           <input
                             type="number"
                             step="0.1"
@@ -428,7 +434,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Confirm window</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Confirm window
+                          </span>
                           <input
                             type="number"
                             min="1"
@@ -438,7 +446,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Clear slots</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Clear slots
+                          </span>
                           <input
                             type="number"
                             min="1"
@@ -448,7 +458,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Adopt after samples</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Adopt after samples
+                          </span>
                           <input
                             type="number"
                             min="1"
@@ -458,7 +470,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Escalate after seconds</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Escalate after seconds
+                          </span>
                           <input
                             type="number"
                             min="1"
@@ -468,7 +482,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="flex items-center justify-between gap-2 mb-1">Minimum std floor</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Minimum std floor
+                          </span>
                           <input
                             type="number"
                             step="0.01"
@@ -490,10 +506,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0 md:col-span-2">
-                          <span class="flex items-center justify-between gap-2 mb-1">Severity bands (JSON)</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">
+                            Severity bands (JSON)
+                          </span>
                           <textarea
                             name={"anomaly[classes][#{class_key}][severity_bands]"}
-                            class={ui_field_class(size: "sm", mono: true, class: "min-h-20 w-full py-2 text-xs")}
+                            class={
+                              ui_field_class(
+                                size: "sm",
+                                mono: true,
+                                class: "min-h-20 w-full py-2 text-xs"
+                              )
+                            }
                           >{class_field(class_values, "severity_bands")}</textarea>
                         </label>
                       </div>

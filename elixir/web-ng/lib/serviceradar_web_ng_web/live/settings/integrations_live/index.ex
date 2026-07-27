@@ -935,7 +935,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
           </form>
 
-          <div :if={@prefix_tag_preview_error} class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}>
+          <div
+            :if={@prefix_tag_preview_error}
+            class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}
+          >
             {@prefix_tag_preview_error}
           </div>
 
@@ -1114,7 +1117,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_create_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1233,7 +1241,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="p-3 bg-sr-subtle rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-semibold text-sr-muted">Query</span>
-                  <.ui_button type="button" phx-click="remove_query" phx-value-id={query["id"]} size="xs" variant="ghost" class="text-error">
+                  <.ui_button
+                    type="button"
+                    phx-click="remove_query"
+                    phx-value-id={query["id"]}
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
+                  >
                     <.icon name="hero-trash" class="size-3" /> Remove
                   </.ui_button>
                 </div>
@@ -1298,7 +1313,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Create Source</.ui_button>
           </div>
         </.form>
@@ -1315,7 +1332,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="edit_modal" class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_edit_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_edit_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1423,7 +1445,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="p-3 bg-sr-subtle rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-semibold text-sr-muted">Query</span>
-                  <.ui_button type="button" phx-click="remove_query" phx-value-id={query["id"]} size="xs" variant="ghost" class="text-error">
+                  <.ui_button
+                    type="button"
+                    phx-click="remove_query"
+                    phx-value-id={query["id"]}
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
+                  >
                     <.icon name="hero-trash" class="size-3" /> Remove
                   </.ui_button>
                 </div>
@@ -1488,7 +1517,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="close_edit_modal" size="sm" variant="neutral">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="close_edit_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Update Source</.ui_button>
           </div>
         </.form>
@@ -1505,7 +1536,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="close_details_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             x
           </.ui_icon_button>
         </form>
@@ -1577,7 +1613,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <%= if @source.partition do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Partition</div>
-              <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@source.partition}</code>
+              <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">
+                {@source.partition}
+              </code>
             </div>
           <% end %>
 
@@ -1730,15 +1768,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="grid grid-cols-3 gap-4">
               <div class="stat bg-sr-subtle rounded-lg p-3">
                 <div class="sr-ui-stat-title text-xs">Last Device Count</div>
-                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_device_count || 0}</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_device_count || 0}
+                </div>
               </div>
               <div class="stat bg-sr-subtle rounded-lg p-3">
                 <div class="sr-ui-stat-title text-xs">Last Updated</div>
-                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_updated_count || 0}</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_updated_count || 0}
+                </div>
               </div>
               <div class="stat bg-sr-subtle rounded-lg p-3">
                 <div class="sr-ui-stat-title text-xs">Last Skipped</div>
-                <div class="sr-ui-stat-value text-lg">{@source.northbound_last_skipped_count || 0}</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_skipped_count || 0}
+                </div>
               </div>
             </div>
 
@@ -1807,10 +1851,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
 
         <div class="sr-ui-modal-action">
-          <.ui_button :if={armis_source?(@source)} type="button" phx-click="run_northbound_now" phx-value-id={@source.id} size="sm" variant="outline">
+          <.ui_button
+            :if={armis_source?(@source)}
+            type="button"
+            phx-click="run_northbound_now"
+            phx-value-id={@source.id}
+            size="sm"
+            variant="outline"
+          >
             Run Northbound Now
           </.ui_button>
-          <.ui_button type="button" phx-click="delete_source" phx-value-id={@source.id} data-confirm="Are you sure you want to delete this integration source? This cannot be undone." size="sm" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="delete_source"
+            phx-value-id={@source.id}
+            data-confirm="Are you sure you want to delete this integration source? This cannot be undone."
+            size="sm"
+            variant="outline"
+          >
             Delete
           </.ui_button>
           <.ui_button
@@ -1819,7 +1877,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           >
             Edit
           </.ui_button>
-          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
+          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">
+            Close
+          </.ui_button>
         </div>
       </div>
       <form method="dialog" class="sr-ui-modal-backdrop">

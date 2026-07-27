@@ -56,7 +56,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
     ~H"""
     <div class="space-y-1">
       <div class="text-[11px] text-sr-muted">{@label}</div>
-      <select name="state[dims][]" class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}>
+      <select
+        name="state[dims][]"
+        class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
+      >
         <%= for {label, value} <- @dims do %>
           <option value={value} selected={@selected == value}>{label}</option>
         <% end %>
@@ -76,13 +79,34 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls.Dimensions do
         <%= for dim <- @dims do %>
           <div class="flex items-center gap-2">
             <.ui_badge size="sm" variant="ghost" class="font-mono text-[11px]">{dim}</.ui_badge>
-            <.ui_button type="button" phx-click="nf_dim_move" phx-value-dim={dim} phx-value-dir="up" size="xs" variant="ghost">
+            <.ui_button
+              type="button"
+              phx-click="nf_dim_move"
+              phx-value-dim={dim}
+              phx-value-dir="up"
+              size="xs"
+              variant="ghost"
+            >
               Up
             </.ui_button>
-            <.ui_button type="button" phx-click="nf_dim_move" phx-value-dim={dim} phx-value-dir="down" size="xs" variant="ghost">
+            <.ui_button
+              type="button"
+              phx-click="nf_dim_move"
+              phx-value-dim={dim}
+              phx-value-dir="down"
+              size="xs"
+              variant="ghost"
+            >
               Down
             </.ui_button>
-            <.ui_button type="button" phx-click="nf_dim_remove" phx-value-dim={dim} size="xs" variant="ghost" class="text-error">
+            <.ui_button
+              type="button"
+              phx-click="nf_dim_remove"
+              phx-value-dim={dim}
+              size="xs"
+              variant="ghost"
+              class="text-error"
+            >
               Remove
             </.ui_button>
           </div>

@@ -267,7 +267,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                                 <.icon name="hero-ellipsis-vertical" class="size-4" />
                               </.ui_icon_button>
                             </:trigger>
-                            <:item :if={user.status == :active and can_deactivate?(user, @active_admin_count)}>
+                            <:item :if={
+                              user.status == :active and can_deactivate?(user, @active_admin_count)
+                            }>
                               <button
                                 type="button"
                                 class="text-error"

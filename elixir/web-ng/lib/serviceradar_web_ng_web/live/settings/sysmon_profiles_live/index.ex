@@ -561,7 +561,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Profile Name</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:name]}
@@ -571,7 +573,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               />
             </div>
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Sample Interval</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Sample Interval</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:sample_interval]}
@@ -587,7 +591,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </div>
 
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <.input
               type="textarea"
               field={@form[:description]}
@@ -607,7 +613,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <div class="space-y-4">
             <!-- Query Input with Builder Toggle -->
             <div>
-              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+              </label>
               <div class="flex items-center gap-2">
                 <div class="flex-1">
                   <.input
@@ -752,7 +760,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Priority</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Priority</span>
+                </label>
                 <.input
                   type="number"
                   field={@form[:priority]}
@@ -868,7 +878,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </h3>
 
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Mount Points to Exclude</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Mount Points to Exclude</span>
+            </label>
             <.input
               type="text"
               field={@form[:disk_exclude_paths]}

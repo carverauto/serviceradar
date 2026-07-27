@@ -153,7 +153,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               />
               <span>Mark as managed</span>
             </label>
-            <label :if={agent_device?(@device_row)} class="flex items-center justify-between gap-2 py-0">
+            <label
+              :if={agent_device?(@device_row)}
+              class="flex items-center justify-between gap-2 py-0"
+            >
               <span class="text-xs text-sr-muted">
                 Agent devices are always managed.
               </span>

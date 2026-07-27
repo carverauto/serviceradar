@@ -64,10 +64,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           >
             Secure operations
           </.link>
-          <.link navigate={~p"/ansible/runs"} class="text-sr-brand hover:underline text-xs text-sr-muted">
+          <.link
+            navigate={~p"/ansible/runs"}
+            class="text-sr-brand hover:underline text-xs text-sr-muted"
+          >
             Legacy runs
           </.link>
-          <.ui_button :if={@can_run_ansible and not @device_deleted} type="button" phx-click="ansible_launch_open" disabled={not @launchable?} title={launch_disabled_reason(@launchable?, @ansible_controller_id)} size="sm" variant="primary">
+          <.ui_button
+            :if={@can_run_ansible and not @device_deleted}
+            type="button"
+            phx-click="ansible_launch_open"
+            disabled={not @launchable?}
+            title={launch_disabled_reason(@launchable?, @ansible_controller_id)}
+            size="sm"
+            variant="primary"
+          >
             <.icon name="hero-play" class="size-4" /> Run Task
           </.ui_button>
         </div>
@@ -161,7 +172,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                   {fmt_ts(record.execution.started_at || record.operation.started_at)}
                 </td>
                 <td>
-                  <.ui_button navigate={~p"/ansible/operations/#{record.operation.id}"} size="xs" variant="ghost">
+                  <.ui_button
+                    navigate={~p"/ansible/operations/#{record.operation.id}"}
+                    size="xs"
+                    variant="ghost"
+                  >
                     Evidence
                   </.ui_button>
                 </td>
@@ -225,7 +240,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                   {fmt_ts(target.started_at || target.inserted_at)}
                 </td>
                 <td>
-                  <.ui_button :if={run_id(target)} navigate={~p"/ansible/runs/#{run_id(target)}"} size="xs" variant="ghost">
+                  <.ui_button
+                    :if={run_id(target)}
+                    navigate={~p"/ansible/runs/#{run_id(target)}"}
+                    size="xs"
+                    variant="ghost"
+                  >
                     View
                   </.ui_button>
                 </td>
@@ -268,7 +288,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     <dialog id="device-ansible-launch" class="sr-ui-modal sr-ui-modal-open">
       <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
-          <.ui_icon_button phx-click="ansible_launch_close" size="sm" variant="ghost" class="absolute right-2 top-2">
+          <.ui_icon_button
+            phx-click="ansible_launch_close"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
+          >
             <.icon name="hero-x-mark" class="size-4" />
           </.ui_icon_button>
         </form>
@@ -370,7 +395,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             <.ui_button type="button" phx-click="ansible_launch_close" size="sm" variant="ghost">
               Cancel
             </.ui_button>
-            <.ui_button type="submit" disabled={is_nil(@selected_playbook_id) or @playbooks == [] or not @ready} size="sm" variant="primary">
+            <.ui_button
+              type="submit"
+              disabled={is_nil(@selected_playbook_id) or @playbooks == [] or not @ready}
+              size="sm"
+              variant="primary"
+            >
               <.icon name="hero-play" class="size-4" /> Launch
             </.ui_button>
           </div>
@@ -403,7 +433,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
         <span :if={@var.required} class="text-xs text-sr-muted text-error">required</span>
       </label>
-      <textarea name={field_name(@var, @name)} rows="3" class={ui_field_class(class: "min-h-24 py-2.5 text-sm")}>{@value}</textarea>
+      <textarea
+        name={field_name(@var, @name)}
+        rows="3"
+        class={ui_field_class(class: "min-h-24 py-2.5 text-sm")}
+      >{@value}</textarea>
     </div>
     """
   end
@@ -442,7 +476,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   def var_input(%{var: %Var{type: :float}} = assigns) do
     ~H"""
     <div class="flex flex-col gap-1.5">
-      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">{@var.label}</span></label>
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+      </label>
       <input
         type="number"
         name={field_name(@var, @name)}
@@ -457,7 +493,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   def var_input(%{var: %Var{type: :select}} = assigns) do
     ~H"""
     <div class="flex flex-col gap-1.5">
-      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">{@var.label}</span></label>
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+      </label>
       <select name={field_name(@var, @name)} class={ui_field_class(size: "sm")}>
         <option value="" selected={is_nil(@value) or @value == ""}>—</option>
         <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>

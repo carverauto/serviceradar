@@ -166,7 +166,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           <:subtitle>
             <span class="inline-flex items-center gap-2">
               <span class="font-mono text-xs">{@trace_id || "—"}</span>
-              <.ui_button :if={is_binary(@trace_id)} type="button" id="trace-id-copy" phx-hook=".CopyText" data-copy={@trace_id} title="Copy trace id" size="xs" variant="ghost">
+              <.ui_button
+                :if={is_binary(@trace_id)}
+                type="button"
+                id="trace-id-copy"
+                phx-hook=".CopyText"
+                data-copy={@trace_id}
+                title="Copy trace id"
+                size="xs"
+                variant="ghost"
+              >
                 Copy
               </.ui_button>
             </span>
@@ -207,12 +216,20 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           </.ui_badge>
         </div>
 
-        <div :if={@state == :spans_expired} class={ui_alert_class(variant: "info", class: "mb-4")} id="trace-spans-expired">
+        <div
+          :if={@state == :spans_expired}
+          class={ui_alert_class(variant: "info", class: "mb-4")}
+          id="trace-spans-expired"
+        >
           <.icon name="hero-clock" class="size-5" />
           <span class="text-sm">Span data for this trace is no longer retained.</span>
         </div>
 
-        <div :if={@span_truncated?} class={ui_alert_class(variant: "warning", class: "mb-4")} id="trace-spans-truncated">
+        <div
+          :if={@span_truncated?}
+          class={ui_alert_class(variant: "warning", class: "mb-4")}
+          id="trace-spans-truncated"
+        >
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span class="text-sm">
             Large trace: showing the first {@span_limit_display} spans by start time.
@@ -350,7 +367,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                 Logs sharing this trace id within the trace's own time window (±5 minutes).
               </div>
             </div>
-            <.ui_button :if={is_binary(@logs_query)} id="trace-logs-tab-link" href={logs_tab_href(@logs_query)} size="xs" variant="outline">
+            <.ui_button
+              :if={is_binary(@logs_query)}
+              id="trace-logs-tab-link"
+              href={logs_tab_href(@logs_query)}
+              size="xs"
+              variant="outline"
+            >
               View in logs tab
             </.ui_button>
           </:header>

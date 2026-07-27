@@ -68,7 +68,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                 <span class="text-sr-muted">{virtualization_guest_disk_subvalue(guest)}</span>
               </td>
               <td class="text-right">
-                <.ui_button :if={is_binary(guest.device_uid) and guest.device_uid != ""} navigate={~p"/devices/#{guest.device_uid}"} size="xs" variant="ghost">
+                <.ui_button
+                  :if={is_binary(guest.device_uid) and guest.device_uid != ""}
+                  navigate={~p"/devices/#{guest.device_uid}"}
+                  size="xs"
+                  variant="ghost"
+                >
                   Open
                 </.ui_button>
               </td>
@@ -214,7 +219,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
               <span class="text-xs text-sr-muted">Hypervisor</span>
               <span class="truncate text-sm font-medium">{@parent_host_label}</span>
             </div>
-            <.ui_button :if={@parent_host_uid} navigate={~p"/devices/#{@parent_host_uid}"} size="xs" variant="ghost">
+            <.ui_button
+              :if={@parent_host_uid}
+              navigate={~p"/devices/#{@parent_host_uid}"}
+              size="xs"
+              variant="ghost"
+            >
               Open node
             </.ui_button>
           </div>

@@ -289,7 +289,9 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     <!-- Schedulers -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Schedulers</div>
-          <div class="sr-ui-stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+          <div class="sr-ui-stat-value text-lg">
+            {@node_info.schedulers_online}/{@node_info.schedulers}
+          </div>
         </div>
         
     <!-- OTP Release -->

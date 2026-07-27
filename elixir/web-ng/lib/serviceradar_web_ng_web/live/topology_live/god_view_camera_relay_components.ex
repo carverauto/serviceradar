@@ -41,7 +41,13 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
             >
               {@camera_relay_viewer_state.title}
             </.ui_badge>
-            <.ui_button :if={@active_camera_relay_session} type="button" phx-click="close_camera_relay" size="xs" variant="outline">
+            <.ui_button
+              :if={@active_camera_relay_session}
+              type="button"
+              phx-click="close_camera_relay"
+              size="xs"
+              variant="outline"
+            >
               Stop Relay
             </.ui_button>
           </div>
@@ -194,7 +200,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
             <.ui_badge size="sm" variant="outline">
               {length(@camera_relay_tiles)} / {camera_relay_tile_limit()}
             </.ui_badge>
-            <.ui_button type="button" phx-click="close_camera_relay_tile_set" size="xs" variant="outline">
+            <.ui_button
+              type="button"
+              phx-click="close_camera_relay_tile_set"
+              size="xs"
+              variant="outline"
+            >
               Close All
             </.ui_button>
           </div>
@@ -242,10 +253,24 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
                 >
                   {camera_relay_tile_status_label(tile)}
                 </.ui_badge>
-                <.ui_button :if={camera_relay_tile_session_id(tile)} type="button" phx-click="close_camera_relay_tile" phx-value-relay_session_id={camera_relay_tile_session_id(tile)} size="xs" variant="outline">
+                <.ui_button
+                  :if={camera_relay_tile_session_id(tile)}
+                  type="button"
+                  phx-click="close_camera_relay_tile"
+                  phx-value-relay_session_id={camera_relay_tile_session_id(tile)}
+                  size="xs"
+                  variant="outline"
+                >
                   Stop
                 </.ui_button>
-                <.ui_button :if={!camera_relay_tile_session_id(tile)} type="button" phx-click="dismiss_camera_relay_tile" phx-value-tile_id={tile.tile_id} size="xs" variant="ghost">
+                <.ui_button
+                  :if={!camera_relay_tile_session_id(tile)}
+                  type="button"
+                  phx-click="dismiss_camera_relay_tile"
+                  phx-value-tile_id={tile.tile_id}
+                  size="xs"
+                  variant="ghost"
+                >
                   Dismiss
                 </.ui_button>
               </div>

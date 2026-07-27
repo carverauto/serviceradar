@@ -54,7 +54,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <label class="flex items-center justify-between gap-2">
                 <span class="text-sm font-medium text-sr-ink">Name</span>
               </label>
-              <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
+              <.input
+                type="text"
+                field={@form[:name]}
+                class={ui_field_class(class: "w-full")}
+                required
+              />
             </div>
             <div>
               <label class="flex items-center justify-between gap-2">
@@ -154,7 +159,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
 
           <div>
-            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+            </label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
                 <.input

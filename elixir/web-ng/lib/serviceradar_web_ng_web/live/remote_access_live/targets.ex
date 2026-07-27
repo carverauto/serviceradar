@@ -56,7 +56,9 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
           </:subtitle>
         </.header>
 
-        <div :if={@targets_error} class={ui_alert_class(variant: "error", class: "mt-4 text-sm")}>{@targets_error}</div>
+        <div :if={@targets_error} class={ui_alert_class(variant: "error", class: "mt-4 text-sm")}>
+          {@targets_error}
+        </div>
 
         <div class="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
           <section class="space-y-3">
@@ -89,7 +91,12 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                       {target.upstream_scheme}://{target.upstream_host}:{target.upstream_port}
                     </td>
                     <td class="text-right">
-                      <.ui_button :if={@can_open_app? and target.enabled} navigate={~p"/remote-access/applications/#{target.id}"} size="xs" variant="primary">
+                      <.ui_button
+                        :if={@can_open_app? and target.enabled}
+                        navigate={~p"/remote-access/applications/#{target.id}"}
+                        size="xs"
+                        variant="primary"
+                      >
                         Open
                       </.ui_button>
                       <.ui_badge
@@ -134,7 +141,12 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                     </td>
                     <td class="font-mono text-xs">{target.upstream_host}:{target.upstream_port}</td>
                     <td class="text-right">
-                      <.ui_button :if={@can_open_tcp? and target.enabled and tcp_browser_workflow?(target)} navigate={~p"/remote-access/tcp-targets/#{target.id}"} size="xs" variant="soft">
+                      <.ui_button
+                        :if={@can_open_tcp? and target.enabled and tcp_browser_workflow?(target)}
+                        navigate={~p"/remote-access/tcp-targets/#{target.id}"}
+                        size="xs"
+                        variant="soft"
+                      >
                         Open
                       </.ui_button>
                       <.ui_badge

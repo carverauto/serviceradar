@@ -457,13 +457,32 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       </td>
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
-                          <.ui_button :if={not kv_only_rule?(rule)} navigate={~p"/settings/rules/zen/#{rule.id}"} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={not kv_only_rule?(rule)}
+                            navigate={~p"/settings/rules/zen/#{rule.id}"}
+                            size="xs"
+                            variant="ghost"
+                          >
                             <.icon name="hero-pencil-square" class="w-4 h-4" />
                           </.ui_button>
-                          <.ui_button :if={not kv_only_rule?(rule)} navigate={~p"/settings/rules/zen/clone/#{rule.id}"} size="xs" variant="ghost">
+                          <.ui_button
+                            :if={not kv_only_rule?(rule)}
+                            navigate={~p"/settings/rules/zen/clone/#{rule.id}"}
+                            size="xs"
+                            variant="ghost"
+                          >
                             <.icon name="hero-document-duplicate" class="w-4 h-4" />
                           </.ui_button>
-                          <.ui_button :if={not kv_only_rule?(rule)} type="button" phx-click="delete_zen" phx-value-id={rule.id} data-confirm="Are you sure you want to delete this rule?" size="xs" variant="ghost" class="text-error">
+                          <.ui_button
+                            :if={not kv_only_rule?(rule)}
+                            type="button"
+                            phx-click="delete_zen"
+                            phx-value-id={rule.id}
+                            data-confirm="Are you sure you want to delete this rule?"
+                            size="xs"
+                            variant="ghost"
+                            class="text-error"
+                          >
                             <.icon name="hero-trash" class="w-4 h-4" />
                           </.ui_button>
                         </div>
@@ -555,14 +574,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
                           <%= if editable? do %>
-                            <.ui_button type="button" phx-click="edit_promotion_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                            <.ui_button
+                              type="button"
+                              phx-click="edit_promotion_rule"
+                              phx-value-id={rule.id}
+                              size="xs"
+                              variant="ghost"
+                            >
                               <.icon name="hero-pencil-square" class="w-4 h-4" />
                             </.ui_button>
-                            <.ui_button type="button" phx-click="delete_promotion" phx-value-id={rule.id} data-confirm="Are you sure you want to delete this rule?" size="xs" variant="ghost" class="text-error">
+                            <.ui_button
+                              type="button"
+                              phx-click="delete_promotion"
+                              phx-value-id={rule.id}
+                              data-confirm="Are you sure you want to delete this rule?"
+                              size="xs"
+                              variant="ghost"
+                              class="text-error"
+                            >
                               <.icon name="hero-trash" class="w-4 h-4" />
                             </.ui_button>
                           <% else %>
-                            <.ui_button :if={metric_rule_path(rule)} navigate={metric_rule_path(rule)} size="xs" variant="ghost">
+                            <.ui_button
+                              :if={metric_rule_path(rule)}
+                              navigate={metric_rule_path(rule)}
+                              size="xs"
+                              variant="ghost"
+                            >
                               <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
                             </.ui_button>
                           <% end %>
@@ -575,7 +613,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No event rules configured.</p>
-                        <.ui_button type="button" phx-click="new_promotion_rule" size="sm" variant="primary">
+                        <.ui_button
+                          type="button"
+                          phx-click="new_promotion_rule"
+                          size="sm"
+                          variant="primary"
+                        >
                           Create your first log rule
                         </.ui_button>
                       </div>
@@ -632,10 +675,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       </td>
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
-                          <.ui_button type="button" phx-click="edit_stateful_rule" phx-value-id={rule.id} size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="edit_stateful_rule"
+                            phx-value-id={rule.id}
+                            size="xs"
+                            variant="ghost"
+                          >
                             <.icon name="hero-pencil-square" class="w-4 h-4" />
                           </.ui_button>
-                          <.ui_button type="button" phx-click="delete_stateful" phx-value-id={rule.id} data-confirm="Are you sure?" size="xs" variant="ghost" class="text-error">
+                          <.ui_button
+                            type="button"
+                            phx-click="delete_stateful"
+                            phx-value-id={rule.id}
+                            data-confirm="Are you sure?"
+                            size="xs"
+                            variant="ghost"
+                            class="text-error"
+                          >
                             <.icon name="hero-trash" class="w-4 h-4" />
                           </.ui_button>
                         </div>

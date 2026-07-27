@@ -629,7 +629,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
                 title={agent_uid(agent)}
               >
-                <.link navigate={~p"/agents/#{agent_uid(agent)}"} class="text-sr-brand hover:underline">
+                <.link
+                  navigate={~p"/agents/#{agent_uid(agent)}"}
+                  class="text-sr-brand hover:underline"
+                >
                   {agent_uid(agent)}
                 </.link>
               </td>

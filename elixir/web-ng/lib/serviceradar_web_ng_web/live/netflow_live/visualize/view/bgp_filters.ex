@@ -135,13 +135,31 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           Well-Known Communities
         </label>
         <div class="flex flex-wrap gap-2">
-          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967041" size="xs" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967041"
+            size="xs"
+            variant="outline"
+          >
             NO_EXPORT
           </.ui_button>
-          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967042" size="xs" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967042"
+            size="xs"
+            variant="outline"
+          >
             NO_ADVERTISE
           </.ui_button>
-          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967043" size="xs" variant="outline">
+          <.ui_button
+            type="button"
+            phx-click="bgp_add_community_filter"
+            phx-value-community="4294967043"
+            size="xs"
+            variant="outline"
+          >
             NO_EXPORT_SUBCONFED
           </.ui_button>
         </div>
@@ -152,7 +170,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
       
     <!-- Clear all BGP filters -->
       <div :if={@has_filters} class="pt-2">
-        <.ui_button type="button" phx-click="bgp_clear_filters" size="sm" variant="ghost" class="text-error w-full">
+        <.ui_button
+          type="button"
+          phx-click="bgp_clear_filters"
+          size="sm"
+          variant="ghost"
+          class="text-error w-full"
+        >
           Clear All BGP Filters
         </.ui_button>
       </div>

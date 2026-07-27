@@ -141,7 +141,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         {trace[Config.payload_check_name_key()] || "-"}
       </td>
       <td class="flex items-center gap-1">
-        <.ui_button type="button" phx-click="run_again" phx-value-target={trace[Config.payload_target_key()] || ""} phx-value-agent_id={trace[Config.payload_agent_id_key()] || ""} phx-value-protocol={trace[Config.payload_protocol_key()] || Config.protocol_icmp()} title="Run again" aria-label="Run MTR trace again" size="xs" variant="ghost">
+        <.ui_button
+          type="button"
+          phx-click="run_again"
+          phx-value-target={trace[Config.payload_target_key()] || ""}
+          phx-value-agent_id={trace[Config.payload_agent_id_key()] || ""}
+          phx-value-protocol={trace[Config.payload_protocol_key()] || Config.protocol_icmp()}
+          title="Run again"
+          aria-label="Run MTR trace again"
+          size="xs"
+          variant="ghost"
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="h-3.5 w-3.5"

@@ -74,7 +74,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
                       {log_message(log)}
                     </td>
                     <td class="text-right">
-                      <.ui_button :if={log_id(log) != "unknown"} navigate={~p"/logs/#{log_id(log)}"} size="xs" variant="ghost">
+                      <.ui_button
+                        :if={log_id(log) != "unknown"}
+                        navigate={~p"/logs/#{log_id(log)}"}
+                        size="xs"
+                        variant="ghost"
+                      >
                         Details
                       </.ui_button>
                     </td>

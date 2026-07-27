@@ -321,10 +321,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                   </p>
                 </div>
                 <div class="flex shrink-0 gap-2">
-                  <.ui_button navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"} size="xs" variant="neutral">
+                  <.ui_button
+                    navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"}
+                    size="xs"
+                    variant="neutral"
+                  >
                     <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Open
                   </.ui_button>
-                  <.ui_button :if={@can_manage?} type="button" phx-click="archive" phx-value-id={dashboard.id} size="xs" variant="outline">
+                  <.ui_button
+                    :if={@can_manage?}
+                    type="button"
+                    phx-click="archive"
+                    phx-value-id={dashboard.id}
+                    size="xs"
+                    variant="outline"
+                  >
                     <.icon name="hero-archive-box" class="size-4" /> Archive
                   </.ui_button>
                 </div>

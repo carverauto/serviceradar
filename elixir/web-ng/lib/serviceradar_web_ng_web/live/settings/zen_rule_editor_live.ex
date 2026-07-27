@@ -320,7 +320,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             ]}>
               <:header>
                 <div class="flex items-center gap-3">
-                  <.ui_button type="button" phx-click="toggle_properties" title={if @properties_collapsed, do: "Show properties", else: "Hide properties"} size="xs" variant="ghost" class="hidden lg:flex">
+                  <.ui_button
+                    type="button"
+                    phx-click="toggle_properties"
+                    title={if @properties_collapsed, do: "Show properties", else: "Hide properties"}
+                    size="xs"
+                    variant="ghost"
+                    class="hidden lg:flex"
+                  >
                     <.icon
                       name={
                         if @properties_collapsed, do: "hero-chevron-right", else: "hero-chevron-left"
@@ -336,7 +343,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
-                  <.ui_button :if={@properties_collapsed} type="submit" form="zen_rule_form" phx-disable-with="Saving..." size="sm" variant="primary">
+                  <.ui_button
+                    :if={@properties_collapsed}
+                    type="submit"
+                    form="zen_rule_form"
+                    phx-disable-with="Saving..."
+                    size="sm"
+                    variant="primary"
+                  >
                     <.icon name="hero-check" class="w-4 h-4" /> Save
                   </.ui_button>
                 </div>

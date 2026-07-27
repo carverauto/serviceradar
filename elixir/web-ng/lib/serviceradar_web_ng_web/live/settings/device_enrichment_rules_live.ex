@@ -581,13 +581,33 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <div class="flex items-center justify-between">
                 <h2 class="sr-ui-card-title text-base">Rule Files</h2>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
-                  <.ui_button phx-click="open_import_yaml" id="open-import-yaml" disabled={is_nil(@selected_file)} size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
+                  <.ui_button
+                    phx-click="open_import_yaml"
+                    id="open-import-yaml"
+                    disabled={is_nil(@selected_file)}
+                    size="xs"
+                    variant="outline"
+                    class="text-[11px] leading-none whitespace-nowrap"
+                  >
                     Import YAML
                   </.ui_button>
-                  <.ui_button phx-click="open_export_yaml" id="open-export-yaml" disabled={is_nil(@selected_file)} size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
+                  <.ui_button
+                    phx-click="open_export_yaml"
+                    id="open-export-yaml"
+                    disabled={is_nil(@selected_file)}
+                    size="xs"
+                    variant="outline"
+                    class="text-[11px] leading-none whitespace-nowrap"
+                  >
                     Export YAML
                   </.ui_button>
-                  <.ui_button phx-click="open_new_file" id="open-new-file" size="xs" variant="primary" class="text-[11px] leading-none whitespace-nowrap">
+                  <.ui_button
+                    phx-click="open_new_file"
+                    id="open-new-file"
+                    size="xs"
+                    variant="primary"
+                    class="text-[11px] leading-none whitespace-nowrap"
+                  >
                     New File
                   </.ui_button>
                 </div>
@@ -622,13 +642,32 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                         inactive
                       </.ui_badge>
                     </.ui_button>
-                    <.ui_button :if={file.source == :override and file.state == :active} phx-click="deactivate_file" phx-value-file={file.name} size="xs" variant="outline">
+                    <.ui_button
+                      :if={file.source == :override and file.state == :active}
+                      phx-click="deactivate_file"
+                      phx-value-file={file.name}
+                      size="xs"
+                      variant="outline"
+                    >
                       Deactivate
                     </.ui_button>
-                    <.ui_button :if={file.source == :override and file.state == :inactive} phx-click="activate_file" phx-value-file={file.name} size="xs" variant="outline">
+                    <.ui_button
+                      :if={file.source == :override and file.state == :inactive}
+                      phx-click="activate_file"
+                      phx-value-file={file.name}
+                      size="xs"
+                      variant="outline"
+                    >
                       Activate
                     </.ui_button>
-                    <.ui_button :if={file.source == :override} phx-click="delete_file" phx-value-file={file.name} phx-confirm={"Delete #{file.name}?"} size="xs" variant="outline">
+                    <.ui_button
+                      :if={file.source == :override}
+                      phx-click="delete_file"
+                      phx-value-file={file.name}
+                      phx-confirm={"Delete #{file.name}?"}
+                      size="xs"
+                      variant="outline"
+                    >
                       Delete
                     </.ui_button>
                   </div>
@@ -663,16 +702,36 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                   >
                     Inactive file
                   </.ui_badge>
-                  <.ui_button :if={@selected_file} phx-click="reload_file" id="reload-file" size="xs" variant="ghost" class="text-[11px] leading-none whitespace-nowrap">
+                  <.ui_button
+                    :if={@selected_file}
+                    phx-click="reload_file"
+                    id="reload-file"
+                    size="xs"
+                    variant="ghost"
+                    class="text-[11px] leading-none whitespace-nowrap"
+                  >
                     Reload
                   </.ui_button>
-                  <.ui_button phx-click="new_rule" disabled={ is_nil(@selected_file) or @selected_file_source != :override or @selected_file_state != :active } id="new-rule" size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
+                  <.ui_button
+                    phx-click="new_rule"
+                    disabled={
+                      is_nil(@selected_file) or @selected_file_source != :override or
+                        @selected_file_state != :active
+                    }
+                    id="new-rule"
+                    size="xs"
+                    variant="outline"
+                    class="text-[11px] leading-none whitespace-nowrap"
+                  >
                     New Rule
                   </.ui_button>
                 </div>
               </div>
 
-              <div :if={@selected_file && @rules == []} class={ui_alert_class(variant: "info", class: "text-sm")}>
+              <div
+                :if={@selected_file && @rules == []}
+                class={ui_alert_class(variant: "info", class: "text-sm")}
+              >
                 <span>No rules yet in this file.</span>
               </div>
 
@@ -698,28 +757,58 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                         <td>
                           <.ui_badge
                             size="sm"
-                            variant={
-                              if(Map.get(rule, "enabled", true), do: "success", else: "ghost")
-                            }
+                            variant={if(Map.get(rule, "enabled", true), do: "success", else: "ghost")}
                           >
                             {if Map.get(rule, "enabled", true), do: "enabled", else: "disabled"}
                           </.ui_badge>
                         </td>
                         <td class="w-[15rem] align-top">
                           <div class="grid grid-cols-3 gap-1.5">
-                            <.ui_button phx-click="edit_rule" phx-value-index={idx} size="xs" variant="neutral" class="w-full text-[11px] leading-none whitespace-nowrap">
+                            <.ui_button
+                              phx-click="edit_rule"
+                              phx-value-index={idx}
+                              size="xs"
+                              variant="neutral"
+                              class="w-full text-[11px] leading-none whitespace-nowrap"
+                            >
                               Edit
                             </.ui_button>
-                            <.ui_button phx-click="duplicate_rule" phx-value-index={idx} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
+                            <.ui_button
+                              phx-click="duplicate_rule"
+                              phx-value-index={idx}
+                              size="xs"
+                              variant="outline"
+                              class="w-full text-[11px] leading-none whitespace-nowrap"
+                            >
                               Duplicate
                             </.ui_button>
-                            <.ui_button phx-click="delete_rule" phx-value-index={idx} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
+                            <.ui_button
+                              phx-click="delete_rule"
+                              phx-value-index={idx}
+                              size="xs"
+                              variant="outline"
+                              class="w-full text-[11px] leading-none whitespace-nowrap"
+                            >
                               Delete
                             </.ui_button>
-                            <.ui_button phx-click="move_rule_up" phx-value-index={idx} disabled={idx == 0} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
+                            <.ui_button
+                              phx-click="move_rule_up"
+                              phx-value-index={idx}
+                              disabled={idx == 0}
+                              size="xs"
+                              variant="outline"
+                              class="w-full text-[11px] leading-none whitespace-nowrap"
+                            >
                               ↑ Up
                             </.ui_button>
-                            <.ui_button phx-click="move_rule_down" phx-value-index={idx} disabled={idx == length(@rules) - 1} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
+                            <.ui_button
+                              phx-click="move_rule_down"
+                              phx-value-index={idx}
+                              disabled={idx == length(@rules) - 1}
+                              size="xs"
+                              variant="outline"
+                              class="w-full text-[11px] leading-none whitespace-nowrap"
+                            >
                               ↓ Down
                             </.ui_button>
                           </div>
@@ -748,7 +837,10 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <.ui_button type="submit" size="sm" variant="primary">Run Simulation</.ui_button>
             </.form>
 
-            <div :if={@simulation_result} class="bg-sr-subtle rounded-sr-surface p-3 text-sm space-y-2">
+            <div
+              :if={@simulation_result}
+              class="bg-sr-subtle rounded-sr-surface p-3 text-sm space-y-2"
+            >
               <div>
                 <span class="font-semibold">Rule:</span> {@simulation_result.classification.rule_id ||
                   "none"}

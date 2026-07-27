@@ -371,7 +371,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
             Collectors will need to be reassigned or will fall back to direct SaaS connection.
           </p>
         </div>
-        <.ui_button phx-click="delete_site" data-confirm="Are you sure you want to delete this edge site? This action cannot be undone." size="sm" variant="danger">
+        <.ui_button
+          phx-click="delete_site"
+          data-confirm="Are you sure you want to delete this edge site? This action cannot be undone."
+          size="sm"
+          variant="danger"
+        >
           Delete Site
         </.ui_button>
       </div>

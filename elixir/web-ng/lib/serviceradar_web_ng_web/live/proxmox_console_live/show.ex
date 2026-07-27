@@ -62,7 +62,13 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
             <h1 class="truncate text-sm font-semibold">Remote console</h1>
             <p class="truncate text-xs text-sr-muted">{@device_uid}</p>
           </div>
-          <.ui_button :if={@session} type="button" phx-click="close_console" size="sm" variant="outline">
+          <.ui_button
+            :if={@session}
+            type="button"
+            phx-click="close_console"
+            size="sm"
+            variant="outline"
+          >
             <.icon name="hero-x-mark" class="size-4" /> Close
           </.ui_button>
         </div>

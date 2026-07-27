@@ -198,7 +198,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
               </td>
               <td><code class="text-xs">{short_id(operation.id)}</code></td>
               <td>
-                <.ui_button navigate={~p"/ansible/operations/#{operation.id}"} size="xs" variant="neutral">
+                <.ui_button
+                  navigate={~p"/ansible/operations/#{operation.id}"}
+                  size="xs"
+                  variant="neutral"
+                >
                   View evidence
                 </.ui_button>
               </td>

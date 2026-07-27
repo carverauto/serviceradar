@@ -58,7 +58,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
             <.ui_button type="submit" disabled={!@can_manage?} size="sm" variant="primary">
               <.icon name="hero-play" class="size-4" /> Run Source Query
             </.ui_button>
-            <.ui_button :for={template <- @templates} type="button" phx-click="apply_source_template" phx-value-key={template.key} disabled={!@can_manage?} title={template.description} size="sm" variant="neutral">
+            <.ui_button
+              :for={template <- @templates}
+              type="button"
+              phx-click="apply_source_template"
+              phx-value-key={template.key}
+              disabled={!@can_manage?}
+              title={template.description}
+              size="sm"
+              variant="neutral"
+            >
               {template.label}
             </.ui_button>
           </div>
@@ -110,7 +119,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
               Add output
             </h4>
             <div class="mt-3 grid grid-cols-1 gap-2">
-              <.ui_button :for={output <- @preview.outputs} type="button" phx-click="create_source_output" phx-value-visual-type={output["visual_type"]} disabled={!@can_manage?} title={output["description"]} size="sm" variant="neutral" class="h-auto min-h-12 justify-start py-2">
+              <.ui_button
+                :for={output <- @preview.outputs}
+                type="button"
+                phx-click="create_source_output"
+                phx-value-visual-type={output["visual_type"]}
+                disabled={!@can_manage?}
+                title={output["description"]}
+                size="sm"
+                variant="neutral"
+                class="h-auto min-h-12 justify-start py-2"
+              >
                 <.icon name="hero-plus" class="size-4 shrink-0" />
                 <span class="flex min-w-0 flex-col items-start text-left leading-tight">
                   <span>{output["label"]}</span>
@@ -144,10 +163,29 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
                     </div>
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
-                    <.ui_button type="button" phx-click="load_source_query" phx-value-id={source.id} disabled={!@can_manage?} size="xs" variant="neutral">
+                    <.ui_button
+                      type="button"
+                      phx-click="load_source_query"
+                      phx-value-id={source.id}
+                      disabled={!@can_manage?}
+                      size="xs"
+                      variant="neutral"
+                    >
                       Load
                     </.ui_button>
-                    <.ui_button type="button" phx-click="remove_source_query" phx-value-id={source.id} disabled={!@can_manage? or source.panel_count > 0} title={ if source.panel_count > 0, do: "Remove linked panels before deleting this source", else: "Remove source" } size="xs" variant="outline">
+                    <.ui_button
+                      type="button"
+                      phx-click="remove_source_query"
+                      phx-value-id={source.id}
+                      disabled={!@can_manage? or source.panel_count > 0}
+                      title={
+                        if source.panel_count > 0,
+                          do: "Remove linked panels before deleting this source",
+                          else: "Remove source"
+                      }
+                      size="xs"
+                      variant="outline"
+                    >
                       Remove
                     </.ui_button>
                   </div>

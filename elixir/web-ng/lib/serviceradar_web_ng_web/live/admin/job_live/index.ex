@@ -200,7 +200,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 class={["size-3", @refresh_interval > 0 && "animate-spin"]}
               />
               <select
-                class={ui_field_class(size: "xs", class: "w-auto border-transparent bg-transparent shadow-none")}
+                class={
+                  ui_field_class(
+                    size: "xs",
+                    class: "w-auto border-transparent bg-transparent shadow-none"
+                  )
+                }
                 phx-change="set_refresh_interval"
                 name="interval"
               >

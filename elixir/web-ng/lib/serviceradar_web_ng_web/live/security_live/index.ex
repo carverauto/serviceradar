@@ -266,7 +266,9 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     >
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
-          <div class="truncate text-sm font-semibold tracking-tight text-sr-ink">{@finding.title}</div>
+          <div class="truncate text-sm font-semibold tracking-tight text-sr-ink">
+            {@finding.title}
+          </div>
           <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-sr-muted">
             <span>{@finding.source}</span>
             <span :if={@finding.resource}>{@finding.resource}</span>

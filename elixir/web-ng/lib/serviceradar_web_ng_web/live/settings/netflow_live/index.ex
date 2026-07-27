@@ -378,10 +378,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </div>
                       </div>
                       <div class="flex items-center gap-2">
-                        <.ui_button type="button" phx-click="run_mmdb_refresh" size="sm" variant="neutral">
+                        <.ui_button
+                          type="button"
+                          phx-click="run_mmdb_refresh"
+                          size="sm"
+                          variant="neutral"
+                        >
                           Run MMDB refresh
                         </.ui_button>
-                        <.ui_button type="button" phx-click="run_enrichment_refresh" size="sm" variant="neutral">
+                        <.ui_button
+                          type="button"
+                          phx-click="run_enrichment_refresh"
+                          size="sm"
+                          variant="neutral"
+                        >
                           Run enrichment refresh
                         </.ui_button>
                       </div>
@@ -475,7 +485,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       </label>
 
                       <div class="flex items-center justify-end">
-                        <.ui_button type="button" phx-click="run_ipinfo_mmdb_refresh" size="sm" variant="neutral">
+                        <.ui_button
+                          type="button"
+                          phx-click="run_ipinfo_mmdb_refresh"
+                          size="sm"
+                          variant="neutral"
+                        >
                           Run ipinfo MMDB refresh
                         </.ui_button>
                       </div>
@@ -492,7 +507,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       />
                       <div class="grid grid-cols-1 gap-2">
                         <label class="flex items-center justify-between gap-2 p-0">
-                          <span class="text-sm font-medium text-sr-ink">Feed URLs (one per line)</span>
+                          <span class="text-sm font-medium text-sr-ink">
+                            Feed URLs (one per line)
+                          </span>
                         </label>
                         <textarea
                           class={ui_field_class(class: "w-full min-h-24 py-2.5")}
@@ -509,7 +526,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   >
                     <div class="flex items-center justify-between gap-3">
                       <div class="text-xs font-semibold">Anomaly Detection</div>
-                      <.ui_button navigate={~p"/settings/anomaly-detection"} size="sm" variant="neutral">
+                      <.ui_button
+                        navigate={~p"/settings/anomaly-detection"}
+                        size="sm"
+                        variant="neutral"
+                      >
                         Open anomaly settings
                       </.ui_button>
                     </div>
@@ -589,10 +610,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </.ui_badge>
                       </td>
                       <td class="text-right space-x-2">
-                        <.ui_button navigate={~p"/settings/flows/#{cidr.id}/edit"} size="xs" variant="neutral">
+                        <.ui_button
+                          navigate={~p"/settings/flows/#{cidr.id}/edit"}
+                          size="xs"
+                          variant="neutral"
+                        >
                           Edit
                         </.ui_button>
-                        <.ui_button type="button" phx-click="delete" phx-value-id={cidr.id} data-confirm="Delete this CIDR?" size="xs" variant="ghost" class="text-error">
+                        <.ui_button
+                          type="button"
+                          phx-click="delete"
+                          phx-value-id={cidr.id}
+                          data-confirm="Delete this CIDR?"
+                          size="xs"
+                          variant="ghost"
+                          class="text-error"
+                        >
                           Delete
                         </.ui_button>
                       </td>
@@ -656,10 +689,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </.ui_badge>
                       </td>
                       <td class="text-right space-x-2">
-                        <.ui_button navigate={~p"/settings/flows/app-rules/#{rule.id}/edit"} size="xs" variant="neutral">
+                        <.ui_button
+                          navigate={~p"/settings/flows/app-rules/#{rule.id}/edit"}
+                          size="xs"
+                          variant="neutral"
+                        >
                           Edit
                         </.ui_button>
-                        <.ui_button type="button" phx-click="delete_rule" phx-value-id={rule.id} data-confirm="Delete this rule?" size="xs" variant="ghost" class="text-error">
+                        <.ui_button
+                          type="button"
+                          phx-click="delete_rule"
+                          phx-value-id={rule.id}
+                          data-confirm="Delete this rule?"
+                          size="xs"
+                          variant="ghost"
+                          class="text-error"
+                        >
                           Delete
                         </.ui_button>
                       </td>

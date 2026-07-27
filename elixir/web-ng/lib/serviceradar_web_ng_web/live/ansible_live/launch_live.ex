@@ -149,10 +149,15 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </p>
       </header>
 
-      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="ansible-launch-targets-title">
+      <section
+        class="sr-ui-card card-border bg-sr-surface"
+        aria-labelledby="ansible-launch-targets-title"
+      >
         <div class="sr-ui-card-body gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="ansible-launch-targets-title" class="sr-ui-card-title text-base">Canonical targets</h2>
+            <h2 id="ansible-launch-targets-title" class="sr-ui-card-title text-base">
+              Canonical targets
+            </h2>
             <.ui_badge size="sm" variant="ghost">
               {length(@requested_uids)} selected · {length(@devices)} visible
             </.ui_badge>
@@ -181,7 +186,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
                 <tr :for={device <- @devices}>
                   <td>{device.hostname || "Unnamed device"}</td>
                   <td><code class="text-xs">{device.uid}</code></td>
-                  <td><.ui_badge size="sm" variant="success">Resolved</.ui_badge></td>
+                  <td>
+                    <.ui_badge size="sm" variant="success">Resolved</.ui_badge>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -189,7 +196,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </div>
       </section>
 
-      <section class="sr-ui-card card-border bg-sr-surface" aria-labelledby="ansible-launch-binding-title">
+      <section
+        class="sr-ui-card card-border bg-sr-surface"
+        aria-labelledby="ansible-launch-binding-title"
+      >
         <div class="sr-ui-card-body gap-4">
           <div>
             <h2 id="ansible-launch-binding-title" class="sr-ui-card-title text-base">
@@ -287,7 +297,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
               <.link navigate={~p"/ansible/operations"} class="text-sr-brand hover:underline text-sm">
                 Secure operation history
               </.link>
-              <.ui_button id="secure-ansible-launch-submit" type="submit" disabled={not @launch_ready or @launch_in_progress} size="sm" variant="primary">
+              <.ui_button
+                id="secure-ansible-launch-submit"
+                type="submit"
+                disabled={not @launch_ready or @launch_in_progress}
+                size="sm"
+                variant="primary"
+              >
                 <.icon name="hero-play" class="size-4" /> Launch securely
               </.ui_button>
             </div>

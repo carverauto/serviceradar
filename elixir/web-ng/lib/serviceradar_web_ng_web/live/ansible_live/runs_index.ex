@@ -180,7 +180,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
                 <.ui_badge :if={!run.schedule_id} size="sm" variant="ghost">ad-hoc</.ui_badge>
               </td>
               <td>
-                <.ui_button navigate={~p"/ansible/runs/#{run.id}"} size="xs" variant="neutral">View</.ui_button>
+                <.ui_button navigate={~p"/ansible/runs/#{run.id}"} size="xs" variant="neutral">
+                  View
+                </.ui_button>
               </td>
             </tr>
           </tbody>

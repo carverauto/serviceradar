@@ -182,10 +182,23 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
 
             <%= if @can_approve? do %>
               <div class="flex gap-3">
-                <.ui_button type="button" phx-click="deny" data-confirm="Deny this CLI session?" size="sm" variant="ghost" class="flex-1">
+                <.ui_button
+                  type="button"
+                  phx-click="deny"
+                  data-confirm="Deny this CLI session?"
+                  size="sm"
+                  variant="ghost"
+                  class="flex-1"
+                >
                   Deny
                 </.ui_button>
-                <.ui_button type="button" phx-click="approve" size="sm" variant="primary" class="flex-1">
+                <.ui_button
+                  type="button"
+                  phx-click="approve"
+                  size="sm"
+                  variant="primary"
+                  class="flex-1"
+                >
                   Approve
                 </.ui_button>
               </div>
@@ -242,7 +255,13 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
 
-            <.ui_button type="button" phx-click="submit_code" phx-value-user_code="" size="sm" variant="ghost">
+            <.ui_button
+              type="button"
+              phx-click="submit_code"
+              phx-value-user_code=""
+              size="sm"
+              variant="ghost"
+            >
               Try another code
             </.ui_button>
         <% end %>

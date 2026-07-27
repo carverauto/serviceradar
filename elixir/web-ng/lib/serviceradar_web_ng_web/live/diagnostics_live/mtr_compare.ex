@@ -341,7 +341,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     <form phx-submit="compare_trace" class="sr-mtr-panel p-4">
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Trace A</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Trace A</span>
+          </label>
           <select name="a" class={ui_field_class(size: "sm", class: "w-full")}>
             <option value="">Select trace...</option>
             <%= for t <- @recent_traces do %>
@@ -352,7 +354,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           </select>
         </div>
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Trace B</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Trace B</span>
+          </label>
           <select name="b" class={ui_field_class(size: "sm", class: "w-full")}>
             <option value="">Select trace...</option>
             <%= for t <- @recent_traces do %>
@@ -441,7 +445,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     <form phx-submit="compare_windows" class="sr-mtr-panel p-4 space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Preset</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Preset</span>
+          </label>
           <select name="window[preset]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for {label, value} <- preset_options() do %>
               <option value={value} selected={@state.preset == value}>{label}</option>
@@ -450,7 +456,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Target</span>
+          </label>
           <input
             name="window[target]"
             value={@state.target_filter}
@@ -460,7 +468,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Source Agent</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Source Agent</span>
+          </label>
           <input
             name="window[agent]"
             value={@state.agent_filter}
@@ -470,7 +480,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Protocol</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Protocol</span>
+          </label>
           <select name="window[protocol]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for protocol <- protocol_options() do %>
               <option value={protocol} selected={@state.protocol == protocol}>
@@ -481,7 +493,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Reachability</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Reachability</span>
+          </label>
           <select name="window[reached]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for reached <- reached_filter_options() do %>
               <option value={reached} selected={@state.reached == reached}>
@@ -501,7 +515,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         if(@state.preset == preset_custom(), do: "", else: "hidden")
       ]}>
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Window A Start</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window A Start</span>
+          </label>
           <input
             type="datetime-local"
             name="window[a_start]"
@@ -510,7 +526,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Window A End</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window A End</span>
+          </label>
           <input
             type="datetime-local"
             name="window[a_end]"
@@ -519,7 +537,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Window B Start</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window B Start</span>
+          </label>
           <input
             type="datetime-local"
             name="window[b_start]"
@@ -528,7 +548,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           />
         </div>
         <div class="flex flex-col gap-1.5">
-          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Window B End</span></label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window B End</span>
+          </label>
           <input
             type="datetime-local"
             name="window[b_end]"
@@ -641,7 +663,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
             {baseline_note_text(@comparison)}
           </div>
         </div>
-        <.ui_button :if={@state.preset == preset_today_vs_yesterday()} navigate={compare_elapsed_path(@state)} size="xs" variant="outline" class="shrink-0">
+        <.ui_button
+          :if={@state.preset == preset_today_vs_yesterday()}
+          navigate={compare_elapsed_path(@state)}
+          size="xs"
+          variant="outline"
+          class="shrink-0"
+        >
           Compare same hours
         </.ui_button>
       </div>

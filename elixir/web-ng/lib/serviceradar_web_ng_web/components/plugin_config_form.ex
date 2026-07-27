@@ -55,7 +55,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
         class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90"
       >
         Need help with these settings?
-        <a class="text-sr-brand hover:underline" href={@docs_url} target="_blank" rel="noopener noreferrer">
+        <a
+          class="text-sr-brand hover:underline"
+          href={@docs_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Open the configuration guide
         </a>
       </div>

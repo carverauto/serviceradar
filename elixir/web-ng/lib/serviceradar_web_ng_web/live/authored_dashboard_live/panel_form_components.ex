@@ -94,7 +94,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       />
 
       <div class="flex flex-wrap gap-2 border-t border-sr-line pt-4">
-        <.ui_button type="submit" name="intent" value="save" disabled={!@preview and is_nil(@panel)} size="sm" variant="primary">
+        <.ui_button
+          type="submit"
+          name="intent"
+          value="save"
+          disabled={!@preview and is_nil(@panel)}
+          size="sm"
+          variant="primary"
+        >
           <.icon name="hero-check" class="size-4" /> Save Panel
         </.ui_button>
         <.ui_button type="button" phx-click="cancel_panel_edit" size="sm" variant="neutral">

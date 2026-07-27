@@ -105,8 +105,10 @@ defmodule ServiceRadarWebNGWeb do
       import Phoenix.HTML
       # Core UI components
       import ServiceRadarWebNGWeb.CoreComponents
+
       import ServiceRadarWebNGWeb.Observability.DetailStreamComponents,
         only: [detail_stream_pane: 1, stream_severity_chip: 1]
+
       import ServiceRadarWebNGWeb.ObservabilityComponents
       import ServiceRadarWebNGWeb.QueryBuilderComponents
       import ServiceRadarWebNGWeb.ReactComponents

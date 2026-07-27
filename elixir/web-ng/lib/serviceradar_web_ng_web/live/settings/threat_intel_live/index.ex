@@ -274,7 +274,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <% else %>
                             <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
                           <% end %>
-                          <.ui_button type="button" phx-click="delete_assignment" phx-value-id={assignment.id} data-confirm="Remove this assignment?" size="xs" variant="ghost">
+                          <.ui_button
+                            type="button"
+                            phx-click="delete_assignment"
+                            phx-value-id={assignment.id}
+                            data-confirm="Remove this assignment?"
+                            size="xs"
+                            variant="ghost"
+                          >
                             Remove
                           </.ui_button>
                         </div>
@@ -806,7 +813,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </label>
 
                   <div class="flex justify-end pt-2">
-                    <.ui_button type="submit" disabled={is_nil(@approved_package)} size="sm" variant="primary">
+                    <.ui_button
+                      type="submit"
+                      disabled={is_nil(@approved_package)}
+                      size="sm"
+                      variant="primary"
+                    >
                       Save Assignment
                     </.ui_button>
                   </div>

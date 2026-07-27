@@ -79,8 +79,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         end
       end
 
-      defp topology_color(_link, bps),
-        do: if(to_int(bps) > 0, do: [62, 207, 135, 190], else: [107, 127, 120, 130])
+      defp topology_color(_link, bps), do: if(to_int(bps) > 0, do: [62, 207, 135, 190], else: [107, 127, 120, 130])
 
       defp map_value_any(%{} = map, keys) when is_list(keys) do
         Enum.find_value(keys, fn key -> Map.get(map, key) end)

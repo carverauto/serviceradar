@@ -766,7 +766,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                   </div>
                                 </td>
                                 <td>
-                                  <.ui_button id={"quick-import-#{release.tag}"} type="button" phx-click="import_recent_repo_release" phx-value-release_tag={release.tag} disabled={not release.import_ready?} title={ if release.import_ready?, do: "Import and publish #{release.tag}", else: "Release is missing the configured manifest or signature asset" } size="xs" variant="ghost">
+                                  <.ui_button
+                                    id={"quick-import-#{release.tag}"}
+                                    type="button"
+                                    phx-click="import_recent_repo_release"
+                                    phx-value-release_tag={release.tag}
+                                    disabled={not release.import_ready?}
+                                    title={
+                                      if release.import_ready?,
+                                        do: "Import and publish #{release.tag}",
+                                        else:
+                                          "Release is missing the configured manifest or signature asset"
+                                    }
+                                    size="xs"
+                                    variant="ghost"
+                                  >
                                     Import
                                   </.ui_button>
                                 </td>
@@ -1112,7 +1126,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           {release.release_notes || "—"}
                         </td>
                         <td>
-                          <.ui_button id={"use-release-#{dom_id_fragment(release.version)}"} type="button" phx-click="use_release" phx-value-version={release.version} size="xs" variant="ghost">
+                          <.ui_button
+                            id={"use-release-#{dom_id_fragment(release.version)}"}
+                            type="button"
+                            phx-click="use_release"
+                            phx-value-version={release.version}
+                            size="xs"
+                            variant="ghost"
+                          >
                             Use for Rollout
                           </.ui_button>
                         </td>
@@ -1179,16 +1200,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         </td>
                         <td>
                           <div class="flex flex-wrap gap-2">
-                            <.ui_button id={"rollout-details-#{rollout.id}"} type="button" phx-click="show_rollout_details" phx-value-id={rollout.id} size="xs" variant="ghost">
+                            <.ui_button
+                              id={"rollout-details-#{rollout.id}"}
+                              type="button"
+                              phx-click="show_rollout_details"
+                              phx-value-id={rollout.id}
+                              size="xs"
+                              variant="ghost"
+                            >
                               Details
                             </.ui_button>
-                            <.ui_button :if={display_status == :active} type="button" phx-click="pause_rollout" phx-value-id={rollout.id} size="xs" variant="ghost">
+                            <.ui_button
+                              :if={display_status == :active}
+                              type="button"
+                              phx-click="pause_rollout"
+                              phx-value-id={rollout.id}
+                              size="xs"
+                              variant="ghost"
+                            >
                               Pause
                             </.ui_button>
-                            <.ui_button :if={display_status == :paused} type="button" phx-click="resume_rollout" phx-value-id={rollout.id} size="xs" variant="ghost">
+                            <.ui_button
+                              :if={display_status == :paused}
+                              type="button"
+                              phx-click="resume_rollout"
+                              phx-value-id={rollout.id}
+                              size="xs"
+                              variant="ghost"
+                            >
                               Resume
                             </.ui_button>
-                            <.ui_button :if={display_status in [:active, :paused]} type="button" phx-click="cancel_rollout" phx-value-id={rollout.id} data-confirm="Cancel this rollout?" size="xs" variant="outline">
+                            <.ui_button
+                              :if={display_status in [:active, :paused]}
+                              type="button"
+                              phx-click="cancel_rollout"
+                              phx-value-id={rollout.id}
+                              data-confirm="Cancel this rollout?"
+                              size="xs"
+                              variant="outline"
+                            >
                               Cancel
                             </.ui_button>
                           </div>
@@ -1295,13 +1345,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
       <div class={ui_join_class()}>
-        <.ui_button id={"#{@id_prefix}-prev-page"} type="button" phx-click={@event} phx-value-page={@page - 1} disabled={@page <= 1} size="xs" variant="neutral">
+        <.ui_button
+          id={"#{@id_prefix}-prev-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page - 1}
+          disabled={@page <= 1}
+          size="xs"
+          variant="neutral"
+        >
           Previous
         </.ui_button>
         <.ui_button type="button" disabled size="xs" variant="ghost">
           Page {@page} of {@page_count}
         </.ui_button>
-        <.ui_button id={"#{@id_prefix}-next-page"} type="button" phx-click={@event} phx-value-page={@page + 1} disabled={@page >= @page_count} size="xs" variant="neutral">
+        <.ui_button
+          id={"#{@id_prefix}-next-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page + 1}
+          disabled={@page >= @page_count}
+          size="xs"
+          variant="neutral"
+        >
           Next
         </.ui_button>
       </div>
@@ -1330,7 +1396,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
               Started by {@rollout.created_by || "system"} · {length(@rollout.cohort_agent_ids || [])} agents
             </p>
           </div>
-          <.ui_icon_button type="button" phx-click="hide_rollout_details" aria-label="Close rollout details" size="sm" variant="ghost">
+          <.ui_icon_button
+            type="button"
+            phx-click="hide_rollout_details"
+            aria-label="Close rollout details"
+            size="sm"
+            variant="ghost"
+          >
             <.icon name="hero-x-mark" class="size-4" />
           </.ui_icon_button>
         </div>
@@ -1419,7 +1491,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           }
                           class="mt-2"
                         >
-                          <.ui_button id={"retry-target-#{target.id}"} type="button" phx-click="retry_target" phx-value-target_id={target.id} size="xs" variant="primary">
+                          <.ui_button
+                            id={"retry-target-#{target.id}"}
+                            type="button"
+                            phx-click="retry_target"
+                            phx-value-target_id={target.id}
+                            size="xs"
+                            variant="primary"
+                          >
                             <.icon name="hero-arrow-path" class="size-3" /> Retry
                           </.ui_button>
                         </div>

@@ -301,10 +301,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                 <.icon name="hero-pencil-square" class="size-4" />
                 {if @editing, do: "Cancel", else: "Edit"}
               </.ui_button>
-              <.ui_button :if={@user.status == :active} type="button" phx-click="deactivate" size="sm" variant="outline">
+              <.ui_button
+                :if={@user.status == :active}
+                type="button"
+                phx-click="deactivate"
+                size="sm"
+                variant="outline"
+              >
                 Deactivate
               </.ui_button>
-              <.ui_button :if={@user.status != :active} type="button" phx-click="reactivate" size="sm" variant="outline">
+              <.ui_button
+                :if={@user.status != :active}
+                type="button"
+                phx-click="reactivate"
+                size="sm"
+                variant="outline"
+              >
                 Reactivate
               </.ui_button>
             </div>
@@ -366,7 +378,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     <div class="text-sm font-semibold">Security</div>
                     <div class="text-xs opacity-60">Set a temporary password for this account.</div>
                   </div>
-                  <.ui_button type="button" phx-click="open_password_modal" size="sm" variant="outline">
+                  <.ui_button
+                    type="button"
+                    phx-click="open_password_modal"
+                    size="sm"
+                    variant="outline"
+                  >
                     Set password
                   </.ui_button>
                 </div>
@@ -395,10 +412,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="sr-ui-card-title text-base">Login history</h2>
                   <div class={ui_join_class()}>
-                    <.ui_button type="button" phx-click="events_prev" disabled={is_nil(@events_page) or is_nil(@events_page.before)} title="Newer" size="xs" variant="neutral">
+                    <.ui_button
+                      type="button"
+                      phx-click="events_prev"
+                      disabled={is_nil(@events_page) or is_nil(@events_page.before)}
+                      title="Newer"
+                      size="xs"
+                      variant="neutral"
+                    >
                       <.icon name="hero-chevron-left" class="size-4" />
                     </.ui_button>
-                    <.ui_button type="button" phx-click="events_next" disabled={is_nil(@events_page) or not @events_page.more?} title="Older" size="xs" variant="neutral">
+                    <.ui_button
+                      type="button"
+                      phx-click="events_next"
+                      disabled={is_nil(@events_page) or not @events_page.more?}
+                      title="Older"
+                      size="xs"
+                      variant="neutral"
+                    >
                       <.icon name="hero-chevron-right" class="size-4" />
                     </.ui_button>
                   </div>

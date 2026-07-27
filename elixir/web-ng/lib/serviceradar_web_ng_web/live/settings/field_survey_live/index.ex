@@ -201,10 +201,22 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                     </div>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <.ui_button type="button" phx-click="edit" phx-value-id={entry.id} size="xs" variant="neutral">
+                    <.ui_button
+                      type="button"
+                      phx-click="edit"
+                      phx-value-id={entry.id}
+                      size="xs"
+                      variant="neutral"
+                    >
                       <.icon name="hero-pencil-square" class="size-4" /> Edit
                     </.ui_button>
-                    <.ui_button type="button" phx-click="delete" phx-value-id={entry.id} size="xs" variant="outline">
+                    <.ui_button
+                      type="button"
+                      phx-click="delete"
+                      phx-value-id={entry.id}
+                      size="xs"
+                      variant="outline"
+                    >
                       <.icon name="hero-trash" class="size-4" /> Delete
                     </.ui_button>
                   </div>
