@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp page_title_for(%{} = log, log_id) do
-    case extract_bracket_title(log_message(log)) do
+    case log_headline(log_message(log)) do
       nil -> "Log · #{String.slice(to_string(log_id), 0, 8)}"
       title -> title
     end
@@ -605,9 +605,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp log_detail_header(assigns) do
     body = log_message(assigns.log)
-    # Full message line for the hero title — actions live on the breadcrumb row
-    # so we no longer need a hard 64-char ellipsis.
-    title = extract_bracket_title(body) || message_preview(body, 240) || "Log entry"
+    title = log_headline(body) || "Log entry"
 
     assigns =
       assigns
@@ -861,14 +859,97 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp message_preview(_, _), do: "—"
 
-  defp extract_bracket_title(body) when is_binary(body) do
-    case Regex.run(~r/\[([^\]]{2,64})\]/, body) do
-      [_, title] -> title
-      _ -> nil
+  # Hero / browser title for a log body. Prefer a real event name over noise
+  # like syslog PIDs in brackets (mcad[1977] → was wrongly titled "1977").
+  defp log_headline(body) when is_binary(body) do
+    body = body |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    cond do
+      body == "" ->
+        nil
+
+      title = extract_event_title(body) ->
+        title
+
+      title = extract_bracket_title(body) ->
+        title
+
+      true ->
+        message_preview(strip_syslog_noise(body), 240)
     end
   end
 
+  defp log_headline(_), do: nil
+
+  # e.g. "… mcad[1977]: wireless_agg_stats.log_sta_anomalies(): BSSID=…"
+  defp extract_event_title(body) when is_binary(body) do
+    patterns = [
+      # function / method style event before KEY= or end
+      ~r/\b([A-Za-z_][\w.]{2,80}\(\))\s*:?(?=\s+\b[A-Za-z_][A-Za-z0-9_]{0,24}=|\s*$)/,
+      # last colon-delimited segment that looks like an event, not a host/pid
+      ~r/:\s*([A-Za-z_][\w.]{2,80}(?:\(\))?)\s*:?\s*(?=\b[A-Za-z_][A-Za-z0-9_]{0,24}=)/
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, body) do
+        [_, title] ->
+          title = String.trim(title)
+          if meaningful_title?(title), do: title
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp extract_event_title(_), do: nil
+
+  defp extract_bracket_title(body) when is_binary(body) do
+    ~r/\[([^\]]{2,64})\]/
+    |> Regex.scan(body)
+    |> Enum.map(fn
+      [_, title] -> String.trim(title)
+      _ -> nil
+    end)
+    |> Enum.find(&meaningful_bracket_title?/1)
+  end
+
   defp extract_bracket_title(_), do: nil
+
+  # Keep "[POSTROUTING-SNAT-1]"; drop pure PIDs like "[1977]" and bare hex.
+  defp meaningful_bracket_title?(title) when is_binary(title) do
+    cond do
+      title == "" -> false
+      # process ids, pure numbers
+      Regex.match?(~r/^\d+$/, title) -> false
+      # bare hex hashes (a-f only) — not real labels
+      Regex.match?(~r/^[0-9a-fA-F]+$/, title) -> false
+      # need at least one alphabetic character
+      Regex.match?(~r/[A-Za-z]/ title) -> true
+      true -> false
+    end
+  end
+
+  defp meaningful_bracket_title?(_), do: false
+
+  defp meaningful_title?(title) when is_binary(title) do
+    title != "" and Regex.match?(~r/[A-Za-z]/ title) and not Regex.match?(~r/^\d+$/, title)
+  end
+
+  defp meaningful_title?(_), do: false
+
+  # Drop leading "mac,hostname: daemon: daemon[pid]:" style noise for previews.
+  defp strip_syslog_noise(body) when is_binary(body) do
+    cleaned =
+      body
+      |> String.replace(~r/^[0-9a-fA-F]{8,},[^:]+:\s*/, "")
+      |> String.replace(~r/\b[A-Za-z_][\w-]*\[\d+\]:\s*/, "")
+      |> String.trim()
+
+    if cleaned == "", do: body, else: cleaned
+  end
+
+  defp strip_syslog_noise(body), do: body
 
   # Text before the first KEY= token (e.g. "tonka01 [POSTROUTING-SNAT-1]").
   defp message_prefix(body) when is_binary(body) do
