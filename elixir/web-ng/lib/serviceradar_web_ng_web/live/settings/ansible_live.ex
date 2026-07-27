@@ -334,7 +334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </p>
         </header>
 
-        <div role="tablist" class="sr-ui-tabs tabs-bordered">
+        <div role="tablist" class="sr-ui-tabs border-b border-sr-line">
           <button
             :for={{key, label} <- @tabs}
             type="button"
