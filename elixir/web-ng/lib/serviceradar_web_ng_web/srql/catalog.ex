@@ -280,6 +280,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "capacity_forecasts",
+      label: "Capacity Forecasts",
+      route: "/observability/health",
+      default_time: "",
+      default_sort_field: "projected_exhaustion_at",
+      default_sort_dir: "asc",
+      default_filter_field: "resource_label",
+      filter_fields: [
+        "resource_id",
+        "resource_key",
+        "resource_label",
+        "metric_name",
+        "status",
+        "skip_reason",
+        "has_exhaustion"
+      ],
+      boolean_fields: ["has_exhaustion"],
+      downsample: false
+    },
+    %{
       id: "security_findings",
       label: "Security Findings",
       route: "/security",
