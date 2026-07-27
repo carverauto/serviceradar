@@ -92,6 +92,43 @@ defmodule ServiceRadar.NATS.Connection do
     end
   end
 
+  @doc """
+  Sends a NATS request and waits for a single reply.
+
+  This is the request/reply primitive used for a JetStream publish that must
+  observe the server's `PubAck` (durable acknowledgement) rather than
+  fire-and-forget like `publish/3`. The reply body carries the JetStream
+  `PubAck` JSON (`{"stream", "seq", "duplicate"}`) or an error object.
+
+  Returns `{:ok, %Gnat.Message{}}` on a reply, `{:error, :timeout}` when no
+  reply arrives within `:receive_timeout`, or `{:error, reason}` otherwise.
+
+  ## Examples
+
+      {:ok, %{body: body}} =
+        Connection.request("sr.edge.v1.sweep.bulk.p07.v1", payload,
+          headers: headers, receive_timeout: 5_000)
+  """
+  @spec request(String.t(), String.t() | binary(), keyword()) ::
+          {:ok, Gnat.Message.t()} | {:error, term()}
+  def request(subject, payload, opts \\ []) do
+    opts = put_trace_context(opts)
+
+    case get() do
+      {:ok, conn} ->
+        try do
+          Gnat.request(conn, subject, payload, opts)
+        catch
+          :exit, reason ->
+            Logger.warning("NATS request failed (connection died): #{inspect(reason)}")
+            {:error, {:nats_connection_died, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:nats_not_connected, reason}}
+    end
+  end
+
   # Injects W3C trace context (traceparent/tracestate) into the outbound
   # message headers when a span is active, so NATS consumers can join the
   # publisher's trace. No-op (and no headers key added) when there is no
