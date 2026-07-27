@@ -81,6 +81,8 @@ var (
 	errCredentialBrokerInsecureTLSDenied    = errors.New("credential broker injection denied for insecure TLS request")
 	errCredentialBrokerSecretFieldPresent   = errors.New("credential broker secret field must not be caller supplied")
 	errCredentialBrokerFormInvalid          = errors.New("credential broker form injection request is invalid")
+	errCredentialBrokerTokenExchangeInvalid = errors.New("credential broker token exchange policy is invalid")
+	errCredentialBrokerTokenExchangeFailed  = errors.New("credential broker token exchange failed")
 	errPluginActionResultInvalid            = errors.New("plugin action result is invalid")
 	errPluginActionResultBackpressure       = errors.New("plugin action result queue unavailable")
 )

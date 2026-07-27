@@ -312,7 +312,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
       RuleAccessors.auth_method(rule) not in auth_methods ->
         {:error, :invalid_plugin_integration_auth_method}
 
-      Atom.to_string(RuleAccessors.rule_purpose(rule)) not in purposes ->
+      RuleAccessors.rule_purpose(rule) not in purposes ->
         {:error, :invalid_plugin_integration_purpose}
 
       scope_type(rule) not in scope_types ->

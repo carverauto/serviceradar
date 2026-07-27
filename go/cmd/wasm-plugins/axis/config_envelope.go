@@ -54,7 +54,7 @@ func (item pluginInputItem) host() string {
 // defaultConfig returns the AXIS inventory plugin defaults. Timeout is left
 // empty so timeout_ms (or the legacy timeout string) drives the effective value
 // via normalizeTimeout; scheme defaults to https to match the credential
-// materializer (AxisProfile.params_template).
+// materializer from this package's credential profile params_template.
 func defaultConfig() Config {
 	base := sdk.DefaultCameraPluginConfig()
 	base.Scheme = "https"

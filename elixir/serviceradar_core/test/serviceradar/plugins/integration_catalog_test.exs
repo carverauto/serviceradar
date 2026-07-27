@@ -49,11 +49,14 @@ defmodule ServiceRadar.Plugins.IntegrationCatalogTest do
     assert Enum.sort(plugin_ids) == ["first-plugin", "second-plugin"]
   end
 
-  test "external packages cannot replace core-owned credential providers" do
-    assert {:error, {:reserved_credential_provider, "proxmox", "example-plugin"}} =
+  test "approved packages may declare any valid provider without a core registration" do
+    assert {:ok, catalog} =
              IntegrationCatalog.from_packages([
-               package("example-plugin", "1.0.0", "proxmox", "example-source")
+               package("example-plugin", "1.0.0", "previously-unknown", "example-source")
              ])
+
+    assert [%{"provider" => "previously-unknown"}] =
+             Enum.map(catalog.credential_profiles, &Map.take(&1, ["provider"]))
   end
 
   defp package(plugin_id, version, provider, source) do
@@ -112,7 +115,28 @@ defmodule ServiceRadar.Plugins.IntegrationCatalogTest do
               "provider" => provider,
               "label" => "#{provider} provider",
               "auth_methods" => [
-                %{"id" => "username_password", "credential_kind" => "username_password"}
+                %{
+                  "id" => "username_password",
+                  "label" => "Username and password",
+                  "credential_kind" => "username_password",
+                  "fields" => [
+                    %{
+                      "id" => "username",
+                      "label" => "Username",
+                      "control" => "text",
+                      "required" => true,
+                      "secret" => false,
+                      "public" => true
+                    },
+                    %{
+                      "id" => "password",
+                      "label" => "Password",
+                      "control" => "password",
+                      "required" => true,
+                      "secret" => true
+                    }
+                  ]
+                }
               ],
               "purposes" => ["device_inventory"],
               "scope_types" => ["agent"],

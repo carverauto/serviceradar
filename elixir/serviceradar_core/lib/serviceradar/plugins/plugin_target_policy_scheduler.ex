@@ -5,9 +5,8 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker
+  alias ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker
   alias ServiceRadar.Credentials.PluginIntegrationReconcileWorker
-  alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
   alias ServiceRadar.Plugins.AddonProfileReconcileWorker
   alias ServiceRadar.Plugins.AddonRolloutWorker
   alias ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker
@@ -43,8 +42,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
           PluginTargetPolicyReconcileWorker,
           PluginLegacyAssignmentRecoveryWorker,
           PluginPolicyAssignmentRecoveryDispatchWorker,
-          ProxmoxCredentialRuleReconcileWorker,
-          CameraCredentialRuleReconcileWorker,
+          PluginCredentialRuleReconcileWorker,
           PluginIntegrationReconcileWorker,
           AddonUpdatePolicyBackfillWorker,
           AddonProfileReconcileWorker,

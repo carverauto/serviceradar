@@ -3,6 +3,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
 
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.Plugins.PluginInputs
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   defmodule FakeReconciler do
     @moduledoc false
@@ -21,37 +22,21 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     end
   end
 
-  test "reconcile_rules builds Proxmox plugin policies from credential rules" do
+  test "materializes an arbitrary package-declared provider without a core registry" do
     updated_at = ~U[2026-05-06 19:30:00Z]
 
-    rules = [
-      %{
-        id: "rule-1",
-        secret_id: "018f3f56-1111-7222-8333-123456789abc",
-        purpose: :inventory_enrichment,
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        tls_policy: :verify,
+    rule =
+      credential_rule(%{
         updated_at: updated_at,
         metadata: %{
-          "include_guests" => false,
           "timeout_ms" => 45_000,
           "interval_seconds" => 600,
           "timeout_seconds" => 45,
-          "chunk_size" => 25,
-          "auto_discovery_enabled" => true
+          "chunk_size" => 25
         }
-      }
-    ]
+      })
 
-    package = %{id: "pkg-proxmox"}
-
-    assert {:ok, summary} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", package,
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               expected_partition_id: "farm01",
-               test_pid: self()
-             )
+    assert {:ok, summary} = materialize([rule])
 
     assert summary == %{
              rules: 1,
@@ -64,210 +49,116 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            }
 
     assert_receive {:reconcile, policy, input_defs, opts}
-
-    assert policy.policy_id == "network-credential-rule:rule-1"
+    assert policy.policy_id == "network-credential-rule:rule-1:device_inventory"
     assert policy.policy_version == DateTime.to_unix(updated_at, :second)
-    assert policy.plugin_package_id == "pkg-proxmox"
+    assert policy.plugin_package_id == "pkg-example"
     assert policy.interval_seconds == 600
     assert policy.timeout_seconds == 45
     assert opts[:chunk_size] == 25
     assert opts[:target_agent_uid] == "agent-a"
-    assert opts[:expected_partition_id] == "farm01"
 
     assert input_defs == [
-             %{
-               name: "targets",
-               entity: "devices",
-               query: "in:devices metadata.proxmox_candidate:true"
-             }
+             %{name: "targets", entity: "devices", query: "in:devices vendor:Example"}
            ]
 
     assert %{
              "credential_broker" => %{
                "credential_secret_ref" => ref,
                "credential_rule_id" => "rule-1",
-               "grant_type" => "proxmox_api_token",
+               "grant_type" => "example_api",
                "inject" => %{
                  "type" => "http_header",
                  "name" => "Authorization",
-                 "scheme" => "PVEAPIToken"
+                 "scheme" => "Bearer"
+               },
+               "allow" => %{
+                 "methods" => ["GET"],
+                 "paths" => ["/api/devices"],
+                 "ports" => [443]
                }
              },
-             "api_token_secret_ref" => ref,
+             "credential_secret_ref" => ref,
              "credential_rule_id" => "rule-1",
-             "include_guests" => false,
-             "timeout_ms" => 45_000,
-             "auto_discovery_enabled" => true
+             "timeout_ms" => 45_000
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
-    broker = policy.params_template["credential_broker"]
-    assert is_binary(broker["grant_id"])
-    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
-    refute Map.has_key?(policy.params_template, "credential_secret_id")
+    assert is_binary(policy.params_template["credential_broker"]["grant_id"])
   end
 
-  test "reconcile_rules leaves auto-discovery disabled unless explicitly enabled" do
-    rules = [
+  test "renders public credential metadata only when the manifest requests it" do
+    rule =
       credential_rule(%{
-        id: "srql-only",
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-1111-7222-8333-123456789abc"
+        auth_method: "username_password",
+        purpose: "configuration_read",
+        metadata: %{"purposes" => ["configuration_read"]}
       })
-    ]
+
+    resolver = fn _secret_id, _actor -> {:ok, "operator"} end
 
     assert {:ok, _summary} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
+             materialize([rule],
+               purpose: "configuration_read",
+               package: %{id: "pkg-config"},
+               username_resolver: resolver
              )
 
-    assert_receive {:reconcile, policy, input_defs, _opts}
-    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
-    assert policy.params_template["auto_discovery_enabled"] == false
+    assert_receive {:reconcile, policy, _input_defs, _opts}
+    assert policy.params_template["username"] == "operator"
+    assert policy.params_template["password_secret_ref"] =~ "credentialref:"
+    assert policy.params_template["credential_broker"]["resolution_location"] == "control_plane"
   end
 
-  test "reconcile_rules reports insecure Proxmox policy as a stable skip before grant issuance" do
-    rules = [
-      credential_rule(%{
-        id: "insecure-proxmox",
-        tls_policy: :skip_verify
-      })
-    ]
+  test "manifest transport constraints fail closed before grant issuance" do
+    rule = credential_rule(%{tls_policy: :skip_verify})
 
     grant_issuer = fn _attrs ->
       send(self(), :grant_issued)
       {:error, :unexpected_grant}
     end
 
-    assert {:ok, summary} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               grant_issuer: grant_issuer,
-               test_pid: self()
-             )
-
-    assert summary == %{
-             rules: 1,
-             resolved_inputs: 0,
-             desired_assignments: 0,
-             upserted: 0,
-             unchanged: 0,
-             disabled: 0,
-             skips: %{proxmox_tls_verification_required: 1}
-           }
-
-    refute_receive :grant_issued
-    refute_receive {:reconcile, _policy, _input_defs, _opts}
-  end
-
-  test "reconcile_rules builds Proxmox console plugin policies from console credential rules" do
-    rules = [
-      credential_rule(%{
-        id: "console-rule",
-        purpose: :console_access,
-        auth_method: :ssh_private_key,
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-5555-7666-8777-123456789abc",
-        ssh_host_key_policy: :trust_on_first_use,
-        metadata: %{
-          "timeout_ms" => 20_000,
-          "interval_seconds" => 900,
-          "timeout_seconds" => 20,
-          "chunk_size" => 10
-        }
-      })
-    ]
-
-    assert {:ok, summary} =
-             PluginAssignmentMaterializer.reconcile_rules(
-               rules,
-               "agent-a",
-               %{id: "pkg-proxmox-console"},
-               purpose: :console_access,
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
-             )
-
+    assert {:ok, summary} = materialize([rule], grant_issuer: grant_issuer)
     assert summary.rules == 1
-    assert_receive {:reconcile, policy, input_defs, opts}
-
-    assert policy.policy_id == "network-credential-rule:console-rule:console_access"
-    assert policy.plugin_package_id == "pkg-proxmox-console"
-    assert policy.interval_seconds == 900
-    assert policy.timeout_seconds == 20
-    assert opts[:chunk_size] == 10
-    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
-
-    assert %{
-             "credential_broker" => %{
-               "credential_secret_ref" => ref,
-               "credential_rule_id" => "console-rule",
-               "grant_type" => "proxmox_console",
-               "auth_method" => "ssh_private_key"
-             },
-             "credential_secret" => ref,
-             "credential_rule_id" => "console-rule",
-             "ssh_host_key_policy" => "trust_on_first_use",
-             "timeout_ms" => 20_000
-           } = policy.params_template
-
-    assert ref == "credentialref:network-credential-secret:018f3f56-5555-7666-8777-123456789abc"
-    broker = policy.params_template["credential_broker"]
-    assert is_binary(broker["grant_id"])
-    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
-    refute Map.has_key?(policy.params_template, "include_guests")
-    refute Map.has_key?(policy.params_template, "auto_discovery_enabled")
+    assert summary.skips == %{credential_tls_policy_not_allowed: 1}
+    refute_receive :grant_issued
+    refute_receive {:reconcile, _policy, _inputs, _opts}
   end
 
-  test "reconcile_rules does not build console policies from inventory-only API-token rules" do
+  test "priority and agent scope select one authoritative rule" do
     rules = [
+      credential_rule(%{id: "winner", priority: 10}),
+      credential_rule(%{id: "lower", priority: 50}),
       credential_rule(%{
-        id: "shared-proxmox-api-rule",
-        purpose: :inventory_enrichment,
-        auth_method: :proxmox_api_token,
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "secret-proxmox-api-shared"
+        id: "disabled",
+        enabled: false,
+        target_query: "in:devices disabled:true"
+      }),
+      credential_rule(%{
+        id: "other-agent",
+        scope_value: "agent-b",
+        target_query: "in:devices other:true"
       })
     ]
 
-    assert {:ok, summary} =
-             PluginAssignmentMaterializer.reconcile_rules(
-               rules,
-               "agent-a",
-               %{id: "pkg-proxmox-console"},
-               purpose: :console_access,
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
-             )
+    assert {:ok, %{rules: 1}} = materialize(rules)
 
-    assert summary.rules == 0
-    refute_receive {:reconcile, _policy, _input_defs, _opts}
+    assert_receive {:reconcile, %{policy_id: "network-credential-rule:winner:device_inventory"},
+                    _, _}
+
+    refute_receive {:reconcile, _, _, _}
   end
 
-  test "materialized policy output is compatible with plugin inputs planner payloads" do
-    rules = [
-      %{
-        "id" => "rule-2",
-        "secret_id" => "018f3f56-2222-7333-8444-123456789abc",
-        "target_query" => "in:devices vendor:Proxmox",
-        "metadata" => %{}
-      }
-    ]
+  test "equal-priority rules for the same query fail closed" do
+    rules = [credential_rule(%{id: "one"}), credential_rule(%{id: "two"})]
 
-    package = %{"id" => "pkg-proxmox"}
+    assert {:error, {:equal_priority_credential_rule_conflict, "in:devices vendor:Example", 100}} =
+             materialize(rules)
 
-    assert {:ok, _summary} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", package,
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
-             )
+    refute_receive {:reconcile, _, _, _}
+  end
 
+  test "materialized output remains compatible with the plugin-input contract" do
+    assert {:ok, _summary} = materialize([credential_rule(%{})])
     assert_receive {:reconcile, policy, _input_defs, _opts}
 
     payload = %{
@@ -281,7 +172,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
         %{
           "name" => "targets",
           "entity" => "devices",
-          "query" => "in:devices vendor:Proxmox",
+          "query" => "in:devices vendor:Example",
           "chunk_index" => 0,
           "chunk_total" => 1,
           "chunk_hash" => String.duplicate("a", 64),
@@ -293,98 +184,40 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert :ok = PluginInputs.validate(payload)
   end
 
-  test "reconcile_rules applies priority, disabled, and agent scope selection before materializing" do
-    rules = [
-      credential_rule(%{
-        id: "winner",
-        priority: 10,
-        scope_type: :agent,
-        scope_value: "agent-a",
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-1111-7222-8333-123456789abc"
-      }),
-      credential_rule(%{
-        id: "lower-priority",
-        priority: 50,
-        scope_type: :agent,
-        scope_value: "agent-a",
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-2222-7333-8444-123456789abc"
-      }),
-      credential_rule(%{
-        id: "disabled",
-        enabled: false,
-        priority: 1,
-        scope_type: :agent,
-        scope_value: "agent-a",
-        target_query: "in:devices vendor:disabled",
-        secret_id: "018f3f56-3333-7444-8555-123456789abc"
-      }),
-      credential_rule(%{
-        id: "wrong-agent",
-        priority: 1,
-        scope_type: :agent,
-        scope_value: "agent-b",
-        target_query: "in:devices vendor:wrong-agent",
-        secret_id: "018f3f56-4444-7555-8666-123456789abc"
-      })
-    ]
+  defp materialize(rules, opts \\ []) do
+    purpose = Keyword.get(opts, :purpose, "device_inventory")
+    package = Keyword.get(opts, :package, %{id: "pkg-example"})
 
-    assert {:ok, summary} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
-             )
-
-    assert summary.rules == 1
-    assert_receive {:reconcile, policy, input_defs, _opts}
-    assert policy.policy_id == "network-credential-rule:winner"
-    assert hd(input_defs).query == "in:devices metadata.proxmox_candidate:true"
-
-    refute_receive {:reconcile, %{policy_id: "network-credential-rule:lower-priority"}, _, _}
-    refute_receive {:reconcile, %{policy_id: "network-credential-rule:disabled"}, _, _}
-    refute_receive {:reconcile, %{policy_id: "network-credential-rule:wrong-agent"}, _, _}
-  end
-
-  test "reconcile_rules rejects equal-priority credential conflicts for the same target query" do
-    rules = [
-      credential_rule(%{
-        id: "one",
-        priority: 10,
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-1111-7222-8333-123456789abc"
-      }),
-      credential_rule(%{
-        id: "two",
-        priority: 10,
-        target_query: "in:devices metadata.proxmox_candidate:true",
-        secret_id: "018f3f56-2222-7333-8444-123456789abc"
-      })
-    ]
-
-    assert {:error,
-            {:equal_priority_credential_rule_conflict,
-             "in:devices metadata.proxmox_candidate:true", 10}} =
-             PluginAssignmentMaterializer.reconcile_rules(rules, "agent-a", %{id: "pkg-proxmox"},
-               reconciler: FakeReconciler,
-               actor: %{id: "system"},
-               test_pid: self()
-             )
-
-    refute_receive {:reconcile, _, _, _}
+    PluginAssignmentMaterializer.reconcile_rules(
+      rules,
+      "agent-a",
+      package,
+      Keyword.merge(
+        [
+          profile: profile(),
+          purpose: purpose,
+          reconciler: FakeReconciler,
+          actor: %{id: "system"},
+          test_pid: self()
+        ],
+        Keyword.drop(opts, [:purpose, :package])
+      )
+    )
   end
 
   defp credential_rule(attrs) do
     Map.merge(
       %{
-        id: "rule",
+        id: "rule-1",
         secret_id: "018f3f56-1111-7222-8333-123456789abc",
         enabled: true,
         priority: 100,
-        purpose: :inventory_enrichment,
-        target_query: "in:devices",
+        provider: "example-network",
+        auth_method: "api_token",
+        purpose: "device_inventory",
+        target_query: "in:devices vendor:Example",
         tls_policy: :verify,
+        ssh_host_key_policy: :known_hosts,
         scope_type: :agent,
         scope_value: "agent-a",
         metadata: %{}
@@ -392,4 +225,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
       attrs
     )
   end
+
+  defp profile, do: CredentialIntegrationFixtures.target_policy_profile()
 end

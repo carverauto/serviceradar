@@ -9,7 +9,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
   """
 
   alias ServiceRadar.Credentials.NetworkCredentialRule
-  alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
+  alias ServiceRadar.Credentials.RuleAccessors
   alias ServiceRadar.Plugins.PluginAssignment
 
   require Ash.Query
@@ -256,7 +256,7 @@ defmodule ServiceRadar.Inventory.ProxmoxSourceScopeResolver do
       field(rule, :provider) != "proxmox" ->
         {:error, :credential_rule_provider_mismatch}
 
-      not ProxmoxProfile.rule_has_purpose?(rule, purpose) ->
+      Atom.to_string(purpose) not in RuleAccessors.rule_purposes(rule) ->
         {:error, :credential_rule_purpose_mismatch}
 
       true ->

@@ -1,13 +1,25 @@
 ## ADDED Requirements
 
 ### Requirement: Package-driven credential and assignment configuration
-The plugin configuration experience SHALL build external integration provider options, labels, auth methods, purposes, eligible scopes, and schedule binding from approved package descriptors without provider-specific UI branches.
+The plugin configuration experience SHALL build integration provider options, labels, auth methods, bounded secret fields, purposes, eligible scopes, target-policy consumers, and schedule binding from approved package descriptors without provider-specific UI or native-profile branches.
 
 #### Scenario: Administrator configures a package integration
 - **GIVEN** an approved package declares one credential profile
 - **WHEN** an administrator selects its provider
 - **THEN** the UI SHALL collect or reference a compatible encrypted credential and eligible target scope
 - **AND** the saved rule SHALL identify the package integration without plaintext secret material
+
+#### Scenario: New package defines its credential shape
+- **GIVEN** an approved package declares a valid auth method and bounded secret fields
+- **WHEN** an administrator creates its credential
+- **THEN** the generic credential form SHALL render the package labels and required controls
+- **AND** no provider name or field SHALL be added to core/web-ng source
+
+#### Scenario: First-party Wasm package owns its complete profile
+- **GIVEN** a first-party Wasm package declares a credential profile and one or more runtime consumers
+- **WHEN** the package is approved
+- **THEN** the same manifest SHALL drive credential creation, rule defaults, grant materialization, plugin selection, and documentation
+- **AND** core SHALL NOT register a provider module or dedicated reconciliation worker for it
 
 #### Scenario: Package is revoked
 - **GIVEN** an existing credential rule was provisioned from a package descriptor

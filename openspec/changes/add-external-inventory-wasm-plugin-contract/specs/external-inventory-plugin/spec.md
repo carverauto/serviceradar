@@ -8,6 +8,7 @@ The system SHALL support signed external Go/TinyGo Wasm packages that acquire pr
 - **WHEN** the agent executes the package action
 - **THEN** the plugin SHALL use only approved configuration and host capabilities
 - **AND** its inventory SHALL enter ServiceRadar through normal plugin-result ingestion
+- **AND** any source credential or derived access token SHALL remain inside trusted host adapters
 
 #### Scenario: Unapproved capability is requested
 - **GIVEN** the package was not approved for a requested host capability or endpoint
@@ -16,7 +17,7 @@ The system SHALL support signed external Go/TinyGo Wasm packages that acquire pr
 - **AND** no inventory snapshot SHALL be activated
 
 ### Requirement: Package-owned integration declaration
-An external inventory package SHALL own its provider identity, config JSON Schema, operator documentation, credential profile, producer-schedule binding, inventory source label, source metadata display fields, and provider tests. Core SHALL consume only a bounded validated declarative descriptor and SHALL NOT require provider-specific modules or static catalog entries.
+An external inventory package SHALL own its provider identity, config JSON Schema, operator documentation, credential profile and field schema, producer-schedule binding, inventory source label, source metadata display fields, and provider tests. Core SHALL consume only a bounded validated declarative descriptor and SHALL NOT require provider-specific modules, provider allowlists, forms, or static catalog entries.
 
 #### Scenario: New provider package is approved
 - **GIVEN** a signed package declares a valid unique provider, schedule binding, inventory source, config schema, and bundled documentation

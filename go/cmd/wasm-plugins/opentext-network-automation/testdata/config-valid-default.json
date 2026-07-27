@@ -1,0 +1,5 @@
+{
+  "instance_id": "network-automation-prod",
+  "token_url": "https://nnm.example.com/idp/oauth2/token",
+  "api_url": "https://na.example.com/nom/api/automation/v1/wrapper"
+}

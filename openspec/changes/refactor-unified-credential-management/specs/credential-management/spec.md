@@ -15,26 +15,37 @@ The system SHALL provide a single operator-facing credentials area for reusable 
 - **THEN** the UI SHALL show only matching credentials and rules
 - **AND** it SHALL keep provider labels stable and human-readable
 
-### Requirement: Provider preset selection
-The system SHALL use provider presets for supported credential types instead of requiring free-text provider and auth-method entry in the default workflow.
+### Requirement: Descriptor-driven credential selection
+The system SHALL build Wasm integration provider, authentication, secret-field, rule, and runtime-consumer choices from approved signed package descriptors. Core and web-ng SHALL NOT maintain provider-specific menus, module registries, allowlists, forms, serializers, defaults, grant builders, parameter builders, workers, or documentation links for Wasm providers.
 
-#### Scenario: Create AWX token secret
-- **GIVEN** an admin selects provider `AWX / Ansible`
-- **WHEN** the admin chooses API token authentication and saves a token
-- **THEN** the system SHALL create an encrypted credential secret with provider `awx`
-- **AND** the UI SHALL show a redacted token status and generated secret ID only as advanced metadata
+#### Scenario: Approved descriptor becomes selectable
+- **GIVEN** an approved package publishes a valid credential descriptor
+- **WHEN** an admin opens the credential provider menu
+- **THEN** the descriptor label and auth methods SHALL be selectable
+- **AND** no provider-specific core or web-ng source change SHALL be required
 
-#### Scenario: Create Proxmox API token secret
-- **GIVEN** an admin selects provider `Proxmox VE`
-- **WHEN** the admin chooses API token authentication
-- **THEN** the form SHALL request user, realm, token ID, token secret, and TLS policy
-- **AND** it SHALL store the token payload encrypted at rest
+#### Scenario: Wasm provider has no native fallback
+- **GIVEN** a Wasm provider package is absent, unapproved, revoked, or invalid
+- **WHEN** the catalog and materializer are loaded
+- **THEN** that provider SHALL NOT be supplied by a compiled native profile or static registry
+- **AND** stale package-owned assignments SHALL fail closed or be disabled
 
-#### Scenario: Advanced custom provider
-- **GIVEN** a provider is not yet modeled as a preset
-- **WHEN** an admin enables advanced custom provider mode
-- **THEN** the UI MAY allow free-text provider/auth metadata
-- **AND** it SHALL mark the credential as custom and require explicit redaction/payload handling
+#### Scenario: Descriptor fields create an encrypted credential
+- **GIVEN** the selected auth descriptor declares bounded required and secret fields
+- **WHEN** the admin submits valid values
+- **THEN** the system SHALL serialize the fields into a versioned encrypted credential payload
+- **AND** it SHALL expose only fields explicitly marked as public metadata
+
+#### Scenario: Package declares target-policy consumers
+- **GIVEN** an approved package declares bounded target-policy consumers for its purposes and auth methods
+- **WHEN** an enabled credential rule is reconciled
+- **THEN** core SHALL validate and interpret the declared plugin ID, grant, constraints, and public parameter template
+- **AND** no provider module SHALL execute inside core
+
+#### Scenario: Undeclared provider is submitted
+- **WHEN** a client submits a provider, auth method, field, or control absent from the validated catalog
+- **THEN** the system SHALL reject the request
+- **AND** it SHALL not persist partial secret material
 
 ### Requirement: Inline secret creation for credential rules
 Credential rule creation SHALL allow admins to create or rotate the referenced encrypted secret inline while preserving the ability to select an existing secret.
@@ -66,5 +77,5 @@ Credential rule UI copy and docs links SHALL describe rules as scoped credential
 #### Scenario: Open new credential rule form
 - **GIVEN** an admin opens the new credential rule form
 - **WHEN** no provider has been selected yet
-- **THEN** the form SHALL ask for a provider preset before showing provider-specific fields
-- **AND** it SHALL NOT default to Proxmox-specific language or target queries unless Proxmox is selected
+- **THEN** the form SHALL ask for a catalog provider before showing descriptor fields
+- **AND** it SHALL NOT default to provider-specific language or target queries before a descriptor is selected
