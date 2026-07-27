@@ -79,8 +79,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
               <div class="text-xs text-base-content/60 mb-2">
                 Recent Sweep History ({@total} results)
               </div>
-              <div class="overflow-x-auto">
-                <table class="table table-xs">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "xs")}>
                   <thead>
                     <tr class="text-xs text-base-content/60">
                       <th>Time</th>
@@ -160,14 +160,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
           <span class="text-sm font-semibold">IP Aliases</span>
           <span class="text-xs text-base-content/50">({@alias_count})</span>
         </div>
-        <button
-          type="button"
-          phx-click="toggle_aliases"
-          class="btn btn-ghost btn-xs"
-          aria-pressed={@show_stale}
-        >
+        <.ui_button type="button" phx-click="toggle_aliases" aria-pressed={@show_stale} size="xs" variant="ghost">
           {@toggle_label}
-        </button>
+        </.ui_button>
       </div>
 
       <div class="p-4">
@@ -180,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
         </div>
 
         <div :if={!is_binary(@error) and @aliases != []} class="overflow-x-auto">
-          <table class="table table-xs">
+          <table class={ui_table_class(size: "xs")}>
             <thead>
               <tr class="text-xs text-base-content/60">
                 <th>IP Address</th>
@@ -194,12 +189,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                 <tr class="hover:bg-base-200/40">
                   <td class="font-mono text-xs">{alias_state.alias_value}</td>
                   <td>
-                    <span class={[
-                      "badge badge-sm",
-                      alias_state_class(alias_state.state)
-                    ]}>
+                    <.ui_badge size="sm" variant={alias_state_variant(alias_state.state)}>
                       {alias_state_label(alias_state.state)}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="text-xs tabular-nums">{alias_state.sighting_count || 0}</td>
                   <td class="font-mono text-xs">{format_alias_time(alias_state.last_seen_at)}</td>
@@ -297,19 +289,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
     |> String.capitalize()
   end
 
-  @alias_state_classes %{
-    "confirmed" => "badge-success",
-    "detected" => "badge-info",
-    "updated" => "badge-warning",
-    "stale" => "badge-neutral",
-    "replaced" => "badge-ghost",
-    "archived" => "badge-ghost"
+  @alias_state_variants %{
+    "confirmed" => "success",
+    "detected" => "info",
+    "updated" => "warning",
+    "stale" => "ghost",
+    "replaced" => "ghost",
+    "archived" => "ghost"
   }
 
-  defp alias_state_class(state) do
+  defp alias_state_variant(state) do
     state
     |> normalize_alias_state()
-    |> then(&Map.get(@alias_state_classes, &1, "badge-outline"))
+    |> then(&Map.get(@alias_state_variants, &1, "outline"))
   end
 
   defp normalize_alias_state(nil), do: ""

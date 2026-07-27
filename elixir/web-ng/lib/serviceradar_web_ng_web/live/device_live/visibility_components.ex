@@ -155,10 +155,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         <div class="flex items-center gap-2">
           <.icon name="hero-eye" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Network Visibility</span>
-          <span :if={@has_fingerprints} class="badge badge-ghost badge-sm">
+          <.ui_badge :if={@has_fingerprints} size="sm" variant="ghost">
             Passive fingerprint
-          </span>
-          <span :if={@has_dpi} class="badge badge-info badge-sm">DPI</span>
+          </.ui_badge>
+          <.ui_badge :if={@has_dpi} size="sm" variant="info">DPI</.ui_badge>
         </div>
       </div>
 
@@ -171,9 +171,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
               {fingerprint.protocol}
             </span>
-            <span :if={fingerprint.source} class="badge badge-ghost badge-xs">
+            <.ui_badge :if={fingerprint.source} size="xs" variant="ghost">
               {fingerprint.source}
-            </span>
+            </.ui_badge>
           </div>
           <div class="space-y-1.5 text-sm">
             <.metadata_kv
@@ -190,9 +190,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
               DPI {dpi.protocol}
             </span>
-            <span :if={dpi.source} class="badge badge-info badge-xs">
+            <.ui_badge :if={dpi.source} size="xs" variant="info">
               {dpi.source}
-            </span>
+            </.ui_badge>
           </div>
           <div class="space-y-1.5 text-sm">
             <.metadata_kv
@@ -228,9 +228,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           <div class="flex flex-wrap items-center gap-2">
             <.icon name="hero-finger-print" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Active OS fingerprint</span>
-            <span :if={@summary.source} class="badge badge-ghost badge-sm">
+            <.ui_badge :if={@summary.source} size="sm" variant="ghost">
               {@summary.source}
-            </span>
+            </.ui_badge>
           </div>
         </div>
         <div class="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -248,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           <div class="flex flex-wrap items-center gap-2">
             <.icon name="hero-server-stack" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Banner-grab matches</span>
-            <span :if={@has_rows} class="badge badge-info badge-sm">{length(@rows)}</span>
+            <.ui_badge :if={@has_rows} size="sm" variant="info">{length(@rows)}</.ui_badge>
           </div>
         </div>
 
@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         </div>
 
         <div :if={@has_rows} class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Protocol</th>
@@ -272,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <tbody>
               <tr :for={row <- @rows}>
                 <td>
-                  <span class="badge badge-ghost badge-sm">{row.protocol}</span>
+                  <.ui_badge size="sm" variant="ghost">{row.protocol}</.ui_badge>
                 </td>
                 <td class="font-mono text-xs">{row.port}</td>
                 <td>{row.product}</td>
@@ -315,9 +315,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           <div class="flex items-center gap-2">
             <.icon name="hero-command-line" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Process Listeners</span>
-            <span :if={@row_count > 0} class="badge badge-ghost badge-sm">
+            <.ui_badge :if={@row_count > 0} size="sm" variant="ghost">
               {@row_count} sockets
-            </span>
+            </.ui_badge>
           </div>
           <div
             :if={metadata_present?(@snapshot.fingerprint) or metadata_present?(@snapshot.observed_at)}
@@ -362,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       </div>
 
       <div :if={@pagination.filtered_total > 0} class="overflow-x-auto">
-        <table class="table table-sm">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th>Endpoint</th>
@@ -378,9 +378,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <tr :for={row <- @rows}>
               <td class="font-mono text-xs">{process_listener_endpoint(row)}</td>
               <td>
-                <span class="badge badge-outline badge-sm uppercase">
+                <.ui_badge size="sm" variant="outline" class="uppercase">
                   {default_display(row.transport_protocol)}
-                </span>
+                </.ui_badge>
               </td>
               <td class="font-medium">{default_display(row.comm)}</td>
               <td class="font-mono text-xs">

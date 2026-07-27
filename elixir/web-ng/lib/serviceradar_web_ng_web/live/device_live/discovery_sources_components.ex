@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
       </div>
 
       <div :if={@has_source_observations} class="overflow-x-auto border-t border-base-200">
-        <table class="table table-sm w-full">
+        <table class={ui_table_class(size: "sm", class: "w-full")}>
           <thead>
             <tr>
               <th>Source</th>
@@ -102,7 +102,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
                 </div>
               </td>
               <td>
-                <span class={source_state_class(observation)}>{source_state(observation)}</span>
+                <.ui_badge size="sm" variant={source_state_variant(observation)}>
+                  {source_state(observation)}
+                </.ui_badge>
               </td>
               <td class="font-mono text-xs">
                 {observation_value(observation, "last_observed_at")}
@@ -360,12 +362,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
     if observation_value(observation, "present") == true, do: "Current", else: "Absent"
   end
 
-  defp source_state_class(observation) do
-    base = "badge badge-sm"
-
-    if observation_value(observation, "present") == true,
-      do: base <> " badge-success",
-      else: base <> " badge-warning"
+  defp source_state_variant(observation) do
+    if observation_value(observation, "present") == true, do: "success", else: "warning"
   end
 
   defp observation_value(observation, key) when is_map(observation) do

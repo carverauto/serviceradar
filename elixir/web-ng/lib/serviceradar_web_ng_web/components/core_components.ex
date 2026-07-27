@@ -57,23 +57,34 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class="fixed right-4 top-4 z-[var(--sr-z-toast,50)]"
       {@rest}
     >
       <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
+        "flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-sr-surface border p-3.5 text-sm text-wrap shadow-sr-raised sm:w-96",
+        @kind == :info && "border-sky-500/30 bg-sr-raised text-sr-ink",
+        @kind == :error && "border-rose-500/35 bg-sr-raised text-sr-ink"
       ]}>
-        <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
-        <div>
-          <p :if={@title} class="font-semibold">{@title}</p>
-          <p>{msg}</p>
+        <.icon
+          :if={@kind == :info}
+          name="hero-information-circle"
+          class="size-5 shrink-0 text-sky-600 dark:text-sky-300"
+        />
+        <.icon
+          :if={@kind == :error}
+          name="hero-exclamation-circle"
+          class="size-5 shrink-0 text-rose-600 dark:text-rose-300"
+        />
+        <div class="min-w-0 flex-1">
+          <p :if={@title} class="font-semibold text-sr-ink">{@title}</p>
+          <p class="text-sr-muted">{msg}</p>
         </div>
-        <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
-          <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
+        <button
+          type="button"
+          class="group shrink-0 cursor-pointer rounded-sr-small p-0.5 text-sr-muted outline-none hover:text-sr-ink focus-visible:ring-2 focus-visible:ring-sr-focus"
+          aria-label={gettext("close")}
+        >
+          <.icon name="hero-x-mark" class="size-5 opacity-60 group-hover:opacity-100" />
         </button>
       </div>
     </div>
@@ -95,11 +106,17 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
-    variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
+    # Token-based defaults (shared with marketing/control). Callers may override via class=.
+    variants = %{
+      "primary" =>
+        "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-sr-control border border-transparent bg-sr-brand px-3.5 text-sm font-semibold text-sr-on-brand shadow-sr-button outline-none transition-[transform,background-color] duration-200 ease-sr-out hover:bg-sr-brand-strong focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
+      nil =>
+        "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-sr-control border border-sr-line bg-sr-subtle px-3.5 text-sm font-semibold text-sr-brand shadow-sr-control outline-none transition-[transform,background-color,border-color] duration-200 ease-sr-out hover:border-sr-line-hover hover:bg-sr-control focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px disabled:pointer-events-none disabled:opacity-50"
+    }
 
     assigns =
       assign_new(assigns, :class, fn ->
-        ["btn", Map.fetch!(variants, assigns[:variant])]
+        Map.fetch!(variants, assigns[:variant])
       end)
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
@@ -208,8 +225,8 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
       end)
 
     ~H"""
-    <div class={@wrapper_class || "fieldset mb-2"}>
-      <label>
+    <div class={@wrapper_class || "mb-3 grid gap-1.5"}>
+      <label class="flex min-h-11 cursor-pointer items-start gap-3 text-sm text-sr-ink">
         <input
           type="hidden"
           name={@name}
@@ -217,17 +234,19 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
           disabled={@rest[:disabled]}
           form={@rest[:form]}
         />
-        <span class={@label_class || "label"}>
-          <input
-            type="checkbox"
-            id={@id}
-            name={@name}
-            value="true"
-            checked={@checked}
-            class={@class || "checkbox checkbox-sm"}
-            {@rest}
-          />{@label}
-        </span>
+        <input
+          type="checkbox"
+          id={@id}
+          name={@name}
+          value="true"
+          checked={@checked}
+          class={
+            @class ||
+              "mt-0.5 size-4 shrink-0 rounded border-sr-line-strong text-sr-brand accent-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus"
+          }
+          {@rest}
+        />
+        <span :if={@label} class={@label_class || "pt-0.5 font-medium"}>{@label}</span>
       </label>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
@@ -236,13 +255,16 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div class={@wrapper_class || "fieldset mb-2"}>
-      <label>
-        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
+    <div class={@wrapper_class || "mb-3 grid gap-1.5"}>
+      <label class="grid gap-1.5">
+        <span :if={@label} class={@label_class || "text-sm font-medium text-sr-ink"}>{@label}</span>
         <select
           id={@id}
           name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
+          class={[
+            @class || sr_field_class(),
+            @errors != [] && (@error_class || sr_field_error_class())
+          ]}
           multiple={@multiple}
           {@rest}
         >
@@ -257,15 +279,15 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class={@wrapper_class || "fieldset mb-2"}>
-      <label>
-        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
+    <div class={@wrapper_class || "mb-3 grid gap-1.5"}>
+      <label class="grid gap-1.5">
+        <span :if={@label} class={@label_class || "text-sm font-medium text-sr-ink"}>{@label}</span>
         <textarea
           id={@id}
           name={@name}
           class={[
-            @class || "w-full textarea",
-            @errors != [] && (@error_class || "textarea-error")
+            @class || [sr_field_class(), "min-h-24 py-2.5"],
+            @errors != [] && (@error_class || sr_field_error_class())
           ]}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
@@ -278,17 +300,17 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div class={@wrapper_class || "fieldset mb-2"}>
-      <label>
-        <span :if={@label} class={@label_class || "label mb-1"}>{@label}</span>
+    <div class={@wrapper_class || "mb-3 grid gap-1.5"}>
+      <label class="grid gap-1.5">
+        <span :if={@label} class={@label_class || "text-sm font-medium text-sr-ink"}>{@label}</span>
         <input
           type={@type}
           name={@name}
           id={@id}
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
           class={[
-            @class || "w-full input",
-            @errors != [] && (@error_class || "input-error")
+            @class || sr_field_class(),
+            @errors != [] && (@error_class || sr_field_error_class())
           ]}
           {@rest}
         />
@@ -298,11 +320,19 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
     """
   end
 
+  defp sr_field_class do
+    "w-full min-h-11 rounded-sr-control border border-sr-line bg-sr-control px-3.5 text-sm text-sr-ink shadow-sr-control outline-none transition-[border-color,box-shadow] duration-200 ease-sr-out placeholder:text-sr-muted focus-visible:border-sr-line-hover focus-visible:ring-2 focus-visible:ring-sr-focus disabled:cursor-not-allowed disabled:opacity-60"
+  end
+
+  defp sr_field_error_class do
+    "border-rose-500/60 focus-visible:ring-rose-500/30"
+  end
+
   # Helper used by inputs to generate form errors
   defp error(assigns) do
     ~H"""
-    <p class="mt-1.5 flex gap-2 items-center text-sm text-error">
-      <.icon name="hero-exclamation-circle" class="size-5" />
+    <p class="mt-0.5 flex items-center gap-2 text-sm text-rose-600 dark:text-rose-300">
+      <.icon name="hero-exclamation-circle" class="size-5 shrink-0" />
       {render_slot(@inner_block)}
     </p>
     """
@@ -363,34 +393,36 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
       end
 
     ~H"""
-    <table class="table table-zebra">
-      <thead>
-        <tr>
-          <th :for={col <- @col}>{col[:label]}</th>
-          <th :if={@action != []}>
-            <span class="sr-only">{gettext("Actions")}</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody id={@id} phx-update={is_struct(@rows, Phoenix.LiveView.LiveStream) && "stream"}>
-        <tr :for={row <- @rows} id={@row_id && @row_id.(row)}>
-          <td
-            :for={col <- @col}
-            phx-click={@row_click && @row_click.(row)}
-            class={@row_click && "hover:cursor-pointer"}
-          >
-            {render_slot(col, @row_item.(row))}
-          </td>
-          <td :if={@action != []} class="w-0 font-semibold">
-            <div class="flex gap-4">
-              <%= for action <- @action do %>
-                {render_slot(action, @row_item.(row))}
-              <% end %>
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="sr-ui-table-shell">
+      <table class={ServiceRadarWebNGWeb.UIComponents.ui_table_class(size: "sm", zebra: true)}>
+        <thead>
+          <tr>
+            <th :for={col <- @col}>{col[:label]}</th>
+            <th :if={@action != []}>
+              <span class="sr-only">{gettext("Actions")}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody id={@id} phx-update={is_struct(@rows, Phoenix.LiveView.LiveStream) && "stream"}>
+          <tr :for={row <- @rows} id={@row_id && @row_id.(row)}>
+            <td
+              :for={col <- @col}
+              phx-click={@row_click && @row_click.(row)}
+              class={@row_click && "hover:cursor-pointer"}
+            >
+              {render_slot(col, @row_item.(row))}
+            </td>
+            <td :if={@action != []} class="w-0 font-semibold">
+              <div class="flex gap-4">
+                <%= for action <- @action do %>
+                  {render_slot(action, @row_item.(row))}
+                <% end %>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     """
   end
 

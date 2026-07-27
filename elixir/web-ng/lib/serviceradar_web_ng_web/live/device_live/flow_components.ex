@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
     ~H"""
     <div class="space-y-4">
       <div :if={@loading} class="rounded-xl border border-base-200 bg-base-100 p-8 text-center">
-        <span class="loading loading-spinner loading-md text-primary"></span>
+        <.ui_spinner size="md" />
         <p class="mt-3 text-sm font-semibold">Loading recent flows</p>
         <p class="mt-1 text-xs text-base-content/60">
           Searching this device's last 24 hours of flow data.
@@ -223,16 +223,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       >
         <.icon name="hero-magnifying-glass-plus-solid" class="size-4 text-info" />
         <span class="text-base-content/70">Zoomed to</span>
-        <span class="badge badge-info badge-sm font-mono">
+        <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.start, 0, 19)}
-        </span>
+        </.ui_badge>
         <span class="text-base-content/50">&rarr;</span>
-        <span class="badge badge-info badge-sm font-mono">
+        <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.end, 0, 19)}
-        </span>
-        <button phx-click="clear_zoom" class="ml-auto btn btn-ghost btn-xs text-error">
+        </.ui_badge>
+        <.ui_button phx-click="clear_zoom" size="xs" variant="ghost" class="ml-auto text-error">
           <.icon name="hero-x-mark-mini" class="size-3.5" /> Reset
-        </button>
+        </.ui_button>
       </div>
       <div
         :if={@active_topn}
@@ -241,10 +241,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         <.icon name="hero-funnel-solid" class="size-4 text-primary" />
         <span class="text-base-content/70">Filtered by</span>
         <span class="font-semibold">{@active_topn.field}:</span>
-        <span class="badge badge-primary badge-sm">{@active_topn.value}</span>
-        <button phx-click="clear_topn_filter" class="ml-auto btn btn-ghost btn-xs text-error">
+        <.ui_badge size="sm" variant="primary">{@active_topn.value}</.ui_badge>
+        <.ui_button phx-click="clear_topn_filter" size="xs" variant="ghost" class="ml-auto text-error">
           <.icon name="hero-x-mark-mini" class="size-3.5" /> Clear
-        </button>
+        </.ui_button>
       </div>
 
       <.flow_table

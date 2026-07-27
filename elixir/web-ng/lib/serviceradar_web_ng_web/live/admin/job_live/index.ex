@@ -316,12 +316,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                   name="search"
                   value={@search}
                   placeholder="Search jobs..."
-                  class="input input-sm input-bordered w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   phx-debounce="300"
                 />
               </form>
               <form phx-change="filter">
-                <select name="source" class="select select-sm select-bordered">
+                <select name="source" class={ui_field_class(size: "sm")}>
                   <option value="">All Sources</option>
                   <option value="cron_plugin" selected={@filter_source == :cron_plugin}>
                     Cron Jobs
@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th

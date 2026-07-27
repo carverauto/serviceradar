@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <div class="sr-observability-page mx-auto max-w-screen-2xl space-y-6 px-4 py-6 font-sans sm:px-6 lg:px-8">
         <.observability_chrome active_pane="bgp" />
         
     <!-- Header -->
@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             <select
               phx-change="change_time_range"
               name="time_range"
-              class="select select-sm select-bordered"
+              class={ui_field_class(size: "sm")}
             >
               <option value="last_1h" selected={@time_range == "last_1h"}>Last 1 Hour</option>
               <option value="last_6h" selected={@time_range == "last_6h"}>Last 6 Hours</option>
@@ -195,7 +195,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             <select
               phx-change="change_source_protocol"
               name="source_protocol"
-              class="select select-sm select-bordered"
+              class={ui_field_class(size: "sm")}
             >
               <option value="all" selected={is_nil(@source_protocol)}>All Sources</option>
               <option value="netflow" selected={@source_protocol == "netflow"}>NetFlow</option>
@@ -207,25 +207,25 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             
     <!-- Clear Filters Button -->
             <%= if @selected_as || @selected_community do %>
-              <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
+              <.ui_button phx-click="clear_filters" size="sm" variant="ghost">
                 Clear Filters
-              </button>
+              </.ui_button>
             <% end %>
           </div>
         </div>
         
     <!-- Active Filters Display -->
         <%= if @selected_as || @selected_community do %>
-          <div class="alert alert-info">
+          <div class={ui_alert_class("info")}>
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">Active Filters:</span>
               <%= if @selected_as do %>
-                <span class="badge badge-primary">AS {@selected_as}</span>
+                <.ui_badge size="sm" variant="primary">AS {@selected_as}</.ui_badge>
               <% end %>
               <%= if @selected_community do %>
-                <span class="badge badge-primary">
+                <.ui_badge size="sm" variant="primary">
                   Community {format_community(@selected_community)}
-                </span>
+                </.ui_badge>
               <% end %>
             </div>
           </div>
@@ -234,9 +234,9 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
         <%= if @has_data do %>
           <!-- Export Button -->
           <div class="flex justify-end mb-4">
-            <button phx-click="export_csv" class="btn btn-sm btn-outline gap-2">
+            <.ui_button phx-click="export_csv" size="sm" variant="outline" class="gap-2">
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-            </button>
+            </.ui_button>
           </div>
           
     <!-- Data Sources Panel -->

@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <.input
                 type="text"
                 field={@form[:name]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., Network Infrastructure"
                 required
               />
@@ -71,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <.input
                 type="number"
                 field={@form[:poll_interval]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="60"
                 min="10"
               />
@@ -84,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <.input
                 type="number"
                 field={@form[:timeout]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="5"
                 min="1"
               />
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <.input
                 type="number"
                 field={@form[:retries]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="3"
                 min="0"
               />
@@ -106,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               placeholder="Optional description of this profile's purpose"
               rows="2"
             />
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               <.input
                 type="select"
                 field={@form[:version]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[
                   {"SNMPv1", "v1"},
                   {"SNMPv2c", "v2c"},
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 type="password"
                 name="form[community]"
                 value=""
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder={
                   if @show_form == :edit_profile,
                     do: "Leave blank to keep existing",
@@ -163,7 +163,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="text"
                   field={@form[:username]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder="e.g., snmpuser"
                 />
               </div>
@@ -172,7 +172,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="select"
                   field={@form[:security_level]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"No Auth, No Privacy", "no_auth_no_priv"},
                     {"Auth, No Privacy", "auth_no_priv"},
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="select"
                   field={@form[:auth_protocol]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"MD5", "md5"},
                     {"SHA", "sha"},
@@ -205,7 +205,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   type="password"
                   name="form[auth_password]"
                   value=""
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder={
                     if @show_form == :edit_profile,
                       do: "Leave blank to keep existing",
@@ -222,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="select"
                   field={@form[:priv_protocol]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"DES", "des"},
                     {"AES", "aes"},
@@ -237,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   type="password"
                   name="form[priv_password]"
                   value=""
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder={
                     if @show_form == :edit_profile,
                       do: "Leave blank to keep existing",
@@ -321,7 +321,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                   <.input
                     type="text"
                     field={@form[:target_query]}
-                    class="input input-bordered w-full font-mono text-sm"
+                    class={ui_field_class(mono: true, class: "w-full text-sm")}
                     placeholder="e.g., in:interfaces type:ethernet device.hostname:%router%"
                   />
                 </div>
@@ -473,7 +473,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 <.input
                   type="number"
                   field={@form[:priority]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   min="0"
                   max="100"
                 />
@@ -520,9 +520,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           
     <!-- Template Dropdown -->
           <div class="dropdown dropdown-bottom w-full max-w-md">
-            <div tabindex="0" role="button" class="btn btn-outline w-full justify-between">
-              <span>
-                <.icon name="hero-plus" class="size-4 mr-2" /> Add OID Template
+            <div
+              tabindex="0"
+              role="button"
+              class="inline-flex min-h-9 w-full cursor-pointer items-center justify-between rounded-sr-control border border-sr-line-strong bg-transparent px-3 text-sm font-semibold text-sr-ink hover:border-sr-line-hover hover:bg-sr-subtle"
+            >
+              <span class="inline-flex items-center">
+                <.icon name="hero-plus" class="mr-2 size-4" /> Add OID Template
               </span>
               <.icon name="hero-chevron-down" class="size-4" />
             </div>
@@ -595,8 +599,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           Legacy Manual Targets ({length(@targets)})
         </h3>
 
-        <div class="overflow-x-auto">
-          <table class="table table-sm opacity-75">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm", class: "opacity-75")}>
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Name</th>

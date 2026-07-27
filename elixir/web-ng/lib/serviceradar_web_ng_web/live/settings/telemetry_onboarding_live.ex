@@ -169,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
           <div
             :if={@grpc_endpoint == "" or @http_endpoint == ""}
             id="otlp-endpoints-unset-note"
-            class="alert alert-info text-sm"
+            class={ui_alert_class(variant: "info", class: "text-sm")}
           >
             <.icon name="hero-information-circle" class="size-5" />
             <span>
@@ -219,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             </p>
           </div>
 
-          <div class="alert alert-warning text-sm">
+          <div class={ui_alert_class(variant: "warning", class: "text-sm")}>
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span>
               Operator apply required: keys are Secret-mounted collector configuration
@@ -240,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 type="text"
                 name="key_form[identity]"
                 value={@identity}
-                class="input input-bordered input-sm w-48 font-mono"
+                class={ui_field_class(size: "sm", mono: true, class: "w-48")}
               />
             </label>
             <label class="form-control">
@@ -249,12 +249,12 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 type="text"
                 name="key_form[secret_name]"
                 value={@secret_name}
-                class="input input-bordered input-sm w-56 font-mono"
+                class={ui_field_class(size: "sm", mono: true, class: "w-56")}
               />
             </label>
-            <button type="submit" id="generate-ingestion-key" class="btn btn-sm btn-primary">
+            <.ui_button type="submit" id="generate-ingestion-key" size="sm" variant="primary">
               <.icon name="hero-key" class="size-4" /> Generate key
-            </button>
+            </.ui_button>
           </form>
 
           <div
@@ -265,16 +265,9 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
           >
             <div class="flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-200/40 p-3">
               <span class="font-mono text-sm break-all">{@generated_key}</span>
-              <button
-                type="button"
-                id="copy-ingestion-key"
-                phx-hook=".CopyText"
-                data-copy={@generated_key}
-                class="btn btn-ghost btn-xs"
-                title="Copy ingestion key"
-              >
+              <.ui_button type="button" id="copy-ingestion-key" phx-hook=".CopyText" data-copy={@generated_key} title="Copy ingestion key" size="xs" variant="ghost">
                 Copy
-              </button>
+              </.ui_button>
             </div>
             <p class="text-xs text-base-content/60">
               This key is shown once and is not stored anywhere by ServiceRadar. Copy it now. The
@@ -318,16 +311,18 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
           </div>
 
           <div class="flex flex-wrap gap-2" role="tablist">
-            <button
+            <.ui_button
               :for={{value, label} <- @languages}
               type="button"
               id={"snippet-language-#{value}"}
               phx-click="select_language"
               phx-value-language={value}
-              class={["btn btn-xs", (@snippet_language == value && "btn-primary") || "btn-ghost"]}
+              size="xs"
+              variant={if(@snippet_language == value, do: "primary", else: "ghost")}
+              active={@snippet_language == value}
             >
               {label}
-            </button>
+            </.ui_button>
           </div>
 
           <div class="grid gap-4 xl:grid-cols-2">
@@ -362,27 +357,21 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 name="checker[service_name]"
                 value={@check_service}
                 placeholder="checkout"
-                class="input input-bordered input-sm w-64 font-mono"
+                class={ui_field_class(size: "sm", mono: true, class: "w-64")}
               />
             </label>
-            <button type="submit" id="first-data-check" class="btn btn-sm btn-primary">
+            <.ui_button type="submit" id="first-data-check" size="sm" variant="primary">
               <.icon name="hero-magnifying-glass" class="size-4" /> Check
-            </button>
-            <button
-              :if={@checking?}
-              type="button"
-              id="first-data-stop"
-              phx-click="stop_check"
-              class="btn btn-sm"
-            >
+            </.ui_button>
+            <.ui_button :if={@checking?} type="button" id="first-data-stop" phx-click="stop_check" size="sm" variant="neutral">
               Stop
-            </button>
+            </.ui_button>
             <span :if={@checking?} id="first-data-polling" class="text-xs text-base-content/60">
-              <span class="loading loading-spinner loading-xs"></span> watching for data&hellip;
+              <.ui_spinner size="xs" /> watching for data&hellip;
             </span>
           </form>
 
-          <div :if={@check_error} class="alert alert-error text-sm">
+          <div :if={@check_error} class={ui_alert_class(variant: "error", class: "text-sm")}>
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span>{@check_error}</span>
           </div>
@@ -436,17 +425,9 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
     <div id={@id} class="space-y-1 rounded-lg border border-base-300 p-3">
       <div class="flex items-center justify-between">
         <span class="text-sm font-medium">{@label}</span>
-        <button
-          :if={@value != ""}
-          type="button"
-          id={"#{@id}-copy"}
-          phx-hook=".CopyText"
-          data-copy={@value}
-          class="btn btn-ghost btn-xs"
-          title={"Copy #{@label} endpoint"}
-        >
+        <.ui_button :if={@value != ""} type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@value} title={"Copy #{@label} endpoint"} size="xs" variant="ghost">
           Copy
-        </button>
+        </.ui_button>
       </div>
       <div class="font-mono text-sm break-all">
         {if @value == "", do: "Not configured", else: @value}
@@ -462,16 +443,9 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
   defp snippet_block(assigns) do
     ~H"""
     <div id={@id} class="relative">
-      <button
-        type="button"
-        id={"#{@id}-copy"}
-        phx-hook=".CopyText"
-        data-copy={@content}
-        class="btn btn-ghost btn-xs absolute right-2 top-2"
-        title="Copy snippet"
-      >
+      <.ui_button type="button" id={"#{@id}-copy"} phx-hook=".CopyText" data-copy={@content} title="Copy snippet" size="xs" variant="ghost" class="absolute right-2 top-2">
         Copy
-      </button>
+      </.ui_button>
       <pre class="overflow-x-auto rounded-lg bg-base-200/60 p-3 pr-16 font-mono text-xs leading-relaxed"><code>{@content}</code></pre>
     </div>
     """
@@ -481,15 +455,16 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
   defp signal_status(assigns) do
     ~H"""
-    <span :if={match?({:found, _}, @result)} class="badge badge-success badge-sm">Data arrived</span>
-    <span :if={@result == :not_found} class="badge badge-ghost badge-sm">No data yet</span>
-    <span
+    <.ui_badge :if={match?({:found, _}, @result)} size="sm" variant="success">Data arrived</.ui_badge>
+    <.ui_badge :if={@result == :not_found} size="sm" variant="ghost">No data yet</.ui_badge>
+    <.ui_badge
       :if={match?({:error, _}, @result)}
-      class="badge badge-error badge-sm"
+      size="sm"
+      variant="error"
       title={error_detail(@result)}
     >
       Query failed
-    </span>
+    </.ui_badge>
     """
   end
 

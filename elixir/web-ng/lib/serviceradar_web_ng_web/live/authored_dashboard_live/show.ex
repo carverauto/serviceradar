@@ -825,25 +825,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             {@dashboard.description || "SRQL-authored dashboard"}
           </span>
           <div class="flex flex-wrap gap-2">
-            <button
-              :if={AccessControls.settings_available?(@dashboard, assigns) and !@settings_open?}
-              type="button"
-              class="btn btn-xs btn-primary"
-              phx-click="open_settings"
-            >
+            <.ui_button :if={AccessControls.settings_available?(@dashboard, assigns) and !@settings_open?} type="button" phx-click="open_settings" size="xs" variant="primary">
               <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
-            </button>
-            <button
-              :if={AccessControls.settings_available?(@dashboard, assigns) and @settings_open?}
-              type="button"
-              class="btn btn-xs"
-              phx-click="close_settings"
-            >
+            </.ui_button>
+            <.ui_button :if={AccessControls.settings_available?(@dashboard, assigns) and @settings_open?} type="button" phx-click="close_settings" size="xs" variant="neutral">
               <.icon name="hero-x-mark" class="size-4" /> Close Settings
-            </button>
-            <.link navigate={~p"/analytics"} class="btn btn-xs">
+            </.ui_button>
+            <.ui_button navigate={~p"/analytics"} size="xs" variant="neutral">
               <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
-            </.link>
+            </.ui_button>
           </div>
         </footer>
       </div>

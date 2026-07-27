@@ -287,36 +287,26 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
-                <.link navigate={~p"/settings/auth/users"} class="btn btn-ghost btn-xs">
+                <.ui_button navigate={~p"/settings/auth/users"} size="xs" variant="ghost">
                   <.icon name="hero-arrow-left" class="size-4" /> Back
-                </.link>
-                <span class="badge badge-outline">Account</span>
+                </.ui_button>
+                <.ui_badge size="sm" variant="outline">Account</.ui_badge>
               </div>
               <h1 class="text-2xl font-semibold">{@user.email}</h1>
               <p class="text-sm opacity-70">View and edit access for this account.</p>
             </div>
 
             <div class="flex items-center gap-2">
-              <button class="btn btn-ghost btn-sm" type="button" phx-click="toggle_edit">
+              <.ui_button type="button" phx-click="toggle_edit" size="sm" variant="ghost">
                 <.icon name="hero-pencil-square" class="size-4" />
                 {if @editing, do: "Cancel", else: "Edit"}
-              </button>
-              <button
-                :if={@user.status == :active}
-                class="btn btn-outline btn-error btn-sm"
-                type="button"
-                phx-click="deactivate"
-              >
+              </.ui_button>
+              <.ui_button :if={@user.status == :active} type="button" phx-click="deactivate" size="sm" variant="outline">
                 Deactivate
-              </button>
-              <button
-                :if={@user.status != :active}
-                class="btn btn-outline btn-success btn-sm"
-                type="button"
-                phx-click="reactivate"
-              >
+              </.ui_button>
+              <.ui_button :if={@user.status != :active} type="button" phx-click="reactivate" size="sm" variant="outline">
                 Reactivate
-              </button>
+              </.ui_button>
             </div>
           </div>
 
@@ -337,7 +327,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     type="text"
                     label="Display name"
                     disabled={!@editing}
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                   />
 
                   <.input
@@ -346,7 +336,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     label="Access profile"
                     disabled={!@editing}
                     options={profile_options(@role_profiles)}
-                    class="select select-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                   />
 
                   <div class="grid grid-cols-2 gap-3 text-sm">
@@ -364,9 +354,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     </div>
                   </div>
 
-                  <button :if={@editing} class="btn btn-primary btn-sm" type="submit">
+                  <.ui_button :if={@editing} type="submit" size="sm" variant="primary">
                     Save changes
-                  </button>
+                  </.ui_button>
                 </.form>
 
                 <div class="divider"></div>
@@ -376,9 +366,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     <div class="text-sm font-semibold">Security</div>
                     <div class="text-xs opacity-60">Set a temporary password for this account.</div>
                   </div>
-                  <button class="btn btn-outline btn-sm" type="button" phx-click="open_password_modal">
+                  <.ui_button type="button" phx-click="open_password_modal" size="sm" variant="outline">
                     Set password
-                  </button>
+                  </.ui_button>
                 </div>
 
                 <div class="flex items-center justify-between gap-3">
@@ -405,29 +395,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="card-title text-base">Login history</h2>
                   <div class="join">
-                    <button
-                      type="button"
-                      class="btn btn-xs join-item"
-                      phx-click="events_prev"
-                      disabled={is_nil(@events_page) or is_nil(@events_page.before)}
-                      title="Newer"
-                    >
+                    <.ui_button type="button" phx-click="events_prev" disabled={is_nil(@events_page) or is_nil(@events_page.before)} title="Newer" size="xs" variant="neutral">
                       <.icon name="hero-chevron-left" class="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-xs join-item"
-                      phx-click="events_next"
-                      disabled={is_nil(@events_page) or not @events_page.more?}
-                      title="Older"
-                    >
+                    </.ui_button>
+                    <.ui_button type="button" phx-click="events_next" disabled={is_nil(@events_page) or not @events_page.more?} title="Older" size="xs" variant="neutral">
                       <.icon name="hero-chevron-right" class="size-4" />
-                    </button>
+                    </.ui_button>
                   </div>
                 </div>
 
-                <div class="overflow-x-auto">
-                  <table class="table table-sm table-zebra">
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm", zebra: true)}>
                     <thead>
                       <tr>
                         <th>Time</th>
@@ -458,61 +436,44 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
           </div>
         </div>
 
-        <div
-          :if={@show_password_modal}
-          class="modal modal-open"
+        <.ui_modal
+          id="set-password-modal"
+          open={@show_password_modal}
+          on_cancel="close_password_modal"
           phx-window-keydown="close_password_modal"
           phx-key="escape"
         >
-          <div class="modal-box">
-            <div class="flex items-start justify-between gap-4">
-              <div class="space-y-1">
-                <h3 class="text-lg font-bold">Set password</h3>
-                <p class="text-sm opacity-70">
-                  This sets a new local password for <span class="font-mono">{@user.email}</span>.
-                </p>
-              </div>
-              <button
-                class="btn btn-ghost btn-sm btn-square"
-                phx-click="close_password_modal"
-                type="button"
-              >
-                <.icon name="hero-x-mark" class="size-4" />
-              </button>
+          <:title>Set password</:title>
+
+          <p class="text-sm text-sr-muted">
+            This sets a new local password for <span class="font-mono text-sr-ink">{@user.email}</span>.
+          </p>
+
+          <.form
+            for={@password_form}
+            id="set-password-form"
+            phx-submit="set_password"
+            class="space-y-4"
+          >
+            <.input
+              field={@password_form[:password]}
+              type="password"
+              label="New password"
+              placeholder="min 12 characters"
+              required
+              class={ui_field_class(class: "w-full")}
+            />
+
+            <div class="flex justify-end gap-2 pt-1">
+              <.ui_button phx-click="close_password_modal" type="button" size="sm" variant="outline">
+                Cancel
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">
+                Update password
+              </.ui_button>
             </div>
-
-            <div class="mt-6">
-              <.form
-                for={@password_form}
-                id="set-password-form"
-                phx-submit="set_password"
-                class="space-y-4"
-              >
-                <.input
-                  field={@password_form[:password]}
-                  type="password"
-                  label="New password"
-                  placeholder="min 12 characters"
-                  required
-                  class="input input-bordered w-full"
-                />
-
-                <div class="modal-action">
-                  <button class="btn btn-outline" phx-click="close_password_modal" type="button">
-                    Cancel
-                  </button>
-                  <button class="btn btn-primary" type="submit">
-                    Update password
-                  </button>
-                </div>
-              </.form>
-            </div>
-          </div>
-
-          <div class="modal-backdrop">
-            <button phx-click="close_password_modal" type="button">close</button>
-          </div>
-        </div>
+          </.form>
+        </.ui_modal>
       </Shell.settings_chrome>
     </Layouts.app>
     """

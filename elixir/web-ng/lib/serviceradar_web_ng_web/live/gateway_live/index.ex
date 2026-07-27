@@ -90,8 +90,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
 
   defp gateways_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">

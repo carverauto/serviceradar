@@ -28,8 +28,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AgentComponents do
         </div>
       </div>
       <div class="p-4">
-        <div class="overflow-x-auto">
-          <table class="table table-xs w-full">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "xs", class: "w-full")}>
             <thead>
               <tr>
                 <th class="text-xs">UID</th>
@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AgentComponents do
     assigns = assigns |> assign(:type_name, type_name) |> assign(:variant, variant)
 
     ~H"""
-    <span class={["badge badge-xs", "badge-#{@variant}"]}>{@type_name}</span>
+    <.ui_badge size="xs" variant={@variant}>{@type_name}</.ui_badge>
     """
   end
 

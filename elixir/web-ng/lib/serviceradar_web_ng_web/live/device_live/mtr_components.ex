@@ -30,33 +30,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 class="text-lg font-semibold">MTR Traces</h3>
         <div class="flex flex-wrap gap-2 sm:justify-end">
-          <button
-            type="button"
-            phx-click="run_mtr"
-            class="btn btn-sm btn-primary"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
-            Queue MTR
-          </button>
-          <.link
-            navigate={~p"/diagnostics/mtr"}
-            class="btn btn-sm btn-ghost"
-          >
+          <.ui_button type="button" phx-click="run_mtr" size="sm" variant="primary">
+            <.icon name="hero-bolt" class="size-4" /> Queue MTR
+          </.ui_button>
+          <.ui_button navigate={~p"/diagnostics/mtr"} size="sm" variant="ghost">
             View All
-          </.link>
+          </.ui_button>
         </div>
       </div>
 
@@ -160,8 +139,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
         </div>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm sr-mtr-table">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
           <thead>
             <tr>
               <th>Time</th>
@@ -182,15 +161,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                 {(job.payload || %{})["target"] || @fallback_target || "-"}
               </td>
               <td>
-                <span class={["badge badge-sm", pending_status_class(job.status)]}>
+                <.ui_badge size="sm" variant={pending_status_variant(job.status)}>
                   {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
-                </span>
+                </.ui_badge>
               </td>
               <td class="text-center">-</td>
               <td>
-                <span class="badge badge-ghost badge-sm">
+                <.ui_badge size="sm" variant="ghost">
                   {String.upcase((job.payload || %{})["protocol"] || "icmp")}
-                </span>
+                </.ui_badge>
               </td>
               <td class="text-xs">pending</td>
               <td class="sr-mtr-muted text-xs">{job.id}</td>
@@ -201,35 +180,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               </td>
               <td class="font-mono text-sm">{trace["target"]}</td>
               <td>
-                <span
-                  :if={trace["target_reached"]}
-                  class="badge badge-success badge-sm"
-                >
+                <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">
                   Reached
-                </span>
-                <span
-                  :if={!trace["target_reached"]}
-                  class="badge badge-error badge-sm"
-                >
+                </.ui_badge>
+                <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">
                   Unreachable
-                </span>
+                </.ui_badge>
               </td>
               <td class="text-center">{trace["total_hops"]}</td>
               <td>
-                <span class="badge badge-ghost badge-sm">
+                <.ui_badge size="sm" variant="ghost">
                   {String.upcase(trace["protocol"] || "icmp")}
-                </span>
+                </.ui_badge>
               </td>
               <td class="text-xs">{trace["check_name"] || "-"}</td>
               <td>
-                <button
+                <.ui_button
                   type="button"
                   phx-click="view_mtr_trace"
                   phx-value-id={trace["id"]}
-                  class="btn btn-xs btn-ghost"
+                  size="xs"
+                  variant="ghost"
                 >
                   View
-                </button>
+                </.ui_button>
               </td>
             </tr>
             <tr :if={@pending_jobs == [] and @traces == []}>
@@ -244,34 +218,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
         <div class="sr-mtr-muted text-sm">
           {mtr_device_page_label(@page, @total_count)}
         </div>
-        <div class="join">
-          <.link
+        <div class="flex items-center gap-1">
+          <.ui_button
             :if={@page > 1}
             patch={mtr_device_page_path(@device_uid, @page - 1)}
-            class="join-item btn btn-sm btn-outline"
+            size="sm"
+            variant="outline"
           >
             <.icon name="hero-chevron-left" class="size-4" /> Prev
-          </.link>
-          <button :if={@page <= 1} class="join-item btn btn-sm btn-outline" disabled>
+          </.ui_button>
+          <.ui_button :if={@page <= 1} type="button" size="sm" variant="outline" disabled>
             <.icon name="hero-chevron-left" class="size-4" /> Prev
-          </button>
-          <span class="join-item btn btn-sm btn-ghost pointer-events-none">
+          </.ui_button>
+          <span class="inline-flex min-h-9 items-center px-2 text-sm text-sr-muted">
             {@page} / {mtr_device_total_pages(@total_count, @page_size)}
           </span>
-          <.link
+          <.ui_button
             :if={@page < mtr_device_total_pages(@total_count, @page_size)}
             patch={mtr_device_page_path(@device_uid, @page + 1)}
-            class="join-item btn btn-sm btn-outline"
+            size="sm"
+            variant="outline"
           >
             Next <.icon name="hero-chevron-right" class="size-4" />
-          </.link>
-          <button
+          </.ui_button>
+          <.ui_button
             :if={@page >= mtr_device_total_pages(@total_count, @page_size)}
-            class="join-item btn btn-sm btn-outline"
+            type="button"
+            size="sm"
+            variant="outline"
             disabled
           >
             Next <.icon name="hero-chevron-right" class="size-4" />
-          </button>
+          </.ui_button>
         </div>
       </div>
     </div>
@@ -291,9 +269,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
         <div class="modal-box max-w-6xl">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">MTR Trace Details</h3>
-            <button type="button" phx-click="close_mtr_trace_modal" class="btn btn-sm btn-ghost">
+            <.ui_button type="button" phx-click="close_mtr_trace_modal" size="sm" variant="ghost">
               Close
-            </button>
+            </.ui_button>
           </div>
 
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
@@ -372,8 +350,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
 
-          <div class="overflow-x-auto max-h-[60vh]">
-            <table class="table table-sm sr-mtr-table">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
               <thead>
                 <tr>
                   <th>Hop</th>
@@ -467,11 +445,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
     ~p"/devices/#{device_uid}?tab=mtr&mtr_page=#{page}"
   end
 
-  defp pending_status_class(:queued), do: "badge-ghost"
-  defp pending_status_class(:sent), do: "badge-info"
-  defp pending_status_class(:acknowledged), do: "badge-info"
-  defp pending_status_class(:running), do: "badge-warning"
-  defp pending_status_class(_), do: "badge-ghost"
+  defp pending_status_variant(:queued), do: "ghost"
+  defp pending_status_variant(:sent), do: "info"
+  defp pending_status_variant(:acknowledged), do: "info"
+  defp pending_status_variant(:running), do: "warning"
+  defp pending_status_variant(_), do: "ghost"
 
   defp mtr_trace_dashboard(traces, pending_jobs, trends) do
     traces = List.wrap(traces)

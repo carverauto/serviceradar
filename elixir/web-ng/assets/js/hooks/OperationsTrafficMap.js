@@ -53,10 +53,15 @@ function normalizeGeoPoint(value) {
   return [longitude, latitude]
 }
 
+// Brand flow palette (marketing green — not Nocturne cyan/sky)
+const BRAND_GREEN = [62, 207, 135] // #3ecf87
+const BRAND_GREEN_SOFT = [91, 222, 155] // #5bde9b
+const MUTED_LINE = [143, 163, 154] // brand muted
+
 function scaledColor(color, alphaMultiplier = 1) {
-  const rgba = Array.isArray(color) ? color : [56, 189, 248, 180]
+  const rgba = Array.isArray(color) ? color : [...BRAND_GREEN, 180]
   const alpha = Math.max(45, Math.min(255, Math.round(Number(rgba[3] ?? 180) * alphaMultiplier)))
-  return [Number(rgba[0] ?? 56), Number(rgba[1] ?? 189), Number(rgba[2] ?? 248), alpha]
+  return [Number(rgba[0] ?? BRAND_GREEN[0]), Number(rgba[1] ?? BRAND_GREEN[1]), Number(rgba[2] ?? BRAND_GREEN[2]), alpha]
 }
 
 function netflowLinkColor(link, magnitude) {
@@ -67,10 +72,12 @@ function netflowLinkColor(link, magnitude) {
   if (link?.threat_matched) return [244, 63, 94, 245]
   if (magnitude >= 1_000_000_000 || flowCount >= 50) return [251, 146, 60, 235]
   if (magnitude >= 100_000_000 || flowCount >= 15) return [167, 139, 250, 230]
-  if (sourceLocal && targetLocal) return [45, 212, 191, 230]
-  if (sourceLocal || targetLocal) return [56, 189, 248, 230]
+  // local↔local cluster: primary brand green
+  if (sourceLocal && targetLocal) return [...BRAND_GREEN, 230]
+  // private/public (local edge): soft brand green (was sky cyan)
+  if (sourceLocal || targetLocal) return [...BRAND_GREEN_SOFT, 230]
 
-  return [148, 163, 184, 185]
+  return [...MUTED_LINE, 185]
 }
 
 function normalizeLinks(rawLinks) {
@@ -79,7 +86,7 @@ function normalizeLinks(rawLinks) {
       const from = normalizePoint(link?.from || link?.source)
       const to = normalizePoint(link?.to || link?.target)
       const magnitude = Math.max(0, Number(link?.magnitude || link?.bytes || link?.packets || 0))
-      const color = Array.isArray(link?.color) ? link.color : [56, 189, 248, 180]
+      const color = Array.isArray(link?.color) ? link.color : [...BRAND_GREEN, 180]
 
       return {
         id: link?.id || `link-${idx}`,
@@ -198,7 +205,11 @@ function normalizeTrafficLinks(rawLinks, mapView) {
       const from = useGeo ? geoFrom : normalizePoint(topologyFrom)
       const to = useGeo ? geoTo : normalizePoint(topologyTo)
       const magnitude = Math.max(0, Number(link?.magnitude || link?.bytes || link?.packets || 0))
-      const baseColor = useGeo ? netflowLinkColor(link, magnitude) : Array.isArray(link?.color) ? link.color : [56, 189, 248, 180]
+      const baseColor = useGeo
+        ? netflowLinkColor(link, magnitude)
+        : Array.isArray(link?.color)
+          ? link.color
+          : [...BRAND_GREEN, 180]
       const color = scaledColor(baseColor, useGeo && !geoMapped ? 0.45 : 1)
       const sourceGeoLabel = link?.source_geo_label || null
       const targetGeoLabel = link?.target_geo_label || null

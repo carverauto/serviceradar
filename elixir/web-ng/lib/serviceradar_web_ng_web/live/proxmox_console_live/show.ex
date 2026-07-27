@@ -55,21 +55,16 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="flex h-[calc(100vh-4rem)] min-h-[560px] flex-col bg-base-100">
         <div class="flex min-h-14 items-center gap-3 border-b border-base-300 px-4">
-          <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="ghost">
             <.icon name="hero-arrow-left" class="size-4" /> Device
-          </.link>
+          </.ui_button>
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-semibold">Remote console</h1>
             <p class="truncate text-xs text-base-content/60">{@device_uid}</p>
           </div>
-          <button
-            :if={@session}
-            type="button"
-            class="btn btn-outline btn-sm"
-            phx-click="close_console"
-          >
+          <.ui_button :if={@session} type="button" phx-click="close_console" size="sm" variant="outline">
             <.icon name="hero-x-mark" class="size-4" /> Close
-          </button>
+          </.ui_button>
         </div>
 
         <div

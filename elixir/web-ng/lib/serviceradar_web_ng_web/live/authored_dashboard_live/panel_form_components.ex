@@ -50,9 +50,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       />
 
       <div class="flex flex-wrap items-center gap-2">
-        <button type="submit" name="intent" value="preview" class="btn btn-sm">
+        <.ui_button type="submit" name="intent" value="preview" size="sm" variant="neutral">
           <.icon name="hero-play" class="size-4" /> Preview Query
-        </button>
+        </.ui_button>
         <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/70">
           Preview first to unlock compatible visualizations.
         </span>
@@ -94,18 +94,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       />
 
       <div class="flex flex-wrap gap-2 border-t border-base-300 pt-4">
-        <button
-          type="submit"
-          name="intent"
-          value="save"
-          class="btn btn-sm btn-primary"
-          disabled={!@preview and is_nil(@panel)}
-        >
+        <.ui_button type="submit" name="intent" value="save" disabled={!@preview and is_nil(@panel)} size="sm" variant="primary">
           <.icon name="hero-check" class="size-4" /> Save Panel
-        </button>
-        <button type="button" class="btn btn-sm" phx-click="cancel_panel_edit">
+        </.ui_button>
+        <.ui_button type="button" phx-click="cancel_panel_edit" size="sm" variant="neutral">
           Cancel
-        </button>
+        </.ui_button>
       </div>
     </section>
     """

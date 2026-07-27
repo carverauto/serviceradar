@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.UIComponents
 
   # ---------------------------------------------------------------------------
   # Unit formatting helpers
@@ -116,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       </div>
 
       <div :if={@loading} class="flex items-center gap-2 h-8">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
       </div>
 
       <div :if={not @loading} class="flex items-baseline gap-2">
@@ -157,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       </div>
 
       <div :if={@loading} class="flex items-center justify-center py-8">
-        <span class="loading loading-spinner loading-md"></span>
+        <.ui_spinner size="md" />
       </div>
 
       <div
@@ -167,13 +168,14 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
         {@empty_message}
       </div>
 
-      <table :if={not @loading and @rows != []} class="table table-sm table-zebra w-full">
+      <table
+        :if={not @loading and @rows != []}
+        class={ui_table_class(size: "sm", zebra: true, class: "w-full")}
+      >
         <thead>
           <tr>
             <th class="w-8 text-center">#</th>
-            <th :for={col <- @columns} class="text-xs uppercase tracking-wide">
-              {col_label(col)}
-            </th>
+            <th :for={col <- @columns}>{col_label(col)}</th>
           </tr>
         </thead>
         <tbody>
@@ -307,9 +309,9 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       </div>
       <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>
       <div class="text-xs text-base-content/50 flex items-center gap-1">
-        <span :if={@rate_kind} class="badge badge-xs badge-ghost font-medium uppercase">
+        <.ui_badge :if={@rate_kind} size="xs" variant="ghost" class="font-medium uppercase">
           {@rate_kind}
-        </span>
+        </.ui_badge>
         <span>{@current_label}: {@formatted_current} / {@formatted_capacity}</span>
       </div>
     </div>

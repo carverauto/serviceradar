@@ -73,12 +73,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
         case Map.get(metadata, "topology_plane") || Map.get(metadata, :topology_plane) do
           "attachment" -> [168, 85, 247, 150]
           "hosted" -> [251, 191, 36, 160]
-          "logical" -> [45, 212, 191, 170]
-          _ -> if to_int(bps) > 0, do: [56, 189, 248, 190], else: [71, 85, 105, 130]
+          "logical" -> [62, 207, 135, 170]
+          # brand green when active (was sky cyan)
+          _ -> if to_int(bps) > 0, do: [62, 207, 135, 190], else: [107, 127, 120, 130]
         end
       end
 
-      defp topology_color(_link, bps), do: if(to_int(bps) > 0, do: [56, 189, 248, 190], else: [71, 85, 105, 130])
+      defp topology_color(_link, bps),
+        do: if(to_int(bps) > 0, do: [62, 207, 135, 190], else: [107, 127, 120, 130])
 
       defp map_value_any(%{} = map, keys) when is_list(keys) do
         Enum.find_value(keys, fn key -> Map.get(map, key) end)
@@ -87,10 +89,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.MapHelpers do
       defp flow_color(idx, magnitude) do
         opacity = 130 + min(round(:math.log10(max(magnitude, 10)) * 12), 95)
 
+        # Brand greens only (no sky/cyan)
         case rem(idx, 3) do
-          0 -> [56, 189, 248, opacity]
-          1 -> [45, 212, 191, opacity]
-          _ -> [96, 165, 250, opacity]
+          0 -> [62, 207, 135, opacity]
+          1 -> [91, 222, 155, opacity]
+          _ -> [52, 180, 140, opacity]
         end
       end
 

@@ -410,7 +410,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <div class="flex gap-2">
               <select
                 name="status"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Statuses</option>
@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Label</th>
@@ -526,18 +526,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     <dialog id="create_modal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-            disabled={@creating}
-          >
+          <.ui_icon_button phx-click="close_create_modal" disabled={@creating} size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <%= if @creating do %>
           <div class="text-center py-8">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
+            <.ui_spinner size="lg" />
             <h3 class="text-lg font-bold mt-4">Creating Package</h3>
             <p class="text-sm text-base-content/70 mt-2">
               Generating certificates and preparing your onboarding package...
@@ -555,7 +551,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               Create an onboarding package to deploy an edge component.
             </p>
 
-            <div class="alert alert-info text-sm mb-4">
+            <div class={ui_alert_class(variant: "info", class: "text-sm mb-4")}>
               <.icon name="hero-sparkles" class="size-5" />
               <div>
                 <div class="font-medium">Zero-touch provisioning</div>
@@ -651,7 +647,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     </label>
                     <select
                       name="form[initial_addon_package_ids][]"
-                      class="select select-bordered min-h-28 w-full"
+                      class={ui_field_class(class: "min-h-28 w-full")}
                       multiple
                       size={min(max(length(@approved_addons), 3), 8)}
                     >
@@ -686,8 +682,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               </div>
 
               <div class="modal-action">
-                <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create Package</button>
+                <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
+                <.ui_button type="submit" size="sm" variant="primary">Create Package</.ui_button>
               </div>
             </.form>
           <% end %>
@@ -770,18 +766,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <%= if is_binary(@enroll_cmd) and @enroll_cmd != "" do %>
             <div class="relative">
               <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@enroll_cmd}</code></pre>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost absolute top-2 right-2"
-                phx-click="copy_token"
-                phx-value-token={@enroll_cmd}
-                title="Copy enroll command"
-              >
+              <.ui_button type="button" phx-click="copy_token" phx-value-token={@enroll_cmd} title="Copy enroll command" size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
-              </button>
+              </.ui_button>
             </div>
           <% else %>
-            <div class="alert alert-error alert-soft">
+            <div class={ui_alert_class(variant: "error", class: "alert-soft")}>
               <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
               <span>{@enroll_cmd_error}</span>
             </div>
@@ -798,14 +788,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </p>
             <div class="relative">
               <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@docker_cmd}</code></pre>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost absolute top-2 right-2"
-                phx-click="copy_token"
-                phx-value-token={@docker_cmd}
-              >
+              <.ui_button type="button" phx-click="copy_token" phx-value-token={@docker_cmd} size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
-              </button>
+              </.ui_button>
             </div>
           </div>
 
@@ -816,14 +801,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </p>
             <div class="relative">
               <pre class="bg-base-200 p-3 rounded-lg text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all"><code>{@systemd_cmd}</code></pre>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost absolute top-2 right-2"
-                phx-click="copy_token"
-                phx-value-token={@systemd_cmd}
-              >
+              <.ui_button type="button" phx-click="copy_token" phx-value-token={@systemd_cmd} size="sm" variant="ghost" class="absolute top-2 right-2">
                 <.icon name="hero-clipboard" class="size-4" />
-              </button>
+              </.ui_button>
             </div>
           </div>
         </div>
@@ -867,20 +847,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
               <code class="flex-1 text-xs font-mono break-all bg-base-100 p-2 rounded">
                 {@onboarding_token}
               </code>
-              <button
-                type="button"
-                class="btn btn-sm btn-ghost"
-                phx-click="copy_token"
-                phx-value-token={@onboarding_token}
-              >
+              <.ui_button type="button" phx-click="copy_token" phx-value-token={@onboarding_token} size="sm" variant="ghost">
                 <.icon name="hero-clipboard" class="size-4" />
-              </button>
+              </.ui_button>
             </div>
           </div>
         </div>
       <% end %>
 
-      <div class="alert alert-info text-sm">
+      <div class={ui_alert_class(variant: "info", class: "text-sm")}>
         <.icon name="hero-information-circle" class="size-5" />
         <div>
           <div class="font-semibold">What's included in the bundle?</div>
@@ -894,9 +869,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       </div>
 
       <div class="modal-action">
-        <button type="button" class="btn btn-primary" phx-click="close_create_modal">
+        <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
           Done
-        </button>
+        </.ui_button>
       </div>
     </div>
     """
@@ -965,12 +940,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     <dialog id="details_modal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_details_modal"
-          >
+          <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Package Details</h3>
@@ -1044,8 +1016,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <%= if @events == [] do %>
             <p class="text-sm text-base-content/60">No events recorded yet.</p>
           <% else %>
-            <div class="overflow-x-auto rounded-lg border border-base-200/60">
-              <table class="table table-xs">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "xs")}>
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                     <th>Event</th>
@@ -1073,26 +1045,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
         <div class="modal-action">
           <%= if @package.status == :issued do %>
-            <button
-              type="button"
-              class="btn btn-warning"
-              phx-click="revoke_package"
-              phx-value-id={@package.id}
-              data-confirm="Are you sure you want to revoke this package?"
-            >
+            <.ui_button type="button" phx-click="revoke_package" phx-value-id={@package.id} data-confirm="Are you sure you want to revoke this package?" size="sm" variant="warning">
               Revoke Package
-            </button>
+            </.ui_button>
           <% end %>
-          <button
-            type="button"
-            class="btn btn-error btn-outline"
-            phx-click="delete_package"
-            phx-value-id={@package.id}
-            data-confirm="Are you sure you want to delete this package? This cannot be undone."
-          >
+          <.ui_button type="button" phx-click="delete_package" phx-value-id={@package.id} data-confirm="Are you sure you want to delete this package? This cannot be undone." size="sm" variant="outline">
             Delete
-          </button>
-          <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+          </.ui_button>
+          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">

@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
   @series_encodings [
@@ -313,20 +315,23 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
-          <span
+          <.ui_badge
             :if={@data.utilization}
-            class={["badge badge-xs font-mono", Metrics.utilization_badge_class(@data.utilization)]}
+            size="xs"
+            variant={Metrics.utilization_badge_variant(@data.utilization)}
+            class="font-mono"
             title={"#{@data.utilization}% of interface capacity"}
           >
             {@data.utilization}%
-          </span>
-          <span
+          </.ui_badge>
+          <.ui_badge
             :if={Map.get(@data, :overlays, []) != []}
-            class="badge badge-xs badge-outline"
+            size="xs"
+            variant="outline"
             title={"#{length(@data.overlays)} chart overlays"}
           >
             {length(@data.overlays)}
-          </span>
+          </.ui_badge>
         </div>
         <div class={[
           "text-base-content/60 font-mono shrink-0",

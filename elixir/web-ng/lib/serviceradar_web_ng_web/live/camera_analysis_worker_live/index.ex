@@ -74,12 +74,12 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="space-y-6">
+      <div class="sr-observability-page space-y-6 font-sans">
         <.observability_chrome active_pane="camera-relays" active_subsection="analysis-workers">
           <:actions>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+            <.ui_button type="button" phx-click="refresh" size="sm" variant="primary">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
+            </.ui_button>
           </:actions>
         </.observability_chrome>
 
@@ -99,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-warning">
+        <div :if={@error} class={ui_alert_class("warning")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                   Authoritative analysis worker state from the platform registry.
                 </p>
               </div>
-              <span class="badge badge-ghost">{length(@workers)} workers</span>
+              <.ui_badge size="sm" variant="ghost">{length(@workers)} workers</.ui_badge>
             </div>
           </div>
 
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
           </div>
 
           <div :if={@workers != []} class="overflow-x-auto">
-            <table class="table">
+            <table class={ui_table_class()}>
               <thead>
                 <tr>
                   <th>Worker</th>
@@ -181,38 +181,39 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     <div class="text-xs text-base-content/50 font-mono">{worker.worker_id}</div>
                   </td>
                   <td>
-                    <span class="badge badge-ghost">{worker.adapter}</span>
+                    <.ui_badge size="sm" variant="ghost">{worker.adapter}</.ui_badge>
                   </td>
                   <td>
                     <div class="flex flex-wrap gap-1">
                       <span :if={worker.capabilities == []} class="text-xs text-base-content/50">
                         none
                       </span>
-                      <span
+                      <.ui_badge
                         :for={capability <- worker.capabilities}
-                        class="badge badge-outline badge-sm"
+                        size="sm"
+                        variant="outline"
                       >
                         {capability}
-                      </span>
+                      </.ui_badge>
                     </div>
                   </td>
                   <td>
-                    <span class={[
-                      "badge",
-                      if(worker.enabled, do: "badge-success", else: "badge-ghost")
-                    ]}>
+                    <.ui_badge
+                      size="sm"
+                      variant={if(worker.enabled, do: "success", else: "ghost")}
+                    >
                       {if(worker.enabled, do: "enabled", else: "disabled")}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td>
                     <div class="space-y-1">
-                      <span class={["badge", health_badge_class(worker.health_status)]}>
+                      <.ui_badge size="sm" variant={health_badge_variant(worker.health_status)}>
                         {worker.health_status || "unknown"}
-                      </span>
-                      <span :if={worker.flapping} class="badge badge-warning">flapping</span>
-                      <span :if={worker.alert_active} class="badge badge-error">
+                      </.ui_badge>
+                      <.ui_badge :if={worker.flapping} size="sm" variant="warning">flapping</.ui_badge>
+                      <.ui_badge :if={worker.alert_active} size="sm" variant="error">
                         alert: {worker.alert_state}
-                      </span>
+                      </.ui_badge>
                       <div :if={worker.health_reason} class="text-xs text-base-content/50">
                         {worker.health_reason}
                       </div>
@@ -297,15 +298,16 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     </div>
                   </td>
                   <td>
-                    <button
+                    <.ui_button
                       type="button"
                       phx-click="toggle_enabled"
                       phx-value-id={worker.id}
                       phx-value-enabled={to_string(!worker.enabled)}
-                      class={["btn btn-xs", if(worker.enabled, do: "btn-ghost", else: "btn-primary")]}
+                      size="xs"
+                      variant={if(worker.enabled, do: "ghost", else: "primary")}
                     >
                       {if(worker.enabled, do: "Disable", else: "Enable")}
-                    </button>
+                    </.ui_button>
                   </td>
                 </tr>
               </tbody>
@@ -358,9 +360,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     }
   end
 
-  defp health_badge_class("healthy"), do: "badge-success"
-  defp health_badge_class("unhealthy"), do: "badge-error"
-  defp health_badge_class(_), do: "badge-ghost"
+  defp health_badge_variant("healthy"), do: "success"
+  defp health_badge_variant("unhealthy"), do: "error"
+  defp health_badge_variant(_), do: "ghost"
 
   defp format_datetime(nil), do: "never"
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")

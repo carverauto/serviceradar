@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
           </:actions>
         </.header>
 
-        <div :if={is_binary(@error)} class="alert alert-error mb-4">
+        <div :if={is_binary(@error)} class={ui_alert_class(variant: "error", class: "mb-4")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span class="text-sm">{@error}</span>
         </div>
@@ -71,20 +71,12 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <.link
-                  :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""}
-                  href={correlated_logs_href(@metric)}
-                  class="btn btn-xs btn-outline"
-                >
+                <.ui_button :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""} href={correlated_logs_href(@metric)} size="xs" variant="outline">
                   Logs
-                </.link>
-                <.link
-                  :if={is_binary(trace_detail_path(@metric))}
-                  navigate={trace_detail_path(@metric)}
-                  class="btn btn-xs btn-outline"
-                >
+                </.ui_button>
+                <.ui_button :if={is_binary(trace_detail_path(@metric))} navigate={trace_detail_path(@metric)} size="xs" variant="outline">
                   Trace
-                </.link>
+                </.ui_button>
               </div>
             </:header>
 

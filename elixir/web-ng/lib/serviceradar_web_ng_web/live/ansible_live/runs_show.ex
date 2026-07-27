@@ -114,22 +114,24 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
           </p>
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="text-2xl font-semibold">Run {shorten(@bundle.run.id)}</h1>
-            <span class="badge badge-outline badge-sm">Legacy PlaybookRun</span>
+            <.ui_badge size="sm" variant="outline">Legacy PlaybookRun</.ui_badge>
           </div>
           <p class="text-sm text-base-content/70 flex gap-3 flex-wrap">
-            <span class={["badge", state_badge_class(@bundle.run.state)]}>{@bundle.run.state}</span>
+            <.ui_badge size="sm" variant={state_badge_variant(@bundle.run.state)}>
+              {@bundle.run.state}
+            </.ui_badge>
             <span :if={@bundle.run.awx_job_id}>
               AWX job <code class="text-xs">{@bundle.run.awx_job_id}</code>
             </span>
-            <span :if={@bundle.run.schedule_id} class="badge badge-ghost">scheduled</span>
-            <span :if={!@bundle.run.schedule_id} class="badge badge-ghost">ad-hoc</span>
+            <.ui_badge :if={@bundle.run.schedule_id} size="sm" variant="ghost">scheduled</.ui_badge>
+            <.ui_badge :if={!@bundle.run.schedule_id} size="sm" variant="ghost">ad-hoc</.ui_badge>
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <.link navigate={~p"/ansible/operations"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/ansible/operations"} size="sm" variant="ghost">
             Secure operations
-          </.link>
-          <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
+          </.ui_button>
+          <.ui_button type="button" phx-click="refresh" size="sm" variant="ghost">Refresh</.ui_button>
         </div>
       </header>
 
@@ -142,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
         <.stat label="Duration" value={duration(@bundle.run)} />
       </div>
 
-      <div :if={@bundle.run.summary} class="alert alert-info">
+      <div :if={@bundle.run.summary} class={ui_alert_class("info")}>
         <span class="font-mono text-sm">{@bundle.run.summary}</span>
       </div>
 
@@ -160,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
           :if={@bundle.targets != []}
           class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
         >
-          <table class="table table-zebra table-sm">
+          <table class={ui_table_class(size: "sm", zebra: true)}>
             <thead>
               <tr>
                 <th>AWX host</th>
@@ -178,7 +180,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
                 <td><code class="text-xs">{target.awx_host_name}</code></td>
                 <td><code class="text-xs">{shorten(target.device_uid)}</code></td>
                 <td>
-                  <span class={["badge", target_badge_class(target.status)]}>{target.status}</span>
+                  <.ui_badge size="sm" variant={target_badge_variant(target.status)}>
+                    {target.status}
+                  </.ui_badge>
                 </td>
                 <td>{target.ok_count}</td>
                 <td>{target.changed_count}</td>
@@ -210,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
           >
             <div class="flex items-center gap-3">
               <span class="text-sm font-medium">{play.name || "(unnamed play)"}</span>
-              <span class={["badge badge-sm", play_badge_class(play.status)]}>{play.status}</span>
+              <.ui_badge size="sm" variant={play_badge_variant(play.status)}>{play.status}</.ui_badge>
             </div>
             <div class="text-xs text-base-content/60">
               {Map.get(@bundle.tasks_by_play, play.id, []) |> length()} tasks
@@ -229,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
                 <code>{task.awx_task_uuid |> String.slice(0, 8)}</code>
                 <span class="font-medium">{task.name || "(unnamed task)"}</span>
                 <code :if={task.action} class="text-base-content/60">{task.action}</code>
-                <span :if={task.is_handler} class="badge badge-xs">handler</span>
+                <.ui_badge :if={task.is_handler} size="xs" variant="ghost">handler</.ui_badge>
               </div>
               <span class="text-base-content/60">{fmt_ts(task.started_at)}</span>
             </div>
@@ -322,24 +326,24 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsShow do
   defp format_seconds(n) when n < 3600, do: "#{div(n, 60)}m #{rem(n, 60)}s"
   defp format_seconds(n), do: "#{div(n, 3600)}h #{div(rem(n, 3600), 60)}m"
 
-  defp state_badge_class(:succeeded), do: "badge-success"
-  defp state_badge_class(:partial), do: "badge-warning"
-  defp state_badge_class(:failed), do: "badge-error"
-  defp state_badge_class(:unreachable), do: "badge-error"
-  defp state_badge_class(:canceled), do: "badge-neutral"
-  defp state_badge_class(:running), do: "badge-info"
-  defp state_badge_class(:launching), do: "badge-info"
-  defp state_badge_class(:pending), do: "badge-ghost"
-  defp state_badge_class(_), do: "badge-ghost"
+  defp state_badge_variant(:succeeded), do: "success"
+  defp state_badge_variant(:partial), do: "warning"
+  defp state_badge_variant(:failed), do: "error"
+  defp state_badge_variant(:unreachable), do: "error"
+  defp state_badge_variant(:canceled), do: "ghost"
+  defp state_badge_variant(:running), do: "info"
+  defp state_badge_variant(:launching), do: "info"
+  defp state_badge_variant(:pending), do: "ghost"
+  defp state_badge_variant(_), do: "ghost"
 
-  defp target_badge_class(:ok), do: "badge-success"
-  defp target_badge_class(:failed), do: "badge-error"
-  defp target_badge_class(:unreachable), do: "badge-error"
-  defp target_badge_class(:skipped), do: "badge-neutral"
-  defp target_badge_class(:pending), do: "badge-ghost"
-  defp target_badge_class(_), do: "badge-ghost"
+  defp target_badge_variant(:ok), do: "success"
+  defp target_badge_variant(:failed), do: "error"
+  defp target_badge_variant(:unreachable), do: "error"
+  defp target_badge_variant(:skipped), do: "ghost"
+  defp target_badge_variant(:pending), do: "ghost"
+  defp target_badge_variant(_), do: "ghost"
 
-  defp play_badge_class(:ok), do: "badge-success"
-  defp play_badge_class(:failed), do: "badge-error"
-  defp play_badge_class(_), do: "badge-info"
+  defp play_badge_variant(:ok), do: "success"
+  defp play_badge_variant(:failed), do: "error"
+  defp play_badge_variant(_), do: "info"
 end

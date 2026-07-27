@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <label class="label">
                 <span class="label-text">Name</span>
               </label>
-              <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+              <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
             </div>
             <div>
               <label class="label">
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <.input
                 type="text"
                 field={@form[:partition]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="default"
               />
             </div>
@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               rows="2"
             />
           </div>
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <.input
                 type="select"
                 field={@form[:interval]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[
                   {"5 minutes", "5m"},
                   {"15 minutes", "15m"},
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <.input
                 type="select"
                 field={@form[:profile_id]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[{"Default settings", ""} | Enum.map(@profiles, &{&1.name, &1.id})]}
               />
             </div>
@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               <.input
                 type="select"
                 field={@form[:agent_id]}
-                class="select select-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
               />
               <label class="label">
@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 <.input
                   type="text"
                   field={@form[:target_query]}
-                  class="input input-bordered w-full font-mono text-sm"
+                  class={ui_field_class(mono: true, class: "w-full text-sm")}
                   placeholder="e.g., tags.env:prod hostname:%db%"
                 />
               </div>
@@ -306,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             type="textarea"
             field={@form[:static_targets]}
             value={format_static_targets(@form[:static_targets].value)}
-            class="textarea textarea-bordered w-full font-mono text-sm"
+            class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
             rows="3"
             placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;10.0.0.10-10.0.0.50"
           />
@@ -314,7 +314,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         
     <!-- Enable Toggle -->
         <div class="flex items-center gap-2 pt-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
+          <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
           <label class="label-text">Enable this sweep group</label>
         </div>
         
@@ -362,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <label class="label">
               <span class="label-text">Name</span>
             </label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+            <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <div>
             <label class="label">
@@ -371,7 +371,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <.input
               type="select"
               field={@form[:timeout]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"1 second", "1s"},
                 {"3 seconds", "3s"},
@@ -390,7 +390,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <.input
             type="textarea"
             field={@form[:description]}
-            class="textarea textarea-bordered w-full"
+            class={ui_field_class(class: "w-full min-h-24 py-2.5")}
             rows="2"
           />
         </div>
@@ -404,7 +404,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               type="text"
               field={@form[:ports]}
               value={format_ports_input(@form[:ports].value)}
-              class="input input-bordered w-full font-mono"
+              class={ui_field_class(mono: true, class: "w-full")}
               placeholder="22, 80, 443, 3389, 8080"
             />
           </div>
@@ -415,7 +415,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <.input
               type="number"
               field={@form[:concurrency]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
               max="500"
             />
@@ -462,7 +462,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div class="flex items-center gap-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
+          <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
           <label class="label-text">Enabled</label>
         </div>
 
@@ -508,7 +508,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                           type="checkbox"
                           name="form[banner_grab][protocols][]"
                           value={protocol}
-                          class="checkbox checkbox-sm"
+                          class={ui_checkbox_class()}
                           checked={Enum.member?(banner_grab_protocols(banner_grab), protocol)}
                         />
                         <span class="text-sm font-medium">{label}</span>
@@ -517,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                         type="text"
                         name={"form[banner_grab][ports][#{protocol}]"}
                         value={banner_grab_ports_input(banner_grab, protocol)}
-                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                         placeholder={banner_grab_default_ports(protocol)}
                       />
                     </div>
@@ -661,7 +661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         value={@value}
         min={@min}
         max={@max}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """

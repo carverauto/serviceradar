@@ -369,8 +369,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </p>
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Package</th>
@@ -398,12 +398,15 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     <td class="text-xs">{length(package.data_frames || [])}</td>
                     <td>
                       <div class="flex flex-wrap gap-1">
-                        <span class={status_badge(package.status)}>
+                        <.ui_badge size="sm" variant={status_badge_variant(package.status)}>
                           {status_label(package.status)}
-                        </span>
-                        <span class={verification_badge(package.verification_status)}>
+                        </.ui_badge>
+                        <.ui_badge
+                          size="sm"
+                          variant={verification_badge_variant(package.verification_status)}
+                        >
                           {package.verification_status || "unverified"}
-                        </span>
+                        </.ui_badge>
                       </div>
                     </td>
                     <td>
@@ -421,28 +424,15 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-2">
-                        <.link
-                          patch={~p"/settings/dashboards/packages/#{package.id}"}
-                          class="btn btn-ghost btn-xs"
-                        >
+                        <.ui_button patch={~p"/settings/dashboards/packages/#{package.id}"} size="xs" variant="ghost">
                           Details
-                        </.link>
-                        <button
-                          :if={@can_manage_packages and package.status != :enabled}
-                          class="btn btn-primary btn-xs"
-                          phx-click="enable_package"
-                          phx-value-id={package.id}
-                        >
+                        </.ui_button>
+                        <.ui_button :if={@can_manage_packages and package.status != :enabled} phx-click="enable_package" phx-value-id={package.id} size="xs" variant="primary">
                           Enable
-                        </button>
-                        <button
-                          :if={@can_manage_packages and package.status == :enabled}
-                          class="btn btn-outline btn-xs"
-                          phx-click="disable_package"
-                          phx-value-id={package.id}
-                        >
+                        </.ui_button>
+                        <.ui_button :if={@can_manage_packages and package.status == :enabled} phx-click="disable_package" phx-value-id={package.id} size="xs" variant="outline">
                           Disable
-                        </button>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -487,9 +477,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               Import a browser dashboard package from an upload or trusted GitHub source.
             </p>
           </div>
-          <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
+          <.ui_icon_button phx-click="close_modal" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <.error_list errors={@errors} />
@@ -503,7 +493,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
         >
           <label class="form-control">
             <span class="label-text">Source</span>
-            <select name="import[source_type]" class="select select-bordered select-sm">
+            <select name="import[source_type]" class={ui_field_class(size: "sm")}>
               <option value="upload" selected={@form["source_type"] in [nil, "", "upload"]}>
                 Upload
               </option>
@@ -516,7 +506,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control sm:col-span-2">
                 <span class="label-text">GitHub repo URL</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_repo_url]"
                   placeholder="https://github.com/org/repo"
                   value={@form["source_repo_url"]}
@@ -525,7 +515,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Ref</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
                   placeholder="main"
                   value={@form["source_ref"]}
@@ -534,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Manifest path</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
                   placeholder="dashboard.json"
                   value={@form["source_manifest_path"]}
@@ -543,7 +533,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control sm:col-span-2">
                 <span class="label-text">Renderer path override</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[renderer_path]"
                   placeholder="Use manifest renderer.artifact"
                   value={@form["renderer_path"]}
@@ -556,14 +546,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 <span class="label-text">Manifest JSON</span>
                 <.live_file_input
                   upload={@uploads.manifest}
-                  class="file-input file-input-bordered file-input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
                 />
               </label>
               <label class="form-control">
                 <span class="label-text">Renderer artifact</span>
                 <.live_file_input
                   upload={@uploads.wasm}
-                  class="file-input file-input-bordered file-input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
                 />
               </label>
             </div>
@@ -572,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Source ref</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
                   value={@form["source_ref"]}
                 />
@@ -580,7 +570,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Manifest path</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
                   value={@form["source_manifest_path"]}
                 />
@@ -592,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             <label class="label cursor-pointer justify-start gap-3 p-0">
               <input
                 type="checkbox"
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
                 name="import[enable]"
                 checked={@form["enable"] == "true"}
                 value="true"
@@ -602,7 +592,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             <label class="label mt-3 cursor-pointer justify-start gap-3 p-0">
               <input
                 type="checkbox"
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
                 name="import[create_instance]"
                 checked={@form["create_instance"] == "true"}
                 value="true"
@@ -612,10 +602,10 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </div>
 
           <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">
+            <.ui_button type="button" phx-click="close_modal" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
@@ -641,9 +631,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               {@package.dashboard_id} · {@package.version}
             </p>
           </div>
-          <button class="btn btn-ghost btn-sm btn-square" phx-click="close_modal">
+          <.ui_icon_button phx-click="close_modal" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <.error_list errors={@errors} />
@@ -675,9 +665,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <div class="mt-3 space-y-3">
                 <div :for={frame <- @package.data_frames || []} class="rounded-lg bg-base-200/60 p-3">
                   <div class="flex flex-wrap items-center gap-2">
-                    <span class="badge badge-outline">{frame["id"]}</span>
-                    <span class="badge badge-ghost">{frame["encoding"]}</span>
-                    <span :if={frame["limit"]} class="badge badge-ghost">limit {frame["limit"]}</span>
+                    <.ui_badge size="sm" variant="outline">{frame["id"]}</.ui_badge>
+                    <.ui_badge size="sm" variant="ghost">{frame["encoding"]}</.ui_badge>
+                    <.ui_badge :if={frame["limit"]} size="sm" variant="ghost">
+                      limit {frame["limit"]}
+                    </.ui_badge>
                   </div>
                   <div class="mt-2 font-mono text-xs text-base-content/70">{frame["query"]}</div>
                 </div>
@@ -689,28 +681,20 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             <div class="rounded-box border border-base-300 p-4">
               <div class="text-sm font-semibold">Status</div>
               <div class="mt-3 flex flex-wrap gap-2">
-                <span class={status_badge(@package.status)}>{status_label(@package.status)}</span>
-                <span class={verification_badge(@package.verification_status)}>
+                <.ui_badge size="sm" variant={status_badge_variant(@package.status)}>
+                  {status_label(@package.status)}
+                </.ui_badge>
+                <.ui_badge size="sm" variant={verification_badge_variant(@package.verification_status)}>
                   {@package.verification_status || "unverified"}
-                </span>
+                </.ui_badge>
               </div>
               <div class="mt-4 flex gap-2">
-                <button
-                  :if={@can_manage_packages and @package.status != :enabled}
-                  class="btn btn-primary btn-sm"
-                  phx-click="enable_package"
-                  phx-value-id={@package.id}
-                >
+                <.ui_button :if={@can_manage_packages and @package.status != :enabled} phx-click="enable_package" phx-value-id={@package.id} size="sm" variant="primary">
                   Enable
-                </button>
-                <button
-                  :if={@can_manage_packages and @package.status == :enabled}
-                  class="btn btn-outline btn-sm"
-                  phx-click="disable_package"
-                  phx-value-id={@package.id}
-                >
+                </.ui_button>
+                <.ui_button :if={@can_manage_packages and @package.status == :enabled} phx-click="disable_package" phx-value-id={@package.id} size="sm" variant="outline">
                   Disable
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -729,33 +713,20 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                       >
                         /dashboards/{instance.route_slug}
                       </.link>
-                      <span :if={instance.is_default} class="badge badge-info badge-xs">Default</span>
-                      <span class="badge badge-ghost badge-xs">
+                      <.ui_badge :if={instance.is_default} size="xs" variant="info">Default</.ui_badge>
+                      <.ui_badge size="xs" variant="ghost">
                         {placement_label(instance.placement)}
-                      </span>
+                      </.ui_badge>
                     </div>
                     <div class="mt-1 truncate text-base-content/60">{instance.name}</div>
                   </div>
                   <div :if={@can_manage_packages} class="flex shrink-0 items-center gap-1">
-                    <button
-                      :if={!instance.is_default}
-                      type="button"
-                      class="btn btn-ghost btn-xs btn-square"
-                      phx-click="set_default_instance"
-                      phx-value-id={instance.id}
-                      title="Set as default"
-                    >
+                    <.ui_icon_button :if={!instance.is_default} type="button" phx-click="set_default_instance" phx-value-id={instance.id} title="Set as default" size="xs" variant="ghost">
                       <.icon name="hero-star" class="size-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs btn-square"
-                      phx-click="edit_instance"
-                      phx-value-id={instance.id}
-                      title="Edit route settings"
-                    >
+                    </.ui_icon_button>
+                    <.ui_icon_button type="button" phx-click="edit_instance" phx-value-id={instance.id} title="Edit route settings" size="xs" variant="ghost">
                       <.icon name="hero-pencil" class="size-3.5" />
-                    </button>
+                    </.ui_icon_button>
                   </div>
                 </div>
               </div>
@@ -785,19 +756,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                     Create Dashboard Route
                   <% end %>
                 </div>
-                <button
-                  :if={editing_instance?(@instance_form)}
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  phx-click="cancel_instance_edit"
-                >
+                <.ui_button :if={editing_instance?(@instance_form)} type="button" phx-click="cancel_instance_edit" size="xs" variant="ghost">
                   Cancel
-                </button>
+                </.ui_button>
               </div>
               <label class="form-control">
                 <span class="label-text">Name</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="instance[name]"
                   value={@instance_form["name"]}
                 />
@@ -805,14 +771,14 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Route slug</span>
                 <input
-                  class="input input-bordered input-sm"
+                  class={ui_field_class(size: "sm")}
                   name="instance[route_slug]"
                   value={@instance_form["route_slug"]}
                 />
               </label>
               <label class="form-control">
                 <span class="label-text">Placement</span>
-                <select class="select select-bordered select-sm" name="instance[placement]">
+                <select class={ui_field_class(size: "sm")} name="instance[placement]">
                   <option value="dashboard" selected={@instance_form["placement"] == "dashboard"}>
                     Dashboard
                   </option>
@@ -828,7 +794,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               >
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                   name="instance[enabled]"
                   checked={@instance_form["enabled"] == "true"}
                   value="true"
@@ -841,7 +807,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               >
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm"
+                  class={ui_checkbox_class()}
                   name="instance[is_default]"
                   checked={@instance_form["is_default"] == "true"}
                   value="true"
@@ -851,17 +817,17 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               <label class="form-control">
                 <span class="label-text">Settings JSON</span>
                 <textarea
-                  class="textarea textarea-bordered min-h-28 font-mono text-xs"
+                  class={ui_field_class(mono: true, class: "min-h-28 py-2.5 text-xs")}
                   name="instance[settings_json]"
                 >{@instance_form["settings_json"]}</textarea>
               </label>
-              <button type="submit" class="btn btn-primary btn-sm w-full">
+              <.ui_button type="submit" size="sm" variant="primary" class="w-full">
                 <%= if editing_instance?(@instance_form) do %>
                   <.icon name="hero-check" class="size-4" /> Save Route
                 <% else %>
                   <.icon name="hero-plus" class="size-4" /> Create Route
                 <% end %>
-              </button>
+              </.ui_button>
             </.form>
           </aside>
         </div>
@@ -875,7 +841,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp error_list(assigns) do
     ~H"""
-    <div :if={@errors != []} class="alert alert-error mt-4">
+    <div :if={@errors != []} class={ui_alert_class(variant: "error", class: "mt-4")}>
       <div>
         <div class="font-semibold">Fix the following issue(s)</div>
         <ul class="mt-1 list-inside list-disc text-sm">
@@ -1117,18 +1083,18 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp short_hash(value) when is_binary(value), do: value
   defp short_hash(_value), do: "not stored"
 
-  defp status_badge(:enabled), do: "badge badge-success badge-outline"
-  defp status_badge(:staged), do: "badge badge-warning badge-outline"
-  defp status_badge(:disabled), do: "badge badge-ghost"
-  defp status_badge(:revoked), do: "badge badge-error badge-outline"
-  defp status_badge(_), do: "badge badge-ghost"
+  defp status_badge_variant(:enabled), do: "success"
+  defp status_badge_variant(:staged), do: "warning"
+  defp status_badge_variant(:disabled), do: "ghost"
+  defp status_badge_variant(:revoked), do: "error"
+  defp status_badge_variant(_), do: "ghost"
 
   defp status_label(value) when is_atom(value), do: Atom.to_string(value)
   defp status_label(value), do: to_string(value || "unknown")
 
-  defp verification_badge("verified"), do: "badge badge-success"
-  defp verification_badge("failed"), do: "badge badge-error"
-  defp verification_badge(_), do: "badge badge-ghost"
+  defp verification_badge_variant("verified"), do: "success"
+  defp verification_badge_variant("failed"), do: "error"
+  defp verification_badge_variant(_), do: "ghost"
 
   defp format_error({:invalid_settings, errors}) when is_list(errors), do: Enum.join(errors, "; ")
   defp format_error(errors) when is_list(errors), do: Enum.join(errors, "; ")

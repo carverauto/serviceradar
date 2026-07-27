@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
         class="border-t border-base-200 p-4 space-y-4"
       >
         <div class="flex flex-wrap items-center gap-2">
-          <label class="input input-sm input-bordered flex min-w-[12rem] flex-1 items-center gap-2">
+          <label class="flex min-h-9 min-w-[12rem] flex-1 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
             <.icon name="hero-magnifying-glass" class="size-4 text-base-content/40" />
             <input
               type="text"
@@ -106,10 +106,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
               autocomplete="off"
             />
           </label>
-          <button type="button" data-metadata-copy class="btn btn-sm btn-ghost gap-1">
+          <.ui_button type="button" data-metadata-copy size="sm" variant="ghost" class="gap-1">
             <.icon name="hero-clipboard-document" class="size-4" />
             <span data-metadata-copy-label>Copy JSON</span>
-          </button>
+          </.ui_button>
         </div>
 
         <div class="space-y-3">
@@ -144,17 +144,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
                     <span class="block min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-base-content/90">
                       {entry.value}
                     </span>
-                    <.link
-                      :if={entry.search_path}
-                      navigate={entry.search_path}
-                      data-metadata-find
-                      class="btn btn-ghost btn-xs shrink-0 gap-1 text-base-content/40 hover:text-primary"
-                      title={"Find other devices where #{entry.label} = #{entry.value}"}
-                      aria-label={"Find other devices where #{entry.key} equals #{entry.value}"}
-                    >
+                    <.ui_button :if={entry.search_path} navigate={entry.search_path} data-metadata-find title={"Find other devices where #{entry.label} = #{entry.value}"} aria-label={"Find other devices where #{entry.key} equals #{entry.value}"} size="xs" variant="ghost" class="shrink-0 gap-1 text-base-content/40 hover:text-primary">
                       <.icon name="hero-magnifying-glass-circle" class="size-4" />
                       <span class="hidden text-[11px] font-medium sm:inline">Find similar</span>
-                    </.link>
+                    </.ui_button>
                   </div>
                 </dd>
               </div>

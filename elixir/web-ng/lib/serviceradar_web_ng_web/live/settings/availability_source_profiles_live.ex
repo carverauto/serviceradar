@@ -197,12 +197,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-sm btn-ghost" phx-click="new_profile">
+              <.ui_button type="button" phx-click="new_profile" size="sm" variant="ghost">
                 <.icon name="hero-plus" class="size-4" /> New
-              </button>
-              <button type="button" class="btn btn-sm btn-primary" phx-click="materialize_profiles">
+              </.ui_button>
+              <.ui_button type="button" phx-click="materialize_profiles" size="sm" variant="primary">
                 <.icon name="hero-arrow-path" class="size-4" /> Apply
-              </button>
+              </.ui_button>
             </div>
           </div>
 
@@ -232,8 +232,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
 
           <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <section class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
-              <div class="overflow-x-auto">
-                <table class="table table-sm">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Name</th>
@@ -263,50 +263,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                       <td>{format_datetime(profile.last_evaluated_at)}</td>
                       <td>{profile.applied_count} / {profile.match_count}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          profile.enabled && "badge-success",
-                          !profile.enabled && "badge-ghost"
-                        ]}>
+                        <.ui_badge
+                          size="sm"
+                          variant={if(profile.enabled, do: "success", else: "ghost")}
+                        >
                           {if profile.enabled, do: "Enabled", else: "Disabled"}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td>
                         <div class="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            class="btn btn-xs btn-ghost"
-                            phx-click="edit_profile"
-                            phx-value-id={profile.id}
-                            aria-label="Edit profile"
-                            title="Edit profile"
-                          >
+                          <.ui_button type="button" phx-click="edit_profile" phx-value-id={profile.id} aria-label="Edit profile" title="Edit profile" size="xs" variant="ghost">
                             <.icon name="hero-pencil-square" class="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-xs btn-ghost"
-                            phx-click="toggle_profile"
-                            phx-value-id={profile.id}
-                            aria-label="Toggle profile"
-                            title="Toggle profile"
-                          >
+                          </.ui_button>
+                          <.ui_button type="button" phx-click="toggle_profile" phx-value-id={profile.id} aria-label="Toggle profile" title="Toggle profile" size="xs" variant="ghost">
                             <.icon
                               name={if profile.enabled, do: "hero-pause", else: "hero-play"}
                               class="size-4"
                             />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-xs btn-ghost text-error"
-                            phx-click="delete_profile"
-                            phx-value-id={profile.id}
-                            data-confirm="Delete this availability source profile?"
-                            aria-label="Delete profile"
-                            title="Delete profile"
-                          >
+                          </.ui_button>
+                          <.ui_button type="button" phx-click="delete_profile" phx-value-id={profile.id} data-confirm="Delete this availability source profile?" aria-label="Delete profile" title="Delete profile" size="xs" variant="ghost" class="text-error">
                             <.icon name="hero-trash" class="size-4" />
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
@@ -355,12 +332,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                   </div>
 
                   <div class="flex justify-end gap-2">
-                    <button type="button" class="btn btn-sm btn-ghost" phx-click="preview_profile">
+                    <.ui_button type="button" phx-click="preview_profile" size="sm" variant="ghost">
                       <.icon name="hero-eye" class="size-4" /> Preview
-                    </button>
-                    <button type="submit" class="btn btn-sm btn-primary">
+                    </.ui_button>
+                    <.ui_button type="submit" size="sm" variant="primary">
                       <.icon name="hero-check" class="size-4" /> Save
-                    </button>
+                    </.ui_button>
                   </div>
                 </.form>
               </section>

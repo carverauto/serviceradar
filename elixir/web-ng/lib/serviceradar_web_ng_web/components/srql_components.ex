@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         name={@name}
         phx-debounce="300"
         class={[
-          "textarea textarea-bordered min-h-28 w-full font-mono text-xs leading-relaxed",
+          ui_field_class(mono: true, class: "min-h-28 w-full text-xs leading-relaxed py-2.5"),
           "rounded-lg border-base-300 bg-base-100",
           "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
           @editor_class
@@ -203,7 +203,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </.ui_icon_button>
 
         <.ui_button variant="primary" size="sm" type="submit">
-          <span :if={@loading} class="loading loading-spinner loading-xs" /> Run
+          <span :if={@loading} class="sr-ui-spinner sr-ui-spinner-xs" /> Run
         </.ui_button>
       </form>
     </div>
@@ -242,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       @container && "rounded-xl border border-base-200 bg-base-100",
       @class
     ]}>
-      <table id={@id} class="table table-sm table-zebra w-full">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <%= for col <- @columns do %>

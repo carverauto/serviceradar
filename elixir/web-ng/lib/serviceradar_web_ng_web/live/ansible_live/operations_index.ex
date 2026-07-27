@@ -88,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         <div class="space-y-1">
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="text-2xl font-semibold">Secure Ansible operations</h1>
-            <span class="badge badge-success badge-sm">ServiceRadar secured</span>
+            <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
           </div>
           <p class="text-sm text-base-content/70">
             {@operation_count} operation{if @operation_count == 1, do: "", else: "s"} shown
@@ -96,16 +96,16 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <.link navigate={~p"/ansible/launch"} class="btn btn-primary btn-sm">
+          <.ui_button navigate={~p"/ansible/launch"} size="sm" variant="primary">
             <.icon name="hero-play" class="size-4" /> Launch
-          </.link>
-          <button type="button" class="btn btn-sm" phx-click="refresh">
+          </.ui_button>
+          <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </button>
+          </.ui_button>
         </div>
       </header>
 
-      <div role="note" class="alert alert-info">
+      <div role="note" class={ui_alert_class("info")}>
         <.icon name="hero-information-circle" class="size-5" />
         <div class="flex-1">
           <p class="font-medium">Hardened operation history</p>
@@ -114,26 +114,27 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
             They are not legacy PlaybookRun records.
           </p>
         </div>
-        <.link navigate={~p"/ansible/runs"} class="btn btn-ghost btn-sm">
+        <.ui_button navigate={~p"/ansible/runs"} size="sm" variant="ghost">
           Legacy run history
-        </.link>
+        </.ui_button>
       </div>
 
       <div class="flex flex-wrap items-center gap-2" aria-label="Operation state filter">
         <span class="mr-1 text-sm text-base-content/60">Filter:</span>
-        <button
+        <.ui_button
           :for={{label, state} <- @state_filters}
           type="button"
           phx-click="filter_state"
           phx-value-state={label}
-          class={["btn btn-xs", label == @state_filter && "btn-primary"]}
-          aria-pressed={to_string(label == @state_filter)}
+          size="xs"
+          variant={if(label == @state_filter, do: "primary", else: "ghost")}
+          active={label == @state_filter}
         >
           {state || label}
-        </button>
+        </.ui_button>
       </div>
 
-      <div :if={@history_error} role="alert" class="alert alert-error">
+      <div :if={@history_error} role="alert" class={ui_alert_class("error")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
         <span>{@history_error}</span>
       </div>
@@ -144,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
         role="status"
         class="flex items-center gap-2 p-4 text-sm text-base-content/60"
       >
-        <span class="loading loading-spinner loading-sm"></span> Loading secure operation history…
+        <.ui_spinner size="sm" /> Loading secure operation history…
       </div>
 
       <div
@@ -157,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
       </div>
 
       <div :if={@operation_count > 0} class="overflow-x-auto border border-base-300 bg-base-100">
-        <table class="table table-zebra">
+        <table class={ui_table_class(zebra: true)}>
           <thead>
             <tr>
               <th>State</th>
@@ -187,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
               </td>
               <td>{operation.request_source}</td>
               <td>
-                <span class="badge badge-ghost badge-sm">{operation_mode(operation)}</span>
+                <.ui_badge size="sm" variant="ghost">{operation_mode(operation)}</.ui_badge>
               </td>
               <td class="whitespace-nowrap">
                 {AutomationHistoryComponents.format_timestamp(operation.started_at)}
@@ -197,9 +198,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
               </td>
               <td><code class="text-xs">{short_id(operation.id)}</code></td>
               <td>
-                <.link navigate={~p"/ansible/operations/#{operation.id}"} class="btn btn-xs">
+                <.ui_button navigate={~p"/ansible/operations/#{operation.id}"} size="xs" variant="neutral">
                   View evidence
-                </.link>
+                </.ui_button>
               </td>
             </tr>
           </tbody>

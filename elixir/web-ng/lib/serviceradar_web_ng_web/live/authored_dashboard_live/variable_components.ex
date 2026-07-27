@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
             <select
               :if={variable.options != []}
               name={"variables[#{variable.name}]"}
-              class="select select-sm"
+              class={ui_field_class(size: "sm")}
             >
               <option
                 :for={option <- variable.options}

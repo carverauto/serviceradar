@@ -71,14 +71,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span class={["badge badge-sm", camera_source_status_badge_class(source)]}>
+              <.ui_badge size="sm" variant={camera_source_status_variant(source)}>
                 {camera_source_status_label(source)}
-              </span>
-              <span class="badge badge-outline badge-sm">
+              </.ui_badge>
+              <.ui_badge size="sm" variant="outline">
                 {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
                   do: "",
                   else: "s"}
-              </span>
+              </.ui_badge>
             </div>
           </div>
 
@@ -99,9 +99,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
               <div class="flex flex-wrap items-center gap-2">
                 <%= cond do %>
                   <% @active_session_key == {source.id, profile.id} -> %>
-                    <span class={["badge badge-sm", relay_status_badge_class(@active_session.status)]}>
+                    <.ui_badge size="sm" variant={relay_status_variant(@active_session.status)}>
                       {relay_status_label(@active_session.status)}
-                    </span>
+                    </.ui_badge>
                     <.ui_button
                       :if={relay_session_closable?(@active_session)}
                       phx-click="close_camera_relay"
@@ -111,9 +111,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
                       Stop Relay
                     </.ui_button>
                   <% @last_session_key == {source.id, profile.id} -> %>
-                    <span class={["badge badge-sm", relay_status_badge_class(@last_session.status)]}>
+                    <.ui_badge size="sm" variant={relay_status_variant(@last_session.status)}>
                       {relay_status_label(@last_session.status)}
-                    </span>
+                    </.ui_badge>
                     <span
                       :if={present?(relay_termination_label(@last_session))}
                       class="text-xs text-info"
@@ -372,12 +372,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
     end
   end
 
-  def camera_source_status_badge_class(source) do
+  def camera_source_status_variant(source) do
     case camera_source_availability_status(source) do
-      "available" -> "badge-success"
-      "degraded" -> "badge-warning"
-      "unavailable" -> "badge-error"
-      _ -> "badge-ghost"
+      "available" -> "success"
+      "degraded" -> "warning"
+      "unavailable" -> "error"
+      _ -> "ghost"
     end
   end
 
@@ -401,15 +401,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
   def relay_status_label(status) when is_binary(status), do: String.capitalize(status)
   def relay_status_label(_), do: "Requested"
 
-  def relay_status_badge_class(:active), do: "badge-success"
-  def relay_status_badge_class("active"), do: "badge-success"
-  def relay_status_badge_class(:opening), do: "badge-warning"
-  def relay_status_badge_class("opening"), do: "badge-warning"
-  def relay_status_badge_class(:closing), do: "badge-warning"
-  def relay_status_badge_class("closing"), do: "badge-warning"
-  def relay_status_badge_class(:failed), do: "badge-error"
-  def relay_status_badge_class("failed"), do: "badge-error"
-  def relay_status_badge_class(_), do: "badge-ghost"
+  def relay_status_variant(:active), do: "success"
+  def relay_status_variant("active"), do: "success"
+  def relay_status_variant(:opening), do: "warning"
+  def relay_status_variant("opening"), do: "warning"
+  def relay_status_variant(:closing), do: "warning"
+  def relay_status_variant("closing"), do: "warning"
+  def relay_status_variant(:failed), do: "error"
+  def relay_status_variant("failed"), do: "error"
+  def relay_status_variant(_), do: "ghost"
 
   def relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "" do

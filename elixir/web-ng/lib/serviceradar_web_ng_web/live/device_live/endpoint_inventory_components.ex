@@ -104,8 +104,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             />
           </div>
 
-          <div class="overflow-hidden rounded border border-base-300">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <tbody>
                 <.scan_row label="State" value={field(@scan, :state)} />
                 <.scan_row label="Coverage" value={field(@scan, :coverage_state)} />
@@ -153,12 +153,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <div class="flex flex-wrap items-center justify-between gap-2">
               <h3 class="text-xs font-semibold uppercase text-base-content/60">Source Diagnostics</h3>
               <div :if={enabled_sources(@scan) != []} class="flex flex-wrap gap-1">
-                <span
+                <.ui_badge
                   :for={source <- enabled_sources(@scan)}
-                  class="badge badge-outline badge-xs"
+                  size="xs"
+                  variant="outline"
                 >
                   {source}
-                </span>
+                </.ui_badge>
               </div>
             </div>
 
@@ -173,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               :if={source_summaries(@scan) != []}
               class="mt-3 overflow-hidden rounded border border-base-300"
             >
-              <table class="table table-xs">
+              <table class={ui_table_class(size: "xs")}>
                 <thead>
                   <tr>
                     <th>Source</th>
@@ -186,9 +187,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   <tr :for={source <- source_summaries(@scan)}>
                     <td class="font-mono">{field(source, :source) || field(source, :name) || "-"}</td>
                     <td>
-                      <span class={["badge badge-xs", source_state_class(field(source, :state))]}>
+                      <.ui_badge size="xs" variant={source_state_class(field(source, :state))}>
                         {field(source, :state) || "unknown"}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td class="font-mono">{field(source, :package_count) || 0}</td>
                     <td class="max-w-52 truncate text-base-content/70">
@@ -204,13 +205,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <div :if={manager_counts(@scan) != %{}} class="rounded border border-base-300 p-3">
             <h3 class="text-xs font-semibold uppercase text-base-content/60">Package Managers</h3>
             <div class="mt-3 flex flex-wrap gap-2">
-              <span
+              <.ui_badge
                 :for={{manager, count} <- manager_count_entries(@scan)}
-                class="badge badge-outline gap-1"
+                size="sm"
+                variant="outline"
+                class="gap-1"
               >
                 <span class="font-mono">{manager}</span>
                 <span>{count}</span>
-              </span>
+              </.ui_badge>
             </div>
           </div>
 
@@ -247,24 +250,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   label="Mode"
                   options={[{"Exists", "exists"}, {"Detail", "detail"}]}
                 />
-                <button
-                  class="btn btn-sm btn-primary"
-                  type="submit"
-                  name="action"
-                  value="query"
-                  disabled={@query_running}
-                >
+                <.ui_button type="submit" name="action" value="query" disabled={@query_running} size="sm" variant="primary">
                   <.icon name="hero-magnifying-glass" class="h-4 w-4" /> Check
-                </button>
-                <button
-                  class="btn btn-sm btn-outline"
-                  type="submit"
-                  name="action"
-                  value="force_refresh"
-                  disabled={@force_refresh_running}
-                >
+                </.ui_button>
+                <.ui_button type="submit" name="action" value="force_refresh" disabled={@force_refresh_running} size="sm" variant="outline">
                   <.icon name="hero-arrow-path" class="h-4 w-4" /> Refresh
-                </button>
+                </.ui_button>
               </div>
             </.form>
 
@@ -299,9 +290,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   label="Agents"
                   placeholder="agent-a, agent-b"
                 />
-                <button class="btn btn-sm btn-secondary" type="submit" disabled={@cohort_running}>
+                <.ui_button type="submit" disabled={@cohort_running} size="sm" variant="soft">
                   <.icon name="hero-users" class="h-4 w-4" /> Query
-                </button>
+                </.ui_button>
               </div>
             </.form>
 
@@ -309,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           </div>
 
           <div :if={@artifacts != []} class="overflow-hidden rounded border border-base-300">
-            <table class="table table-sm">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Artifact</th>
@@ -345,12 +336,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     </span>
                   </p>
                 </div>
-                <span
+                <.ui_badge
                   :if={package_filters_active?(@package_filter_params)}
-                  class="badge badge-info badge-sm"
+                  size="sm"
+                  variant="info"
                 >
                   Filtered
-                </span>
+                </.ui_badge>
               </div>
 
               <.form
@@ -389,7 +381,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               </.form>
             </div>
 
-            <table class="table table-sm">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Package</th>
@@ -419,9 +411,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                   <td class="font-medium">{field(package, :name)}</td>
                   <td class="font-mono text-xs">{empty_dash(field(package, :version))}</td>
                   <td>
-                    <span class="badge badge-outline badge-sm">
+                    <.ui_badge size="sm" variant="outline">
                       {field(package, :package_manager)}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="max-w-80 truncate font-mono text-xs">
                     {field(package, :purl_canonical) || field(package, :purl) ||
@@ -439,24 +431,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 Page {@current_page} of {@total_pages}
               </span>
               <div class="join">
-                <button
-                  type="button"
-                  class="btn btn-xs join-item"
-                  phx-click="endpoint_inventory_package_page"
-                  phx-value-page={@current_page - 1}
-                  disabled={@current_page <= 1}
-                >
+                <.ui_button type="button" phx-click="endpoint_inventory_package_page" phx-value-page={@current_page - 1} disabled={@current_page <= 1} size="xs" variant="neutral">
                   <.icon name="hero-chevron-left" class="h-3 w-3" /> Prev
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-xs join-item"
-                  phx-click="endpoint_inventory_package_page"
-                  phx-value-page={@current_page + 1}
-                  disabled={@current_page >= @total_pages}
-                >
+                </.ui_button>
+                <.ui_button type="button" phx-click="endpoint_inventory_package_page" phx-value-page={@current_page + 1} disabled={@current_page >= @total_pages} size="xs" variant="neutral">
                   Next <.icon name="hero-chevron-right" class="h-3 w-3" />
-                </button>
+                </.ui_button>
               </div>
             </div>
           </div>
@@ -487,17 +467,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               {empty_dash(field(@package, :version))}
             </p>
           </div>
-          <button
-            type="button"
-            phx-click="endpoint_inventory_close_package"
-            class="btn btn-sm btn-ghost"
-          >
+          <.ui_button type="button" phx-click="endpoint_inventory_close_package" size="sm" variant="ghost">
             Close
-          </button>
+          </.ui_button>
         </div>
 
-        <div class="overflow-hidden rounded border border-base-300">
-          <table class="table table-sm">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
             <tbody>
               <.detail_row label="Name" value={field(@package, :name)} />
               <.detail_row label="Version" value={field(@package, :version)} mono />
@@ -528,9 +504,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <h4 class="text-xs font-semibold uppercase text-base-content/60">
               Vulnerability Details
             </h4>
-            <span :if={@match_count > 0} class="badge badge-error badge-sm">
+            <.ui_badge :if={@match_count > 0} size="sm" variant="error">
               {@match_count} {if @match_count == 1, do: "match", else: "matches"}
-            </span>
+            </.ui_badge>
           </div>
 
           <div
@@ -547,19 +523,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1">
-                  <span class={[
-                    "badge badge-sm",
-                    vulnerability_severity_class(field(match, :severity))
-                  ]}>
+                  <.ui_badge
+                    size="sm"
+                    variant={vulnerability_severity_class(field(match, :severity))}
+                  >
                     {vulnerability_severity(match)}
-                  </span>
-                  <span :if={field(match, :kev)} class="badge badge-error badge-sm">KEV</span>
-                  <span :if={field(match, :exploit_available)} class="badge badge-warning badge-sm">
+                  </.ui_badge>
+                  <.ui_badge :if={field(match, :kev)} size="sm" variant="error">KEV</.ui_badge>
+                  <.ui_badge :if={field(match, :exploit_available)} size="sm" variant="warning">
                     Exploit
-                  </span>
-                  <span class={["badge badge-sm", match_status_class(field(match, :status))]}>
+                  </.ui_badge>
+                  <.ui_badge size="sm" variant={match_status_class(field(match, :status))}>
                     {String.capitalize(to_string(field(match, :status) || "unknown"))}
-                  </span>
+                  </.ui_badge>
                 </div>
                 <span class="font-mono text-xs text-base-content/60">
                   CVSS {empty_dash(field(match, :cvss_score))}
@@ -661,13 +637,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               {@match_count} active package matches from central feeds
             </p>
           </div>
-          <span :if={@match_count > 0} class="badge badge-error badge-sm">
-            Actionable
-          </span>
+          <.ui_badge :if={@match_count > 0} size="sm" variant="error">Actionable</.ui_badge>
         </div>
       </div>
 
-      <table class="table table-sm">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
           <tr>
             <th>Priority</th>
@@ -686,13 +660,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <tr :for={match <- @matches}>
             <td>
               <div class="flex flex-wrap gap-1">
-                <span class={["badge badge-xs", vulnerability_severity_class(field(match, :severity))]}>
+                <.ui_badge size="xs" variant={vulnerability_severity_class(field(match, :severity))}>
                   {vulnerability_severity(match)}
-                </span>
-                <span :if={field(match, :kev)} class="badge badge-error badge-xs">KEV</span>
-                <span :if={field(match, :exploit_available)} class="badge badge-warning badge-xs">
-                  Exploit
-                </span>
+                </.ui_badge>
+                <.ui_badge :if={field(match, :kev)} size="xs" variant="error">KEV</.ui_badge>
+                <.ui_badge :if={field(match, :exploit_available)} size="xs" variant="warning">Exploit</.ui_badge>
               </div>
               <div class="mt-1 font-mono text-[0.65rem] text-base-content/60">
                 CVSS {empty_dash(field(match, :cvss_score))}
@@ -752,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         :if={result_packages(@result) != []}
         class="mt-3 overflow-hidden rounded border border-base-300"
       >
-        <table class="table table-xs">
+        <table class={ui_table_class(size: "xs")}>
           <thead>
             <tr>
               <th>Package</th>
@@ -790,7 +762,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         :if={cohort_results(@result) != []}
         class="mt-3 overflow-hidden rounded border border-base-300"
       >
-        <table class="table table-xs">
+        <table class={ui_table_class(size: "xs")}>
           <thead>
             <tr>
               <th>Agent</th>
@@ -839,9 +811,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       data-testid="endpoint-software-state"
     >
       <div class="flex flex-wrap items-center gap-2">
-        <span class={["badge badge-sm", software_state_badge_class(field(@state, :tone))]}>
+        <.ui_badge size="sm" variant={software_state_badge_class(field(@state, :tone))}>
           {field(@state, :label)}
-        </span>
+        </.ui_badge>
         <span class="font-medium">{field(@state, :title)}</span>
       </div>
       <p class="mt-1 text-xs opacity-80">{field(@state, :detail)}</p>
@@ -853,9 +825,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp scan_status_badge(assigns) do
     ~H"""
-    <span class={["badge badge-sm", scan_status_class(field(@scan, :state))]}>
+    <.ui_badge size="sm" variant={scan_status_class(field(@scan, :state))}>
       {empty_dash(field(@scan, :state))}
-    </span>
+    </.ui_badge>
     """
   end
 
@@ -864,7 +836,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp risk_badge(assigns) do
     ~H"""
-    <span class={["badge badge-sm", risk_class(@risk_level, @risk_score)]}>
+    <span class={["px-2 py-0.5 text-xs", risk_class(@risk_level, @risk_score)]}>
       {risk_level_display(@risk_level)} {risk_score_suffix(@risk_score)}
     </span>
     """
@@ -1051,10 +1023,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp software_state_class(:info), do: "border-info/40 bg-info/10 text-info"
   defp software_state_class(_tone), do: "border-success/40 bg-success/10 text-success"
 
-  defp software_state_badge_class(:error), do: "badge-error"
-  defp software_state_badge_class(:warning), do: "badge-warning"
-  defp software_state_badge_class(:info), do: "badge-info"
-  defp software_state_badge_class(_tone), do: "badge-success"
+  defp software_state_badge_class(:error), do: "error"
+  defp software_state_badge_class(:warning), do: "warning"
+  defp software_state_badge_class(:info), do: "info"
+  defp software_state_badge_class(_tone), do: "success"
 
   defp field(nil, _field), do: nil
 
@@ -1146,13 +1118,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp risk_score_suffix(nil), do: ""
   defp risk_score_suffix(value), do: "(#{value})"
 
-  defp risk_class("Critical", _score), do: "badge-error"
-  defp risk_class("High", _score), do: "badge-warning"
-  defp risk_class("Medium", _score), do: "badge-info"
-  defp risk_class("Low", _score), do: "badge-success"
-  defp risk_class(_level, score) when is_integer(score) and score >= 80, do: "badge-error"
-  defp risk_class(_level, score) when is_integer(score) and score >= 50, do: "badge-warning"
-  defp risk_class(_level, _score), do: "badge-ghost"
+  defp risk_class("Critical", _score), do: "sr-sev-critical"
+  defp risk_class("High", _score), do: "sr-sev-high"
+  defp risk_class("Medium", _score), do: "sr-sev-medium"
+  defp risk_class("Low", _score), do: "sr-sev-low"
+  defp risk_class(_level, score) when is_integer(score) and score >= 80, do: "sr-sev-critical"
+  defp risk_class(_level, score) when is_integer(score) and score >= 50, do: "sr-sev-high"
+  defp risk_class(_level, _score), do: "sr-sev-unknown"
 
   defp vulnerability_severity(match) do
     match
@@ -1166,15 +1138,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp vulnerability_severity_class(value) when is_binary(value) do
     case String.downcase(value) do
-      "critical" -> "badge-error"
-      "high" -> "badge-warning"
-      "medium" -> "badge-info"
-      "low" -> "badge-success"
-      _ -> "badge-ghost"
+      "critical" -> "error"
+      "high" -> "warning"
+      "medium" -> "info"
+      "low" -> "success"
+      _ -> "ghost"
     end
   end
 
-  defp vulnerability_severity_class(_value), do: "badge-ghost"
+  defp vulnerability_severity_class(_value), do: "ghost"
 
   defp vulnerability_package_name(match) do
     match
@@ -1244,14 +1216,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp match_status_class(status) when is_binary(status) do
     case String.downcase(status) do
-      "active" -> "badge-error"
-      "resolved" -> "badge-success"
-      "suppressed" -> "badge-ghost"
-      _ -> "badge-ghost"
+      "active" -> "error"
+      "resolved" -> "success"
+      "suppressed" -> "ghost"
+      _ -> "ghost"
     end
   end
 
-  defp match_status_class(_status), do: "badge-ghost"
+  defp match_status_class(_status), do: "ghost"
 
   defp feed_suffix(nil), do: ""
   defp feed_suffix(""), do: ""
@@ -1275,25 +1247,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp reference_url?(_value), do: false
 
-  defp scan_status_class("scanned"), do: "badge-success"
-  defp scan_status_class("upload_deferred"), do: "badge-warning"
-  defp scan_status_class("scan_failed"), do: "badge-error"
-  defp scan_status_class(_state), do: "badge-ghost"
+  defp scan_status_class("scanned"), do: "success"
+  defp scan_status_class("upload_deferred"), do: "warning"
+  defp scan_status_class("scan_failed"), do: "error"
+  defp scan_status_class(_state), do: "ghost"
 
   defp source_state_class(state) when is_binary(state) do
     case String.downcase(state) do
-      "scanned" -> "badge-success"
-      "complete" -> "badge-success"
-      "partial" -> "badge-warning"
-      "skipped" -> "badge-warning"
-      "missing" -> "badge-warning"
-      "error" -> "badge-error"
-      "failed" -> "badge-error"
-      _ -> "badge-ghost"
+      "scanned" -> "success"
+      "complete" -> "success"
+      "partial" -> "warning"
+      "skipped" -> "warning"
+      "missing" -> "warning"
+      "error" -> "error"
+      "failed" -> "error"
+      _ -> "ghost"
     end
   end
 
-  defp source_state_class(_state), do: "badge-ghost"
+  defp source_state_class(_state), do: "ghost"
 
   defp truncate_hash(nil), do: nil
 

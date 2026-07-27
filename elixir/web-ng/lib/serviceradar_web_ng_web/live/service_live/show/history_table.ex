@@ -23,8 +23,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
       |> assign(:current_page, page)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -66,30 +66,34 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
         </tbody>
       </table>
 
-      <div :if={@total_pages > 1} class="flex items-center justify-between mt-4 px-2">
-        <div class="text-xs text-base-content/60">
+      <div :if={@total_pages > 1} class="mt-4 flex items-center justify-between px-2">
+        <div class="text-xs text-sr-muted">
           Showing {(@current_page - 1) * @per_page + 1}-{min(@current_page * @per_page, @total)} of {@total}
         </div>
-        <div class="join">
-          <button
-            class="join-item btn btn-xs"
+        <div class="flex items-center gap-1">
+          <.ui_button
+            type="button"
+            size="xs"
+            variant="outline"
             disabled={@current_page <= 1}
             phx-click="history_page"
             phx-value-page={@current_page - 1}
           >
             Prev
-          </button>
-          <span class="join-item btn btn-xs btn-disabled">
+          </.ui_button>
+          <span class="inline-flex min-h-7 items-center px-2 text-xs text-sr-muted">
             {@current_page} / {@total_pages}
           </span>
-          <button
-            class="join-item btn btn-xs"
+          <.ui_button
+            type="button"
+            size="xs"
+            variant="outline"
             disabled={@current_page >= @total_pages}
             phx-click="history_page"
             phx-value-page={@current_page + 1}
           >
             Next
-          </button>
+          </.ui_button>
         </div>
       </div>
     </div>

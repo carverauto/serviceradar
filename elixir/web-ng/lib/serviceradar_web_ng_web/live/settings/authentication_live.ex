@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
         <%= if @loading do %>
           <div class="flex justify-center py-12">
-            <span class="loading loading-spinner loading-lg"></span>
+            <.ui_spinner size="lg" />
           </div>
         <% else %>
           <% sso_enabled = sso_enabled?(@form[:is_enabled].value, @form[:mode].value) %>
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <%= if sso_enabled do %>
                 <div
                   id="authentication-status"
-                  class="alert alert-success"
+                  class={ui_alert_class("success")}
                   data-auth-mode={@form[:mode].value}
                   data-sso-enabled="true"
                 >
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               <% else %>
                 <div
                   id="authentication-status"
-                  class="alert"
+                  class={ui_alert_class("info")}
                   data-auth-mode={@form[:mode].value}
                   data-sso-enabled="false"
                 >
@@ -244,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                   </div>
                 </:header>
 
-                <div class="alert">
+                <div class={ui_alert_class("info")}>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -294,7 +294,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                 </:header>
 
                 <%= if @form[:sso_auto_provision].value do %>
-                  <div class="alert alert-warning">
+                  <div class={ui_alert_class("warning")}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </span>
                   </div>
                 <% else %>
-                  <div class="alert">
+                  <div class={ui_alert_class("info")}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
@@ -349,12 +349,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             <.claim_mappings_panel form={@form} />
 
             <div class="flex justify-end gap-3">
-              <button type="button" phx-click="reset" class="btn btn-ghost">
+              <.ui_button type="button" phx-click="reset" size="sm" variant="ghost">
                 Reset
-              </button>
-              <button type="submit" class="btn btn-primary" phx-disable-with="Saving...">
+              </.ui_button>
+              <.ui_button type="submit" phx-disable-with="Saving..." size="sm" variant="primary">
                 Save Configuration
-              </button>
+              </.ui_button>
             </div>
           </.form>
         <% end %>
@@ -380,31 +380,37 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           <label class="label">
             <span class="label-text">Identity Provider Preset</span>
           </label>
-          <div class="join">
-            <button
+          <div class="flex flex-wrap gap-1">
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="generic"
-              class={"btn btn-sm join-item #{if @idp_preset == "generic", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "generic", do: "primary", else: "outline")}
+              active={@idp_preset == "generic"}
             >
               Generic OIDC
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="entra"
-              class={"btn btn-sm join-item #{if @idp_preset == "entra", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "entra", do: "primary", else: "outline")}
+              active={@idp_preset == "entra"}
             >
               Microsoft Entra ID
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               type="button"
               phx-click="apply_idp_preset"
               phx-value-preset="authentik"
-              class={"btn btn-sm join-item #{if @idp_preset == "authentik", do: "btn-primary", else: "btn-outline"}"}
+              size="sm"
+              variant={if(@idp_preset == "authentik", do: "primary", else: "outline")}
+              active={@idp_preset == "authentik"}
             >
               Authentik
-            </button>
+            </.ui_button>
           </div>
           <label class="label">
             <span class="label-text-alt">
@@ -421,14 +427,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="url"
             name="settings[oidc_discovery_url]"
             value={@form[:oidc_discovery_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://login.example.com/.well-known/openid-configuration"
           />
           <label class="label">
             <span class="label-text-alt">The OpenID Connect discovery endpoint URL</span>
           </label>
           <%= if @idp_preset == "entra" do %>
-            <div class="alert alert-warning">
+            <div class={ui_alert_class("warning")}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -470,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[oidc_client_id]"
               value={@form[:oidc_client_id].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="your-client-id"
             />
           </div>
@@ -483,7 +489,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="password"
               name="settings[oidc_client_secret]"
               value={@form[:oidc_client_secret].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="••••••••"
             />
             <label class="label">
@@ -500,7 +506,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="text"
             name="settings[oidc_scopes]"
             value={@form[:oidc_scopes].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="openid profile email"
           />
           <label class="label">
@@ -508,7 +514,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="alert alert-info">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -531,12 +537,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="flex items-center gap-3">
-          <button
-            type="button"
-            phx-click="test_oidc"
-            class="btn btn-outline btn-sm"
-            disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""}
-          >
+          <.ui_button type="button" phx-click="test_oidc" disabled={!@form[:oidc_discovery_url].value || @form[:oidc_discovery_url].value == ""} size="sm" variant="outline">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -552,7 +553,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               />
             </svg>
             Test Configuration
-          </button>
+          </.ui_button>
           <span class="text-xs text-base-content/60">Verify the discovery URL is accessible</span>
         </div>
       </div>
@@ -574,7 +575,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
       <div class="space-y-4">
         <%!-- SP Information for IdP Configuration --%>
-        <div class="alert alert-info">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -626,7 +627,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="text"
             name="settings[saml_sp_entity_id]"
             value={@form[:saml_sp_entity_id].value || ServiceRadarWebNGWeb.Endpoint.url()}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder={ServiceRadarWebNGWeb.Endpoint.url()}
           />
           <label class="label">
@@ -642,7 +643,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="url"
             name="settings[saml_idp_metadata_url]"
             value={@form[:saml_idp_metadata_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://idp.example.com/federationmetadata/2007-06/federationmetadata.xml"
           />
           <label class="label">
@@ -658,7 +659,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
           <textarea
             name="settings[saml_idp_metadata_xml]"
-            class="textarea textarea-bordered w-full h-32 font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="Paste IdP metadata XML here..."
           ><%= @form[:saml_idp_metadata_xml].value %></textarea>
           <label class="label">
@@ -666,7 +667,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
         </div>
 
-        <div class="alert">
+        <div class={ui_alert_class("info")}>
           <svg
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
@@ -692,15 +693,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="flex items-center gap-3">
-          <button
-            type="button"
-            phx-click="test_saml"
-            class="btn btn-outline btn-sm"
-            disabled={
-              (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") &&
-                (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "")
-            }
-          >
+          <.ui_button type="button" phx-click="test_saml" disabled={ (!@form[:saml_idp_metadata_url].value || @form[:saml_idp_metadata_url].value == "") && (!@form[:saml_idp_metadata_xml].value || @form[:saml_idp_metadata_xml].value == "") } size="sm" variant="outline">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -716,7 +709,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               />
             </svg>
             Test Configuration
-          </button>
+          </.ui_button>
           <span class="text-xs text-base-content/60">Verify the IdP metadata is valid</span>
         </div>
       </div>
@@ -745,7 +738,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="text"
             name="settings[jwt_header_name]"
             value={@form[:jwt_header_name].value || "Authorization"}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="Authorization"
           />
           <label class="label">
@@ -763,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             type="url"
             name="settings[jwt_jwks_url]"
             value={@form[:jwt_jwks_url].value}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder="https://gateway.example.com/.well-known/jwks.json"
           />
           <label class="label">
@@ -781,7 +774,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </label>
           <textarea
             name="settings[jwt_public_key_pem]"
-            class="textarea textarea-bordered w-full h-32 font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
           ><%= @form[:jwt_public_key_pem].value %></textarea>
           <label class="label">
@@ -798,7 +791,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[jwt_issuer]"
               value={@form[:jwt_issuer].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="https://gateway.example.com"
             />
           </div>
@@ -811,7 +804,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[jwt_audience]"
               value={@form[:jwt_audience].value}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="serviceradar-api"
             />
           </div>
@@ -843,7 +836,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[claim_email]"
               value={get_claim_mapping(@form, "email", "email")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="email"
             />
           </div>
@@ -856,7 +849,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[claim_name]"
               value={get_claim_mapping(@form, "name", "name")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="name"
             />
           </div>
@@ -869,7 +862,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               type="text"
               name="settings[claim_sub]"
               value={get_claim_mapping(@form, "sub", "sub")}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="sub"
             />
           </div>

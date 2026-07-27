@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         <div class="space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="space-y-1">
-              <div class="badge badge-outline">Policy Editor</div>
+              <.ui_badge size="sm" variant="outline">Policy Editor</.ui_badge>
               <h1 class="text-2xl font-semibold">RBAC</h1>
               <p class="text-sm text-base-content/60">
                 Edit role profiles using a compact permissions grid. Built-in profiles are clone-only.
@@ -415,17 +415,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             </div>
 
             <div class="flex items-center gap-2">
-              <button :if={@has_dirty?} class="btn btn-primary btn-sm" phx-click="save_all">
+              <.ui_button :if={@has_dirty?} phx-click="save_all" size="sm" variant="primary">
                 Save all
-              </button>
-              <button class="btn btn-primary btn-sm gap-1" phx-click="open_new_profile">
+              </.ui_button>
+              <.ui_button phx-click="open_new_profile" size="sm" variant="primary" class="gap-1">
                 Create <.icon name="hero-plus-mini" class="h-4 w-4" />
-              </button>
+              </.ui_button>
             </div>
           </div>
 
           <div class="flex flex-wrap items-center justify-between gap-4">
-            <label class="input input-bordered input-sm flex items-center gap-2 w-full max-w-sm">
+            <label class="flex min-h-9 w-full max-w-sm items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
               <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
               <input
                 type="search"
@@ -445,19 +445,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 Profiles
               </span>
               <div class="flex flex-wrap gap-2">
-                <button
+                <.ui_button
                   :for={profile <- @filtered_profiles}
                   type="button"
-                  class={[
-                    "btn btn-xs",
-                    @active_profile && profile.id == @active_profile.id && "btn-primary",
-                    @active_profile && profile.id != @active_profile.id && "btn-ghost"
-                  ]}
+                  size="xs"
+                  variant={
+                    if(@active_profile && profile.id == @active_profile.id,
+                      do: "primary",
+                      else: "ghost"
+                    )
+                  }
+                  active={@active_profile && profile.id == @active_profile.id}
                   phx-click="select_profile"
                   phx-value-profile-id={profile.id}
                 >
                   {profile.name}
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -514,69 +517,56 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                 type="text"
                 name={@rename_form[:name].name}
                 value={@rename_form[:name].value}
-                class="input input-bordered input-sm w-56"
+                class={ui_field_class(size: "sm", class: "w-56")}
                 autocomplete="off"
               />
-              <button type="submit" class="btn btn-primary btn-xs">Save</button>
-              <button type="button" class="btn btn-ghost btn-xs" phx-click="cancel_rename_profile">
+              <.ui_button type="submit" size="xs" variant="primary">Save</.ui_button>
+              <.ui_button type="button" phx-click="cancel_rename_profile" size="xs" variant="ghost">
                 Cancel
-              </button>
+              </.ui_button>
             </.form>
           <% else %>
             <%= if @profile.system do %>
-              <span class={["badge gap-1", profile_badge_class(@profile)]}>
+              <.ui_badge size="sm" variant={profile_badge_variant(@profile)}>
                 {@profile.name}
-              </span>
+              </.ui_badge>
             <% else %>
               <button
                 type="button"
-                class={["badge gap-1 cursor-text hover:opacity-80", profile_badge_class(@profile)]}
+                class="cursor-text hover:opacity-80"
                 phx-click="start_rename_profile"
                 phx-value-profile-id={@profile.id}
                 title="Click to rename"
               >
-                {@profile.name}
+                <.ui_badge size="sm" variant={profile_badge_variant(@profile)}>
+                  {@profile.name}
+                </.ui_badge>
               </button>
             <% end %>
           <% end %>
           <span class="text-sm text-base-content/50">
             {profile_identifier(@profile)}
           </span>
-          <span :if={@dirty} class="badge badge-warning badge-sm gap-1">unsaved</span>
+          <.ui_badge :if={@dirty} size="sm" variant="warning">unsaved</.ui_badge>
         </div>
         <div class="flex items-center gap-2">
           <div class={["join", @locked && "opacity-50"]}>
-            <button
-              type="button"
-              class="btn btn-xs join-item"
-              disabled={@locked}
-              phx-click="set_profile_permissions"
-              phx-value-profile-id={@profile.id}
-              phx-value-mode="all"
-            >
+            <.ui_button type="button" disabled={@locked} phx-click="set_profile_permissions" phx-value-profile-id={@profile.id} phx-value-mode="all" size="xs" variant="neutral">
               All
-            </button>
-            <button
-              type="button"
-              class="btn btn-xs join-item"
-              disabled={@locked}
-              phx-click="set_profile_permissions"
-              phx-value-profile-id={@profile.id}
-              phx-value-mode="none"
-            >
+            </.ui_button>
+            <.ui_button type="button" disabled={@locked} phx-click="set_profile_permissions" phx-value-profile-id={@profile.id} phx-value-mode="none" size="xs" variant="neutral">
               None
-            </button>
+            </.ui_button>
           </div>
-          <button
-            :if={@dirty}
-            class="btn btn-primary btn-xs"
-            phx-click="save_profile"
-            phx-value-profile-id={@profile.id}
-          >
+          <.ui_button :if={@dirty} phx-click="save_profile" phx-value-profile-id={@profile.id} size="xs" variant="primary">
             Save
-          </button>
+          </.ui_button>
           <div class="dropdown dropdown-end">
-            <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square">
+            <div
+              tabindex="0"
+              role="button"
+              class="inline-flex size-9 cursor-pointer items-center justify-center rounded-sr-control text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+            >
               <.icon name="hero-ellipsis-vertical" class="h-5 w-5" />
             </div>
             <ul
@@ -609,26 +599,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             Section
           </span>
           <div class="flex flex-wrap gap-2">
-            <button
+            <.ui_button
               :for={section <- @sections}
               type="button"
-              class={[
-                "btn btn-xs",
-                section.key == @active_section && "btn-primary",
-                section.key != @active_section && "btn-ghost"
-              ]}
+              size="xs"
+              variant={if(section.key == @active_section, do: "primary", else: "ghost")}
+              active={section.key == @active_section}
               phx-click="select_section"
               phx-value-section={section.key}
             >
               {section.label}
-            </button>
+            </.ui_button>
           </div>
         </div>
       </div>
 
       <%!-- Permission grid --%>
       <div class="max-h-[70vh] overflow-auto">
-        <table class="table table-sm table-pin-rows">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th
@@ -709,10 +697,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
                     <%= if permission_exists?(@grid, resource.key, action) do %>
                       <input
                         type="checkbox"
-                        class={[
-                          "checkbox checkbox-sm",
-                          permission_checked?(@profile, resource.key, action) && "checkbox-primary"
-                        ]}
+                        class={ui_checkbox_class()}
                         checked={permission_checked?(@profile, resource.key, action)}
                         disabled={@locked}
                         phx-click="toggle_permission"
@@ -736,9 +721,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           These permissions exist on the profile but are not present in the current RBAC catalog.
         </div>
         <div class="mt-2 flex flex-wrap gap-2">
-          <span :for={perm <- @unmapped} class="badge badge-outline font-mono text-[11px]">
+          <.ui_badge :for={perm <- @unmapped} size="xs" variant="outline" class="font-mono">
             {perm}
-          </span>
+          </.ui_badge>
         </div>
       </div>
     </div>
@@ -761,8 +746,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <.input field={@form[:name]} type="text" label="Profile Name" required />
           <.input field={@form[:description]} type="text" label="Description" />
           <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_new_profile">Cancel</button>
-            <button type="submit" class="btn btn-primary">Create</button>
+            <.ui_button type="button" phx-click="close_new_profile" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Create</.ui_button>
           </div>
         </.form>
       </div>
@@ -787,15 +772,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           Users assigned to this profile will fall back to their role defaults.
         </p>
         <div class="modal-action">
-          <button type="button" class="btn btn-ghost" phx-click="close_delete_profile">Cancel</button>
-          <button
-            type="button"
-            class="btn btn-error"
-            phx-click="delete_profile"
-            phx-value-profile-id={@profile.id}
-          >
+          <.ui_button type="button" phx-click="close_delete_profile" size="sm" variant="ghost">Cancel</.ui_button>
+          <.ui_button type="button" phx-click="delete_profile" phx-value-profile-id={@profile.id} size="sm" variant="danger">
             Delete
-          </button>
+          </.ui_button>
         </div>
       </div>
       <div class="modal-backdrop">
@@ -1019,12 +999,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     |> Enum.sort()
   end
 
-  defp profile_badge_class(profile) do
+  defp profile_badge_variant(profile) do
     case to_string(profile.system_name || "") do
-      "admin" -> "badge-error"
-      "operator" -> "badge-warning"
-      "viewer" -> "badge-info"
-      _ -> "badge-secondary"
+      "admin" -> "error"
+      "operator" -> "warning"
+      "viewer" -> "info"
+      _ -> "ghost"
     end
   end
 

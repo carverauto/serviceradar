@@ -20,41 +20,30 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span
+            <.ui_badge
               :if={@active_camera_relay_session}
-              class={[
-                "badge badge-sm",
-                relay_status_badge_class(@active_camera_relay_session.status)
-              ]}
+              size="sm"
+              variant={relay_status_badge_variant(@active_camera_relay_session.status)}
             >
               {relay_status_label(@active_camera_relay_session.status)}
-            </span>
-            <span
+            </.ui_badge>
+            <.ui_badge
               :if={!@active_camera_relay_session && @last_camera_relay_session}
-              class={[
-                "badge badge-sm",
-                relay_status_badge_class(@last_camera_relay_session.status)
-              ]}
+              size="sm"
+              variant={relay_status_badge_variant(@last_camera_relay_session.status)}
             >
               {relay_status_label(@last_camera_relay_session.status)}
-            </span>
-            <span
+            </.ui_badge>
+            <.ui_badge
               :if={@camera_relay_viewer_state}
-              class={[
-                "badge badge-sm",
-                viewer_state_badge_class(@camera_relay_viewer_state.kind)
-              ]}
+              size="sm"
+              variant={viewer_state_badge_variant(@camera_relay_viewer_state.kind)}
             >
               {@camera_relay_viewer_state.title}
-            </span>
-            <button
-              :if={@active_camera_relay_session}
-              type="button"
-              class="btn btn-xs btn-outline"
-              phx-click="close_camera_relay"
-            >
+            </.ui_badge>
+            <.ui_button :if={@active_camera_relay_session} type="button" phx-click="close_camera_relay" size="xs" variant="outline">
               Stop Relay
-            </button>
+            </.ui_button>
           </div>
         </div>
       </:header>
@@ -64,12 +53,13 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <span class="font-medium text-base-content">
             {camera_context_label(@selected_camera_context)}
           </span>
-          <span
+          <.ui_badge
             :if={present?(camera_context_profile_label(@selected_camera_context))}
-            class="badge badge-outline badge-sm"
+            size="sm"
+            variant="outline"
           >
             {camera_context_profile_label(@selected_camera_context)}
-          </span>
+          </.ui_badge>
           <.link
             :if={present?(camera_context_device_uid(@selected_camera_context))}
             navigate={~p"/devices/#{camera_context_device_uid(@selected_camera_context)}"}
@@ -201,16 +191,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="badge badge-outline badge-sm">
+            <.ui_badge size="sm" variant="outline">
               {length(@camera_relay_tiles)} / {camera_relay_tile_limit()}
-            </span>
-            <button
-              type="button"
-              class="btn btn-xs btn-outline"
-              phx-click="close_camera_relay_tile_set"
-            >
+            </.ui_badge>
+            <.ui_button type="button" phx-click="close_camera_relay_tile_set" size="xs" variant="outline">
               Close All
-            </button>
+            </.ui_button>
           </div>
         </div>
       </:header>
@@ -249,33 +235,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
                 </.link>
               </div>
               <div class="flex items-center gap-2">
-                <span
+                <.ui_badge
                   :if={camera_relay_tile_status_label(tile)}
-                  class={[
-                    "badge badge-sm",
-                    camera_relay_tile_badge_class(tile)
-                  ]}
+                  size="sm"
+                  variant={camera_relay_tile_badge_variant(tile)}
                 >
                   {camera_relay_tile_status_label(tile)}
-                </span>
-                <button
-                  :if={camera_relay_tile_session_id(tile)}
-                  type="button"
-                  class="btn btn-xs btn-outline"
-                  phx-click="close_camera_relay_tile"
-                  phx-value-relay_session_id={camera_relay_tile_session_id(tile)}
-                >
+                </.ui_badge>
+                <.ui_button :if={camera_relay_tile_session_id(tile)} type="button" phx-click="close_camera_relay_tile" phx-value-relay_session_id={camera_relay_tile_session_id(tile)} size="xs" variant="outline">
                   Stop
-                </button>
-                <button
-                  :if={!camera_relay_tile_session_id(tile)}
-                  type="button"
-                  class="btn btn-xs btn-ghost"
-                  phx-click="dismiss_camera_relay_tile"
-                  phx-value-tile_id={tile.tile_id}
-                >
+                </.ui_button>
+                <.ui_button :if={!camera_relay_tile_session_id(tile)} type="button" phx-click="dismiss_camera_relay_tile" phx-value-tile_id={tile.tile_id} size="xs" variant="ghost">
                   Dismiss
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -398,15 +370,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def relay_status_label(status) when is_binary(status), do: String.capitalize(status)
   def relay_status_label(_), do: "Requested"
 
-  def relay_status_badge_class(:active), do: "badge-success"
-  def relay_status_badge_class("active"), do: "badge-success"
-  def relay_status_badge_class(:opening), do: "badge-warning"
-  def relay_status_badge_class("opening"), do: "badge-warning"
-  def relay_status_badge_class(:closing), do: "badge-warning"
-  def relay_status_badge_class("closing"), do: "badge-warning"
-  def relay_status_badge_class(:failed), do: "badge-error"
-  def relay_status_badge_class("failed"), do: "badge-error"
-  def relay_status_badge_class(_), do: "badge-ghost"
+  def relay_status_badge_variant(:active), do: "success"
+  def relay_status_badge_variant("active"), do: "success"
+  def relay_status_badge_variant(:opening), do: "warning"
+  def relay_status_badge_variant("opening"), do: "warning"
+  def relay_status_badge_variant(:closing), do: "warning"
+  def relay_status_badge_variant("closing"), do: "warning"
+  def relay_status_badge_variant(:failed), do: "error"
+  def relay_status_badge_variant("failed"), do: "error"
+  def relay_status_badge_variant(_), do: "ghost"
 
   def relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "", do: "ready"
@@ -511,11 +483,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
   def relay_session_terminal?(_session), do: false
 
-  def viewer_state_badge_class(:auth_required), do: "badge-warning"
-  def viewer_state_badge_class(:unavailable), do: "badge-warning"
-  def viewer_state_badge_class(:unauthorized), do: "badge-error"
-  def viewer_state_badge_class(:relay_error), do: "badge-error"
-  def viewer_state_badge_class(_kind), do: "badge-outline"
+  def viewer_state_badge_variant(:auth_required), do: "warning"
+  def viewer_state_badge_variant(:unavailable), do: "warning"
+  def viewer_state_badge_variant(:unauthorized), do: "error"
+  def viewer_state_badge_variant(:relay_error), do: "error"
+  def viewer_state_badge_variant(_kind), do: "outline"
 
   def viewer_state_container_class(:auth_required) do
     "border-warning/40 bg-warning/10 text-warning-content"
@@ -594,16 +566,16 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     |> relay_status_label()
   end
 
-  def camera_relay_tile_badge_class(tile) do
+  def camera_relay_tile_badge_variant(tile) do
     cond do
       is_map(Map.get(tile, :relay_session)) ->
-        relay_status_badge_class(Map.get(tile.relay_session, :status))
+        relay_status_badge_variant(Map.get(tile.relay_session, :status))
 
       is_map(Map.get(tile, :viewer_state)) ->
-        viewer_state_badge_class(Map.get(tile.viewer_state, :kind))
+        viewer_state_badge_variant(Map.get(tile.viewer_state, :kind))
 
       true ->
-        "badge-ghost"
+        "ghost"
     end
   end
 

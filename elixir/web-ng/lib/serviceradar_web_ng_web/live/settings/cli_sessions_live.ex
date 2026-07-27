@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
           </header>
 
           <%= if Enum.empty?(@sessions) do %>
-            <div class="alert alert-info">
+            <div class={ui_alert_class("info")}>
               <span>
                 No active CLI sessions. Run
                 <code class="font-mono">serviceradar-cli auth login --instance &lt;url&gt;</code>
@@ -123,8 +123,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
               </span>
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-zebra">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(zebra: true)}>
                 <thead>
                   <tr>
                     <%= if @show_user_column? do %>
@@ -151,21 +151,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
                       <td>{format_timestamp(session.last_used_at)}</td>
                       <td>{format_timestamp(session.expires_at)}</td>
                       <td>
-                        <span class={status_badge_class(session.status)}>
+                        <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                           {Atom.to_string(session.status)}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td class="text-right">
                         <%= if session.status == :active and can_revoke_session?(session, assigns) do %>
-                          <button
-                            type="button"
-                            phx-click="revoke"
-                            phx-value-jti={session.jti}
-                            data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call."
-                            class="btn btn-sm btn-ghost text-error"
-                          >
+                          <.ui_button type="button" phx-click="revoke" phx-value-jti={session.jti} data-confirm="Revoke this CLI session? Any open serviceradar-cli will receive 401s on its next API call." size="sm" variant="ghost" class="text-error">
                             Revoke
-                          </button>
+                          </.ui_button>
                         <% end %>
                       </td>
                     </tr>
@@ -269,8 +263,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
 
   defp format_timestamp(_), do: "—"
 
-  defp status_badge_class(:active), do: "badge badge-success badge-outline"
-  defp status_badge_class(:revoked), do: "badge badge-error badge-outline"
-  defp status_badge_class(:expired), do: "badge badge-ghost badge-outline"
-  defp status_badge_class(_), do: "badge badge-ghost"
+  defp status_badge_variant(:active), do: "success"
+  defp status_badge_variant(:revoked), do: "error"
+  defp status_badge_variant(:expired), do: "ghost"
+  defp status_badge_variant(_), do: "ghost"
 end

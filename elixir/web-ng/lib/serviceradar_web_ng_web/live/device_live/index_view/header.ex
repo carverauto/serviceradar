@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Header do
     </div>
 
     <div :if={@managed_device_limit_exceeded} class="mb-4">
-      <div role="alert" class="alert alert-warning">
+      <div role="alert" class={ui_alert_class("warning")}>
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div class="text-sm">
           <div class="font-semibold">Managed device advisory limit exceeded</div>

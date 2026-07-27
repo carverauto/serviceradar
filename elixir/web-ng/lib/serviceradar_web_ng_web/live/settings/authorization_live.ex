@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                   </label>
                   <textarea
                     name="settings[role_mappings]"
-                    class="textarea textarea-bordered w-full min-h-[200px]"
+                    class={ui_field_class(class: "w-full min-h-[200px] py-2.5")}
                   ><%= @form[:role_mappings].value %></textarea>
                   <%= if @json_error do %>
                     <div class="text-xs text-error mt-2">{@json_error}</div>
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
               </div>
 
               <div class="mt-6">
-                <button class="btn btn-primary" type="submit">Save Settings</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
               </div>
             </.form>
           </section>

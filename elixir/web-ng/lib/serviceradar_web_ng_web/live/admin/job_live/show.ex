@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                     </p>
                   </div>
                   <select
-                    class="select select-xs select-bordered"
+                    class={ui_field_class(size: "xs")}
                     phx-change="set_chart_hours"
                     name="hours"
                   >
@@ -283,8 +283,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                   </p>
                 </div>
               <% else %>
-                <div class="overflow-x-auto">
-                  <table class="table table-sm">
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
                       <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                         <th>State</th>

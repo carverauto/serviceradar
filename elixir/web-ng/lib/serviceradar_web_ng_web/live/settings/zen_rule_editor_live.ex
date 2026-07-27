@@ -249,9 +249,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <span :if={@dirty} class="badge badge-warning badge-sm gap-1">
+            <.ui_badge :if={@dirty} size="sm" variant="warning">
               <.icon name="hero-exclamation-triangle-mini" class="w-3 h-3" /> Unsaved
-            </span>
+            </.ui_badge>
             <.ui_button variant="ghost" phx-click="cancel">
               Cancel
             </.ui_button>
@@ -320,19 +320,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             ]}>
               <:header>
                 <div class="flex items-center gap-3">
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs hidden lg:flex"
-                    phx-click="toggle_properties"
-                    title={if @properties_collapsed, do: "Show properties", else: "Hide properties"}
-                  >
+                  <.ui_button type="button" phx-click="toggle_properties" title={if @properties_collapsed, do: "Show properties", else: "Hide properties"} size="xs" variant="ghost" class="hidden lg:flex">
                     <.icon
                       name={
                         if @properties_collapsed, do: "hero-chevron-right", else: "hero-chevron-left"
                       }
                       class="w-4 h-4"
                     />
-                  </button>
+                  </.ui_button>
                   <div>
                     <div class="text-sm font-semibold">Decision Logic</div>
                     <div class="text-xs text-base-content/60">
@@ -341,15 +336,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button
-                    :if={@properties_collapsed}
-                    type="submit"
-                    form="zen_rule_form"
-                    class="btn btn-primary btn-sm"
-                    phx-disable-with="Saving..."
-                  >
+                  <.ui_button :if={@properties_collapsed} type="submit" form="zen_rule_form" phx-disable-with="Saving..." size="sm" variant="primary">
                     <.icon name="hero-check" class="w-4 h-4" /> Save
-                  </button>
+                  </.ui_button>
                 </div>
               </:header>
 

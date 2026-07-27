@@ -25,13 +25,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.EmptyState do
           <div class="text-sm font-semibold">{@state.title}</div>
           <p class="text-xs leading-5 text-base-content/65">{@state.detail}</p>
         </div>
-        <.link
-          :if={is_binary(@state.link_href) and is_binary(@state.link_label)}
-          navigate={@state.link_href}
-          class="btn btn-xs btn-outline"
-        >
+        <.ui_button :if={is_binary(@state.link_href) and is_binary(@state.link_label)} navigate={@state.link_href} size="xs" variant="outline">
           {@state.link_label}
-        </.link>
+        </.ui_button>
       </div>
     </div>
     """

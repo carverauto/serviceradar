@@ -495,7 +495,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       page_title="Attributed Flows"
       srql={@srql}
     >
-      <div class="mx-auto max-w-7xl p-4 sm:p-6 space-y-5">
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-5 p-4 font-sans sm:p-6">
         <.observability_chrome
           active_pane="attributed-flows"
           title="Attributed Flows"
@@ -553,8 +553,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <:header>
             <div class="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div class="text-sm font-semibold">{filter_title(@filter)}</div>
-                <div class="text-xs text-base-content/60">
+                <div class="text-sm font-semibold tracking-tight text-sr-ink">{filter_title(@filter)}</div>
+                <div class="text-xs leading-relaxed text-sr-muted">
                   Last {@time_window_hours} hours. Page {@page} of {@page_count}.
                 </div>
               </div>
@@ -582,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             </div>
           </:header>
 
-          <div class="hidden border-b border-base-200 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50 lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
+          <div class="hidden border-b border-base-200 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
             <div>Source</div>
             <div>Destination</div>
             <div>Process / Agent</div>
@@ -617,26 +617,28 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 />
 
                 <div class="min-w-0">
-                  <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">
+                  <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
                     Process / Agent
                   </div>
-                  <div class="truncate text-sm font-medium">
+                  <div class="truncate text-sm font-semibold tracking-tight text-sr-ink">
                     {process_label(row)}
                   </div>
-                  <div class="mt-0.5 truncate font-mono text-xs text-base-content/55">
+                  <div class="mt-0.5 truncate font-mono text-[11px] text-sr-muted">
                     {display(workload_label(row) || row.agent_id)}
                   </div>
                 </div>
 
                 <div class="min-w-0">
-                  <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">
+                  <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
                     Traffic
                   </div>
                   <div class="flex flex-wrap items-center gap-2">
                     <.ui_badge variant="ghost" size="xs">{row.protocol}</.ui_badge>
-                    <span class="text-sm font-semibold tabular-nums">{format_bytes(row.bytes)}</span>
+                    <span class="text-sm font-semibold tracking-tight tabular-nums text-sr-ink">
+                      {format_bytes(row.bytes)}
+                    </span>
                   </div>
-                  <div class="mt-0.5 text-xs text-base-content/55 tabular-nums">
+                  <div class="mt-0.5 text-xs tabular-nums text-sr-muted">
                     {format_number(row.packets)} packets
                   </div>
                 </div>
@@ -646,7 +648,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                     <.attribution_badge attributed?={row.attributed?} />
                     <.threat_badge threat={row.threat} />
                   </div>
-                  <div class="mt-1 truncate text-xs text-base-content/55">{row.timestamp}</div>
+                  <div class="mt-1 truncate font-mono text-[11px] text-sr-muted">{row.timestamp}</div>
                 </div>
               </button>
             <% end %>
@@ -691,15 +693,19 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       phx-click="set_filter"
       phx-value-filter={@filter}
       class={[
-        "rounded-lg border bg-base-100 p-3 text-left transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30",
+        "rounded-sr-control border bg-base-100 p-3 text-left font-sans transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus",
         tile_tone_class(@tone),
         @active && "ring-2 ring-primary/35"
       ]}
     >
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <div class="truncate text-xs uppercase text-base-content/60">{@label}</div>
-          <div class="mt-1 truncate text-2xl font-semibold tabular-nums">{@value}</div>
+          <div class="truncate text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
+            {@label}
+          </div>
+          <div class="mt-1 truncate text-2xl font-semibold tracking-tight tabular-nums text-sr-ink">
+            {@value}
+          </div>
         </div>
         <.icon name={@icon} class="size-5 shrink-0 opacity-70" />
       </div>
@@ -720,27 +726,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
     ~H"""
     <div class="flex items-center justify-between gap-2">
-      <button
-        type="button"
-        phx-click="goto_page"
-        phx-value-page={@previous_page}
-        disabled={@page <= 1}
-        class="btn btn-ghost btn-xs"
-      >
+      <.ui_button type="button" phx-click="goto_page" phx-value-page={@previous_page} disabled={@page <= 1} size="xs" variant="ghost">
         <.icon name="hero-chevron-left" class="size-3.5" /> Previous
-      </button>
+      </.ui_button>
       <span class="min-w-20 text-center text-xs text-base-content/60 tabular-nums">
         {@page} / {@page_count}
       </span>
-      <button
-        type="button"
-        phx-click="goto_page"
-        phx-value-page={@next_page}
-        disabled={@page >= @page_count}
-        class="btn btn-ghost btn-xs"
-      >
+      <.ui_button type="button" phx-click="goto_page" phx-value-page={@next_page} disabled={@page >= @page_count} size="xs" variant="ghost">
         Next <.icon name="hero-chevron-right" class="size-3.5" />
-      </button>
+      </.ui_button>
     </div>
     """
   end
@@ -753,11 +747,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp endpoint_summary(assigns) do
     ~H"""
     <div class="min-w-0">
-      <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">{@label}</div>
-      <div class="truncate font-mono text-sm font-medium">
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
+        {@label}
+      </div>
+      <div class="truncate font-mono text-[13px] font-normal tracking-tight text-sr-ink">
         {endpoint(@ip, @port)}
       </div>
-      <div class="mt-0.5 truncate text-xs text-base-content/55">
+      <div class="mt-0.5 truncate text-xs text-sr-muted">
         {display(@hostname)}
       </div>
     </div>
@@ -801,15 +797,9 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             <h2 class="truncate text-lg font-semibold">Flow Details</h2>
             <div class="mt-1 text-xs text-base-content/60">{@flow.timestamp}</div>
           </div>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm btn-square"
-            phx-click="close_flow"
-            aria-label="Close details"
-            title="Close details"
-          >
+          <.ui_icon_button type="button" phx-click="close_flow" aria-label="Close details" title="Close details" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
         <div class="mt-4 grid gap-3 md:grid-cols-2">
@@ -1124,8 +1114,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp pluralize(1, singular, _plural), do: singular
   defp pluralize(_, _singular, plural), do: plural
 
-  defp tile_tone_class("success"), do: "border-success/30"
-  defp tile_tone_class("warning"), do: "border-warning/30"
-  defp tile_tone_class("info"), do: "border-info/30"
-  defp tile_tone_class(_), do: "border-base-200"
+  defp tile_tone_class("success"), do: "border-sr-brand/40"
+  defp tile_tone_class("warning"), do: "border-warning/40"
+  defp tile_tone_class("info"), do: "border-sr-line-strong"
+  defp tile_tone_class(_), do: "border-sr-line"
 end

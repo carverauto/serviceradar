@@ -180,22 +180,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
               Site, access point, controller, RADIUS, and fleet records from imported WiFi map data.
             </p>
           </div>
-          <.link navigate={~p"/devices"} class="btn btn-sm btn-ghost">
+          <.ui_button navigate={~p"/devices"} size="sm" variant="ghost">
             <.icon name="hero-server-stack" class="size-4" /> Device List
-          </.link>
+          </.ui_button>
         </section>
 
         <nav class="flex flex-wrap gap-2" aria-label="WiFi inventory views">
-          <.link
+          <.ui_button
             :for={tab <- @entity_tabs}
             patch={~p"/devices/wifi?#{%{q: tab.query, limit: @limit}}"}
-            class={[
-              "btn btn-sm",
-              if(tab.id == @active_entity, do: "btn-primary", else: "btn-ghost")
-            ]}
+            size="sm"
+            variant={if(tab.id == @active_entity, do: "primary", else: "ghost")}
+            active={tab.id == @active_entity}
           >
             {tab.label}
-          </.link>
+          </.ui_button>
         </nav>
 
         <.ui_panel>
@@ -206,8 +205,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm", zebra: true)}>
               <thead>
                 <tr>
                   <th :for={{_field, label} <- @columns}>{label}</th>

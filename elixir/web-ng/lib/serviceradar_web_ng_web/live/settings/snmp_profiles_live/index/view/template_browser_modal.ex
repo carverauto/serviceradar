@@ -70,13 +70,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
     <dialog id="template_browser_modal" class="modal modal-open">
       <div class="modal-box max-w-3xl max-h-[80vh]">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            type="button"
-            phx-click="close_template_browser"
-          >
+          <.ui_icon_button type="button" phx-click="close_template_browser" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="font-bold text-lg mb-4">OID Templates</h3>
@@ -91,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
               type="text"
               value={@search}
               placeholder="Search templates..."
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               phx-keyup="search_templates"
               phx-value-search=""
               name="search"

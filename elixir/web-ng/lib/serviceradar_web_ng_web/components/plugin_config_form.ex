@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   attr :schema, :map, default: %{}
   attr :params, :map, default: %{}
   attr :base_name, :string, default: "params"
@@ -110,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     >
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-medium">{Map.get(@prop, "title") || @name}</span>
-        <span class="badge badge-ghost badge-sm">Provided by credential rules</span>
+        <.ui_badge size="sm" variant="ghost">Provided by credential rules</.ui_badge>
       </div>
       <p :if={is_binary(@description) and @description != ""} class="text-xs text-base-content/60">
         {@description}
@@ -158,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             type="password"
             name={input_name(@base_name, @name)}
             value=""
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder={secret_placeholder(@params, @name)}
           />
           <%= if current_secret_ref(@params, @name) do %>
@@ -169,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
         <% :select -> %>
           <select
             name={input_name(@base_name, @name)}
-            class="select select-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           >
             <%= for option <- Map.get(@prop, "enum", []) do %>
               <option
@@ -187,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
               type="checkbox"
               name={input_name(@base_name, @name)}
               value="true"
-              class="checkbox checkbox-sm"
+              class={ui_checkbox_class()}
               checked={truthy?(value_for(@params, @name))}
             />
             <span class="text-xs text-base-content/60">Enable</span>
@@ -195,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
         <% :textarea -> %>
           <textarea
             name={input_name(@base_name, @name)}
-            class="textarea textarea-bordered w-full font-mono text-xs min-h-[100px]"
+            class={ui_field_class(mono: true, class: "w-full min-h-[100px] py-2.5 text-xs")}
             placeholder={array_placeholder(@prop)}
           ><%= value_for(@params, @name) %></textarea>
         <% :number -> %>
@@ -206,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             min={Map.get(@prop, "minimum")}
             max={Map.get(@prop, "maximum")}
             step={number_step(@prop)}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           />
         <% :text -> %>
           <input
@@ -216,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             minlength={Map.get(@prop, "minLength")}
             maxlength={Map.get(@prop, "maxLength")}
             pattern={Map.get(@prop, "pattern")}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           />
       <% end %>
 

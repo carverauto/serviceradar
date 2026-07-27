@@ -32,21 +32,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Pagination do
           else: "No results"}
       </div>
       <div class="join">
-        <.link :if={@has_prev} patch={@prev_path} class="join-item btn btn-sm btn-outline">
+        <.ui_button :if={@has_prev} patch={@prev_path} size="sm" variant="outline">
           <.icon name="hero-chevron-left" class="size-4" /> Prev
-        </.link>
-        <button :if={!@has_prev} class="join-item btn btn-sm btn-outline" disabled>
+        </.ui_button>
+        <.ui_button :if={!@has_prev} disabled size="sm" variant="outline">
           <.icon name="hero-chevron-left" class="size-4" /> Prev
-        </button>
-        <span class="join-item btn btn-sm btn-ghost pointer-events-none">
+        </.ui_button>
+        <span class="pointer-events-none inline-flex min-h-9 items-center justify-center px-3 text-sm font-semibold text-sr-muted">
           {@page} / {@total_pages}
         </span>
-        <.link :if={@has_next} patch={@next_path} class="join-item btn btn-sm btn-outline">
+        <.ui_button :if={@has_next} patch={@next_path} size="sm" variant="outline">
           Next <.icon name="hero-chevron-right" class="size-4" />
-        </.link>
-        <button :if={!@has_next} class="join-item btn btn-sm btn-outline" disabled>
+        </.ui_button>
+        <.ui_button :if={!@has_next} disabled size="sm" variant="outline">
           Next <.icon name="hero-chevron-right" class="size-4" />
-        </button>
+        </.ui_button>
       </div>
     </div>
     """

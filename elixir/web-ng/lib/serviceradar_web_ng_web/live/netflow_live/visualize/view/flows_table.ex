@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   def render(assigns) do
     ~H"""
     <div class="w-full">
-      <table class="table table-zebra table-sm w-full table-fixed">
+      <table class={ui_table_class(size: "sm", zebra: true, fixed: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">

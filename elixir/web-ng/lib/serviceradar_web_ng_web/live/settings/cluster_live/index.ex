@@ -328,8 +328,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr class="text-xs uppercase tracking-wide text-base-content/60">
                   <th>Node</th>
@@ -415,8 +415,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr class="text-xs uppercase tracking-wide text-base-content/60">
                   <th>Queue</th>
@@ -463,8 +463,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                   <th>Event</th>
@@ -540,8 +540,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp gateways_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>
@@ -605,8 +605,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp agents_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>

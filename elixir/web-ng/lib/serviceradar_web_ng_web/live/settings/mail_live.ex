@@ -176,12 +176,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
             />
 
             <div class="flex flex-wrap gap-2">
-              <button type="submit" class="btn btn-sm btn-primary">
+              <.ui_button type="submit" size="sm" variant="primary">
                 <.icon name="hero-check" class="size-4" /> Save Settings
-              </button>
-              <button type="button" class="btn btn-sm" phx-click="test_config">
+              </.ui_button>
+              <.ui_button type="button" phx-click="test_config" size="sm" variant="neutral">
                 <.icon name="hero-wrench-screwdriver" class="size-4" /> Validate Runtime Config
-              </button>
+              </.ui_button>
             </div>
           </.form>
 

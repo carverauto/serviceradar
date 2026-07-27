@@ -392,13 +392,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   Rules processed by the Zen engine to normalize and enrich logs.
                 </p>
               </div>
-              <.link navigate={~p"/settings/rules/zen/new"} class="btn btn-primary btn-sm">
+              <.ui_button navigate={~p"/settings/rules/zen/new"} size="sm" variant="primary">
                 <.icon name="hero-plus" class="w-4 h-4" /> New Rule
-              </.link>
+              </.ui_button>
             </:header>
 
-            <div class="overflow-x-auto">
-              <table class="table">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class()}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Rule</th>
@@ -424,13 +424,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                           <span :if={kv_only_rule?(rule)} class="font-mono text-sm">
                             {rule.name}
                           </span>
-                          <span :if={kv_only_rule?(rule)} class="badge badge-outline badge-xs">
+                          <.ui_badge :if={kv_only_rule?(rule)} size="xs" variant="outline">
                             KV
-                          </span>
+                          </.ui_badge>
                         </div>
                       </td>
                       <td>
-                        <span class="badge badge-ghost badge-sm font-mono">{rule.subject}</span>
+                        <.ui_badge size="sm" variant="ghost" class="font-mono">
+                          {rule.subject}
+                        </.ui_badge>
                       </td>
                       <td class="text-sm text-base-content/70 max-w-xs truncate">
                         {rule.description}
@@ -445,36 +447,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                             phx-click="toggle_zen"
                             phx-value-id={rule.id}
                           />
-                          <span class="swap-on badge badge-success badge-sm">Enabled</span>
-                          <span class="swap-off badge badge-ghost badge-sm">Disabled</span>
+                          <span class="swap-on">
+                            <.ui_badge size="sm" variant="success">Enabled</.ui_badge>
+                          </span>
+                          <span class="swap-off">
+                            <.ui_badge size="sm" variant="ghost">Disabled</.ui_badge>
+                          </span>
                         </label>
                       </td>
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
-                          <.link
-                            :if={not kv_only_rule?(rule)}
-                            navigate={~p"/settings/rules/zen/#{rule.id}"}
-                            class="btn btn-ghost btn-xs"
-                          >
+                          <.ui_button :if={not kv_only_rule?(rule)} navigate={~p"/settings/rules/zen/#{rule.id}"} size="xs" variant="ghost">
                             <.icon name="hero-pencil-square" class="w-4 h-4" />
-                          </.link>
-                          <.link
-                            :if={not kv_only_rule?(rule)}
-                            navigate={~p"/settings/rules/zen/clone/#{rule.id}"}
-                            class="btn btn-ghost btn-xs"
-                          >
+                          </.ui_button>
+                          <.ui_button :if={not kv_only_rule?(rule)} navigate={~p"/settings/rules/zen/clone/#{rule.id}"} size="xs" variant="ghost">
                             <.icon name="hero-document-duplicate" class="w-4 h-4" />
-                          </.link>
-                          <button
-                            :if={not kv_only_rule?(rule)}
-                            type="button"
-                            class="btn btn-ghost btn-xs text-error"
-                            phx-click="delete_zen"
-                            phx-value-id={rule.id}
-                            data-confirm="Are you sure you want to delete this rule?"
-                          >
+                          </.ui_button>
+                          <.ui_button :if={not kv_only_rule?(rule)} type="button" phx-click="delete_zen" phx-value-id={rule.id} data-confirm="Are you sure you want to delete this rule?" size="xs" variant="ghost" class="text-error">
                             <.icon name="hero-trash" class="w-4 h-4" />
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
@@ -484,9 +475,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No rules configured yet.</p>
-                        <.link navigate={~p"/settings/rules/zen/new"} class="btn btn-primary btn-sm">
+                        <.ui_button navigate={~p"/settings/rules/zen/new"} size="sm" variant="primary">
                           Create your first rule
-                        </.link>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -505,13 +496,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   Create events from logs or metrics for downstream alerting.
                 </p>
               </div>
-              <button type="button" class="btn btn-primary btn-sm" phx-click="new_promotion_rule">
+              <.ui_button type="button" phx-click="new_promotion_rule" size="sm" variant="primary">
                 <.icon name="hero-plus" class="w-4 h-4" /> New Log Rule
-              </button>
+              </.ui_button>
             </:header>
 
-            <div class="overflow-x-auto">
-              <table class="table">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class()}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Rule</th>
@@ -548,8 +539,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                               phx-click="toggle_promotion"
                               phx-value-id={rule.id}
                             />
-                            <span class="swap-on badge badge-success badge-sm">Enabled</span>
-                            <span class="swap-off badge badge-ghost badge-sm">Disabled</span>
+                            <span class="swap-on">
+                              <.ui_badge size="sm" variant="success">Enabled</.ui_badge>
+                            </span>
+                            <span class="swap-off">
+                              <.ui_badge size="sm" variant="ghost">Disabled</.ui_badge>
+                            </span>
                           </label>
                         <% else %>
                           <.ui_badge variant={if rule.enabled, do: "success", else: "ghost"} size="xs">
@@ -560,31 +555,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
                           <%= if editable? do %>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-xs"
-                              phx-click="edit_promotion_rule"
-                              phx-value-id={rule.id}
-                            >
+                            <.ui_button type="button" phx-click="edit_promotion_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                               <.icon name="hero-pencil-square" class="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-xs text-error"
-                              phx-click="delete_promotion"
-                              phx-value-id={rule.id}
-                              data-confirm="Are you sure you want to delete this rule?"
-                            >
+                            </.ui_button>
+                            <.ui_button type="button" phx-click="delete_promotion" phx-value-id={rule.id} data-confirm="Are you sure you want to delete this rule?" size="xs" variant="ghost" class="text-error">
                               <.icon name="hero-trash" class="w-4 h-4" />
-                            </button>
+                            </.ui_button>
                           <% else %>
-                            <.link
-                              :if={metric_rule_path(rule)}
-                              navigate={metric_rule_path(rule)}
-                              class="btn btn-ghost btn-xs"
-                            >
+                            <.ui_button :if={metric_rule_path(rule)} navigate={metric_rule_path(rule)} size="xs" variant="ghost">
                               <.icon name="hero-arrow-top-right-on-square" class="w-4 h-4" />
-                            </.link>
+                            </.ui_button>
                           <% end %>
                         </div>
                       </td>
@@ -595,13 +575,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No event rules configured.</p>
-                        <button
-                          type="button"
-                          class="btn btn-primary btn-sm"
-                          phx-click="new_promotion_rule"
-                        >
+                        <.ui_button type="button" phx-click="new_promotion_rule" size="sm" variant="primary">
                           Create your first log rule
-                        </button>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -620,13 +596,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   Escalate event patterns into alerts with thresholds and cooldowns.
                 </p>
               </div>
-              <button type="button" class="btn btn-primary btn-sm" disabled>
+              <.ui_button type="button" disabled size="sm" variant="primary">
                 <.icon name="hero-plus" class="w-4 h-4" /> New Rule
-              </button>
+              </.ui_button>
             </:header>
 
-            <div class="overflow-x-auto">
-              <table class="table">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class()}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Rule</th>
@@ -656,23 +632,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       </td>
                       <td class="text-right">
                         <div class="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="edit_stateful_rule"
-                            phx-value-id={rule.id}
-                          >
+                          <.ui_button type="button" phx-click="edit_stateful_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                             <.icon name="hero-pencil-square" class="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs text-error"
-                            phx-click="delete_stateful"
-                            phx-value-id={rule.id}
-                            data-confirm="Are you sure?"
-                          >
+                          </.ui_button>
+                          <.ui_button type="button" phx-click="delete_stateful" phx-value-id={rule.id} data-confirm="Are you sure?" size="xs" variant="ghost" class="text-error">
                             <.icon name="hero-trash" class="w-4 h-4" />
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
@@ -705,9 +670,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 Tune incident grouping, cooldown, and renotify behavior.
               </p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_stateful_rule">
+            <.ui_button type="button" phx-click="cancel_stateful_rule" size="sm" variant="ghost">
               <.icon name="hero-x-mark" class="w-5 h-5" />
-            </button>
+            </.ui_button>
           </div>
 
           <.form
@@ -717,7 +682,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             phx-submit="save_stateful_rule"
             class="space-y-6 px-6 py-5"
           >
-            <div :if={@stateful_rule_error} class="alert alert-error text-sm">
+            <div :if={@stateful_rule_error} class={ui_alert_class(variant: "error", class: "text-sm")}>
               {@stateful_rule_error}
             </div>
 
@@ -727,7 +692,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 <input
                   type="text"
                   value={@editing_stateful_rule && @editing_stateful_rule.name}
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   disabled
                 />
               </label>
@@ -736,7 +701,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 <span class="label-text text-xs font-medium">Enabled</span>
                 <select
                   name="stateful_rule[enabled]"
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 >
                   <option value="true" selected={@stateful_rule_form["enabled"] == "true"}>
                     Enabled
@@ -754,7 +719,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 type="text"
                 name="stateful_rule[group_by]"
                 value={@stateful_rule_form["group_by"]}
-                class="input input-bordered input-sm w-full"
+                class={ui_field_class(size: "sm", class: "w-full")}
                 placeholder="rule, hostname"
               />
               <span class="label-text-alt text-base-content/60">
@@ -770,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   min="1"
                   name="stateful_rule[cooldown_seconds]"
                   value={@stateful_rule_form["cooldown_seconds"]}
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </label>
 
@@ -781,18 +746,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   min="0"
                   name="stateful_rule[renotify_seconds]"
                   value={@stateful_rule_form["renotify_seconds"]}
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </label>
             </div>
 
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn btn-ghost" phx-click="cancel_stateful_rule">
+              <.ui_button type="button" phx-click="cancel_stateful_rule" size="sm" variant="ghost">
                 Cancel
-              </button>
-              <button type="submit" class="btn btn-primary">
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">
                 Save Alert Rule
-              </button>
+              </.ui_button>
             </div>
           </.form>
         </div>
@@ -1024,9 +989,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
     ~H"""
     <div class="flex flex-col gap-1">
-      <span class={["badge badge-xs", (@label == "Metric" && "badge-info") || "badge-ghost"]}>
+      <.ui_badge size="xs" variant={if(@label == "Metric", do: "info", else: "ghost")}>
         {@label}
-      </span>
+      </.ui_badge>
       <span class="text-xs text-base-content/60">{@details}</span>
     </div>
     """
@@ -1039,7 +1004,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     assigns = assign(assigns, :metric, metric)
 
     ~H"""
-    <span class="badge badge-ghost badge-xs">threshold: {@metric}</span>
+    <.ui_badge size="xs" variant="ghost">threshold: {@metric}</.ui_badge>
     """
   end
 
@@ -1053,10 +1018,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
         <span class="text-base-content/50">No conditions</span>
       <% else %>
         <%= for {icon, label} <- @conditions do %>
-          <span class="badge badge-ghost badge-xs gap-1">
+          <.ui_badge size="xs" variant="ghost">
             <.icon name={icon} class="w-3 h-3" />
             {label}
-          </span>
+          </.ui_badge>
         <% end %>
       <% end %>
     </div>

@@ -91,37 +91,37 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
     # Format: (high 16 bits = AS number) : (low 16 bits = value)
     community_value = assigns.community
 
-    {display_text, badge_class} =
+    {display_text, variant} =
       case community_value do
         # Well-known communities (RFC 1997)
         0xFFFFFF01 ->
-          {"NO_EXPORT", "badge-warning"}
+          {"NO_EXPORT", "warning"}
 
         0xFFFFFF02 ->
-          {"NO_ADVERTISE", "badge-error"}
+          {"NO_ADVERTISE", "error"}
 
         0xFFFFFF03 ->
-          {"NO_EXPORT_SUBCONFED", "badge-warning"}
+          {"NO_EXPORT_SUBCONFED", "warning"}
 
         0xFFFFFF04 ->
-          {"NOPEER", "badge-error"}
+          {"NOPEER", "error"}
 
         # Regular community - decode to AS:value
         _ ->
           as_number = Bitwise.bsr(community_value, 16)
           value = Bitwise.band(community_value, 0xFFFF)
-          {"#{as_number}:#{value}", "badge-info"}
+          {"#{as_number}:#{value}", "info"}
       end
 
     assigns =
       assigns
       |> assign(:display_text, display_text)
-      |> assign(:badge_class, badge_class)
+      |> assign(:variant, variant)
 
     ~H"""
-    <span class={"badge badge-sm #{@badge_class} font-mono"} title={"Raw value: #{@community}"}>
+    <.ui_badge size="sm" variant={@variant} class="font-mono" title={"Raw value: #{@community}"}>
       {@display_text}
-    </span>
+    </.ui_badge>
     """
   end
 end

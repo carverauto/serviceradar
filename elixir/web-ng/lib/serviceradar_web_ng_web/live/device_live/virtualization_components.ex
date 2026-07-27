@@ -38,8 +38,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
         <span class="text-xs text-base-content/60">{@running_count} running</span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th>Name</th>
@@ -68,13 +68,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                 <span class="text-base-content/40">{virtualization_guest_disk_subvalue(guest)}</span>
               </td>
               <td class="text-right">
-                <.link
-                  :if={is_binary(guest.device_uid) and guest.device_uid != ""}
-                  navigate={~p"/devices/#{guest.device_uid}"}
-                  class="btn btn-ghost btn-xs"
-                >
+                <.ui_button :if={is_binary(guest.device_uid) and guest.device_uid != ""} navigate={~p"/devices/#{guest.device_uid}"} size="xs" variant="ghost">
                   Open
-                </.link>
+                </.ui_button>
               </td>
             </tr>
           </tbody>
@@ -218,13 +214,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
               <span class="text-xs text-base-content/60">Hypervisor</span>
               <span class="truncate text-sm font-medium">{@parent_host_label}</span>
             </div>
-            <.link
-              :if={@parent_host_uid}
-              navigate={~p"/devices/#{@parent_host_uid}"}
-              class="btn btn-ghost btn-xs"
-            >
+            <.ui_button :if={@parent_host_uid} navigate={~p"/devices/#{@parent_host_uid}"} size="xs" variant="ghost">
               Open node
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
@@ -240,8 +232,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
 
         <div :if={@datastores != []} class="space-y-2">
           <h4 class="text-xs font-semibold uppercase text-base-content/50">Datastores</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -256,9 +248,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                   <td class="font-medium">{store.name}</td>
                   <td>{store.storage_type || "—"}</td>
                   <td>
-                    <span class={["badge badge-xs", store.active && "badge-success"]}>
+                    <.ui_badge
+                      size="xs"
+                      variant={if(store.active, do: "success", else: "ghost")}
+                    >
                       {virtualization_datastore_status(store)}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="text-right font-mono">{format_bytes(store.used_bytes)}</td>
                   <td class="text-right font-mono">{format_bytes(store.total_bytes)}</td>
@@ -270,8 +265,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
 
         <div :if={@disks != []} class="space-y-2">
           <h4 class="text-xs font-semibold uppercase text-base-content/50">Host Disks</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Path</th>
@@ -296,8 +291,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
 
         <div :if={@network_interfaces != []} class="space-y-2">
           <h4 class="text-xs font-semibold uppercase text-base-content/50">Network</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -312,9 +307,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                   <td class="font-medium">{iface.name}</td>
                   <td>{iface.interface_type || "—"}</td>
                   <td>
-                    <span class={["badge badge-xs", iface.active && "badge-success"]}>
+                    <.ui_badge
+                      size="xs"
+                      variant={if(iface.active, do: "success", else: "ghost")}
+                    >
                       {if iface.active, do: "active", else: "inactive"}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="font-mono">{virtualization_interface_address(iface)}</td>
                   <td>{iface.bridge_ports || "—"}</td>
@@ -354,10 +352,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
     assigns =
       assigns
       |> assign(:label, label)
-      |> assign(:class, virtualization_health_class(label))
+      |> assign(:variant, virtualization_health_variant(label))
 
     ~H"""
-    <span class={["badge badge-xs", @class]}>{@label}</span>
+    <.ui_badge size="xs" variant={@variant}>{@label}</.ui_badge>
     """
   end
 
@@ -435,21 +433,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   def virtualization_guests?(%{guests: guests}) when is_list(guests), do: guests != []
   def virtualization_guests?(_summary), do: false
 
-  defp virtualization_health_class(value) do
+  defp virtualization_health_variant(value) do
     normalized = value |> to_string() |> String.downcase()
 
     cond do
       normalized in ["passed", "ok", "health_ok", "online"] ->
-        "badge-success"
+        "success"
 
       String.contains?(normalized, "warn") ->
-        "badge-warning"
+        "warning"
 
       String.contains?(normalized, "fail") or String.contains?(normalized, "crit") ->
-        "badge-error"
+        "error"
 
       true ->
-        "badge-ghost"
+        "ghost"
     end
   end
 

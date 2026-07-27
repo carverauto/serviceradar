@@ -300,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-3">
           <div class="relative">
-            <span class="loading loading-spinner loading-sm text-success"></span>
+            <.ui_spinner size="sm" />
           </div>
           <div>
             <div class="font-medium">
@@ -389,7 +389,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       </td>
       <td>
         <div :if={@has_metrics} class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
+          <div
+            tabindex="0"
+            role="button"
+            class="inline-flex min-h-7 cursor-pointer items-center justify-center rounded-sr-control px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+          >
             <.icon name="hero-chart-bar" class="size-4" />
           </div>
           <div

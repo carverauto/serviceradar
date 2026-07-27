@@ -275,9 +275,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               Build saved dashboards from bounded SRQL queries and render them at stable dashboard URLs.
             </p>
           </div>
-          <.link navigate={~p"/dashboard"} class="btn btn-sm btn-ghost">
+          <.ui_button navigate={~p"/dashboard"} size="sm" variant="ghost">
             <.icon name="hero-squares-2x2" class="size-4" /> Operations
-          </.link>
+          </.ui_button>
         </section>
 
         <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(440px,1.05fr)]">
@@ -310,8 +310,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                     >
                       {dashboard.title}
                     </.link>
-                    <span class="badge badge-sm badge-outline">{dashboard.status}</span>
-                    <span class="badge badge-sm">{dashboard.visibility}</span>
+                    <.ui_badge size="sm" variant="outline">{dashboard.status}</.ui_badge>
+                    <.ui_badge size="sm" variant="ghost">{dashboard.visibility}</.ui_badge>
                   </div>
                   <p class="mt-1 truncate text-xs text-base-content/55">
                     {dashboard.description || "No description"}
@@ -321,21 +321,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                   </p>
                 </div>
                 <div class="flex shrink-0 gap-2">
-                  <.link
-                    navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"}
-                    class="btn btn-xs"
-                  >
+                  <.ui_button navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"} size="xs" variant="neutral">
                     <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Open
-                  </.link>
-                  <button
-                    :if={@can_manage?}
-                    type="button"
-                    class="btn btn-xs btn-error btn-outline"
-                    phx-click="archive"
-                    phx-value-id={dashboard.id}
-                  >
+                  </.ui_button>
+                  <.ui_button :if={@can_manage?} type="button" phx-click="archive" phx-value-id={dashboard.id} size="xs" variant="outline">
                     <.icon name="hero-archive-box" class="size-4" /> Archive
-                  </button>
+                  </.ui_button>
                 </div>
               </div>
             </div>
@@ -367,9 +358,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               />
 
               <div class="flex flex-wrap items-center gap-2">
-                <button type="submit" class="btn btn-sm btn-primary" disabled={!@can_manage?}>
+                <.ui_button type="submit" disabled={!@can_manage?} size="sm" variant="primary">
                   <.icon name="hero-bookmark-square" class="size-4" /> Create Dashboard
-                </button>
+                </.ui_button>
                 <span class="text-xs text-base-content/55">
                   Panels are added after save so they can be tied to this dashboard.
                 </span>

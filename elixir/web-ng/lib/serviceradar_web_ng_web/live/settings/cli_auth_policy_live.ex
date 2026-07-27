@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                 value={@form_values.cli_session_ttl_days}
                 min="1"
                 max="365"
-                class="input input-bordered w-32"
+                class={ui_field_class(class: "w-32")}
               />
               <p class="text-xs text-base-content/60 mt-1">
                 Default 30 days. Existing tokens keep their original TTL — only
@@ -146,7 +146,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
               <textarea
                 name="settings[cli_allowed_scopes]"
                 rows="3"
-                class="textarea textarea-bordered font-mono text-sm"
+                class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-sm")}
                 placeholder="dashboard.publish&#10;dashboard.import"
               ><%= @form_values.cli_allowed_scopes %></textarea>
               <p class="text-xs text-base-content/60 mt-1">
@@ -156,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
             </div>
 
             <div class="flex justify-end">
-              <button type="submit" class="btn btn-primary">Save</button>
+              <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
             </div>
           </form>
         </div>

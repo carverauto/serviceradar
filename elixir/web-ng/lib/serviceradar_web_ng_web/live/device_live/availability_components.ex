@@ -127,9 +127,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
             <.icon name="hero-map-pin" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Agent Availability</span>
             <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
-            <span :if={present?(@source_profile_id)} class="badge badge-info badge-xs">
+            <.ui_badge :if={present?(@source_profile_id)} size="xs" variant="info">
               profile assigned
-            </span>
+            </.ui_badge>
           </div>
           <form
             :if={@availability_source == :canonical}
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
             <select
               id="availability-source-agent"
               name="agent_id"
-              class="select select-bordered select-xs w-48"
+              class={ui_field_class(size: "xs", class: "w-48")}
             >
               <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
               <%= for row <- @display_rows do %>
@@ -170,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
         </div>
 
         <div :if={@display_rows != []} class="overflow-x-auto">
-          <table class="table table-xs">
+          <table class={ui_table_class(size: "xs")}>
             <thead>
               <tr class="text-xs text-base-content/60">
                 <th>Agent</th>
@@ -187,21 +187,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                   <td>
                     <div class="flex items-center gap-2">
                       <span class="font-mono text-xs">{availability_agent_label(row)}</span>
-                      <span
+                      <.ui_badge
                         :if={@availability_source == :canonical and row.agent_id == @primary_agent_id}
-                        class="badge badge-primary badge-xs"
+                        size="xs"
+                        variant="primary"
                       >
                         source
-                      </span>
-                      <span
+                      </.ui_badge>
+                      <.ui_badge
                         :if={
                           @availability_source == :canonical and row.agent_id == @primary_agent_id and
                             present?(@source_profile_id)
                         }
-                        class="badge badge-info badge-xs"
+                        size="xs"
+                        variant="info"
                       >
                         profile
-                      </span>
+                      </.ui_badge>
                     </div>
                   </td>
                   <td>

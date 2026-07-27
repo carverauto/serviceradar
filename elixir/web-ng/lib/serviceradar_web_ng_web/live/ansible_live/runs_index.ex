@@ -105,17 +105,17 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
         <div>
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="text-2xl font-semibold">Legacy Ansible runs</h1>
-            <span class="badge badge-outline badge-sm">PlaybookRun</span>
+            <.ui_badge size="sm" variant="outline">PlaybookRun</.ui_badge>
           </div>
           <p class="text-sm text-base-content/70">
             {@run_count} run{if @run_count == 1, do: "", else: "s"} shown
             (filter: {@state_filter}, capped at {@page_limit}).
           </p>
         </div>
-        <button type="button" class="btn btn-sm btn-ghost" phx-click="refresh">Refresh</button>
+        <.ui_button type="button" phx-click="refresh" size="sm" variant="ghost">Refresh</.ui_button>
       </header>
 
-      <div role="note" class="alert alert-info">
+      <div role="note" class={ui_alert_class("info")}>
         <.icon name="hero-information-circle" class="size-5" />
         <div class="flex-1">
           <p class="font-medium">Pre-hardening run telemetry</p>
@@ -124,22 +124,24 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
             AutomationOperation scope evidence.
           </p>
         </div>
-        <.link navigate={~p"/ansible/operations"} class="btn btn-ghost btn-sm">
+        <.ui_button navigate={~p"/ansible/operations"} size="sm" variant="ghost">
           Secure operations
-        </.link>
+        </.ui_button>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm text-base-content/60 mr-1">Filter:</span>
-        <button
+        <.ui_button
           :for={state <- @state_filters}
           type="button"
+          size="xs"
+          variant={if(state == @state_filter, do: "primary", else: "ghost")}
+          active={state == @state_filter}
           phx-click="filter_state"
           phx-value-state={state}
-          class={["btn btn-xs", state == @state_filter && "btn-primary"]}
         >
           {state}
-        </button>
+        </.ui_button>
       </div>
 
       <div
@@ -150,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
       </div>
 
       <div :if={@run_count > 0} class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
-        <table class="table table-zebra">
+        <table class={ui_table_class(zebra: true)}>
           <thead>
             <tr>
               <th>State</th>
@@ -174,11 +176,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.RunsIndex do
               <td class="whitespace-nowrap">{fmt_ts(run.ended_at)}</td>
               <td>{run.awx_job_id}</td>
               <td>
-                <span :if={run.schedule_id} class="badge badge-ghost">schedule</span>
-                <span :if={!run.schedule_id} class="badge badge-ghost">ad-hoc</span>
+                <.ui_badge :if={run.schedule_id} size="sm" variant="ghost">schedule</.ui_badge>
+                <.ui_badge :if={!run.schedule_id} size="sm" variant="ghost">ad-hoc</.ui_badge>
               </td>
               <td>
-                <.link navigate={~p"/ansible/runs/#{run.id}"} class="btn btn-xs">View</.link>
+                <.ui_button navigate={~p"/ansible/runs/#{run.id}"} size="xs" variant="neutral">View</.ui_button>
               </td>
             </tr>
           </tbody>

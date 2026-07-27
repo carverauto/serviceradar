@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               type="text"
               name="device[hostname]"
               value={@device_form[:hostname].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               type="text"
               name="device[ip]"
               value={@device_form[:ip].value}
-              class="input input-bordered input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               phx-debounce="300"
             />
           </div>
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             <label class="label py-1">
               <span class="label-text text-xs font-medium">Type</span>
             </label>
-            <select name="device[type]" class="select select-bordered select-sm">
+            <select name="device[type]" class={ui_field_class(size: "sm")}>
               <option value="">Select type...</option>
               <option value="server" selected={@device_form[:type].value == "server"}>
                 Server
@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               type="text"
               name="device[vendor_name]"
               value={@device_form[:vendor_name].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               type="text"
               name="device[model]"
               value={@device_form[:model].value}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               phx-debounce="300"
             />
           </div>
@@ -125,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             <input
               type="text"
               value={Map.get(@device_row, "gateway_id", "")}
-              class="input input-bordered input-sm font-mono bg-base-200"
+              class={ui_field_class(size: "sm", mono: true, class: "bg-base-200")}
               disabled
             />
             <label class="label py-0">
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 value="true"
                 checked={truthy?(@device_form[:is_managed].value)}
                 disabled={agent_device?(@device_row)}
-                class="checkbox checkbox-xs checkbox-primary"
+                class={ui_checkbox_class(size: "xs")}
               />
               <span>Mark as managed</span>
             </label>
@@ -171,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 name="device[is_trusted]"
                 value="true"
                 checked={truthy?(@device_form[:is_trusted].value)}
-                class="checkbox checkbox-xs checkbox-primary"
+                class={ui_checkbox_class(size: "xs")}
               />
               <span>Mark as trusted</span>
             </label>
@@ -187,7 +187,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
           </label>
           <textarea
             name="device[tags]"
-            class="textarea textarea-bordered textarea-sm h-20"
+            class={ui_field_class(size: "sm", class: "h-20 py-2")}
             phx-debounce="300"
           >{@device_form[:tags].value}</textarea>
         </div>
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               <.input
                 type="select"
                 field={@snmp_credential_form[:version]}
-                class="select select-bordered select-sm w-full"
+                class={ui_field_class(size: "sm", class: "w-full")}
                 options={[
                   {"SNMPv1", "v1"},
                   {"SNMPv2c", "v2c"},
@@ -253,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 type="password"
                 name="snmp[community]"
                 value=""
-                class="input input-bordered input-sm w-full"
+                class={ui_field_class(size: "sm", class: "w-full")}
                 placeholder={
                   if @device_snmp_credential,
                     do: "Leave blank to keep existing",
@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 <.input
                   type="text"
                   field={@snmp_credential_form[:username]}
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
               <div>
@@ -286,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 <.input
                   type="select"
                   field={@snmp_credential_form[:security_level]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"No Auth, No Privacy", "no_auth_no_priv"},
                     {"Auth, No Privacy", "auth_no_priv"},
@@ -304,7 +304,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 <.input
                   type="select"
                   field={@snmp_credential_form[:auth_protocol]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"MD5", "md5"},
                     {"SHA", "sha"},
@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                   type="password"
                   name="snmp[auth_password]"
                   value=""
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   placeholder={
                     if @device_snmp_credential,
                       do: "Leave blank to keep existing",
@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 <.input
                   type="select"
                   field={@snmp_credential_form[:priv_protocol]}
-                  class="select select-bordered select-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   options={[
                     {"DES", "des"},
                     {"AES", "aes"},
@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                   type="password"
                   name="snmp[priv_password]"
                   value=""
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   placeholder={
                     if @device_snmp_credential,
                       do: "Leave blank to keep existing",

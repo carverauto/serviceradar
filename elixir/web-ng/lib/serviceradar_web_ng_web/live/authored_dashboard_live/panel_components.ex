@@ -26,16 +26,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
             <h2 class="truncate text-sm font-semibold text-slate-100">{@panel.title}</h2>
-            <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
+            <.ui_badge :if={refresh_interval_label(@panel)} size="xs" variant="ghost">
               {refresh_interval_label(@panel)}
-            </span>
+            </.ui_badge>
           </div>
           <p class="mt-1 truncate font-mono text-xs text-slate-400">{@panel.srql_query}</p>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <span class="badge badge-outline border-cyan-500/30 text-cyan-300">
+          <.ui_badge size="sm" variant="outline" class="border-cyan-500/30 text-cyan-300">
             {@panel.visual_type}
-          </span>
+          </.ui_badge>
           <.panel_action_menu
             panel={@panel}
             expanded_srql?={@expanded_srql?}
@@ -108,15 +108,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   def panel_action_menu(assigns) do
     ~H"""
     <div class="dropdown dropdown-end">
-      <button
-        type="button"
-        class="btn btn-xs btn-ghost"
-        tabindex="0"
-        aria-label={"Actions for #{@panel.title}"}
-        title="Panel actions"
-      >
+      <.ui_button type="button" tabindex="0" aria-label={"Actions for #{@panel.title}"} title="Panel actions" size="xs" variant="ghost">
         <.icon name="hero-ellipsis-vertical" class="size-4" />
-      </button>
+      </.ui_button>
       <ul
         tabindex="0"
         class="menu dropdown-content z-[80] mt-2 w-52 rounded-box border border-slate-800 bg-slate-950 p-2 text-xs shadow-2xl shadow-cyan-950/30"
@@ -230,7 +224,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     <div class="flex h-full min-h-0 flex-col gap-2">
       <div class="shrink-0 text-sm font-medium text-slate-100">Pivot Table</div>
       <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
-        <table class="table table-sm">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th>{@pivot.row_label}</th>
@@ -293,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
     ~H"""
     <div class="h-full min-h-0 overflow-auto rounded-lg border border-slate-800/80">
-      <table class="table table-sm">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
           <tr>
             <th :for={column <- @columns}>{column.label}</th>
@@ -397,17 +391,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     ~H"""
     <%= case @cell do %>
       <% {:status, text, tone} -> %>
-        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
+        <.ui_badge size="sm" variant={status_badge_variant(tone)} title={text}>
           <.icon name={status_icon(tone)} class="size-3" /> {text}
-        </span>
+        </.ui_badge>
       <% {:boolean, true} -> %>
-        <span class="badge badge-sm badge-success" title="true">
+        <.ui_badge size="sm" variant="success" title="true">
           <.icon name="hero-check" class="size-3" /> true
-        </span>
+        </.ui_badge>
       <% {:boolean, false} -> %>
-        <span class="badge badge-sm badge-error badge-outline" title="false">
+        <.ui_badge size="sm" variant="error" title="false">
           <.icon name="hero-x-mark" class="size-3" /> false
-        </span>
+        </.ui_badge>
       <% {:sparkline, points, title} -> %>
         <svg
           viewBox="0 0 100 24"
@@ -874,10 +868,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     end
   end
 
-  defp status_badge_class(:success), do: "badge-success"
-  defp status_badge_class(:warning), do: "badge-warning"
-  defp status_badge_class(:error), do: "badge-error"
-  defp status_badge_class(_tone), do: "badge-outline"
+  defp status_badge_variant(:success), do: "success"
+  defp status_badge_variant(:warning), do: "warning"
+  defp status_badge_variant(:error), do: "error"
+  defp status_badge_variant(_tone), do: "outline"
 
   defp status_icon(:success), do: "hero-check-circle"
   defp status_icon(:warning), do: "hero-exclamation-triangle"

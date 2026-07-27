@@ -31,8 +31,8 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr class="text-xs uppercase tracking-wide text-base-content/60">
               <th>Status</th>
@@ -239,7 +239,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         phx-submit="save_profile"
         class="space-y-6"
       >
-        <div :if={@errors != []} class="alert alert-error">
+        <div :if={@errors != []} class={ui_alert_class("error")}>
           <ul class="text-sm">
             <li :for={error <- @errors}>{error}</li>
           </ul>
@@ -292,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
           <textarea
             name="form[target_query]"
-            class="textarea textarea-bordered w-full font-mono text-xs"
+            class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-xs")}
             rows="3"
           >{@form["target_query"]}</textarea>
 
@@ -310,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               <div class="flex flex-wrap items-center gap-2">
                 <.query_builder_pill label="Filter">
                   <select
-                    class="select select-bordered select-xs"
+                    class={ui_field_class(size: "xs")}
                     name={"builder[filters][#{idx}][field]"}
                     form="visibility-builder-form"
                   >
@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </option>
                   </select>
                   <select
-                    class="select select-bordered select-xs"
+                    class={ui_field_class(size: "xs")}
                     name={"builder[filters][#{idx}][op]"}
                     form="visibility-builder-form"
                   >
@@ -336,7 +336,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     </option>
                   </select>
                   <input
-                    class="input input-bordered input-xs w-44"
+                    class={ui_field_class(size: "xs", class: "w-44")}
                     name={"builder[filters][#{idx}][value]"}
                     form="visibility-builder-form"
                     value={filter["value"]}
@@ -365,7 +365,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
             <span class="label-text text-xs">Capture interfaces</span>
             <textarea
               name="form[capture_interfaces]"
-              class="textarea textarea-bordered w-full font-mono text-xs"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-xs")}
               rows="3"
               placeholder="eth0"
             >{@form["capture_interfaces"]}</textarea>
@@ -478,7 +478,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         <h3 class="font-bold text-lg mb-4">Compiled Visibility Config</h3>
         <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
         <div class="modal-action">
-          <button phx-click="close_preview" class="btn">Close</button>
+          <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
       <div class="modal-backdrop" phx-click="close_preview"></div>
@@ -498,7 +498,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         type="checkbox"
         name={"form[fingerprint][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
       <span class="label-text">{@label}</span>
@@ -518,7 +518,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         type="checkbox"
         name={"form[dpi][protocols][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
       <span class="label-text text-sm">{@label}</span>
@@ -538,7 +538,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         type="checkbox"
         name={"form[flow_attribution][#{@name}]"}
         value="true"
-        class="checkbox checkbox-primary checkbox-sm"
+        class={ui_checkbox_class()}
         checked={@checked}
       />
       <span class="label-text text-sm">{@label}</span>
@@ -560,7 +560,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         name={@name}
         value={@value}
         required={@required}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """
@@ -580,7 +580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
         name={@name}
         value={@value}
         min={@min}
-        class="input input-bordered input-sm w-full"
+        class={ui_field_class(size: "sm", class: "w-full")}
       />
     </label>
     """

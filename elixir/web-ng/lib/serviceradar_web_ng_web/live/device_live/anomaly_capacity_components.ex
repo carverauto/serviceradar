@@ -37,16 +37,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <.link
-              :if={@overview.anomaly_query}
-              navigate={observability_href(@overview.anomaly_query)}
-              class="btn btn-xs"
-            >
+            <.ui_button :if={@overview.anomaly_query} navigate={observability_href(@overview.anomaly_query)} size="xs" variant="neutral">
               Open findings
-            </.link>
-            <.link navigate="/observability/health" class="btn btn-xs btn-ghost">
+            </.ui_button>
+            <.ui_button navigate="/observability/health" size="xs" variant="ghost">
               Fleet health
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
@@ -71,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                   <h3 class="text-sm font-semibold">Recent Anomaly Findings</h3>
                   <p class="text-xs text-base-content/60">{filter_label(@overview.anomaly_filter)}</p>
                 </div>
-                <span class="badge badge-sm">{@anomaly_pagination.filtered_total}</span>
+                <.ui_badge size="sm" variant="ghost">{@anomaly_pagination.filtered_total}</.ui_badge>
               </div>
 
               <form
@@ -81,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               >
                 <label class="form-control">
                   <span class="label py-0 text-xs text-base-content/60">Severity</span>
-                  <select name="anomaly_filters[severity]" class="select select-sm w-full">
+                  <select name="anomaly_filters[severity]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "severity") == "all"}>
                       All
                     </option>
@@ -110,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 </label>
                 <label class="form-control">
                   <span class="label py-0 text-xs text-base-content/60">Status</span>
-                  <select name="anomaly_filters[status]" class="select select-sm w-full">
+                  <select name="anomaly_filters[status]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "status") == "all"}>
                       All
                     </option>
@@ -133,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 </label>
                 <label class="form-control">
                   <span class="label py-0 text-xs text-base-content/60">Sort</span>
-                  <select name="anomaly_filters[sort]" class="select select-sm w-full">
+                  <select name="anomaly_filters[sort]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option
                       value="newest"
                       selected={filter_value(@anomaly_filters, "sort") == "newest"}
@@ -203,12 +199,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         <span>{format_timestamp(value(row, "time"))}</span>
                       </div>
                     </div>
-                    <span class={[
-                      "badge badge-sm shrink-0",
-                      severity_badge_class(value(row, "severity"))
-                    ]}>
+                    <.ui_badge
+                      size="sm"
+                      variant={severity_badge_variant(value(row, "severity"))}
+                      class="shrink-0"
+                    >
                       {value(row, "severity") || "Unknown"}
-                    </span>
+                    </.ui_badge>
                   </div>
                 </button>
               </div>
@@ -228,17 +225,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     {filter_label(@overview.capacity_filter)}
                   </p>
                 </div>
-                <.link
-                  :if={@overview.capacity_query}
-                  navigate={observability_href(@overview.capacity_query)}
-                  class="btn btn-xs"
-                >
+                <.ui_button :if={@overview.capacity_query} navigate={observability_href(@overview.capacity_query)} size="xs" variant="neutral">
                   Open SRQL
-                </.link>
+                </.ui_button>
               </div>
 
-              <div class="overflow-x-auto">
-                <table class="table table-sm">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Resource</th>
@@ -274,9 +267,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         </div>
                       </td>
                       <td>
-                        <span class={["badge badge-sm", status_badge_class(value(row, "status"))]}>
+                        <.ui_badge size="sm" variant={status_badge_variant(value(row, "status"))}>
                           {value(row, "status") || "unknown"}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td>
                         <div class="whitespace-nowrap">
@@ -326,9 +319,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         {@status.label}
       </div>
       <div class="mt-2 flex items-center justify-between gap-2">
-        <span class={["badge badge-sm", anomaly_badge_class(@status.status)]}>
+        <.ui_badge size="sm" variant={anomaly_badge_variant(@status.status)}>
           {@status.status}
-        </span>
+        </.ui_badge>
         <span class="text-xs text-base-content/60">{@status.count}</span>
       </div>
     </div>
@@ -356,29 +349,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         Showing {@range_start}–{@range_end} on this episode page
       </span>
       <div class="join">
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs join-item"
-          phx-click="anomaly_findings_prev_page"
-          disabled={not @has_prev}
-        >
+        <.ui_button type="button" phx-click="anomaly_findings_prev_page" disabled={not @has_prev} size="xs" variant="ghost">
           Prev
-        </button>
-        <span class="btn btn-ghost btn-xs join-item pointer-events-none">
+        </.ui_button>
+        <span class="pointer-events-none inline-flex min-h-7 items-center justify-center px-2 text-xs font-semibold text-sr-muted">
           <%= if is_integer(@page_count) do %>
             Page {@page} / {@page_count}
           <% else %>
             Page {@page}
           <% end %>
         </span>
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs join-item"
-          phx-click="anomaly_findings_next_page"
-          disabled={not @has_next}
-        >
+        <.ui_button type="button" phx-click="anomaly_findings_next_page" disabled={not @has_next} size="xs" variant="ghost">
           Next
-        </button>
+        </.ui_button>
       </div>
     </div>
     """
@@ -415,13 +398,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               {detail_title(@detail, @device_uid, @device_display_name)}
             </h3>
           </div>
-          <button
-            type="button"
-            class="btn btn-sm btn-ghost"
-            phx-click="close_anomaly_capacity_detail"
-          >
+          <.ui_button type="button" phx-click="close_anomaly_capacity_detail" size="sm" variant="ghost">
             Close
-          </button>
+          </.ui_button>
         </div>
 
         <div class="mt-5 grid gap-3 sm:grid-cols-2">
@@ -473,9 +452,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
             <span>{detail_related_label(@detail)}</span>
-            <.link navigate={observability_href(detail_related_query(@detail))} class="btn btn-xs">
+            <.ui_button navigate={observability_href(detail_related_query(@detail))} size="xs" variant="neutral">
               Open trigger
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
@@ -1484,35 +1463,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     |> String.contains?("flap merged")
   end
 
-  defp status_badge_class(status) do
+  defp status_badge_variant(status) do
     case normalize_text(status) do
-      "projected" -> "badge-warning"
-      "at_risk" -> "badge-error"
-      "exhausted" -> "badge-error"
-      "exhaustion_projected" -> "badge-error"
-      "healthy" -> "badge-success"
-      "skipped" -> "badge-ghost"
-      _ -> "badge-outline"
+      "projected" -> "warning"
+      "at_risk" -> "error"
+      "exhausted" -> "error"
+      "exhaustion_projected" -> "error"
+      "healthy" -> "success"
+      "skipped" -> "ghost"
+      _ -> "outline"
     end
   end
 
-  defp severity_badge_class(severity) do
+  defp severity_badge_variant(severity) do
     case normalize_text(severity) do
-      "critical" -> "badge-error"
-      "high" -> "badge-warning"
-      "medium" -> "badge-info"
-      "low" -> "badge-ghost"
-      _ -> "badge-outline"
+      "critical" -> "error"
+      "high" -> "warning"
+      "medium" -> "info"
+      "low" -> "ghost"
+      _ -> "outline"
     end
   end
 
-  defp anomaly_badge_class("active"), do: "badge-warning"
-  defp anomaly_badge_class("confirmed"), do: "badge-error"
-  defp anomaly_badge_class("pending"), do: "badge-warning"
-  defp anomaly_badge_class("open"), do: "badge-warning"
-  defp anomaly_badge_class("anomaly_open"), do: "badge-warning"
-  defp anomaly_badge_class("suppressed"), do: "badge-ghost"
-  defp anomaly_badge_class(_), do: "badge-success"
+  defp anomaly_badge_variant("active"), do: "warning"
+  defp anomaly_badge_variant("confirmed"), do: "error"
+  defp anomaly_badge_variant("pending"), do: "warning"
+  defp anomaly_badge_variant("open"), do: "warning"
+  defp anomaly_badge_variant("anomaly_open"), do: "warning"
+  defp anomaly_badge_variant("suppressed"), do: "ghost"
+  defp anomaly_badge_variant(_), do: "success"
 
   defp format_number(value) when is_integer(value), do: value |> Kernel.*(1.0) |> format_number()
 

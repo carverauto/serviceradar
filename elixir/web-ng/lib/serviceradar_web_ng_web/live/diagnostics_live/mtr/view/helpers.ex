@@ -22,11 +22,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
   def format_time(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S UTC")
   def format_time(_), do: "-"
 
-  def pending_status_class(:queued), do: "badge-ghost"
-  def pending_status_class(:sent), do: "badge-info"
-  def pending_status_class(:acknowledged), do: "badge-info"
-  def pending_status_class(:running), do: "badge-warning"
-  def pending_status_class(_), do: "badge-ghost"
+  def pending_status_variant(:queued), do: "ghost"
+  def pending_status_variant(:sent), do: "info"
+  def pending_status_variant(:acknowledged), do: "info"
+  def pending_status_variant(:running), do: "warning"
+  def pending_status_variant(_), do: "ghost"
 
   def trace_status_label(trace) when is_map(trace) do
     reached? = trace["target_reached"] == true
@@ -42,15 +42,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
 
   def trace_status_label(_), do: "Unreachable"
 
-  def trace_status_class(trace) when is_map(trace) do
+  def trace_status_variant(trace) when is_map(trace) do
     case trace_status_label(trace) do
-      "Reached" -> "badge-success"
-      "No Terminal Reply" -> "badge-warning"
-      _ -> "badge-error"
+      "Reached" -> "success"
+      "No Terminal Reply" -> "warning"
+      _ -> "error"
     end
   end
 
-  def trace_status_class(_), do: "badge-error"
+  def trace_status_variant(_), do: "error"
 
   def trace_history_dashboard(traces, coverage) do
     traces = List.wrap(traces)

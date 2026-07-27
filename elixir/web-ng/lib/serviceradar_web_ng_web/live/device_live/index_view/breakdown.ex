@@ -56,16 +56,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
           </.link>
           <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
         </div>
-        <button
-          :if={@items != []}
-          type="button"
-          class="btn btn-ghost btn-xs btn-circle shrink-0"
-          phx-click="open_breakdown_modal"
-          phx-value-kind={@kind}
-          title={"Browse #{@title}"}
-        >
+        <.ui_icon_button :if={@items != []} type="button" phx-click="open_breakdown_modal" phx-value-kind={@kind} title={"Browse #{@title}"} size="xs" variant="ghost" class="shrink-0">
           <.icon name="hero-chevron-down" class="size-3" />
-        </button>
+        </.ui_icon_button>
       </div>
     </div>
     """
@@ -90,53 +83,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
       |> assign(:search, search)
 
     ~H"""
-    <dialog id="device_breakdown_modal" class="modal modal-open">
-      <div class="modal-box max-w-xl">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <h3 class="text-lg font-semibold text-base-content">{@title}</h3>
-            <p class="text-xs text-base-content/60">
-              {format_stat_number(@filtered_count)} of {format_stat_number(@total_items)}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm btn-circle"
-            phx-click="close_breakdown_modal"
-          >
-            <.icon name="hero-x-mark" class="size-4" />
-          </button>
-        </div>
+    <.ui_modal
+      id="device_breakdown_modal"
+      size="form"
+      on_cancel="close_breakdown_modal"
+      box_class="max-w-xl"
+    >
+      <:title>
+        <span class="block">{@title}</span>
+        <span class="mt-0.5 block text-xs font-normal text-sr-muted">
+          {format_stat_number(@filtered_count)} of {format_stat_number(@total_items)}
+        </span>
+      </:title>
 
-        <form class="mt-4" phx-change="breakdown_search">
-          <input
-            type="search"
-            name="q"
-            value={@search}
-            placeholder="Filter"
-            class="input input-bordered input-sm w-full"
-          />
-        </form>
-
-        <div class="mt-4 max-h-[24rem] overflow-y-auto rounded-lg border border-base-200">
-          <div :if={@items == []} class="p-4 text-sm text-base-content/60">
-            No matches.
-          </div>
-          <%= for item <- @items do %>
-            <.link
-              navigate={breakdown_item_path(@filter_field, item.name)}
-              class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm hover:bg-base-200/60"
-            >
-              <span class="min-w-0 flex-1 truncate">{item.name}</span>
-              <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
-            </.link>
-          <% end %>
-        </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_breakdown_modal">close</button>
+      <form phx-change="breakdown_search">
+        <input
+          type="search"
+          name="q"
+          value={@search}
+          placeholder="Filter"
+          class={ui_field_class(size: "sm", class: "w-full")}
+        />
       </form>
-    </dialog>
+
+      <div class="max-h-[24rem] overflow-y-auto rounded-lg border border-sr-line">
+        <div :if={@items == []} class="p-4 text-sm text-sr-muted">
+          No matches.
+        </div>
+        <%= for item <- @items do %>
+          <.link
+            navigate={breakdown_item_path(@filter_field, item.name)}
+            class="flex items-center justify-between gap-3 border-b border-sr-line px-3 py-2 text-sm last:border-b-0 hover:bg-sr-subtle/70"
+          >
+            <span class="min-w-0 flex-1 truncate text-sr-ink">{item.name}</span>
+            <.ui_badge size="sm" variant="ghost" class="shrink-0">{item.count}</.ui_badge>
+          </.link>
+        <% end %>
+      </div>
+    </.ui_modal>
     """
   end
 

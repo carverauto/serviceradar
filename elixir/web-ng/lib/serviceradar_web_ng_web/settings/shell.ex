@@ -83,31 +83,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       |> assign(:sibling_views, sibling_views(groups, assigns.active_view))
 
     ~H"""
-    <div class="flex flex-col rounded-lg border border-base-200 bg-base-100 overflow-hidden min-h-[70vh]">
+    <div class="sr-settings-shell flex min-h-[70vh] flex-col overflow-hidden rounded-lg border border-base-200 bg-base-100 font-sans">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/40 px-4 py-2.5">
         <div class="min-w-0">
-          <div class="flex items-center gap-2 font-semibold">
-            <.icon name="hero-cog-6-tooth" class="size-4 text-accent" />
+          <div class="flex items-center gap-2 text-sm font-semibold tracking-tight text-sr-ink">
+            <.icon name="hero-cog-6-tooth" class="size-4 text-sr-brand" />
             <span class="truncate">Settings Console</span>
           </div>
-          <p class="text-xs text-base-content/55">
+          <p class="text-xs leading-relaxed text-sr-muted">
             Unified Administrative Platform &amp; Settings Control
           </p>
         </div>
 
-        <button
-          type="button"
-          data-command-palette-open
-          class="btn btn-sm btn-ghost gap-2 border border-base-300 bg-base-100 font-normal text-base-content/70"
-          title="Search settings (Ctrl+K)"
-        >
+        <.ui_button type="button" data-command-palette-open title="Search settings (Ctrl+K)" size="sm" variant="ghost" class="gap-2 border border-base-300 bg-base-100 font-normal text-base-content/70">
           <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
           <span class="hidden sm:inline">Press Ctrl+K to jump anywhere</span>
           <span class="ml-1 flex items-center gap-0.5">
             <kbd class="kbd kbd-xs">Ctrl</kbd>
             <kbd class="kbd kbd-xs">K</kbd>
           </span>
-        </button>
+        </.ui_button>
       </div>
 
       <div class="border-b border-base-200 px-3 py-2">
@@ -138,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
             </span>
             <label
               for="settings-nav-drawer"
-              class="btn btn-ghost btn-xs btn-circle"
+              class="inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
               aria-label="Close navigation"
             >
               <.icon name="hero-x-mark" class="size-4" />
@@ -152,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           <div class="flex items-center gap-2 border-b border-base-200 px-3 py-2 md:px-4">
             <label
               for="settings-nav-drawer"
-              class="btn btn-ghost btn-sm btn-square md:hidden"
+              class="inline-flex size-9 cursor-pointer items-center justify-center rounded-sr-control text-sr-muted hover:bg-sr-subtle hover:text-sr-ink md:hidden"
               aria-label="Open settings navigation"
               title="Settings menu"
             >
@@ -238,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp view_tree(assigns) do
     ~H"""
     <div id="settings-view-tree" phx-hook="SettingsNavTree" class="p-2 space-y-1">
-      <label class="input input-sm input-bordered flex items-center gap-2 mb-1">
+      <label class="mb-1 flex min-h-9 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
         <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
         <input
           type="text"
@@ -296,9 +291,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                 >
                   <.icon name={view.icon} class="size-4 shrink-0" />
                   <span class="truncate">{view.title}</span>
-                  <span :if={view.badge} class="badge badge-sm badge-primary ml-auto">
+                  <.ui_badge :if={view.badge} size="sm" variant="primary" class="ml-auto">
                     {view.badge}
-                  </span>
+                  </.ui_badge>
                 </.link>
               </li>
             </ul>
@@ -431,7 +426,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
     >
       <div class="modal-box max-w-2xl p-0" data-command-palette-box>
         <div class="border-b border-base-200 p-3">
-          <label class="input input-bordered flex items-center gap-2">
+          <label class="flex min-h-11 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3.5 shadow-sr-control">
             <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
             <input
               type="text"
@@ -441,9 +436,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
               autocomplete="off"
               autofocus
             />
-            <button type="button" class="btn btn-ghost btn-xs btn-circle" data-command-palette-close>
+            <.ui_icon_button type="button" data-command-palette-close size="xs" variant="ghost">
               <.icon name="hero-x-mark" class="size-4" />
-            </button>
+            </.ui_icon_button>
           </label>
         </div>
 
@@ -474,9 +469,9 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
                   <span class="truncate font-medium" data-command-palette-title>
                     {item.view_title}
                   </span>
-                  <span class="badge badge-xs badge-ghost uppercase tracking-wide">
+                  <.ui_badge size="xs" variant="ghost" class="uppercase tracking-wide">
                     {item.category_title}
-                  </span>
+                  </.ui_badge>
                 </span>
                 <span :if={item.description} class="block truncate text-xs text-base-content/55">
                   {item.description}

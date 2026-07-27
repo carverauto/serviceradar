@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
         </div>
       </div>
 
-      <div :if={is_nil(@form)} class="alert alert-warning">
+      <div :if={is_nil(@form)} class={ui_alert_class("warning")}>
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Cleanup settings unavailable</div>

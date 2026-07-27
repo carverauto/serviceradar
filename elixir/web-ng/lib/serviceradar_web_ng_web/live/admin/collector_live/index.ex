@@ -281,7 +281,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
         </div>
 
-        <div :if={not @collectors_enabled} class="alert alert-warning">
+        <div :if={not @collectors_enabled} class={ui_alert_class("warning")}>
           <.icon name="hero-lock-closed" class="size-5" />
           <span>Collector onboarding is disabled for this deployment.</span>
         </div>
@@ -302,7 +302,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <div class="flex gap-2">
               <select
                 name="status"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Statuses</option>
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               </select>
               <select
                 name="collector_type"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Types</option>
@@ -339,7 +339,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Collector</th>
@@ -424,8 +424,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               No credentials issued yet.
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-xs">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "xs")}>
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                     <th>User</th>
@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp account_status_card(assigns) do
     ~H"""
-    <div class="alert">
+    <div class={ui_alert_class("info")}>
       <div class="flex items-center gap-3">
         <%= case @account_status do %>
           <% :ready -> %>
@@ -487,7 +487,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               </div>
             </div>
           <% :pending -> %>
-            <span class="loading loading-spinner loading-sm"></span>
+            <.ui_spinner size="sm" />
             <div>
               <div class="font-semibold">Provisioning NATS Account</div>
               <div class="text-xs text-base-content/60">
@@ -518,16 +518,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="create_modal" on_cancel="close_create_modal">
 
         <%= if @created_package do %>
           <div class="text-center">
@@ -588,14 +579,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         Step 2: Run the enrollment command
                       <% end %>
                     </div>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost"
-                      phx-click="copy_token"
-                      phx-value-token={@created_install_command}
-                    >
+                    <.ui_button type="button" phx-click="copy_token" phx-value-token={@created_install_command} size="xs" variant="ghost">
                       <.icon name="hero-clipboard-document" class="size-3" /> Copy
-                    </button>
+                    </.ui_button>
                   </div>
                   <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
                     {@created_install_command}
@@ -603,7 +589,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </div>
               </div>
 
-              <div class="alert alert-warning text-xs">
+              <div class={ui_alert_class(variant: "warning", class: "text-xs")}>
                 <.icon name="hero-exclamation-triangle" class="size-4" />
                 <span>
                   <strong>Save this command!</strong> The enrollment token expires in 24 hours
@@ -611,7 +597,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </span>
               </div>
             <% else %>
-              <div class="alert alert-info text-xs">
+              <div class={ui_alert_class(variant: "info", class: "text-xs")}>
                 <.icon name="hero-information-circle" class="size-4" />
                 <span>
                   Credentials are being generated. Check back in a moment to download.
@@ -621,9 +607,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
 
           <div class="modal-action">
-            <button type="button" class="btn btn-primary" phx-click="close_create_modal">
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
               Done
-            </button>
+            </.ui_button>
           </div>
         <% else %>
           <h3 class="text-lg font-bold">Create Collector Package</h3>
@@ -636,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <label class="label">
                 <span class="label-text">Collector Type</span>
               </label>
-              <select name="collector_type" class="select select-bordered w-full" required>
+              <select name="collector_type" class={ui_field_class(class: "w-full")} required>
                 <%= for {label, value} <- @collector_types do %>
                   <option value={value}>{label}</option>
                 <% end %>
@@ -650,7 +636,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <input
                 type="text"
                 name="site"
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., datacenter-1, office-nyc"
               />
               <label class="label">
@@ -667,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <input
                 type="text"
                 name="hostname"
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., collector-01.example.com"
               />
             </div>
@@ -676,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <label class="label">
                 <span class="label-text">Edge Site (optional)</span>
               </label>
-              <select name="edge_site_id" class="select select-bordered w-full">
+              <select name="edge_site_id" class={ui_field_class(class: "w-full")}>
                 <option value="">Connect to SaaS (default)</option>
                 <%= for site <- @edge_sites do %>
                   <option value={site.id}>{site.name} ({site.slug})</option>
@@ -690,33 +676,19 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             </div>
 
             <div class="modal-action">
-              <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Collector</button>
+              <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">Create Collector</.ui_button>
             </div>
           </form>
         <% end %>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_create_modal">close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_details_modal"
-          >
-            x
-          </button>
-        </form>
-
-        <h3 class="text-lg font-bold">Collector Details</h3>
+    <.ui_modal id="details_modal" on_cancel="close_details_modal">
+      <:title>Collector Details</:title>
 
         <div class="mt-4 space-y-4">
           <div class="grid grid-cols-2 gap-4">
@@ -752,32 +724,22 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
 
           <%= if @package.error_message do %>
-            <div class="alert alert-error text-sm">
+            <div class={ui_alert_class(variant: "error", class: "text-sm")}>
               <.icon name="hero-exclamation-triangle" class="size-4" />
               {@package.error_message}
             </div>
           <% end %>
         </div>
 
-        <div class="modal-action">
+        <div class="flex justify-end gap-2 pt-1">
           <%= if @package.status in [:pending, :ready, :downloaded] do %>
-            <button
-              type="button"
-              class="btn btn-warning"
-              phx-click="revoke_package"
-              phx-value-id={@package.id}
-              data-confirm="Are you sure you want to revoke this collector?"
-            >
+            <.ui_button type="button" phx-click="revoke_package" phx-value-id={@package.id} data-confirm="Are you sure you want to revoke this collector?" size="sm" variant="warning">
               Revoke
-            </button>
+            </.ui_button>
           <% end %>
-          <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
         </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_details_modal">close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 

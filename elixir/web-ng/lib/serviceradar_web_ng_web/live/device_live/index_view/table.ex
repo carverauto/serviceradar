@@ -26,53 +26,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
               <% end %>
             </div>
           </div>
-          <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+          <.ui_badge :if={is_binary(@icmp_error)} size="sm" variant="warning">
             ICMP: {@icmp_error}
-          </div>
+          </.ui_badge>
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm table-zebra w-full">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>
-              <th class="w-10 text-center bg-base-200/60">
+              <th class="w-10 text-center">
                 <input
                   type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
+                  class={ui_checkbox_class()}
                   checked={@all_selected}
                   phx-click="toggle_select_all"
                 />
               </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Device</th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="OCSF Device Type"
-              >
-                Type
-              </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Vendor</th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Model</th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="GRPC Health Check Status"
-              >
-                Status
-              </th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="ICMP Network Tests"
-              >
-                Network
-              </th>
-              <th
-                class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                title="Telemetry availability for this device"
-              >
-                Metrics
-              </th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
-              <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
+              <th>Device</th>
+              <th title="OCSF Device Type">Type</th>
+              <th>Vendor</th>
+              <th>Model</th>
+              <th title="GRPC Health Check Status">Status</th>
+              <th title="ICMP Network Tests">Network</th>
+              <th title="Telemetry availability for this device">Metrics</th>
+              <th>Risk</th>
+              <th>Last Seen</th>
             </tr>
           </thead>
           <tbody>
@@ -102,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                   <input
                     :if={is_binary(device_uid)}
                     type="checkbox"
-                    class="checkbox checkbox-sm checkbox-primary"
+                    class={ui_checkbox_class()}
                     checked={is_selected}
                     phx-click="toggle_device_select"
                     phx-value-uid={device_uid}
@@ -129,10 +109,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                         {Map.get(row, "hostname") || "—"}
                       </span>
                     </div>
-                    <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
-                    <span :if={not active} class="badge badge-warning badge-xs shrink-0">
+                    <.ui_badge :if={deleted} size="xs" variant="ghost" class="shrink-0">
+                      Deleted
+                    </.ui_badge>
+                    <.ui_badge :if={not active} size="xs" variant="warning" class="shrink-0">
                       Out of service
-                    </span>
+                    </.ui_badge>
                   </div>
                   <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
                     {Map.get(row, "ip") || "—"}
@@ -146,12 +128,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 </td>
                 <td class="text-xs max-w-[8rem] truncate">
                   {Map.get(row, "vendor_name") || "—"}
-                  <span
+                  <.ui_badge
                     :if={snmp_fallback_derived?(row) and present_text?(Map.get(row, "vendor_name"))}
-                    class="badge badge-ghost badge-xs ml-1"
+                    size="xs"
+                    variant="ghost"
+                    class="ml-1"
                   >
                     SNMP
-                  </span>
+                  </.ui_badge>
                 </td>
                 <td class="text-xs max-w-[12rem] truncate">
                   {display_model(Map.get(row, "model"))}

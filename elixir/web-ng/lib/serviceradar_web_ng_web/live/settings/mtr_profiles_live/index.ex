@@ -513,22 +513,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           </div>
         </div>
 
-        <div :if={@retention_lowering?} class="alert alert-warning text-sm">
+        <div :if={@retention_lowering?} class={ui_alert_class(variant: "warning", class: "text-sm")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>Lowering retention may cause older MTR traces and hops to expire sooner.</span>
         </div>
 
         <div class="flex justify-end">
-          <button
-            type="submit"
-            class="btn btn-sm btn-primary"
-            data-confirm={
-              @retention_lowering? &&
-                "Lowering MTR retention may expire older trace and hop history sooner. Continue?"
-            }
-          >
+          <.ui_button type="submit" data-confirm={ @retention_lowering? && "Lowering MTR retention may expire older trace and hop history sooner. Continue?" } size="sm" variant="primary">
             Save Retention
-          </button>
+          </.ui_button>
         </div>
       </.form>
     </.ui_panel>
@@ -551,8 +544,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm sr-mtr-table">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
           <thead>
             <tr>
               <th>Name</th>
@@ -576,38 +569,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
-                <span class={[
-                  "badge badge-sm",
-                  if(profile.enabled, do: "badge-success", else: "badge-ghost")
-                ]}>
+                <.ui_badge
+                  size="sm"
+                  variant={if(profile.enabled, do: "success", else: "ghost")}
+                >
                   {if profile.enabled, do: "ENABLED", else: "DISABLED"}
-                </span>
+                </.ui_badge>
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost"
-                    phx-click="toggle_profile"
-                    phx-value-id={profile.id}
-                  >
+                  <.ui_button type="button" phx-click="toggle_profile" phx-value-id={profile.id} size="xs" variant="ghost">
                     {if profile.enabled, do: "Disable", else: "Enable"}
-                  </button>
-                  <.link
-                    navigate={~p"/settings/networks/mtr/#{profile.id}/edit"}
-                    class="btn btn-xs btn-ghost"
-                  >
+                  </.ui_button>
+                  <.ui_button navigate={~p"/settings/networks/mtr/#{profile.id}/edit"} size="xs" variant="ghost">
                     Edit
-                  </.link>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-ghost text-error"
-                    phx-click="delete_profile"
-                    phx-value-id={profile.id}
-                    data-confirm="Delete this MTR profile?"
-                  >
+                  </.ui_button>
+                  <.ui_button type="button" phx-click="delete_profile" phx-value-id={profile.id} data-confirm="Delete this MTR profile?" size="xs" variant="ghost" class="text-error">
                     Delete
-                  </button>
+                  </.ui_button>
                 </div>
               </td>
             </tr>
@@ -653,13 +632,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="label"><span class="label-text">Profile Name</span></label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+            <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <label class="flex items-center gap-2 mt-8 cursor-pointer">
             <.input
               type="checkbox"
               field={@form[:enabled]}
-              class="checkbox checkbox-sm checkbox-primary"
+              class={ui_checkbox_class()}
             />
             <span class="label-text">Enabled</span>
           </label>
@@ -835,7 +814,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:selector_limit]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
@@ -844,7 +823,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="select"
               field={@form[:preferred_agent_id]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"Auto-select by policy", ""} | Enum.map(@agents, &{agent_label(&1), agent_id(&1)})
               ]}
@@ -855,7 +834,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="text"
               field={@form[:partition_id]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="default"
             />
           </div>
@@ -867,7 +846,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="select"
               field={@form[:baseline_protocol]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={protocol_options()}
             />
           </div>
@@ -876,7 +855,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="select"
               field={@form[:bulk_execution_profile]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={execution_profile_options()}
             />
           </div>
@@ -885,7 +864,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:baseline_interval_sec]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="30"
             />
           </div>
@@ -894,7 +873,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:baseline_canary_vantages]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="0"
             />
           </div>
@@ -903,7 +882,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:incident_cooldown_sec]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="30"
             />
           </div>
@@ -912,7 +891,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:incident_fanout_max_agents]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
@@ -921,7 +900,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="select"
               field={@form[:consensus_mode]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"Majority", "majority"},
                 {"Unanimous", "unanimous"},
@@ -934,7 +913,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:consensus_threshold]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               step="0.01"
               min="0"
               max="1"
@@ -945,7 +924,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <.input
               type="number"
               field={@form[:consensus_min_agents]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
@@ -955,7 +934,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           <.input
             type="checkbox"
             field={@form[:recovery_capture]}
-            class="checkbox checkbox-sm checkbox-primary"
+            class={ui_checkbox_class()}
           />
           <span class="label-text">Run recovery capture MTR on return-to-healthy transitions</span>
         </label>

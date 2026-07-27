@@ -43,11 +43,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 Create and manage OAuth2 client credentials for programmatic API access.
               </p>
             </div>
-            <button
-              type="button"
-              phx-click="open_create_modal"
-              class="btn btn-primary"
-            >
+            <.ui_button type="button" phx-click="open_create_modal" size="sm" variant="primary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -59,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
               Create Client
-            </button>
+            </.ui_button>
           </div>
 
           <%= if @show_secret_modal do %>
@@ -104,8 +100,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 <p class="text-sm">Create a client to get started with API access.</p>
               </div>
             <% else %>
-              <div class="overflow-x-auto">
-                <table class="table table-zebra">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(zebra: true)}>
                   <thead>
                     <tr>
                       <th>Name</th>
@@ -130,13 +126,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                           <code class="text-xs bg-base-200 px-2 py-1 rounded">
                             {client.id |> to_string() |> String.slice(0..7)}...
                           </code>
-                          <button
-                            type="button"
-                            phx-click="copy_client_id"
-                            phx-value-id={client.id}
-                            class="btn btn-ghost btn-xs ml-1"
-                            title="Copy full Client ID"
-                          >
+                          <.ui_button type="button" phx-click="copy_client_id" phx-value-id={client.id} title="Copy full Client ID" size="xs" variant="ghost" class="ml-1">
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
@@ -151,17 +141,17 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                                 d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
                               />
                             </svg>
-                          </button>
+                          </.ui_button>
                         </td>
                         <td>
                           <%= for scope <- client.scopes do %>
-                            <span class={"badge badge-sm #{scope_badge_class(scope)}"}>{scope}</span>
+                            <.ui_badge size="sm" variant={scope_badge_variant(scope)}>{scope}</.ui_badge>
                           <% end %>
                         </td>
                         <td>
-                          <span class={"badge badge-sm badge-#{status_color(client)}"}>
+                          <.ui_badge size="sm" variant={status_color(client)}>
                             {status_label(client)}
-                          </span>
+                          </.ui_badge>
                         </td>
                         <td class="text-sm">
                           <%= if client.last_used_at do %>
@@ -176,7 +166,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         <td>
                           <%= if is_nil(client.revoked_at) do %>
                             <div class="dropdown dropdown-end">
-                              <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
+                              <div
+                                tabindex="0"
+                                role="button"
+                                class="inline-flex min-h-7 cursor-pointer items-center justify-center rounded-sr-control px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+                              >
                                 <svg
                                   xmlns="http://www.w3.org/2000/svg"
                                   fill="none"
@@ -217,13 +211,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                               </ul>
                             </div>
                           <% else %>
-                            <button
-                              phx-click="delete_client"
-                              phx-value-id={client.id}
-                              class="btn btn-ghost btn-xs text-error"
-                            >
+                            <.ui_button phx-click="delete_client" phx-value-id={client.id} size="xs" variant="ghost" class="text-error">
                               Delete
-                            </button>
+                            </.ui_button>
                           <% end %>
                         </td>
                       </tr>
@@ -263,7 +253,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 </div>
               </div>
 
-              <div class="alert alert-info">
+              <div class={ui_alert_class("info")}>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
@@ -292,187 +282,178 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   defp create_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">Create API Client</h3>
+    <.ui_modal id="create-api-client-modal" size="sm" on_cancel="close_create_modal">
+      <:title>Create API Client</:title>
 
-        <.form for={@form} phx-submit="create_client" phx-change="validate_create" class="space-y-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Name</span>
+      <.form for={@form} phx-submit="create_client" phx-change="validate_create" class="space-y-4">
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Name</span>
+          </label>
+          <input
+            type="text"
+            name="client[name]"
+            value={@form[:name].value}
+            class={ui_field_class(class: "w-full")}
+            placeholder="My API Client"
+            required
+          />
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Description (optional)</span>
+          </label>
+          <textarea
+            name="client[description]"
+            class={ui_field_class(class: "w-full min-h-24 py-2.5")}
+            placeholder="What this client is used for..."
+          ><%= @form[:description].value %></textarea>
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Scopes</span>
+          </label>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="client[scopes][]"
+                value="read"
+                checked
+                class={ui_checkbox_class()}
+              />
+              <span class="label-text">Read</span>
+              <span class="text-xs text-sr-muted">
+                - View devices, events, and configuration
+              </span>
             </label>
-            <input
-              type="text"
-              name="client[name]"
-              value={@form[:name].value}
-              class="input input-bordered w-full"
-              placeholder="My API Client"
-              required
-            />
-          </div>
-
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Description (optional)</span>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="client[scopes][]"
+                value="write"
+                class={ui_checkbox_class()}
+              />
+              <span class="label-text">Write</span>
+              <span class="text-xs text-sr-muted">- Create and modify resources</span>
             </label>
-            <textarea
-              name="client[description]"
-              class="textarea textarea-bordered w-full"
-              placeholder="What this client is used for..."
-            ><%= @form[:description].value %></textarea>
           </div>
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Scopes</span>
-            </label>
-            <div class="space-y-2">
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="client[scopes][]"
-                  value="read"
-                  checked
-                  class="checkbox checkbox-sm"
-                />
-                <span class="label-text">Read</span>
-                <span class="text-xs text-base-content/60">
-                  - View devices, events, and configuration
-                </span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="client[scopes][]"
-                  value="write"
-                  class="checkbox checkbox-sm"
-                />
-                <span class="label-text">Write</span>
-                <span class="text-xs text-base-content/60">- Create and modify resources</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="modal-action">
-            <button type="button" phx-click="close_create_modal" class="btn">Cancel</button>
-            <button type="submit" class="btn btn-primary">Create Client</button>
-          </div>
-        </.form>
-      </div>
-      <div class="modal-backdrop" phx-click="close_create_modal"></div>
-    </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">Create Client</.ui_button>
+        </div>
+      </.form>
+    </.ui_modal>
     """
   end
 
   defp secret_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4 text-success">Client Created Successfully!</h3>
+    <.ui_modal id="api-client-secret-modal" size="sm" on_cancel="close_secret_modal">
+      <:title>
+        <span class="text-emerald-600 dark:text-emerald-300">Client Created Successfully!</span>
+      </:title>
 
-        <div class="alert alert-warning mb-4">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="stroke-current shrink-0 h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+      <.ui_alert variant="warning">
+        <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
+        <span>
+          <strong>Save these credentials now!</strong> The client secret will not be shown again.
+        </span>
+      </.ui_alert>
+
+      <div class="space-y-4">
+        <div>
+          <label class="label">
+            <span class="label-text font-medium">Client ID</span>
+          </label>
+          <div class={ui_join_class(class: "w-full")}>
+            <input
+              type="text"
+              value={@client.id}
+              readonly
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
             />
-          </svg>
-          <span class="text-sm">
-            <strong>Save these credentials now!</strong> The client secret will not be shown again.
-          </span>
-        </div>
-
-        <div class="space-y-4">
-          <div>
-            <label class="label">
-              <span class="label-text font-medium">Client ID</span>
-            </label>
-            <div class="join w-full">
-              <input
-                type="text"
-                value={@client.id}
-                readonly
-                class="input input-bordered join-item w-full font-mono text-sm"
-              />
-              <button
-                type="button"
-                phx-click="copy_value"
-                phx-value-value={@client.id}
-                class="btn btn-outline join-item"
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label class="label">
-              <span class="label-text font-medium">Client Secret</span>
-            </label>
-            <div class="join w-full">
-              <input
-                type="text"
-                value={@secret}
-                readonly
-                class="input input-bordered join-item w-full font-mono text-sm"
-              />
-              <button
-                type="button"
-                phx-click="copy_value"
-                phx-value-value={@secret}
-                class="btn btn-outline join-item"
-              >
-                Copy
-              </button>
-            </div>
+            <.ui_button
+              type="button"
+              phx-click="copy_value"
+              phx-value-value={@client.id}
+              size="sm"
+              variant="outline"
+            >
+              Copy
+            </.ui_button>
           </div>
         </div>
 
-        <div class="modal-action">
-          <button type="button" phx-click="close_secret_modal" class="btn btn-primary">
-            I've Saved My Credentials
-          </button>
+        <div>
+          <label class="label">
+            <span class="label-text font-medium">Client Secret</span>
+          </label>
+          <div class={ui_join_class(class: "w-full")}>
+            <input
+              type="text"
+              value={@secret}
+              readonly
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
+            />
+            <.ui_button
+              type="button"
+              phx-click="copy_value"
+              phx-value-value={@secret}
+              size="sm"
+              variant="outline"
+            >
+              Copy
+            </.ui_button>
+          </div>
         </div>
       </div>
-    </div>
+
+      <:actions>
+        <.ui_button type="button" phx-click="close_secret_modal" size="sm" variant="primary">
+          I've Saved My Credentials
+        </.ui_button>
+      </:actions>
+    </.ui_modal>
     """
   end
 
   defp revoke_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4 text-warning">Revoke Client?</h3>
+    <.ui_modal id="revoke-api-client-modal" size="sm" on_cancel="close_revoke_modal">
+      <:title>
+        <span class="text-amber-700 dark:text-amber-300">Revoke Client?</span>
+      </:title>
 
-        <p class="mb-4">
-          Are you sure you want to revoke <strong><%= @client.name %></strong>?
-        </p>
-        <p class="text-sm text-base-content/60 mb-4">
-          This will immediately invalidate any existing tokens issued to this client.
-          The client will no longer be able to authenticate.
-        </p>
+      <p>
+        Are you sure you want to revoke <strong>{@client.name}</strong>?
+      </p>
+      <p class="text-sm text-sr-muted">
+        This will immediately invalidate any existing tokens issued to this client.
+        The client will no longer be able to authenticate.
+      </p>
 
-        <div class="modal-action">
-          <button type="button" phx-click="close_revoke_modal" class="btn">Cancel</button>
-          <button
-            type="button"
-            phx-click="confirm_revoke"
-            phx-value-id={@client.id}
-            class="btn btn-warning"
-          >
-            Revoke Client
-          </button>
-        </div>
-      </div>
-      <div class="modal-backdrop" phx-click="close_revoke_modal"></div>
-    </div>
+      <:actions>
+        <.ui_button type="button" phx-click="close_revoke_modal" size="sm" variant="neutral">
+          Cancel
+        </.ui_button>
+        <.ui_button
+          type="button"
+          phx-click="confirm_revoke"
+          phx-value-id={@client.id}
+          size="sm"
+          variant="warning"
+        >
+          Revoke Client
+        </.ui_button>
+      </:actions>
+    </.ui_modal>
     """
   end
 
@@ -635,10 +616,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
     ServiceRadarWebNGWeb.Endpoint.url()
   end
 
-  defp scope_badge_class("read"), do: "badge-info"
-  defp scope_badge_class("write"), do: "badge-success"
-  defp scope_badge_class("admin"), do: "badge-warning"
-  defp scope_badge_class(_), do: "badge-ghost"
+  defp scope_badge_variant("read"), do: "info"
+  defp scope_badge_variant("write"), do: "success"
+  defp scope_badge_variant("admin"), do: "warning"
+  defp scope_badge_variant(_), do: "ghost"
 
   defp status_color(%{revoked_at: revoked_at}) when not is_nil(revoked_at), do: "error"
   defp status_color(%{enabled: false}), do: "ghost"

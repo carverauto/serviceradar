@@ -566,12 +566,12 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           </p>
         </div>
 
-        <div class="alert alert-info text-sm">
+        <div class={ui_alert_class(variant: "info", class: "text-sm")}>
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 w-full">
             <span>Changes are written to rule files. Use Apply Now to reload core rule cache.</span>
-            <button class="btn btn-xs btn-primary" phx-click="apply_now" id="apply-now">
+            <.ui_button phx-click="apply_now" id="apply-now" size="xs" variant="primary">
               Apply Now
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -581,81 +581,56 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <div class="flex items-center justify-between">
                 <h2 class="card-title text-base">Rule Files</h2>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
-                  <button
-                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
-                    phx-click="open_import_yaml"
-                    id="open-import-yaml"
-                    disabled={is_nil(@selected_file)}
-                  >
+                  <.ui_button phx-click="open_import_yaml" id="open-import-yaml" disabled={is_nil(@selected_file)} size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
                     Import YAML
-                  </button>
-                  <button
-                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
-                    phx-click="open_export_yaml"
-                    id="open-export-yaml"
-                    disabled={is_nil(@selected_file)}
-                  >
+                  </.ui_button>
+                  <.ui_button phx-click="open_export_yaml" id="open-export-yaml" disabled={is_nil(@selected_file)} size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
                     Export YAML
-                  </button>
-                  <button
-                    class="btn btn-xs btn-primary text-[11px] leading-none whitespace-nowrap"
-                    phx-click="open_new_file"
-                    id="open-new-file"
-                  >
+                  </.ui_button>
+                  <.ui_button phx-click="open_new_file" id="open-new-file" size="xs" variant="primary" class="text-[11px] leading-none whitespace-nowrap">
                     New File
-                  </button>
+                  </.ui_button>
                 </div>
               </div>
               <div class="space-y-2">
                 <%= for file <- @rule_files do %>
                   <div class="flex items-center gap-2">
-                    <button
-                      class={[
-                        "btn btn-sm flex-1 justify-start",
-                        if(@selected_file == file.name, do: "btn-primary", else: "btn-ghost")
-                      ]}
+                    <.ui_button
+                      type="button"
+                      size="sm"
+                      class="flex-1 justify-start"
+                      variant={if(@selected_file == file.name, do: "primary", else: "ghost")}
+                      active={@selected_file == file.name}
                       phx-click="select_file"
                       phx-value-file={file.name}
                     >
                       <span>{file.name}</span>
-                      <span
+                      <.ui_badge
                         :if={file.source == :builtin}
-                        class="badge badge-ghost badge-xs ml-auto"
+                        size="xs"
+                        variant="ghost"
+                        class="ml-auto"
                       >
                         built-in
-                      </span>
-                      <span
+                      </.ui_badge>
+                      <.ui_badge
                         :if={file.source == :override and file.state == :inactive}
-                        class="badge badge-warning badge-xs ml-auto"
+                        size="xs"
+                        variant="warning"
+                        class="ml-auto"
                       >
                         inactive
-                      </span>
-                    </button>
-                    <button
-                      :if={file.source == :override and file.state == :active}
-                      class="btn btn-xs btn-outline"
-                      phx-click="deactivate_file"
-                      phx-value-file={file.name}
-                    >
+                      </.ui_badge>
+                    </.ui_button>
+                    <.ui_button :if={file.source == :override and file.state == :active} phx-click="deactivate_file" phx-value-file={file.name} size="xs" variant="outline">
                       Deactivate
-                    </button>
-                    <button
-                      :if={file.source == :override and file.state == :inactive}
-                      class="btn btn-xs btn-outline btn-success"
-                      phx-click="activate_file"
-                      phx-value-file={file.name}
-                    >
+                    </.ui_button>
+                    <.ui_button :if={file.source == :override and file.state == :inactive} phx-click="activate_file" phx-value-file={file.name} size="xs" variant="outline">
                       Activate
-                    </button>
-                    <button
-                      :if={file.source == :override}
-                      class="btn btn-xs btn-outline btn-error"
-                      phx-click="delete_file"
-                      phx-value-file={file.name}
-                      phx-confirm={"Delete #{file.name}?"}
-                    >
+                    </.ui_button>
+                    <.ui_button :if={file.source == :override} phx-click="delete_file" phx-value-file={file.name} phx-confirm={"Delete #{file.name}?"} size="xs" variant="outline">
                       Delete
-                    </button>
+                    </.ui_button>
                   </div>
                 <% end %>
                 <p :if={@rule_files == []} class="text-sm opacity-60">No rule files found.</p>
@@ -674,46 +649,35 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                   <% end %>
                 </h2>
                 <div class="flex flex-wrap items-center justify-end gap-1.5">
-                  <span
+                  <.ui_badge
                     :if={@selected_file_source == :builtin}
-                    class="badge badge-outline badge-info badge-sm"
+                    size="sm"
+                    variant="info"
                   >
                     Built-in rules
-                  </span>
-                  <span
+                  </.ui_badge>
+                  <.ui_badge
                     :if={@selected_file_source == :override and @selected_file_state == :inactive}
-                    class="badge badge-outline badge-warning badge-sm"
+                    size="sm"
+                    variant="warning"
                   >
                     Inactive file
-                  </span>
-                  <button
-                    :if={@selected_file}
-                    class="btn btn-xs btn-ghost text-[11px] leading-none whitespace-nowrap"
-                    phx-click="reload_file"
-                    id="reload-file"
-                  >
+                  </.ui_badge>
+                  <.ui_button :if={@selected_file} phx-click="reload_file" id="reload-file" size="xs" variant="ghost" class="text-[11px] leading-none whitespace-nowrap">
                     Reload
-                  </button>
-                  <button
-                    class="btn btn-xs btn-outline text-[11px] leading-none whitespace-nowrap"
-                    phx-click="new_rule"
-                    disabled={
-                      is_nil(@selected_file) or @selected_file_source != :override or
-                        @selected_file_state != :active
-                    }
-                    id="new-rule"
-                  >
+                  </.ui_button>
+                  <.ui_button phx-click="new_rule" disabled={ is_nil(@selected_file) or @selected_file_source != :override or @selected_file_state != :active } id="new-rule" size="xs" variant="outline" class="text-[11px] leading-none whitespace-nowrap">
                     New Rule
-                  </button>
+                  </.ui_button>
                 </div>
               </div>
 
-              <div :if={@selected_file && @rules == []} class="alert text-sm">
+              <div :if={@selected_file && @rules == []} class={ui_alert_class(variant: "info", class: "text-sm")}>
                 <span>No rules yet in this file.</span>
               </div>
 
               <div :if={@rules != []}>
-                <table class="table table-sm table-zebra w-full">
+                <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
                   <thead>
                     <tr>
                       <th>ID</th>
@@ -732,55 +696,32 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
                         <td>{get_in(rule, ["set", "vendor_name"]) || "-"}</td>
                         <td>{Map.get(rule, "priority", 0)}</td>
                         <td>
-                          <span class={[
-                            "badge",
-                            if(Map.get(rule, "enabled", true),
-                              do: "badge-success",
-                              else: "badge-ghost"
-                            )
-                          ]}>
+                          <.ui_badge
+                            size="sm"
+                            variant={
+                              if(Map.get(rule, "enabled", true), do: "success", else: "ghost")
+                            }
+                          >
                             {if Map.get(rule, "enabled", true), do: "enabled", else: "disabled"}
-                          </span>
+                          </.ui_badge>
                         </td>
                         <td class="w-[15rem] align-top">
                           <div class="grid grid-cols-3 gap-1.5">
-                            <button
-                              class="btn btn-xs w-full text-[11px] leading-none whitespace-nowrap"
-                              phx-click="edit_rule"
-                              phx-value-index={idx}
-                            >
+                            <.ui_button phx-click="edit_rule" phx-value-index={idx} size="xs" variant="neutral" class="w-full text-[11px] leading-none whitespace-nowrap">
                               Edit
-                            </button>
-                            <button
-                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
-                              phx-click="duplicate_rule"
-                              phx-value-index={idx}
-                            >
+                            </.ui_button>
+                            <.ui_button phx-click="duplicate_rule" phx-value-index={idx} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
                               Duplicate
-                            </button>
-                            <button
-                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
-                              phx-click="delete_rule"
-                              phx-value-index={idx}
-                            >
+                            </.ui_button>
+                            <.ui_button phx-click="delete_rule" phx-value-index={idx} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
                               Delete
-                            </button>
-                            <button
-                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
-                              phx-click="move_rule_up"
-                              phx-value-index={idx}
-                              disabled={idx == 0}
-                            >
+                            </.ui_button>
+                            <.ui_button phx-click="move_rule_up" phx-value-index={idx} disabled={idx == 0} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
                               ↑ Up
-                            </button>
-                            <button
-                              class="btn btn-xs btn-outline w-full text-[11px] leading-none whitespace-nowrap"
-                              phx-click="move_rule_down"
-                              phx-value-index={idx}
-                              disabled={idx == length(@rules) - 1}
-                            >
+                            </.ui_button>
+                            <.ui_button phx-click="move_rule_down" phx-value-index={idx} disabled={idx == length(@rules) - 1} size="xs" variant="outline" class="w-full text-[11px] leading-none whitespace-nowrap">
                               ↓ Down
-                            </button>
+                            </.ui_button>
                           </div>
                         </td>
                       </tr>
@@ -802,9 +743,9 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
             <.form for={@simulation_form} phx-submit="simulate" id="simulation-form" class="space-y-3">
               <textarea
                 name="simulation[payload]"
-                class="textarea textarea-bordered w-full font-mono min-h-[220px]"
+                class={ui_field_class(mono: true, class: "w-full min-h-[220px] py-2.5")}
               >{@simulation_form[:payload].value}</textarea>
-              <button type="submit" class="btn btn-primary btn-sm">Run Simulation</button>
+              <.ui_button type="submit" size="sm" variant="primary">Run Simulation</.ui_button>
             </.form>
 
             <div :if={@simulation_result} class="bg-base-200 rounded-box p-3 text-sm space-y-2">
@@ -844,181 +785,189 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
           </div>
         </div>
 
-        <div :if={@show_new_file_modal} class="modal modal-open">
-          <div class="modal-box">
-            <h3 class="font-bold text-lg">Create Rule File</h3>
-            <.form
-              for={@new_file_form}
-              phx-submit="create_file"
-              class="space-y-3 mt-3"
-              id="new-rule-file-form"
-            >
-              <.input
-                field={@new_file_form[:file_name]}
-                type="text"
-                label="File Name"
-                placeholder="custom-overrides.yaml"
-              />
-              <p class="text-xs opacity-70">File name must end in <code>.yaml</code>.</p>
-              <div class="modal-action">
-                <button type="button" class="btn" phx-click="cancel_new_file">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create</button>
-              </div>
-            </.form>
-          </div>
-        </div>
-
-        <div :if={@show_import_modal} class="modal modal-open">
-          <div class="modal-box max-w-4xl">
-            <h3 class="font-bold text-lg">Import YAML</h3>
-            <p class="text-sm opacity-70 mt-1">
-              Replace rules in <code>{@selected_file}</code> with validated YAML.
-            </p>
-
-            <.form
-              for={@import_form}
-              phx-submit="import_yaml"
-              id="import-yaml-form"
-              class="mt-3 space-y-3"
-            >
-              <textarea
-                name="import[yaml]"
-                class="textarea textarea-bordered w-full font-mono min-h-[320px]"
-                placeholder="rules: ..."
-              >{@import_form[:yaml].value}</textarea>
-              <div class="modal-action">
-                <button type="button" class="btn" phx-click="cancel_import_yaml">Cancel</button>
-                <button type="submit" class="btn btn-primary">Import</button>
-              </div>
-            </.form>
-          </div>
-        </div>
-
-        <div :if={@show_export_modal} class="modal modal-open">
-          <div class="modal-box max-w-4xl">
-            <h3 class="font-bold text-lg">Export YAML</h3>
-            <p class="text-sm opacity-70 mt-1">
-              Current contents of <code>{@selected_file}</code>.
-            </p>
-            <textarea
-              id="export-yaml-content"
-              class="textarea textarea-bordered w-full font-mono min-h-[320px] mt-3"
-              readonly
-            >{@export_yaml}</textarea>
-            <div class="modal-action">
-              <button
-                type="button"
-                class="btn btn-outline"
-                phx-click="download_export_yaml"
-                id="download-export-yaml"
-              >
-                Download .yaml
-              </button>
-              <button type="button" class="btn btn-primary" phx-click="close_export_yaml">
-                Close
-              </button>
+        <.ui_modal id="new-rule-file-modal" open={@show_new_file_modal} on_cancel="cancel_new_file">
+          <:title>Create Rule File</:title>
+          <.form
+            for={@new_file_form}
+            phx-submit="create_file"
+            class="space-y-3"
+            id="new-rule-file-form"
+          >
+            <.input
+              field={@new_file_form[:file_name]}
+              type="text"
+              label="File Name"
+              placeholder="custom-overrides.yaml"
+            />
+            <p class="text-xs text-sr-muted">File name must end in <code>.yaml</code>.</p>
+            <div class="flex justify-end gap-2 pt-1">
+              <.ui_button type="button" phx-click="cancel_new_file" size="sm" variant="neutral">
+                Cancel
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">Create</.ui_button>
             </div>
-          </div>
-        </div>
+          </.form>
+        </.ui_modal>
 
-        <div
-          :if={@show_rule_editor}
-          class="modal modal-open"
+        <.ui_modal
+          id="import-yaml-modal"
+          open={@show_import_modal}
+          size="2xl"
+          on_cancel="cancel_import_yaml"
+        >
+          <:title>Import YAML</:title>
+          <p class="text-sm text-sr-muted">
+            Replace rules in <code class="text-sr-ink">{@selected_file}</code> with validated YAML.
+          </p>
+
+          <.form
+            for={@import_form}
+            phx-submit="import_yaml"
+            id="import-yaml-form"
+            class="space-y-3"
+          >
+            <textarea
+              name="import[yaml]"
+              class={ui_field_class(mono: true, class: "w-full min-h-[320px] py-2.5")}
+              placeholder="rules: ..."
+            >{@import_form[:yaml].value}</textarea>
+            <div class="flex justify-end gap-2 pt-1">
+              <.ui_button type="button" phx-click="cancel_import_yaml" size="sm" variant="neutral">
+                Cancel
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">Import</.ui_button>
+            </div>
+          </.form>
+        </.ui_modal>
+
+        <.ui_modal
+          id="export-yaml-modal"
+          open={@show_export_modal}
+          size="2xl"
+          on_cancel="close_export_yaml"
+        >
+          <:title>Export YAML</:title>
+          <p class="text-sm text-sr-muted">
+            Current contents of <code class="text-sr-ink">{@selected_file}</code>.
+          </p>
+          <textarea
+            id="export-yaml-content"
+            class={ui_field_class(mono: true, class: "w-full min-h-[320px] py-2.5")}
+            readonly
+          >{@export_yaml}</textarea>
+          <:actions>
+            <.ui_button
+              type="button"
+              phx-click="download_export_yaml"
+              id="download-export-yaml"
+              size="sm"
+              variant="outline"
+            >
+              Download .yaml
+            </.ui_button>
+            <.ui_button type="button" phx-click="close_export_yaml" size="sm" variant="primary">
+              Close
+            </.ui_button>
+          </:actions>
+        </.ui_modal>
+
+        <.ui_modal
+          id="rule-editor-modal"
+          open={@show_rule_editor}
+          size="2xl"
+          on_cancel="attempt_close_rule_editor"
           phx-window-keydown="rule_editor_escape"
           phx-key="escape"
         >
-          <div class="modal-box max-w-4xl">
-            <h3 class="font-bold text-lg">
-              {if is_nil(@editing_index), do: "New Rule", else: "Edit Rule"}
-            </h3>
+          <:title>
+            {if is_nil(@editing_index), do: "New Rule", else: "Edit Rule"}
+          </:title>
 
-            <.form
-              for={@rule_form}
-              phx-change="rule_form_changed"
-              phx-submit="save_rule"
-              id="rule-editor-form"
-              class="space-y-4 mt-3"
-            >
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <.input field={@rule_form[:id]} type="text" label="Rule ID" />
-                <.input field={@rule_form[:reason]} type="text" label="Reason" />
-                <.input field={@rule_form[:priority]} type="number" label="Priority" />
-                <.input field={@rule_form[:confidence]} type="number" label="Confidence (0-100)" />
-              </div>
+          <.form
+            for={@rule_form}
+            phx-change="rule_form_changed"
+            phx-submit="save_rule"
+            id="rule-editor-form"
+            class="space-y-4"
+          >
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <.input field={@rule_form[:id]} type="text" label="Rule ID" />
+              <.input field={@rule_form[:reason]} type="text" label="Reason" />
+              <.input field={@rule_form[:priority]} type="number" label="Priority" />
+              <.input field={@rule_form[:confidence]} type="number" label="Confidence (0-100)" />
+            </div>
 
-              <div class="form-control">
-                <label class="label cursor-pointer justify-start gap-2">
-                  <input
-                    type="checkbox"
-                    name="rule[enabled]"
-                    class="toggle toggle-primary"
-                    checked={checkbox_checked?(@rule_form[:enabled].value)}
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-2">
+                <input
+                  type="checkbox"
+                  name="rule[enabled]"
+                  class={ui_checkbox_class()}
+                  checked={checkbox_checked?(@rule_form[:enabled].value)}
+                />
+                <span class="label-text">Enabled</span>
+              </label>
+            </div>
+
+            <div class="divider">Match Conditions</div>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div class="space-y-2">
+                <h4 class="text-sm font-semibold text-sr-ink">ALL</h4>
+                <%= for {key, all_field, _any_field} <- @match_field_defs do %>
+                  <.input
+                    field={@rule_form[all_field]}
+                    type="text"
+                    label={"#{key} (comma-separated)"}
                   />
-                  <span class="label-text">Enabled</span>
-                </label>
-              </div>
-
-              <div class="divider">Match Conditions</div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="space-y-2">
-                  <h4 class="font-semibold text-sm">ALL</h4>
-                  <%= for {key, all_field, _any_field} <- @match_field_defs do %>
-                    <.input
-                      field={@rule_form[all_field]}
-                      type="text"
-                      label={"#{key} (comma-separated)"}
-                    />
-                  <% end %>
-                </div>
-                <div class="space-y-2">
-                  <h4 class="font-semibold text-sm">ANY</h4>
-                  <%= for {key, _all_field, any_field} <- @match_field_defs do %>
-                    <.input
-                      field={@rule_form[any_field]}
-                      type="text"
-                      label={"#{key} (comma-separated)"}
-                    />
-                  <% end %>
-                </div>
-              </div>
-
-              <div class="divider">Set Values</div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <%= for {key, set_field} <- @set_field_defs do %>
-                  <.input field={@rule_form[set_field]} type="text" label={key} />
                 <% end %>
               </div>
-
-              <div class="modal-action">
-                <button type="button" class="btn" phx-click="cancel_rule">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Rule</button>
+              <div class="space-y-2">
+                <h4 class="text-sm font-semibold text-sr-ink">ANY</h4>
+                <%= for {key, _all_field, any_field} <- @match_field_defs do %>
+                  <.input
+                    field={@rule_form[any_field]}
+                    type="text"
+                    label={"#{key} (comma-separated)"}
+                  />
+                <% end %>
               </div>
-            </.form>
-          </div>
-          <form method="dialog" class="modal-backdrop">
-            <button type="button" phx-click="attempt_close_rule_editor">close</button>
-          </form>
-        </div>
-
-        <div :if={@show_discard_rule_modal} class="modal modal-open">
-          <div class="modal-box max-w-md">
-            <h3 class="font-bold text-lg">Discard unsaved changes?</h3>
-            <p class="text-sm opacity-70 mt-2">
-              You have unsaved edits in this rule. Leaving now will lose those changes.
-            </p>
-            <div class="modal-action">
-              <button type="button" class="btn btn-outline" phx-click="keep_editing_rule">
-                Keep Editing
-              </button>
-              <button type="button" class="btn btn-error" phx-click="discard_rule_changes">
-                Discard Changes
-              </button>
             </div>
-          </div>
-          <form method="dialog" class="modal-backdrop">
-            <button type="button" phx-click="keep_editing_rule">close</button>
-          </form>
-        </div>
+
+            <div class="divider">Set Values</div>
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <%= for {key, set_field} <- @set_field_defs do %>
+                <.input field={@rule_form[set_field]} type="text" label={key} />
+              <% end %>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-1">
+              <.ui_button type="button" phx-click="cancel_rule" size="sm" variant="neutral">
+                Cancel
+              </.ui_button>
+              <.ui_button type="submit" size="sm" variant="primary">Save Rule</.ui_button>
+            </div>
+          </.form>
+        </.ui_modal>
+
+        <.ui_modal
+          id="discard-rule-modal"
+          open={@show_discard_rule_modal}
+          size="sm"
+          on_cancel="keep_editing_rule"
+        >
+          <:title>Discard unsaved changes?</:title>
+          <p class="text-sm text-sr-muted">
+            You have unsaved edits in this rule. Leaving now will lose those changes.
+          </p>
+          <:actions>
+            <.ui_button type="button" phx-click="keep_editing_rule" size="sm" variant="outline">
+              Keep Editing
+            </.ui_button>
+            <.ui_button type="button" phx-click="discard_rule_changes" size="sm" variant="danger">
+              Discard Changes
+            </.ui_button>
+          </:actions>
+        </.ui_modal>
       </Shell.settings_chrome>
     </Layouts.app>
     """

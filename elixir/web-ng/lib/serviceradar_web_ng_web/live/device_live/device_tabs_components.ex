@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
           !@has_ifaces && "opacity-60"
         ]}
       >
-        <span :if={!@has_ifaces} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.ui_spinner :if={!@has_ifaces} size="xs" class="mr-1.5" />
         <.icon :if={@has_ifaces} name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
       </button>
       <button
@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
           !@has_flows && "opacity-60"
         ]}
       >
-        <span :if={!@has_flows} class="loading loading-spinner loading-xs mr-1.5"></span>
+        <.ui_spinner :if={!@has_flows} size="xs" class="mr-1.5" />
         <.icon :if={@has_flows} name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
       </button>
       <button

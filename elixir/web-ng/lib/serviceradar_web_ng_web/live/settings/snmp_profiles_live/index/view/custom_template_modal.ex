@@ -30,21 +30,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
       |> assign(:data_types, data_types)
 
     ~H"""
-    <dialog id="custom_template_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl max-h-[85vh]">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            type="button"
-            phx-click="close_custom_template_modal"
-          >
-            x
-          </button>
-        </form>
-
-        <h3 class="font-bold text-lg mb-4">
-          {if @editing, do: "Edit Custom Template", else: "New Custom Template"}
-        </h3>
+    <.ui_modal
+      id="custom_template_modal"
+      size="md"
+      on_cancel="close_custom_template_modal"
+      box_class="max-h-[85vh] overflow-y-auto"
+    >
+      <:title>
+        {if @editing, do: "Edit Custom Template", else: "New Custom Template"}
+      </:title>
 
         <.form
           for={@form}
@@ -60,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             <.input
               type="text"
               field={@form[:name]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="e.g., My Router Monitoring"
             />
           </div>
@@ -73,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               rows="2"
               placeholder="Describe what this template monitors..."
             />
@@ -84,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             <label class="label">
               <span class="label-text font-medium">Category</span>
             </label>
-            <select name={@form[:category].name} class="select select-bordered w-full">
+            <select name={@form[:category].name} class={ui_field_class(class: "w-full")}>
               <option value="">Select a category...</option>
               <%= for {value, label} <- @categories do %>
                 <option value={value} selected={@form[:category].value == value}>{label}</option>
@@ -130,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         type="text"
                         value={oid["oid"]}
                         placeholder=".1.3.6.1.2.1..."
-                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
                         phx-value-field="oid"
@@ -147,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         type="text"
                         value={oid["name"]}
                         placeholder="e.g., ifInOctets"
-                        class="input input-bordered input-sm w-full text-xs"
+                        class={ui_field_class(size: "sm", class: "w-full text-xs")}
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
                         phx-value-field="name"
@@ -161,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         <span class="label-text text-xs">Data Type</span>
                       </label>
                       <select
-                        class="select select-bordered select-sm w-full text-xs"
+                        class={ui_field_class(size: "sm", class: "w-full text-xs")}
                         phx-change="update_template_oid"
                         phx-value-index={idx}
                         phx-value-field="data_type"
@@ -182,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                         type="text"
                         value={oid["scale"]}
                         placeholder="1.0"
-                        class="input input-bordered input-sm w-full text-xs"
+                        class={ui_field_class(size: "sm", class: "w-full text-xs")}
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
                         phx-value-field="scale"
@@ -195,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       <input
                         type="checkbox"
                         checked={oid["delta"]}
-                        class="checkbox checkbox-sm"
+                        class={ui_checkbox_class()}
                         phx-click="update_template_oid"
                         phx-value-index={idx}
                         phx-value-field="delta"
@@ -225,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
           </div>
           
     <!-- Modal Actions -->
-          <div class="modal-action">
+          <div class="flex justify-end gap-2 pt-1">
             <.ui_button type="button" variant="ghost" phx-click="close_custom_template_modal">
               Cancel
             </.ui_button>
@@ -234,11 +228,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             </.ui_button>
           </div>
         </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button type="button" phx-click="close_custom_template_modal">close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 end

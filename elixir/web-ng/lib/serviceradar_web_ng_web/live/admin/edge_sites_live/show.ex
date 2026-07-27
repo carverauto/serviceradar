@@ -255,7 +255,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         </div>
       <% else %>
         <div class="text-center py-4 text-sm text-base-content/60">
-          <span class="loading loading-spinner loading-sm"></span>
+          <.ui_spinner size="sm" />
           <span class="ml-2">Provisioning NATS leaf server...</span>
         </div>
       <% end %>
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           type="text"
           name="nats_leaf_url"
           value={@site.nats_leaf_url}
-          class="input input-bordered input-sm flex-1 font-mono"
+          class={ui_field_class(size: "sm", mono: true, class: "flex-1")}
           placeholder="nats://10.0.1.50:4222"
         />
         <.ui_button type="submit" variant="ghost" size="sm">
@@ -328,8 +328,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           <% end %>
         </div>
       <% else %>
-        <div class="overflow-x-auto">
-          <table class="table table-xs">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "xs")}>
             <thead>
               <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                 <th>Collector</th>
@@ -371,13 +371,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
             Collectors will need to be reassigned or will fall back to direct SaaS connection.
           </p>
         </div>
-        <button
-          class="btn btn-error btn-sm"
-          phx-click="delete_site"
-          data-confirm="Are you sure you want to delete this edge site? This action cannot be undone."
-        >
+        <.ui_button phx-click="delete_site" data-confirm="Are you sure you want to delete this edge site? This action cannot be undone." size="sm" variant="danger">
           Delete Site
-        </button>
+        </.ui_button>
       </div>
     </.ui_panel>
     """

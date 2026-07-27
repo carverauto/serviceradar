@@ -168,9 +168,9 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                     Entries rotate by sort order and dwell interval.
                   </p>
                 </div>
-                <button type="button" class="btn btn-sm" phx-click="new">
+                <.ui_button type="button" phx-click="new" size="sm" variant="neutral">
                   <.icon name="hero-plus" class="size-4" /> New
-                </button>
+                </.ui_button>
               </div>
 
               <div class="divide-y divide-base-200">
@@ -185,13 +185,13 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-medium">{entry.label}</span>
-                      <span class={[
-                        "badge badge-sm",
-                        if(entry.enabled, do: "badge-success", else: "badge-ghost")
-                      ]}>
+                      <.ui_badge
+                        size="sm"
+                        variant={if(entry.enabled, do: "success", else: "ghost")}
+                      >
                         {if entry.enabled, do: "enabled", else: "disabled"}
-                      </span>
-                      <span class="badge badge-sm badge-outline">#{entry.sort_order}</span>
+                      </.ui_badge>
+                      <.ui_badge size="sm" variant="outline">#{entry.sort_order}</.ui_badge>
                     </div>
                     <div class="mt-1 truncate font-mono text-xs text-base-content/60">
                       {entry.srql_query}
@@ -201,17 +201,12 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                     </div>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <button type="button" class="btn btn-xs" phx-click="edit" phx-value-id={entry.id}>
+                    <.ui_button type="button" phx-click="edit" phx-value-id={entry.id} size="xs" variant="neutral">
                       <.icon name="hero-pencil-square" class="size-4" /> Edit
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-error btn-outline"
-                      phx-click="delete"
-                      phx-value-id={entry.id}
-                    >
+                    </.ui_button>
+                    <.ui_button type="button" phx-click="delete" phx-value-id={entry.id} size="xs" variant="outline">
                       <.icon name="hero-trash" class="size-4" /> Delete
-                    </button>
+                    </.ui_button>
                   </div>
                 </div>
               </div>
@@ -271,12 +266,12 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
               </div>
 
               <div class="flex justify-end gap-2">
-                <button type="button" class="btn btn-sm" phx-click="preview">
+                <.ui_button type="button" phx-click="preview" size="sm" variant="neutral">
                   <.icon name="hero-magnifying-glass" class="size-4" /> Preview
-                </button>
-                <button type="submit" class="btn btn-sm btn-primary">
+                </.ui_button>
+                <.ui_button type="submit" size="sm" variant="primary">
                   <.icon name="hero-check" class="size-4" /> Save
-                </button>
+                </.ui_button>
               </div>
             </.form>
           </div>

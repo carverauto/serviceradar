@@ -48,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
             role="alert"
             class="pointer-events-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warning/40 bg-base-100/90 px-4 py-2 shadow-lg backdrop-blur-sm"
           >
-            <span class="badge badge-warning badge-sm">Backbone unavailable</span>
+            <.ui_badge size="sm" variant="warning">Backbone unavailable</.ui_badge>
             <span class="text-xs text-base-content/70">
               This snapshot has no backbone topology edges; {backbone_warning.other_edges} attachment/inferred
               edges are available on the Inferred and Endpoints layers.
@@ -56,14 +56,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
             <span class="font-mono text-[10px] text-base-content/60">
               bb:{backbone_warning.counts.backbone} att:{backbone_warning.counts.attachment} inf:{backbone_warning.counts.inferred} host:{backbone_warning.counts.hosted} obs:{backbone_warning.counts.observed}
             </span>
-            <button
-              :if={!(@topology_layers.inferred and @topology_layers.endpoints)}
-              type="button"
-              class="btn btn-warning btn-xs h-7 min-h-7"
-              phx-click="enable_attachment_layers"
-            >
+            <.ui_button :if={!(@topology_layers.inferred and @topology_layers.endpoints)} type="button" phx-click="enable_attachment_layers" size="xs" variant="warning" class="h-7 min-h-7">
               Show attachment layers
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -78,14 +73,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               <div class="text-[10px] uppercase tracking-wide text-base-content/60">
                 Controls
               </div>
-              <button
-                type="button"
-                class="btn btn-xs btn-ghost h-6 min-h-6 px-2"
-                phx-click="toggle_controls_panel"
-                title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"}
-              >
+              <.ui_button type="button" phx-click="toggle_controls_panel" title={if @controls_collapsed, do: "Expand controls", else: "Collapse controls"} size="xs" variant="ghost" class="h-6 min-h-6 px-2">
                 {if @controls_collapsed, do: "Expand", else: "Collapse"}
-              </button>
+              </.ui_button>
             </div>
 
             <div :if={@controls_collapsed} class="mt-2 grid grid-cols-3 gap-1">
@@ -107,14 +97,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
               >
                 Auto
               </button>
-              <button
-                type="button"
-                class="btn btn-xs btn-ghost h-7 min-h-7"
-                phx-click="reset_view"
-                title="Reset view to fit all nodes"
-              >
+              <.ui_button type="button" phx-click="reset_view" title="Reset view to fit all nodes" size="xs" variant="ghost" class="h-7 min-h-7">
                 Reset
-              </button>
+              </.ui_button>
             </div>
 
             <div :if={!@controls_collapsed} class="space-y-2 mt-2">
@@ -160,14 +145,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                     Detail
                   </button>
                 </div>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost h-7 min-h-7 w-full mt-1"
-                  phx-click="reset_view"
-                  title="Reset view and collapse expanded endpoint clusters"
-                >
+                <.ui_button type="button" phx-click="reset_view" title="Reset view and collapse expanded endpoint clusters" size="xs" variant="ghost" class="h-7 min-h-7 w-full mt-1">
                   Reset / Collapse
-                </button>
+                </.ui_button>
               </div>
 
               <div>
@@ -428,10 +408,20 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
     """
   end
 
-  def overlay_filter_button_class(true), do: "btn btn-xs btn-primary h-7 min-h-7"
-  def overlay_filter_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
-  def overlay_zoom_button_class(true), do: "btn btn-xs btn-secondary h-7 min-h-7"
-  def overlay_zoom_button_class(false), do: "btn btn-xs btn-ghost h-7 min-h-7"
+  def overlay_filter_button_class(true),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-transparent bg-sr-brand px-2 text-xs font-semibold text-sr-on-brand"
+
+  def overlay_filter_button_class(false),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-transparent bg-transparent px-2 text-xs font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+
+  def overlay_zoom_button_class(true),
+    do:
+      "inline-flex h-7 min-h-7 items-center justify-center gap-1 rounded-sr-control border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-brand"
+
+  def overlay_zoom_button_class(false),
+    do: overlay_filter_button_class(false)
 
   def format_bitmap_meta(nil), do: "—"
 

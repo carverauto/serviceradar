@@ -61,12 +61,12 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="space-y-6">
+      <div class="sr-observability-page space-y-6 font-sans">
         <.observability_chrome active_pane="camera-relays" active_subsection="operations">
           <:actions>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+            <.ui_button type="button" phx-click="refresh" size="sm" variant="primary">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
+            </.ui_button>
           </:actions>
         </.observability_chrome>
 
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-warning">
+        <div :if={@error} class={ui_alert_class("warning")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -144,7 +144,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     Threshold alerts driven by relay failure bursts, saturation denials, and churn.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@relay_health_active_alerts)} active</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@relay_health_active_alerts)} active
+                </.ui_badge>
               </div>
             </div>
 
@@ -161,12 +163,12 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-medium text-base-content">{alert.title}</span>
-                      <span class={alert_badge_class(alert.severity)}>
+                      <.ui_badge size="sm" variant={alert_badge_variant(alert.severity)}>
                         {String.capitalize(alert.severity || "unknown")}
-                      </span>
-                      <span class={status_badge_class(alert.status)}>
+                      </.ui_badge>
+                      <.ui_badge size="sm" variant={status_badge_variant(alert.status)}>
                         {format_status(alert.status)}
-                      </span>
+                      </.ui_badge>
                     </div>
                     <div class="text-sm text-base-content/60">{alert.description}</div>
                     <div class="text-xs text-base-content/50">
@@ -181,9 +183,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <.link navigate={~p"/alerts/#{alert.id}"} class="btn btn-ghost btn-xs">
+                  <.ui_button navigate={~p"/alerts/#{alert.id}"} size="xs" variant="ghost">
                     View alert
-                  </.link>
+                  </.ui_button>
                 </div>
               </article>
             </div>
@@ -198,7 +200,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     Structured relay-health events feeding the alert templates and event stream.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@relay_health_recent_events)} recent</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@relay_health_recent_events)} recent
+                </.ui_badge>
               </div>
             </div>
 
@@ -215,9 +219,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-medium text-base-content">{event.message}</span>
-                      <span class={event_badge_class(event.relay_health_kind)}>
+                      <.ui_badge size="sm" variant={event_badge_variant(event.relay_health_kind)}>
                         {entry_label(event.relay_health_kind)}
-                      </span>
+                      </.ui_badge>
                     </div>
                     <div class="text-sm text-base-content/60">
                       session={display_value(event.relay_session_id)} · gateway={display_value(
@@ -238,9 +242,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <.link navigate={~p"/events/#{event.id}"} class="btn btn-ghost btn-xs">
+                  <.ui_button navigate={~p"/events/#{event.id}"} size="xs" variant="ghost">
                     View event
-                  </.link>
+                  </.ui_button>
                 </div>
               </article>
             </div>
@@ -256,7 +260,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   Quick drill-down for the most common recent relay shutdown classes.
                 </p>
               </div>
-              <span class="badge badge-ghost">{length(@terminal_breakdown)} kinds</span>
+              <.ui_badge size="sm" variant="ghost">
+                {length(@terminal_breakdown)} kinds
+              </.ui_badge>
             </div>
           </div>
 
@@ -293,7 +299,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     Requested, opening, active, and closing sessions across the deployment.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@active_sessions)} sessions</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@active_sessions)} sessions
+                </.ui_badge>
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.filter_chip
@@ -329,8 +337,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
               </div>
             </div>
 
-            <div class="overflow-x-auto">
-              <table class="table table-zebra">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(zebra: true)}>
                 <thead>
                   <tr>
                     <th>Camera</th>
@@ -366,9 +374,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                       </div>
                     </td>
                     <td>
-                      <span class={status_badge_class(session.status)}>
+                      <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                         {format_status(session.status)}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td class="font-mono text-xs">{session.agent_id}</td>
                     <td class="font-mono text-xs">{session.gateway_id}</td>
@@ -394,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     Most recent closed and failed relay sessions with normalized termination details.
                   </p>
                 </div>
-                <span class="badge badge-ghost">last 50</span>
+                <.ui_badge size="sm" variant="ghost">last 50</.ui_badge>
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.filter_chip
@@ -455,9 +463,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-medium text-base-content">{camera_label(session)}</span>
-                      <span class={status_badge_class(session.status)}>
+                      <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                         {format_status(session.status)}
-                      </span>
+                      </.ui_badge>
                     </div>
                     <div class="text-sm text-base-content/60">{profile_label(session)}</div>
                     <div class="text-xs text-base-content/50">
@@ -561,16 +569,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     assigns = assign(assigns, :active?, active?)
 
     ~H"""
-    <.link
+    <.ui_button
       patch={~p"/observability/camera-relays?#{@params}"}
-      class={[
-        "btn btn-xs rounded-full",
-        @active? && "btn-primary",
-        not @active? && "btn-ghost"
-      ]}
+      size="xs"
+      variant={if @active?, do: "primary", else: "ghost"}
+      class="rounded-full"
     >
       {@label}
-    </.link>
+    </.ui_button>
     """
   end
 
@@ -579,23 +585,25 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp session_log_links(assigns) do
     ~H"""
     <div class="flex flex-wrap gap-2">
-      <.link navigate={relay_logs_href(@session)} class="btn btn-ghost btn-xs">
+      <.ui_button navigate={relay_logs_href(@session)} size="xs" variant="ghost">
         Relay Logs
-      </.link>
-      <.link
+      </.ui_button>
+      <.ui_button
         :if={present?(Map.get(@session, :agent_id))}
         navigate={agent_logs_href(@session)}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         Agent Logs
-      </.link>
-      <.link
+      </.ui_button>
+      <.ui_button
         :if={present?(Map.get(@session, :gateway_id))}
         navigate={gateway_logs_href(@session)}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         Gateway Logs
-      </.link>
+      </.ui_button>
     </div>
     """
   end
@@ -926,19 +934,15 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp normalize_mac(value) when is_binary(value), do: IdentityReconciler.normalize_mac(value)
   defp normalize_mac(_value), do: nil
 
-  defp status_badge_class(status) do
-    normalized = normalize_status(status)
-
-    base = "badge badge-sm border"
-
-    case normalized do
-      "active" -> "#{base} border-success/30 bg-success/10 text-success"
-      "requested" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "opening" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "closing" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "closed" -> "#{base} border-base-300 bg-base-200 text-base-content/70"
-      "failed" -> "#{base} border-error/30 bg-error/10 text-error"
-      _ -> "#{base} border-base-300 bg-base-200 text-base-content/70"
+  defp status_badge_variant(status) do
+    case normalize_status(status) do
+      "active" -> "success"
+      "requested" -> "warning"
+      "opening" -> "warning"
+      "closing" -> "warning"
+      "closed" -> "ghost"
+      "failed" -> "error"
+      _ -> "ghost"
     end
   end
 
@@ -1059,23 +1063,15 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp tone_value("primary"), do: "text-primary"
   defp tone_value(_tone), do: "text-base-content"
 
-  defp alert_badge_class("critical"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
+  defp alert_badge_variant("critical"), do: "error"
+  defp alert_badge_variant("warning"), do: "warning"
+  defp alert_badge_variant("info"), do: "info"
+  defp alert_badge_variant(_severity), do: "ghost"
 
-  defp alert_badge_class("warning"), do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
-
-  defp alert_badge_class("info"), do: "badge badge-sm border border-info/30 bg-info/10 text-info"
-
-  defp alert_badge_class(_severity), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
-
-  defp event_badge_class("session_failure"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
-
-  defp event_badge_class("gateway_saturation_denial"),
-    do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
-
-  defp event_badge_class("viewer_idle_termination"),
-    do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
-
-  defp event_badge_class(_kind), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
+  defp event_badge_variant("session_failure"), do: "error"
+  defp event_badge_variant("gateway_saturation_denial"), do: "warning"
+  defp event_badge_variant("viewer_idle_termination"), do: "ghost"
+  defp event_badge_variant(_kind), do: "ghost"
 
   defp relay_health_source do
     Application.get_env(

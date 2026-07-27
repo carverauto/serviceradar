@@ -74,22 +74,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     ~H"""
     <div class="flex items-center gap-1.5">
       <span class="text-xs text-base-content/50 font-medium">{@label}:</span>
-      <button
+      <.ui_button
         :for={item <- @items}
         type="button"
+        size="xs"
+        variant={if(@active_value == item.label, do: "primary", else: "ghost")}
         phx-click="facet_toggle"
         phx-value-field={@field}
         phx-value-value={Map.get(item, :filter_value) || item.label}
-        class={[
-          "badge badge-sm cursor-pointer transition-colors",
-          if(@active_value == item.label,
-            do: "badge-primary",
-            else: "badge-ghost hover:badge-primary/20"
-          )
-        ]}
       >
         {item.label}
-      </button>
+      </.ui_button>
     </div>
     """
   end

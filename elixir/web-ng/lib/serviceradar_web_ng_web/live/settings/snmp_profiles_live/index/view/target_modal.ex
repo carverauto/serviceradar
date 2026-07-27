@@ -17,21 +17,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
     assigns = assign(assigns, :version, version)
 
     ~H"""
-    <dialog id="target_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            type="button"
-            phx-click="close_target_modal"
-          >
-            x
-          </button>
-        </form>
-
-        <h3 class="font-bold text-lg mb-4">
-          {if @editing_target, do: "Edit SNMP Target", else: "Add SNMP Target"}
-        </h3>
+    <.ui_modal id="target_modal" size="md" on_cancel="close_target_modal">
+      <:title>
+        {if @editing_target, do: "Edit SNMP Target", else: "Add SNMP Target"}
+      </:title>
 
         <.form
           for={@form}
@@ -49,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 <.input
                   type="text"
                   field={@form[:name]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder="e.g., Core Router 1"
                   required
                 />
@@ -59,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 <.input
                   type="select"
                   field={@form[:version]}
-                  class="select select-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   options={[
                     {"SNMPv1", "v1"},
                     {"SNMPv2c", "v2c"},
@@ -75,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 <.input
                   type="text"
                   field={@form[:host]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder="e.g., 192.168.1.1 or router.local"
                   required
                 />
@@ -85,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 <.input
                   type="number"
                   field={@form[:port]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   placeholder="161"
                   min="1"
                   max="65535"
@@ -107,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                     type={if @show_password, do: "text", else: "password"}
                     name="form[community]"
                     value=""
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder={
                       if @editing_target, do: "Enter new value to change", else: "e.g., public"
                     }
@@ -142,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   <.input
                     type="text"
                     field={@form[:username]}
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder="e.g., snmpuser"
                   />
                 </div>
@@ -151,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   <.input
                     type="select"
                     field={@form[:security_level]}
-                    class="select select-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     options={[
                       {"No Auth, No Privacy", "no_auth_no_priv"},
                       {"Auth, No Privacy", "auth_no_priv"},
@@ -167,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   <.input
                     type="select"
                     field={@form[:auth_protocol]}
-                    class="select select-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     options={[
                       {"MD5", "md5"},
                       {"SHA", "sha"},
@@ -185,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                       type={if @show_password, do: "text", else: "password"}
                       name="form[auth_password]"
                       value=""
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       placeholder={if @editing_target, do: "Enter to change", else: "Auth password"}
                       autocomplete="off"
                     />
@@ -209,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   <.input
                     type="select"
                     field={@form[:priv_protocol]}
-                    class="select select-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     options={[
                       {"DES", "des"},
                       {"AES", "aes"},
@@ -224,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                     type={if @show_password, do: "text", else: "password"}
                     name="form[priv_password]"
                     value=""
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder={if @editing_target, do: "Enter to change", else: "Privacy password"}
                     autocomplete="off"
                   />
@@ -283,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                         type="text"
                         value={oid["oid"]}
                         placeholder=".1.3.6.1.2.1.1.1.0"
-                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                         phx-blur="update_oid"
                         phx-value-index={idx}
                         phx-value-field="oid"
@@ -296,7 +285,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                         type="text"
                         value={oid["name"]}
                         placeholder="sysDescr"
-                        class="input input-bordered input-sm w-full text-xs"
+                        class={ui_field_class(size: "sm", class: "w-full text-xs")}
                         phx-blur="update_oid"
                         phx-value-index={idx}
                         phx-value-field="name"
@@ -306,7 +295,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                     </div>
                     <div>
                       <select
-                        class="select select-bordered select-sm w-full text-xs"
+                        class={ui_field_class(size: "sm", class: "w-full text-xs")}
                         phx-change="update_oid"
                         phx-value-index={idx}
                         phx-value-field="data_type"
@@ -327,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                       <label class="flex items-center gap-1 cursor-pointer">
                         <input
                           type="checkbox"
-                          class="checkbox checkbox-sm"
+                          class={ui_checkbox_class()}
                           checked={oid["delta"] == true or oid["delta"] == "true"}
                           phx-click="update_oid"
                           phx-value-index={idx}
@@ -369,7 +358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 disabled={@test_connection_loading}
               >
                 <%= if @test_connection_loading do %>
-                  <span class="loading loading-spinner loading-xs mr-2"></span> Testing...
+                  <.ui_spinner size="xs" class="mr-2" /> Testing...
                 <% else %>
                   <.icon name="hero-signal" class="size-4 mr-2" /> Test Connection
                 <% end %>
@@ -406,11 +395,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             </.ui_button>
           </div>
         </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button type="button" phx-click="close_target_modal">close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 end

@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
     assigns = assign(assigns, :display_text, display_text)
 
     ~H"""
-    <span class="badge badge-xs badge-info font-mono">{@display_text}</span>
+    <.ui_badge size="xs" variant="info" class="font-mono">{@display_text}</.ui_badge>
     """
   end
 
@@ -57,30 +57,30 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
         class="flex items-center gap-2 flex-wrap p-2 bg-primary/5 rounded-md border border-primary/20"
       >
         <span class="text-xs text-base-content/60">Active BGP filters:</span>
-        <div :if={@as_filter != ""} class="badge badge-primary badge-sm gap-1">
+        <.ui_badge :if={@as_filter != ""} size="sm" variant="primary" class="gap-1">
           <span>AS Path: {@as_filter}</span>
           <button
             type="button"
             phx-click="srql_builder_remove_filter"
             phx-value-field="as_path"
-            class="text-primary-content hover:text-error"
+            class="hover:text-error"
             title="Remove AS filter"
           >
             ✕
           </button>
-        </div>
-        <div :if={@community_filter != ""} class="badge badge-info badge-sm gap-1">
+        </.ui_badge>
+        <.ui_badge :if={@community_filter != ""} size="sm" variant="info" class="gap-1">
           <span>Community: {decode_community_display(@community_filter)}</span>
           <button
             type="button"
             phx-click="srql_builder_remove_filter"
             phx-value-field="bgp_communities"
-            class="text-info-content hover:text-error"
+            class="hover:text-error"
             title="Remove community filter"
           >
             ✕
           </button>
-        </div>
+        </.ui_badge>
       </div>
       
     <!-- AS Number Filter Input -->
@@ -95,11 +95,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
             placeholder="e.g., 64512"
             min="1"
             max="4294967295"
-            class="input input-bordered input-sm flex-1 font-mono text-xs"
+            class={ui_field_class(size: "sm", mono: true, class: "flex-1 text-xs")}
           />
-          <button type="submit" class="btn btn-primary btn-sm">
+          <.ui_button type="submit" size="sm" variant="primary">
             Add AS Filter
-          </button>
+          </.ui_button>
         </form>
         <div class="mt-1 text-[10px] text-base-content/50">
           Filter flows where AS path contains this autonomous system number
@@ -117,11 +117,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
               type="text"
               name="community"
               placeholder="e.g., 65000:100 or 4259840100"
-              class="input input-bordered input-sm flex-1 font-mono text-xs"
+              class={ui_field_class(size: "sm", mono: true, class: "flex-1 text-xs")}
             />
-            <button type="submit" class="btn btn-info btn-sm">
+            <.ui_button type="submit" size="sm" variant="info">
               Add Community Filter
-            </button>
+            </.ui_button>
           </div>
           <div class="text-[10px] text-base-content/50">
             Enter as AS:value (e.g., 65000:100) or raw 32-bit integer (e.g., 4259840100)
@@ -135,30 +135,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
           Well-Known Communities
         </label>
         <div class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            phx-click="bgp_add_community_filter"
-            phx-value-community="4294967041"
-            class="btn btn-xs btn-outline btn-warning"
-          >
+          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967041" size="xs" variant="outline">
             NO_EXPORT
-          </button>
-          <button
-            type="button"
-            phx-click="bgp_add_community_filter"
-            phx-value-community="4294967042"
-            class="btn btn-xs btn-outline btn-error"
-          >
+          </.ui_button>
+          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967042" size="xs" variant="outline">
             NO_ADVERTISE
-          </button>
-          <button
-            type="button"
-            phx-click="bgp_add_community_filter"
-            phx-value-community="4294967043"
-            class="btn btn-xs btn-outline btn-warning"
-          >
+          </.ui_button>
+          <.ui_button type="button" phx-click="bgp_add_community_filter" phx-value-community="4294967043" size="xs" variant="outline">
             NO_EXPORT_SUBCONFED
-          </button>
+          </.ui_button>
         </div>
         <div class="mt-1 text-[10px] text-base-content/50">
           Quick add filters for RFC 1997 well-known communities
@@ -167,13 +152,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
       
     <!-- Clear all BGP filters -->
       <div :if={@has_filters} class="pt-2">
-        <button
-          type="button"
-          phx-click="bgp_clear_filters"
-          class="btn btn-sm btn-ghost btn-outline text-error w-full"
-        >
+        <.ui_button type="button" phx-click="bgp_clear_filters" size="sm" variant="ghost" class="text-error w-full">
           Clear All BGP Filters
-        </button>
+        </.ui_button>
       </div>
     </div>
     """

@@ -17,21 +17,24 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Controls do
 
       <div class="flex items-center gap-2">
         <%!-- Time window selector --%>
-        <div class="join">
-          <button
+        <div class="flex flex-wrap gap-1">
+          <.ui_button
             :for={{tw, label} <- @time_windows}
-            class={["join-item btn btn-xs", tw == @time_window && "btn-active btn-primary"]}
+            type="button"
+            size="xs"
+            variant={if(tw == @time_window, do: "primary", else: "ghost")}
+            active={tw == @time_window}
             phx-click="change_time_window"
             phx-value-tw={tw}
           >
             {label}
-          </button>
+          </.ui_button>
         </div>
 
         <%!-- Units selector --%>
         <form phx-change="change_unit_mode">
           <select
-            class="select select-xs select-bordered"
+            class={ui_field_class(size: "xs")}
             name="unit"
           >
             <option
@@ -47,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Controls do
         <%!-- Metric mode selector --%>
         <form phx-change="change_metric_mode">
           <select
-            class="select select-xs select-bordered"
+            class={ui_field_class(size: "xs")}
             name="metric"
           >
             <option
@@ -62,26 +65,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Controls do
       </div>
     </div>
 
-    <div :if={@query} class="alert alert-info py-2 px-3 text-xs">
+    <div :if={@query} class={ui_alert_class(variant: "info", class: "py-2 px-3 text-xs")}>
       <.icon name="hero-funnel-mini" class="w-4 h-4 shrink-0" />
       <span class="truncate">
         Active flow filter: <code class="font-mono">{@query}</code>
       </span>
-      <button class="btn btn-ghost btn-xs" phx-click="clear_query">Clear</button>
+      <.ui_button phx-click="clear_query" size="xs" variant="ghost">Clear</.ui_button>
     </div>
 
     <div class="flex flex-wrap gap-2">
-      <button
+      <.ui_button
         :for={{section_key, section_label} <- @sections}
-        class={[
-          "btn btn-xs",
-          if(@section == section_key, do: "btn-primary", else: "btn-outline")
-        ]}
+        type="button"
+        size="xs"
+        variant={if(@section == section_key, do: "primary", else: "outline")}
+        active={@section == section_key}
         phx-click="change_section"
         phx-value-section={section_key}
       >
         {section_label}
-      </button>
+      </.ui_button>
     </div>
     """
   end

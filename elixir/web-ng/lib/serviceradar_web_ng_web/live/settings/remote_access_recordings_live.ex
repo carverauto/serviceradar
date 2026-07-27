@@ -84,15 +84,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                 Review replay manifests and captured session events.
               </p>
             </div>
-            <a
+            <.ui_button
               :if={@selected_recording && @can_export?}
-              class="btn btn-outline btn-sm"
+              variant="outline"
+              size="sm"
               href={~p"/api/remote-access/recordings/#{@selected_recording.id}/export"}
               target="_blank"
               rel="noopener"
             >
               Export
-            </a>
+            </.ui_button>
           </div>
 
           <div class="grid gap-4 lg:grid-cols-[minmax(20rem,24rem)_1fr]">
@@ -120,9 +121,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                 >
                   <div class="flex items-center justify-between gap-3">
                     <span class="font-mono text-xs">{short_id(recording.session_id)}</span>
-                    <span class={["badge badge-sm", status_badge_class(recording.status)]}>
+                    <.ui_badge size="sm" variant={status_badge_variant(recording.status)}>
                       {label(recording.status)}
-                    </span>
+                    </.ui_badge>
                   </div>
                   <div class="mt-1 truncate text-sm font-medium">{target_label(recording)}</div>
                   <div class="mt-1 text-xs text-base-content/60">
@@ -160,9 +161,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
           <h2 class="text-lg font-semibold">{target_label(@recording)}</h2>
           <p class="mt-1 font-mono text-xs text-base-content/60">Session {@recording.session_id}</p>
         </div>
-        <span class={["badge", status_badge_class(@recording.status)]}>
+        <.ui_badge size="sm" variant={status_badge_variant(@recording.status)}>
           {label(@recording.status)}
-        </span>
+        </.ui_badge>
       </div>
 
       <dl class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -223,15 +224,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
       </div>
       <div :for={event <- @events} class="border-b border-base-200 p-4 last:border-b-0">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="badge badge-sm">{event.sequence}</span>
-          <span class={["badge badge-sm", stream_badge_class(event.stream)]}>
+          <.ui_badge size="sm" variant="ghost">{event.sequence}</.ui_badge>
+          <.ui_badge size="sm" variant={stream_badge_variant(event.stream)}>
             {label(event.stream)}
-          </span>
+          </.ui_badge>
           <span class="text-sm font-medium">{event.event_type}</span>
           <span class="text-xs text-base-content/60">{format_datetime(event.occurred_at)}</span>
-          <span :if={event.payload_redacted} class="badge badge-warning badge-sm">
+          <.ui_badge :if={event.payload_redacted} size="sm" variant="warning">
             {redaction_label(event.redaction_reason)}
-          </span>
+          </.ui_badge>
         </div>
         <pre
           :if={event.payload_text}
@@ -575,16 +576,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
-  defp status_badge_class(:completed), do: "badge-success"
-  defp status_badge_class(:active), do: "badge-info"
-  defp status_badge_class(:failed), do: "badge-error"
-  defp status_badge_class(:expired), do: "badge-warning"
-  defp status_badge_class(_status), do: "badge-ghost"
+  defp status_badge_variant(:completed), do: "success"
+  defp status_badge_variant(:active), do: "info"
+  defp status_badge_variant(:failed), do: "error"
+  defp status_badge_variant(:expired), do: "warning"
+  defp status_badge_variant(_status), do: "ghost"
 
-  defp stream_badge_class(:input), do: "badge-warning"
-  defp stream_badge_class(:output), do: "badge-info"
-  defp stream_badge_class(:enhanced_event), do: "badge-secondary"
-  defp stream_badge_class(_stream), do: "badge-ghost"
+  defp stream_badge_variant(:input), do: "warning"
+  defp stream_badge_variant(:output), do: "info"
+  defp stream_badge_variant(:enhanced_event), do: "info"
+  defp stream_badge_variant(_stream), do: "ghost"
 
   defp redaction_label(nil), do: "Redacted"
   defp redaction_label(reason), do: reason |> to_string() |> String.replace("_", " ")

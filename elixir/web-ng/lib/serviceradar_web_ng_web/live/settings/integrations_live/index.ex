@@ -752,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="flex gap-2">
               <select
                 name="source_type"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Types</option>
@@ -764,7 +764,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </select>
               <select
                 name="enabled"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Status</option>
@@ -783,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Name</th>
@@ -928,14 +928,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 name="ip"
                 value={@prefix_tag_preview_ip}
                 placeholder="10.1.2.3"
-                class="input input-bordered input-sm w-full font-mono"
+                class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                 autocomplete="off"
               />
             </div>
             <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
           </form>
 
-          <div :if={@prefix_tag_preview_error} class="mt-3 alert alert-warning text-sm">
+          <div :if={@prefix_tag_preview_error} class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}>
             {@prefix_tag_preview_error}
           </div>
 
@@ -953,23 +953,27 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 >
                   <div class="font-mono text-xs text-base-content/70">
                     {Map.get(match, :prefix) || Map.get(match, "prefix") || "—"}
-                    <span
+                    <.ui_badge
                       :if={src = Map.get(match, :source) || Map.get(match, "source")}
-                      class="ml-2 badge badge-ghost badge-xs"
+                      size="xs"
+                      variant="ghost"
+                      class="ml-2"
                     >
                       {src}
-                    </span>
+                    </.ui_badge>
                   </div>
                   <div class="mt-1 flex flex-wrap gap-1">
-                    <span
+                    <.ui_badge
                       :for={
                         tag <-
                           List.wrap(Map.get(match, :tags) || Map.get(match, "tags") || [])
                       }
-                      class="badge badge-outline badge-xs font-mono"
+                      size="xs"
+                      variant="outline"
+                      class="font-mono"
                     >
                       {tag}
-                    </span>
+                    </.ui_badge>
                   </div>
                 </div>
               </div>
@@ -1012,7 +1016,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       Map.get(@mapbox_form.source, "style_light") ||
                         "mapbox://styles/mapbox/light-v11"
                     }
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder="mapbox://styles/..."
                   />
                 </div>
@@ -1026,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     value={
                       Map.get(@mapbox_form.source, "style_dark") || "mapbox://styles/mapbox/dark-v11"
                     }
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder="mapbox://styles/..."
                   />
                 </div>
@@ -1040,7 +1044,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   type="password"
                   name="mapbox[access_token]"
                   value=""
-                  class="input input-bordered w-full font-mono"
+                  class={ui_field_class(mono: true, class: "w-full")}
                   placeholder="pk.... (leave blank to keep existing)"
                   autocomplete="off"
                 />
@@ -1048,15 +1052,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <span>
                     Saved:
                     <%= if @mapbox_settings && Map.get(@mapbox_settings, :access_token_present) do %>
-                      <span class="badge badge-xs badge-success">yes</span>
+                      <.ui_badge size="xs" variant="success">yes</.ui_badge>
                     <% else %>
-                      <span class="badge badge-xs">no</span>
+                      <.ui_badge size="xs" variant="ghost">no</.ui_badge>
                     <% end %>
                   </span>
                   <label class="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      class="checkbox checkbox-xs"
+                      class={ui_checkbox_class(size: "xs")}
                       name="mapbox[clear_access_token]"
                       value="true"
                     />
@@ -1066,7 +1070,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
 
               <div class="flex items-center justify-end gap-2">
-                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
               </div>
             </form>
           <% else %>
@@ -1110,12 +1114,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="create_modal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-          >
+          <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Create Integration Source</h3>
@@ -1232,14 +1233,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="p-3 bg-base-200 rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-semibold text-base-content/60">Query</span>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-error"
-                    phx-click="remove_query"
-                    phx-value-id={query["id"]}
-                  >
+                  <.ui_button type="button" phx-click="remove_query" phx-value-id={query["id"]} size="xs" variant="ghost" class="text-error">
                     <.icon name="hero-trash" class="size-3" /> Remove
-                  </button>
+                  </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                   <div class="form-control">
@@ -1248,7 +1244,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full"
+                      class={ui_field_class(size: "sm", class: "w-full")}
                       placeholder="e.g., all_devices"
                       value={query["label"]}
                       phx-blur="update_query"
@@ -1262,7 +1258,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full font-mono"
+                      class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                       placeholder="in:devices"
                       value={query["query"]}
                       phx-blur="update_query"
@@ -1274,13 +1270,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             <% end %>
 
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              phx-click="add_query"
-            >
+            <.ui_button type="button" phx-click="add_query" size="sm" variant="outline" class="w-full">
               <.icon name="hero-plus" class="size-4" /> Add Query
-            </button>
+            </.ui_button>
           </div>
 
           <%= if shows_network_blacklist?(@form[:source_type].value) do %>
@@ -1292,7 +1284,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </label>
               <textarea
                 name="network_blacklist_text"
-                class="textarea textarea-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
                 rows="3"
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
@@ -1306,8 +1298,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <div class="modal-action">
-            <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Create Source</button>
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Create Source</.ui_button>
           </div>
         </.form>
       </div>
@@ -1323,12 +1315,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="edit_modal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_edit_modal"
-          >
+          <.ui_icon_button phx-click="close_edit_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Edit Integration Source</h3>
@@ -1351,7 +1340,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </label>
               <input
                 type="text"
-                class="input input-bordered w-full bg-base-200"
+                class={ui_field_class(class: "w-full bg-base-200")}
                 value={@source.source_type}
                 disabled
               />
@@ -1434,14 +1423,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="p-3 bg-base-200 rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-semibold text-base-content/60">Query</span>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-xs text-error"
-                    phx-click="remove_query"
-                    phx-value-id={query["id"]}
-                  >
+                  <.ui_button type="button" phx-click="remove_query" phx-value-id={query["id"]} size="xs" variant="ghost" class="text-error">
                     <.icon name="hero-trash" class="size-3" /> Remove
-                  </button>
+                  </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                   <div class="form-control">
@@ -1450,7 +1434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full"
+                      class={ui_field_class(size: "sm", class: "w-full")}
                       placeholder="e.g., all_devices"
                       value={query["label"]}
                       phx-blur="update_query"
@@ -1464,7 +1448,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full font-mono"
+                      class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                       placeholder="in:devices"
                       value={query["query"]}
                       phx-blur="update_query"
@@ -1476,13 +1460,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             <% end %>
 
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              phx-click="add_query"
-            >
+            <.ui_button type="button" phx-click="add_query" size="sm" variant="outline" class="w-full">
               <.icon name="hero-plus" class="size-4" /> Add Query
-            </button>
+            </.ui_button>
           </div>
 
           <%= if shows_network_blacklist?(@source && @source.source_type) do %>
@@ -1494,7 +1474,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </label>
               <textarea
                 name="network_blacklist_text"
-                class="textarea textarea-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
                 rows="3"
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
@@ -1508,8 +1488,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <div class="modal-action">
-            <button type="button" class="btn" phx-click="close_edit_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Update Source</button>
+            <.ui_button type="button" phx-click="close_edit_modal" size="sm" variant="neutral">Cancel</.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Update Source</.ui_button>
           </div>
         </.form>
       </div>
@@ -1525,12 +1505,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <dialog id="details_modal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_details_modal"
-          >
+          <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Integration Source Details</h3>
@@ -1646,7 +1623,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <%= if @source.enabled && is_nil(@source.last_sync_at) do %>
-            <div class="alert alert-info text-sm">
+            <div class={ui_alert_class(variant: "info", class: "text-sm")}>
               <.icon name="hero-information-circle" class="size-5" />
               <div>
                 <div class="font-medium">This source has never run.</div>
@@ -1664,8 +1641,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               No recent config dispatch recorded for this source.
             </div>
           <% else %>
-            <div class="overflow-x-auto rounded-lg border border-base-200">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Recorded</th>
@@ -1701,7 +1678,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <%= if error_message = visible_error_message(@source.last_error_message) do %>
-            <div class="alert alert-error text-sm">
+            <div class={ui_alert_class(variant: "error", class: "text-sm")}>
               <.icon name="hero-exclamation-circle" class="size-5" />
               <span>{error_message}</span>
             </div>
@@ -1771,7 +1748,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
 
             <%= if @source.northbound_last_error_message do %>
-              <div class="alert alert-error text-sm">
+              <div class={ui_alert_class(variant: "error", class: "text-sm")}>
                 <.icon name="hero-exclamation-circle" class="size-5" />
                 <span>{@source.northbound_last_error_message}</span>
               </div>
@@ -1784,8 +1761,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   No northbound runs recorded yet.
                 </div>
               <% else %>
-                <div class="overflow-x-auto rounded-lg border border-base-200">
-                  <table class="table table-sm">
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
                       <tr class="text-xs uppercase tracking-wide text-base-content/60">
                         <th>Started</th>
@@ -1830,31 +1807,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
 
         <div class="modal-action">
-          <button
-            :if={armis_source?(@source)}
-            type="button"
-            class="btn btn-secondary btn-outline"
-            phx-click="run_northbound_now"
-            phx-value-id={@source.id}
-          >
+          <.ui_button :if={armis_source?(@source)} type="button" phx-click="run_northbound_now" phx-value-id={@source.id} size="sm" variant="outline">
             Run Northbound Now
-          </button>
-          <button
-            type="button"
-            class="btn btn-error btn-outline"
-            phx-click="delete_source"
-            phx-value-id={@source.id}
-            data-confirm="Are you sure you want to delete this integration source? This cannot be undone."
-          >
+          </.ui_button>
+          <.ui_button type="button" phx-click="delete_source" phx-value-id={@source.id} data-confirm="Are you sure you want to delete this integration source? This cannot be undone." size="sm" variant="outline">
             Delete
-          </button>
+          </.ui_button>
           <.ui_button
             variant="ghost"
             navigate={~p"/settings/networks/integrations/#{@source.id}/edit"}
           >
             Edit
           </.ui_button>
-          <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">
@@ -2448,7 +2413,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               type="text"
               name="cred_api_key"
               value={@api_key_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter your Armis API key"
               autocomplete="off"
             />
@@ -2460,7 +2425,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <input
               type="password"
               name="cred_api_secret"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 cond do
                   @mode == :edit and @api_secret_present? ->
@@ -2479,9 +2444,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <label class="label">
                 <span class="label-text-alt text-base-content/60">
                   API secret:
-                  <span class={["badge badge-xs", @api_secret_present? && "badge-success"]}>
+                  <.ui_badge
+                    size="xs"
+                    variant={if(@api_secret_present?, do: "success", else: "ghost")}
+                  >
                     {if @api_secret_present?, do: "saved", else: "not saved"}
-                  </span>
+                  </.ui_badge>
                 </span>
               </label>
             <% end %>
@@ -2495,7 +2463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               type="text"
               name="cred_v3_client_id"
               value={@v3_client_id_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter the Armis V3 client ID"
               autocomplete="off"
             />
@@ -2507,7 +2475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <input
               type="password"
               name="cred_v3_client_secret"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 cond do
                   @mode == :edit and @v3_client_secret_present? ->
@@ -2526,9 +2494,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <label class="label">
                 <span class="label-text-alt text-base-content/60">
                   V3 client secret:
-                  <span class={["badge badge-xs", @v3_client_secret_present? && "badge-success"]}>
+                  <.ui_badge
+                    size="xs"
+                    variant={if(@v3_client_secret_present?, do: "success", else: "ghost")}
+                  >
                     {if @v3_client_secret_present?, do: "saved", else: "not saved"}
-                  </span>
+                  </.ui_badge>
                 </span>
               </label>
             <% end %>
@@ -2541,7 +2512,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               type="text"
               name="cred_v3_vendor_id"
               value={@v3_vendor_id_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter the Armis V3 vendor ID"
               autocomplete="off"
             />
@@ -2559,7 +2530,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <label class="label">
                 <span class="label-text">SNMP Version</span>
               </label>
-              <select name="cred_snmp_version" class="select select-bordered w-full">
+              <select name="cred_snmp_version" class={ui_field_class(class: "w-full")}>
                 <option value="v2c">SNMPv2c</option>
                 <option value="v3">SNMPv3</option>
               </select>
@@ -2571,7 +2542,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <input
                 type="password"
                 name="cred_community"
-                class="input input-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full text-sm")}
                 placeholder={
                   if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"
                 }
@@ -2593,7 +2564,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <input
               type="url"
               name="cred_netbox_url"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="https://netbox.example.com"
             />
             <label class="label">
@@ -2609,7 +2580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <input
               type="password"
               name="cred_netbox_token"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 if @mode == :edit,
                   do: "Leave empty to keep existing",
@@ -2626,7 +2597,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <label class="label">
               <span class="label-text">Verify SSL</span>
             </label>
-            <select name="cred_netbox_verify_ssl" class="select select-bordered w-full">
+            <select name="cred_netbox_verify_ssl" class={ui_field_class(class: "w-full")}>
               <option value="true">Yes (recommended)</option>
               <option value="false">No (for self-signed certs)</option>
             </select>
@@ -2640,7 +2611,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </label>
             <textarea
               name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
               rows="3"
               placeholder='{"api_key": "your-key", "api_secret": "your-secret"}'
             ></textarea>
@@ -2659,7 +2630,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </label>
             <textarea
               name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
               rows="3"
               placeholder={credential_placeholder(@source_type)}
             ></textarea>
@@ -2709,7 +2680,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <input
             type="text"
             name="custom_fields_text"
-            class="input input-bordered w-full font-mono text-sm"
+            class={ui_field_class(mono: true, class: "w-full text-sm")}
             value={@custom_fields_value}
             placeholder="availability"
             phx-blur="update_custom_fields"

@@ -224,19 +224,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 Configure edge collection for AlienVault OTX indicators.
               </p>
             </div>
-            <.link navigate={~p"/settings/agents/plugins"} class="btn btn-sm btn-ghost">
+            <.ui_button navigate={~p"/settings/agents/plugins"} size="sm" variant="ghost">
               Plugin Registry
-            </.link>
+            </.ui_button>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-sm btn-outline" phx-click="match_now">
+              <.ui_button type="button" phx-click="match_now" size="sm" variant="outline">
                 Match NetFlow Now
-              </button>
-              <button type="button" class="btn btn-sm btn-outline" phx-click="retrohunt_now">
+              </.ui_button>
+              <.ui_button type="button" phx-click="retrohunt_now" size="sm" variant="outline">
                 Retrohunt Now
-              </button>
-              <button type="button" class="btn btn-sm btn-primary" phx-click="sync_now">
+              </.ui_button>
+              <.ui_button type="button" phx-click="sync_now" size="sm" variant="primary">
                 Sync Now
-              </button>
+              </.ui_button>
             </div>
           </div>
 
@@ -274,15 +274,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <% else %>
                             <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
                           <% end %>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="delete_assignment"
-                            phx-value-id={assignment.id}
-                            data-confirm="Remove this assignment?"
-                          >
+                          <.ui_button type="button" phx-click="delete_assignment" phx-value-id={assignment.id} data-confirm="Remove this assignment?" size="xs" variant="ghost">
                             Remove
-                          </button>
+                          </.ui_button>
                         </div>
                       </div>
                     <% end %>
@@ -324,12 +318,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           class="flex flex-wrap items-center gap-1 text-xs text-base-content/60"
                         >
                           <span>Skipped types:</span>
-                          <span
+                          <.ui_badge
                             :for={{type, count} <- skipped_by_type(status)}
-                            class="badge badge-xs badge-outline"
+                            size="xs"
+                            variant="outline"
                           >
                             {type}: {count}
-                          </span>
+                          </.ui_badge>
                         </div>
                         <div :if={status.last_error} class="text-xs text-error">
                           {status.last_error}
@@ -361,12 +356,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   <.status_count label="Sources" value={length(@netflow_findings.sources)} />
                 </div>
                 <div :if={@netflow_findings.sources != []} class="mt-3 flex flex-wrap gap-1">
-                  <span
+                  <.ui_badge
                     :for={source <- @netflow_findings.sources}
-                    class="badge badge-xs badge-outline"
+                    size="xs"
+                    variant="outline"
                   >
                     {source}
-                  </span>
+                  </.ui_badge>
                 </div>
                 <%= if @netflow_findings.recent == [] do %>
                   <div class="mt-3 rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
@@ -374,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
                 <% else %>
                   <div class="mt-3 overflow-x-auto">
-                    <table class="table table-sm">
+                    <table class={ui_table_class(size: "sm")}>
                       <thead>
                         <tr>
                           <th>IP</th>
@@ -430,7 +426,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 <% end %>
 
                 <div :if={@retrohunt_findings != []} class="mt-4 overflow-x-auto">
-                  <table class="table table-sm">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
                       <tr>
                         <th>Observed IP</th>
@@ -463,8 +459,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     No imported indicators.
                   </div>
                 <% else %>
-                  <div class="overflow-x-auto">
-                    <table class="table table-sm">
+                  <div class="sr-ui-table-shell">
+                    <table class={ui_table_class(size: "sm")}>
                       <thead>
                         <tr>
                           <th>Indicator</th>
@@ -584,7 +580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     </label>
                     <select
                       name="settings[otx_execution_mode]"
-                      class="select select-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     >
                       <option
                         value="edge_plugin"
@@ -609,7 +605,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="password"
                       name="settings[otx_api_key]"
                       value=""
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       autocomplete="off"
                       placeholder={
                         if otx_api_key_present?(@otx_settings),
@@ -626,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         type="checkbox"
                         name="settings[clear_otx_api_key]"
                         value="true"
-                        class="checkbox checkbox-xs"
+                        class={ui_checkbox_class(size: "xs")}
                         checked={@otx_settings_form["clear_otx_api_key"] == "true"}
                       /> Clear stored key
                     </label>
@@ -640,7 +636,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="url"
                       name="settings[otx_base_url]"
                       value={@otx_settings_form["otx_base_url"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     />
                   </div>
 
@@ -685,12 +681,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="text"
                       name="settings[otx_modified_since]"
                       value={@otx_settings_form["otx_modified_since"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                     />
                   </div>
 
                   <div class="flex justify-end pt-2">
-                    <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                    <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
                   </div>
                 </form>
               </div>
@@ -709,7 +705,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                     </label>
                     <select
                       name="assignment[agent_uid]"
-                      class="select select-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       disabled={is_nil(@approved_package)}
                     >
                       <option value="">Select an agent</option>
@@ -732,7 +728,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="password"
                       name="assignment[api_key_secret_ref]"
                       value=""
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       autocomplete="off"
                       disabled={is_nil(@approved_package)}
                       placeholder={api_key_placeholder(@assignment_form["agent_uid"], @assignments)}
@@ -747,7 +743,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       type="url"
                       name="assignment[base_url]"
                       value={@assignment_form["base_url"]}
-                      class="input input-bordered w-full"
+                      class={ui_field_class(class: "w-full")}
                       disabled={is_nil(@approved_package)}
                     />
                   </div>
@@ -810,13 +806,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </label>
 
                   <div class="flex justify-end pt-2">
-                    <button
-                      class="btn btn-sm btn-primary"
-                      type="submit"
-                      disabled={is_nil(@approved_package)}
-                    >
+                    <.ui_button type="submit" disabled={is_nil(@approved_package)} size="sm" variant="primary">
                       Save Assignment
-                    </button>
+                    </.ui_button>
                   </div>
                 </form>
               </div>
@@ -845,7 +837,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
         name={@name}
         value={@value}
         min={@min}
-        class="input input-bordered w-full"
+        class={ui_field_class(class: "w-full")}
         disabled={@disabled}
       />
     </div>

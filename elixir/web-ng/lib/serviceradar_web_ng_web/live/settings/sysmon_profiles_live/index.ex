@@ -404,8 +404,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr class="text-xs uppercase tracking-wide text-base-content/60">
               <th>Status</th>
@@ -565,7 +565,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="text"
                 field={@form[:name]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., Production Servers"
                 required
               />
@@ -575,7 +575,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="text"
                 field={@form[:sample_interval]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., 10s, 1m, 30s"
               />
               <label class="label">
@@ -591,7 +591,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               placeholder="Optional description of this profile's purpose"
               rows="2"
             />
@@ -613,7 +613,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <.input
                     type="text"
                     field={@form[:target_query]}
-                    class="input input-bordered w-full font-mono text-sm"
+                    class={ui_field_class(mono: true, class: "w-full text-sm")}
                     placeholder="e.g., tags.role:database hostname:%prod%"
                   />
                 </div>
@@ -756,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <.input
                   type="number"
                   field={@form[:priority]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   min="0"
                   max="100"
                 />
@@ -781,7 +781,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_cpu]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
               <span class="label-text">CPU</span>
             </label>
@@ -789,7 +789,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_memory]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
               <span class="label-text">Memory</span>
             </label>
@@ -797,7 +797,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_disk]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
               <span class="label-text">Disk</span>
             </label>
@@ -805,7 +805,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_network]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
               <span class="label-text">Network</span>
             </label>
@@ -813,7 +813,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_processes]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
               <span class="label-text">Processes</span>
             </label>
@@ -832,7 +832,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               field={@form[:process_limit]}
               min="0"
               step="1"
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
             />
           </div>
         </div>
@@ -850,7 +850,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             <.input
               type="text"
               field={@form[:disk_paths]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="/, /data, /var"
             />
             <label class="label">
@@ -872,7 +872,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             <.input
               type="text"
               field={@form[:disk_exclude_paths]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="/var/lib/docker, /var/lib/kubelet"
             />
             <label class="label">
@@ -910,16 +910,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp json_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-4">Compiled Config Preview</h3>
-        <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
-        <div class="modal-action">
-          <button phx-click="close_preview" class="btn">Close</button>
-        </div>
-      </div>
-      <div class="modal-backdrop" phx-click="close_preview"></div>
-    </div>
+    <.ui_modal id="sysmon-json-preview-modal" on_cancel="close_preview">
+      <:title>Compiled Config Preview</:title>
+      <pre class="max-h-96 overflow-x-auto rounded-lg border border-sr-line bg-sr-subtle/60 p-4 font-mono text-xs text-sr-ink">{@json_preview}</pre>
+      <:actions>
+        <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
+      </:actions>
+    </.ui_modal>
     """
   end
 

@@ -150,30 +150,22 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <button class="btn btn-sm btn-outline" phx-click="refresh">
+            <.ui_button phx-click="refresh" size="sm" variant="outline">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
-            <.link
-              :if={@selected_session_id}
-              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"}
-              class="btn btn-sm btn-outline"
-            >
+            </.ui_button>
+            <.ui_button :if={@selected_session_id} href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=svg"} size="sm" variant="outline">
               <.icon name="hero-photo" class="size-4" /> Export SVG
-            </.link>
-            <.link
-              :if={@selected_session_id}
-              href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"}
-              class="btn btn-sm btn-outline"
-            >
+            </.ui_button>
+            <.ui_button :if={@selected_session_id} href={~p"/api/spatial/field-surveys/#{@selected_session_id}/export?format=json"} size="sm" variant="outline">
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export JSON
-            </.link>
-            <.link navigate={~p"/spatial"} class="btn btn-sm btn-ghost">
+            </.ui_button>
+            <.ui_button navigate={~p"/spatial"} size="sm" variant="ghost">
               <.icon name="hero-cube-transparent" class="size-4" /> 3D View
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-error">
+        <div :if={@error} class={ui_alert_class("error")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -201,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                       Recent survey
                     </span>
                   </span>
-                  <select name="survey[session_id]" class="select select-bordered select-sm w-full">
+                  <select name="survey[session_id]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option :if={@sessions == []} value="">No surveys</option>
                     <option
                       :for={session <- @sessions}
@@ -215,12 +207,16 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               </form>
 
               <div class="flex flex-wrap gap-2">
-                <button
+                <.ui_button
                   type="button"
-                  class={[
-                    "btn btn-sm",
-                    selected_session_favorite?(@sessions, @selected_session_id) && "btn-primary"
-                  ]}
+                  size="sm"
+                  variant={
+                    if(selected_session_favorite?(@sessions, @selected_session_id),
+                      do: "primary",
+                      else: "ghost"
+                    )
+                  }
+                  active={selected_session_favorite?(@sessions, @selected_session_id)}
                   phx-click="toggle_favorite"
                   disabled={is_nil(@selected_session_id)}
                 >
@@ -228,13 +224,17 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                   {if selected_session_favorite?(@sessions, @selected_session_id),
                     do: "Favorited",
                     else: "Favorite"}
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class={[
-                    "btn btn-sm",
-                    selected_session_default?(@sessions, @selected_session_id) && "btn-primary"
-                  ]}
+                  size="sm"
+                  variant={
+                    if(selected_session_default?(@sessions, @selected_session_id),
+                      do: "primary",
+                      else: "ghost"
+                    )
+                  }
+                  active={selected_session_default?(@sessions, @selected_session_id)}
                   phx-click="set_default"
                   disabled={is_nil(@selected_session_id)}
                 >
@@ -242,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                   {if selected_session_default?(@sessions, @selected_session_id),
                     do: "Default",
                     else: "Set Default"}
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -250,9 +250,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               <.form for={@selector_form} phx-change="validate_selector" phx-submit="preview_selector">
                 <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                   <.input field={@selector_form[:srql_query]} type="text" label="SRQL selector" />
-                  <button type="submit" class="btn btn-sm btn-outline">
+                  <.ui_button type="submit" size="sm" variant="outline">
                     <.icon name="hero-magnifying-glass" class="size-4" /> Preview
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
 
@@ -266,14 +266,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <div class="font-semibold">{candidate.label}</div>
                     <div class="text-xs text-base-content/60">{candidate.session_id}</div>
                   </div>
-                  <button
-                    type="button"
-                    class="btn btn-xs btn-primary"
-                    phx-click="load_selector_candidate"
-                    phx-value-session-id={candidate.session_id}
-                  >
+                  <.ui_button type="button" phx-click="load_selector_candidate" phx-value-session-id={candidate.session_id} size="xs" variant="primary">
                     Load Survey
-                  </button>
+                  </.ui_button>
                 </div>
               </div>
 
@@ -302,19 +297,17 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 Floor
               </div>
               <div class="flex flex-wrap gap-1.5">
-                <button
+                <.ui_button
                   :for={floor <- @floor_options}
                   type="button"
                   phx-click="floor_filter"
                   phx-value-floor={floor.key}
-                  class={[
-                    "btn btn-xs",
-                    floor.key == @selected_floor_key && "btn-primary",
-                    floor.key != @selected_floor_key && "btn-outline"
-                  ]}
+                  size="xs"
+                  variant={if(floor.key == @selected_floor_key, do: "primary", else: "outline")}
+                  active={floor.key == @selected_floor_key}
                 >
                   {floor.label}
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -365,21 +358,27 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     2D top-down projection from fused pose and RF timestamps.
                   </div>
                 </div>
-                <div class="join">
-                  <button
-                    class={["btn btn-xs join-item", @overlay == "wifi" && "btn-primary"]}
+                <div class="flex flex-wrap gap-1">
+                  <.ui_button
+                    type="button"
+                    size="xs"
+                    variant={if(@overlay == "wifi", do: "primary", else: "ghost")}
+                    active={@overlay == "wifi"}
                     phx-click="overlay"
                     phx-value-mode="wifi"
                   >
                     Wi-Fi RSSI
-                  </button>
-                  <button
-                    class={["btn btn-xs join-item", @overlay == "interference" && "btn-primary"]}
+                  </.ui_button>
+                  <.ui_button
+                    type="button"
+                    size="xs"
+                    variant={if(@overlay == "interference", do: "primary", else: "ghost")}
+                    active={@overlay == "interference"}
                     phx-click="overlay"
                     phx-value-mode="interference"
                   >
                     RF Interference
-                  </button>
+                  </.ui_button>
                 </div>
               </:header>
 
@@ -464,9 +463,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                         {format_bytes(artifact.byte_size)} · {format_time(artifact.uploaded_at)}
                       </div>
                     </div>
-                    <.link href={artifact.download_url} class="btn btn-xs btn-outline">
+                    <.ui_button href={artifact.download_url} size="xs" variant="outline">
                       Download
-                    </.link>
+                    </.ui_button>
                   </div>
                   <div :if={@review.room_artifacts == []} class="text-sm text-base-content/60">
                     No room artifacts uploaded for this session.

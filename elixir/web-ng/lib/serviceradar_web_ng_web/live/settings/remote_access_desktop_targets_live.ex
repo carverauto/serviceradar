@@ -154,17 +154,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                 Make Windows desktops available through trusted edge agents.
               </p>
             </div>
-            <.link
-              navigate={~p"/settings/networks/desktop-targets/new"}
-              class="btn btn-primary btn-sm"
-            >
+            <.ui_button navigate={~p"/settings/networks/desktop-targets/new"} size="sm" variant="primary">
               Add RDP Host
-            </.link>
+            </.ui_button>
           </div>
 
           <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -206,59 +203,44 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                       </div>
                     </td>
                     <td>
-                      <span class="badge badge-sm badge-ghost">
+                      <.ui_badge size="sm" variant="ghost">
                         {enum_label(target.credential_custody_mode)}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td>
                       <div class="flex flex-wrap gap-1">
-                        <span class="badge badge-sm badge-outline">
+                        <.ui_badge size="sm" variant="outline">
                           TLS {policy_value(target.target_tls, "mode", "verify_ca")}
-                        </span>
-                        <span class="badge badge-sm badge-outline">
+                        </.ui_badge>
+                        <.ui_badge size="sm" variant="outline">
                           NLA {if policy_value(target.nla, "required", true),
                             do: "required",
                             else: "optional"}
-                        </span>
-                        <span class="badge badge-sm badge-outline">
+                        </.ui_badge>
+                        <.ui_badge size="sm" variant="outline">
                           Clipboard {policy_value(target.redirection_policy, "clipboard", "disabled")}
-                        </span>
+                        </.ui_badge>
                       </div>
                     </td>
                     <td>
-                      <span class={[
-                        "badge badge-sm",
-                        if(target.enabled, do: "badge-success", else: "badge-ghost")
-                      ]}>
+                      <.ui_badge
+                        size="sm"
+                        variant={if(target.enabled, do: "success", else: "ghost")}
+                      >
                         {if target.enabled, do: "Enabled", else: "Disabled"}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td class="text-right">
                       <div class="flex justify-end gap-2">
-                        <.link
-                          navigate={~p"/settings/networks/desktop-targets/#{target.id}/edit"}
-                          class="btn btn-ghost btn-xs"
-                        >
+                        <.ui_button navigate={~p"/settings/networks/desktop-targets/#{target.id}/edit"} size="xs" variant="ghost">
                           Edit
-                        </.link>
-                        <button
-                          :if={target.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="disable_target"
-                          phx-value-id={target.id}
-                        >
+                        </.ui_button>
+                        <.ui_button :if={target.enabled} type="button" phx-click="disable_target" phx-value-id={target.id} size="xs" variant="ghost">
                           Disable
-                        </button>
-                        <button
-                          :if={!target.enabled}
-                          type="button"
-                          class="btn btn-ghost btn-xs"
-                          phx-click="enable_target"
-                          phx-value-id={target.id}
-                        >
+                        </.ui_button>
+                        <.ui_button :if={!target.enabled} type="button" phx-click="enable_target" phx-value-id={target.id} size="xs" variant="ghost">
                           Enable
-                        </button>
+                        </.ui_button>
                       </div>
                     </td>
                   </tr>
@@ -305,9 +287,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "Enable RDP Access", else: "Edit RDP Access"}
           </h2>
-          <.link navigate={~p"/settings/networks/desktop-targets"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/settings/networks/desktop-targets"} size="sm" variant="ghost">
             Close
-          </.link>
+          </.ui_button>
         </div>
 
         <.form for={@form} phx-change="change_target" phx-submit="save_target" class="space-y-5">
@@ -467,10 +449,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           />
 
           <div class="modal-action">
-            <.link navigate={~p"/settings/networks/desktop-targets"} class="btn btn-ghost">
+            <.ui_button navigate={~p"/settings/networks/desktop-targets"} size="sm" variant="ghost">
               Cancel
-            </.link>
-            <button type="submit" class="btn btn-primary">Save</button>
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
       </div>

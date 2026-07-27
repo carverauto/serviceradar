@@ -5,7 +5,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
   use Phoenix.LiveComponent
 
-  import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
+  # LiveComponent modules do not pull html_helpers from `use ServiceRadarWebNGWeb`.
+  # Import shared primitives explicitly (codemod may introduce ui_button/ui_badge/etc).
+  import ServiceRadarWebNGWeb.UIComponents
 
   @max_nodes 120
   @max_edges 240
@@ -92,12 +94,14 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
               <span :if={truncated_node_count(@truncated_node_count) > 0}>
                 of <span class="font-mono">{@total_node_count}</span>
               </span>
-              <span
+              <.ui_badge
                 :if={truncated_node_count(@truncated_node_count) > 0}
-                class="ml-1 badge badge-warning badge-xs"
+                size="xs"
+                variant="warning"
+                class="ml-1"
               >
                 +{truncated_node_count(@truncated_node_count)} more
-              </span>
+              </.ui_badge>
               <span class="opacity-60">·</span>
               Edges: <span class="font-mono">{length(@edges)}</span>
               <span :if={@selected_node_id} class="opacity-60">
@@ -107,15 +111,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
           </div>
 
           <div class="shrink-0 flex items-center gap-2">
-            <button
-              :if={@selected_node_id}
-              type="button"
-              class="btn btn-ghost btn-sm"
-              phx-click="clear_selection"
-              phx-target={@myself}
-            >
+            <.ui_button :if={@selected_node_id} type="button" phx-click="clear_selection" phx-target={@myself} size="sm" variant="ghost">
               Clear
-            </button>
+            </.ui_button>
           </div>
         </:header>
 

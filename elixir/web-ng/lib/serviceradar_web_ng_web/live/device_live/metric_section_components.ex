@@ -14,19 +14,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
     ~H"""
     <div :if={@sections != []} class="flex items-center justify-end gap-2">
       <span class="text-[11px] uppercase tracking-wide text-base-content/50">Window</span>
-      <div class="join">
-        <button
+      <div class="flex flex-wrap gap-1">
+        <.ui_button
           :for={{label, value} <- sysmon_range_options()}
           type="button"
           phx-click="sysmon_set_range"
           phx-value-range={value}
-          class={[
-            "btn btn-xs join-item",
-            @time_range == value && "btn-active btn-primary"
-          ]}
+          size="xs"
+          variant={if(@time_range == value, do: "primary", else: "ghost")}
+          active={@time_range == value}
         >
           {label}
-        </button>
+        </.ui_button>
       </div>
     </div>
 

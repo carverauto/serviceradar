@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           </span>
           <span
             :if={Map.get(@data, :overlays, []) != []}
-            class="badge badge-xs badge-outline"
+            class="inline-flex items-center rounded-full border border-sr-line px-1.5 text-[0.65rem] font-semibold text-sr-ink"
             title={"#{length(@data.overlays)} chart overlays"}
           >
             {length(@data.overlays)}

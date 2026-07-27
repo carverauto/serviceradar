@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   use Phoenix.Component
 
   import Phoenix.ReactServer.Helper
+  import ServiceRadarWebNGWeb.UIComponents, only: [ui_spinner: 1]
 
   @doc """
   Renders the GoRules JDM editor for Zen rule definitions.
@@ -66,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading dashboard canvas...</span>
       </div>
     </div>
@@ -98,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading chart...</span>
       </div>
     </div>
@@ -138,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex items-center justify-center h-full text-base-content/50">
-        <span class="loading loading-spinner loading-lg"></span>
+        <.ui_spinner size="lg" />
         <span class="ml-3">Loading decision editor...</span>
       </div>
     </div>
@@ -178,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading SSH console...</span>
       </div>
     </div>
@@ -214,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading RDP session...</span>
       </div>
     </div>
@@ -244,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading application access...</span>
       </div>
     </div>
@@ -276,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       data-props={Jason.encode!(@props)}
     >
       <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading TCP access...</span>
       </div>
     </div>

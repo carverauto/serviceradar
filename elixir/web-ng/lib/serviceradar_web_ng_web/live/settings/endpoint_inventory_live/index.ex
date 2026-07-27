@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
               </div>
 
               <div class="mt-4 flex justify-end">
-                <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
               </div>
             </.form>
           </div>

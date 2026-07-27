@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup, only: [asn_rir_hint: 1]
 
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext,
-    only: [threat_severity_badge_class: 1, threat_sources: 1]
+    only: [threat_severity_badge_variant: 1, threat_sources: 1]
 
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format, only: [to_int: 1]
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params, only: [normalize_optional_string: 1]
@@ -66,12 +66,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
             <div class="font-mono text-[11px] text-base-content/80">
               {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
             </div>
-            <span
+            <.ui_badge
               :if={is_binary(data.source) and data.source != ""}
-              class="badge badge-xs badge-outline"
+              size="xs"
+              variant="outline"
             >
               {data.source}
-            </span>
+            </.ui_badge>
           </div>
           <div class="mt-2 max-h-48 overflow-y-auto space-y-1 font-mono text-[11px] text-base-content/70 pr-1">
             <div :if={is_binary(data.org_name) and data.org_name != ""}>
@@ -117,12 +118,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
       <div class="font-semibold">Port scan</div>
       <%= if scan = Map.get(@context, :src_port_scan) do %>
         <div class="mt-1 text-base-content/70">
-          <span class="badge badge-xs badge-error">flagged</span>
+          <.ui_badge size="xs" variant="error">flagged</.ui_badge>
           <span class="ml-2 font-mono">{scan.unique_ports} unique ports</span>
         </div>
       <% else %>
         <div class="mt-1 text-base-content/70">
-          <span class="badge badge-xs badge-ghost">not flagged</span>
+          <.ui_badge size="xs" variant="ghost">not flagged</.ui_badge>
         </div>
       <% end %>
     </div>
@@ -130,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
     <div :if={anomaly = Map.get(@context, :dst_port_anomaly)}>
       <div class="font-semibold">Port anomaly</div>
       <div class="mt-1 text-base-content/70">
-        <span class="badge badge-xs badge-error">anomalous</span>
+        <.ui_badge size="xs" variant="error">anomalous</.ui_badge>
         <span class="ml-2 font-mono">
           {anomaly.current_bytes} vs baseline {anomaly.baseline_bytes}
         </span>
@@ -147,19 +148,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
     <div class="mt-1 text-base-content/70">
       {@label}:
       <%= if @match do %>
-        <span class="ml-2 badge badge-xs badge-warning">match</span>
+        <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
         <span class="ml-2 font-mono">{@match.match_count} indicators</span>
-        <span
+        <.ui_badge
           :if={@match.max_severity}
-          class={"ml-2 badge badge-xs #{threat_severity_badge_class(@match.max_severity)}"}
+          size="xs"
+          variant={threat_severity_badge_variant(@match.max_severity)}
+          class="ml-2"
         >
           severity {@match.max_severity}
-        </span>
-        <span :for={source <- threat_sources(@match)} class="ml-1 badge badge-xs badge-outline">
+        </.ui_badge>
+        <.ui_badge :for={source <- threat_sources(@match)} size="xs" variant="outline" class="ml-1">
           {source}
-        </span>
+        </.ui_badge>
       <% else %>
-        <span class="ml-2 badge badge-xs badge-ghost">none</span>
+        <.ui_badge size="xs" variant="ghost" class="ml-2">none</.ui_badge>
       <% end %>
     </div>
     """

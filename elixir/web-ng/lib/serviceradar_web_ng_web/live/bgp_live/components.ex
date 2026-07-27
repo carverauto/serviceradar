@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.UIComponents
 
   @doc """
   Traffic by AS bar chart with click-to-filter.
@@ -34,24 +35,21 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
               <div class="flex items-center gap-3">
                 <!-- AS Number -->
                 <div class="w-32 flex-shrink-0 flex gap-1">
-                  <button
+                  <.ui_button
+                    type="button"
                     phx-click="filter_by_as"
                     phx-value-as={item.as_number}
-                    class={[
-                      "btn btn-xs font-mono flex-1",
-                      (@selected_as == item.as_number && "btn-primary") || "btn-ghost"
-                    ]}
+                    size="xs"
+                    variant={if(@selected_as == item.as_number, do: "primary", else: "ghost")}
+                    active={@selected_as == item.as_number}
+                    class="flex-1 font-mono"
                     title="Filter BGP view"
                   >
                     AS {item.as_number}
-                  </button>
-                  <.link
-                    navigate={"/observability?tab=netflows&q=#{URI.encode_www_form("as_path contains [#{item.as_number}]")}"}
-                    class="btn btn-xs btn-ghost"
-                    title="View NetFlow flows"
-                  >
+                  </.ui_button>
+                  <.ui_button navigate={"/observability?tab=netflows&q=#{URI.encode_www_form("as_path contains [#{item.as_number}]")}"} title="View NetFlow flows" size="xs" variant="ghost">
                     <.icon name="hero-arrow-top-right-on-square" class="size-3" />
-                  </.link>
+                  </.ui_button>
                 </div>
                 
     <!-- Traffic Bar -->
@@ -104,16 +102,17 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
               <div class="flex items-center gap-3">
                 <!-- Community Name -->
                 <div class="w-32 flex-shrink-0">
-                  <button
+                  <.ui_button
+                    type="button"
                     phx-click="filter_by_community"
                     phx-value-community={item.community}
-                    class={[
-                      "btn btn-xs font-mono",
-                      (@selected_community == item.community && "btn-secondary") || "btn-ghost"
-                    ]}
+                    size="xs"
+                    variant={if(@selected_community == item.community, do: "soft", else: "ghost")}
+                    active={@selected_community == item.community}
+                    class="font-mono"
                   >
                     {decode_community(item.community)}
-                  </button>
+                  </.ui_button>
                 </div>
                 
     <!-- Traffic Bar -->
@@ -400,8 +399,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
       <div class="card bg-base-100 border border-base-200 shadow-sm mb-6">
         <div class="card-body">
           <h3 class="card-title text-base">Data Sources</h3>
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Sampler Address</th>
@@ -471,8 +470,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
         <%= if Enum.empty?(@paths) do %>
           <p class="text-sm text-base-content/60">No AS path data available</p>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>AS Path</th>
@@ -490,18 +489,15 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                       {Enum.join(path.as_path, " → ")}
                     </td>
                     <td class="text-center">
-                      <span class="badge badge-sm">{path.path_length}</span>
+                      <.ui_badge size="sm" variant="ghost">{path.path_length}</.ui_badge>
                     </td>
                     <td class="text-right">{format_bytes(path.bytes)}</td>
                     <td class="text-right">{format_number(path.packets)}</td>
                     <td class="text-right">{path.flow_count}</td>
                     <td>
-                      <.link
-                        navigate={"/observability?tab=netflows&q=#{build_as_path_filter(path.as_path)}"}
-                        class="btn btn-xs btn-ghost"
-                      >
+                      <.ui_button navigate={"/observability?tab=netflows&q=#{build_as_path_filter(path.as_path)}"} size="xs" variant="ghost">
                         View Flows →
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 <% end %>
@@ -528,8 +524,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
         <%= if Enum.empty?(@prefixes) do %>
           <p class="text-sm text-base-content/60">No prefix data available</p>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Prefix</th>
@@ -544,22 +540,16 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                   <tr>
                     <td class="font-mono text-sm">{prefix.prefix}</td>
                     <td>
-                      <.link
-                        navigate={"/observability?tab=netflows&q=as_path+contains+[#{prefix.as_number}]"}
-                        class="btn btn-xs btn-ghost font-mono"
-                      >
+                      <.ui_button navigate={"/observability?tab=netflows&q=as_path+contains+[#{prefix.as_number}]"} size="xs" variant="ghost" class="font-mono">
                         AS {prefix.as_number}
-                      </.link>
+                      </.ui_button>
                     </td>
                     <td class="text-right">{format_bytes(prefix.bytes)}</td>
                     <td class="text-right">{prefix.flow_count}</td>
                     <td>
-                      <.link
-                        navigate={"/observability?tab=netflows&q=dst_ip+in+subnet+#{URI.encode_www_form(prefix.prefix)}"}
-                        class="btn btn-xs btn-ghost"
-                      >
+                      <.ui_button navigate={"/observability?tab=netflows&q=dst_ip+in+subnet+#{URI.encode_www_form(prefix.prefix)}"} size="xs" variant="ghost">
                         View Flows →
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 <% end %>

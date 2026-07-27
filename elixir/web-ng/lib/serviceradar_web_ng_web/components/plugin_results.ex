@@ -116,8 +116,8 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
     assigns = assign(data, :rows, rows)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm w-full">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm", class: "w-full")}>
         <tbody>
           <%= for {key, value} <- @rows do %>
             <tr>

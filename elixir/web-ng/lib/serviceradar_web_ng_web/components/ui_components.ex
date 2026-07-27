@@ -1,9 +1,9 @@
 defmodule ServiceRadarWebNGWeb.UIComponents do
   @moduledoc """
-  App-level UI primitives built on Tailwind + daisyUI.
+  App-level UI primitives built on Tailwind + shared ServiceRadar (`sr-*`) tokens.
 
-  Keep these components small and composable so we can swap/adjust styling
-  without touching feature templates.
+  Keep these components small and composable so feature templates stay free of
+  daisyUI class soup. Prefer these over raw `btn` / `input` / `badge` / `table` classes.
   """
 
   use Phoenix.Component
@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   attr :variant, :string,
     default: "primary",
-    values: ~w(primary ghost soft neutral outline)
+    values: ~w(primary ghost soft neutral outline danger warning info success)
 
   attr :size, :string, default: "sm", values: ~w(xs sm md lg)
   attr :square, :boolean, default: false
@@ -21,9 +21,11 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
-      phx-click phx-value-idx phx-value-id phx-value-entity
-      phx-value-q
-      phx-confirm
+      target rel
+      phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
+      phx-value-q phx-value-type phx-value-favorite phx-value-field phx-value-value
+      phx-value-state phx-value-severity phx-value-mode
+      phx-confirm data-confirm
       aria-label aria-controls aria-expanded title
     )
 
@@ -49,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   attr :variant, :string,
     default: "ghost",
-    values: ~w(primary ghost soft neutral outline)
+    values: ~w(primary ghost soft neutral outline danger warning info success)
 
   attr :size, :string, default: "sm", values: ~w(xs sm md lg)
   attr :active, :boolean, default: false
@@ -57,8 +59,9 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
-      phx-click phx-value-idx phx-value-id phx-value-entity
-      phx-confirm
+      target rel
+      phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
+      phx-confirm data-confirm
       aria-label aria-controls aria-expanded title
     )
 
@@ -137,10 +140,16 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
-  attr :variant, :string, default: "ghost", values: ~w(ghost warning success error info)
+  attr :variant, :string,
+    default: "ghost",
+    values: ~w(ghost warning success error info outline primary)
+
   attr :size, :string, default: "sm", values: ~w(xs sm md)
   attr :class, :any, default: nil
-  attr :rest, :global
+
+  attr :rest, :global,
+    include: ~w(phx-click phx-value-id phx-value-uid title data-tip data-role)
+
   slot :inner_block, required: true
 
   def ui_badge(assigns) do
@@ -151,6 +160,28 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
+  @doc """
+  Map common daisy-style status/severity tokens to `ui_badge` variants.
+  """
+  def badge_variant_for(nil), do: "ghost"
+  def badge_variant_for(""), do: "ghost"
+
+  def badge_variant_for(value) when is_atom(value),
+    do: value |> Atom.to_string() |> badge_variant_for()
+
+  def badge_variant_for(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      v when v in ~w(critical fatal error failed down danger destructive) -> "error"
+      v when v in ~w(high warning warn degraded pending at_risk) -> "warning"
+      v when v in ~w(success ok up healthy attributed low resolved) -> "success"
+      v when v in ~w(info medium running active primary) -> "info"
+      v when v in ~w(outline) -> "outline"
+      _ -> "ghost"
+    end
+  end
+
+  def badge_variant_for(_), do: "ghost"
+
   attr :class, :any, default: nil
   slot :left
   slot :right
@@ -159,11 +190,11 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   def ui_toolbar(assigns) do
     ~H"""
     <div class={["flex items-center justify-between gap-3", @class]}>
-      <div class="flex items-center gap-2 min-w-0">
+      <div class="flex min-w-0 items-center gap-2">
         {render_slot(@left)}
         {render_slot(@inner_block)}
       </div>
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex shrink-0 items-center gap-2">
         {render_slot(@right)}
       </div>
     </div>
@@ -200,24 +231,33 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   def ui_dropdown(assigns) do
     ~H"""
-    <div class={[
-      "dropdown",
-      @align == "start" && "dropdown-start",
-      @align == "end" && "dropdown-end",
-      @class
-    ]}>
-      <div tabindex="0" role="button">
-        {render_slot(@trigger)}
-      </div>
+    <%!--
+      Native <details> menu. Trigger content is pointer-events-none so a nested
+      <button> (ui_icon_button) cannot steal the summary activation click.
+      Menu uses fixed z-index + open-state elevation so it escapes clipped
+      table/panel ancestors (overflow-x-auto / rounded panels).
+    --%>
+    <details class={["sr-ui-dropdown group relative inline-block text-left", @class]}>
+      <summary class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden">
+        <span class="pointer-events-none inline-flex items-center">
+          {render_slot(@trigger)}
+        </span>
+      </summary>
       <ul
-        tabindex="0"
-        class="menu dropdown-content bg-base-100 rounded-box z-30 w-56 p-2 shadow border border-base-200 mt-2"
+        class={[
+          "sr-ui-dropdown-menu absolute z-[var(--sr-z-menu)] mt-1.5 grid min-w-44 w-max max-w-64 gap-0.5 rounded-sr-surface border border-sr-line bg-sr-raised p-1.5 shadow-sr-raised",
+          @align == "end" && "right-0 origin-top-right",
+          @align == "start" && "left-0 origin-top-left"
+        ]}
+        role="menu"
       >
         <%= for item <- @item do %>
-          <li>{render_slot(item)}</li>
+          <li class="min-w-0 [&>a]:flex [&>a]:items-center [&>a]:gap-2 [&>a]:rounded-sr-control [&>a]:px-3 [&>a]:py-2 [&>a]:text-sm [&>a]:text-sr-ink [&>a]:outline-none [&>a]:hover:bg-sr-subtle [&>a]:focus-visible:ring-2 [&>a]:focus-visible:ring-sr-focus [&>button]:flex [&>button]:w-full [&>button]:items-center [&>button]:gap-2 [&>button]:rounded-sr-control [&>button]:px-3 [&>button]:py-2 [&>button]:text-left [&>button]:text-sm [&>button]:text-sr-ink [&>button]:outline-none [&>button]:hover:bg-sr-subtle">
+            {render_slot(item)}
+          </li>
         <% end %>
       </ul>
-    </div>
+    </details>
     """
   end
 
@@ -230,14 +270,18 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   def ui_panel(assigns) do
     ~H"""
+    <%!--
+      No overflow-hidden on the section: it clips absolute menus (row ⋮ actions).
+      Radius still clips painted backgrounds via border-radius + background.
+    --%>
     <section class={[
-      "rounded-xl border border-base-200 bg-base-100 overflow-hidden",
+      "relative rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface",
       @class
     ]}>
       <header
         :if={@header != []}
         class={[
-          "px-4 py-3 bg-base-200/40 flex items-start justify-between gap-3",
+          "flex items-start justify-between gap-3 rounded-t-sr-surface border-b border-sr-line bg-sr-subtle/60 px-4 py-3",
           @header_class
         ]}
       >
@@ -252,31 +296,76 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp ui_button_class(assigns) do
     [
-      "btn",
+      ui_button_base(),
       ui_button_variant_class(assigns.variant),
       ui_button_size_class(assigns.size),
-      assigns.square && "btn-square",
-      assigns.active && "btn-active",
+      assigns.square && ui_button_square_class(assigns.size),
+      assigns.active && ui_button_active_class(),
       assigns.class
     ]
   end
 
-  defp ui_button_variant_class("primary"), do: "btn-primary"
-  defp ui_button_variant_class("ghost"), do: "btn-ghost"
-  defp ui_button_variant_class("neutral"), do: "btn-neutral"
-  defp ui_button_variant_class("outline"), do: "btn-outline"
-  defp ui_button_variant_class("soft"), do: "btn-primary btn-soft"
-  defp ui_button_variant_class(_), do: "btn-primary"
+  defp ui_button_base do
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-semibold outline-none transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-sr-out focus-visible:ring-2 focus-visible:ring-sr-focus focus-visible:ring-offset-2 focus-visible:ring-offset-sr-canvas disabled:pointer-events-none disabled:opacity-50 active:translate-y-px"
+  end
 
-  defp ui_button_size_class("xs"), do: "btn-xs"
-  defp ui_button_size_class("sm"), do: "btn-sm"
-  defp ui_button_size_class("md"), do: "btn-md"
-  defp ui_button_size_class("lg"), do: "btn-lg"
-  defp ui_button_size_class(_), do: "btn-sm"
+  defp ui_button_variant_class("primary") do
+    "rounded-sr-control border border-transparent bg-sr-brand text-sr-on-brand shadow-sr-button hover:bg-sr-brand-strong"
+  end
+
+  defp ui_button_variant_class("soft") do
+    "rounded-sr-control border border-sr-line bg-sr-subtle text-sr-brand shadow-sr-control hover:border-sr-line-hover hover:bg-sr-control"
+  end
+
+  defp ui_button_variant_class("neutral") do
+    "rounded-sr-control border border-sr-line bg-sr-control text-sr-ink shadow-sr-control hover:border-sr-line-hover hover:bg-sr-subtle"
+  end
+
+  defp ui_button_variant_class("outline") do
+    "rounded-sr-control border border-sr-line-strong bg-transparent text-sr-ink hover:border-sr-line-hover hover:bg-sr-subtle"
+  end
+
+  defp ui_button_variant_class("ghost") do
+    "rounded-sr-control border border-transparent bg-transparent text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+  end
+
+  defp ui_button_variant_class("danger") do
+    "rounded-sr-control border border-red-500/40 bg-red-500/15 text-red-700 hover:bg-red-500/20 dark:border-red-400/45 dark:bg-red-500/15 dark:text-red-300"
+  end
+
+  defp ui_button_variant_class("warning") do
+    "rounded-sr-control border border-amber-500/30 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300"
+  end
+
+  defp ui_button_variant_class("info") do
+    "rounded-sr-control border border-sr-brand/30 bg-sr-brand/10 text-sr-brand-strong hover:bg-sr-brand/15 dark:text-sr-brand"
+  end
+
+  defp ui_button_variant_class("success") do
+    "rounded-sr-control border border-emerald-500/35 bg-emerald-500/15 text-emerald-800 hover:bg-emerald-500/20 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-300"
+  end
+
+  defp ui_button_variant_class(_), do: ui_button_variant_class("primary")
+
+  defp ui_button_size_class("xs"), do: "min-h-7 px-2 text-xs"
+  defp ui_button_size_class("sm"), do: "min-h-9 px-3 text-sm"
+  defp ui_button_size_class("md"), do: "min-h-11 px-3.5 text-sm"
+  defp ui_button_size_class("lg"), do: "min-h-12 px-4 text-base"
+  defp ui_button_size_class(_), do: ui_button_size_class("sm")
+
+  defp ui_button_square_class("xs"), do: "size-7 min-h-7 px-0"
+  defp ui_button_square_class("sm"), do: "size-9 min-h-9 px-0"
+  defp ui_button_square_class("md"), do: "size-11 min-h-11 px-0"
+  defp ui_button_square_class("lg"), do: "size-12 min-h-12 px-0"
+  defp ui_button_square_class(_), do: ui_button_square_class("sm")
+
+  defp ui_button_active_class do
+    "ring-2 ring-sr-brand/40 ring-offset-1 ring-offset-sr-canvas"
+  end
 
   defp ui_input_class(assigns) do
     [
-      "input",
+      ui_input_base(),
       ui_input_variant_class(assigns.variant),
       ui_input_size_class(assigns.size),
       assigns.mono && "font-mono",
@@ -284,40 +373,305 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     ]
   end
 
-  defp ui_input_variant_class("ghost"), do: "input-ghost"
-  defp ui_input_variant_class(_), do: "input-bordered"
+  defp ui_input_base do
+    "w-full rounded-sr-control border bg-sr-control text-sr-ink outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-sr-out placeholder:text-sr-muted focus-visible:border-sr-line-hover focus-visible:ring-2 focus-visible:ring-sr-focus disabled:cursor-not-allowed disabled:opacity-60"
+  end
 
-  defp ui_input_size_class("xs"), do: "input-xs"
-  defp ui_input_size_class("sm"), do: "input-sm"
-  defp ui_input_size_class("md"), do: "input-md"
-  defp ui_input_size_class("lg"), do: "input-lg"
-  defp ui_input_size_class(_), do: "input-sm"
+  defp ui_input_variant_class("ghost") do
+    "border-transparent bg-transparent shadow-none hover:bg-sr-subtle focus-visible:bg-sr-control"
+  end
+
+  defp ui_input_variant_class(_) do
+    "border-sr-line shadow-sr-control"
+  end
+
+  defp ui_input_size_class("xs"), do: "min-h-7 px-2 text-xs"
+  defp ui_input_size_class("sm"), do: "min-h-9 px-3 text-sm"
+  defp ui_input_size_class("md"), do: "min-h-11 px-3.5 text-sm"
+  defp ui_input_size_class("lg"), do: "min-h-12 px-4 text-base"
+  defp ui_input_size_class(_), do: ui_input_size_class("sm")
 
   defp ui_badge_class(assigns) do
     [
-      "badge",
+      "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full border font-semibold",
       ui_badge_variant_class(assigns.variant),
       ui_badge_size_class(assigns.size),
       assigns.class
     ]
   end
 
-  defp ui_badge_variant_class("warning"), do: "badge-warning"
-  defp ui_badge_variant_class("success"), do: "badge-success"
-  defp ui_badge_variant_class("error"), do: "badge-error"
-  defp ui_badge_variant_class("info"), do: "badge-info"
-  defp ui_badge_variant_class(_), do: "badge-ghost"
+  defp ui_badge_variant_class("warning") do
+    "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+  end
 
-  defp ui_badge_size_class("xs"), do: "badge-xs"
-  defp ui_badge_size_class("sm"), do: "badge-sm"
-  defp ui_badge_size_class("md"), do: "badge-md"
-  defp ui_badge_size_class(_), do: "badge-sm"
+  defp ui_badge_variant_class("success") do
+    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  end
+
+  defp ui_badge_variant_class("error") do
+    "border-red-500/40 bg-red-500/15 text-red-700 dark:border-red-400/45 dark:bg-red-500/15 dark:text-red-300"
+  end
+
+  defp ui_badge_variant_class("info") do
+    "border-sr-brand/30 bg-sr-brand/10 text-sr-brand-strong dark:border-sr-brand/40 dark:bg-sr-brand/12 dark:text-sr-brand"
+  end
+
+  defp ui_badge_variant_class("outline") do
+    "border-sr-line-strong bg-transparent text-sr-ink"
+  end
+
+  defp ui_badge_variant_class("primary") do
+    "border-sr-brand/40 bg-sr-brand/15 text-sr-brand-strong dark:text-sr-brand"
+  end
+
+  defp ui_badge_variant_class(_) do
+    "border-sr-line bg-sr-subtle text-sr-muted"
+  end
+
+  defp ui_badge_size_class("xs"), do: "min-h-5 px-1.5 text-[0.65rem]"
+  defp ui_badge_size_class("sm"), do: "min-h-6 px-2 text-xs"
+  defp ui_badge_size_class("md"), do: "min-h-7 px-2.5 text-sm"
+  defp ui_badge_size_class(_), do: ui_badge_size_class("sm")
+
+  @doc """
+  Brand data-table class list. Prefer over daisy `table table-sm table-zebra`.
+
+  ## Options
+
+    * `:size` - `"xs" | "sm" | "md"` (default `"sm"`)
+    * `:zebra` - striped rows (default `false`)
+    * `:fixed` - `table-layout: fixed` (default `false`)
+    * `:class` - extra classes
+
+  ## Example
+
+      <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
+  """
+  def ui_table_class(opts \\ []) when is_list(opts) do
+    size = opts |> Keyword.get(:size, "sm") |> to_string()
+    zebra? = Keyword.get(opts, :zebra, false) in [true, "true"]
+    fixed? = Keyword.get(opts, :fixed, false) in [true, "true"]
+    extra = Keyword.get(opts, :class)
+
+    [
+      "sr-ui-table",
+      ui_table_size_class(size),
+      zebra? && "sr-ui-table-zebra",
+      fixed? && "sr-ui-table-fixed",
+      extra
+    ]
+  end
+
+  defp ui_table_size_class("xs"), do: "sr-ui-table-xs"
+  defp ui_table_size_class("md"), do: "sr-ui-table-md"
+  defp ui_table_size_class(_), do: "sr-ui-table-sm"
+
+  @doc """
+  Brand field classes for raw `<input>` / `<select>` / `<textarea>` outside `<.input>`.
+
+  Prefer `<.input>` when binding to a form field. Use this helper for ad-hoc controls.
+
+  ## Options
+
+    * `:size` - `"xs" | "sm" | "md"` (default `"md"`)
+    * `:mono` - monospace (default `false`)
+    * `:class` - extra classes
+  """
+  def ui_field_class(opts \\ []) when is_list(opts) do
+    size = opts |> Keyword.get(:size, "md") |> to_string()
+    mono? = Keyword.get(opts, :mono, false) in [true, "true"]
+    extra = Keyword.get(opts, :class)
+
+    [
+      "w-full rounded-sr-control border border-sr-line bg-sr-control text-sr-ink shadow-sr-control outline-none transition-[border-color,box-shadow] duration-200 ease-sr-out placeholder:text-sr-muted focus-visible:border-sr-line-hover focus-visible:ring-2 focus-visible:ring-sr-focus disabled:cursor-not-allowed disabled:opacity-60",
+      ui_field_size_class(size),
+      mono? && "font-mono",
+      extra
+    ]
+  end
+
+  defp ui_field_size_class("xs"), do: "min-h-7 px-2 text-xs"
+  defp ui_field_size_class("sm"), do: "min-h-9 px-3 text-sm"
+  defp ui_field_size_class(_), do: "min-h-11 px-3.5 text-sm"
+
+  @doc """
+  Brand alert surface class list. Prefer over daisy `alert alert-*`.
+
+  Accepts a variant string (`"error"`) or keyword options:
+
+    * `:variant` - `"info" | "warning" | "error" | "success" | "ghost"` (default `"info"`)
+    * `:class` - extra classes
+  """
+  def ui_alert_class(opts \\ [])
+
+  def ui_alert_class(variant) when is_binary(variant) or is_atom(variant) do
+    ui_alert_class(variant: variant)
+  end
+
+  def ui_alert_class(opts) when is_list(opts) do
+    variant = opts |> Keyword.get(:variant, "info") |> to_string()
+    extra = Keyword.get(opts, :class)
+
+    [
+      "flex items-start gap-3 rounded-sr-surface border px-4 py-3 text-sm leading-snug",
+      ui_alert_variant_class(variant),
+      extra
+    ]
+  end
+
+  defp ui_alert_variant_class("error") do
+    "border-red-500/40 bg-red-500/12 text-red-800 dark:text-red-200"
+  end
+
+  defp ui_alert_variant_class("warning") do
+    "border-amber-500/35 bg-amber-500/12 text-amber-900 dark:text-amber-200"
+  end
+
+  defp ui_alert_variant_class("success") do
+    "border-emerald-500/35 bg-emerald-500/12 text-emerald-900 dark:text-emerald-200"
+  end
+
+  defp ui_alert_variant_class("ghost") do
+    "border-sr-line bg-sr-subtle text-sr-ink"
+  end
+
+  defp ui_alert_variant_class(_) do
+    "border-sr-brand/35 bg-sr-brand/12 text-sr-brand-strong dark:text-sr-brand"
+  end
+
+  attr :variant, :string,
+    default: "info",
+    values: ~w(info warning error success ghost)
+
+  attr :class, :any, default: nil
+  attr :rest, :global
+  slot :inner_block, required: true
+
+  def ui_alert(assigns) do
+    assigns =
+      assign(assigns, :computed_class, ui_alert_class(variant: assigns.variant, class: assigns.class))
+
+    ~H"""
+    <div role="alert" class={@computed_class} {@rest}>{render_slot(@inner_block)}</div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :open, :boolean, default: true
+  attr :size, :string, default: "md", values: ~w(sm form md lg xl 2xl 6xl)
+  attr :class, :any, default: nil
+  attr :box_class, :any, default: nil
+  attr :on_cancel, :any, default: nil
+  attr :on_cancel_target, :any, default: nil
+  attr :show_close, :boolean, default: true
+  attr :rest, :global
+  slot :title
+  slot :actions
+  slot :inner_block, required: true
+
+  def ui_modal(assigns) do
+    ~H"""
+    <div
+      :if={@open}
+      id={@id}
+      class={["modal modal-open", @class]}
+      role="dialog"
+      aria-modal="true"
+      {@rest}
+    >
+      <div class={[
+        "modal-box relative border border-sr-line bg-sr-surface text-sr-ink shadow-sr-raised",
+        ui_modal_size_class(@size),
+        @box_class
+      ]}>
+        <.ui_icon_button
+          :if={@show_close && @on_cancel}
+          type="button"
+          size="sm"
+          variant="ghost"
+          class="absolute right-2 top-2 z-10"
+          phx-click={@on_cancel}
+          phx-target={@on_cancel_target}
+          aria-label="Close"
+        >
+          <.icon name="hero-x-mark" class="size-4" />
+        </.ui_icon_button>
+        <div :if={@title != []} class="mb-3 flex items-start justify-between gap-3 pr-8">
+          <h3 class="text-lg font-semibold tracking-tight text-sr-ink">{render_slot(@title)}</h3>
+        </div>
+        <div class="space-y-3">{render_slot(@inner_block)}</div>
+        <div :if={@actions != []} class="modal-action">{render_slot(@actions)}</div>
+      </div>
+      <div class="modal-backdrop" phx-click={@on_cancel} phx-target={@on_cancel_target}></div>
+    </div>
+    """
+  end
+
+  defp ui_modal_size_class("sm"), do: "max-w-md"
+  defp ui_modal_size_class("form"), do: "max-w-lg"
+  defp ui_modal_size_class("lg"), do: "max-w-3xl"
+  defp ui_modal_size_class("xl"), do: "max-w-5xl"
+  defp ui_modal_size_class("2xl"), do: "max-w-4xl"
+  defp ui_modal_size_class("6xl"), do: "max-w-6xl"
+  defp ui_modal_size_class(_), do: "max-w-2xl"
+
+  @doc """
+  Brand class list for daisy `join` input+button clusters.
+  """
+  def ui_join_class(opts \\ []) when is_list(opts) do
+    extra = Keyword.get(opts, :class)
+
+    [
+      "inline-flex w-full items-stretch align-middle [&>*:not(:first-child)]:ms-[-1px] [&>*:first-child]:rounded-e-none [&>*:last-child]:rounded-s-none [&>*:not(:first-child):not(:last-child)]:rounded-none",
+      extra
+    ]
+  end
+
+  @doc """
+  Brand checkbox classes (prefer over `checkbox checkbox-*`).
+  """
+  def ui_checkbox_class(opts \\ []) when is_list(opts) do
+    size = opts |> Keyword.get(:size, "sm") |> to_string()
+    extra = Keyword.get(opts, :class)
+
+    [
+      "rounded border-sr-line-strong text-sr-brand accent-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus",
+      ui_checkbox_size_class(size),
+      extra
+    ]
+  end
+
+  defp ui_checkbox_size_class("xs"), do: "size-3.5"
+  defp ui_checkbox_size_class("md"), do: "size-5"
+  defp ui_checkbox_size_class(_), do: "size-4"
+
+  @doc """
+  Brand loading spinner. Prefer over daisy `loading loading-spinner`.
+  """
+  attr :size, :string, default: "sm", values: ~w(xs sm md lg)
+  attr :class, :any, default: nil
+  attr :rest, :global
+
+  def ui_spinner(assigns) do
+    ~H"""
+    <span
+      class={["sr-ui-spinner", ui_spinner_size_class(@size), @class]}
+      aria-hidden="true"
+      {@rest}
+    >
+    </span>
+    """
+  end
+
+  defp ui_spinner_size_class("xs"), do: "sr-ui-spinner-xs"
+  defp ui_spinner_size_class("md"), do: "sr-ui-spinner-md"
+  defp ui_spinner_size_class("lg"), do: "sr-ui-spinner-lg"
+  defp ui_spinner_size_class(_), do: "sr-ui-spinner-sm"
 
   @doc """
   Cursor-based pagination component for SRQL-driven pages.
 
-  Uses daisyUI join/button classes for styling.
-  Supports page indicators when total_count is provided.
+  Uses token-styled `ui_button` chrome. Supports page indicators when total_count is provided.
   """
   attr :prev_cursor, :string, default: nil
   attr :next_cursor, :string, default: nil
@@ -348,27 +702,29 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     ~H"""
     <div class={["flex flex-wrap items-center justify-between gap-4", @class]}>
       <div class="flex items-center gap-3">
-        <span class="text-sm text-base-content/60">
+        <span class="text-sm text-sr-muted">
           {@showing_text}
         </span>
-        <span :if={@total_pages && @total_pages > 1} class="text-xs text-base-content/40">
+        <span :if={@total_pages && @total_pages > 1} class="text-xs text-sr-muted/80">
           Page {@current_page} of {@total_pages}
         </span>
       </div>
-      <div class="join">
-        <!-- First Page Button -->
-        <.link
+      <div class="flex items-center gap-1">
+        <.ui_button
           :if={@has_prev and @current_page > 2}
+          variant="outline"
+          size="sm"
           patch={pagination_href(@base_path, @query, @limit, nil, 1, @extra_params)}
-          class="join-item btn btn-sm btn-outline"
           title="First page"
+          aria-label="First page"
         >
           <.icon name="hero-chevron-double-left" class="size-4" />
-        </.link>
-        
-    <!-- Previous Button -->
-        <.link
+        </.ui_button>
+
+        <.ui_button
           :if={@has_prev}
+          variant="outline"
+          size="sm"
           patch={
             pagination_href(
               @base_path,
@@ -379,25 +735,24 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
               @extra_params
             )
           }
-          class="join-item btn btn-sm btn-outline"
         >
           <.icon name="hero-chevron-left" class="size-4" /> Prev
-        </.link>
-        <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
+        </.ui_button>
+        <.ui_button :if={not @has_prev} variant="outline" size="sm" disabled type="button">
           <.icon name="hero-chevron-left" class="size-4" /> Prev
-        </button>
-        
-    <!-- Page Indicator (when we have total pages) -->
+        </.ui_button>
+
         <span
           :if={@total_pages && @total_pages > 1}
-          class="join-item btn btn-sm btn-ghost pointer-events-none"
+          class="inline-flex min-h-9 items-center px-2 text-sm text-sr-muted"
         >
           {@current_page} / {@total_pages}
         </span>
-        
-    <!-- Next Button -->
-        <.link
+
+        <.ui_button
           :if={@has_next}
+          variant="outline"
+          size="sm"
           patch={
             pagination_href(
               @base_path,
@@ -408,13 +763,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
               @extra_params
             )
           }
-          class="join-item btn btn-sm btn-outline"
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
-        </.link>
-        <button :if={not @has_next} class="join-item btn btn-sm btn-outline" disabled>
+        </.ui_button>
+        <.ui_button :if={not @has_next} variant="outline" size="sm" disabled type="button">
           Next <.icon name="hero-chevron-right" class="size-4" />
-        </button>
+        </.ui_button>
       </div>
     </div>
     """
@@ -422,7 +776,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp calculate_total_pages(nil, _limit), do: nil
 
-  defp calculate_total_pages(total, limit) when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
+  defp calculate_total_pages(total, limit)
+       when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
     ceil(total / limit)
   end
 
@@ -449,7 +804,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp normalize_query_params(_), do: %{}
 
-  defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
+  defp pagination_text(count, _limit, total)
+       when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
     "Showing #{count} of #{format_number(total)} result#{if total == 1, do: "", else: "s"}"
   end
 

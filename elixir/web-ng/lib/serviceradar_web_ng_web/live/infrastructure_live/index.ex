@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <:header>
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold">Agent Gateways</span>
-                  <span class="badge badge-sm badge-info">{length(@gateways)}</span>
+                  <.ui_badge size="sm" variant="info">{length(@gateways)}</.ui_badge>
                 </div>
               </:header>
               <.gateways_table gateways={@gateways} />
@@ -353,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <:header>
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold">Connected Agents</span>
-                  <span class="badge badge-sm badge-success">{length(@connected_agents)}</span>
+                  <.ui_badge size="sm" variant="success">{length(@connected_agents)}</.ui_badge>
                 </div>
               </:header>
               <.agents_table agents={@connected_agents} />
@@ -366,9 +366,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <:header>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-semibold">Cluster Nodes</span>
-                <span class="badge badge-sm badge-primary">
+                <.ui_badge size="sm" variant="primary">
                   {length(@cluster_info.connected_nodes) + 1}
-                </span>
+                </.ui_badge>
               </div>
             </:header>
             <.cluster_nodes_table cluster_info={@cluster_info} />
@@ -380,7 +380,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <:header>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-semibold">Agent Gateways</span>
-                <span class="badge badge-sm badge-info">{length(@gateways)}</span>
+                <.ui_badge size="sm" variant="info">{length(@gateways)}</.ui_badge>
               </div>
             </:header>
             <.gateways_table gateways={@gateways} expanded={true} />
@@ -393,7 +393,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <:header>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-semibold">Connected Agents</span>
-                <span class="badge badge-sm badge-success">{length(@connected_agents)}</span>
+                <.ui_badge size="sm" variant="success">{length(@connected_agents)}</.ui_badge>
               </div>
             </:header>
             <.agents_table agents={@connected_agents} expanded={true} />
@@ -470,10 +470,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp gateways_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+          <tr>
             <th>Status</th>
             <th>Gateway ID</th>
             <th :if={@expanded}>Partition</th>
@@ -482,12 +482,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         </thead>
         <tbody>
           <tr :if={@gateways == []}>
-            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 4, else: 2} class="py-6 text-center text-sr-muted">
               No agent gateways registered
             </td>
           </tr>
           <%= for gateway <- @gateways do %>
-            <tr class="hover:bg-base-200/40 cursor-pointer">
+            <tr class="cursor-pointer">
               <td>
                 <.link
                   navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
@@ -535,10 +535,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp agents_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+          <tr>
             <th>Status</th>
             <th>Agent ID</th>
             <th :if={@expanded}>Last Seen</th>
@@ -547,12 +547,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 4, else: 2} class="py-6 text-center text-sr-muted">
               No agents have pushed status yet
             </td>
           </tr>
           <%= for agent <- @agents do %>
-            <tr class="hover:bg-base-200/40 cursor-pointer">
+            <tr class="cursor-pointer">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
@@ -606,10 +606,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     assigns = assign(assigns, :nodes, all_nodes)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm")}>
         <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+          <tr>
             <th>Status</th>
             <th>Node Name</th>
             <th>Type</th>
@@ -638,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                   class="flex items-center gap-2"
                 >
                   <span>{node.short_name}</span>
-                  <span :if={node.is_current} class="badge badge-xs badge-primary">current</span>
+                  <.ui_badge :if={node.is_current} size="xs" variant="primary">current</.ui_badge>
                 </.link>
               </td>
               <td>

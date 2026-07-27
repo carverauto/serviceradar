@@ -547,12 +547,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           :if={RBAC.can?(@current_scope, "settings.edge.manage")}
           class="flex flex-wrap items-center gap-2"
         >
-          <.link navigate={agent_release_handoff_path(@agent)} class="btn btn-xs btn-primary">
+          <.ui_button navigate={agent_release_handoff_path(@agent)} size="xs" variant="primary">
             <.icon name="hero-play" class="size-3.5" /> Roll Out This Agent
-          </.link>
-          <.link navigate={~p"/settings/agents/releases"} class="btn btn-xs btn-ghost">
+          </.ui_button>
+          <.ui_button navigate={~p"/settings/agents/releases"} size="xs" variant="ghost">
             Manage Releases
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="p-4 space-y-4">
@@ -582,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             <span class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
               Recent Rollout Attempts
             </span>
-            <span class="badge badge-ghost badge-sm">{length(@release_targets)}</span>
+            <.ui_badge size="sm" variant="ghost">{length(@release_targets)}</.ui_badge>
           </div>
 
           <div
@@ -593,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <div :if={@release_targets != []} class="overflow-x-auto">
-            <table class="table table-sm w-full">
+            <table class={ui_table_class(size: "sm", class: "w-full")}>
               <thead>
                 <tr>
                   <th>Desired</th>
@@ -669,11 +669,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-200 px-4 py-3">
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Capabilities</span>
-          <span class="badge badge-ghost badge-sm">{@capability_count}</span>
+          <.ui_badge size="sm" variant="ghost">{@capability_count}</.ui_badge>
         </div>
-        <span :if={@unavailable_caps != []} class="badge badge-warning badge-soft badge-sm">
+        <.ui_badge :if={@unavailable_caps != []} size="sm" variant="warning">
           {length(@unavailable_caps)} unavailable
-        </span>
+        </.ui_badge>
       </div>
       <div class="p-4 space-y-4">
         <div
@@ -698,9 +698,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         >
           <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
             Unavailable capability markers
-            <span class="ml-2 badge badge-warning badge-soft badge-sm">
+            <.ui_badge size="sm" variant="warning" class="ml-2">
               {length(@unavailable_caps)}
-            </span>
+            </.ui_badge>
           </summary>
           <div class="collapse-content pb-3">
             <ul class="divide-y divide-base-300/60 rounded-md bg-base-100 px-3">
@@ -724,7 +724,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                   <code class="min-w-0 break-all text-xs font-semibold text-base-content">
                     {cap.name}
                   </code>
-                  <span :if={cap.enabled == false} class="badge badge-ghost badge-xs">disabled</span>
+                  <.ui_badge :if={cap.enabled == false} size="xs" variant="ghost">disabled</.ui_badge>
                 </div>
                 <div class="mt-1 text-xs leading-5 text-base-content/60">{cap.description}</div>
               </div>
@@ -754,7 +754,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         <div class="flex items-center gap-2">
           <.icon name="hero-eye" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Host Network Visibility</span>
-          <span class="badge badge-primary badge-sm">host-network-visibility</span>
+          <.ui_badge size="sm" variant="primary">host-network-visibility</.ui_badge>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <.ui_badge variant={bpf_state_variant(@bpf_state)} size="sm">
@@ -825,7 +825,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">Gateway Node System Information</span>
-        <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
+        <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->
@@ -1002,7 +1002,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         </div>
 
         <div :if={@config_status.sections != []} class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Section</th>
@@ -1105,15 +1105,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         <div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold">Add-on status</span>
-            <span :if={@rows != []} class="badge badge-ghost badge-sm">{length(@rows)}</span>
+            <.ui_badge :if={@rows != []} size="sm" variant="ghost">{length(@rows)}</.ui_badge>
           </div>
           <p class="mt-0.5 text-xs text-base-content/60">
             Desired delivery and the runtime state reported by this agent
           </p>
         </div>
-        <.link navigate={~p"/settings/agents/addons"} class="btn btn-xs btn-ghost">
+        <.ui_button navigate={~p"/settings/agents/addons"} size="xs" variant="ghost">
           Manage Add-ons
-        </.link>
+        </.ui_button>
       </div>
 
       <div :if={@rows == []} class="p-4">
@@ -1409,13 +1409,13 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div>
           <span class="text-sm font-semibold">Plugin Assignments</span>
-          <span :if={@assignments != []} class="ml-2 badge badge-ghost badge-sm">
+          <.ui_badge :if={@assignments != []} size="sm" variant="ghost" class="ml-2">
             {length(@assignments)}
-          </span>
+          </.ui_badge>
         </div>
-        <.link navigate={~p"/settings/agents/plugins"} class="btn btn-xs btn-ghost">
+        <.ui_button navigate={~p"/settings/agents/plugins"} size="xs" variant="ghost">
           Manage Plugins
-        </.link>
+        </.ui_button>
       </div>
 
       <div :if={@assignments == []} class="p-4">
@@ -1423,7 +1423,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       </div>
 
       <div :if={@assignments != []} class="overflow-x-auto">
-        <table class="table table-sm">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr class="text-xs uppercase tracking-wide text-base-content/60">
               <th>Plugin</th>
@@ -1457,7 +1457,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                 <td>
                   <div class="flex max-w-md flex-wrap gap-1">
                     <%= for cap <- plugin_requested_capabilities(package) do %>
-                      <span class="badge badge-ghost badge-xs font-mono">{cap}</span>
+                      <.ui_badge size="xs" variant="ghost" class="font-mono">{cap}</.ui_badge>
                     <% end %>
                     <span
                       :if={plugin_requested_capabilities(package) == []}
@@ -1485,7 +1485,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         <div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold">Direct service checks</span>
-            <span :if={@checks != []} class="badge badge-ghost badge-sm">{length(@checks)}</span>
+            <.ui_badge :if={@checks != []} size="sm" variant="ghost">{length(@checks)}</.ui_badge>
           </div>
           <p class="mt-0.5 text-xs text-base-content/60">
             Ping, TCP, HTTP, DNS, and gRPC checks assigned directly to this agent
@@ -1519,22 +1519,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :type, :atom, required: true
 
   defp check_type_badge(assigns) do
-    {label, color} =
+    {label, variant} =
       case assigns.type do
         :ping -> {"PING", "info"}
         :tcp -> {"TCP", "success"}
         :http -> {"HTTP", "warning"}
         :dns -> {"DNS", "info"}
-        :grpc -> {"gRPC", "secondary"}
+        :grpc -> {"gRPC", "ghost"}
         _ -> {to_string(assigns.type), "ghost"}
       end
 
-    assigns = assigns |> assign(:label, label) |> assign(:color, color)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
-    <span class={"badge badge-#{@color} badge-sm uppercase font-bold w-14 justify-center"}>
+    <.ui_badge size="sm" variant={@variant} class="w-14 uppercase font-bold">
       {@label}
-    </span>
+    </.ui_badge>
     """
   end
 

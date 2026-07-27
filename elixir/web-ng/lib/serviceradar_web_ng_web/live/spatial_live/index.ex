@@ -24,9 +24,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
           </div>
 
           <div class="flex flex-wrap gap-2">
-            <.link navigate={~p"/spatial/field-surveys"} class="btn btn-sm">
+            <.ui_button navigate={~p"/spatial/field-surveys"} size="sm" variant="neutral">
               <.icon name="hero-map" class="size-4" /> FieldSurvey Review
-            </.link>
+            </.ui_button>
           </div>
         </div>
 

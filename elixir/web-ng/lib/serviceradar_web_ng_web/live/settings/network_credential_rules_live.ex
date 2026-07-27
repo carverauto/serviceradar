@@ -292,7 +292,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             </div>
             <div class="flex flex-wrap gap-2">
               <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-sm">New Secret</div>
+                <div
+                  tabindex="0"
+                  role="button"
+                  class="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-sr-control px-3 text-sm font-semibold text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+                >
+                  New Secret
+                </div>
                 <ul
                   tabindex="0"
                   class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
@@ -317,7 +323,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </ul>
               </div>
               <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-primary btn-sm">New Rule</div>
+                <div
+                  tabindex="0"
+                  role="button"
+                  class="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-sr-control border border-transparent bg-sr-brand px-3 text-sm font-semibold text-sr-on-brand shadow-sr-button hover:bg-sr-brand-strong"
+                >
+                  New Rule
+                </div>
                 <ul
                   tabindex="0"
                   class="dropdown-content menu bg-base-100 rounded-box z-[1] w-60 p-2 shadow border border-base-200"
@@ -348,8 +360,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -382,45 +394,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{format_purposes(rule)}</td>
                       <td>{format_scope(rule)}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          runtime_badge_class(rule, @integration_profiles, @integration_schedules)
-                        ]}>
+                        <.ui_badge
+                          size="sm"
+                          variant={
+                            runtime_badge_variant(
+                              rule,
+                              @integration_profiles,
+                              @integration_schedules
+                            )
+                          }
+                        >
                           {runtime_label(rule, @integration_profiles, @integration_schedules)}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td>{Map.get(@secret_names, rule.secret_id, "Unknown")}</td>
                       <td>{rule.priority}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          if(rule.enabled, do: "badge-success", else: "badge-ghost")
-                        ]}>
+                        <.ui_badge
+                          size="sm"
+                          variant={if(rule.enabled, do: "success", else: "ghost")}
+                        >
                           {if rule.enabled, do: "Enabled", else: "Disabled"}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
                       <td>
                         <div class="flex justify-end gap-2">
-                          <button
-                            :if={plugin_integration_provider?(rule.provider, @integration_profiles)}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="run_integration_now"
-                            phx-value-id={rule.id}
-                            disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))}
-                          >
+                          <.ui_button :if={plugin_integration_provider?(rule.provider, @integration_profiles)} type="button" phx-click="run_integration_now" phx-value-id={rule.id} disabled={!Map.has_key?(@integration_schedules, to_string(rule.id))} size="xs" variant="ghost">
                             Run Now
-                          </button>
-                          <button
-                            :if={testable_rule?(rule)}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="test_rule"
-                            phx-value-id={rule.id}
-                          >
+                          </.ui_button>
+                          <.ui_button :if={testable_rule?(rule)} type="button" phx-click="test_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                             Test
-                          </button>
+                          </.ui_button>
                           <span
                             :if={
                               !testable_rule?(rule) and
@@ -429,51 +434,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                             class="tooltip tooltip-left"
                             data-tip="Credential test is not yet available for this provider"
                           >
-                            <button type="button" class="btn btn-ghost btn-xs btn-disabled" disabled>
+                            <.ui_button type="button" disabled size="xs" variant="ghost">
                               Test
-                            </button>
+                            </.ui_button>
                           </span>
-                          <button
-                            :if={!plugin_integration_provider?(rule.provider, @integration_profiles)}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="preview_rule"
-                            phx-value-id={rule.id}
-                          >
+                          <.ui_button :if={!plugin_integration_provider?(rule.provider, @integration_profiles)} type="button" phx-click="preview_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                             Preview
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="toggle_consumers"
-                            phx-value-id={rule.id}
-                          >
+                          </.ui_button>
+                          <.ui_button type="button" phx-click="toggle_consumers" phx-value-id={rule.id} size="xs" variant="ghost">
                             Consumers
-                          </button>
-                          <.link
-                            navigate={~p"/settings/networks/credentials/#{rule.id}/edit"}
-                            class="btn btn-ghost btn-xs"
-                          >
+                          </.ui_button>
+                          <.ui_button navigate={~p"/settings/networks/credentials/#{rule.id}/edit"} size="xs" variant="ghost">
                             Edit
-                          </.link>
-                          <button
-                            :if={rule.enabled}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="disable_rule"
-                            phx-value-id={rule.id}
-                          >
+                          </.ui_button>
+                          <.ui_button :if={rule.enabled} type="button" phx-click="disable_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                             Disable
-                          </button>
-                          <button
-                            :if={!rule.enabled}
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="enable_rule"
-                            phx-value-id={rule.id}
-                          >
+                          </.ui_button>
+                          <.ui_button :if={!rule.enabled} type="button" phx-click="enable_rule" phx-value-id={rule.id} size="xs" variant="ghost">
                             Enable
-                          </button>
+                          </.ui_button>
                         </div>
                       </td>
                     </tr>
@@ -525,9 +504,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       <div class="modal-box max-w-3xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_secret_form">
+          <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
             Close
-          </button>
+          </.ui_button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
@@ -616,12 +595,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_secret_form">
+            <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
               Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">
               Save
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
@@ -651,7 +630,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             Last materialized {format_timestamp(@consumers.last_materialized_at)}.
           </p>
           <div class="overflow-hidden rounded-lg border border-base-200 bg-base-100">
-            <table class="table table-xs">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Agent</th>
@@ -667,12 +646,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   <td class="font-mono">{consumer.plugin_id}</td>
                   <td>{consumer.purpose}</td>
                   <td>
-                    <span class={[
-                      "badge badge-sm",
-                      if(consumer.enabled, do: "badge-success", else: "badge-ghost")
-                    ]}>
+                    <.ui_badge
+                      size="sm"
+                      variant={if(consumer.enabled, do: "success", else: "ghost")}
+                    >
                       {if consumer.enabled, do: "enabled", else: "disabled"}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td>{format_timestamp(consumer.last_materialized_at)}</td>
                 </tr>
@@ -692,9 +671,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       <div class="modal-box max-w-5xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="close_preview">
+          <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">
             Close
-          </button>
+          </.ui_button>
         </div>
 
         <div class="space-y-4">
@@ -721,7 +700,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Agent Distribution</h3>
               <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Agent</th>
@@ -746,7 +725,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <section class="space-y-2">
               <h3 class="text-sm font-semibold">Sample Devices</h3>
               <div class="overflow-hidden rounded-lg border border-base-200">
-                <table class="table table-sm">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr>
                       <th>Device</th>
@@ -774,7 +753,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <section :if={@rule_preview.preview.conflicts != []} class="space-y-2">
             <h3 class="text-sm font-semibold text-error">Credential Conflicts</h3>
             <div class="overflow-hidden rounded-lg border border-error/30">
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Rule</th>
@@ -809,12 +788,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   class="rounded-lg border border-base-200 p-3 space-y-2"
                 >
                   <div class="flex flex-wrap items-center gap-2 text-xs">
-                    <span class="badge badge-ghost badge-sm">{entry.purpose}</span>
+                    <.ui_badge size="sm" variant="ghost">{entry.purpose}</.ui_badge>
                     <span class="font-mono">{entry.plugin_id}</span>
                     <span class="font-mono text-base-content/60">{entry.policy_id}</span>
-                    <span :if={!entry.package_found?} class="badge badge-warning badge-sm">
+                    <.ui_badge :if={!entry.package_found?} size="sm" variant="warning">
                       no approved package
-                    </span>
+                    </.ui_badge>
                     <span class="text-base-content/60">
                       every {entry.interval_seconds}s, timeout {entry.timeout_seconds}s
                     </span>
@@ -825,7 +804,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   :if={effective.targets.sample != []}
                   class="overflow-hidden rounded-lg border border-base-200"
                 >
-                  <table class="table table-xs">
+                  <table class={ui_table_class(size: "xs")}>
                     <thead>
                       <tr>
                         <th>Target</th>
@@ -914,9 +893,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "New Credential Rule", else: "Edit Credential Rule"}
           </h2>
-          <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
             Close
-          </.link>
+          </.ui_button>
         </div>
 
         <.form
@@ -986,14 +965,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 prompt="Select a secret"
                 required
               />
-              <button
-                id="credential-rule-new-secret"
-                type="button"
-                class="btn btn-ghost btn-xs"
-                phx-click="new_rule_secret"
-              >
+              <.ui_button id="credential-rule-new-secret" type="button" phx-click="new_rule_secret" size="xs" variant="ghost">
                 New secret for this rule
-              </button>
+              </.ui_button>
             </div>
             <.input
               field={@form[:auth_method]}
@@ -1015,7 +989,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     name="credential_rule[purposes][]"
                     value={to_string(purpose)}
                     checked={to_string(purpose) in form_purposes(@form)}
-                    class="checkbox checkbox-sm"
+                    class={ui_checkbox_class()}
                   />
                   <span class="font-mono">{to_string(purpose)}</span>
                 </label>
@@ -1156,12 +1130,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <.input field={@form[:description]} type="textarea" label="Description" />
 
           <div class="modal-action">
-            <.link navigate={~p"/settings/networks/credentials"} class="btn btn-ghost">
+            <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
               Cancel
-            </.link>
-            <button type="submit" class="btn btn-primary">
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">
               Save
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
@@ -2511,15 +2485,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp runtime_badge_class(rule, profiles, schedules) do
+  defp runtime_badge_variant(rule, profiles, schedules) do
     if plugin_integration_provider?(rule.provider, profiles) do
       case Map.get(schedules, to_string(rule.id)) do
-        %{enabled: true} -> "badge-success"
-        %{} -> "badge-info"
-        nil -> "badge-warning"
+        %{enabled: true} -> "success"
+        %{} -> "info"
+        nil -> "warning"
       end
     else
-      if auto_discovery_enabled?(rule), do: "badge-warning", else: "badge-ghost"
+      if auto_discovery_enabled?(rule), do: "warning", else: "ghost"
     end
   end
 

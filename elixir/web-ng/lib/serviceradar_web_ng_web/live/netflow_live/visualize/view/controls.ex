@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
             </div>
           </div>
 
-          <div :if={@netflow_viz_state_error} class="alert alert-warning">
+          <div :if={@netflow_viz_state_error} class={ui_alert_class("warning")}>
             <div class="text-xs">
               Invalid `nf` state in URL: <span class="font-mono">{inspect(@netflow_viz_state_error)}</span>.
               Using defaults.
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
               <form phx-change="nf_state_change">
                 <select
                   name="state[graph]"
-                  class="select select-bordered select-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 >
                   <%= for {label, value} <- [{"Stacked", "stacked"}, {"100% Stacked", "stacked100"}, {"Lines", "lines"}, {"Grid", "grid"}, {"Sankey", "sankey"}] do %>
                     <option
@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
               <form phx-change="nf_state_change">
                 <select
                   name="state[units]"
-                  class="select select-bordered select-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 >
                   <%= for {label, value} <- [{"Bytes/sec (Bps)", "Bps"}, {"Bits/sec (bps)", "bps"}, {"Packets/sec (pps)", "pps"}] do %>
                     <option
@@ -84,12 +84,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                   max="50"
                   name="state[limit]"
                   value={Map.get(@netflow_viz_state, "limit")}
-                  class="input input-bordered input-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 />
 
                 <select
                   name="state[limit_type]"
-                  class="select select-bordered select-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 >
                   <%= for {label, value} <- [{"avg", "avg"}, {"max", "max"}, {"last", "last"}] do %>
                     <option
@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                     ) || ""
                   }
                   placeholder="site:austin"
-                  class="input input-bordered input-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                   autocomplete="off"
                 />
                 <.ui_button type="submit" size="sm" variant="ghost">Filter</.ui_button>
@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                     max="32"
                     name="state[truncate_v4]"
                     value={Map.get(@netflow_viz_state, "truncate_v4")}
-                    class="input input-bordered input-sm w-full font-mono text-xs"
+                    class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                   />
                 </div>
 
@@ -150,7 +150,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                     max="128"
                     name="state[truncate_v6]"
                     value={Map.get(@netflow_viz_state, "truncate_v6")}
-                    class="input input-bordered input-sm w-full font-mono text-xs"
+                    class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                   />
                 </div>
               </form>
@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
               <form phx-change="nf_state_change">
                 <select
                   name="state[time]"
-                  class="select select-bordered select-sm w-full font-mono text-xs"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full text-xs")}
                 >
                   <%= for value <- ["last_1h", "last_6h", "last_12h", "last_24h", "last_7d", "last_30d"] do %>
                     <option
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    class="checkbox checkbox-sm"
+                    class={ui_checkbox_class()}
                     name="state[bidirectional]"
                     value="true"
                     checked={Map.get(@netflow_viz_state, "bidirectional") == true}
@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    class="checkbox checkbox-sm"
+                    class={ui_checkbox_class()}
                     name="state[previous_period]"
                     value="true"
                     checked={Map.get(@netflow_viz_state, "previous_period") == true}
@@ -214,9 +214,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.Controls do
           </div>
 
           <div class="flex items-center justify-between">
-            <button type="button" class="btn btn-sm btn-ghost" phx-click="nf_reset">
+            <.ui_button type="button" phx-click="nf_reset" size="sm" variant="ghost">
               Reset view state
-            </button>
+            </.ui_button>
 
             <div class="text-[11px] text-base-content/50">
               URL param: <span class="font-mono">nf</span>

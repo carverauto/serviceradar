@@ -1067,12 +1067,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6">
+      <div class="sr-observability-page mx-auto max-w-7xl p-6 font-sans">
         <div class="space-y-4">
           <.observability_chrome active_pane={@active_tab} tab_link_kind="patch" />
 
           <div :if={@active_tab == "traces" and trace_rollup_warning?(@trace_rollup_status)}>
-            <div role="alert" class="alert alert-warning">
+            <div role="alert" class={ui_alert_class("warning")}>
               <.icon name="hero-exclamation-triangle" class="size-5" />
               <div class="text-sm">
                 <div class="font-semibold">Trace rollups need attention</div>
@@ -1122,10 +1122,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
             <:header>
               <div class="min-w-0">
-                <div class="text-sm font-semibold">
+                <div class="text-sm font-semibold tracking-tight text-sr-ink">
                   {panel_title(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
                 </div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs leading-relaxed text-sr-muted">
                   {panel_subtitle(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
                 </div>
               </div>
@@ -1341,27 +1341,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:debug, debug)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
-      <div class="flex items-center justify-between mb-3">
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4 font-sans">
+      <div class="mb-3 flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <div class="text-xs text-base-content/50 uppercase tracking-wider">Log Level Breakdown</div>
-          <div class="text-sm font-semibold text-base-content">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
+            Log Level Breakdown
+          </div>
+          <div class="text-sm font-semibold tracking-tight tabular-nums text-sr-ink">
             {format_compact_int(@total)}
-            <span class="text-xs font-normal text-base-content/60">total (24h)</span>
+            <span class="text-xs font-normal text-sr-muted">total (24h)</span>
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/observability?#{%{tab: "logs"}}"} class="btn btn-ghost btn-xs">
+          <.ui_button patch={~p"/observability?#{%{tab: "logs"}}"} size="xs" variant="ghost">
             All Logs
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             patch={
               ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error])}}"
             }
-            class="btn btn-ghost btn-xs text-error"
+            size="xs"
+            variant="danger"
           >
             Errors Only
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -1423,14 +1426,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <.link
       patch={~p"/observability?#{%{tab: "logs", q: @query}}"}
-      class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
+      class="group cursor-pointer rounded-lg bg-base-200/50 p-3 transition-colors hover:bg-base-200"
     >
-      <div class="flex items-center justify-between mb-1">
-        <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
-        <span class="text-xs text-base-content/50">{@pct}%</span>
+      <div class="mb-1 flex items-center justify-between">
+        <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
+        <span class="text-[11px] tabular-nums text-sr-muted">{@pct}%</span>
       </div>
-      <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
-      <div class="h-1 bg-base-300 rounded-full mt-2 overflow-hidden">
+      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
+        {@count}
+      </div>
+      <div class="mt-2 h-1 overflow-hidden rounded-full bg-base-300">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>
     </.link>
@@ -1461,17 +1466,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           Event Severity Breakdown
         </div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/observability?#{%{tab: "events"}}"} class="btn btn-ghost btn-xs">
+          <.ui_button patch={~p"/observability?#{%{tab: "events"}}"} size="xs" variant="ghost">
             All Events
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             patch={
               ~p"/observability?#{%{tab: "events", q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
             }
-            class="btn btn-ghost btn-xs text-error"
+            size="xs"
+            variant="danger"
           >
             Critical/High
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1526,14 +1532,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <.link
       patch={~p"/observability?#{%{tab: "events", q: @query}}"}
-      class="rounded-lg bg-base-200/50 p-3 hover:bg-base-200 transition-colors cursor-pointer group"
+      class="group cursor-pointer rounded-lg bg-base-200/50 p-3 transition-colors hover:bg-base-200"
     >
-      <div class="flex items-center justify-between mb-1">
-        <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
-        <span class="text-xs text-base-content/50">{@pct}%</span>
+      <div class="mb-1 flex items-center justify-between">
+        <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
+        <span class="text-[11px] tabular-nums text-sr-muted">{@pct}%</span>
       </div>
-      <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
-      <div class="h-1 bg-base-300 rounded-full mt-2 overflow-hidden">
+      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
+        {@count}
+      </div>
+      <div class="mt-2 h-1 overflow-hidden rounded-full bg-base-300">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>
     </.link>
@@ -1559,17 +1567,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           Alert Status Overview
         </div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/observability?#{%{tab: "alerts"}}"} class="btn btn-ghost btn-xs">
+          <.ui_button patch={~p"/observability?#{%{tab: "alerts"}}"} size="xs" variant="ghost">
             All Alerts
-          </.link>
-          <.link
+          </.ui_button>
+          <.ui_button
             patch={
               ~p"/observability?#{%{tab: "alerts", q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"
             }
-            class="btn btn-ghost btn-xs text-warning"
+            size="xs"
+            variant="warning"
           >
             Pending
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -2432,8 +2441,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <div class="p-4 border-b border-base-200 bg-base-200/30 flex items-center justify-between">
             <div class="text-xs uppercase tracking-wider text-base-content/50">Top Talkers</div>
             <div class="flex items-center gap-2">
-              <div class="join">
-                <.link
+              <div class="flex items-center gap-1">
+                <.ui_button
                   patch={
                     netflow_talker_cidr_patch(
                       @base_path,
@@ -2442,14 +2451,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       Map.put(patch_opts, :talker_cidr, nil)
                     )
                   }
-                  class={[
-                    "join-item btn btn-ghost btn-xs font-mono",
-                    (is_nil(@talker_cidr) && "btn-active") || nil
-                  ]}
+                  size="xs"
+                  variant={if is_nil(@talker_cidr), do: "primary", else: "ghost"}
+                  class="font-mono"
                 >
                   Host
-                </.link>
-                <.link
+                </.ui_button>
+                <.ui_button
                   patch={
                     netflow_talker_cidr_patch(
                       @base_path,
@@ -2458,14 +2466,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       Map.put(patch_opts, :talker_cidr, 24)
                     )
                   }
-                  class={[
-                    "join-item btn btn-ghost btn-xs font-mono",
-                    (@talker_cidr == 24 && "btn-active") || nil
-                  ]}
+                  size="xs"
+                  variant={if @talker_cidr == 24, do: "primary", else: "ghost"}
+                  class="font-mono"
                 >
                   /24
-                </.link>
-                <.link
+                </.ui_button>
+                <.ui_button
                   patch={
                     netflow_talker_cidr_patch(
                       @base_path,
@@ -2474,13 +2481,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       Map.put(patch_opts, :talker_cidr, 16)
                     )
                   }
-                  class={[
-                    "join-item btn btn-ghost btn-xs font-mono",
-                    (@talker_cidr == 16 && "btn-active") || nil
-                  ]}
+                  size="xs"
+                  variant={if @talker_cidr == 16, do: "primary", else: "ghost"}
+                  class="font-mono"
                 >
                   /16
-                </.link>
+                </.ui_button>
               </div>
               <.ui_badge variant="ghost" size="xs">{length(@top_talkers)}</.ui_badge>
             </div>
@@ -3269,7 +3275,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           name="tag"
           value={@current_tag}
           placeholder="site:austin"
-          class="input input-bordered input-xs w-40 font-mono"
+          class={ui_field_class(size: "xs", mono: true, class: "w-40")}
           autocomplete="off"
         />
         <.ui_button type="submit" size="xs" variant="ghost">Filter</.ui_button>
@@ -3663,7 +3669,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp logs_table(assigns) do
     ~H"""
     <div id={"#{@id}-local-time"} class="overflow-x-auto" phx-hook=".LocalTime">
-      <table id={@id} class="table table-sm table-zebra w-full">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -3767,8 +3773,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:sort_dir, sort_dir)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -3961,8 +3967,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:max_v, max_v)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -4009,9 +4015,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 title={Map.get(metric, "metric_type")}
               >
                 <span class="inline-flex items-center gap-2">
-                  <span class={metric_type_badge_class(metric)}>
+                  <.ui_badge size="sm" variant={metric_type_badge_variant(metric)}>
                     {metric_type_label(metric)}
-                  </span>
+                  </.ui_badge>
                 </span>
               </td>
               <td class="text-xs truncate max-w-[28rem]" title={metric_operation(metric)}>
@@ -4042,14 +4048,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <.metric_viz metric={metric} sparklines={@sparklines} />
               </td>
               <td class="whitespace-nowrap text-xs text-right">
-                <.link
+                <.ui_icon_button
                   :if={is_binary(Map.get(metric, "trace_id")) and Map.get(metric, "trace_id") != ""}
                   navigate={correlate_metric_href(metric)}
-                  class="btn btn-ghost btn-xs"
+                  size="xs"
+                  variant="ghost"
                   title="View correlated logs"
+                  aria-label="View correlated logs"
                 >
                   <.icon name="hero-arrow-top-right-on-square" class="size-4" />
-                </.link>
+                </.ui_icon_button>
                 <span
                   :if={
                     not (is_binary(Map.get(metric, "trace_id")) and Map.get(metric, "trace_id") != "")
@@ -4076,19 +4084,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # matching the rest of the pane's navigation.
   defp metrics_panel_controls(assigns) do
     ~H"""
-    <div id="metrics-view-toggle" class="join">
-      <.link
+    <div id="metrics-view-toggle" class="flex items-center gap-1">
+      <.ui_button
         patch={metrics_view_href(@srql, @limit, "samples")}
-        class={["btn btn-xs join-item", @view == "samples" && "btn-active"]}
+        size="xs"
+        variant={if @view == "samples", do: "primary", else: "ghost"}
       >
         Span samples
-      </.link>
-      <.link
+      </.ui_button>
+      <.ui_button
         patch={metrics_view_href(@srql, @limit, "points")}
-        class={["btn btn-xs join-item", @view == "points" && "btn-active"]}
+        size="xs"
+        variant={if @view == "points", do: "primary", else: "ghost"}
       >
         OTLP metrics
-      </.link>
+      </.ui_button>
     </div>
     """
   end
@@ -4103,7 +4113,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="lg:col-span-1 overflow-x-auto">
-        <table id="otlp-metric-names" class="table table-sm table-zebra w-full">
+        <table id="otlp-metric-names" class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
           <thead>
             <tr>
               <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
@@ -4143,7 +4153,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   </.link>
                 </td>
                 <td class="whitespace-nowrap text-xs">
-                  <span class={otlp_type_badge_class(entry.type)}>{entry.type || "—"}</span>
+                  <.ui_badge size="sm" variant={otlp_type_badge_variant(entry.type)}>
+                    {entry.type || "—"}
+                  </.ui_badge>
                 </td>
                 <td class="whitespace-nowrap text-xs">{entry.unit || "—"}</td>
                 <td class="whitespace-nowrap text-xs font-mono text-right">
@@ -4162,9 +4174,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div :if={is_binary(@selected)}>
           <div class="mb-3 flex flex-wrap items-center gap-2">
             <span class="font-mono text-sm font-semibold break-all">{@selected}</span>
-            <span :if={@series != []} class="badge badge-sm badge-ghost">
+            <.ui_badge :if={@series != []} size="sm" variant="ghost">
               temporality: {otlp_temporality_label(List.first(@series))}
-            </span>
+            </.ui_badge>
             <span class="text-xs text-base-content/60">
               {length(@series)} series · grouped by attributes
             </span>
@@ -4200,9 +4212,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           {@series.attributes || "(no attributes)"}
         </div>
         <div class="mt-1 flex items-center gap-2 text-[10px] text-base-content/50">
-          <span class={otlp_type_badge_class(@series.metric_type)}>
+          <.ui_badge size="sm" variant={otlp_type_badge_variant(@series.metric_type)}>
             {@series.metric_type || "—"}
-          </span>
+          </.ui_badge>
           <span>{otlp_kind_label(@series.kind)}</span>
           <span>temporality: {otlp_temporality_label(@series)}</span>
           <span>{@series.point_count} pts</span>
@@ -4250,8 +4262,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp events_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -4395,8 +4407,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp alerts_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -4554,37 +4566,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @graph_mode,
           @view
         ) %>
-      <table class={[
-        "table table-zebra w-full table-fixed",
-        (@compact? && "table-xs") || "table-sm"
-      ]}>
+      <table class={ui_table_class(
+        size: if(@compact?, do: "xs", else: "sm"),
+        zebra: true,
+        fixed: true,
+        class: "w-full"
+      )}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Time
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-              Source
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-              Destination
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
-              Protocol
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
-              Version
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32 text-right">
-              Packets/Bytes
-            </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
-            </th>
+            <th class="w-40">Time</th>
+            <th>Source</th>
+            <th>Destination</th>
+            <th class="w-24">Protocol</th>
+            <th class="w-20">Version</th>
+            <th class="w-32 text-right">Packets/Bytes</th>
+            <th class="w-10 text-right"></th>
           </tr>
         </thead>
         <tbody>
           <%= for {flow, idx} <- Enum.with_index(@flows) do %>
-            <tr class="hover:bg-base-200/40">
+            <tr>
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_netflow_timestamp(flow)}
               </td>
@@ -4814,15 +4815,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:sources, Map.get(assigns.threat, :sources, []))
 
     ~H"""
-    <span
-      class={[
-        "badge badge-xs shrink-0 font-mono",
-        netflow_threat_badge_class(@severity)
-      ]}
+    <.ui_badge
+      size="xs"
+      variant={netflow_threat_badge_variant(@severity)}
+      class="shrink-0 font-mono"
       title={netflow_threat_title(@count, @severity, @sources)}
     >
       IOC
-    </span>
+    </.ui_badge>
     """
   end
 
@@ -4835,11 +4835,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_threat(_threat_map, _ip), do: nil
 
-  defp netflow_threat_badge_class(severity) when is_integer(severity) and severity >= 4, do: "badge-error"
+  defp netflow_threat_badge_variant(severity) when is_integer(severity) and severity >= 4, do: "error"
 
-  defp netflow_threat_badge_class(severity) when is_integer(severity) and severity >= 2, do: "badge-warning"
+  defp netflow_threat_badge_variant(severity) when is_integer(severity) and severity >= 2, do: "warning"
 
-  defp netflow_threat_badge_class(_severity), do: "badge-info"
+  defp netflow_threat_badge_variant(_severity), do: "info"
 
   defp netflow_threat_title(count, severity, sources) do
     source_text =
@@ -4875,7 +4875,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       <%= if @geo do %>
         <span class="font-mono">
           <%= if is_binary(@country_iso2) and @country_iso2 != "" do %>
-            <span class="badge badge-xs badge-ghost font-mono">{@country_iso2}</span>
+            <.ui_badge size="xs" variant="ghost" class="font-mono">{@country_iso2}</.ui_badge>
             <span :if={is_binary(@flag)} class="ml-1">{@flag}</span>
           <% end %>
 
@@ -5361,7 +5361,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                   <% else %>
                     <div class="mt-1 text-base-content/70">
-                      <span class="badge badge-xs badge-ghost">no match</span>
+                      <.ui_badge size="xs" variant="ghost">no match</.ui_badge>
                       <span class="ml-2">No process context is attached to this flow row.</span>
                     </div>
                   <% end %>
@@ -5378,23 +5378,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   <div class="mt-1 text-base-content/70">
                     Source: <span class="font-mono">{@src_ip}</span>
                     <%= if match = Map.get(@context, :src_threat) do %>
-                      <span class="ml-2 badge badge-xs badge-warning">match</span>
+                      <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
                       <span class="ml-2 font-mono">
                         {match.match_count} indicators
                       </span>
                     <% else %>
-                      <span class="ml-2 badge badge-xs badge-ghost">none</span>
+                      <.ui_badge size="xs" variant="ghost" class="ml-2">none</.ui_badge>
                     <% end %>
                   </div>
                   <div class="mt-1 text-base-content/70">
                     Dest: <span class="font-mono">{@dst_ip}</span>
                     <%= if match = Map.get(@context, :dst_threat) do %>
-                      <span class="ml-2 badge badge-xs badge-warning">match</span>
+                      <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
                       <span class="ml-2 font-mono">
                         {match.match_count} indicators
                       </span>
                     <% else %>
-                      <span class="ml-2 badge badge-xs badge-ghost">none</span>
+                      <.ui_badge size="xs" variant="ghost" class="ml-2">none</.ui_badge>
                     <% end %>
                   </div>
                 </div>
@@ -5403,12 +5403,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   <div class="font-semibold">Port scan</div>
                   <%= if scan = Map.get(@context, :src_port_scan) do %>
                     <div class="mt-1 text-base-content/70">
-                      <span class="badge badge-xs badge-error">flagged</span>
+                      <.ui_badge size="xs" variant="error">flagged</.ui_badge>
                       <span class="ml-2 font-mono">{scan.unique_ports} unique ports</span>
                     </div>
                   <% else %>
                     <div class="mt-1 text-base-content/70">
-                      <span class="badge badge-xs badge-ghost">not flagged</span>
+                      <.ui_badge size="xs" variant="ghost">not flagged</.ui_badge>
                     </div>
                   <% end %>
                 </div>
@@ -5416,7 +5416,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <div :if={anomaly = Map.get(@context, :dst_port_anomaly)}>
                   <div class="font-semibold">Port anomaly</div>
                   <div class="mt-1 text-base-content/70">
-                    <span class="badge badge-xs badge-error">anomalous</span>
+                    <.ui_badge size="xs" variant="error">anomalous</.ui_badge>
                     <span class="ml-2 font-mono">
                       {format_netflow_bytes(anomaly.current_bytes)} vs baseline {format_netflow_bytes(
                         anomaly.baseline_bytes
@@ -5591,9 +5591,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         </div>
                         <div class="mt-1 flex flex-wrap gap-1">
                           <%= for community <- bgp_communities do %>
-                            <span class="badge badge-sm badge-outline font-mono">
+                            <.ui_badge size="sm" variant="outline" class="font-mono">
                               {format_bgp_community(community)}
-                            </span>
+                            </.ui_badge>
                           <% end %>
                         </div>
                       </div>
@@ -6464,13 +6464,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp extract_duration_ms(metric), do: duration_ms_from_metric(metric)
 
-  defp metric_type_badge_class(metric) do
+  defp metric_type_badge_variant(metric) do
     case metric |> Map.get("metric_type") |> normalize_severity() do
-      "histogram" -> "badge badge-sm badge-info"
-      "gauge" -> "badge badge-sm badge-success"
-      "counter" -> "badge badge-sm badge-primary"
-      "span" -> "badge badge-sm badge-warning"
-      _ -> "badge badge-sm badge-ghost"
+      "histogram" -> "info"
+      "gauge" -> "success"
+      "counter" -> "primary"
+      "span" -> "warning"
+      _ -> "ghost"
     end
   end
 
@@ -7668,12 +7668,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~p"/observability?#{%{tab: "metrics", q: Map.get(srql, :query, ""), limit: limit, mview: "points", metric: name}}"
   end
 
-  defp otlp_type_badge_class(type) do
+  defp otlp_type_badge_variant(type) do
     case type do
-      "histogram" -> "badge badge-sm badge-info"
-      "gauge" -> "badge badge-sm badge-success"
-      "sum" -> "badge badge-sm badge-primary"
-      _ -> "badge badge-sm badge-ghost"
+      "histogram" -> "info"
+      "gauge" -> "success"
+      "sum" -> "primary"
+      _ -> "ghost"
     end
   end
 

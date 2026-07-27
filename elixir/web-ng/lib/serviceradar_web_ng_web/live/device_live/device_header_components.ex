@@ -171,8 +171,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
         <.ui_button
           :if={@can_manage and not @device_deleted}
           phx-click="delete_device"
-          variant="outline"
-          class="btn-error"
+          variant="danger"
           size="sm"
           phx-confirm="Delete this device? It will be hidden from inventory but can be restored later."
         >

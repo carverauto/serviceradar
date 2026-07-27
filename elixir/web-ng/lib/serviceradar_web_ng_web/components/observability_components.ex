@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     statics: ServiceRadarWebNGWeb.static_paths()
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.UIComponents
 
   attr :active_pane, :string, required: true
   attr :active_subsection, :string, default: nil
@@ -23,11 +24,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
 
   def observability_chrome(assigns) do
     ~H"""
-    <div class={["space-y-4", @class]}>
+    <div class={["space-y-4 font-sans", @class]}>
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-xl font-semibold">{@title}</div>
-          <div class="text-sm text-base-content/60">{@subtitle}</div>
+          <div class="text-xl font-semibold tracking-tight text-sr-ink">{@title}</div>
+          <div class="text-sm leading-relaxed text-sr-muted">{@subtitle}</div>
         </div>
 
         <div :if={@actions != []} class="flex flex-wrap items-center gap-2">
@@ -178,22 +179,26 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     assigns = assign(assigns, :active?, assigns.active_pane == assigns.id)
 
     ~H"""
-    <.link
+    <.ui_button
       :if={@link_kind == "patch"}
       patch={@path}
-      class={tab_button_class(@active?)}
+      size="sm"
+      variant={if(@active?, do: "primary", else: "ghost")}
+      active={@active?}
     >
       <.icon name={@icon} class="size-4" />
       {@label}
-    </.link>
-    <.link
+    </.ui_button>
+    <.ui_button
       :if={@link_kind != "patch"}
       navigate={@path}
-      class={tab_button_class(@active?)}
+      size="sm"
+      variant={if(@active?, do: "primary", else: "ghost")}
+      active={@active?}
     >
       <.icon name={@icon} class="size-4" />
       {@label}
-    </.link>
+    </.ui_button>
     """
   end
 
@@ -207,16 +212,17 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     assigns = assign(assigns, :active?, assigns.active_pane == assigns.id)
 
     ~H"""
-    <.link navigate={@path} class={tab_button_class(@active?)}>
+    <.ui_button
+      navigate={@path}
+      size="sm"
+      variant={if(@active?, do: "primary", else: "ghost")}
+      active={@active?}
+    >
       <.icon name={@icon} class="size-4" />
       {@label}
-    </.link>
+    </.ui_button>
     """
   end
-
-  defp tab_button_class(true), do: "btn btn-sm btn-primary rounded-lg flex items-center gap-2 transition-colors"
-
-  defp tab_button_class(false), do: "btn btn-sm btn-ghost rounded-lg flex items-center gap-2 transition-colors"
 
   defp normalize_camera_relay_subsection(nil), do: "operations"
   defp normalize_camera_relay_subsection(""), do: "operations"

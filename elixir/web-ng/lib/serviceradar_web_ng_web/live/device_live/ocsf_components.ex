@@ -344,30 +344,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
   attr(:level, :string, required: true)
 
   defp risk_badge(assigns) do
-    {color, _} =
+    variant =
       case assigns.level do
-        "Critical" -> {"error", "Critical"}
-        "High" -> {"warning", "High"}
-        "Medium" -> {"info", "Medium"}
-        "Low" -> {"success", "Low"}
-        _ -> {"ghost", assigns.level}
+        "Critical" -> "error"
+        "High" -> "warning"
+        "Medium" -> "info"
+        "Low" -> "success"
+        _ -> "ghost"
       end
 
-    assigns = assign(assigns, :color, color)
+    assigns = assign(assigns, :variant, variant)
 
     ~H"""
-    <span class={["badge badge-sm", "badge-#{@color}"]}>{@level}</span>
+    <.ui_badge size="sm" variant={@variant}>{@level}</.ui_badge>
     """
   end
 
   attr(:value, :boolean, required: true)
 
   defp bool_badge(assigns) do
-    {label, color} = if assigns.value, do: {"Yes", "success"}, else: {"No", "error"}
-    assigns = assigns |> assign(:label, label) |> assign(:color, color)
+    {label, variant} = if assigns.value, do: {"Yes", "success"}, else: {"No", "error"}
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
-    <span class={["badge badge-sm", "badge-#{@color}"]}>{@label}</span>
+    <.ui_badge size="sm" variant={@variant}>{@label}</.ui_badge>
     """
   end
 

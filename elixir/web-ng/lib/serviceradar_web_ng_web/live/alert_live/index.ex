@@ -129,13 +129,10 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
           Alert Status Overview
         </div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/alerts"} class="btn btn-ghost btn-xs">All Alerts</.link>
-          <.link
-            patch={~p"/alerts?#{%{q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"}
-            class="btn btn-ghost btn-xs text-warning"
-          >
+          <.ui_button patch={~p"/alerts"} size="xs" variant="ghost">All Alerts</.ui_button>
+          <.ui_button patch={~p"/alerts?#{%{q: "in:alerts status:pending time:last_7d sort:timestamp:desc"}}"} size="xs" variant="ghost" class="text-warning">
             Pending
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -176,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
 
   defp alerts_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">

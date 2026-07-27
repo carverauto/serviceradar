@@ -24,7 +24,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
                     <span :if={!@service}>No matching service check found.</span>
                   </div>
                 </div>
-                <.link navigate={~p"/services"} class="btn btn-ghost btn-xs">Back to services</.link>
+                <.ui_button navigate={~p"/services"} size="xs" variant="ghost">
+                  Back to services
+                </.ui_button>
               </div>
             </:header>
 

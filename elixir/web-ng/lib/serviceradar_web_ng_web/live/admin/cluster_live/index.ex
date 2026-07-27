@@ -200,8 +200,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr class="text-xs uppercase tracking-wide text-base-content/60">
                   <th>Node</th>
@@ -260,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Partition</th>
@@ -314,7 +314,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Agent ID</th>
@@ -361,8 +361,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
                   <th>Event</th>

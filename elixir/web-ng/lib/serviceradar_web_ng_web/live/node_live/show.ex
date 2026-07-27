@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             >
               <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
               <span class="text-sm text-success font-medium">Connected</span>
-              <span :if={@is_current} class="badge badge-primary badge-sm">Current Node</span>
+              <.ui_badge :if={@is_current} size="sm" variant="primary">Current Node</.ui_badge>
               <span class="text-xs text-base-content/60">Node is connected to the cluster</span>
             </div>
             <div
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">System Information</span>
-        <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
+        <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="stat bg-base-200/30 rounded-lg p-3">
@@ -345,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Gateways on this Node</span>
-        <span class="ml-2 badge badge-info badge-sm">{length(@gateways)}</span>
+        <.ui_badge size="sm" variant="info" class="ml-2">{length(@gateways)}</.ui_badge>
       </div>
       <div class="divide-y divide-base-200">
         <%= for gateway <- @gateways do %>
@@ -354,9 +354,9 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <div class="flex-1">
               <span class="font-mono text-sm">{Map.get(gateway, :partition_id, "default")}</span>
             </div>
-            <.link navigate={~p"/gateways/#{format_gateway_id(gateway)}"} class="btn btn-ghost btn-xs">
+            <.ui_button navigate={~p"/gateways/#{format_gateway_id(gateway)}"} size="xs" variant="ghost">
               View
-            </.link>
+            </.ui_button>
           </div>
         <% end %>
       </div>
@@ -371,7 +371,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Agents on this Node</span>
-        <span class="ml-2 badge badge-success badge-sm">{length(@agents)}</span>
+        <.ui_badge size="sm" variant="success" class="ml-2">{length(@agents)}</.ui_badge>
       </div>
       <div class="divide-y divide-base-200">
         <%= for agent <- @agents do %>
@@ -380,12 +380,9 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <div class="flex-1">
               <span class="font-mono text-sm">{Map.get(agent, :agent_id, "unknown")}</span>
             </div>
-            <.link
-              navigate={~p"/agents/#{Map.get(agent, :agent_id)}"}
-              class="btn btn-ghost btn-xs"
-            >
+            <.ui_button navigate={~p"/agents/#{Map.get(agent, :agent_id)}"} size="xs" variant="ghost">
               View
-            </.link>
+            </.ui_button>
           </div>
         <% end %>
       </div>
@@ -462,7 +459,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
         <div :if={@role_info.steps != []} class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <%= for {step, index} <- Enum.with_index(@role_info.steps) do %>
             <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
-              <span class={"badge badge-sm #{step_badge_class(index)}"}>{step.label}</span>
+              <.ui_badge size="sm" variant={step_badge_variant(index)}>{step.label}</.ui_badge>
               <span class="text-xs text-base-content/60">{step.description}</span>
             </div>
           <% end %>
@@ -472,10 +469,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     """
   end
 
-  defp step_badge_class(0), do: "badge-info"
-  defp step_badge_class(1), do: "badge-success"
-  defp step_badge_class(2), do: "badge-primary"
-  defp step_badge_class(_), do: "badge-ghost"
+  defp step_badge_variant(0), do: "info"
+  defp step_badge_variant(1), do: "success"
+  defp step_badge_variant(2), do: "primary"
+  defp step_badge_variant(_), do: "ghost"
 
   defp format_gateway_id(gateway) do
     case Map.get(gateway, :key) do

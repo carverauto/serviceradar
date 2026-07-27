@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="space-y-2">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="badge badge-success badge-sm">ServiceRadar secured</span>
+            <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
             <span class={state_badge_classes(@bundle.operation.state)}>
               {@bundle.operation.state}
             </span>
@@ -33,12 +33,12 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
           <p class="font-mono text-xs text-base-content/60 break-all">{@bundle.operation.id}</p>
         </div>
         <div class="flex items-center gap-2">
-          <.link navigate={~p"/ansible/runs"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/ansible/runs"} size="sm" variant="ghost">
             Legacy run history
-          </.link>
-          <button type="button" class="btn btn-sm" phx-click="refresh">
+          </.ui_button>
+          <.ui_button type="button" phx-click="refresh" size="sm" variant="neutral">
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </button>
+          </.ui_button>
         </div>
       </header>
 
@@ -87,13 +87,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
               {length(@bundle.executions)} inventory-bound child execution{plural(@bundle.executions)}.
             </p>
           </div>
-          <span class="badge badge-outline">Secure model · not a legacy PlaybookRun</span>
+          <.ui_badge size="sm" variant="outline">Secure model · not a legacy PlaybookRun</.ui_badge>
         </div>
 
         <div
           :if={@bundle.executions == []}
           role="status"
-          class="alert alert-warning"
+          class={ui_alert_class("warning")}
           id="secure-operation-no-executions"
         >
           <.icon name="hero-exclamation-triangle" class="size-5" />
@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
         <div
           :if={@execution.scope_verified_at}
           role="status"
-          class="alert alert-success"
+          class={ui_alert_class("success")}
           data-testid="scope-proof-verified"
         >
           <.icon name="hero-shield-check" class="size-5" />
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
         <div
           :if={is_nil(@execution.scope_verified_at)}
           role="status"
-          class="alert alert-warning"
+          class={ui_alert_class("warning")}
           data-testid="scope-proof-pending"
         >
           <.icon name="hero-shield-exclamation" class="size-5" />
@@ -201,22 +201,22 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
                 Controller + inventory + AWX host ID distinguish duplicate hostnames.
               </p>
             </div>
-            <span class="badge badge-ghost">
+            <.ui_badge size="sm" variant="ghost">
               {length(@execution.targets)} target{plural(@execution.targets)}
-            </span>
+            </.ui_badge>
           </div>
 
           <div
             :if={@execution.targets == []}
             role="status"
-            class="alert alert-warning"
+            class={ui_alert_class("warning")}
           >
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span>No immutable target tuple is recorded for this execution.</span>
           </div>
 
           <div :if={@execution.targets != []} class="overflow-x-auto border border-base-300">
-            <table class="table table-sm" data-testid="secure-target-tuples">
+            <table class={ui_table_class(size: "sm")} data-testid="secure-target-tuples">
               <thead>
                 <tr>
                   <th>Controller</th>
@@ -272,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp target_hold(assigns) do
     ~H"""
-    <div role="alert" class="alert alert-error" data-testid="secure-target-hold">
+    <div role="alert" class={ui_alert_class("error")} data-testid="secure-target-hold">
       <.icon name="hero-no-symbol" class="size-5" />
       <div class="min-w-0">
         <p class="font-medium">Target hold active · {target_label(@target)}</p>
@@ -382,7 +382,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp state_alert_content(:dispatch_partial) do
     %{
-      class: "alert alert-warning",
+      class: ui_alert_class("warning"),
       icon: "hero-exclamation-triangle",
       title: "partial dispatch",
       message: "One or more inventory-bound child executions did not dispatch. Review each child before retrying."
@@ -391,7 +391,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp state_alert_content(:dispatch_ambiguous) do
     %{
-      class: "alert alert-error",
+      class: ui_alert_class("error"),
       icon: "hero-question-mark-circle",
       title: "dispatch outcome is ambiguous",
       message:
@@ -401,7 +401,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp state_alert_content(:cancel_failed) do
     %{
-      class: "alert alert-error",
+      class: ui_alert_class("error"),
       icon: "hero-x-circle",
       title: "cancellation failed",
       message:
@@ -411,7 +411,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp state_alert_content(:canceled) do
     %{
-      class: "alert alert-info",
+      class: ui_alert_class("info"),
       icon: "hero-no-symbol",
       title: "canceled",
       message:
@@ -421,7 +421,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
   defp state_alert_content(:failed) do
     %{
-      class: "alert alert-error",
+      class: ui_alert_class("error"),
       icon: "hero-x-circle",
       title: "failed",
       message: "The operation failed. Review safe diagnostics, scope proof, and exact target status before any retry."

@@ -356,13 +356,13 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                   name="ip"
                   value={@preview_ip}
                   placeholder="10.1.2.3"
-                  class="input input-bordered input-sm w-full font-mono"
+                  class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                   autocomplete="off"
                 />
               </div>
               <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
             </form>
-            <div :if={@preview_error} class="mt-3 alert alert-warning text-sm">
+            <div :if={@preview_error} class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}>
               {@preview_error}
             </div>
             <div :if={is_list(@preview_chain)} class="mt-3 space-y-2">
@@ -375,20 +375,24 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                 >
                   <div class="font-mono text-xs text-base-content/70">
                     {Map.get(match, :prefix) || "—"}
-                    <span
+                    <.ui_badge
                       :if={src = Map.get(match, :source)}
-                      class="ml-2 badge badge-ghost badge-xs"
+                      size="xs"
+                      variant="ghost"
+                      class="ml-2"
                     >
                       {src}
-                    </span>
+                    </.ui_badge>
                   </div>
                   <div class="mt-1 flex flex-wrap gap-1">
-                    <span
+                    <.ui_badge
                       :for={tag <- List.wrap(Map.get(match, :tags) || [])}
-                      class="badge badge-outline badge-xs font-mono"
+                      size="xs"
+                      variant="outline"
+                      class="font-mono"
                     >
                       {tag}
-                    </span>
+                    </.ui_badge>
                   </div>
                 </div>
               <% end %>
@@ -423,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     value={@form["prefix"]}
                     required
                     placeholder="10.1.2.0/24"
-                    class="input input-bordered input-sm font-mono"
+                    class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
                 <div class="form-control">
@@ -432,7 +436,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[vrf]"
                     value={@form["vrf"]}
-                    class="input input-bordered input-sm font-mono"
+                    class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
                 <div class="form-control sm:col-span-2">
@@ -445,7 +449,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     value={@form["tags"]}
                     required
                     placeholder="site:hq role:wifi"
-                    class="input input-bordered input-sm font-mono"
+                    class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
                 <div class="form-control">
@@ -454,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[site]"
                     value={@form["site"]}
-                    class="input input-bordered input-sm"
+                    class={ui_field_class(size: "sm")}
                   />
                 </div>
                 <div class="form-control">
@@ -463,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[role]"
                     value={@form["role"]}
-                    class="input input-bordered input-sm"
+                    class={ui_field_class(size: "sm")}
                   />
                 </div>
                 <div class="form-control">
@@ -472,7 +476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[tenant]"
                     value={@form["tenant"]}
-                    class="input input-bordered input-sm"
+                    class={ui_field_class(size: "sm")}
                   />
                 </div>
                 <div class="form-control">
@@ -481,7 +485,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     type="text"
                     name="prefix_tag[status]"
                     value={@form["status"]}
-                    class="input input-bordered input-sm"
+                    class={ui_field_class(size: "sm")}
                   />
                 </div>
               </div>
@@ -582,7 +586,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </div>
 
             <div :if={not @loading? and @snapshot_backed? and @tags != []} class="overflow-x-auto">
-              <table class="table table-sm table-zebra w-full">
+              <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
                 <thead>
                   <tr>
                     <th>Prefix</th>
@@ -598,12 +602,14 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     <td class="font-mono text-xs">{tag.vrf || "—"}</td>
                     <td>
                       <div class="flex flex-wrap gap-1">
-                        <span
+                        <.ui_badge
                           :for={t <- List.wrap(tag.tags)}
-                          class="badge badge-outline badge-xs font-mono"
+                          size="xs"
+                          variant="outline"
+                          class="font-mono"
                         >
                           {t}
-                        </span>
+                        </.ui_badge>
                       </div>
                     </td>
                     <td class="text-xs text-base-content/70">

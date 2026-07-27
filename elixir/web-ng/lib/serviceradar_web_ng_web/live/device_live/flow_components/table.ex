@@ -37,21 +37,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
       <div class="p-4">
         <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
           <span>{@error}</span>
-          <button
-            type="button"
-            phx-click="switch_tab"
-            phx-value-tab="flows"
-            class="btn btn-error btn-outline btn-xs"
-          >
+          <.ui_button type="button" phx-click="switch_tab" phx-value-tab="flows" size="xs" variant="outline">
             Retry
-          </button>
+          </.ui_button>
         </div>
 
         <%= if @flows == [] and is_nil(@error) do %>
           <div class="text-sm text-base-content/60">No flows found for this device.</div>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-xs w-full">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs", class: "w-full")}>
               <thead>
                 <tr>
                   <th>Time</th>
@@ -137,14 +132,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                       />
                     </td>
                     <td class="text-right">
-                      <.link
-                        navigate={
-                          ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}"
-                        }
-                        class="btn btn-ghost btn-xs"
-                      >
+                      <.ui_button navigate={ ~p"/observability/flows?#{%{"open" => "first", "q" => flow_drilldown_query(flow)}}" } size="xs" variant="ghost">
                         Details
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 <% end %>

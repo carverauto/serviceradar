@@ -178,63 +178,65 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       srql={@srql}
     >
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p class="text-sm font-medium text-primary">Dashboards</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-normal">Dashboard Library</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+            <p class="text-sm font-medium text-sr-brand">Dashboards</p>
+            <h1 class="mt-1 text-2xl font-semibold tracking-tight text-sr-ink">Dashboard Library</h1>
+            <p class="mt-2 max-w-3xl text-sm text-sr-muted">
               Find your dashboards, shared dashboards, dashboard packages, and favorites in one place.
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
-            <.link :if={@default_item} navigate={@default_item.href} class="btn btn-sm btn-primary">
+            <.ui_button :if={@default_item} navigate={@default_item.href} size="sm" variant="primary">
               <.icon name="hero-play" class="size-4" /> Open default
-            </.link>
-            <.link navigate={~p"/analytics"} class="btn btn-sm btn-ghost">
+            </.ui_button>
+            <.ui_button navigate={~p"/analytics"} size="sm" variant="ghost">
               <.icon name="hero-plus" class="size-4" /> Create
-            </.link>
+            </.ui_button>
           </div>
         </section>
 
         <section
           :if={!@loading? and @default_item}
-          class="rounded-lg border border-primary/25 bg-primary/5 p-4"
+          class="rounded-sr-surface border border-sr-brand/25 bg-sr-subtle p-4"
         >
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p class="text-xs font-semibold uppercase text-primary">Default Dashboard</p>
-              <h2 class="mt-1 text-lg font-semibold">{@default_item.title}</h2>
-              <p class="mt-1 text-sm text-base-content/65">{@default_item.description}</p>
+              <p class="text-xs font-semibold uppercase tracking-[0.14em] text-sr-brand">
+                Default Dashboard
+              </p>
+              <h2 class="mt-1 text-lg font-semibold text-sr-ink">{@default_item.title}</h2>
+              <p class="mt-1 text-sm text-sr-muted">{@default_item.description}</p>
             </div>
-            <.link navigate={@default_item.href} class="btn btn-sm btn-primary">
+            <.ui_button navigate={@default_item.href} size="sm" variant="primary">
               <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Open
-            </.link>
+            </.ui_button>
           </div>
         </section>
 
         <section
           :if={!@loading? and @system_default_missing?}
-          class="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning-content"
+          class="rounded-sr-surface border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-200"
         >
           The bundled service availability dashboard package is not enabled at /dashboards/{@system_default_slug}.
         </section>
 
         <div
           :if={@loading?}
-          class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/60"
+          class="rounded-sr-surface border border-sr-line bg-sr-surface p-6 text-sm text-sr-muted"
         >
           Loading dashboards...
         </div>
 
         <div
           :if={!@loading? and @items == []}
-          class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm text-base-content/60"
+          class="rounded-sr-surface border border-sr-line bg-sr-surface p-6 text-sm text-sr-muted"
         >
           No dashboards are available yet.
         </div>
 
         <section :if={!@loading? and favorite_items(@items) != []} class="space-y-3">
-          <h2 class="text-sm font-semibold uppercase tracking-normal text-base-content/60">
+          <h2 class="text-sm font-semibold uppercase tracking-normal text-sr-muted">
             Favorites
           </h2>
           <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -243,7 +245,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
         </section>
 
         <section :if={!@loading? and @items != []} class="space-y-3">
-          <h2 class="text-sm font-semibold uppercase tracking-normal text-base-content/60">
+          <h2 class="text-sm font-semibold uppercase tracking-normal text-sr-muted">
             All Dashboards
           </h2>
           <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -259,23 +261,27 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
 
   defp dashboard_card(assigns) do
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+    <article class="rounded-sr-surface border border-sr-line bg-sr-surface p-4 shadow-sr-surface">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            <.link navigate={@item.href} class="truncate font-semibold hover:text-primary">
+            <.link
+              navigate={@item.href}
+              class="truncate font-semibold text-sr-ink outline-none hover:text-sr-brand focus-visible:ring-2 focus-visible:ring-sr-focus"
+            >
               {@item.title}
             </.link>
-            <span class="badge badge-sm badge-outline">{@item.kind_label}</span>
-            <span :if={@item.default?} class="badge badge-sm badge-primary">Default</span>
+            <.ui_badge size="sm" variant="ghost">{@item.kind_label}</.ui_badge>
+            <.ui_badge :if={@item.default?} size="sm" variant="info">Default</.ui_badge>
           </div>
-          <p class="mt-2 line-clamp-2 text-sm text-base-content/60">{@item.description}</p>
-          <p class="mt-2 font-mono text-xs text-base-content/45">{@item.href}</p>
+          <p class="mt-2 line-clamp-2 text-sm text-sr-muted">{@item.description}</p>
+          <p class="mt-2 font-mono text-xs text-sr-muted/80">{@item.href}</p>
         </div>
         <div class="flex shrink-0 gap-1">
-          <button
+          <.ui_icon_button
             type="button"
-            class="btn btn-square btn-ghost btn-sm"
+            size="sm"
+            variant="ghost"
             title={if @item.favorite?, do: "Remove favorite", else: "Favorite"}
             aria-label={if @item.favorite?, do: "Remove favorite", else: "Favorite"}
             phx-click="toggle_favorite"
@@ -284,10 +290,11 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             phx-value-favorite={to_string(@item.favorite?)}
           >
             <.icon name={if @item.favorite?, do: "hero-star-solid", else: "hero-star"} class="size-4" />
-          </button>
-          <button
+          </.ui_icon_button>
+          <.ui_icon_button
             type="button"
-            class="btn btn-square btn-ghost btn-sm"
+            size="sm"
+            variant="ghost"
             title="Set as default"
             aria-label="Set as default"
             phx-click="set_default"
@@ -295,7 +302,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             phx-value-id={@item.id}
           >
             <.icon name="hero-bookmark" class="size-4" />
-          </button>
+          </.ui_icon_button>
         </div>
       </div>
     </article>

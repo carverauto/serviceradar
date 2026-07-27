@@ -378,12 +378,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         </div>
                       </div>
                       <div class="flex items-center gap-2">
-                        <button type="button" class="btn btn-sm" phx-click="run_mmdb_refresh">
+                        <.ui_button type="button" phx-click="run_mmdb_refresh" size="sm" variant="neutral">
                           Run MMDB refresh
-                        </button>
-                        <button type="button" class="btn btn-sm" phx-click="run_enrichment_refresh">
+                        </.ui_button>
+                        <.ui_button type="button" phx-click="run_enrichment_refresh" size="sm" variant="neutral">
                           Run enrichment refresh
-                        </button>
+                        </.ui_button>
                       </div>
                     </div>
 
@@ -450,7 +450,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           <span class="label-text text-sm">Token (optional)</span>
                         </label>
                         <input
-                          class="input input-bordered w-full"
+                          class={ui_field_class(class: "w-full")}
                           type="password"
                           name="settings[ipinfo_api_key]"
                           value=""
@@ -467,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       <label class="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
-                          class="checkbox checkbox-sm"
+                          class={ui_checkbox_class()}
                           name="settings[clear_ipinfo_api_key]"
                           value="true"
                         />
@@ -475,13 +475,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       </label>
 
                       <div class="flex items-center justify-end">
-                        <button
-                          type="button"
-                          class="btn btn-sm"
-                          phx-click="run_ipinfo_mmdb_refresh"
-                        >
+                        <.ui_button type="button" phx-click="run_ipinfo_mmdb_refresh" size="sm" variant="neutral">
                           Run ipinfo MMDB refresh
-                        </button>
+                        </.ui_button>
                       </div>
                     </div>
                   </div>
@@ -499,7 +495,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           <span class="label-text text-sm">Feed URLs (one per line)</span>
                         </label>
                         <textarea
-                          class="textarea textarea-bordered w-full"
+                          class={ui_field_class(class: "w-full min-h-24 py-2.5")}
                           name="settings[threat_intel_feed_urls_text]"
                           rows="3"
                         ><%= Enum.join(Map.get(@settings_form.source, :threat_intel_feed_urls, []) || [], "\n") %></textarea>
@@ -513,9 +509,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   >
                     <div class="flex items-center justify-between gap-3">
                       <div class="text-xs font-semibold">Anomaly Detection</div>
-                      <.link navigate={~p"/settings/anomaly-detection"} class="btn btn-sm">
+                      <.ui_button navigate={~p"/settings/anomaly-detection"} size="sm" variant="neutral">
                         Open anomaly settings
-                      </.link>
+                      </.ui_button>
                     </div>
                   </div>
 
@@ -542,20 +538,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 </div>
 
                 <div class="mt-4 flex justify-end">
-                  <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                  <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
                 </div>
               </.form>
             </div>
 
             <div class="flex items-center justify-between">
               <h2 class="text-sm font-semibold">Local CIDRs</h2>
-              <.link navigate={~p"/settings/flows/new"} class="btn btn-sm btn-primary">
+              <.ui_button navigate={~p"/settings/flows/new"} size="sm" variant="primary">
                 Add CIDR
-              </.link>
+              </.ui_button>
             </div>
 
-            <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100">
-              <table class="table">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class()}>
                 <thead>
                   <tr>
                     <th>Partition</th>
@@ -585,26 +581,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         <% end %>
                       </td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          (cidr.enabled && "badge-success") || "badge-ghost"
-                        ]}>
+                        <.ui_badge
+                          size="sm"
+                          variant={if(cidr.enabled, do: "success", else: "ghost")}
+                        >
                           {if(cidr.enabled, do: "enabled", else: "disabled")}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td class="text-right space-x-2">
-                        <.link navigate={~p"/settings/flows/#{cidr.id}/edit"} class="btn btn-xs">
+                        <.ui_button navigate={~p"/settings/flows/#{cidr.id}/edit"} size="xs" variant="neutral">
                           Edit
-                        </.link>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost text-error"
-                          phx-click="delete"
-                          phx-value-id={cidr.id}
-                          data-confirm="Delete this CIDR?"
-                        >
+                        </.ui_button>
+                        <.ui_button type="button" phx-click="delete" phx-value-id={cidr.id} data-confirm="Delete this CIDR?" size="xs" variant="ghost" class="text-error">
                           Delete
-                        </button>
+                        </.ui_button>
                       </td>
                     </tr>
                   <% end %>
@@ -621,13 +611,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
 
             <div class="flex items-center justify-between pt-2">
               <h2 class="text-sm font-semibold">Application Classification Rules</h2>
-              <.link navigate={~p"/settings/flows/app-rules/new"} class="btn btn-sm btn-primary">
+              <.ui_button navigate={~p"/settings/flows/app-rules/new"} size="sm" variant="primary">
                 Add Rule
-              </.link>
+              </.ui_button>
             </div>
 
-            <div class="overflow-x-auto rounded-xl border border-base-200 bg-base-100">
-              <table class="table">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class()}>
                 <thead>
                   <tr>
                     <th>Partition</th>
@@ -658,29 +648,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       </td>
                       <td class="font-mono text-xs">{rule.priority}</td>
                       <td>
-                        <span class={[
-                          "badge badge-sm",
-                          (rule.enabled && "badge-success") || "badge-ghost"
-                        ]}>
+                        <.ui_badge
+                          size="sm"
+                          variant={if(rule.enabled, do: "success", else: "ghost")}
+                        >
                           {if(rule.enabled, do: "enabled", else: "disabled")}
-                        </span>
+                        </.ui_badge>
                       </td>
                       <td class="text-right space-x-2">
-                        <.link
-                          navigate={~p"/settings/flows/app-rules/#{rule.id}/edit"}
-                          class="btn btn-xs"
-                        >
+                        <.ui_button navigate={~p"/settings/flows/app-rules/#{rule.id}/edit"} size="xs" variant="neutral">
                           Edit
-                        </.link>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost text-error"
-                          phx-click="delete_rule"
-                          phx-value-id={rule.id}
-                          data-confirm="Delete this rule?"
-                        >
+                        </.ui_button>
+                        <.ui_button type="button" phx-click="delete_rule" phx-value-id={rule.id} data-confirm="Delete this rule?" size="xs" variant="ghost" class="text-error">
                           Delete
-                        </button>
+                        </.ui_button>
                       </td>
                     </tr>
                   <% end %>
@@ -828,10 +809,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   </div>
 
                   <div class="mt-5 flex items-center justify-between">
-                    <.link navigate={~p"/settings/flows"} class="btn btn-ghost btn-sm">
+                    <.ui_button navigate={~p"/settings/flows"} size="sm" variant="ghost">
                       Cancel
-                    </.link>
-                    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                    </.ui_button>
+                    <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
                   </div>
                 </.form>
               </div>

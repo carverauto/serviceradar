@@ -775,14 +775,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl">
         <div :if={is_binary(@error)} class="mb-4">
-          <div role="alert" class="alert alert-error">
+          <div role="alert" class={ui_alert_class("error")}>
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span class="text-sm">{@error}</span>
           </div>
         </div>
 
         <div :if={trace_rollup_warning?(@trace_rollup_status)} class="mb-4">
-          <div role="alert" class="alert alert-warning">
+          <div role="alert" class={ui_alert_class("warning")}>
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <div class="text-sm">
               <div class="font-semibold">Trace rollups need attention</div>
@@ -834,7 +834,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </div>
 
         <div class="mt-3 text-xs text-base-content/40 flex items-center gap-2">
-          <span :if={@loading or @refreshing} class="loading loading-spinner loading-xs" />
+          <span :if={@loading or @refreshing} class="sr-ui-spinner sr-ui-spinner-xs" />
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
             Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
           </span>
@@ -977,7 +977,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </:header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex items-center gap-6 h-full">
@@ -1071,11 +1071,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
-        <table class="table table-xs mb-3 shrink-0">
+        <table class={ui_table_class(size: "xs", class: "mb-3 shrink-0")}>
           <thead>
             <tr class="border-b border-base-200">
               <th class="text-xs font-medium text-base-content/60">Severity</th>
@@ -1172,11 +1172,11 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex-1 flex flex-col min-h-0 px-4 py-4">
-        <table class="table table-xs mb-3 shrink-0">
+        <table class={ui_table_class(size: "xs", class: "mb-3 shrink-0")}>
           <thead>
             <tr class="border-b border-base-200">
               <th class="text-xs font-medium text-base-content/60">Level</th>
@@ -1296,7 +1296,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </:header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex flex-col h-full">
@@ -1408,7 +1408,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </:header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex flex-col h-full">
@@ -1418,14 +1418,15 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               <.icon name="hero-cpu-chip" class="size-3" /> CPU
             </div>
             <div class="flex flex-wrap items-center gap-1">
-              <span :if={@cpu_critical > 0} class="badge badge-error badge-xs">{@cpu_critical}</span>
-              <span :if={@cpu_warning > 0} class="badge badge-warning badge-xs">{@cpu_warning}</span>
-              <span
+              <.ui_badge :if={@cpu_critical > 0} size="xs" variant="error">{@cpu_critical}</.ui_badge>
+              <.ui_badge :if={@cpu_warning > 0} size="xs" variant="warning">{@cpu_warning}</.ui_badge>
+              <.ui_badge
                 :if={@cpu_critical == 0 and @cpu_warning == 0}
-                class="badge badge-success badge-xs"
+                size="xs"
+                variant="success"
               >
                 OK
-              </span>
+              </.ui_badge>
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
@@ -1433,18 +1434,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               <.icon name="hero-circle-stack" class="size-3" /> Memory
             </div>
             <div class="flex flex-wrap items-center gap-1">
-              <span :if={@memory_critical > 0} class="badge badge-error badge-xs">
+              <.ui_badge :if={@memory_critical > 0} size="xs" variant="error">
                 {@memory_critical}
-              </span>
-              <span :if={@memory_warning > 0} class="badge badge-warning badge-xs">
+              </.ui_badge>
+              <.ui_badge :if={@memory_warning > 0} size="xs" variant="warning">
                 {@memory_warning}
-              </span>
-              <span
+              </.ui_badge>
+              <.ui_badge
                 :if={@memory_critical == 0 and @memory_warning == 0}
-                class="badge badge-success badge-xs"
+                size="xs"
+                variant="success"
               >
                 OK
-              </span>
+              </.ui_badge>
             </div>
           </div>
           <div class="rounded-lg bg-base-200/50 p-2">
@@ -1452,18 +1454,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               <.icon name="hero-server-stack" class="size-3" /> Disk
             </div>
             <div class="flex flex-wrap items-center gap-1">
-              <span :if={@disk_critical > 0} class="badge badge-error badge-xs">
+              <.ui_badge :if={@disk_critical > 0} size="xs" variant="error">
                 {@disk_critical}
-              </span>
-              <span :if={@disk_warning > 0} class="badge badge-warning badge-xs">
+              </.ui_badge>
+              <.ui_badge :if={@disk_warning > 0} size="xs" variant="warning">
                 {@disk_warning}
-              </span>
-              <span
+              </.ui_badge>
+              <.ui_badge
                 :if={@disk_critical == 0 and @disk_warning == 0}
-                class="badge badge-success badge-xs"
+                size="xs"
+                variant="success"
               >
                 OK
-              </span>
+              </.ui_badge>
             </div>
           </div>
         </div>
@@ -1539,7 +1542,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       </:header>
 
       <div :if={@loading} class="flex-1 flex items-center justify-center">
-        <span class="loading loading-spinner loading-md" />
+        <.ui_spinner size="md" />
       </div>
 
       <div :if={not @loading} class="flex flex-col h-full">
@@ -1568,7 +1571,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </div>
 
         <div :if={@targets != []} class="flex-1 overflow-y-auto min-h-0">
-          <table class="table table-xs w-full">
+          <table class={ui_table_class(size: "xs", class: "w-full")}>
             <thead>
               <tr class="text-[10px]">
                 <th class="text-base-content/60">Target</th>
@@ -1610,10 +1613,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="flex items-center gap-2 shrink-0">
-        <span class={["badge badge-xs", cpu_badge_class(@cpu)]}>CPU {@cpu |> round()}%</span>
-        <span :if={@mem > 0} class={["badge badge-xs", cpu_badge_class(@mem)]}>
+        <.ui_badge size="xs" variant={cpu_badge_variant(@cpu)}>CPU {@cpu |> round()}%</.ui_badge>
+        <.ui_badge :if={@mem > 0} size="xs" variant={cpu_badge_variant(@mem)}>
           MEM {@mem |> round()}%
-        </span>
+        </.ui_badge>
       </div>
     </div>
     """
@@ -1638,9 +1641,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     <div class="flex items-center gap-2 p-1.5 rounded bg-base-200/50 text-xs">
       <div class="truncate flex-1 font-medium" title={@host}>{@host}</div>
       <div class="shrink-0">
-        <span class={["badge badge-xs", memory_badge_class(@percent)]}>
+        <.ui_badge size="xs" variant={memory_badge_variant(@percent)}>
           MEM {@percent |> round()}%
-        </span>
+        </.ui_badge>
       </div>
     </div>
     """
@@ -1667,28 +1670,28 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         <span class="text-base-content/50 ml-1" title={@mount}>{@mount}</span>
       </div>
       <div class="shrink-0">
-        <span class={["badge badge-xs", disk_badge_class(@percent)]}>
+        <.ui_badge size="xs" variant={disk_badge_variant(@percent)}>
           DISK {@percent |> round()}%
-        </span>
+        </.ui_badge>
       </div>
     </div>
     """
   end
 
-  defp cpu_badge_class(value) when value >= 90, do: "badge-error"
-  defp cpu_badge_class(value) when value >= 80, do: "badge-warning"
-  defp cpu_badge_class(value) when value >= 70, do: "badge-info"
-  defp cpu_badge_class(_), do: "badge-ghost"
+  defp cpu_badge_variant(value) when value >= 90, do: "error"
+  defp cpu_badge_variant(value) when value >= 80, do: "warning"
+  defp cpu_badge_variant(value) when value >= 70, do: "info"
+  defp cpu_badge_variant(_), do: "ghost"
 
-  defp memory_badge_class(value) when value >= 90, do: "badge-error"
-  defp memory_badge_class(value) when value >= 85, do: "badge-warning"
-  defp memory_badge_class(value) when value >= 70, do: "badge-info"
-  defp memory_badge_class(_), do: "badge-ghost"
+  defp memory_badge_variant(value) when value >= 90, do: "error"
+  defp memory_badge_variant(value) when value >= 85, do: "warning"
+  defp memory_badge_variant(value) when value >= 70, do: "info"
+  defp memory_badge_variant(_), do: "ghost"
 
-  defp disk_badge_class(value) when value >= 90, do: "badge-error"
-  defp disk_badge_class(value) when value >= 85, do: "badge-warning"
-  defp disk_badge_class(value) when value >= 70, do: "badge-info"
-  defp disk_badge_class(_), do: "badge-ghost"
+  defp disk_badge_variant(value) when value >= 90, do: "error"
+  defp disk_badge_variant(value) when value >= 85, do: "warning"
+  defp disk_badge_variant(value) when value >= 70, do: "info"
+  defp disk_badge_variant(_), do: "ghost"
 
   defp span_name(span) when is_map(span) do
     name =

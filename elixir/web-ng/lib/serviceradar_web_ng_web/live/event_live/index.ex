@@ -182,15 +182,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           Event Severity Breakdown
         </div>
         <div class="flex items-center gap-1">
-          <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
-          <.link
-            patch={
-              ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:#{@time_window} sort:time:desc"}}"
-            }
-            class="btn btn-ghost btn-xs text-error"
-          >
+          <.ui_button patch={~p"/events"} size="xs" variant="ghost">All Events</.ui_button>
+          <.ui_button patch={ ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:#{@time_window} sort:time:desc"}}" } size="xs" variant="ghost" class="text-error">
             Fatal/Critical/High
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -368,8 +363,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   defp events_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -460,14 +455,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     assigns = assign(assigns, :ref, ref)
 
     ~H"""
-    <span
+    <.ui_badge
       :if={@ref}
+      size="xs"
+      variant="primary"
+      class="cursor-pointer whitespace-nowrap"
       phx-click={JS.navigate(~p"/devices/#{@ref.uid}")}
-      class="badge badge-primary badge-xs gap-1 whitespace-nowrap cursor-pointer"
       title={"View affected device #{@ref.uid}"}
     >
       device →
-    </span>
+    </.ui_badge>
     """
   end
 

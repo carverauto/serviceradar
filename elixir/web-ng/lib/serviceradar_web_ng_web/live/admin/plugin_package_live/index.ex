@@ -1285,7 +1285,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   label="Catalog repository"
                   label_class="sr-only"
                   wrapper_class="min-w-0 flex-1 sm:w-80"
-                  class="input input-sm input-bordered w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                   required
                 />
                 <.ui_button type="submit" variant="ghost" size="sm">
@@ -1298,7 +1298,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 phx-change="select_first_party_release"
                 class="flex items-center gap-2"
               >
-                <select name="release_tag" class="select select-sm select-bordered">
+                <select name="release_tag" class={ui_field_class(size: "sm")}>
                   <option
                     :for={release_tag <- @first_party_release_options}
                     value={release_tag}
@@ -1318,7 +1318,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 disabled={@import_running? or import_state.importable == 0}
                 phx-click="import_first_party_catalog"
               >
-                <span :if={@import_running?} class="loading loading-spinner loading-xs"></span>
+                <span :if={@import_running?} class="sr-ui-spinner sr-ui-spinner-xs"></span>
                 <.icon :if={not @import_running?} name="hero-arrow-down-tray" class="size-4" />
                 {import_all_label(@import_running?, import_state)}
               </.ui_button>
@@ -1348,8 +1348,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </p>
               </div>
             <% catalog_rows != [] -> %>
-              <div class="overflow-x-auto">
-                <table class="table table-sm">
+              <div class="sr-ui-table-shell">
+                <table class={ui_table_class(size: "sm")}>
                   <thead>
                     <tr class="text-xs uppercase tracking-wide text-base-content/60">
                       <th>Plugin</th>
@@ -1374,9 +1374,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <td class="text-xs">{row.version}</td>
                         <td class="text-xs font-mono">{row.release_tag || "-"}</td>
                         <td>
-                          <span class={["badge badge-sm", catalog_row_status_badge(row)]}>
+                          <.ui_badge size="sm" variant={catalog_row_status_variant(row)}>
                             {catalog_row_status(row)}
-                          </span>
+                          </.ui_badge>
                         </td>
                         <td class="text-xs text-base-content/70">
                           {format_datetime(catalog_row_updated_at(row))}
@@ -1439,8 +1439,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </p>
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Agent</th>
@@ -1566,12 +1566,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <dialog class="modal modal-open">
       <div class="modal-box max-w-3xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-          >
+          <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-semibold">Stage a Plugin Package</h3>
@@ -1597,7 +1594,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </label>
             <textarea
               name="create[manifest_yaml]"
-              class="textarea textarea-bordered w-full font-mono text-xs min-h-[180px]"
+              class={ui_field_class(mono: true, class: "w-full min-h-[180px] py-2.5 text-xs")}
               placeholder="id: http-check\nname: HTTP Checker\nversion: 1.0.0\nentrypoint: run_check\noutputs: serviceradar.plugin_result.v1\ncapabilities:\n  - http_request\nresources:\n  requested_cpu_ms: 1000\n  requested_memory_mb: 64"
             ><%= @create_form["manifest_yaml"] %></textarea>
           </div>
@@ -1608,7 +1605,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </label>
             <textarea
               name="create[config_schema_json]"
-              class="textarea textarea-bordered w-full font-mono text-xs min-h-[140px]"
+              class={ui_field_class(mono: true, class: "w-full min-h-[140px] py-2.5 text-xs")}
               placeholder='{"type":"object","properties":{"url":{"type":"string"}}}'
             ><%= @create_form["config_schema_json"] %></textarea>
           </div>
@@ -1619,7 +1616,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             </label>
             <textarea
               name="create[display_contract_json]"
-              class="textarea textarea-bordered w-full font-mono text-xs min-h-[140px]"
+              class={ui_field_class(mono: true, class: "w-full min-h-[140px] py-2.5 text-xs")}
               placeholder='{"schema_version":1,"widgets":["status_badge","stat_card","table","markdown","sparkline"]}'
             ><%= @create_form["display_contract_json"] %></textarea>
           </div>
@@ -1629,7 +1626,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <label class="label">
                 <span class="label-text">Source Type</span>
               </label>
-              <select name="create[source_type]" class="select select-bordered w-full">
+              <select name="create[source_type]" class={ui_field_class(class: "w-full")}>
                 <option value="upload" selected={@create_form["source_type"] == "upload"}>
                   Upload
                 </option>
@@ -1646,7 +1643,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 type="text"
                 name="create[source_repo_url]"
                 value={@create_form["source_repo_url"]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="https://github.com/org/repo"
               />
             </div>
@@ -1660,16 +1657,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               type="text"
               name="create[source_commit]"
               value={@create_form["source_commit"]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="abc1234"
             />
           </div>
 
           <div class="flex justify-end gap-2 pt-2">
-            <button type="button" class="btn" phx-click="close_create_modal">
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
               Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">Stage Package</button>
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Stage Package</.ui_button>
           </div>
         </form>
       </div>
@@ -1685,12 +1682,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <dialog class="modal modal-open">
       <div class="modal-box max-w-4xl">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_details_modal"
-          >
+          <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <div class="flex flex-wrap items-start justify-between gap-4">
@@ -1863,7 +1857,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               >
                 <.live_file_input
                   upload={@uploads.wasm_blob}
-                  class="file-input file-input-bordered w-full"
+                  class={ui_field_class(class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-sr-ink")}
                   phx-change="wasm_upload_change"
                 />
 
@@ -1881,13 +1875,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <% end %>
 
                 <div class="flex justify-end">
-                  <button
-                    type="submit"
-                    class="btn btn-primary btn-sm"
-                    disabled={@uploads.wasm_blob.entries == []}
-                  >
+                  <.ui_button type="submit" disabled={@uploads.wasm_blob.entries == []} size="sm" variant="primary">
                     Upload Wasm
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
 
@@ -1970,7 +1960,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div
                 id="legacy-recovery-confirmation"
                 role="alert"
-                class="alert alert-warning alert-vertical sm:alert-horizontal"
+                class={ui_alert_class(variant: "warning", class: "alert-vertical sm:alert-horizontal")}
               >
                 <div>
                   <div class="font-semibold">{legacy_confirmation_title(@recovery_confirmation)}</div>
@@ -1979,24 +1969,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </p>
                 </div>
                 <div class="flex shrink-0 flex-wrap gap-2">
-                  <button
-                    id="confirm-legacy-recovery"
-                    type="button"
-                    class="btn btn-warning btn-sm"
-                    phx-click="confirm_legacy_recovery"
-                    phx-value-id={@recovery_confirmation.id}
-                    phx-value-kind={@recovery_confirmation.kind}
-                  >
+                  <.ui_button id="confirm-legacy-recovery" type="button" phx-click="confirm_legacy_recovery" phx-value-id={@recovery_confirmation.id} phx-value-kind={@recovery_confirmation.kind} size="sm" variant="warning">
                     {legacy_confirmation_action_label(@recovery_confirmation)}
-                  </button>
-                  <button
-                    id="cancel-legacy-recovery"
-                    type="button"
-                    class="btn btn-ghost btn-sm"
-                    phx-click="cancel_legacy_recovery"
-                  >
+                  </.ui_button>
+                  <.ui_button id="cancel-legacy-recovery" type="button" phx-click="cancel_legacy_recovery" size="sm" variant="ghost">
                     Cancel
-                  </button>
+                  </.ui_button>
                 </div>
               </div>
             <% end %>
@@ -2039,12 +2017,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                             <% end %>
                           <% end %>
                           <%= if uncovered_assignment?(@assignment_coverage, assignment.id) do %>
-                            <span
-                              class="badge badge-warning badge-xs"
+                            <.ui_badge
+                              size="xs"
+                              variant="warning"
                               title={coverage_badge_title(@assignment_coverage, assignment.id)}
                             >
                               no credential rule coverage
-                            </span>
+                            </.ui_badge>
                           <% end %>
                         </div>
                         <div class="text-base-content/60">
@@ -2066,63 +2045,27 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                       </div>
                       <div class="flex flex-wrap items-center gap-2">
                         <%= if legacy_kind == :manual and manual_legacy_state == :actionable do %>
-                          <button
-                            id={"request-manual-reapproval-#{assignment.id}"}
-                            type="button"
-                            class="btn btn-warning btn-xs"
-                            phx-click="request_legacy_recovery"
-                            phx-value-id={assignment.id}
-                            phx-value-kind="manual"
-                            disabled={
-                              not manual_recovery_action_enabled?(
-                                @can_assign_plugins,
-                                manual_recovery
-                              )
-                            }
-                          >
+                          <.ui_button id={"request-manual-reapproval-#{assignment.id}"} type="button" phx-click="request_legacy_recovery" phx-value-id={assignment.id} phx-value-kind="manual" disabled={ not manual_recovery_action_enabled?( @can_assign_plugins, manual_recovery ) } size="xs" variant="warning">
                             {manual_recovery_action_label(manual_recovery)}
-                          </button>
+                          </.ui_button>
                         <% end %>
                         <%= if legacy_kind == :policy do %>
-                          <button
-                            id={"request-policy-reconciliation-#{assignment.id}"}
-                            type="button"
-                            class="btn btn-warning btn-xs"
-                            phx-click="request_legacy_recovery"
-                            phx-value-id={assignment.id}
-                            phx-value-kind="policy"
-                            disabled={
-                              not policy_recovery_action_enabled?(
-                                @can_assign_plugins,
-                                @can_reconcile_credential_rules,
-                                credential_rule_recovery?,
-                                policy_recovery
-                              )
-                            }
-                          >
+                          <.ui_button id={"request-policy-reconciliation-#{assignment.id}"} type="button" phx-click="request_legacy_recovery" phx-value-id={assignment.id} phx-value-kind="policy" disabled={ not policy_recovery_action_enabled?( @can_assign_plugins, @can_reconcile_credential_rules, credential_rule_recovery?, policy_recovery ) } size="xs" variant="warning">
                             {policy_recovery_action_label(
                               @can_reconcile_credential_rules,
                               credential_rule_recovery?,
                               policy_recovery
                             )}
-                          </button>
+                          </.ui_button>
                         <% end %>
                         <%= if is_nil(legacy_kind) and assignment.source == :policy do %>
                           <span class="text-[11px] text-base-content/50">managed by policy</span>
                         <% end %>
                         <%= if is_nil(legacy_kind) and assignment.source != :policy do %>
                           <%= if upgrade_target do %>
-                            <button
-                              id={"upgrade-assignment-#{assignment.id}"}
-                              type="button"
-                              class="btn btn-primary btn-xs"
-                              phx-click="upgrade_assignment"
-                              phx-value-id={assignment.id}
-                              phx-value-target-package-id={upgrade_target.id}
-                              data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"}
-                            >
+                            <.ui_button id={"upgrade-assignment-#{assignment.id}"} type="button" phx-click="upgrade_assignment" phx-value-id={assignment.id} phx-value-target-package-id={upgrade_target.id} data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"} size="xs" variant="primary">
                               Upgrade
-                            </button>
+                            </.ui_button>
                           <% end %>
                           <%= if approved_targets != [] do %>
                             <form
@@ -2136,7 +2079,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                                 name="assignment_upgrade[target_package_id]"
                                 aria-label={"Change version for #{assignment.agent_uid}"}
                                 required
-                                class="select select-bordered select-xs w-auto min-w-[4.75rem] shrink-0"
+                                class={ui_field_class(size: "xs", class: "w-auto min-w-[4.75rem] shrink-0")}
                               >
                                 <option value="" selected disabled>Change version</option>
                                 <%= for target <- approved_targets do %>
@@ -2145,26 +2088,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                                   </option>
                                 <% end %>
                               </select>
-                              <button
-                                id={"apply-assignment-version-#{assignment.id}"}
-                                type="submit"
-                                class="btn btn-ghost btn-xs"
-                              >
+                              <.ui_button id={"apply-assignment-version-#{assignment.id}"} type="submit" size="xs" variant="ghost">
                                 Apply
-                              </button>
+                              </.ui_button>
                             </form>
                           <% end %>
                         <% end %>
                         <%= if is_nil(legacy_kind) do %>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-xs"
-                            phx-click="delete_assignment"
-                            phx-value-id={assignment.id}
-                            data-confirm="Remove this assignment?"
-                          >
+                          <.ui_button type="button" phx-click="delete_assignment" phx-value-id={assignment.id} data-confirm="Remove this assignment?" size="xs" variant="ghost">
                             Remove
-                          </button>
+                          </.ui_button>
                         <% end %>
                       </div>
                     </div>
@@ -2192,7 +2125,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <div
                           id={"legacy-assignment-recovery-#{assignment.id}"}
                           role="status"
-                          class="alert alert-warning alert-vertical mt-3"
+                          class={ui_alert_class(variant: "warning", class: "alert-vertical mt-3")}
                         >
                           <div>
                             <div class="font-semibold">{legacy_recovery_label(legacy_kind)}</div>
@@ -2253,7 +2186,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <label class="label">
                   <span class="label-text">Agent</span>
                 </label>
-                <select name="assignment[agent_uid]" class="select select-bordered w-full">
+                <select name="assignment[agent_uid]" class={ui_field_class(class: "w-full")}>
                   <option value="">Select an agent</option>
                   <%= for agent <- @agents do %>
                     <option value={agent.uid} selected={@assignment_form["agent_uid"] == agent.uid}>
@@ -2266,13 +2199,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 <div
                   id="authenticated-partition-preview"
                   role="status"
-                  class={[
-                    "alert alert-vertical",
-                    if(@authenticated_partition_preview.state == :available,
-                      do: "alert-info",
-                      else: "alert-warning"
+                  class={
+                    ui_alert_class(
+                      variant:
+                        if(@authenticated_partition_preview.state == :available,
+                          do: "info",
+                          else: "warning"
+                        ),
+                      class: "flex-col"
                     )
-                  ]}
+                  }
                 >
                   <%= if @authenticated_partition_preview.state == :available do %>
                     <div>
@@ -2304,7 +2240,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     min="5"
                     name="assignment[interval_seconds]"
                     value={@assignment_form["interval_seconds"]}
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                   />
                 </div>
                 <div>
@@ -2316,7 +2252,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     min="1"
                     name="assignment[timeout_seconds]"
                     value={@assignment_form["timeout_seconds"]}
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                   />
                 </div>
               </div>
@@ -2338,7 +2274,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <div class="mt-3">
                     <textarea
                       name="assignment[params_raw]"
-                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                      class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
                     ><%= assignment_params_raw(@assignment_form) %></textarea>
                   </div>
                 </details>
@@ -2350,7 +2286,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     </label>
                     <textarea
                       name="assignment[params]"
-                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                      class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
                     ><%= assignment_params_raw(@assignment_form) %></textarea>
                   </div>
                   <div>
@@ -2359,7 +2295,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     </label>
                     <textarea
                       name="assignment[permissions_override]"
-                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                      class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
                     ><%= @assignment_form["permissions_override"] %></textarea>
                   </div>
                 </div>
@@ -2371,7 +2307,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </label>
                   <textarea
                     name="assignment[permissions_override]"
-                    class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                    class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
                   ><%= @assignment_form["permissions_override"] %></textarea>
                 </div>
               <% end %>
@@ -2381,17 +2317,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </label>
                 <textarea
                   name="assignment[resources_override]"
-                  class="textarea textarea-bordered w-full font-mono text-xs min-h-[80px]"
+                  class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
                 ><%= @assignment_form["resources_override"] %></textarea>
               </div>
               <div class="flex justify-end">
-                <button
-                  type="submit"
-                  class="btn btn-primary btn-sm"
-                  disabled={@package.status != :approved or not blob_present?(@blob_present)}
-                >
+                <.ui_button type="submit" disabled={@package.status != :approved or not blob_present?(@blob_present)} size="sm" variant="primary">
                   Assign
-                </button>
+                </.ui_button>
               </div>
             </form>
             <%= if @package.status != :approved do %>
@@ -2421,7 +2353,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 type="text"
                 name="review[approved_capabilities]"
                 value={@review_form["approved_capabilities"]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="Leave blank to accept requested capabilities"
               />
               <p class="mt-1 text-xs text-base-content/60">
@@ -2438,7 +2370,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 type="text"
                 name="review[denied_reason]"
                 value={@review_form["denied_reason"]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="Optional"
               />
             </div>
@@ -2451,7 +2383,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </label>
               <textarea
                 name="review[approved_permissions]"
-                class="textarea textarea-bordered w-full font-mono text-xs min-h-[120px]"
+                class={ui_field_class(mono: true, class: "w-full min-h-[120px] py-2.5 text-xs")}
                 placeholder="Leave blank to accept requested permissions"
               ><%= @review_form["approved_permissions"] %></textarea>
             </div>
@@ -2461,7 +2393,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </label>
               <textarea
                 name="review[approved_resources]"
-                class="textarea textarea-bordered w-full font-mono text-xs min-h-[120px]"
+                class={ui_field_class(mono: true, class: "w-full min-h-[120px] py-2.5 text-xs")}
                 placeholder="Leave blank to accept requested resources"
               ><%= @review_form["approved_resources"] %></textarea>
             </div>
@@ -2469,56 +2401,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="flex flex-wrap justify-end gap-2 pt-2">
             <%= if @package.status == :staged do %>
-              <button type="submit" class="btn btn-primary" disabled={!@can_approve_plugins}>
+              <.ui_button type="submit" disabled={!@can_approve_plugins} size="sm" variant="primary">
                 Approve
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-error"
-                phx-click="deny_package"
-                phx-value-id={@package.id}
-                disabled={!@can_approve_plugins}
-              >
+              </.ui_button>
+              <.ui_button type="button" phx-click="deny_package" phx-value-id={@package.id} disabled={!@can_approve_plugins} size="sm" variant="outline">
                 Deny
-              </button>
+              </.ui_button>
               <p :if={!@can_approve_plugins} class="w-full text-right text-xs text-base-content/60">
                 You do not have permission to approve or deny plugin packages.
               </p>
             <% end %>
 
             <%= if @package.status == :approved do %>
-              <button
-                type="button"
-                class="btn btn-outline btn-warning"
-                phx-click="revoke_package"
-                phx-value-id={@package.id}
-              >
+              <.ui_button type="button" phx-click="revoke_package" phx-value-id={@package.id} size="sm" variant="outline">
                 Revoke
-              </button>
+              </.ui_button>
             <% end %>
 
             <%= if @package.status in [:denied, :revoked] do %>
-              <button
-                type="button"
-                class="btn btn-outline"
-                phx-click="restage_package"
-                phx-value-id={@package.id}
-              >
+              <.ui_button type="button" phx-click="restage_package" phx-value-id={@package.id} size="sm" variant="outline">
                 Move to Staged
-              </button>
+              </.ui_button>
             <% end %>
 
-            <button
-              type="button"
-              class="btn btn-outline btn-error"
-              phx-click="delete_package"
-              phx-value-id={@package.id}
-              data-confirm="Delete this package and remove all assignments?"
-            >
+            <.ui_button type="button" phx-click="delete_package" phx-value-id={@package.id} data-confirm="Delete this package and remove all assignments?" size="sm" variant="outline">
               Delete Package
-            </button>
+            </.ui_button>
 
-            <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+            <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
           </div>
         </form>
       </div>
@@ -2913,9 +2823,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp catalog_row_status(%{package: nil}), do: "missing artifact"
   defp catalog_row_status(%{package: package}), do: package.status
 
-  defp catalog_row_status_badge(%{package: nil, import_ready: true}), do: "badge-success"
-  defp catalog_row_status_badge(%{package: nil}), do: "badge-ghost"
-  defp catalog_row_status_badge(%{package: package}), do: package_status_badge(package.status)
+  defp catalog_row_status_variant(%{package: nil, import_ready: true}), do: "success"
+  defp catalog_row_status_variant(%{package: nil}), do: "ghost"
+
+  defp catalog_row_status_variant(%{package: package}),
+    do: package_status_badge_variant(package.status)
 
   defp catalog_row_updated_at(%{package: nil}), do: nil
   defp catalog_row_updated_at(%{package: package}), do: package.updated_at || package.inserted_at
@@ -3036,29 +2948,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
       <div class="join">
-        <button
-          id={"#{@id_prefix}-prev-page"}
-          type="button"
-          phx-click={@event}
-          phx-value-page={@page - 1}
-          class="btn btn-xs join-item"
-          disabled={@page <= 1}
-        >
+        <.ui_button id={"#{@id_prefix}-prev-page"} type="button" phx-click={@event} phx-value-page={@page - 1} disabled={@page <= 1} size="xs" variant="neutral">
           Previous
-        </button>
-        <button type="button" class="btn btn-xs join-item btn-ghost" disabled>
+        </.ui_button>
+        <.ui_button type="button" disabled size="xs" variant="ghost">
           Page {@page} of {@page_count}
-        </button>
-        <button
+        </.ui_button>
+        <.ui_button
           id={"#{@id_prefix}-next-page"}
           type="button"
           phx-click={@event}
           phx-value-page={@page + 1}
-          class="btn btn-xs join-item"
           disabled={@page >= @page_count}
+          size="xs"
+          variant="neutral"
         >
           Next
-        </button>
+        </.ui_button>
       </div>
     </div>
     """
@@ -4689,14 +4595,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     """
   end
 
-  defp package_status_badge(:approved), do: "badge-success"
-  defp package_status_badge("approved"), do: "badge-success"
-  defp package_status_badge(:staged), do: "badge-warning"
-  defp package_status_badge("staged"), do: "badge-warning"
+  defp package_status_badge_variant(:approved), do: "success"
+  defp package_status_badge_variant("approved"), do: "success"
+  defp package_status_badge_variant(:staged), do: "warning"
+  defp package_status_badge_variant("staged"), do: "warning"
 
-  defp package_status_badge(status) when status in [:denied, :revoked, "denied", "revoked"], do: "badge-error"
+  defp package_status_badge_variant(status) when status in [:denied, :revoked, "denied", "revoked"],
+    do: "error"
 
-  defp package_status_badge(_status), do: "badge-ghost"
+  defp package_status_badge_variant(_status), do: "ghost"
 
   defp format_datetime(nil), do: "-"
 

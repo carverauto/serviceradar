@@ -148,9 +148,9 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                 Manage reusable groups for dashboard sharing and future access-controlled workflows.
               </p>
             </div>
-            <.link navigate={~p"/analytics"} class="btn btn-sm btn-ghost">
+            <.ui_button navigate={~p"/analytics"} size="sm" variant="ghost">
               <.icon name="hero-squares-2x2" class="size-4" /> Dashboard Creator
-            </.link>
+            </.ui_button>
           </section>
 
           <section class="rounded-lg border border-base-300 bg-base-100">
@@ -179,14 +179,14 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                         {group.description || "No description"}
                       </p>
                     </div>
-                    <span class="badge badge-outline">
+                    <.ui_badge size="sm" variant="outline">
                       {membership_count(@user_group_memberships, group.id)} members
-                    </span>
+                    </.ui_badge>
                   </div>
                   <div class="mt-3 flex flex-wrap gap-2">
                     <span
                       :for={membership <- memberships_for(@user_group_memberships, group.id)}
-                      class="badge badge-ghost"
+                      class="inline-flex items-center rounded-full border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-muted"
                     >
                       {user_label(membership.user)}
                     </span>
@@ -204,9 +204,9 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                 >
                   <.input field={@group_form[:name]} type="text" label="Group name" />
                   <.input field={@group_form[:description]} type="text" label="Description" />
-                  <button type="submit" class="btn btn-sm btn-primary">
+                  <.ui_button type="submit" size="sm" variant="primary">
                     <.icon name="hero-user-group" class="size-4" /> Create Group
-                  </button>
+                  </.ui_button>
                 </.form>
 
                 <.form
@@ -228,13 +228,9 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
                     label="User"
                     options={user_select_options(@users)}
                   />
-                  <button
-                    type="submit"
-                    class="btn btn-sm"
-                    disabled={@user_groups == [] or @users == []}
-                  >
+                  <.ui_button type="submit" disabled={@user_groups == [] or @users == []} size="sm" variant="neutral">
                     <.icon name="hero-user-plus" class="size-4" /> Add Member
-                  </button>
+                  </.ui_button>
                 </.form>
               </div>
             </div>

@@ -157,6 +157,12 @@ config :serviceradar_core, ServiceRadar.Repo,
 # Set env for serviceradar_core (enables Vault fallback key in dev)
 config :serviceradar_core, env: :dev
 
+# Do not open a datasvc gRPC client in local Phoenix unless explicitly configured.
+# Default host "datasvc:50057" is unreachable on a laptop and only spams reconnect
+# warnings. In-cluster / scripts/dev-with-k8s-db.sh can set DATASVC_ENABLED=true
+# (and DATASVC_ADDRESS) when KV/object-store is needed.
+config :serviceradar_core, :datasvc_enabled, false
+
 config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian,
   secret_key: "dev_token_signing_secret_at_least_32_chars_long!"
 

@@ -166,17 +166,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           <:subtitle>
             <span class="inline-flex items-center gap-2">
               <span class="font-mono text-xs">{@trace_id || "—"}</span>
-              <button
-                :if={is_binary(@trace_id)}
-                type="button"
-                id="trace-id-copy"
-                phx-hook=".CopyText"
-                data-copy={@trace_id}
-                class="btn btn-ghost btn-xs"
-                title="Copy trace id"
-              >
+              <.ui_button :if={is_binary(@trace_id)} type="button" id="trace-id-copy" phx-hook=".CopyText" data-copy={@trace_id} title="Copy trace id" size="xs" variant="ghost">
                 Copy
-              </button>
+              </.ui_button>
             </span>
           </:subtitle>
           <:actions>
@@ -186,14 +178,14 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           </:actions>
         </.header>
 
-        <div :if={is_binary(@error)} class="alert alert-error mb-4">
+        <div :if={is_binary(@error)} class={ui_alert_class(variant: "error", class: "mb-4")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span class="text-sm">{@error}</span>
         </div>
 
         <div
           :if={@state == :not_found and is_nil(@error)}
-          class="alert alert-warning mb-4"
+          class={ui_alert_class(variant: "warning", class: "mb-4")}
           id="trace-not-found"
         >
           <.icon name="hero-magnifying-glass" class="size-5" />
@@ -215,12 +207,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           </.ui_badge>
         </div>
 
-        <div :if={@state == :spans_expired} class="alert alert-info mb-4" id="trace-spans-expired">
+        <div :if={@state == :spans_expired} class={ui_alert_class(variant: "info", class: "mb-4")} id="trace-spans-expired">
           <.icon name="hero-clock" class="size-5" />
           <span class="text-sm">Span data for this trace is no longer retained.</span>
         </div>
 
-        <div :if={@span_truncated?} class="alert alert-warning mb-4" id="trace-spans-truncated">
+        <div :if={@span_truncated?} class={ui_alert_class(variant: "warning", class: "mb-4")} id="trace-spans-truncated">
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span class="text-sm">
             Large trace: showing the first {@span_limit_display} spans by start time.
@@ -237,8 +229,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table id="trace-spans" class="table table-sm w-full">
+          <div class="sr-ui-table-shell">
+            <table id="trace-spans" class={ui_table_class(size: "sm", class: "w-full")}>
               <thead>
                 <tr>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Operation</th>
@@ -277,9 +269,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                       </div>
                     </td>
                     <td>
-                      <span class="badge badge-ghost badge-xs" title={row.service}>
+                      <.ui_badge size="xs" variant="ghost" title={row.service}>
                         {row.service}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td>
                       <div class="relative h-3 w-full rounded bg-base-200/60 overflow-hidden">
@@ -297,9 +289,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                       {format_duration_ms(row.duration_ms)}
                     </td>
                     <td class="text-right">
-                      <span class={["badge badge-xs", status_badge_class(row.status_code)]}>
+                      <.ui_badge size="xs" variant={status_badge_variant(row.status_code)}>
                         {status_label(row.status_code)}
-                      </span>
+                      </.ui_badge>
                     </td>
                   </tr>
                   <tr :if={@expanded_idx == idx} id={"trace-spans-detail-#{idx}"}>
@@ -358,14 +350,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                 Logs sharing this trace id within the trace's own time window (±5 minutes).
               </div>
             </div>
-            <.link
-              :if={is_binary(@logs_query)}
-              id="trace-logs-tab-link"
-              href={logs_tab_href(@logs_query)}
-              class="btn btn-xs btn-outline"
-            >
+            <.ui_button :if={is_binary(@logs_query)} id="trace-logs-tab-link" href={logs_tab_href(@logs_query)} size="xs" variant="outline">
               View in logs tab
-            </.link>
+            </.ui_button>
           </:header>
 
           <div :if={is_binary(@logs_error)} class="text-sm text-warning">{@logs_error}</div>
@@ -379,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
           </div>
 
           <div :if={@logs != []} class="overflow-x-auto">
-            <table id="trace-logs" class="table table-sm table-zebra w-full">
+            <table id="trace-logs" class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
               <thead>
                 <tr>
                   <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
@@ -404,9 +391,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                   >
                     <td class="whitespace-nowrap text-xs font-mono">{log_timestamp(log)}</td>
                     <td>
-                      <span class={["badge badge-xs", severity_badge_class(log)]}>
+                      <.ui_badge size="xs" variant={severity_badge_variant(log)}>
                         {log_severity(log)}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td
                       class="whitespace-nowrap text-xs truncate max-w-[10rem]"
@@ -826,14 +813,14 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     non_empty(Map.get(log, "severity_text")) || non_empty(Map.get(log, "severity")) || "—"
   end
 
-  defp severity_badge_class(log) do
+  defp severity_badge_variant(log) do
     log
     |> log_severity()
     |> String.upcase()
     |> case do
-      sev when sev in ["ERROR", "FATAL", "CRITICAL"] -> "badge-error"
-      sev when sev in ["WARN", "WARNING"] -> "badge-warning"
-      _ -> "badge-ghost"
+      sev when sev in ["ERROR", "FATAL", "CRITICAL"] -> "error"
+      sev when sev in ["WARN", "WARNING"] -> "warning"
+      _ -> "ghost"
     end
   end
 
@@ -893,9 +880,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp status_label(1), do: "ok"
   defp status_label(_), do: "unset"
 
-  defp status_badge_class(2), do: "badge-error"
-  defp status_badge_class(1), do: "badge-success"
-  defp status_badge_class(_), do: "badge-ghost"
+  defp status_badge_variant(2), do: "error"
+  defp status_badge_variant(1), do: "success"
+  defp status_badge_variant(_), do: "ghost"
 
   defp span_status_detail(row) do
     case non_empty(Map.get(row.span, "status_message")) do

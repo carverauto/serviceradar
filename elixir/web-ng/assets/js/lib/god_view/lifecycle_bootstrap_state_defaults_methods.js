@@ -1,88 +1,88 @@
-/* Nocturne dark palette — neon accents on slate backgrounds */
+/* Brand dark palette — green accents on teal-slate canvas (marketing parity) */
 const DARK_VISUAL = {
-  bg: [15, 23, 42, 255],                   // slate-900 (base-200)
-  mantleEdge: [51, 65, 85, 170],           // slate-700
-  mantleEdgeBase: [30, 80, 140],           // blue-tinted edge base for alpha blending
+  bg: [10, 17, 20, 255],                   // #0a1114 --sr-color-canvas
+  mantleEdge: [38, 54, 58, 170],           // #26363a --sr-color-line
+  mantleEdgeBase: [11, 130, 77],           // brand green edge base for alpha blending
   mantleEdgeAlphaBase: 128,                // base alpha for mantle edges
   mantleEdgeAlphaBoost: 32,                // alpha boost from zoom
-  crustArc: [0, 216, 255, 180],            // #00D8FF electric cyan (primary)
-  atmosphereParticle: [34, 211, 238, 185],  // #22D3EE cyan-400 (accent)
+  crustArc: [62, 207, 135, 180],           // #3ecf87 brand green (primary)
+  atmosphereParticle: [91, 222, 155, 185], // #5bde9b brand green strong
   nodeRoot: [255, 42, 122, 255],           // #FF2A7A neon magenta (error)
   nodeAffected: [255, 154, 0, 255],        // #FF9A00 neon amber (warning)
   nodeHealthy: [0, 230, 118, 255],         // #00E676 neon green (success)
-  nodeUnknown: [100, 116, 139, 255],       // slate-500
+  nodeUnknown: [107, 127, 120, 255],       // muted teal-gray
   nodeFill: [255, 255, 255, 255],          // white center dot
-  nodeOperUp: [56, 189, 248, 230],         // sky-400 (cyan)
+  nodeOperUp: [62, 207, 135, 230],         // brand green
   nodeOperDown: [120, 113, 108, 220],      // warm gray
-  nodeOperUnknown: [100, 116, 139, 220],   // slate-500
+  nodeOperUnknown: [107, 127, 120, 220],   // muted teal-gray
   nodeStatusUp: [34, 197, 94, 230],        // green-400
   nodeStatusDown: [239, 68, 68, 230],      // red-400
-  nodeStatusUnknown: [148, 163, 184, 220], // slate-400
-  geoGrid: [32, 62, 88],                   // dark blue-gray grid lines
-  crustLow: [48, 158, 226, 58],           // muted cyan (low utilization)
-  crustLowVivid: [56, 210, 255, 88],      // vivid cyan
-  crustHigh: [196, 122, 255, 98],         // muted purple (high utilization)
-  crustHighVivid: [255, 110, 220, 142],   // vivid magenta
-  particleCyan: [73, 231, 255, 255],      // bright cyan particle
-  particleMagenta: [244, 114, 255, 255],  // bright magenta particle
-  particleBlend: [770, 1, 1, 1],          // additive blending for glow on dark
-  label: [244, 244, 245, 240],             // #F4F4F5 zinc-100
-  edgeLabel: [148, 163, 184, 220],         // slate-400
+  nodeStatusUnknown: [143, 163, 154, 220], // muted brand
+  geoGrid: [22, 34, 38],                   // teal-slate grid lines
+  crustLow: [11, 130, 77, 72],             // muted brand green (low utilization)
+  crustLowVivid: [62, 207, 135, 110],      // vivid brand green
+  crustHigh: [196, 122, 255, 98],          // muted purple (high utilization)
+  crustHighVivid: [255, 110, 220, 142],    // vivid magenta
+  particleCyan: [116, 223, 166, 255],      // bright brand particle (was cyan)
+  particleMagenta: [244, 114, 255, 255],   // bright magenta particle
+  particleBlend: [770, 1, 1, 1],           // additive blending for glow on dark
+  label: [237, 245, 241, 240],             // #edf5f1 --sr-color-ink
+  edgeLabel: [170, 184, 178, 220],         // #aab8b2 --sr-color-muted
   pulse: [255, 42, 122, 220],              // neon magenta
 }
 
-/* Nocturne light palette — bold accents on white backgrounds */
+/* Brand light palette — green accents on marketing canvas */
 const LIGHT_VISUAL = {
-  bg: [248, 250, 252, 255],                // #F8FAFC slate-50 (base-200)
-  mantleEdge: [203, 213, 225, 170],        // slate-300
-  mantleEdgeBase: [56, 152, 220],          // vivid sky-blue edges (clearly visible)
+  bg: [247, 249, 248, 255],                // #f7f9f8 --sr-color-canvas
+  mantleEdge: [200, 211, 206, 170],        // #c8d3ce --sr-color-line-strong
+  mantleEdgeBase: [11, 130, 77],           // brand green edges
   mantleEdgeAlphaBase: 190,                // strong base alpha for light bg
   mantleEdgeAlphaBoost: 45,                // alpha boost from zoom
-  crustArc: [3, 105, 161, 240],            // #0369A1 sky-800 (primary) high alpha
-  atmosphereParticle: [15, 118, 110, 245],   // dark teal particle for light maps
+  crustArc: [11, 130, 77, 240],            // #0b824d brand green high alpha
+  atmosphereParticle: [7, 107, 62, 245],   // brand-strong particle for light maps
   nodeRoot: [220, 38, 38, 255],            // #DC2626 red-600 (error)
   nodeAffected: [217, 119, 6, 255],        // #D97706 amber-600 (warning)
   nodeHealthy: [5, 150, 105, 255],         // #059669 emerald-600 (success)
-  nodeUnknown: [100, 116, 139, 255],       // slate-500
-  nodeFill: [15, 23, 42, 255],             // dark center dot
-  nodeOperUp: [3, 105, 161, 230],          // sky-800 (primary)
+  nodeUnknown: [93, 105, 119, 255],        // muted
+  nodeFill: [11, 23, 32, 255],             // #0b1720 dark center
+  nodeOperUp: [11, 130, 77, 230],          // brand green
   nodeOperDown: [120, 113, 108, 220],      // warm gray
-  nodeOperUnknown: [100, 116, 139, 220],   // slate-500
+  nodeOperUnknown: [93, 105, 119, 220],    // muted
   nodeStatusUp: [5, 150, 105, 230],        // emerald-600
   nodeStatusDown: [220, 38, 38, 230],      // red-600
-  nodeStatusUnknown: [100, 116, 139, 220], // slate-500
-  geoGrid: [180, 200, 220],               // light blue-gray grid lines
-  crustLow: [14, 130, 195, 210],          // sky-700 bold (clearly visible on light)
-  crustLowVivid: [3, 115, 185, 245],      // sky-800 near-opaque
-  crustHigh: [130, 40, 220, 235],         // rich purple bold
-  crustHighVivid: [147, 51, 234, 250],    // purple-600 near-opaque
-  particleCyan: [12, 74, 110, 255],       // dark sky particle on light edges
-  particleMagenta: [88, 28, 135, 255],    // dark purple particle on light edges
-  particleBlend: [770, 771],              // standard alpha blending for light bg
-  label: [15, 23, 42, 240],               // #0F172A slate-900 (base-content)
-  edgeLabel: [71, 85, 105, 220],           // slate-600
-  pulse: [220, 38, 38, 220],              // red-600
+  nodeStatusUnknown: [93, 105, 119, 220],  // muted
+  geoGrid: [200, 211, 206],                // light brand line grid
+  crustLow: [11, 130, 77, 210],            // brand green bold
+  crustLowVivid: [7, 107, 62, 245],        // brand-strong near-opaque
+  crustHigh: [130, 40, 220, 235],          // rich purple bold
+  crustHighVivid: [147, 51, 234, 250],     // purple-600 near-opaque
+  particleCyan: [7, 107, 62, 255],         // brand-strong particle on light edges
+  particleMagenta: [88, 28, 135, 255],     // dark purple particle on light edges
+  particleBlend: [770, 771],               // standard alpha blending for light bg
+  label: [11, 23, 32, 240],                // #0b1720 --sr-color-ink
+  edgeLabel: [93, 105, 119, 220],          // #5d6977 --sr-color-muted
+  pulse: [220, 38, 38, 220],               // red-600
 }
 
 const DARK_HUD_STYLE = [
-  "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-  "color: #F4F4F5",
-  "background: rgba(19, 19, 22, 0.85)",
+  "font-family: 'Avenir Next', Avenir, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif",
+  "color: #edf5f1",
+  "background: rgba(16, 25, 29, 0.92)",
   "backdrop-filter: blur(12px)",
   "-webkit-backdrop-filter: blur(12px)",
-  "border: 1px solid rgba(39, 39, 42, 0.4)",
+  "border: 1px solid rgba(38, 54, 58, 0.85)",
   "box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4)",
   "letter-spacing: 0.2px",
 ].join(";")
 
 const LIGHT_HUD_STYLE = [
-  "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
-  "color: #0F172A",
-  "background: rgba(255, 255, 255, 0.85)",
+  "font-family: 'Avenir Next', Avenir, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif",
+  "color: #0b1720",
+  "background: rgba(252, 253, 253, 0.92)",
   "backdrop-filter: blur(12px)",
   "-webkit-backdrop-filter: blur(12px)",
-  "border: 1px solid rgba(226, 232, 240, 0.6)",
-  "box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08)",
+  "border: 1px solid rgba(200, 211, 206, 0.9)",
+  "box-shadow: 0 8px 32px rgba(23, 48, 38, 0.08)",
   "letter-spacing: 0.2px",
 ].join(";")
 

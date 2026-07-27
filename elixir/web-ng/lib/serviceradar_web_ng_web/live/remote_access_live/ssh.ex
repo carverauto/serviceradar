@@ -32,9 +32,9 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.SSH do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="flex h-[calc(100vh-4rem)] min-h-[620px] flex-col bg-base-100">
         <div class="flex min-h-14 items-center gap-3 border-b border-base-300 px-4">
-          <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-ghost btn-sm">
+          <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="ghost">
             <.icon name="hero-arrow-left" class="size-4" /> Device
-          </.link>
+          </.ui_button>
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-sm font-semibold">SSH remote access</h1>
             <p class="truncate text-xs text-base-content/60">{@device_uid}</p>

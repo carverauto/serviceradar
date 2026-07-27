@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-7xl p-6 space-y-5">
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-5 p-6 font-sans">
         <.observability_chrome
           active_pane="health"
           title="Observability Health"
@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
         <div :if={@loading?} class="rounded-lg border border-base-200 bg-base-100 p-4">
           <div class="flex items-center gap-3 text-sm text-base-content/70">
-            <span class="loading loading-spinner loading-sm" />
+            <.ui_spinner size="sm" />
             <span>Loading observability health...</span>
           </div>
         </div>
@@ -113,13 +113,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                   Forecast rows ordered by projected exhaustion.
                 </p>
               </div>
-              <.link navigate={observability_href(@overview.capacity_query)} class="btn btn-xs">
+              <.ui_button navigate={observability_href(@overview.capacity_query)} size="xs" variant="neutral">
                 Open SRQL
-              </.link>
+              </.ui_button>
             </div>
 
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Resource</th>
@@ -140,9 +140,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                     <td class="max-w-64 truncate">{resource_label(row)}</td>
                     <td>{value(row, "metric_name") || "unknown"}</td>
                     <td>
-                      <span class={["badge badge-sm", status_badge_class(value(row, "status"))]}>
+                      <.ui_badge size="sm" variant={status_badge_variant(value(row, "status"))}>
                         {value(row, "status") || "unknown"}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td>{format_number(value(row, "current_value"))}</td>
                     <td>{format_number(value(row, "projected_value"))}</td>
@@ -188,9 +188,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                 Detection findings from the causal anomaly spine.
               </p>
             </div>
-            <.link navigate={observability_href(@overview.anomaly_query)} class="btn btn-xs">
+            <.ui_button navigate={observability_href(@overview.anomaly_query)} size="xs" variant="neutral">
               Open events
-            </.link>
+            </.ui_button>
           </div>
 
           <div class="divide-y divide-base-200">
@@ -211,7 +211,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                     <span>{format_timestamp(value(row, "time"))}</span>
                   </div>
                 </div>
-                <span class={["badge badge-sm", severity_badge_class(value(row, "severity"))]}>
+                <span class={["px-2 py-0.5 text-xs", severity_badge_class(value(row, "severity"))]}>
                   {value(row, "severity") || "Unknown"}
                 </span>
               </div>
@@ -268,9 +268,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
             {value(@row, "metric_name") || "metric"}
           </div>
         </div>
-        <span class={["badge badge-sm", status_badge_class(value(@row, "status"))]}>
+        <.ui_badge size="sm" variant={status_badge_variant(value(@row, "status"))}>
           {value(@row, "status") || "unknown"}
-        </span>
+        </.ui_badge>
       </div>
 
       <div class="mt-4 space-y-2">
@@ -653,13 +653,16 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp stat_tone_class("info"), do: "text-info"
   defp stat_tone_class(_tone), do: "text-base-content"
 
-  defp status_badge_class(status) when status in ["at_risk", "exhaustion_projected"], do: "badge-error"
-  defp status_badge_class("projected"), do: "badge-warning"
-  defp status_badge_class("skipped"), do: "badge-ghost"
-  defp status_badge_class(_status), do: "badge-outline"
+  defp status_badge_variant(status) when status in ["at_risk", "exhaustion_projected"], do: "error"
+  defp status_badge_variant("projected"), do: "warning"
+  defp status_badge_variant("skipped"), do: "ghost"
+  defp status_badge_variant(_status), do: "outline"
 
-  defp severity_badge_class(severity) when severity in ["Critical", "critical", "Fatal", "fatal"], do: "badge-error"
-  defp severity_badge_class(severity) when severity in ["High", "high"], do: "badge-warning"
-  defp severity_badge_class(severity) when severity in ["Medium", "medium"], do: "badge-info"
-  defp severity_badge_class(_severity), do: "badge-ghost"
+  defp severity_badge_class(severity) when severity in ["Critical", "critical", "Fatal", "fatal"],
+    do: "sr-sev-critical"
+
+  defp severity_badge_class(severity) when severity in ["High", "high"], do: "sr-sev-high"
+  defp severity_badge_class(severity) when severity in ["Medium", "medium"], do: "sr-sev-medium"
+  defp severity_badge_class(severity) when severity in ["Low", "low"], do: "sr-sev-low"
+  defp severity_badge_class(_severity), do: "sr-sev-unknown"
 end

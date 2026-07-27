@@ -53,8 +53,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
           mikrotik={@mikrotik}
         />
       <% else %>
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr class="text-xs uppercase tracking-wide text-base-content/60">
                 <th>Status</th>

@@ -37,14 +37,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
 
         <%= if @loading do %>
           <div class="flex items-center gap-2 text-sm text-base-content/60">
-            <span class="loading loading-spinner loading-sm"></span> Loading device logs...
+            <.ui_spinner size="sm" /> Loading device logs...
           </div>
         <% else %>
           <%= if @logs == [] and is_nil(@error) do %>
             <div class="text-sm text-base-content/60">No logs found for this device.</div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm table-zebra w-full">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
                 <thead>
                   <tr>
                     <th class="w-40">Time</th>
@@ -74,13 +74,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
                       {log_message(log)}
                     </td>
                     <td class="text-right">
-                      <.link
-                        :if={log_id(log) != "unknown"}
-                        navigate={~p"/logs/#{log_id(log)}"}
-                        class="btn btn-ghost btn-xs"
-                      >
+                      <.ui_button :if={log_id(log) != "unknown"} navigate={~p"/logs/#{log_id(log)}"} size="xs" variant="ghost">
                         Details
-                      </.link>
+                      </.ui_button>
                     </td>
                   </tr>
                 </tbody>

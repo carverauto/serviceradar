@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints do
       class="p-3 rounded-lg border border-success/25 bg-success/5 md:col-span-2"
     >
       <div class="flex flex-wrap items-center gap-2">
-        <span class="badge badge-success badge-sm">Attributed</span>
+        <.ui_badge size="sm" variant="success">Attributed</.ui_badge>
         <span class="text-xs text-base-content/60">Agent</span>
         <span class="font-mono text-xs">{display_value(Map.get(@attribution, :agent_id))}</span>
         <span class="text-xs text-base-content/60">Process</span>

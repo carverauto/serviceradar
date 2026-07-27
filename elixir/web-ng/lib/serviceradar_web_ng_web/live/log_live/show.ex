@@ -8,8 +8,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @redacted "[REDACTED]"
+  @stream_page_size 10
   @sensitive_log_keys ~w(
     authorization api_key apikey bearer cookie credential credentials jwt password
     private_key secret secret_key seed signing_key token nkey_seed nkey
@@ -19,45 +22,46 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(:page_title, "Log Details")
+     |> assign(:page_title, "Log Viewer")
      |> assign(:log_id, nil)
      |> assign(:log, nil)
      |> assign(:signal_display, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})
-     |> assign(:show_rule_builder, false)}
+     |> assign(:show_rule_builder, false)
+     |> assign(:stream_entries, [])
+     |> assign(:stream_severity, "all")
+     |> assign(:stream_query, nil)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, nil)
+     |> assign(:stream_prev_cursor, nil)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_page_size, @stream_page_size)
+     |> assign(:body_mode, "highlighted")
+     |> assign(:limit, @stream_page_size)
+     |> SRQLPage.init("logs", default_limit: @stream_page_size)}
   end
 
   @impl true
-  def handle_params(%{"log_id" => log_id}, _uri, socket) do
-    # Convert binary UUID to string format if needed
+  def handle_params(%{"log_id" => log_id}, uri, socket) do
     log_id = normalize_uuid(log_id)
+    {log, error} = load_log(log_id, socket.assigns.current_scope)
+    context_query = stream_query_for_log(log)
 
-    # Use 'id' field (not 'log_id') to filter logs
-    query = "in:logs id:\"#{escape_value(log_id)}\" time:last_24h limit:1"
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(context_query, log, log_id, nil)
 
-    {log, error} =
-      case srql_module().query(query) do
-        {:ok, %{"results" => [log | _]}} when is_map(log) ->
-          {augment_log(log, socket.assigns.current_scope), nil}
+    body =
+      if is_map(log) do
+        log_message(log)
+      else
+        ""
+      end
 
-        {:ok, %{"results" => []}} ->
-          # Try alternate query without filter - just return not found
-          # The logs entity doesn't support id/log_id filtering consistently
-          {nil, "Log entry not found. Note: Log detail view requires log_id field support."}
-
-        {:ok, _other} ->
-          {nil, "Unexpected response format"}
-
-        {:error, reason} ->
-          # If log_id filter not supported, show helpful message
-          error_msg = format_error(reason)
-
-          if String.contains?(error_msg, "unsupported filter") do
-            {nil, "Log detail view is not available - the logs entity does not support ID-based filtering."}
-          else
-            {nil, "Failed to load log: #{error_msg}"}
-          end
+    body_mode =
+      cond do
+        message_is_json?(body) -> "json"
+        extract_kv_pairs(body) != [] -> "parsed"
+        true -> "raw"
       end
 
     {:noreply,
@@ -65,12 +69,125 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:log_id, log_id)
      |> assign(:log, log)
      |> assign(:signal_display, build_signal_display(log))
-     |> assign(:error, error)}
+     |> assign(:error, error)
+     |> assign(:stream_entries, stream)
+     |> assign(:stream_query, context_query)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, next_cursor)
+     |> assign(:stream_prev_cursor, prev_cursor)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_severity, "all")
+     |> assign(:body_mode, body_mode)
+     |> assign(:page_title, page_title_for(log, log_id))
+     |> prefill_srql_bar(context_query, uri, log_id)}
   end
 
   @impl true
   def handle_event("open_rule_builder", _params, socket) do
     {:noreply, assign(socket, :show_rule_builder, true)}
+  end
+
+  def handle_event("set_body_mode", %{"mode" => mode}, socket)
+      when mode in ~w(parsed raw json highlighted) do
+    # "highlighted" kept as alias for older sessions
+    mode = if mode == "highlighted", do: "parsed", else: mode
+    {:noreply, assign(socket, :body_mode, mode)}
+  end
+
+  def handle_event("set_stream_severity", %{"severity" => severity}, socket)
+      when severity in ~w(all info warn warning error debug) do
+    {:noreply, assign(socket, :stream_severity, severity)}
+  end
+
+  def handle_event("stream_next", _params, socket) do
+    cursor = socket.assigns.stream_next_cursor
+
+    if is_binary(cursor) and cursor != "" do
+      {:noreply, load_stream_into_socket(socket, cursor, socket.assigns.stream_page + 1)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("stream_prev", _params, socket) do
+    cursor = socket.assigns.stream_prev_cursor
+    page = max(socket.assigns.stream_page - 1, 1)
+
+    cond do
+      page <= 1 ->
+        {:noreply, load_stream_into_socket(socket, nil, 1)}
+
+      is_binary(cursor) and cursor != "" ->
+        {:noreply, load_stream_into_socket(socket, cursor, page)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("copy_id", _params, socket) do
+    {:noreply, push_event(socket, "clipboard", %{text: socket.assigns.log_id || ""})}
+  end
+
+  def handle_event("copy_json", _params, socket) do
+    text =
+      case socket.assigns.log do
+        %{} = log -> log |> Map.drop(["source_device_uid"]) |> Jason.encode!(pretty: true)
+        _ -> ""
+      end
+
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("copy_message", _params, socket) do
+    text =
+      case socket.assigns.log do
+        %{} = log -> log_message(log)
+        _ -> ""
+      end
+
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "logs"}
+     )}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "logs")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    socket = SRQLPage.handle_event(socket, "srql_builder_apply", %{})
+    {:noreply, refresh_stream_from_srql(socket)}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "logs"}
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "logs")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "logs")}
   end
 
   @impl true
@@ -92,42 +209,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   @impl true
   def render(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :visible_stream,
+        filter_stream(assigns.stream_entries, assigns.stream_severity)
+      )
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-4xl p-6">
-        <.header>
-          Log Entry
-          <:subtitle>
-            <span class="font-mono text-xs">{@log_id}</span>
-          </:subtitle>
-          <:actions>
-            <.ui_button
-              :if={is_map(@log) and can_create_rules?(@current_scope)}
-              phx-click="open_rule_builder"
-              variant="primary"
-              size="sm"
-            >
-              <.icon name="hero-bolt" class="w-4 h-4" /> Create Event Rule
-            </.ui_button>
-            <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="ghost" size="sm">
-              Back to logs
-            </.ui_button>
-          </:actions>
-        </.header>
-
-        <div :if={@error} class="rounded-xl border border-error/30 bg-error/5 p-6 text-center">
-          <p class="text-sm text-error">{@error}</p>
+      <div class="sr-log-viewer flex min-w-0 max-w-full flex-col pt-2 sm:pt-3 lg:h-[calc(100dvh-7.5rem)] lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-hidden">
+        <div :if={@error} class="shrink-0 border-b border-sr-line px-1 py-3 sm:px-2">
+          <div class={ui_alert_class(variant: "error")}>
+            <.icon name="hero-exclamation-circle" class="size-5 shrink-0" />
+            <p>{@error}</p>
+          </div>
         </div>
 
-        <div :if={is_map(@log)} class="space-y-4">
-          <.log_summary log={@log} />
-          <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
-          <.log_body log={@log} />
-          <.log_details log={@log} />
+        <div
+          :if={is_map(@log)}
+          class="grid min-h-0 min-w-0 max-w-full flex-1 grid-cols-1 overflow-hidden border-t border-sr-line lg:grid-cols-[15.5rem_minmax(0,1fr)] xl:grid-cols-[16.5rem_minmax(0,1fr)]"
+        >
+          <%!-- Desktop-only stream; mobile is detail-only --%>
+          <.log_stream_pane
+            entries={@visible_stream}
+            page_count={length(@visible_stream)}
+            page={@stream_page}
+            page_size={@stream_page_size}
+            selected_id={@log_id}
+            stream_severity={@stream_severity}
+            service={Map.get(@log, "service_name")}
+            stream_query={@stream_query || Map.get(@srql, :query)}
+            has_prev={@stream_page > 1}
+            has_next={is_binary(@stream_next_cursor) and @stream_next_cursor != ""}
+          />
+
+          <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
+            <.log_detail_header
+              log={@log}
+              log_id={@log_id}
+              can_create_rules?={can_create_rules?(@current_scope)}
+            />
+            <.log_meta_strip log={@log} />
+
+            <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
+              <.log_message_hero log={@log} body_mode={@body_mode} />
+              <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+            </div>
+          </section>
         </div>
       </div>
-      
-    <!-- Rule Builder Modal -->
+
       <.live_component
         :if={@show_rule_builder}
         module={PromotionRuleBuilder}
@@ -138,6 +270,682 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     </Layouts.app>
     """
   end
+
+  # -- data loading -----------------------------------------------------------
+
+  defp load_log(log_id, scope) do
+    query = ~s|in:logs id:"#{escape_value(log_id)}" time:last_24h limit:1|
+
+    case srql_module().query(query) do
+      {:ok, %{"results" => [log | _]}} when is_map(log) ->
+        {augment_log(log, scope), nil}
+
+      {:ok, %{"results" => []}} ->
+        {nil, "Log entry not found."}
+
+      {:ok, _} ->
+        {nil, "Unexpected response format"}
+
+      {:error, reason} ->
+        error_msg = format_error(reason)
+
+        if String.contains?(error_msg, "unsupported filter") do
+          {nil, "Log detail view is not available - ID-based filtering is unsupported."}
+        else
+          {nil, "Failed to load log: #{error_msg}"}
+        end
+    end
+  end
+
+  defp stream_query_for_log(%{} = log) do
+    service = Map.get(log, "service_name")
+
+    if is_binary(service) and String.trim(service) != "" do
+      ~s|in:logs service_name:"#{escape_value(service)}" time:last_24h sort:timestamp:desc|
+    else
+      "in:logs time:last_24h sort:timestamp:desc"
+    end
+  end
+
+  defp stream_query_for_log(_), do: "in:logs time:last_24h sort:timestamp:desc"
+
+  defp load_stream_into_socket(socket, cursor, page) do
+    query = socket.assigns.stream_query || stream_query_for_log(socket.assigns.log)
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.log, socket.assigns.log_id, cursor)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_cursor, cursor)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, page)
+  end
+
+  defp load_stream_page(query, log, selected_id, cursor) when is_binary(query) do
+    opts =
+      if is_binary(cursor) and cursor != "" do
+        %{limit: @stream_page_size, cursor: cursor}
+      else
+        %{limit: @stream_page_size}
+      end
+
+    case srql_module().query(strip_embedded_limit(query), opts) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        entries = Enum.map(results, &stream_entry/1)
+
+        entries =
+          if is_nil(cursor) and is_map(log) do
+            ensure_selected_in_stream(entries, log, selected_id)
+          else
+            entries
+          end
+
+        pag = Map.get(resp, "pagination") || %{}
+        next_c = Map.get(pag, "next_cursor") || Map.get(pag, :next_cursor)
+        prev_c = Map.get(pag, "prev_cursor") || Map.get(pag, :prev_cursor)
+        {entries, next_c, prev_c}
+
+      _ ->
+        {[], nil, nil}
+    end
+  end
+
+  defp load_stream_page(_, log, selected_id, cursor) when is_map(log) do
+    load_stream_page(stream_query_for_log(log), log, selected_id, cursor)
+  end
+
+  defp load_stream_page(_, _, _, _), do: {[], nil, nil}
+
+  defp refresh_stream_from_srql(socket) do
+    raw =
+      case Map.get(socket.assigns.srql || %{}, :query) do
+        q when is_binary(q) -> String.trim(q)
+        _ -> ""
+      end
+
+    fallback = socket.assigns.stream_query || stream_query_for_log(socket.assigns.log)
+
+    query =
+      if raw != "" and String.contains?(raw, "in:logs") do
+        strip_embedded_limit(raw)
+      else
+        fallback
+      end
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.log, socket.assigns.log_id, nil)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_query, query)
+    |> assign(:stream_cursor, nil)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, 1)
+    |> assign(:stream_severity, "all")
+  end
+
+  defp strip_embedded_limit(query) when is_binary(query) do
+    query
+    |> String.replace(~r/\s*limit:\d+\b/i, "")
+    |> String.trim()
+  end
+
+  defp prefill_srql_bar(socket, query, uri, log_id) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" ->
+          URI.parse(uri).path || "/logs/#{log_id}"
+
+        _ ->
+          "/logs/#{log_id}"
+      end
+
+    srql =
+      socket.assigns.srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "logs",
+        query: query,
+        draft: query,
+        page_path: page_path || "/logs/#{log_id}",
+        error: nil,
+        loading: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+
+      {:error, _reason} ->
+        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+    end
+  end
+
+  defp stream_entry(log) when is_map(log) do
+    body = log_message(log)
+
+    %{
+      id: entry_id(log),
+      severity: Map.get(log, "severity_text"),
+      service: Map.get(log, "service_name") || Map.get(log, "service") || "—",
+      time_short: format_time_short(log),
+      preview: message_preview(body)
+    }
+  end
+
+  defp ensure_selected_in_stream(entries, log, selected_id) do
+    if Enum.any?(entries, &(&1.id == selected_id)) do
+      entries
+    else
+      [stream_entry(Map.put(log, "id", selected_id)) | entries]
+    end
+  end
+
+  defp filter_stream(entries, "all"), do: entries
+
+  defp filter_stream(entries, severity) do
+    target = normalize_severity(severity)
+
+    Enum.filter(entries, fn entry ->
+      s = normalize_severity(entry.severity)
+
+      cond do
+        target in ["warn", "warning"] -> s in ["warn", "warning", "high"]
+        target == "error" -> s in ["error", "critical", "fatal"]
+        true -> s == target
+      end
+    end)
+  end
+
+  defp page_title_for(%{} = log, log_id) do
+    case extract_bracket_title(log_message(log)) do
+      nil -> "Log · #{String.slice(to_string(log_id), 0, 8)}"
+      title -> title
+    end
+  end
+
+  defp page_title_for(_, log_id), do: "Log · #{String.slice(to_string(log_id), 0, 8)}"
+
+  # -- stream pane ------------------------------------------------------------
+
+  attr :entries, :list, required: true
+  attr :page_count, :integer, required: true
+  attr :page, :integer, required: true
+  attr :page_size, :integer, required: true
+  attr :selected_id, :string, required: true
+  attr :stream_severity, :string, required: true
+  attr :service, :any, default: nil
+  attr :stream_query, :any, default: nil
+  attr :has_prev, :boolean, default: false
+  attr :has_next, :boolean, default: false
+
+  defp log_stream_pane(assigns) do
+    ~H"""
+    <aside class="sr-log-stream hidden min-h-0 min-w-0 max-w-full flex-col overflow-hidden border-sr-line bg-sr-surface lg:flex">
+      <div class="min-w-0 shrink-0 space-y-2 border-b border-sr-line px-2.5 py-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold tracking-tight text-sr-ink">Log stream</h2>
+          <span class="font-mono text-xs text-sr-muted">
+            {if @page_count > 0, do: "p.#{@page}", else: "0"}
+          </span>
+        </div>
+
+        <div
+          :if={is_binary(@stream_query) and @stream_query != ""}
+          class="truncate rounded-sr-control border border-sr-line bg-sr-subtle/50 px-2 py-1 font-mono text-[11px] text-sr-muted"
+          title={@stream_query}
+        >
+          {@stream_query}
+        </div>
+
+        <div class="flex flex-wrap gap-0.5">
+          <.stream_sev_chip
+            :for={sev <- ~w(all info warn error debug)}
+            severity={sev}
+            active={@stream_severity == sev}
+          />
+        </div>
+      </div>
+
+      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div :if={@entries == []} class="px-3 py-6 text-center text-sm text-sr-muted">
+          No matching entries
+        </div>
+
+        <.link
+          :for={entry <- @entries}
+          navigate={~p"/logs/#{entry.id}"}
+          id={"stream-" <> entry.id}
+          class={[
+            "group relative block min-w-0 border-b border-sr-line/70 px-2.5 py-2 transition-colors duration-150 ease-sr-out",
+            entry.id == @selected_id && "bg-sr-subtle",
+            entry.id != @selected_id && "hover:bg-sr-subtle/60"
+          ]}
+        >
+          <div :if={entry.id == @selected_id} class="absolute inset-y-0 left-0 w-0.5 bg-sr-brand"></div>
+          <div class="flex min-w-0 items-start gap-2">
+            <span class={["mt-1 size-1.5 shrink-0 rounded-full", severity_dot_class(entry.severity)]}></span>
+            <div class="min-w-0 flex-1 overflow-hidden">
+              <div class="flex min-w-0 items-baseline justify-between gap-2">
+                <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>
+                <span class="truncate font-mono text-[10px] text-sr-muted">{entry.service}</span>
+              </div>
+              <p class="mt-0.5 truncate text-xs leading-snug text-sr-ink">{entry.preview}</p>
+            </div>
+          </div>
+        </.link>
+      </div>
+
+      <div class="flex shrink-0 items-center justify-between gap-1 border-t border-sr-line px-2 py-1.5">
+        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_prev" disabled={not @has_prev}>
+          <.icon name="hero-chevron-left" class="size-3.5" /> Prev
+        </.ui_button>
+        <span class="font-mono text-[11px] text-sr-muted">{@page}</span>
+        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_next" disabled={not @has_next}>
+          Next <.icon name="hero-chevron-right" class="size-3.5" />
+        </.ui_button>
+      </div>
+    </aside>
+    """
+  end
+
+  attr :severity, :string, required: true
+  attr :active, :boolean, default: false
+
+  defp stream_sev_chip(assigns) do
+    assigns =
+      assign(assigns, :label, if(assigns.severity == "all", do: "ALL", else: String.upcase(assigns.severity)))
+
+    ~H"""
+    <.ui_button
+      type="button"
+      size="xs"
+      variant={if(@active, do: "soft", else: "ghost")}
+      phx-click="set_stream_severity"
+      phx-value-severity={@severity}
+      class="min-h-7 px-2 text-[11px] tracking-wide"
+    >
+      {@label}
+    </.ui_button>
+    """
+  end
+
+  # -- detail header / meta ---------------------------------------------------
+
+  attr :log, :map, required: true
+  attr :log_id, :string, required: true
+  attr :can_create_rules?, :boolean, default: false
+
+  defp log_detail_header(assigns) do
+    body = log_message(assigns.log)
+    title = extract_bracket_title(body) || message_preview(body, 64) || "Log entry"
+
+    assigns =
+      assigns
+      |> assign(:title, title)
+      |> assign(:source_kind, log_source_kind(assigns.log))
+      |> assign(:short_id, String.slice(assigns.log_id, 0, 8))
+
+    ~H"""
+    <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 sm:px-6 sm:pt-6">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
+        <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">logs</.link>
+        <span class="text-sr-line-strong">/</span>
+        <span class="text-sr-ink/80">{@source_kind}</span>
+        <span class="text-sr-line-strong">/</span>
+        <span class="font-mono text-sr-ink">{@short_id}</span>
+      </div>
+
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="min-w-0 space-y-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-2.5">
+            <.severity_badge value={Map.get(@log, "severity_text")} />
+            <h1 class="min-w-0 truncate text-lg font-semibold tracking-tight text-sr-ink sm:text-xl">
+              {@title}
+            </h1>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <code class="break-all font-mono text-xs text-sr-muted">{@log_id}</code>
+            <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_id">Copy ID</.ui_button>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 flex-wrap items-center gap-2">
+          <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="outline" size="sm">
+            Back to logs
+          </.ui_button>
+          <.ui_button type="button" variant="outline" size="sm" phx-click="copy_json">
+            Copy JSON
+          </.ui_button>
+          <.ui_button
+            :if={@can_create_rules?}
+            phx-click="open_rule_builder"
+            variant="primary"
+            size="sm"
+          >
+            <.icon name="hero-plus" class="size-4" /> Create event rule
+          </.ui_button>
+        </div>
+      </div>
+    </header>
+    """
+  end
+
+  attr :log, :map, required: true
+
+  defp log_meta_strip(assigns) do
+    facts =
+      [
+        {"Timestamp", format_timestamp(assigns.log), true},
+        {"Service", Map.get(assigns.log, "service_name"), false},
+        {"Source IP", Map.get(assigns.log, "source_ip"), true},
+        {"Facility", log_facility(assigns.log), false},
+        {"Format", log_format(assigns.log), true},
+        {"Scope", Map.get(assigns.log, "scope_name"), true}
+      ]
+      |> Enum.reject(fn {_l, v, _} -> blank_value?(v) end)
+
+    n = length(facts)
+
+    col_class =
+      cond do
+        n <= 1 -> "grid-cols-1"
+        n == 2 -> "grid-cols-2"
+        n == 3 -> "grid-cols-2 sm:grid-cols-3"
+        n == 4 -> "grid-cols-2 lg:grid-cols-4"
+        true -> "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+      end
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:col_class, col_class)
+
+    ~H"""
+    <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+      <div
+        :for={{label, value, mono?} <- @facts}
+        class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
+      >
+        <span class="text-xs font-medium uppercase tracking-wide text-sr-muted">{label}</span>
+        <span class={["truncate text-sm text-sr-ink", mono? && "font-mono text-[13px] tracking-tight"]}>
+          {value}
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  # -- message hero -----------------------------------------------------------
+
+  attr :log, :map, required: true
+  attr :body_mode, :string, required: true
+
+  defp log_message_hero(assigns) do
+    body = redact_secret_text(log_message(assigns.log))
+    is_json = message_is_json?(body)
+    pairs = extract_kv_pairs(body)
+    prefix = message_prefix(body)
+    has_structure? = pairs != []
+
+    pretty_json =
+      if is_json do
+        case Jason.decode(body) do
+          {:ok, decoded} -> Jason.encode!(decoded, pretty: true)
+          _ -> nil
+        end
+      end
+
+    # Prefer structured parse when available; otherwise fall back to raw-style view.
+    default_mode =
+      cond do
+        is_json -> "json"
+        has_structure? -> "parsed"
+        true -> "raw"
+      end
+
+    modes =
+      cond do
+        is_json and has_structure? -> ~w(parsed raw json)
+        is_json -> ~w(raw json)
+        has_structure? -> ~w(parsed raw)
+        true -> ~w(raw)
+      end
+
+    body_mode =
+      if assigns.body_mode in modes do
+        assigns.body_mode
+      else
+        default_mode
+      end
+
+    assigns =
+      assigns
+      |> assign(:body, body)
+      |> assign(:is_json, is_json)
+      |> assign(:pretty_json, pretty_json)
+      |> assign(:pairs, pairs)
+      |> assign(:prefix, prefix)
+      |> assign(:has_structure?, has_structure?)
+      |> assign(:empty?, body == "")
+      |> assign(:modes, modes)
+      |> assign(:body_mode, body_mode)
+
+    ~H"""
+    <div :if={not @empty?} class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium uppercase tracking-wide text-sr-muted">Message</span>
+          <div
+            :if={length(@modes) > 1}
+            class="inline-flex gap-0.5 rounded-sr-control border border-sr-line bg-sr-subtle/40 p-0.5"
+          >
+            <.ui_button
+              :for={mode <- @modes}
+              type="button"
+              size="xs"
+              variant={if(@body_mode == mode, do: "soft", else: "ghost")}
+              phx-click="set_body_mode"
+              phx-value-mode={mode}
+              class="min-h-7 px-2.5 capitalize"
+            >
+              {mode}
+            </.ui_button>
+          </div>
+        </div>
+        <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_message">Copy</.ui_button>
+      </div>
+
+      <%!-- Parsed: structured fields only (no duplicate wall of text) --%>
+      <div
+        :if={@body_mode == "parsed" and @has_structure?}
+        class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
+      >
+        <div
+          :if={is_binary(@prefix) and @prefix != ""}
+          class="border-b border-sr-line bg-sr-subtle/40 px-4 py-3 font-mono text-sm text-sr-ink"
+        >
+          {@prefix}
+        </div>
+        <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+          <div
+            :for={{key, value} <- @pairs}
+            class="flex min-w-0 flex-col gap-1 px-4 py-3 even:bg-sr-subtle/20 sm:even:bg-transparent sm:[&:nth-child(2n)]:bg-sr-subtle/15 lg:[&:nth-child(2n)]:bg-transparent lg:[&:nth-child(3n+2)]:bg-sr-subtle/15"
+          >
+            <span class="font-mono text-xs uppercase tracking-wide text-sr-muted">{key}</span>
+            <span class={[
+              "break-all font-mono text-sm text-sr-ink",
+              value_looks_like_ip?(value) && "text-sr-brand"
+            ]}>
+              {if value == "", do: "—", else: value}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Raw / JSON: original payload only --%>
+      <div
+        :if={@body_mode in ["raw", "json"] or not @has_structure?}
+        class="rounded-sr-surface border border-sr-line bg-[color-mix(in_srgb,var(--color-sr-canvas)_78%,var(--color-sr-subtle))] p-4 shadow-sr-surface sm:p-5"
+      >
+        <pre
+          :if={@body_mode == "json" and is_binary(@pretty_json)}
+          class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-sr-ink selection:bg-sr-brand/25"
+        >{@pretty_json}</pre>
+        <pre
+          :if={@body_mode != "json" or is_nil(@pretty_json)}
+          class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-sr-ink selection:bg-sr-brand/25"
+        >{@body}</pre>
+      </div>
+    </div>
+    """
+  end
+
+  # -- message helpers --------------------------------------------------------
+
+  defp log_message(log) when is_map(log), do: Map.get(log, "body") || Map.get(log, "message") || ""
+  defp log_message(_), do: ""
+
+  defp message_is_json?(body) when is_binary(body) do
+    t = String.trim(body)
+    String.starts_with?(t, "{") or String.starts_with?(t, "[")
+  end
+
+  defp message_is_json?(_), do: false
+
+  defp message_preview(body, max \\ 72)
+
+  defp message_preview(body, max) when is_binary(body) do
+    body = body |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    cond do
+      body == "" -> "—"
+      String.length(body) > max -> String.slice(body, 0, max - 1) <> "…"
+      true -> body
+    end
+  end
+
+  defp message_preview(_, _), do: "—"
+
+  defp extract_bracket_title(body) when is_binary(body) do
+    case Regex.run(~r/\[([^\]]{2,64})\]/, body) do
+      [_, title] -> title
+      _ -> nil
+    end
+  end
+
+  defp extract_bracket_title(_), do: nil
+
+  # Text before the first KEY= token (e.g. "tonka01 [POSTROUTING-SNAT-1]").
+  defp message_prefix(body) when is_binary(body) do
+    case Regex.run(~r/^(.*?)(?=\b[A-Za-z_][A-Za-z0-9_]{0,24}=)/s, body) do
+      [_, prefix] ->
+        prefix = String.trim(prefix)
+        if prefix == "", do: nil, else: prefix
+
+      _ ->
+        nil
+    end
+  end
+
+  defp message_prefix(_), do: nil
+
+  defp extract_kv_pairs(body) when is_binary(body) do
+    ~r/\b([A-Za-z_][A-Za-z0-9_]{0,24})=(?:"([^"]*)"|([^\s]*))/
+    |> Regex.scan(body)
+    |> Enum.flat_map(&kv_pair_from_scan/1)
+    |> Enum.uniq_by(fn {k, _} -> k end)
+    |> Enum.take(32)
+  end
+
+  defp extract_kv_pairs(_), do: []
+
+  defp kv_pair_from_scan([_full, key, quoted, _plain])
+       when is_binary(key) and is_binary(quoted) and quoted != "" do
+    [{key, quoted}]
+  end
+
+  defp kv_pair_from_scan([_full, key, _quoted, plain]) when is_binary(key) and is_binary(plain) do
+    [{key, plain}]
+  end
+
+  defp kv_pair_from_scan([_full, key, value]) when is_binary(key) and is_binary(value) do
+    [{key, value}]
+  end
+
+  defp kv_pair_from_scan([_full, key]) when is_binary(key), do: [{key, ""}]
+  defp kv_pair_from_scan(_), do: []
+
+  defp value_looks_like_ip?(v) when is_binary(v), do: Regex.match?(~r/^(?:\d{1,3}\.){3}\d{1,3}$/, v)
+  defp value_looks_like_ip?(_), do: false
+
+  defp severity_dot_class(value) do
+    case normalize_severity(value) do
+      s when s in ["critical", "fatal", "error"] -> "bg-rose-500"
+      s when s in ["high", "warn", "warning"] -> "bg-amber-400"
+      s when s in ["medium", "info"] -> "bg-sr-brand"
+      s when s in ["low", "debug", "trace", "ok"] -> "bg-sky-400"
+      _ -> "bg-sr-muted"
+    end
+  end
+
+  defp format_time_short(log) do
+    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
+      _ -> "—"
+    end
+  end
+
+  defp entry_id(log) do
+    case Map.get(log, "id") do
+      <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
+      id when is_binary(id) and id != "" -> id
+      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(log))
+    end
+  end
+
+  defp log_source_kind(log) do
+    attrs = parse_attributes(Map.get(log, "attributes")) || %{}
+
+    case Map.get(attrs, "source_kind") do
+      v when is_binary(v) and v != "" -> v
+      _ -> "log"
+    end
+  end
+
+  defp log_facility(log) do
+    attrs = parse_attributes(Map.get(log, "attributes")) || %{}
+    Map.get(log, "facility") || leaf_attr(attrs, "facility")
+  end
+
+  defp log_format(log) do
+    attrs = parse_attributes(Map.get(log, "attributes")) || %{}
+
+    Map.get(log, "syslog_format") ||
+      leaf_attr(attrs, "_syslog_format") ||
+      leaf_attr(attrs, "syslog_format")
+  end
+
+  defp leaf_attr(attrs, key) when is_map(attrs) do
+    case Map.get(attrs, key) do
+      %{"value" => v} -> v
+      v when is_binary(v) -> v
+      _ -> nil
+    end
+  end
+
+  defp leaf_attr(_, _), do: nil
+
 
   # RBAC check - only operators and admins can create rules
   defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
@@ -299,249 +1107,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       "" -> Map.put(log, key, value)
       _ -> log
     end
-  end
-
-  attr :log, :map, required: true
-
-  defp log_summary(assigns) do
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
-      <div class="flex flex-wrap gap-x-8 gap-y-4">
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Level</span>
-          <.severity_badge value={Map.get(@log, "severity_text")} />
-        </div>
-
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Time</span>
-          <span class="text-sm font-mono">{format_timestamp(@log)}</span>
-        </div>
-
-        <div :if={has_value?(@log, "service_name")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Service</span>
-          <span class="text-sm">{Map.get(@log, "service_name")}</span>
-        </div>
-
-        <div :if={has_value?(@log, "source_ip")} id="log-source-ip" class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Source IP</span>
-          <span class="text-sm font-mono">{Map.get(@log, "source_ip")}</span>
-        </div>
-
-        <div :if={has_value?(@log, "scope_name")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Scope</span>
-          <span class="text-sm font-mono">{Map.get(@log, "scope_name")}</span>
-        </div>
-
-        <div :if={has_value?(@log, "trace_id")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Trace ID</span>
-          <span class="text-xs font-mono text-base-content/70">{Map.get(@log, "trace_id")}</span>
-        </div>
-
-        <div :if={has_value?(@log, "span_id")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Span ID</span>
-          <span class="text-xs font-mono text-base-content/70">{Map.get(@log, "span_id")}</span>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :log, :map, required: true
-
-  defp log_body(assigns) do
-    body = Map.get(assigns.log, "body") || Map.get(assigns.log, "message") || ""
-    body = redact_secret_text(body)
-
-    is_json =
-      String.starts_with?(String.trim(body), "{") or String.starts_with?(String.trim(body), "[")
-
-    formatted_body =
-      if is_json do
-        case Jason.decode(body) do
-          {:ok, decoded} -> Jason.encode!(decoded, pretty: true)
-          {:error, _} -> body
-        end
-      else
-        body
-      end
-
-    assigns =
-      assigns
-      |> assign(:body, body)
-      |> assign(:formatted_body, formatted_body)
-      |> assign(:is_json, is_json)
-
-    ~H"""
-    <div :if={@body != ""} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Message Body</span>
-      </div>
-
-      <div class="p-4">
-        <pre class={[
-          "text-sm whitespace-pre-wrap break-all",
-          @is_json && "font-mono text-xs bg-base-200/30 p-4 rounded-lg overflow-x-auto"
-        ]}>{@formatted_body}</pre>
-      </div>
-    </div>
-    """
-  end
-
-  attr :log, :map, required: true
-
-  defp log_details(assigns) do
-    # Fields shown in summary or body (exclude from details). The ingest_*
-    # columns are rendered as dedicated rows below, so they are excluded from
-    # the generic field loop.
-    summary_fields =
-      ~w(id log_id severity_text severity_number timestamp service_name source_ip scope_name trace_id span_id body message) ++
-        ingest_fields()
-
-    # Get remaining fields
-    detail_fields =
-      assigns.log
-      |> Map.keys()
-      |> Enum.reject(&(&1 in summary_fields))
-      |> Enum.filter(&display_field?(assigns.log, &1))
-      |> Enum.sort()
-
-    # Parse attributes fields if present for structured display
-    parsed_attributes = assigns.log |> Map.get("attributes") |> parse_attributes() |> redact_secret_value()
-
-    parsed_resource_attributes =
-      assigns.log |> Map.get("resource_attributes") |> parse_attributes() |> redact_secret_value()
-
-    assigns =
-      assigns
-      |> assign(:detail_fields, detail_fields)
-      |> assign(:parsed_attributes, parsed_attributes)
-      |> assign(:parsed_resource_attributes, parsed_resource_attributes)
-      |> assign(:source_device_uid, Map.get(assigns.log, "source_device_uid"))
-      |> assign(:has_ingest?, Enum.any?(ingest_fields(), &has_value?(assigns.log, &1)))
-
-    ~H"""
-    <div
-      :if={@detail_fields != [] or @has_ingest?}
-      class="rounded-xl border border-base-200 bg-base-100"
-    >
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Additional Metadata</span>
-      </div>
-
-      <div class="divide-y divide-base-200">
-        <div
-          :if={has_value?(@log, "ingest_identity")}
-          id="log-ingest-identity"
-          class="px-4 py-3 flex items-start gap-4"
-        >
-          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Identity</span>
-          <span class="text-sm flex-1 break-all font-mono text-xs">
-            {Map.get(@log, "ingest_identity")}
-          </span>
-        </div>
-        <div
-          :if={has_value?(@log, "ingest_agent_id")}
-          id="log-ingest-agent"
-          class="px-4 py-3 flex items-start gap-4"
-        >
-          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Agent</span>
-          <span class="text-sm flex-1 break-all font-mono text-xs">
-            {Map.get(@log, "ingest_agent_id")}
-          </span>
-        </div>
-        <div
-          :if={has_value?(@log, "ingest_partition")}
-          id="log-ingest-partition"
-          class="px-4 py-3 flex items-start gap-4"
-        >
-          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Partition</span>
-          <span class="text-sm flex-1 break-all font-mono text-xs">
-            {Map.get(@log, "ingest_partition")}
-          </span>
-        </div>
-        <%= for field <- @detail_fields do %>
-          <%= if field == "attributes" and is_map(@parsed_attributes) do %>
-            <.parsed_attributes_section attributes={@parsed_attributes} title="Attributes" />
-          <% else %>
-            <%= if field == "resource_attributes" and is_map(@parsed_resource_attributes) do %>
-              <.parsed_attributes_section
-                attributes={@parsed_resource_attributes}
-                title="Resource Attributes"
-                source_device_uid={@source_device_uid}
-              />
-            <% else %>
-              <div class="px-4 py-3 flex items-start gap-4">
-                <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
-                  {humanize_field(field)}
-                </span>
-                <span class="text-sm flex-1 break-all">
-                  <.format_value value={redact_secret_value(Map.get(@log, field))} />
-                </span>
-              </div>
-            <% end %>
-          <% end %>
-        <% end %>
-      </div>
-    </div>
-    """
-  end
-
-  defp ingest_fields, do: ~w(ingest_identity ingest_agent_id ingest_partition)
-
-  attr :attributes, :map, required: true
-  attr :title, :string, default: "Attributes"
-  attr :source_device_uid, :string, default: nil
-
-  defp parsed_attributes_section(assigns) do
-    ~H"""
-    <div class="px-4 py-3">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider">{@title}</span>
-      <%= if simple_attribute_map?(@attributes) do %>
-        <div class="mt-2 flex flex-wrap gap-2">
-          <%= for {key, value} <- flatten_attribute_values(@attributes) do %>
-            <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70">
-              <span class="font-medium">{key}</span>
-              <span class="text-base-content/40">=</span>
-              <span class="font-mono text-base-content/90">
-                <%= if key == "source" and is_binary(@source_device_uid) do %>
-                  <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
-                    {format_attribute_value(key, value)}
-                  </.link>
-                <% else %>
-                  {format_attribute_value(key, value)}
-                <% end %>
-              </span>
-            </span>
-          <% end %>
-        </div>
-      <% else %>
-        <div class="mt-2 space-y-2">
-          <%= for {section, values} <- @attributes do %>
-            <div class="pl-2 border-l-2 border-base-300">
-              <span class="text-xs font-medium text-base-content/70">{section}</span>
-              <div class="mt-2 flex flex-wrap gap-2">
-                <%= for {key, value} <- flatten_attribute_values(values) do %>
-                  <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70">
-                    <span class="font-medium">{key}</span>
-                    <span class="text-base-content/40">=</span>
-                    <span class="font-mono text-base-content/90">
-                      <%= if key == "source" and is_binary(@source_device_uid) do %>
-                        <.link navigate={~p"/devices/#{@source_device_uid}"} class="link link-hover">
-                          {format_attribute_value(key, value)}
-                        </.link>
-                      <% else %>
-                        {format_attribute_value(key, value)}
-                      <% end %>
-                    </span>
-                  </span>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
-        </div>
-      <% end %>
-    </div>
-    """
   end
 
   # Parse attribute strings into structured maps

@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Components.PrefixTagChips do
   use ServiceRadarWebNGWeb, :html
 
   @default_wrapper "mt-0.5 flex flex-wrap gap-0.5"
-  @default_badge "badge badge-outline badge-xs font-mono"
+  @default_badge "inline-flex items-center rounded-full border border-sr-line-strong bg-transparent px-1.5 text-[0.65rem] font-semibold font-mono text-sr-ink"
 
   @doc """
   Normalize a raw tags field into a compact unique list of non-empty strings.

@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
               {flow_get(@flow, ["time", "timestamp"]) || "—"}
             </div>
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" phx-click="netflow_close">Close</button>
+          <.ui_button type="button" phx-click="netflow_close" size="sm" variant="ghost">Close</.ui_button>
         </div>
 
         <% ocsf = flow_get(@flow, ["ocsf_payload"]) || %{} %>
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                   (is_binary(protocol_label) and String.upcase(protocol_label) == "TCP") or
                     protocol_num == 6 %>
                 <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs">
-                  <span class="badge badge-xs badge-outline">{protocol_label || "Unknown"}</span>
+                  <.ui_badge size="xs" variant="outline">{protocol_label || "Unknown"}</.ui_badge>
                   <span :if={not is_nil(protocol_num)} class="text-base-content/60">
                     proto {protocol_num}
                   </span>

@@ -27,7 +27,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a[href='/netflow-map']", "Full Screen")
     assert has_element?(view, "#ops-traffic-map[data-topology-links]")
     assert has_element?(view, "a.sr-ops-topbar-icon[href='/alerts'][aria-label='Alerts']")
-    assert has_element?(view, "a.sr-ops-avatar[href='/settings/profile'][aria-label='Open profile']")
+    assert has_element?(view, "#ops-topbar")
+    assert has_element?(view, "#ops-brand-logo")
+    assert has_element?(view, ".sr-ops-brand-mark")
+    assert has_element?(view, "#ops-profile-menu-toggle[aria-label='Open profile menu']")
+    assert has_element?(view, "#ops-profile-menu a[href='/settings/profile']", "Profile")
     refute has_element?(view, ".sr-ops-notification-dot")
   end
 

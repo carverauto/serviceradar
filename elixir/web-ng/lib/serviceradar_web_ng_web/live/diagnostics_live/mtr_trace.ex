@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     >
       <div class="p-6 space-y-6">
         <div class="flex items-center gap-3">
-          <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
+          <.ui_button navigate={~p"/diagnostics/mtr"} size="sm" variant="ghost">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -89,11 +89,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
               />
             </svg>
             Back
-          </.link>
+          </.ui_button>
           <h1 class="text-2xl font-bold">MTR Trace Detail</h1>
         </div>
 
-        <div :if={@error} class="alert alert-error">
+        <div :if={@error} class={ui_alert_class("error")}>
           <span>{@error}</span>
         </div>
 
@@ -130,12 +130,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             </div>
           </div>
 
-          <div :if={@trace["error"]} class="alert alert-warning">
+          <div :if={@trace["error"]} class={ui_alert_class("warning")}>
             <span>Error: {@trace["error"]}</span>
           </div>
 
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th class="w-12">Hop</th>
@@ -159,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                       {hop["addr"] || "???"}
                       <span
                         :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
-                        class="badge badge-xs badge-info ml-1"
+                        class="ml-1 inline-flex items-center rounded-full border border-sr-brand/30 bg-sr-brand/10 px-1.5 text-[0.65rem] font-semibold text-sr-brand-strong"
                         title={Enum.join(hop["ecmp_addrs"], ", ")}
                       >
                         +{length(hop["ecmp_addrs"])} ECMP
@@ -172,9 +172,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                       {hop["hostname"] || "-"}
                     </div>
                     <div class="text-[11px]">
-                      <span :if={hop["asn"]} class="badge badge-ghost badge-sm mr-1">
+                      <.ui_badge :if={hop["asn"]} size="sm" variant="ghost" class="mr-1">
                         AS{hop["asn"]}
-                      </span>
+                      </.ui_badge>
                       <span
                         :if={hop["asn_org"]}
                         class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"

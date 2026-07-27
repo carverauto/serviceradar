@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
             Visibility is {@dashboard.visibility}; explicit grants add users or reusable groups.
           </p>
         </div>
-        <span class="badge badge-outline">{length(@access_grants)} grants</span>
+        <.ui_badge size="sm" variant="outline">{length(@access_grants)} grants</.ui_badge>
       </div>
 
       <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
@@ -41,18 +41,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
             <div>
               <div class="text-sm font-medium">{AccessControls.grant_label(grant)}</div>
               <div class="mt-1 flex flex-wrap gap-2">
-                <span class="badge badge-sm">{grant.subject_type}</span>
-                <span class="badge badge-sm badge-outline">{grant.access}</span>
+                <.ui_badge size="sm" variant="ghost">{grant.subject_type}</.ui_badge>
+                <.ui_badge size="sm" variant="outline">{grant.access}</.ui_badge>
               </div>
             </div>
-            <button
-              type="button"
-              class="btn btn-xs btn-error btn-outline"
-              phx-click="revoke_grant"
-              phx-value-id={grant.id}
-            >
+            <.ui_button type="button" phx-click="revoke_grant" phx-value-id={grant.id} size="xs" variant="outline">
               <.icon name="hero-trash" class="size-4" /> Revoke
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -77,9 +72,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
               label="Access"
               options={AccessControls.access_select_options()}
             />
-            <button type="submit" class="btn btn-sm" disabled={@users == []}>
+            <.ui_button type="submit" disabled={@users == []} size="sm" variant="neutral">
               <.icon name="hero-user-plus" class="size-4" /> Grant User
-            </button>
+            </.ui_button>
           </.form>
 
           <.form
@@ -103,9 +98,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
               label="Access"
               options={AccessControls.access_select_options()}
             />
-            <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
+            <.ui_button type="submit" disabled={@user_groups == []} size="sm" variant="neutral">
               <.icon name="hero-user-group" class="size-4" /> Grant Group
-            </button>
+            </.ui_button>
           </.form>
         </div>
       </div>
@@ -147,28 +142,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <span class="badge badge-outline">
+                <.ui_badge size="sm" variant="outline">
                   {schedule.last_status || if(schedule.enabled, do: "enabled", else: "disabled")}
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost"
-                  phx-click="toggle_report_schedule"
-                  phx-value-id={schedule.id}
-                >
+                </.ui_badge>
+                <.ui_button type="button" phx-click="toggle_report_schedule" phx-value-id={schedule.id} size="xs" variant="ghost">
                   <.icon
                     name={if(schedule.enabled, do: "hero-pause", else: "hero-play")}
                     class="size-4"
                   />
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost text-error"
-                  phx-click="delete_report_schedule"
-                  phx-value-id={schedule.id}
-                >
+                </.ui_button>
+                <.ui_button type="button" phx-click="delete_report_schedule" phx-value-id={schedule.id} size="xs" variant="ghost" class="text-error">
                   <.icon name="hero-trash" class="size-4" />
-                </button>
+                </.ui_button>
               </div>
             </div>
             <p class="mt-2 text-xs text-base-content/70">
@@ -188,9 +173,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
           <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
           <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
           <.input field={@report_schedule_form[:recipients]} type="textarea" label="Recipients" />
-          <button type="submit" class="btn btn-sm btn-primary">
+          <.ui_button type="submit" size="sm" variant="primary">
             <.icon name="hero-envelope" class="size-4" /> Schedule Report
-          </button>
+          </.ui_button>
         </.form>
       </div>
     </section>

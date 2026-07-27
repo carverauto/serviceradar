@@ -70,8 +70,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
         </.ui_button>
         <.ui_button
           :if={RBAC.can?(@current_scope, "devices.bulk_delete")}
-          variant="outline"
-          class="btn-error"
+          variant="danger"
           size="sm"
           phx-click="open_bulk_delete_modal"
         >

@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
           <span class="text-sm font-semibold">Interface Traffic (Ingress vs Egress)</span>
         </div>
         <form phx-change="select_interface">
-          <select name="interface" class="select select-xs select-bordered">
+          <select name="interface" class={ui_field_class(size: "xs")}>
             <option value="">Select interface...</option>
             <option
               :for={iface <- @top_interfaces}
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
       >
         <h3 class="text-sm font-semibold text-base-content mb-2">Protocol Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}
@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
       >
         <h3 class="text-sm font-semibold text-base-content mb-2">TCP Flag Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
       >
         <h3 class="text-sm font-semibold text-base-content mb-2">Flow Rate (flows/sec)</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <div
           :if={not @loading}
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
       >
         <h3 class="text-sm font-semibold text-base-content mb-2">Flow Duration Distribution</h3>
         <div :if={@loading} class="flex items-center justify-center py-8">
-          <span class="loading loading-spinner loading-md"></span>
+          <.ui_spinner size="md" />
         </div>
         <.protocol_breakdown
           :if={not @loading}

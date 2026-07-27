@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6 space-y-4">
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-4 p-6 font-sans">
         <.observability_chrome active_pane="bmp" />
 
         <div class="flex items-center justify-between">
@@ -93,8 +93,8 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
             <div class="text-sm font-semibold">BMP Stream</div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm", zebra: true)}>
               <thead>
                 <tr>
                   <th>Time</th>
@@ -118,9 +118,9 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
                       {event["time"] || event[:time] || "—"}
                     </td>
                     <td>
-                      <span class="badge badge-ghost badge-sm">
+                      <.ui_badge size="sm" variant="ghost">
                         {event["event_type"] || event[:event_type] || "unknown"}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td>{event["severity_id"] || event[:severity_id] || "—"}</td>
                     <td>{event["router_ip"] || event[:router_ip] || "—"}</td>

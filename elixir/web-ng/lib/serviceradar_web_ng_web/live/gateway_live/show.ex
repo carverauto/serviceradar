@@ -248,7 +248,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <%= for {step, index} <- Enum.with_index(@role_steps) do %>
             <div class="flex items-center gap-2 p-2 rounded-lg bg-base-200/50">
-              <span class={"badge badge-sm #{step_badge_class(index)}"}>{step.label}</span>
+              <.ui_badge size="sm" variant={step_badge_variant(index)}>{step.label}</.ui_badge>
               <span class="text-xs text-base-content/60">{step.description}</span>
             </div>
           <% end %>
@@ -258,10 +258,10 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     """
   end
 
-  defp step_badge_class(0), do: "badge-info"
-  defp step_badge_class(1), do: "badge-success"
-  defp step_badge_class(2), do: "badge-primary"
-  defp step_badge_class(_), do: "badge-ghost"
+  defp step_badge_variant(0), do: "info"
+  defp step_badge_variant(1), do: "success"
+  defp step_badge_variant(2), do: "primary"
+  defp step_badge_variant(_), do: "ghost"
 
   attr :node_info, :map, required: true
   attr :node, :string, required: true
@@ -271,7 +271,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <span class="text-sm font-semibold">Node System Information</span>
-        <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
+        <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->

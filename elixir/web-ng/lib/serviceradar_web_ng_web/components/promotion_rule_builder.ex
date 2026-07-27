@@ -147,28 +147,21 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     assigns = assign(assigns, :severity_options, @severity_options)
 
     ~H"""
-    <dialog id="rule_builder_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close"
-            phx-target={@myself}
-          >
-            x
-          </button>
-        </form>
-
-        <h3 class="text-lg font-bold">
-          {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
-        </h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Configure match conditions to create events from logs.
-          For advanced configuration, visit <.link
-            navigate="/settings/rules?tab=events"
-            class="link link-primary"
-          >Settings → Rules</.link>.
-        </p>
+    <.ui_modal
+      id="rule_builder_modal"
+      on_cancel="close"
+      on_cancel_target={@myself}
+    >
+      <:title>
+        {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
+      </:title>
+      <p class="text-sm text-sr-muted">
+        Configure match conditions to create events from logs.
+        For advanced configuration, visit <.link
+          navigate="/settings/rules?tab=events"
+          class="text-sr-brand hover:underline"
+        >Settings → Rules</.link>.
+      </p>
 
         <.form
           for={@form}
@@ -188,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               type="text"
               name="rule[name]"
               value={@form[:name].value}
-              class="input input-bordered"
+              class={ui_field_class()}
               placeholder="e.g., db-writer-errors"
               required
             />
@@ -204,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 name="rule[body_contains_enabled]"
                 value="true"
                 checked={@form[:body_contains_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
+                class={ui_checkbox_class()}
               />
               <span class="label-text font-medium">Message contains</span>
             </label>
@@ -213,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               name="rule[body_contains]"
               value={@form[:body_contains].value}
               class={[
-                "input input-bordered input-sm",
+                ui_field_class(size: "sm"),
                 not @form[:body_contains_enabled].value && "opacity-50"
               ]}
               placeholder="e.g., Fetch error"
@@ -234,14 +227,14 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 name="rule[severity_enabled]"
                 value="true"
                 checked={@form[:severity_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
+                class={ui_checkbox_class()}
               />
               <span class="label-text font-medium">Severity level</span>
             </label>
             <select
               name="rule[severity_text]"
               class={[
-                "select select-bordered select-sm",
+                ui_field_class(size: "sm"),
                 not @form[:severity_enabled].value && "opacity-50"
               ]}
               disabled={not @form[:severity_enabled].value}
@@ -263,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 name="rule[service_name_enabled]"
                 value="true"
                 checked={@form[:service_name_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
+                class={ui_checkbox_class()}
               />
               <span class="label-text font-medium">Service name</span>
             </label>
@@ -272,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               name="rule[service_name]"
               value={@form[:service_name].value}
               class={[
-                "input input-bordered input-sm",
+                ui_field_class(size: "sm"),
                 not @form[:service_name_enabled].value && "opacity-50"
               ]}
               placeholder="e.g., serviceradar-db-event-writer"
@@ -288,7 +281,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 name="rule[attribute_enabled]"
                 value="true"
                 checked={@form[:attribute_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
+                class={ui_checkbox_class()}
               />
               <span class="label-text font-medium">Attribute equals</span>
             </label>
@@ -300,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 type="text"
                 name="rule[attribute_key]"
                 value={@form[:attribute_key].value}
-                class="input input-bordered input-sm flex-1"
+                class={ui_field_class(size: "sm", class: "flex-1")}
                 placeholder="Key (e.g., error)"
                 disabled={not @form[:attribute_enabled].value}
               />
@@ -308,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 type="text"
                 name="rule[attribute_value]"
                 value={@form[:attribute_value].value}
-                class="input input-bordered input-sm flex-1"
+                class={ui_field_class(size: "sm", class: "flex-1")}
                 placeholder="Value (e.g., connection failed)"
                 disabled={not @form[:attribute_enabled].value}
               />
@@ -323,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 <%= for {key, value} <- flatten_for_suggestions(@form[:parsed_attributes].value) do %>
                   <button
                     type="button"
-                    class="badge badge-ghost badge-sm cursor-pointer hover:badge-primary"
+                    class="inline-flex cursor-pointer items-center rounded-full border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-muted transition-colors hover:border-sr-brand/40 hover:bg-sr-brand/10 hover:text-sr-brand"
                     phx-click="select_attribute"
                     phx-value-key={key}
                     phx-value-value={value}
@@ -346,7 +339,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 name="rule[auto_alert]"
                 value="true"
                 checked={@form[:auto_alert].value}
-                class="checkbox checkbox-sm checkbox-primary"
+                class={ui_checkbox_class()}
               />
               <div>
                 <span class="label-text font-medium">Auto-create alert for matching events</span>
@@ -361,18 +354,12 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           <div class="bg-base-200/50 rounded-lg p-4 mt-4">
             <div class="flex items-center justify-between mb-2">
               <span class="text-sm font-medium">Rule Preview</span>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                phx-click="test_rule"
-                phx-target={@myself}
-                disabled={@preview_state == :loading}
-              >
+              <.ui_button type="button" phx-click="test_rule" phx-target={@myself} disabled={@preview_state == :loading} size="xs" variant="ghost">
                 <.icon :if={@preview_state != :loading} name="hero-play" class="w-4 h-4" />
-                <span :if={@preview_state == :loading} class="loading loading-spinner loading-xs">
+                <span :if={@preview_state == :loading} class="sr-ui-spinner sr-ui-spinner-xs">
                 </span>
                 Test Rule
-              </button>
+              </.ui_button>
             </div>
 
             <div :if={@preview_state == :idle} class="text-sm text-base-content/60">
@@ -417,29 +404,25 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
           
     <!-- Validation Error -->
-          <div :if={@error} class="alert alert-error">
+          <div :if={@error} class={ui_alert_class("error")}>
             <.icon name="hero-exclamation-circle" class="w-5 h-5" />
             <span>{@error}</span>
           </div>
           
     <!-- Actions -->
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close" phx-target={@myself}>
+          <div class="flex justify-end gap-2 pt-1">
+            <.ui_button type="button" phx-click="close" phx-target={@myself} size="sm" variant="ghost">
               Cancel
-            </button>
-            <button type="submit" class="btn btn-primary" disabled={@saving}>
-              <span :if={@saving} class="loading loading-spinner loading-xs"></span>
+            </.ui_button>
+            <.ui_button type="submit" disabled={@saving} size="sm" variant="primary">
+              <span :if={@saving} class="sr-ui-spinner sr-ui-spinner-xs"></span>
               <.icon :if={not @saving and @mode == :create} name="hero-plus" class="w-4 h-4" />
               <.icon :if={not @saving and @mode == :edit} name="hero-check" class="w-4 h-4" />
               {if @mode == :edit, do: "Save Changes", else: "Create Rule"}
-            </button>
+            </.ui_button>
           </div>
         </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close" phx-target={@myself}>close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 

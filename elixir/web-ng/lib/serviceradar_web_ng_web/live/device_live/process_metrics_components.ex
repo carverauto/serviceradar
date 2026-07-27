@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
       </div>
 
       <div :if={@pagination.filtered_total > 0} class="p-4 overflow-x-auto">
-        <table class="table table-xs">
+        <table class={ui_table_class(size: "xs")}>
           <thead>
             <tr>
               <th>Process</th>

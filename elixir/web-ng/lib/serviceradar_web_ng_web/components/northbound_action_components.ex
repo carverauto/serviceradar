@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents
+  import ServiceRadarWebNGWeb.UIComponents
   # Reuse the device-detail Ansible panel's typed variable input so the bulk
   # "Run Task" modal renders an identical variable form.
   import ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents, only: [var_input: 1]
@@ -47,26 +48,16 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       |> assign(:required, required)
 
     ~H"""
-    <dialog id={@id} class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click={@close_event}
-          >
-            <.icon name="hero-x-mark" class="size-4" />
-          </button>
-        </form>
-
-        <div class="flex items-start gap-3">
-          <div class="rounded-lg bg-primary/10 p-2">
-            <.icon name="hero-play" class="size-5 text-primary" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-base-content">{@title}</h3>
-            <p class="text-sm text-base-content/60">{@subtitle}</p>
-          </div>
+    <.ui_modal id={@id} size="md" on_cancel={@close_event} show_close={true}>
+      <div class="flex items-start gap-3">
+        <div class="rounded-lg bg-sr-brand/12 p-2">
+          <.icon name="hero-play" class="size-5 text-sr-brand" />
         </div>
+        <div class="min-w-0 flex-1">
+          <h3 class="text-lg font-semibold text-sr-ink">{@title}</h3>
+          <p class="text-sm text-sr-muted">{@subtitle}</p>
+        </div>
+      </div>
 
         <div :if={applicability_present?(@applicability)} class="mt-4 space-y-3">
           <div
@@ -113,26 +104,29 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
                   Not in an AWX inventory (will be skipped):
                 </p>
                 <div class="mt-2 flex flex-wrap gap-1.5">
-                  <span
+                  <.ui_badge
                     :for={entry <- non_applicable_visible(@applicability)}
-                    class="badge badge-warning badge-outline badge-sm max-w-full truncate"
+                    size="sm"
+                    variant="warning"
+                    class="max-w-full truncate"
                     title={entry.uid}
                   >
                     {entry.label}
-                  </span>
-                  <span
+                  </.ui_badge>
+                  <.ui_badge
                     :if={non_applicable_more(@applicability) > 0}
-                    class="badge badge-ghost badge-sm"
+                    size="sm"
+                    variant="ghost"
                   >
                     +{non_applicable_more(@applicability)} more
-                  </span>
+                  </.ui_badge>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div :if={@error} role="alert" class="alert alert-error mt-4">
+        <div :if={@error} role="alert" class={ui_alert_class(variant: "error", class: "mt-4")}>
           <.icon name="hero-exclamation-circle" class="size-5" />
           <span class="text-sm">{@error}</span>
         </div>
@@ -148,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             <label class="label">
               <span class="label-text font-medium">Task</span>
             </label>
-            <select name="action[action_id]" class="select select-bordered w-full">
+            <select name="action[action_id]" class={ui_field_class(class: "w-full")}>
               <%= for option <- @actions do %>
                 <option value={option.id} selected={@action && option.id == @action.id}>
                   {option.label}
@@ -157,20 +151,25 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             </select>
           </div>
 
-          <div :if={@action} class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+          <div :if={@action} class="rounded-lg border border-sr-line bg-sr-subtle/60 p-3">
             <div class="flex flex-wrap items-center gap-2 text-xs">
-              <span class="badge badge-ghost badge-sm">{@action.provider_name}</span>
-              <span class={ActionForm.safety_badge_class(@action.safety_classification)}>
+              <.ui_badge size="sm" variant="ghost">{@action.provider_name}</.ui_badge>
+              <.ui_badge
+                size="sm"
+                variant={ActionForm.safety_badge_variant(@action.safety_classification)}
+              >
                 {ActionForm.humanize(@action.safety_classification)}
-              </span>
-              <span :if={@action.requires_confirmation} class="badge badge-warning badge-sm">
+              </.ui_badge>
+              <.ui_badge :if={@action.requires_confirmation} size="sm" variant="warning">
                 Confirmation required
-              </span>
-              <span class="badge badge-ghost badge-sm">{@action.timeout_seconds}s timeout</span>
+              </.ui_badge>
+              <.ui_badge size="sm" variant="ghost">
+                {@action.timeout_seconds}s timeout
+              </.ui_badge>
             </div>
             <p
               :if={ActionForm.present_text?(@action.description)}
-              class="mt-2 text-sm text-base-content/70"
+              class="mt-2 text-sm text-sr-muted"
             >
               {@action.description}
             </p>
@@ -178,7 +177,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
           <%= if ansible_action?(@ansible_vars) do %>
             <div :if={@ansible_vars != []} class="space-y-3">
-              <h4 class="text-sm font-medium">Variables</h4>
+              <h4 class="text-sm font-medium text-sr-ink">Variables</h4>
               <.var_input
                 :for={var <- @ansible_vars}
                 var={var}
@@ -189,16 +188,16 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
             <div
               :if={@ansible_vars == []}
-              class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
+              class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
             >
               This task requires no variables.
             </div>
 
-            <div class="rounded-lg border border-base-200">
+            <div class="rounded-lg border border-sr-line">
               <button
                 type="button"
                 phx-click={@toggle_raw_event}
-                class="flex w-full items-center justify-between px-3 py-2 text-sm text-base-content/70 hover:text-base-content"
+                class="flex w-full items-center justify-between px-3 py-2 text-sm text-sr-muted hover:text-sr-ink"
               >
                 <span class="flex items-center gap-2 font-medium">
                   <.icon name="hero-code-bracket" class="size-4" /> Advanced: raw extra_vars JSON
@@ -208,13 +207,13 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
                   class="size-4"
                 />
               </button>
-              <div :if={@raw_extra_vars_open} class="border-t border-base-200 p-3">
-                <p class="mb-2 text-xs text-base-content/60">
+              <div :if={@raw_extra_vars_open} class="border-t border-sr-line p-3">
+                <p class="mb-2 text-xs text-sr-muted">
                   Optional. Merged over the fields above (raw keys win). Leave blank to use the form values.
                 </p>
                 <textarea
                   name="action[raw_extra_vars]"
-                  class="textarea textarea-bordered min-h-24 w-full font-mono text-xs"
+                  class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
                   placeholder="{}"
                 >{@raw_extra_vars}</textarea>
               </div>
@@ -233,28 +232,27 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
             <div
               :if={@properties == []}
-              class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
+              class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
             >
               This task does not require additional input.
             </div>
           <% end %>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click={@close_event}>Cancel</button>
-            <button
+          <div class="flex justify-end gap-2 pt-2">
+            <.ui_button type="button" phx-click={@close_event} size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
+            <.ui_button
               type="submit"
-              class="btn btn-primary"
               disabled={launch_disabled?(@action, @applicability)}
+              size="sm"
+              variant="primary"
             >
               <.icon name="hero-play" class="size-4" /> Create Invocation
-            </button>
+            </.ui_button>
           </div>
         </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click={@close_event}>close</button>
-      </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 
@@ -278,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             {@subtitle}
           </p>
         </div>
-        <span :if={@entries != []} class="badge badge-ghost badge-sm">{length(@entries)}</span>
+        <.ui_badge :if={@entries != []} size="sm" variant="ghost">{length(@entries)}</.ui_badge>
       </div>
 
       <div
@@ -322,18 +320,22 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             <div class="min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="font-medium">{Map.get(entry, :action_label) || "Action"}</span>
-                <span
+                <.ui_badge
                   :if={ActionForm.present_text?(Map.get(entry, :provider_name))}
-                  class="badge badge-ghost badge-sm"
+                  size="sm"
+                  variant="ghost"
                 >
                   {Map.get(entry, :provider_name)}
-                </span>
-                <span class={action_state_badge_class(Map.get(entry, :state))}>
+                </.ui_badge>
+                <.ui_badge size="sm" variant={action_state_badge_variant(Map.get(entry, :state))}>
                   {action_state_label(Map.get(entry, :state))}
-                </span>
-                <span class={target_status_badge_class(Map.get(entry, :target_status))}>
+                </.ui_badge>
+                <.ui_badge
+                  size="sm"
+                  variant={target_status_badge_variant(Map.get(entry, :target_status))}
+                >
                   {target_status_label(Map.get(entry, :target_status))}
-                </span>
+                </.ui_badge>
               </div>
 
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/60">
@@ -351,15 +353,21 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
             </div>
 
             <div class="flex max-w-full flex-wrap justify-start gap-1 lg:max-w-sm lg:justify-end">
-              <span
+              <.ui_badge
                 :for={chip <- history_input_chips(entry)}
-                class="badge badge-outline badge-sm max-w-full truncate"
+                size="sm"
+                variant="outline"
+                class="max-w-full truncate"
               >
                 {chip}
-              </span>
-              <span :if={history_input_more_count(entry) > 0} class="badge badge-ghost badge-sm">
+              </.ui_badge>
+              <.ui_badge
+                :if={history_input_more_count(entry) > 0}
+                size="sm"
+                variant="ghost"
+              >
                 +{history_input_more_count(entry)}
-              </span>
+              </.ui_badge>
             </div>
           </div>
         </div>
@@ -401,7 +409,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       <select
         :if={@enum_values != []}
         name={@input_name}
-        class="select select-bordered w-full"
+        class={ui_field_class(class: "w-full")}
         required={@required}
       >
         <option value="">Select...</option>
@@ -424,7 +432,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       <textarea
         :if={@enum_values == [] and @type in ["object", "array"]}
         name={@input_name}
-        class="textarea textarea-bordered min-h-28 w-full font-mono text-xs"
+        class={ui_field_class(mono: true, class: "min-h-28 w-full py-2.5 text-xs")}
         required={@required}
         placeholder={if @type == "array", do: "[]", else: "{}"}
       >{ActionForm.json_textarea_value(@value, @type)}</textarea>
@@ -434,7 +442,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         type={ActionForm.html_input_type(@type)}
         name={@input_name}
         value={@value}
-        class="input input-bordered w-full"
+        class={ui_field_class(class: "w-full")}
         required={@required}
       />
     </div>
@@ -474,27 +482,27 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     max(length(non_applicable_list(applicability)) - @non_applicable_display_limit, 0)
   end
 
-  defp action_state_badge_class(:succeeded), do: "badge badge-success badge-sm"
-  defp action_state_badge_class(:failed), do: "badge badge-error badge-sm"
-  defp action_state_badge_class(:canceled), do: "badge badge-warning badge-sm"
-  defp action_state_badge_class(:suppressed), do: "badge badge-warning badge-sm"
-  defp action_state_badge_class(:running), do: "badge badge-info badge-sm"
-  defp action_state_badge_class(:dispatching), do: "badge badge-info badge-sm"
-  defp action_state_badge_class(:polling), do: "badge badge-info badge-sm"
-  defp action_state_badge_class(:result_fetching), do: "badge badge-info badge-sm"
-  defp action_state_badge_class(:expired), do: "badge badge-error badge-sm"
-  defp action_state_badge_class(_state), do: "badge badge-ghost badge-sm"
+  defp action_state_badge_variant(:succeeded), do: "success"
+  defp action_state_badge_variant(:failed), do: "error"
+  defp action_state_badge_variant(:canceled), do: "warning"
+  defp action_state_badge_variant(:suppressed), do: "warning"
+  defp action_state_badge_variant(:running), do: "info"
+  defp action_state_badge_variant(:dispatching), do: "info"
+  defp action_state_badge_variant(:polling), do: "info"
+  defp action_state_badge_variant(:result_fetching), do: "info"
+  defp action_state_badge_variant(:expired), do: "error"
+  defp action_state_badge_variant(_state), do: "ghost"
 
-  defp target_status_badge_class(:succeeded), do: "badge badge-success badge-sm"
-  defp target_status_badge_class(:failed), do: "badge badge-error badge-sm"
-  defp target_status_badge_class(:skipped), do: "badge badge-warning badge-sm"
-  defp target_status_badge_class(:suppressed), do: "badge badge-warning badge-sm"
-  defp target_status_badge_class(:canceled), do: "badge badge-warning badge-sm"
-  defp target_status_badge_class(:running), do: "badge badge-info badge-sm"
-  defp target_status_badge_class(:polling), do: "badge badge-info badge-sm"
-  defp target_status_badge_class(:result_fetching), do: "badge badge-info badge-sm"
-  defp target_status_badge_class(:expired), do: "badge badge-error badge-sm"
-  defp target_status_badge_class(_status), do: "badge badge-ghost badge-sm"
+  defp target_status_badge_variant(:succeeded), do: "success"
+  defp target_status_badge_variant(:failed), do: "error"
+  defp target_status_badge_variant(:skipped), do: "warning"
+  defp target_status_badge_variant(:suppressed), do: "warning"
+  defp target_status_badge_variant(:canceled), do: "warning"
+  defp target_status_badge_variant(:running), do: "info"
+  defp target_status_badge_variant(:polling), do: "info"
+  defp target_status_badge_variant(:result_fetching), do: "info"
+  defp target_status_badge_variant(:expired), do: "error"
+  defp target_status_badge_variant(_status), do: "ghost"
 
   defp action_state_label(nil), do: "Pending"
   defp action_state_label(state), do: ActionForm.humanize(state)

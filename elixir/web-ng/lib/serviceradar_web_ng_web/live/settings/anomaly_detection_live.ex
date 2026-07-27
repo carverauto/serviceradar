@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                     type="textarea"
                     rows="3"
                     label="Metric denylist"
-                    class="textarea textarea-bordered min-h-24 w-full font-mono text-xs"
+                    class={ui_field_class(mono: true, class: "min-h-24 w-full py-2.5 text-xs")}
                     placeholder="cpu.frequency_hz"
                   />
                 </div>
@@ -363,7 +363,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           <span class="label mb-1">Drift mode</span>
                           <select
                             name={"anomaly[classes][#{class_key}][drift_mode]"}
-                            class="select select-sm select-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           >
                             {Phoenix.HTML.Form.options_for_select(
                               @drift_mode_options,
@@ -375,7 +375,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           <span class="label mb-1">Severity cap</span>
                           <select
                             name={"anomaly[classes][#{class_key}][severity_cap]"}
-                            class="select select-sm select-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           >
                             {Phoenix.HTML.Form.options_for_select(
                               @severity_cap_options,
@@ -391,7 +391,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="0"
                             name={"anomaly[classes][#{class_key}][drift_min_effect]"}
                             value={class_field(class_values, "drift_min_effect")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -402,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="0"
                             name={"anomaly[classes][#{class_key}][cusum_k]"}
                             value={class_field(class_values, "cusum_k")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -413,7 +413,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="0"
                             name={"anomaly[classes][#{class_key}][cusum_h]"}
                             value={class_field(class_values, "cusum_h")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -424,7 +424,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="1"
                             name={"anomaly[classes][#{class_key}][h_confirm_mult]"}
                             value={class_field(class_values, "h_confirm_mult")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -434,7 +434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_confirm_window]"}
                             value={class_field(class_values, "drift_confirm_window")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -444,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_clear_slots]"}
                             value={class_field(class_values, "drift_clear_slots")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -454,7 +454,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_adopt_after_samples]"}
                             value={class_field(class_values, "drift_adopt_after_samples")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -464,7 +464,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="1"
                             name={"anomaly[classes][#{class_key}][drift_escalate_after_secs]"}
                             value={class_field(class_values, "drift_escalate_after_secs")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="0"
                             name={"anomaly[classes][#{class_key}][min_std_floor]"}
                             value={class_field(class_values, "min_std_floor")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0">
@@ -486,14 +486,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                             min="0"
                             name={"anomaly[classes][#{class_key}][min_cv]"}
                             value={class_field(class_values, "min_cv")}
-                            class="input input-sm input-bordered w-full"
+                            class={ui_field_class(size: "sm", class: "w-full")}
                           />
                         </label>
                         <label class="fieldset mb-0 md:col-span-2">
                           <span class="label mb-1">Severity bands (JSON)</span>
                           <textarea
                             name={"anomaly[classes][#{class_key}][severity_bands]"}
-                            class="textarea textarea-sm textarea-bordered min-h-20 w-full font-mono text-xs"
+                            class={ui_field_class(size: "sm", mono: true, class: "min-h-20 w-full py-2 text-xs")}
                           >{class_field(class_values, "severity_bands")}</textarea>
                         </label>
                       </div>
@@ -502,9 +502,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                 </div>
 
                 <div class="mt-4 flex justify-end">
-                  <button class="btn btn-sm btn-primary" type="submit">
+                  <.ui_button type="submit" size="sm" variant="primary">
                     <.icon name="hero-check" class="size-4" /> Save Detector
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
             </div>
@@ -580,7 +580,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                         name="forecast[default_source_opt_ins][]"
                         value={source_key}
                         checked={source_key in selected_source_opt_ins(@forecast_params)}
-                        class="checkbox checkbox-sm"
+                        class={ui_checkbox_class()}
                       />
                       <span>{source_label}</span>
                     </label>
@@ -593,14 +593,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                   </label>
                   <textarea
                     name="forecast[metric_class_overrides]"
-                    class="textarea textarea-bordered min-h-44 w-full font-mono text-xs"
+                    class={ui_field_class(mono: true, class: "min-h-44 w-full py-2.5 text-xs")}
                   ><%= @forecast_form[:metric_class_overrides].value %></textarea>
                 </div>
 
                 <div class="mt-4 flex justify-end">
-                  <button class="btn btn-sm btn-primary" type="submit">
+                  <.ui_button type="submit" size="sm" variant="primary">
                     <.icon name="hero-check" class="size-4" /> Save Forecast
-                  </button>
+                  </.ui_button>
                 </div>
               </.form>
             </div>
