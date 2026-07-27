@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                 <div class="flex-1">
                   <div class="relative h-6 bg-sr-subtle rounded overflow-hidden">
                     <div
-                      class="absolute inset-y-0 left-0 bg-primary transition-all"
+                      class="absolute inset-y-0 left-0 bg-sr-brand transition-all"
                       style={"width: #{calculate_percentage(item.bytes, @max_bytes)}%"}
                     >
                     </div>
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
         <div class="grid grid-cols-2 gap-4">
           <!-- Unique Paths -->
           <div class="stat bg-sr-subtle rounded-lg">
-            <div class="stat-value text-primary">{@path_diversity.unique_paths}</div>
+            <div class="stat-value text-sr-brand">{@path_diversity.unique_paths}</div>
             <div class="stat-title">Unique Paths</div>
           </div>
           
@@ -241,13 +241,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                   y2={y2}
                   stroke="currentColor"
                   stroke-width={stroke_width}
-                  class="text-primary"
+                  class="text-sr-brand"
                 />
                 <!-- Arrow head -->
                 <polygon
                   points={"#{x2 - 5},#{y2 - 5} #{x2},#{y2} #{x2 - 5},#{y2 + 5}"}
                   fill="currentColor"
-                  class="text-primary"
+                  class="text-sr-brand"
                 />
                 <!-- Edge label (traffic) -->
                 <text
@@ -270,13 +270,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                   cy={y}
                   r="20"
                   fill="currentColor"
-                  class="text-primary"
+                  class="text-sr-brand"
                 />
                 <text
                   x={x_from}
                   y={y + 5}
                   text-anchor="middle"
-                  class="text-xs font-bold fill-primary-content"
+                  class="text-xs font-bold fill-sr-brand-content"
                 >
                   {edge.from_as}
                 </text>
@@ -287,13 +287,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     cy={y}
                     r="20"
                     fill="currentColor"
-                    class="text-primary"
+                    class="text-sr-brand"
                   />
                   <text
                     x={x_to}
                     y={y + 5}
                     text-anchor="middle"
-                    class="text-xs font-bold fill-primary-content"
+                    class="text-xs font-bold fill-sr-brand-content"
                   >
                     {edge.to_as}
                   </text>

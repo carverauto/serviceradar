@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
     ~H"""
     <section class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4">
       <div>
-        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 1</p>
+        <p class="text-xs font-semibold uppercase tracking-normal text-sr-brand">Step 1</p>
         <h3 class="mt-1 text-sm font-semibold">SRQL source</h3>
         <p class="text-xs text-sr-muted">
           Define the dataset query this panel owns. Previewing the query drives the available visuals and field bindings.
@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
     <section class="space-y-4 rounded-lg border border-sr-line bg-sr-surface p-4">
       <div>
-        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 2</p>
+        <p class="text-xs font-semibold uppercase tracking-normal text-sr-brand">Step 2</p>
         <h3 class="mt-1 text-sm font-semibold">Visualization and bindings</h3>
         <p class="text-xs text-sr-muted">
           Choose a supported visual and map fields from the preview output into labels, values, status, and layout.

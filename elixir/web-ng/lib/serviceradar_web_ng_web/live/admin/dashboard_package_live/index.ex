@@ -468,8 +468,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp import_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
@@ -491,8 +491,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           phx-submit="import_package"
           class="mt-5 space-y-4"
         >
-          <label class="form-control">
-            <span class="label-text">Source</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Source</span>
             <select name="import[source_type]" class={ui_field_class(size: "sm")}>
               <option value="upload" selected={@form["source_type"] in [nil, "", "upload"]}>
                 Upload
@@ -503,8 +503,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
           <%= if @form["source_type"] == "github" do %>
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control sm:col-span-2">
-                <span class="label-text">GitHub repo URL</span>
+              <label class="flex flex-col gap-1.5 sm:col-span-2">
+                <span class="text-sm font-medium text-sr-ink">GitHub repo URL</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[source_repo_url]"
@@ -512,8 +512,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   value={@form["source_repo_url"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Ref</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Ref</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
@@ -521,8 +521,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   value={@form["source_ref"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Manifest path</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest path</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
@@ -530,8 +530,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   value={@form["source_manifest_path"]}
                 />
               </label>
-              <label class="form-control sm:col-span-2">
-                <span class="label-text">Renderer path override</span>
+              <label class="flex flex-col gap-1.5 sm:col-span-2">
+                <span class="text-sm font-medium text-sr-ink">Renderer path override</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[renderer_path]"
@@ -542,15 +542,15 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
           <% else %>
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text">Manifest JSON</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest JSON</span>
                 <.live_file_input
                   upload={@uploads.manifest}
                   class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Renderer artifact</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Renderer artifact</span>
                 <.live_file_input
                   upload={@uploads.wasm}
                   class={ui_field_class(size: "sm", class: "w-full file:mr-3 file:rounded-sr-control file:border-0 file:bg-sr-subtle file:px-2 file:py-1 file:text-xs file:font-semibold file:text-sr-ink")}
@@ -559,16 +559,16 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text">Source ref</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Source ref</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[source_ref]"
                   value={@form["source_ref"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Manifest path</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Manifest path</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="import[source_manifest_path]"
@@ -579,7 +579,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           <% end %>
 
           <div class="rounded-box border border-sr-line bg-sr-subtle/40 p-3">
-            <label class="label cursor-pointer justify-start gap-3 p-0">
+            <label class="flex cursor-pointer items-center justify-start gap-3 p-0">
               <input
                 type="checkbox"
                 class={ui_checkbox_class()}
@@ -587,9 +587,9 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 checked={@form["enable"] == "true"}
                 value="true"
               />
-              <span class="label-text">Enable package after import</span>
+              <span class="text-sm font-medium text-sr-ink">Enable package after import</span>
             </label>
-            <label class="label mt-3 cursor-pointer justify-start gap-3 p-0">
+            <label class="flex cursor-pointer items-center justify-start gap-3 mt-3  p-0">
               <input
                 type="checkbox"
                 class={ui_checkbox_class()}
@@ -597,11 +597,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 checked={@form["create_instance"] == "true"}
                 value="true"
               />
-              <span class="label-text">Create default dashboard route</span>
+              <span class="text-sm font-medium text-sr-ink">Create default dashboard route</span>
             </label>
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_modal" size="sm" variant="ghost">Cancel</.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">
               <.icon name="hero-arrow-up-tray" class="size-4" /> Import
@@ -609,7 +609,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </div>
         </.form>
       </div>
-      <div class="modal-backdrop" phx-click="close_modal"></div>
+      <div class="sr-ui-modal-backdrop" phx-click="close_modal"></div>
     </div>
     """
   end
@@ -622,8 +622,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-4xl">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-4xl">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">{@package.name}</h2>
@@ -760,24 +760,24 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   Cancel
                 </.ui_button>
               </div>
-              <label class="form-control">
-                <span class="label-text">Name</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Name</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="instance[name]"
                   value={@instance_form["name"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Route slug</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Route slug</span>
                 <input
                   class={ui_field_class(size: "sm")}
                   name="instance[route_slug]"
                   value={@instance_form["route_slug"]}
                 />
               </label>
-              <label class="form-control">
-                <span class="label-text">Placement</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Placement</span>
                 <select class={ui_field_class(size: "sm")} name="instance[placement]">
                   <option value="dashboard" selected={@instance_form["placement"] == "dashboard"}>
                     Dashboard
@@ -790,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
               </label>
               <label
                 :if={editing_instance?(@instance_form)}
-                class="label cursor-pointer justify-start gap-3 p-0"
+                class="flex cursor-pointer items-center justify-start gap-3 p-0"
               >
                 <input
                   type="checkbox"
@@ -799,11 +799,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   checked={@instance_form["enabled"] == "true"}
                   value="true"
                 />
-                <span class="label-text">Route enabled</span>
+                <span class="text-sm font-medium text-sr-ink">Route enabled</span>
               </label>
               <label
                 :if={!editing_instance?(@instance_form)}
-                class="label cursor-pointer justify-start gap-3 p-0"
+                class="flex cursor-pointer items-center justify-start gap-3 p-0"
               >
                 <input
                   type="checkbox"
@@ -812,10 +812,10 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                   checked={@instance_form["is_default"] == "true"}
                   value="true"
                 />
-                <span class="label-text">Use as default for this placement</span>
+                <span class="text-sm font-medium text-sr-ink">Use as default for this placement</span>
               </label>
-              <label class="form-control">
-                <span class="label-text">Settings JSON</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-sm font-medium text-sr-ink">Settings JSON</span>
                 <textarea
                   class={ui_field_class(mono: true, class: "min-h-28 py-2.5 text-xs")}
                   name="instance[settings_json]"
@@ -832,7 +832,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
           </aside>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="close_modal"></div>
+      <div class="sr-ui-modal-backdrop" phx-click="close_modal"></div>
     </div>
     """
   end

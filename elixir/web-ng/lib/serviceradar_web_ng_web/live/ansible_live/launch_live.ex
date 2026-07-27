@@ -221,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
                   {playbook.name}
                 </option>
               </select>
-              <p class="label">
+              <p class="flex items-center justify-between gap-2">
                 Selection is not authority; the current binding and memberships are resolved server-side.
               </p>
             </fieldset>

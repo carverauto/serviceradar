@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                 <td>
                   <.link
                     navigate={~p"/settings/networks/groups/#{group.id}"}
-                    class="font-medium hover:text-primary"
+                    class="font-medium hover:text-sr-brand"
                   >
                     {group.name}
                   </.link>

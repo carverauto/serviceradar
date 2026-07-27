@@ -286,9 +286,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       <:title>Create API Client</:title>
 
       <.form for={@form} phx-submit="create_client" phx-change="validate_create" class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Name</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Name</span>
           </label>
           <input
             type="text"
@@ -300,9 +300,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Description (optional)</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Description (optional)</span>
           </label>
           <textarea
             name="client[description]"
@@ -311,9 +311,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
           ><%= @form[:description].value %></textarea>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Scopes</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Scopes</span>
           </label>
           <div class="space-y-2">
             <label class="flex items-center gap-2 cursor-pointer">
@@ -324,7 +324,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 checked
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Read</span>
+              <span class="text-sm font-medium text-sr-ink">Read</span>
               <span class="text-xs text-sr-muted">
                 - View devices, events, and configuration
               </span>
@@ -336,7 +336,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                 value="write"
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Write</span>
+              <span class="text-sm font-medium text-sr-ink">Write</span>
               <span class="text-xs text-sr-muted">- Create and modify resources</span>
             </label>
           </div>
@@ -369,8 +369,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
       <div class="space-y-4">
         <div>
-          <label class="label">
-            <span class="label-text font-medium">Client ID</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Client ID</span>
           </label>
           <div class={ui_join_class(class: "w-full")}>
             <input
@@ -392,8 +392,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
         </div>
 
         <div>
-          <label class="label">
-            <span class="label-text font-medium">Client Secret</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Client Secret</span>
           </label>
           <div class={ui_join_class(class: "w-full")}>
             <input

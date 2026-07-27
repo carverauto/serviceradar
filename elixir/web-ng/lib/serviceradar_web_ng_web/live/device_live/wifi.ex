@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
         <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p class="text-sm font-medium text-primary">Devices</p>
+            <p class="text-sm font-medium text-sr-brand">Devices</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-normal">WiFi Inventory</h1>
             <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
               Site, access point, controller, RADIUS, and fleet records from imported WiFi map data.

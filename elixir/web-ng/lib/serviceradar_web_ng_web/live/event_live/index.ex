@@ -306,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           </div>
           <div class="mt-1 text-xs text-sr-muted truncate">{@detail}</div>
         </div>
-        <div class="text-2xl font-semibold group-hover:text-primary">{@count}</div>
+        <div class="text-2xl font-semibold group-hover:text-sr-brand">{@count}</div>
       </div>
     </.link>
     """
@@ -337,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         <span class={["text-xs font-medium", color_class(@color)]}>{@label}</span>
         <span class="text-xs text-sr-muted">{@pct}%</span>
       </div>
-      <div class="text-xl font-bold group-hover:text-primary">{@count}</div>
+      <div class="text-xl font-bold group-hover:text-sr-brand">{@count}</div>
       <div class="h-1 bg-sr-control rounded-full mt-2 overflow-hidden">
         <div class={["h-full rounded-full", color_bg(@color)]} style={"width: #{@pct}%"} />
       </div>

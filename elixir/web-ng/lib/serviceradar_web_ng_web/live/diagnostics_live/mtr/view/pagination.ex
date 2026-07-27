@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Pagination do
           do: "Showing page #{@page} of #{@total_pages} (#{@total_count} total)",
           else: "No results"}
       </div>
-      <div class="join">
+      <div class={ui_join_class()}>
         <.ui_button :if={@has_prev} patch={@prev_path} size="sm" variant="outline">
           <.icon name="hero-chevron-left" class="size-4" /> Prev
         </.ui_button>

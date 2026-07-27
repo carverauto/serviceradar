@@ -50,8 +50,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
               phx-value-asn={@info.as_number}
               phx-value-rir-hint={asn_rir_hint(Map.get(@info, :country_code))}
               class={[
-                "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
-                Map.get(@arin_lookup, :asn) == @info.as_number && "text-primary"
+                "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-sr-brand",
+                Map.get(@arin_lookup, :asn) == @info.as_number && "text-sr-brand"
               ]}
             >
               AS{@info.as_number}

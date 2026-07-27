@@ -103,8 +103,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                       Enable or disable SSO authentication.
                     </p>
                   </div>
-                  <label class="label cursor-pointer gap-2">
-                    <span class="label-text">Enabled</span>
+                  <label class="flex cursor-pointer items-center gap-2 gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Enabled</span>
                     <input
                       type="checkbox"
                       name="settings[is_enabled]"
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
               <div class="space-y-3">
                 <%= for {label, value, description} <- @modes do %>
-                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-sr-line hover:border-primary/50"}"}>
+                  <label class={"flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:mode].value) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
                     <input
                       type="radio"
                       name="settings[mode]"
@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
                 <div class="flex gap-4">
                   <%= for {label, value} <- @provider_types do %>
-                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-primary bg-primary/5", else: "border-sr-line hover:border-primary/50"}"}>
+                    <label class={"flex items-center gap-2 p-3 border rounded-lg cursor-pointer transition-colors flex-1 #{if to_string(@form[:provider_type].value) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
                       <input
                         type="radio"
                         name="settings[provider_type]"
@@ -281,8 +281,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                         Auto-create a local account on first SSO login when none exists.
                       </p>
                     </div>
-                    <label class="label cursor-pointer gap-2">
-                      <span class="label-text">Enabled</span>
+                    <label class="flex cursor-pointer items-center gap-2 gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Enabled</span>
                       <input
                         type="checkbox"
                         name="settings[sso_auto_provision]"
@@ -376,9 +376,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       </:header>
 
       <div class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Identity Provider Preset</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Identity Provider Preset</span>
           </label>
           <div class="flex flex-wrap gap-1">
             <.ui_button
@@ -412,16 +412,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               Authentik
             </.ui_button>
           </div>
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Prefills scopes and claim mappings for a known IdP. Does not submit the form — review and save.
             </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Discovery URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Discovery URL</span>
           </label>
           <input
             type="url"
@@ -430,8 +430,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder="https://login.example.com/.well-known/openid-configuration"
           />
-          <label class="label">
-            <span class="label-text-alt">The OpenID Connect discovery endpoint URL</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">The OpenID Connect discovery endpoint URL</span>
           </label>
           <%= if @idp_preset == "entra" do %>
             <div class={ui_alert_class("warning")}>
@@ -468,9 +468,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client ID</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client ID</span>
             </label>
             <input
               type="text"
@@ -481,9 +481,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client Secret</span>
             </label>
             <input
               type="password"
@@ -492,15 +492,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               class={ui_field_class(class: "w-full")}
               placeholder="••••••••"
             />
-            <label class="label">
-              <span class="label-text-alt">Leave blank to keep existing secret</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">Leave blank to keep existing secret</span>
             </label>
           </div>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Scopes</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Scopes</span>
           </label>
           <input
             type="text"
@@ -509,8 +509,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder="openid profile email"
           />
-          <label class="label">
-            <span class="label-text-alt">Space-separated list of OAuth scopes</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">Space-separated list of OAuth scopes</span>
           </label>
         </div>
 
@@ -619,9 +619,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </div>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">SP Entity ID</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">SP Entity ID</span>
           </label>
           <input
             type="text"
@@ -630,14 +630,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder={ServiceRadarWebNGWeb.Endpoint.url()}
           />
-          <label class="label">
-            <span class="label-text-alt">Service Provider entity ID (defaults to base URL)</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">Service Provider entity ID (defaults to base URL)</span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">IdP Metadata URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IdP Metadata URL</span>
           </label>
           <input
             type="url"
@@ -646,24 +646,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder="https://idp.example.com/federationmetadata/2007-06/federationmetadata.xml"
           />
-          <label class="label">
-            <span class="label-text-alt">URL to fetch IdP metadata XML (preferred)</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">URL to fetch IdP metadata XML (preferred)</span>
           </label>
         </div>
 
         <div class="divider text-xs text-sr-muted">OR</div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">IdP Metadata XML</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IdP Metadata XML</span>
           </label>
           <textarea
             name="settings[saml_idp_metadata_xml]"
             class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="Paste IdP metadata XML here..."
           ><%= @form[:saml_idp_metadata_xml].value %></textarea>
-          <label class="label">
-            <span class="label-text-alt">Alternative: paste the IdP metadata XML directly</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">Alternative: paste the IdP metadata XML directly</span>
           </label>
         </div>
 
@@ -730,9 +730,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       </:header>
 
       <div class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">JWT Header Name</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">JWT Header Name</span>
           </label>
           <input
             type="text"
@@ -741,16 +741,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder="Authorization"
           />
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               The HTTP header containing the JWT (default: Authorization)
             </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">JWKS URL</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">JWKS URL</span>
           </label>
           <input
             type="url"
@@ -759,8 +759,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             class={ui_field_class(class: "w-full")}
             placeholder="https://gateway.example.com/.well-known/jwks.json"
           />
-          <label class="label">
-            <span class="label-text-alt">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               URL to fetch JSON Web Key Set for signature verification
             </span>
           </label>
@@ -768,24 +768,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
         <div class="divider text-xs text-sr-muted">OR</div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Public Key (PEM)</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Public Key (PEM)</span>
           </label>
           <textarea
             name="settings[jwt_public_key_pem]"
             class={ui_field_class(mono: true, class: "w-full h-32 py-2.5 text-xs")}
             placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
           ><%= @form[:jwt_public_key_pem].value %></textarea>
-          <label class="label">
-            <span class="label-text-alt">Alternative to JWKS: paste the public key directly</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">Alternative to JWKS: paste the public key directly</span>
           </label>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Expected Issuer</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Expected Issuer</span>
             </label>
             <input
               type="text"
@@ -796,9 +796,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Expected Audience</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Expected Audience</span>
             </label>
             <input
               type="text"
@@ -828,9 +828,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
       <div class="space-y-4">
         <div class="grid grid-cols-3 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Email Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Email Claim</span>
             </label>
             <input
               type="text"
@@ -841,9 +841,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Name Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name Claim</span>
             </label>
             <input
               type="text"
@@ -854,9 +854,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Subject Claim</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Subject Claim</span>
             </label>
             <input
               type="text"
@@ -868,8 +868,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
           </div>
         </div>
 
-        <label class="label">
-          <span class="label-text-alt">Use dot notation for nested claims (e.g., "user.email")</span>
+        <label class="flex items-center justify-between gap-2">
+          <span class="text-xs text-sr-muted">Use dot notation for nested claims (e.g., "user.email")</span>
         </label>
       </div>
     </.ui_panel>

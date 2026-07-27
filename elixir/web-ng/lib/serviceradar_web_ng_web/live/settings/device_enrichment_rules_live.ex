@@ -897,15 +897,15 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceEnrichmentRulesLive do
               <.input field={@rule_form[:confidence]} type="number" label="Confidence (0-100)" />
             </div>
 
-            <div class="form-control">
-              <label class="label cursor-pointer justify-start gap-2">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
                 <input
                   type="checkbox"
                   name="rule[enabled]"
                   class={ui_checkbox_class()}
                   checked={checkbox_checked?(@rule_form[:enabled].value)}
                 />
-                <span class="label-text">Enabled</span>
+                <span class="text-sm font-medium text-sr-ink">Enabled</span>
               </label>
             </div>
 

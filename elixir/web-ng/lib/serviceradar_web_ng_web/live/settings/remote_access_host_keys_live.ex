@@ -201,8 +201,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             class="grid gap-3 rounded-lg border border-sr-line bg-sr-surface p-4 md:grid-cols-[1fr_1fr_14rem_auto]"
             phx-submit="filter"
           >
-            <label class="form-control">
-              <span class="label-text">Target host</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Target host</span>
               <input
                 type="text"
                 name="target_host"
@@ -210,8 +210,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                 class={ui_field_class(size: "sm")}
               />
             </label>
-            <label class="form-control">
-              <span class="label-text">Agent</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Agent</span>
               <input
                 type="text"
                 name="agent_id"
@@ -219,8 +219,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                 class={ui_field_class(size: "sm")}
               />
             </label>
-            <label class="form-control">
-              <span class="label-text">Status</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-sr-ink">Status</span>
               <select name="status" class={ui_field_class(size: "sm")}>
                 <option value="" selected={@filters["status"] == ""}>All</option>
                 <option
@@ -329,16 +329,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   defp rotation_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <h2 class="text-lg font-semibold">Rotate Host Key</h2>
         <p class="mt-1 text-sm text-sr-muted">
           {@host_key.target_host}:{@host_key.target_port} via {@host_key.agent_id}
         </p>
 
         <form class="mt-4 space-y-4" phx-submit="rotate_host_key">
-          <label class="form-control">
-            <span class="label-text">Replacement key</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Replacement key</span>
             <select
               name="rotation[replacement_host_key_id]"
               class={ui_field_class()}
@@ -351,8 +351,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             </select>
           </label>
 
-          <label class="form-control">
-            <span class="label-text">Reason</span>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium text-sr-ink">Reason</span>
             <input
               type="text"
               name="rotation[reason]"
@@ -365,7 +365,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
             No replacement keys have been observed for this target.
           </p>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="cancel_rotation" size="sm" variant="ghost">Cancel</.ui_button>
             <.ui_button type="submit" disabled={@candidates == []} size="sm" variant="primary">
               Rotate
@@ -373,7 +373,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
           </div>
         </form>
       </div>
-      <button class="modal-backdrop" phx-click="cancel_rotation">Close</button>
+      <button class="sr-ui-modal-backdrop" phx-click="cancel_rotation">Close</button>
     </dialog>
     """
   end

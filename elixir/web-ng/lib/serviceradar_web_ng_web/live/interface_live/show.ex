@@ -547,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           >
             <div class="card-body">
               <h2 class="card-title text-lg">
-                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics History
+                <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics History
               </h2>
 
               <%!-- Error state --%>
@@ -595,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <div class="card bg-sr-surface border border-sr-line">
               <div class="card-body">
                 <h2 class="card-title text-lg">
-                  <.icon name="hero-information-circle" class="size-5 text-primary" />
+                  <.icon name="hero-information-circle" class="size-5 text-sr-brand" />
                   Basic Information
                 </h2>
                 <div class="divide-y divide-sr-line">
@@ -618,7 +618,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <div class="card bg-sr-surface border border-sr-line">
               <div class="card-body">
                 <h2 class="card-title text-lg">
-                  <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
+                  <.icon name="hero-globe-alt" class="size-5 text-sr-brand" /> Network Information
                 </h2>
                 <div class="divide-y divide-sr-line">
                   <.property_row
@@ -638,7 +638,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <div class="card bg-sr-surface border border-sr-line lg:col-span-2">
               <div class="card-body">
                 <h2 class="card-title text-lg">
-                  <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
+                  <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics Collection
                 </h2>
                 <div class="divide-y divide-sr-line">
                   <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
@@ -793,7 +793,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <div class={[
       "p-3 rounded-lg border transition",
       @enabled && "border-success bg-success/5",
-      !@enabled && "bg-sr-subtle/50 border-sr-line hover:border-primary/50"
+      !@enabled && "bg-sr-subtle/50 border-sr-line hover:border-sr-brand/50"
     ]}>
       <div class="flex items-start justify-between gap-3">
         <div
@@ -803,7 +803,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           phx-click="open_metric_modal"
           phx-value-metric={metric_raw_name(@metric)}
         >
-          <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
+          <.icon name={metric_category_icon(@metric)} class="size-4 text-sr-brand" />
           <div>
             <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
             <.ui_badge
@@ -880,7 +880,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <div class="flex items-center justify-between p-3 rounded-lg bg-sr-subtle/50 border border-sr-line">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <.icon name="hero-chart-bar-square" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar-square" class="size-4 text-sr-brand" />
           <span class="text-sm font-medium">{@group["name"]}</span>
           <.ui_badge size="xs" variant="ghost">{@metric_count} metrics</.ui_badge>
         </div>
@@ -963,8 +963,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:is_editing, is_editing)
 
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_group_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -987,9 +987,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         >
           <input type="hidden" name="group[id]" value={@form[:id].value} />
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Group Name</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Group Name</span>
             </label>
             <input
               type="text"
@@ -1001,10 +1001,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Metrics</span>
-              <span class="label-text-alt text-sr-muted">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Metrics</span>
+              <span class="text-xs text-sr-muted">
                 Select compatible metrics to combine
               </span>
             </label>
@@ -1019,7 +1019,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 :for={metric <- @available_metrics}
                 class={[
                   "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-sr-subtle transition",
-                  metric.name in @group_metrics && "bg-primary/10"
+                  metric.name in @group_metrics && "bg-sr-brand/10"
                 ]}
               >
                 <input
@@ -1036,14 +1036,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 <.ui_badge size="xs" variant="ghost">{metric.category}</.ui_badge>
               </label>
             </div>
-            <div class="label">
-              <span class="label-text-alt text-sr-muted">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Tip: Combine metrics with the same unit (e.g., inbound + outbound traffic)
               </span>
             </div>
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_group_modal" size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -1054,7 +1054,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_group_modal">close</button>
       </form>
     </dialog>
@@ -1075,8 +1075,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:has_speed_data, is_number(interface_speed_bps) and interface_speed_bps > 0)
 
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-3xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-3xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_metric_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1115,10 +1115,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Threshold Type Selector --%>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text text-xs font-medium">Threshold Type</span>
-                <span :if={!@has_speed_data} class="label-text-alt text-warning text-xs">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">Threshold Type</span>
+                <span :if={!@has_speed_data} class="text-xs text-sr-muted text-warning text-xs">
                   <.icon name="hero-exclamation-triangle-mini" class="size-3" />
                   Interface speed unknown
                 </span>
@@ -1159,17 +1159,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.icon name="hero-chart-pie" class="size-4" /> Percentage (% of speed)
                 </label>
               </div>
-              <div :if={@has_speed_data} class="label">
-                <span class="label-text-alt text-xs text-sr-muted">
+              <div :if={@has_speed_data} class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Interface speed: {format_bps(@interface_speed_bps) || "Unknown"}
                 </span>
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Comparison</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Comparison</span>
                 </label>
                 <select name="metric[comparison]" class={ui_field_class(size: "sm", class: "w-full")}>
                   <option value="">Select condition</option>
@@ -1190,13 +1190,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </option>
                 </select>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">
                     {threshold_value_label(@form[:threshold_type].value)}
                   </span>
                 </label>
-                <div class="join w-full">
+                <div class={ui_join_class(class: "w-full")}>
                   <input
                     type="number"
                     name="metric[value]"
@@ -1212,9 +1212,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </span>
                 </div>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Duration (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Duration (seconds)</span>
                 </label>
                 <input
                   type="number"
@@ -1228,9 +1228,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Severity</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Severity</span>
                 </label>
                 <select name="metric[event_severity]" class={ui_field_class(size: "sm", class: "w-full")}>
                   <option value="info" selected={@form[:event_severity].value == "info"}>
@@ -1247,9 +1247,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </option>
                 </select>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Message</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Message</span>
                 </label>
                 <input
                   type="text"
@@ -1282,9 +1282,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Count</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Count</span>
                 </label>
                 <input
                   type="number"
@@ -1294,9 +1294,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Window (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Window (seconds)</span>
                 </label>
                 <input
                   type="number"
@@ -1306,9 +1306,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Cooldown (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Cooldown (seconds)</span>
                 </label>
                 <input
                   type="number"
@@ -1321,9 +1321,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Renotify (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Renotify (seconds)</span>
                 </label>
                 <input
                   type="number"
@@ -1333,9 +1333,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Severity</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Severity</span>
                 </label>
                 <select name="metric[alert_severity]" class={ui_field_class(size: "sm", class: "w-full")}>
                   <option value="info" selected={@form[:alert_severity].value == "info"}>
@@ -1355,9 +1355,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Title</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Title</span>
                 </label>
                 <input
                   type="text"
@@ -1367,9 +1367,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Description</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Description</span>
                 </label>
                 <input
                   type="text"
@@ -1382,7 +1382,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_metric_modal" size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -1392,7 +1392,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_metric_modal">close</button>
       </form>
     </dialog>

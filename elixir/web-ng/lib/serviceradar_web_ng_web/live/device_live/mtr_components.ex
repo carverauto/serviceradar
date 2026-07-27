@@ -265,8 +265,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
     ~H"""
     <%= if @show and @trace do %>
-      <div class="modal modal-open">
-        <div class="modal-box max-w-6xl">
+      <div class="sr-ui-modal sr-ui-modal-open">
+        <div class="sr-ui-modal-box max-w-6xl">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">MTR Trace Details</h3>
             <.ui_button type="button" phx-click="close_mtr_trace_modal" size="sm" variant="ghost">
@@ -388,7 +388,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </table>
           </div>
         </div>
-        <div class="modal-backdrop" phx-click="close_mtr_trace_modal"></div>
+        <div class="sr-ui-modal-backdrop" phx-click="close_mtr_trace_modal"></div>
       </div>
     <% end %>
     """

@@ -149,8 +149,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
           <div class="overflow-x-auto">
             <%= if @sites == [] do %>
               <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
-                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
-                  <.icon name="hero-building-office-2" class="size-6 text-primary" />
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-sr-brand/10 mb-4">
+                  <.icon name="hero-building-office-2" class="size-6 text-sr-brand" />
                 </div>
                 <div class="text-sm font-semibold text-sr-ink">No edge sites</div>
                 <p class="mt-1 text-xs text-sr-muted">
@@ -242,9 +242,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       </p>
 
       <form phx-submit="create_site" class="space-y-4">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Site Name</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Site Name</span>
           </label>
           <input
             type="text"
@@ -255,9 +255,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Slug</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Slug</span>
           </label>
           <input
             type="text"
@@ -266,16 +266,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
             placeholder="e.g., nyc-office, factory-3"
             pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]|[a-z0-9]"
           />
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Lowercase letters, numbers, and dashes only. Leave blank to auto-generate.
             </span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Local NATS URL (optional)</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Local NATS URL (optional)</span>
           </label>
           <input
             type="text"
@@ -283,8 +283,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
             class={ui_field_class(mono: true, class: "w-full")}
             placeholder="e.g., nats://10.0.1.50:4222"
           />
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               The URL collectors will use to connect to the local NATS leaf.
               Update after deployment if unknown.
             </span>

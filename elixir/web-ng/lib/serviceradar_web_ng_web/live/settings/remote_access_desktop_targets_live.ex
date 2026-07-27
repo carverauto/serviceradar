@@ -281,8 +281,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp target_form_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-5xl rounded-lg">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-5xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "Enable RDP Access", else: "Edit RDP Access"}
@@ -448,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
             label="Allowed Principals"
           />
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button navigate={~p"/settings/networks/desktop-targets"} size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -456,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           </div>
         </.form>
       </div>
-      <.link navigate={~p"/settings/networks/desktop-targets"} class="modal-backdrop">Close</.link>
+      <.link navigate={~p"/settings/networks/desktop-targets"} class="sr-ui-modal-backdrop">Close</.link>
     </div>
     """
   end

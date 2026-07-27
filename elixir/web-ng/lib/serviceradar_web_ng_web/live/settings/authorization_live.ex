@@ -119,8 +119,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                 />
 
                 <div>
-                  <label class="label">
-                    <span class="label-text">Role Mappings (JSON)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Role Mappings (JSON)</span>
                   </label>
                   <textarea
                     name="settings[role_mappings]"

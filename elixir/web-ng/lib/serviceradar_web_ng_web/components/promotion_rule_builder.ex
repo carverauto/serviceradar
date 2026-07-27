@@ -173,9 +173,9 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           class="space-y-4 mt-4"
         >
           <!-- Rule Name -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Rule Name</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Rule Name</span>
             </label>
             <input
               type="text"
@@ -190,8 +190,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           <div class="divider text-xs text-sr-muted">Match Conditions</div>
           
     <!-- Message Body Contains -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center justify-start gap-3">
               <input
                 type="checkbox"
                 name="rule[body_contains_enabled]"
@@ -199,7 +199,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 checked={@form[:body_contains_enabled].value}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text font-medium">Message contains</span>
+              <span class="text-sm font-medium text-sr-ink">Message contains</span>
             </label>
             <input
               type="text"
@@ -212,16 +212,16 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               placeholder="e.g., Fetch error"
               disabled={not @form[:body_contains_enabled].value}
             />
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Case-insensitive substring match
               </span>
             </label>
           </div>
           
     <!-- Severity -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center justify-start gap-3">
               <input
                 type="checkbox"
                 name="rule[severity_enabled]"
@@ -229,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 checked={@form[:severity_enabled].value}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text font-medium">Severity level</span>
+              <span class="text-sm font-medium text-sr-ink">Severity level</span>
             </label>
             <select
               name="rule[severity_text]"
@@ -249,8 +249,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
           
     <!-- Service Name -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center justify-start gap-3">
               <input
                 type="checkbox"
                 name="rule[service_name_enabled]"
@@ -258,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 checked={@form[:service_name_enabled].value}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text font-medium">Service name</span>
+              <span class="text-sm font-medium text-sr-ink">Service name</span>
             </label>
             <input
               type="text"
@@ -274,8 +274,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
           
     <!-- Attribute Match -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center justify-start gap-3">
               <input
                 type="checkbox"
                 name="rule[attribute_enabled]"
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 checked={@form[:attribute_enabled].value}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text font-medium">Attribute equals</span>
+              <span class="text-sm font-medium text-sr-ink">Attribute equals</span>
             </label>
             <div class={[
               "flex gap-2",
@@ -332,8 +332,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           <div class="divider text-xs text-sr-muted">Event Options</div>
           
     <!-- Auto-create Alert -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center justify-start gap-3">
               <input
                 type="checkbox"
                 name="rule[auto_alert]"
@@ -342,7 +342,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 class={ui_checkbox_class()}
               />
               <div>
-                <span class="label-text font-medium">Auto-create alert for matching events</span>
+                <span class="text-sm font-medium text-sr-ink">Auto-create alert for matching events</span>
                 <p class="text-xs text-sr-muted">
                   If disabled, alerts are only created for high/critical severity events
                 </p>

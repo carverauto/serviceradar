@@ -478,7 +478,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     """
   end
 
-  defp tone_class("primary"), do: "bg-primary/10 text-primary"
+  defp tone_class("primary"), do: "bg-sr-brand/10 text-sr-brand"
   defp tone_class("success"), do: "bg-success/10 text-success"
   defp tone_class("error"), do: "bg-error/10 text-error"
   defp tone_class("warning"), do: "bg-warning/10 text-warning"

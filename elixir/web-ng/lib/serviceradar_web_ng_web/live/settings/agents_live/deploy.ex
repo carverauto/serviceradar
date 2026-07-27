@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Deploy do
 
               <div class="card bg-sr-subtle/50 p-4 space-y-3">
                 <div class="flex items-center gap-2">
-                  <.icon name="hero-server" class="size-5 text-primary" />
+                  <.icon name="hero-server" class="size-5 text-sr-brand" />
                   <h3 class="font-semibold">Agent Package</h3>
                 </div>
                 <p class="text-sm text-sr-muted">

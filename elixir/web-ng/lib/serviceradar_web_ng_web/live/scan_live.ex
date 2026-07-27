@@ -370,9 +370,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
 
       <.form for={%{}} as={:scan} phx-change="validate" phx-submit="run_scan" class="space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Targets (IP per line or comma-separated)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Targets (IP per line or comma-separated)</span>
             </label>
             <textarea
               name="scan[targets]"
@@ -380,8 +380,8 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
               class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-sm")}
               placeholder="10.0.0.1&#10;10.0.0.2&#10;192.168.1.0/24"
             >{@form["targets"]}</textarea>
-            <label class="label">
-              <span class="label-text-alt">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {length(@valid_targets)} valid
                 <span :if={@invalid_targets != []} class="text-error">
                   · {length(@invalid_targets)} invalid
@@ -391,8 +391,8 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
           </div>
 
           <div class="space-y-3">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Egress agent</span></label>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Egress agent</span></label>
               <select name="scan[agent_id]" class={ui_field_class()}>
                 <option value="">Select an agent…</option>
                 <option
@@ -406,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
             </div>
 
             <div class="flex gap-4">
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_icmp]" value="false" />
                 <input
                   type="checkbox"
@@ -415,9 +415,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                   checked={@form["mode_icmp"] == "true"}
                   class={ui_checkbox_class()}
                 />
-                <span class="label-text">ICMP</span>
+                <span class="text-sm font-medium text-sr-ink">ICMP</span>
               </label>
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_tcp]" value="false" />
                 <input
                   type="checkbox"
@@ -426,9 +426,9 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                   checked={@form["mode_tcp"] == "true"}
                   class={ui_checkbox_class()}
                 />
-                <span class="label-text">TCP</span>
+                <span class="text-sm font-medium text-sr-ink">TCP</span>
               </label>
-              <label class="label cursor-pointer gap-2">
+              <label class="flex cursor-pointer items-center gap-2 gap-2">
                 <input type="hidden" name="scan[mode_mtr]" value="false" />
                 <input
                   type="checkbox"
@@ -437,12 +437,12 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
                   checked={@form["mode_mtr"] == "true"}
                   class={ui_checkbox_class()}
                 />
-                <span class="label-text">MTR</span>
+                <span class="text-sm font-medium text-sr-ink">MTR</span>
               </label>
             </div>
 
-            <div class="form-control">
-              <label class="label"><span class="label-text">TCP ports (comma-separated)</span></label>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">TCP ports (comma-separated)</span></label>
               <input
                 name="scan[ports]"
                 value={@form["ports"]}

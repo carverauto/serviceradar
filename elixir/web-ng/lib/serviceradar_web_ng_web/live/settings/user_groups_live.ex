@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
         <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
           <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p class="text-sm font-medium text-primary">Settings</p>
+              <p class="text-sm font-medium text-sr-brand">Settings</p>
               <h1 class="mt-1 text-2xl font-semibold tracking-normal">User Groups</h1>
               <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
                 Manage reusable groups for dashboard sharing and future access-controlled workflows.

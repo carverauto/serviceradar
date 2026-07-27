@@ -116,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                   navigate={~p"/settings/networks/recordings/#{recording.id}"}
                   class={[
                     "block border-b border-sr-line px-4 py-3 transition hover:bg-sr-subtle/60",
-                    selected?(@selected_recording, recording) && "bg-primary/10"
+                    selected?(@selected_recording, recording) && "bg-sr-brand/10"
                   ]}
                 >
                   <div class="flex items-center justify-between gap-3">

@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
     ~H"""
     <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/40 p-3">
       <div class="text-[11px] text-sr-muted mb-2">{@label}</div>
-      <svg viewBox="0 0 100 32" class="w-full h-8 text-primary">
+      <svg viewBox="0 0 100 32" class="w-full h-8 text-sr-brand">
         <polyline fill="none" stroke="currentColor" stroke-width="2" points={@points} />
       </svg>
     </div>

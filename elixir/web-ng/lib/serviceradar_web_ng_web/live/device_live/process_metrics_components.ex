@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
                 <td class="text-xs font-mono text-right">
                   {format_pct(parse_number(Map.get(row, "cpu_usage")))}%
                 </td>
-                <td class="text-xs text-primary">
+                <td class="text-xs text-sr-brand">
                   <.srql_sparkline points={Map.get(row, "_cpu_sparkline", [])} />
                 </td>
                 <td class="text-xs font-mono text-right">

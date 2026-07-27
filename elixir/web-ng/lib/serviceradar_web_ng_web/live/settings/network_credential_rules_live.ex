@@ -500,8 +500,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:secret_title, secret_form_title(form_string(assigns.form, :kind)))
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-3xl rounded-lg">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-3xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
           <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
@@ -594,7 +594,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <.input field={@form[:description]} type="textarea" label="Description" />
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -604,7 +604,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
         </.form>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_secret_form">Close</button>
+      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_secret_form">Close</button>
     </div>
     """
   end
@@ -667,8 +667,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp rule_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-5xl rounded-lg">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-5xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
           <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">
@@ -829,7 +829,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </section>
         </div>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_preview">Close</button>
+      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_preview">Close</button>
     </div>
     """
   end
@@ -887,8 +887,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       )
 
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-4xl rounded-lg">
+    <div class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-4xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "New Credential Rule", else: "Edit Credential Rule"}
@@ -1000,7 +1000,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               class="fieldset rounded-lg border border-sr-line p-3 md:col-span-2"
             >
               <legend class="fieldset-legend px-1">Console credential users</legend>
-              <p class="label mb-2">
+              <p class="flex items-center justify-between gap-2 mb-2">
                 At least one exact role, user/IdP subject, or IdP group is required. Selectors are
                 combined with OR; ServiceRadar rechecks them when the console stream attaches.
               </p>
@@ -1021,7 +1021,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                   placeholder="pve-console-operators"
                 />
               </div>
-              <p class="label">Separate multiple selectors with commas or new lines.</p>
+              <p class="flex items-center justify-between gap-2">Separate multiple selectors with commas or new lines.</p>
             </fieldset>
             <.input
               :if={!@plugin_integration?}
@@ -1129,7 +1129,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <.input :if={!@plugin_integration?} field={@form[:allowed_ports]} label="Allowed Ports" />
           <.input field={@form[:description]} type="textarea" label="Description" />
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button navigate={~p"/settings/networks/credentials"} size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -1139,7 +1139,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
         </.form>
       </div>
-      <.link navigate={~p"/settings/networks/credentials"} class="modal-backdrop">Close</.link>
+      <.link navigate={~p"/settings/networks/credentials"} class="sr-ui-modal-backdrop">Close</.link>
     </div>
     """
   end

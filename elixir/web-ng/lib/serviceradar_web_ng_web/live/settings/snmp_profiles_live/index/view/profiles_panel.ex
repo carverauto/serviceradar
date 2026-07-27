@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                   <div class="flex items-center gap-2">
                     <.link
                       navigate={~p"/settings/snmp/#{profile.id}/edit"}
-                      class="font-medium hover:text-primary"
+                      class="font-medium hover:text-sr-brand"
                     >
                       {profile.name}
                     </.link>

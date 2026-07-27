@@ -100,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
         stats={@settings_stats}
       >
         <section class="space-y-2">
-          <p class="text-sm font-medium text-primary">Settings</p>
+          <p class="text-sm font-medium text-sr-brand">Settings</p>
           <h1 class="text-2xl font-semibold tracking-normal">Outbound Mail</h1>
           <p class="max-w-3xl text-sm text-sr-ink/65">
             Configure the deployment mail provider used by dashboard reports and other system email.

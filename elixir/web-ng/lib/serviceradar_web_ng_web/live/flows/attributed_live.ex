@@ -695,7 +695,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       class={[
         "rounded-sr-control border bg-sr-surface p-3 text-left font-sans transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus",
         tile_tone_class(@tone),
-        @active && "ring-2 ring-primary/35"
+        @active && "ring-2 ring-sr-brand/35"
       ]}
     >
       <div class="flex items-center justify-between gap-3">
@@ -790,8 +790,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp flow_details_modal(assigns) do
     ~H"""
-    <div class="modal modal-open" role="dialog" aria-modal="true">
-      <div class="modal-box max-w-4xl">
+    <div class="sr-ui-modal sr-ui-modal-open" role="dialog" aria-modal="true">
+      <div class="sr-ui-modal-box max-w-4xl">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <h2 class="truncate text-lg font-semibold">Flow Details</h2>
@@ -844,13 +844,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           />
         </div>
 
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <.ui_button href={netflow_details_path(@flow)} variant="primary" size="sm">
             <.icon name="hero-arrow-top-right-on-square" class="size-4" /> NetFlow Details
           </.ui_button>
         </div>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_flow">close</button>
+      <button type="button" class="sr-ui-modal-backdrop" phx-click="close_flow">close</button>
     </div>
     """
   end

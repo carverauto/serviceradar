@@ -138,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
         <%= case @state do %>
           <% :prompt -> %>
             <form phx-submit="submit_code" class="space-y-4">
-              <label class="form-control w-full">
-                <span class="label-text">Device code</span>
+              <label class="flex flex-col gap-1.5 w-full">
+                <span class="text-sm font-medium text-sr-ink">Device code</span>
                 <input
                   type="text"
                   name="user_code"
@@ -160,19 +160,19 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
             <div class="card bg-sr-subtle shadow">
               <div class="card-body space-y-3">
                 <div>
-                  <div class="label-text">Client</div>
+                  <div class="text-sm font-medium text-sr-ink">Client</div>
                   <div class="font-medium">{@row.client_id}</div>
                 </div>
                 <div>
-                  <div class="label-text">Requested scope</div>
+                  <div class="text-sm font-medium text-sr-ink">Requested scope</div>
                   <div class="font-mono text-sm">{@row.scope}</div>
                 </div>
                 <div>
-                  <div class="label-text">User code</div>
+                  <div class="text-sm font-medium text-sr-ink">User code</div>
                   <div class="font-mono tracking-widest">{@row.user_code}</div>
                 </div>
                 <div>
-                  <div class="label-text">Expires</div>
+                  <div class="text-sm font-medium text-sr-ink">Expires</div>
                   <div class="text-sm">
                     {Calendar.strftime(@row.expires_at, "%Y-%m-%d %H:%M:%S UTC")}
                   </div>

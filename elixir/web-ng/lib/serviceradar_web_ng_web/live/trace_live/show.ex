@@ -254,7 +254,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     id={"trace-spans-row-#{idx}"}
                     class={[
                       "hover:bg-sr-subtle/40 cursor-pointer transition-colors",
-                      @highlight_idx == idx && "ring-2 ring-inset ring-primary/60 bg-primary/5"
+                      @highlight_idx == idx && "ring-2 ring-inset ring-sr-brand/60 bg-sr-brand/5"
                     ]}
                     phx-click="toggle_span"
                     phx-value-idx={idx}
@@ -278,7 +278,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         <div
                           class={[
                             "absolute inset-y-0 rounded",
-                            (row.error? && "bg-error/80") || "bg-primary/60"
+                            (row.error? && "bg-error/80") || "bg-sr-brand/60"
                           ]}
                           style={"left: #{row.offset_pct}%; width: #{row.width_pct}%"}
                         >

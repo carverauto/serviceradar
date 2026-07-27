@@ -341,8 +341,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           <div class="text-sm font-semibold">{class_label}</div>
                           <div class="text-xs text-sr-muted">{class_key}</div>
                         </div>
-                        <label class="label cursor-pointer justify-start gap-3 sm:justify-end">
-                          <span class="label-text text-xs">Enabled</span>
+                        <label class="flex cursor-pointer items-center justify-start gap-3 sm:justify-end">
+                          <span class="text-xs font-medium text-sr-ink">Enabled</span>
                           <input
                             type="hidden"
                             name={"anomaly[classes][#{class_key}][enabled]"}
@@ -360,7 +360,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
 
                       <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Drift mode</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Drift mode</span>
                           <select
                             name={"anomaly[classes][#{class_key}][drift_mode]"}
                             class={ui_field_class(size: "sm", class: "w-full")}
@@ -372,7 +372,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Severity cap</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Severity cap</span>
                           <select
                             name={"anomaly[classes][#{class_key}][severity_cap]"}
                             class={ui_field_class(size: "sm", class: "w-full")}
@@ -384,7 +384,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           </select>
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Drift min effect</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Drift min effect</span>
                           <input
                             type="number"
                             step="0.1"
@@ -395,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">CUSUM k</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">CUSUM k</span>
                           <input
                             type="number"
                             step="0.1"
@@ -406,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">CUSUM h</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">CUSUM h</span>
                           <input
                             type="number"
                             step="0.1"
@@ -417,7 +417,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Confirm multiplier</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Confirm multiplier</span>
                           <input
                             type="number"
                             step="0.1"
@@ -428,7 +428,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Confirm window</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Confirm window</span>
                           <input
                             type="number"
                             min="1"
@@ -438,7 +438,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Clear slots</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Clear slots</span>
                           <input
                             type="number"
                             min="1"
@@ -448,7 +448,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Adopt after samples</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Adopt after samples</span>
                           <input
                             type="number"
                             min="1"
@@ -458,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Escalate after seconds</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Escalate after seconds</span>
                           <input
                             type="number"
                             min="1"
@@ -468,7 +468,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Minimum std floor</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Minimum std floor</span>
                           <input
                             type="number"
                             step="0.01"
@@ -479,7 +479,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0">
-                          <span class="label mb-1">Minimum CV</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Minimum CV</span>
                           <input
                             type="number"
                             step="0.001"
@@ -490,7 +490,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                           />
                         </label>
                         <label class="fieldset mb-0 md:col-span-2">
-                          <span class="label mb-1">Severity bands (JSON)</span>
+                          <span class="flex items-center justify-between gap-2 mb-1">Severity bands (JSON)</span>
                           <textarea
                             name={"anomaly[classes][#{class_key}][severity_bands]"}
                             class={ui_field_class(size: "sm", mono: true, class: "min-h-20 w-full py-2 text-xs")}
@@ -588,8 +588,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
                 </fieldset>
 
                 <div class="mt-4">
-                  <label class="label">
-                    <span class="label-text">Metric class overrides (JSON)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Metric class overrides (JSON)</span>
                   </label>
                   <textarea
                     name="forecast[metric_class_overrides]"

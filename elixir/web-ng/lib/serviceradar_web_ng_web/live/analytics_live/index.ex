@@ -889,12 +889,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp tone_bg("error"), do: "bg-error/10"
   defp tone_bg("warning"), do: "bg-warning/10"
   defp tone_bg("success"), do: "bg-success/10"
-  defp tone_bg(_), do: "bg-primary/10"
+  defp tone_bg(_), do: "bg-sr-brand/10"
 
   defp tone_icon("error"), do: "text-error"
   defp tone_icon("warning"), do: "text-warning"
   defp tone_icon("success"), do: "text-success"
-  defp tone_icon(_), do: "text-primary"
+  defp tone_icon(_), do: "text-sr-brand"
 
   defp tone_value("error"), do: "text-error"
   defp tone_value("warning"), do: "text-warning"
@@ -964,12 +964,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.ui_panel class="h-80">
       <:header>
-        <.link href={~p"/devices"} class="hover:text-primary transition-colors">
+        <.link href={~p"/devices"} class="hover:text-sr-brand transition-colors">
           <div class="text-sm font-semibold">Device Availability</div>
         </.link>
         <.link
           href={~p"/devices?#{%{q: "in:devices is_available:false sort:last_seen:desc limit:100"}}"}
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View offline devices"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1056,14 +1056,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
-        <.link href={~p"/events"} class="hover:text-primary transition-colors">
+        <.link href={~p"/events"} class="hover:text-sr-brand transition-colors">
           <div class="text-sm font-semibold">Event Levels</div>
         </.link>
         <.link
           href={
             ~p"/events?#{%{q: "in:events log_level:(FATAL,fatal,CRITICAL,critical,ERROR,error) time:last_24h sort:time:desc limit:100"}}"
           }
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View high severity events"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1156,7 +1156,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
         <.link
           href={~p"/observability?#{%{tab: "logs"}}"}
-          class="hover:text-primary transition-colors"
+          class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">Critical Logs</div>
         </.link>
@@ -1164,7 +1164,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           href={
             ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 100)}}"
           }
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View critical logs"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1281,14 +1281,14 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <.ui_panel class="h-80">
       <:header>
-        <.link href={~p"/observability"} class="hover:text-primary transition-colors">
+        <.link href={~p"/observability"} class="hover:text-sr-brand transition-colors">
           <div class="text-sm font-semibold">Observability</div>
         </.link>
         <.link
           href={
             ~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc limit:100"}}"
           }
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View traces"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1302,7 +1302,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <div :if={not @loading} class="flex flex-col h-full">
         <div class="grid grid-cols-2 gap-3 mb-4">
           <div class="rounded-lg bg-sr-subtle/50 p-3 text-center">
-            <div class="text-xl font-bold text-primary">{format_compact_number(@metrics_count)}</div>
+            <div class="text-xl font-bold text-sr-brand">{format_compact_number(@metrics_count)}</div>
             <div class="text-xs text-sr-muted">Metrics</div>
           </div>
           <div class="rounded-lg bg-sr-subtle/50 p-3 text-center">
@@ -1394,13 +1394,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <:header>
         <.link
           href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc"}}"}
-          class="hover:text-primary transition-colors"
+          class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">High Utilization</div>
         </.link>
         <.link
           href={~p"/dashboard?#{%{q: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:100"}}"}
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View metrics"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1528,13 +1528,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       <:header>
         <.link
           href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc"}}"}
-          class="hover:text-primary transition-colors"
+          class="hover:text-sr-brand transition-colors"
         >
           <div class="text-sm font-semibold">Bandwidth Tracker</div>
         </.link>
         <.link
           href={~p"/dashboard?#{%{q: "in:rperf_targets time:last_1h sort:timestamp:desc limit:50"}}"}
-          class="text-sr-muted hover:text-primary"
+          class="text-sr-muted hover:text-sr-brand"
           title="View bandwidth data"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
@@ -1551,8 +1551,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             <div class="text-lg font-bold text-success">{format_mbps(@total_download)}</div>
             <div class="text-[10px] text-sr-muted">Download</div>
           </div>
-          <div class="rounded-lg bg-primary/10 p-2 text-center">
-            <div class="text-lg font-bold text-primary">{format_mbps(@total_upload)}</div>
+          <div class="rounded-lg bg-sr-brand/10 p-2 text-center">
+            <div class="text-lg font-bold text-sr-brand">{format_mbps(@total_upload)}</div>
             <div class="text-[10px] text-sr-muted">Upload</div>
           </div>
           <div class="rounded-lg bg-sr-subtle/50 p-2 text-center">
@@ -1585,7 +1585,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
                 <tr class="hover:bg-sr-subtle/50">
                   <td class="truncate max-w-[100px] text-xs" title={target.name}>{target.name}</td>
                   <td class="text-right text-xs text-success">{format_mbps(target.download_mbps)}</td>
-                  <td class="text-right text-xs text-primary">{format_mbps(target.upload_mbps)}</td>
+                  <td class="text-right text-xs text-sr-brand">{format_mbps(target.upload_mbps)}</td>
                   <td class="text-right text-xs font-mono">{round(target.latency_ms)}ms</td>
                 </tr>
               <% end %>
@@ -1782,7 +1782,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp severity_text_class("error"), do: "text-error"
   defp severity_text_class("warning"), do: "text-warning"
   defp severity_text_class("info"), do: "text-info"
-  defp severity_text_class("primary"), do: "text-primary"
+  defp severity_text_class("primary"), do: "text-sr-brand"
   defp severity_text_class(_), do: "text-sr-muted"
 
   attr :event, :map, required: true

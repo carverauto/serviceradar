@@ -406,7 +406,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
         <svg
           viewBox="0 0 100 24"
           preserveAspectRatio="none"
-          class="h-6 w-28 text-primary"
+          class="h-6 w-28 text-sr-brand"
           role="img"
           aria-label="sparkline"
         >

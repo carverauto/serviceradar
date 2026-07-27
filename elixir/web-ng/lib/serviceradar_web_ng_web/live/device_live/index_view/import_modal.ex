@@ -71,10 +71,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         
     <!-- File Upload -->
         <.form for={%{}} phx-change="validate_csv" phx-submit="preview_csv" class="space-y-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Upload CSV File</span>
-              <span class="label-text-alt text-sr-muted">Max 5MB</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Upload CSV File</span>
+              <span class="text-xs text-sr-muted">Max 5MB</span>
             </label>
             <.live_file_input
               upload={@uploads.csv_file}
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
             />
             <%= for entry <- @uploads.csv_file.entries do %>
               <div class="mt-2 flex items-center gap-2 text-sm">
-                <.icon name="hero-document-text" class="size-4 text-primary" />
+                <.icon name="hero-document-text" class="size-4 text-sr-brand" />
                 <span>{entry.client_name}</span>
                 <span class="text-sr-muted">
                   ({Float.round(entry.client_size / 1024, 1)} KB)

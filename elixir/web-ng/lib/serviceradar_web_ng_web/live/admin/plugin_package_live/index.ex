@@ -1563,8 +1563,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-3xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-3xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1589,8 +1589,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         <form class="mt-4 space-y-4" phx-submit="create_package" phx-change="create_change">
           <div>
-            <label class="label">
-              <span class="label-text">Manifest (YAML)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Manifest (YAML)</span>
             </label>
             <textarea
               name="create[manifest_yaml]"
@@ -1600,8 +1600,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
 
           <div>
-            <label class="label">
-              <span class="label-text">Config Schema (JSON, optional)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Config Schema (JSON, optional)</span>
             </label>
             <textarea
               name="create[config_schema_json]"
@@ -1611,8 +1611,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
 
           <div>
-            <label class="label">
-              <span class="label-text">Display Contract (JSON, optional)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Display Contract (JSON, optional)</span>
             </label>
             <textarea
               name="create[display_contract_json]"
@@ -1623,8 +1623,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Source Type</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Source Type</span>
               </label>
               <select name="create[source_type]" class={ui_field_class(class: "w-full")}>
                 <option value="upload" selected={@create_form["source_type"] == "upload"}>
@@ -1636,8 +1636,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </select>
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Source Repo URL (optional)</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Source Repo URL (optional)</span>
               </label>
               <input
                 type="text"
@@ -1650,8 +1650,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
 
           <div>
-            <label class="label">
-              <span class="label-text">Source Commit (optional)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Source Commit (optional)</span>
             </label>
             <input
               type="text"
@@ -1670,7 +1670,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_create_modal">close</button>
       </form>
     </dialog>
@@ -1679,8 +1679,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-4xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-4xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1863,7 +1863,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
                 <%= for entry <- @uploads.wasm_blob.entries do %>
                   <div class="flex items-center gap-2 text-xs">
-                    <.icon name="hero-document-text" class="size-4 text-primary" />
+                    <.icon name="hero-document-text" class="size-4 text-sr-brand" />
                     <span>{entry.client_name}</span>
                     <span class="text-sr-muted">
                       ({Float.round(entry.client_size / 1024, 1)} KB)
@@ -2183,8 +2183,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <div class="text-sm font-semibold">Assign to Agent</div>
             <form phx-submit="create_assignment" phx-change="assignment_change" class="space-y-3">
               <div>
-                <label class="label">
-                  <span class="label-text">Agent</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Agent</span>
                 </label>
                 <select name="assignment[agent_uid]" class={ui_field_class(class: "w-full")}>
                   <option value="">Select an agent</option>
@@ -2232,8 +2232,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <% end %>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label class="label">
-                    <span class="label-text">Interval (seconds)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Interval (seconds)</span>
                   </label>
                   <input
                     type="number"
@@ -2244,8 +2244,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   />
                 </div>
                 <div>
-                  <label class="label">
-                    <span class="label-text">Timeout (seconds)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Timeout (seconds)</span>
                   </label>
                   <input
                     type="number"
@@ -2281,8 +2281,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <% else %>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label class="label">
-                      <span class="label-text">Params (JSON)</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Params (JSON)</span>
                     </label>
                     <textarea
                       name="assignment[params]"
@@ -2290,8 +2290,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     ><%= assignment_params_raw(@assignment_form) %></textarea>
                   </div>
                   <div>
-                    <label class="label">
-                      <span class="label-text">Permissions Override (JSON)</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Permissions Override (JSON)</span>
                     </label>
                     <textarea
                       name="assignment[permissions_override]"
@@ -2302,8 +2302,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <% end %>
               <%= if config_schema_present?(@package.config_schema) do %>
                 <div>
-                  <label class="label">
-                    <span class="label-text">Permissions Override (JSON)</span>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Permissions Override (JSON)</span>
                   </label>
                   <textarea
                     name="assignment[permissions_override]"
@@ -2312,8 +2312,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </div>
               <% end %>
               <div>
-                <label class="label">
-                  <span class="label-text">Resources Override (JSON)</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Resources Override (JSON)</span>
                 </label>
                 <textarea
                   name="assignment[resources_override]"
@@ -2346,8 +2346,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         >
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Approved Capabilities (comma separated)</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Approved Capabilities (comma separated)</span>
               </label>
               <input
                 type="text"
@@ -2363,8 +2363,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               </p>
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Reason (for deny/revoke)</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Reason (for deny/revoke)</span>
               </label>
               <input
                 type="text"
@@ -2378,8 +2378,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Approved Permissions (JSON)</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Approved Permissions (JSON)</span>
               </label>
               <textarea
                 name="review[approved_permissions]"
@@ -2388,8 +2388,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               ><%= @review_form["approved_permissions"] %></textarea>
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Approved Resources (JSON)</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Approved Resources (JSON)</span>
               </label>
               <textarea
                 name="review[approved_resources]"
@@ -2432,7 +2432,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_details_modal">close</button>
       </form>
     </dialog>
@@ -2947,7 +2947,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       <span>
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
-      <div class="join">
+      <div class={ui_join_class()}>
         <.ui_button id={"#{@id_prefix}-prev-page"} type="button" phx-click={@event} phx-value-page={@page - 1} disabled={@page <= 1} size="xs" variant="neutral">
           Previous
         </.ui_button>

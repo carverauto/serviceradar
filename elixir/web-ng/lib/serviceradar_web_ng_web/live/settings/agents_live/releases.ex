@@ -885,7 +885,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
                 <div
                   :if={@rollout_prefill_count > 0}
-                  class="rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-sr-ink/90"
+                  class="rounded-lg border border-sr-brand/20 bg-sr-brand/10 px-4 py-3 text-sm text-sr-ink/90"
                 >
                   {rollout_prefill_message(@rollout_prefill_count, @rollout_prefill_source)}
                 </div>
@@ -1294,7 +1294,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       <span>
         Showing {@first_item}-{@last_item} of {@total_items}
       </span>
-      <div class="join">
+      <div class={ui_join_class()}>
         <.ui_button id={"#{@id_prefix}-prev-page"} type="button" phx-click={@event} phx-value-page={@page - 1} disabled={@page <= 1} size="xs" variant="neutral">
           Previous
         </.ui_button>
@@ -1316,8 +1316,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_details_modal(assigns) do
     ~H"""
-    <div id="rollout-details-modal" class="modal modal-open">
-      <div class="modal-box max-w-5xl p-0">
+    <div id="rollout-details-modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-5xl p-0">
         <div class="flex items-start justify-between gap-4 border-b border-sr-line px-6 py-4">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
@@ -1432,7 +1432,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
           </div>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="hide_rollout_details"></div>
+      <div class="sr-ui-modal-backdrop" phx-click="hide_rollout_details"></div>
     </div>
     """
   end

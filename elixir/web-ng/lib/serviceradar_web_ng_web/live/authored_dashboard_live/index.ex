@@ -269,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       <div class="mx-auto flex w-full max-w-none flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p class="text-sm font-medium text-primary">Analytics</p>
+            <p class="text-sm font-medium text-sr-brand">Analytics</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-normal">Dashboard Creator</h1>
             <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
               Build saved dashboards from bounded SRQL queries and render them at stable dashboard URLs.
@@ -306,7 +306,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                   <div class="flex flex-wrap items-center gap-2">
                     <.link
                       navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"}
-                      class="font-medium hover:text-primary"
+                      class="font-medium hover:text-sr-brand"
                     >
                       {dashboard.title}
                     </.link>

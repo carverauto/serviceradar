@@ -138,9 +138,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           phx-submit={@submit_event}
           class="mt-5 space-y-4"
         >
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Task</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Task</span>
             </label>
             <select name="action[action_id]" class={ui_field_class(class: "w-full")}>
               <%= for option <- @actions do %>
@@ -269,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       <div class="flex items-start justify-between gap-3 border-b border-sr-line px-4 py-3">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <.icon name="hero-clock" class="size-4 text-primary" />
+            <.icon name="hero-clock" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">{@title}</span>
           </div>
           <p :if={ActionForm.present_text?(@subtitle)} class="mt-1 text-xs text-sr-muted">
@@ -395,13 +395,13 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       |> assign(:input_name, "action[input][#{assigns.name}]")
 
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text font-medium">
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">
           {@label}
           <span :if={@required} class="text-error">*</span>
         </span>
-        <span :if={ActionForm.present_text?(@description)} class="label-text-alt text-sr-muted">
+        <span :if={ActionForm.present_text?(@description)} class="text-xs text-sr-muted">
           {@description}
         </span>
       </label>

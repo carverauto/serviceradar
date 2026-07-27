@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonProfileComponents do
     <div class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-cog-6-tooth" class="size-4 text-primary" />
+          <.icon name="hero-cog-6-tooth" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Host Health Profile</span>
         </div>
         <.source_badge source={@source} />

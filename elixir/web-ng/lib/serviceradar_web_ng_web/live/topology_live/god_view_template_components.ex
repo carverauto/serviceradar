@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
                 <div class="text-[10px] uppercase tracking-wide text-sr-muted mb-1">
                   View
                 </div>
-                <div class="join w-full">
+                <div class={ui_join_class(class: "w-full")}>
                   <button
                     type="button"
                     class={"join-item flex-1 #{overlay_zoom_button_class(@zoom_mode == "auto")}"}

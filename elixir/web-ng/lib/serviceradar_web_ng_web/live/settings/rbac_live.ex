@@ -550,7 +550,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
           <.ui_badge :if={@dirty} size="sm" variant="warning">unsaved</.ui_badge>
         </div>
         <div class="flex items-center gap-2">
-          <div class={["join", @locked && "opacity-50"]}>
+          <div class={ui_join_class(class: @locked && "opacity-50")}>
             <.ui_button type="button" disabled={@locked} phx-click="set_profile_permissions" phx-value-profile-id={@profile.id} phx-value-mode="all" size="xs" variant="neutral">
               All
             </.ui_button>
@@ -736,8 +736,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp new_profile_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box">
         <h3 class="text-lg font-bold">Create Role Profile</h3>
         <p class="py-2 text-sm text-sr-muted">
           Create a custom profile. Permissions are copied from the selected source (if any).
@@ -745,13 +745,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         <.form for={@form} id="new-profile-form" phx-submit="create_profile" class="space-y-4">
           <.input field={@form[:name]} type="text" label="Profile Name" required />
           <.input field={@form[:description]} type="text" label="Description" />
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_new_profile" size="sm" variant="ghost">Cancel</.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Create</.ui_button>
           </div>
         </.form>
       </div>
-      <div class="modal-backdrop">
+      <div class="sr-ui-modal-backdrop">
         <button type="button" phx-click="close_new_profile">close</button>
       </div>
     </dialog>
@@ -764,21 +764,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   defp delete_profile_modal(assigns) do
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box">
+    <dialog class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box">
         <h3 class="text-lg font-bold">Delete Role Profile?</h3>
         <p class="py-2 text-sm text-sr-muted">
           This will permanently delete <span class="font-semibold">{@profile.name}</span>.
           Users assigned to this profile will fall back to their role defaults.
         </p>
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <.ui_button type="button" phx-click="close_delete_profile" size="sm" variant="ghost">Cancel</.ui_button>
           <.ui_button type="button" phx-click="delete_profile" phx-value-profile-id={@profile.id} size="sm" variant="danger">
             Delete
           </.ui_button>
         </div>
       </div>
-      <div class="modal-backdrop">
+      <div class="sr-ui-modal-backdrop">
         <button type="button" phx-click="close_delete_profile">close</button>
       </div>
     </dialog>

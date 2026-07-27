@@ -187,9 +187,9 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)]">
             <div class="space-y-3">
               <form phx-change="select_session">
-                <label class="form-control">
-                  <span class="label">
-                    <span class="label-text text-xs font-semibold uppercase text-sr-muted">
+                <label class="flex flex-col gap-1.5">
+                  <span class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-medium text-sr-ink font-semibold uppercase text-sr-muted">
                       Recent survey
                     </span>
                   </span>
@@ -317,13 +317,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                 navigate={field_survey_review_path(session.id, @selected_floor_key)}
                 class={[
                   "block px-4 py-3 transition hover:bg-sr-subtle/60",
-                  session.id == @selected_session_id && "bg-primary/10"
+                  session.id == @selected_session_id && "bg-sr-brand/10"
                 ]}
               >
                 <div class="truncate text-sm font-semibold">{session.id}</div>
                 <div
                   :if={session[:metadata] && session.metadata[:label]}
-                  class="mt-1 truncate text-xs text-primary/80"
+                  class="mt-1 truncate text-xs text-sr-brand/80"
                 >
                   {session.metadata.label}
                 </div>

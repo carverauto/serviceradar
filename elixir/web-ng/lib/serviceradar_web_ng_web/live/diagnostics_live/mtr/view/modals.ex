@@ -21,8 +21,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
       </div>
 
       <.form for={@mtr_form} phx-submit="run_mtr" class="space-y-3">
-        <div class="form-control">
-          <label class="label"><span class="label-text">Target (hostname or IP)</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target (hostname or IP)</span></label>
           <input
             type="text"
             name="mtr[target]"
@@ -33,21 +33,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Agent</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent</span></label>
           <select name="mtr[agent_id]" class={ui_field_class()} required>
             <option value="">Select an agent...</option>
             <%= for agent <- @mtr_agents do %>
               <option value={agent_id(agent)}>{agent_label(agent)}</option>
             <% end %>
           </select>
-          <label :if={@mtr_agents == []} class="label">
-            <span class="label-text-alt text-amber-600 dark:text-amber-300">No agents connected</span>
+          <label :if={@mtr_agents == []} class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted text-amber-600 dark:text-amber-300">No agents connected</span>
           </label>
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Protocol</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Protocol</span></label>
           <select name="mtr[protocol]" class={ui_field_class()}>
             <option value={Config.protocol_icmp()} selected>ICMP</option>
             <option value={Config.protocol_udp()}>UDP</option>
@@ -101,8 +101,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
 
   defp bulk_target_fields(assigns) do
     ~H"""
-    <div class="form-control mb-3">
-      <label class="label"><span class="label-text">SRQL Query</span></label>
+    <div class="flex flex-col gap-1.5 mb-3">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">SRQL Query</span></label>
       <input
         type="text"
         name="bulk_mtr[target_query]"
@@ -110,22 +110,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
         placeholder="in:devices tags.role:edge"
         class={ui_field_class()}
       />
-      <label class="label">
-        <span class="label-text-alt">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-xs text-sr-muted">
           Optional. When present, ServiceRadar reruns the SRQL query at submit time and queues the current matching targets.
         </span>
       </label>
     </div>
 
-    <div class="form-control mb-3">
-      <label class="label"><span class="label-text">Targets</span></label>
+    <div class="flex flex-col gap-1.5 mb-3">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Targets</span></label>
       <textarea
         name="bulk_mtr[targets]"
         class={ui_field_class(class: "min-h-48 py-2.5")}
         placeholder="One hostname or IP per line"
       ><%= @bulk_mtr_form["targets"].value %></textarea>
-      <label class="label">
-        <span class="label-text-alt">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-xs text-sr-muted">
           Optional when using SRQL. Manual targets are used only when the SRQL query field is blank.
         </span>
       </label>
@@ -138,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
 
   defp bulk_selector_fields(assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label"><span class="label-text">Selector Limit</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Selector Limit</span></label>
       <input
         type="number"
         min="1"
@@ -150,8 +150,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
       />
     </div>
 
-    <div class="form-control">
-      <label class="label"><span class="label-text">Agent</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent</span></label>
       <select name="bulk_mtr[agent_id]" class={ui_field_class()} required>
         <option value="">Select an agent...</option>
         <%= for agent <- @mtr_agents do %>
@@ -160,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
       </select>
     </div>
 
-    <div class="form-control">
-      <label class="label"><span class="label-text">Protocol</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Protocol</span></label>
       <select name="bulk_mtr[protocol]" class={ui_field_class()}>
         <option
           value={Config.protocol_icmp()}
@@ -190,8 +190,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
 
   defp bulk_profile_fields(assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label"><span class="label-text">Execution Profile</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Execution Profile</span></label>
       <select name="bulk_mtr[execution_profile]" class={ui_field_class()}>
         <option
           value={Config.execution_profile_fast()}
@@ -223,8 +223,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Modals do
       </select>
     </div>
 
-    <div class="form-control">
-      <label class="label"><span class="label-text">Concurrency</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Concurrency</span></label>
       <input
         type="number"
         min="1"

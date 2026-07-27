@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Traffic Profile</span>
           <span class="text-xs text-sr-muted">(last 24h · drag to zoom)</span>
         </div>
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-pie" class="size-4 text-primary" />
+          <.icon name="hero-chart-pie" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Protocol Breakdown</span>
           <span class="text-xs text-sr-muted">(last 24h)</span>
         </div>
@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-funnel" class="size-4 text-primary" />
+          <.icon name="hero-funnel" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Quick Filters</span>
           <button
             :if={@active_facets != %{}}
@@ -236,9 +236,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       </div>
       <div
         :if={@active_topn}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm"
+        class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sr-brand/10 border border-sr-brand/20 text-sm"
       >
-        <.icon name="hero-funnel-solid" class="size-4 text-primary" />
+        <.icon name="hero-funnel-solid" class="size-4 text-sr-brand" />
         <span class="text-sr-muted">Filtered by</span>
         <span class="font-semibold">{@active_topn.field}:</span>
         <.ui_badge size="sm" variant="primary">{@active_topn.value}</.ui_badge>

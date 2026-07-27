@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
         phx-submit="save_device"
         class="space-y-4"
       >
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Hostname</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Hostname</span>
           </label>
           <input
             type="text"
@@ -34,9 +34,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">IP Address</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">IP Address</span>
           </label>
           <input
             type="text"
@@ -47,9 +47,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Device Type</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Device Type</span>
           </label>
           <select name="device[type]" class={ui_field_class()}>
             <option value="">Select type...</option>
@@ -63,10 +63,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
           </select>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Tags</span>
-            <span class="label-text-alt text-sr-muted">Optional, one per line</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Tags</span>
+            <span class="text-xs text-sr-muted">Optional, one per line</span>
           </label>
           <textarea
             name="device[tags]"

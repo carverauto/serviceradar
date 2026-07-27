@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
     >
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+          <.icon name="hero-arrows-right-left" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Interface Traffic (Ingress vs Egress)</span>
         </div>
         <form phx-change="select_interface">

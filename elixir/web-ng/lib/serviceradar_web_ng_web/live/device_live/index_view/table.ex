@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                 is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
               <% has_sysmon =
                 is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-              <tr class={"hover:bg-sr-subtle/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
+              <tr class={"hover:bg-sr-subtle/40 #{if is_selected, do: "bg-sr-brand/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                 <td class="text-center">
                   <input
                     :if={is_binary(device_uid)}

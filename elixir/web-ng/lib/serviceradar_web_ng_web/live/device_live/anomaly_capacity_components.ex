@@ -75,8 +75,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 class="grid gap-2 border-b border-sr-line px-4 py-3 sm:grid-cols-3"
                 phx-change="anomaly_findings_filter"
               >
-                <label class="form-control">
-                  <span class="label py-0 text-xs text-sr-muted">Severity</span>
+                <label class="flex flex-col gap-1.5">
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Severity</span>
                   <select name="anomaly_filters[severity]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "severity") == "all"}>
                       All
@@ -104,8 +104,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     </option>
                   </select>
                 </label>
-                <label class="form-control">
-                  <span class="label py-0 text-xs text-sr-muted">Status</span>
+                <label class="flex flex-col gap-1.5">
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Status</span>
                   <select name="anomaly_filters[status]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option value="all" selected={filter_value(@anomaly_filters, "status") == "all"}>
                       All
@@ -127,8 +127,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                     </option>
                   </select>
                 </label>
-                <label class="form-control">
-                  <span class="label py-0 text-xs text-sr-muted">Sort</span>
+                <label class="flex flex-col gap-1.5">
+                  <span class="flex items-center justify-between gap-2 py-0 text-xs text-sr-muted">Sort</span>
                   <select name="anomaly_filters[sort]" class={ui_field_class(size: "sm", class: "w-full")}>
                     <option
                       value="newest"
@@ -348,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       <span class="text-sr-muted">
         Showing {@range_start}–{@range_end} on this episode page
       </span>
-      <div class="join">
+      <div class={ui_join_class()}>
         <.ui_button type="button" phx-click="anomaly_findings_prev_page" disabled={not @has_prev} size="xs" variant="ghost">
           Prev
         </.ui_button>
@@ -387,8 +387,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       |> assign(:lifecycle_notice, detail_lifecycle_notice(assigns.detail))
 
     ~H"""
-    <dialog id="anomaly-capacity-detail-modal" class="modal modal-open">
-      <div class="modal-box max-w-5xl">
+    <dialog id="anomaly-capacity-detail-modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-5xl">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
@@ -437,7 +437,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 href="https://docs.serviceradar.cloud/docs/anomaly-detection#episode-lifecycle"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="mt-2 inline-flex text-xs font-semibold text-primary hover:underline"
+                class="mt-2 inline-flex text-xs font-semibold text-sr-brand hover:underline"
               >
                 How anomaly episode lifecycle works
                 <.icon name="hero-arrow-top-right-on-square" class="ml-1 size-3.5" />
@@ -501,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
           </div>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_anomaly_capacity_detail">close</button>
       </form>
     </dialog>

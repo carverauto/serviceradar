@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpSection do
         <%= if index > 0 and Enum.at(@display_path, index - 1) != :ellipsis do %>
           <span class="text-sr-muted">→</span>
         <% end %>
-        <span class="px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+        <span class="px-2 py-0.5 rounded bg-sr-brand/10 text-sr-brand border border-sr-brand/20">
           AS{item}
         </span>
       <% end %>

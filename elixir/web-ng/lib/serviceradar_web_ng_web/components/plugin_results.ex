@@ -156,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.PluginResults do
           fill="none"
           stroke="currentColor"
           stroke-width="2"
-          class="text-primary"
+          class="text-sr-brand"
           points={@points}
         />
       </svg>

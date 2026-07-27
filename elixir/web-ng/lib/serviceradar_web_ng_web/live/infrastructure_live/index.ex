@@ -307,28 +307,28 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         </div>
         
     <!-- Tab Navigation (admin sees all tabs, others see only agents) -->
-        <div :if={@is_admin} class="tabs tabs-box">
+        <div :if={@is_admin} class="sr-ui-tabs sr-ui-tabs-boxed">
           <.link
             patch={~p"/infrastructure"}
-            class={["tab", @active_tab == :overview && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == :overview && "sr-ui-tab-active"]}
           >
             Overview
           </.link>
           <.link
             patch={~p"/infrastructure?tab=nodes"}
-            class={["tab", @active_tab == :nodes && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == :nodes && "sr-ui-tab-active"]}
           >
             Nodes
           </.link>
           <.link
             patch={~p"/infrastructure?tab=gateways"}
-            class={["tab", @active_tab == :gateways && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == :gateways && "sr-ui-tab-active"]}
           >
             Agent Gateways
           </.link>
           <.link
             patch={~p"/infrastructure?tab=agents"}
-            class={["tab", @active_tab == :agents && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == :agents && "sr-ui-tab-active"]}
           >
             Connected Agents
           </.link>
@@ -419,7 +419,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         "warning" -> "bg-warning/10 border-warning/20"
         "error" -> "bg-error/10 border-error/20"
         "info" -> "bg-info/10 border-info/20"
-        "primary" -> "bg-primary/10 border-primary/20"
+        "primary" -> "bg-sr-brand/10 border-sr-brand/20"
         _ -> "bg-sr-subtle/50 border-sr-line"
       end
 
@@ -429,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         "warning" -> "text-warning"
         "error" -> "text-error"
         "info" -> "text-info"
-        "primary" -> "text-primary"
+        "primary" -> "text-sr-brand"
         _ -> "text-sr-muted"
       end
 
@@ -622,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for node <- @nodes do %>
-            <tr class={["hover:bg-sr-subtle/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
+            <tr class={["hover:bg-sr-subtle/40 cursor-pointer", node.is_current && "bg-sr-brand/5"]}>
               <td>
                 <.link
                   navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}

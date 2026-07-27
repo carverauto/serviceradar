@@ -67,8 +67,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
       |> assign(:is_custom_tab, is_custom_tab)
 
     ~H"""
-    <dialog id="template_browser_modal" class="modal modal-open">
-      <div class="modal-box max-w-3xl max-h-[80vh]">
+    <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-3xl max-h-[80vh]">
         <form method="dialog">
           <.ui_icon_button type="button" phx-click="close_template_browser" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -106,11 +106,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
         </div>
         
     <!-- Vendor Tabs -->
-        <div class="tabs tabs-boxed mb-4">
+        <div class="sr-ui-tabs sr-ui-tabs-boxed mb-4">
           <%= for vendor <- @vendors do %>
             <button
               type="button"
-              class={"tab #{if @selected_vendor == vendor.id, do: "tab-active", else: ""}"}
+              class={"sr-ui-tab #{if @selected_vendor == vendor.id, do: "sr-ui-tab-active", else: ""}"}
               phx-click="select_vendor"
               phx-value-vendor={vendor.id}
             >
@@ -209,13 +209,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
         </div>
         
     <!-- Modal Actions -->
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <.ui_button type="button" variant="ghost" phx-click="close_template_browser">
             Close
           </.ui_button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button type="button" phx-click="close_template_browser">close</button>
       </form>
     </dialog>

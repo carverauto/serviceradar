@@ -46,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     >
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line px-4 py-3">
         <div class="flex items-center gap-2">
-          <span class="rounded-lg bg-primary/10 p-1.5">
-            <.icon name="hero-command-line" class="size-4 text-primary" />
+          <span class="rounded-lg bg-sr-brand/10 p-1.5">
+            <.icon name="hero-command-line" class="size-4 text-sr-brand" />
           </span>
           <div>
             <h2 class="text-sm font-semibold text-sr-ink">Ansible</h2>
@@ -265,8 +265,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   defp launch_modal(assigns) do
     ~H"""
-    <dialog id="device-ansible-launch" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="device-ansible-launch" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="ansible_launch_close" size="sm" variant="ghost" class="absolute right-2 top-2">
             <.icon name="hero-x-mark" class="size-4" />
@@ -274,8 +274,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
         </form>
 
         <div class="flex items-start gap-3">
-          <div class="rounded-lg bg-primary/10 p-2">
-            <.icon name="hero-play" class="size-5 text-primary" />
+          <div class="rounded-lg bg-sr-brand/10 p-2">
+            <.icon name="hero-play" class="size-5 text-sr-brand" />
           </div>
           <div class="min-w-0 flex-1">
             <h3 class="text-lg font-semibold text-sr-ink">Launch a reviewed playbook</h3>
@@ -297,10 +297,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           phx-submit="ansible_launch"
           class="mt-5 space-y-4"
         >
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Playbook</span>
-              <span class="label-text-alt text-xs text-sr-muted">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Playbook</span>
+              <span class="text-xs text-sr-muted">
                 {length(@playbooks)} catalog candidate{if length(@playbooks) == 1, do: "", else: "s"}
               </span>
             </label>
@@ -366,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
             This reviewed binding declares no operator inputs. Credentials remain pre-bound in AWX.
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="ansible_launch_close" size="sm" variant="ghost">
               Cancel
             </.ui_button>
@@ -376,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="ansible_launch_close">close</button>
       </form>
     </dialog>
@@ -398,10 +398,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :textarea}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+        <span :if={@var.required} class="text-xs text-sr-muted text-error">required</span>
       </label>
       <textarea name={field_name(@var, @name)} rows="3" class={ui_field_class(class: "min-h-24 py-2.5 text-sm")}>{@value}</textarea>
     </div>
@@ -421,10 +421,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :integer}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+        <span :if={@var.required} class="text-xs text-sr-muted text-error">required</span>
       </label>
       <input
         type="number"
@@ -441,8 +441,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :float}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label"><span class="label-text">{@var.label}</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">{@var.label}</span></label>
       <input
         type="number"
         name={field_name(@var, @name)}
@@ -456,8 +456,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(%{var: %Var{type: :select}} = assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label"><span class="label-text">{@var.label}</span></label>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">{@var.label}</span></label>
       <select name={field_name(@var, @name)} class={ui_field_class(size: "sm")}>
         <option value="" selected={is_nil(@value) or @value == ""}>—</option>
         <option :for={choice <- @var.choices} value={choice} selected={@value == choice}>
@@ -473,10 +473,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
     assigns = assign(assigns, :selected_choices, selected)
 
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span class="label-text-alt text-xs text-sr-muted">tick all that apply</span>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+        <span class="text-xs text-sr-muted">tick all that apply</span>
       </label>
       <div class="flex flex-wrap gap-3 px-1">
         <label :for={choice <- @var.choices} class="flex items-center gap-2 text-sm">
@@ -496,10 +496,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
 
   def var_input(assigns) do
     ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text">{@var.label}</span>
-        <span :if={@var.required} class="label-text-alt text-xs text-error">required</span>
+    <div class="flex flex-col gap-1.5">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@var.label}</span>
+        <span :if={@var.required} class="text-xs text-sr-muted text-error">required</span>
       </label>
       <input
         type="text"

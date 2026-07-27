@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     <.ui_panel>
       <:header>
         <div class="flex items-center gap-2">
-          <.icon name="hero-building-office-2" class="size-4 text-primary" />
+          <.icon name="hero-building-office-2" class="size-4 text-sr-brand" />
           <span class="font-semibold text-sm">Site Details</span>
         </div>
       </:header>

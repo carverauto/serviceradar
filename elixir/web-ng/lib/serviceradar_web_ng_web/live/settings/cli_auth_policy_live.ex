@@ -100,8 +100,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
           </header>
 
           <form phx-submit="save" class="space-y-6">
-            <div class="form-control">
-              <label class="label cursor-pointer justify-start gap-3">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex cursor-pointer items-center justify-start gap-3">
                 <input
                   type="checkbox"
                   name="settings[cli_auth_enabled]"
@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                   checked={@form_values.cli_auth_enabled}
                   class="toggle toggle-primary"
                 />
-                <span class="label-text">
+                <span class="text-sm font-medium text-sr-ink">
                   Allow new CLI device-code authorizations on this instance
                 </span>
               </label>
@@ -121,9 +121,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
               </p>
             </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Issued-token TTL (days)</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Issued-token TTL (days)</span>
               </label>
               <input
                 type="number"
@@ -139,9 +139,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
               </p>
             </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Allowed scopes</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Allowed scopes</span>
               </label>
               <textarea
                 name="settings[cli_allowed_scopes]"

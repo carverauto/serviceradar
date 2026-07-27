@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
           >
             <div class="flex items-baseline gap-1">
               <span
-                class="text-lg font-bold text-sr-ink truncate max-w-[8rem] group-hover:text-primary transition-colors"
+                class="text-lg font-bold text-sr-ink truncate max-w-[8rem] group-hover:text-sr-brand transition-colors"
                 title={@top_item.name}
               >
                 {@top_item.name}

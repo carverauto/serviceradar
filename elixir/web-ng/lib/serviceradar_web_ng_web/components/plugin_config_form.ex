@@ -145,8 +145,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   def config_field(assigns) do
     ~H"""
     <div class="space-y-2">
-      <label class="label">
-        <span class="label-text">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">
           {Map.get(@prop, "title") || @name}
           <%= if @name in @required do %>
             <span class="text-error">*</span>

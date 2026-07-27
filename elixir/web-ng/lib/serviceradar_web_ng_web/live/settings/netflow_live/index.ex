@@ -446,8 +446,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                       />
 
                       <div class="grid grid-cols-1 gap-2">
-                        <label class="label p-0">
-                          <span class="label-text text-sm">Token (optional)</span>
+                        <label class="flex items-center justify-between gap-2 p-0">
+                          <span class="text-sm font-medium text-sr-ink">Token (optional)</span>
                         </label>
                         <input
                           class={ui_field_class(class: "w-full")}
@@ -491,8 +491,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                         label="Enable threat intel matching"
                       />
                       <div class="grid grid-cols-1 gap-2">
-                        <label class="label p-0">
-                          <span class="label-text text-sm">Feed URLs (one per line)</span>
+                        <label class="flex items-center justify-between gap-2 p-0">
+                          <span class="text-sm font-medium text-sr-ink">Feed URLs (one per line)</span>
                         </label>
                         <textarea
                           class={ui_field_class(class: "w-full min-h-24 py-2.5")}

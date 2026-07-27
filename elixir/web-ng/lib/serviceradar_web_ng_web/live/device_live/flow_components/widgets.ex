@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     ~H"""
     <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center gap-2 mb-3">
-        <.icon name={@icon} class="size-4 text-primary" />
+        <.icon name={@icon} class="size-4 text-sr-brand" />
         <span class="text-sm font-semibold">{@title}</span>
         <span class="text-xs text-sr-muted">(last 24h)</span>
       </div>
@@ -44,14 +44,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
           phx-value-value={item["filter_value"] || item["label"]}
         >
           <div class="flex items-center justify-between text-xs">
-            <span class="font-mono truncate max-w-[60%] group-hover:text-primary transition-colors">
+            <span class="font-mono truncate max-w-[60%] group-hover:text-sr-brand transition-colors">
               {item["label"]}
             </span>
             <span class="text-sr-muted">{format_bytes(item["value"])}</span>
           </div>
           <div class="w-full bg-sr-subtle rounded-full h-1 mt-0.5">
             <div
-              class="bg-primary/40 group-hover:bg-primary/60 h-1 rounded-full transition-colors"
+              class="bg-sr-brand/40 group-hover:bg-sr-brand/60 h-1 rounded-full transition-colors"
               style={"width: #{item["pct"]}%"}
             >
             </div>
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     ~H"""
     <div class="relative inline-flex items-center justify-end w-full min-w-[60px]">
       <div
-        class="absolute inset-y-0 right-0 bg-primary/10 rounded-sm"
+        class="absolute inset-y-0 right-0 bg-sr-brand/10 rounded-sm"
         style={"width: #{@pct}%"}
       >
       </div>

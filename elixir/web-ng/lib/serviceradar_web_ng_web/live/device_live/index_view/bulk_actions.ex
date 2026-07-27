@@ -12,10 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
     <!-- Bulk Actions Bar -->
     <div
       :if={@selected_count > 0 or @select_all_matching}
-      class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3"
+      class="mb-4 p-3 bg-sr-brand/10 border border-sr-brand/20 rounded-lg flex flex-wrap items-center justify-between gap-3"
     >
       <div class="flex flex-wrap items-center gap-3">
-        <span class="text-sm font-medium text-primary">
+        <span class="text-sm font-medium text-sr-brand">
           <%= if @select_all_matching do %>
             <.icon name="hero-check-badge" class="size-4 inline" />
             All {@total_matching_count} matching device(s) selected
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
         <button
           :if={!@select_all_matching and has_any_filter?(@srql)}
           phx-click="toggle_select_all_matching"
-          class="text-xs text-primary hover:text-primary-focus underline"
+          class="text-xs text-sr-brand hover:text-sr-brand-focus underline"
         >
           Select all matching filter
         </button>

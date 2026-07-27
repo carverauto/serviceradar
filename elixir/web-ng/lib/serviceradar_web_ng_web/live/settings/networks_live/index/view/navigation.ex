@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation do
         phx-click="switch_tab"
         phx-value-tab="groups"
         class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " <>
-               if(@active_tab == :groups, do: "border-primary text-primary", else: "border-transparent text-sr-muted hover:text-sr-ink")}
+               if(@active_tab == :groups, do: "border-sr-brand text-sr-brand", else: "border-transparent text-sr-muted hover:text-sr-ink")}
       >
         Sweep Groups
       </button>
@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation do
         phx-click="switch_tab"
         phx-value-tab="profiles"
         class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " <>
-               if(@active_tab == :profiles, do: "border-primary text-primary", else: "border-transparent text-sr-muted hover:text-sr-ink")}
+               if(@active_tab == :profiles, do: "border-sr-brand text-sr-brand", else: "border-transparent text-sr-muted hover:text-sr-ink")}
       >
         Scanner Profiles
       </button>
@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation do
         phx-click="switch_tab"
         phx-value-tab="active_scans"
         class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 " <>
-               if(@active_tab == :active_scans, do: "border-primary text-primary", else: "border-transparent text-sr-muted hover:text-sr-ink")}
+               if(@active_tab == :active_scans, do: "border-sr-brand text-sr-brand", else: "border-transparent text-sr-muted hover:text-sr-ink")}
       >
         Active Scans
         <span
@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation do
         phx-click="switch_tab"
         phx-value-tab="cleanup"
         class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " <>
-               if(@active_tab == :cleanup, do: "border-primary text-primary", else: "border-transparent text-sr-muted hover:text-sr-ink")}
+               if(@active_tab == :cleanup, do: "border-sr-brand text-sr-brand", else: "border-transparent text-sr-muted hover:text-sr-ink")}
       >
         Inventory Cleanup
       </button>

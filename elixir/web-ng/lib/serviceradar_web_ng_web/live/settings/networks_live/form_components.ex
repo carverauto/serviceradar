@@ -51,14 +51,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Name</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Name</span>
               </label>
               <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Partition</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Partition</span>
               </label>
               <.input
                 type="text"
@@ -70,8 +70,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
 
           <div>
-            <label class="label">
-              <span class="label-text">Description</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
             </label>
             <.input
               type="textarea"
@@ -88,8 +88,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Scan Interval</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Scan Interval</span>
               </label>
               <.input
                 type="select"
@@ -108,8 +108,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               />
             </div>
             <div>
-              <label class="label">
-                <span class="label-text">Scanner Profile</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Scanner Profile</span>
               </label>
               <.input
                 type="select"
@@ -122,8 +122,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text">Agent</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Agent</span>
               </label>
               <.input
                 type="select"
@@ -131,8 +131,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 class={ui_field_class(class: "w-full")}
                 options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
               />
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Pin this sweep config to a specific agent
                 </span>
               </label>
@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
 
           <div>
-            <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
                 <.input
@@ -173,8 +173,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                 <.icon name="hero-adjustments-horizontal" class="size-4" />
               </.ui_icon_button>
             </div>
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 SRQL filters to match devices. Examples: <code class="bg-sr-subtle px-1 rounded">tags.environment:production</code>, <code class="bg-sr-subtle px-1 rounded">hostname:%prod%</code>,
                 <code class="bg-sr-subtle px-1 rounded">type:Server</code>
               </span>
@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                  class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                   phx-click="builder_add_filter"
                 >
                   <.icon name="hero-plus" class="size-4" /> Add filter
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
     <!-- Enable Toggle -->
         <div class="flex items-center gap-2 pt-2">
           <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
-          <label class="label-text">Enable this sweep group</label>
+          <label class="text-sm font-medium text-sr-ink">Enable this sweep group</label>
         </div>
         
     <!-- Actions -->
@@ -359,14 +359,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="label">
-              <span class="label-text">Name</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
             </label>
             <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <div>
-            <label class="label">
-              <span class="label-text">Timeout</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Timeout</span>
             </label>
             <.input
               type="select"
@@ -384,8 +384,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div>
-          <label class="label">
-            <span class="label-text">Description</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Description</span>
           </label>
           <.input
             type="textarea"
@@ -397,8 +397,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="label">
-              <span class="label-text">Ports (comma-separated)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Ports (comma-separated)</span>
             </label>
             <.input
               type="text"
@@ -409,8 +409,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             />
           </div>
           <div>
-            <label class="label">
-              <span class="label-text">Concurrency</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Concurrency</span>
             </label>
             <.input
               type="number"
@@ -423,8 +423,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
         </div>
 
         <div>
-          <label class="label">
-            <span class="label-text">Sweep Modes</span>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Sweep Modes</span>
           </label>
           <% selected_modes = Enum.map(@form[:sweep_modes].value || [], &to_string/1) %>
           <div class="flex flex-wrap gap-4">
@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
         <div class="flex items-center gap-2">
           <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
-          <label class="label-text">Enabled</label>
+          <label class="text-sm font-medium text-sr-ink">Enabled</label>
         </div>
 
         <% banner_grab = banner_grab_form_value(@form) %>
@@ -477,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
               </p>
             </div>
             <%= if @can_enable_banner_grab do %>
-              <label class="label cursor-pointer justify-start gap-3 py-0">
+              <label class="flex cursor-pointer items-center justify-start gap-3 py-0">
                 <input type="hidden" name="form[banner_grab][enabled]" value="false" />
                 <input
                   type="checkbox"
@@ -486,7 +486,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
                   class="toggle toggle-primary toggle-sm"
                   checked={truthy?(banner_grab_value(banner_grab, "enabled", false))}
                 />
-                <span class="label-text text-sm">Enabled</span>
+                <span class="text-sm font-medium text-sr-ink">Enabled</span>
               </label>
             <% else %>
               <.ui_badge variant="ghost" size="sm">Restricted</.ui_badge>
@@ -653,8 +653,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
   def banner_number_input(assigns) do
     ~H"""
-    <label class="form-control">
-      <span class="label-text text-xs">{@label}</span>
+    <label class="flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-sr-ink">{@label}</span>
       <input
         type="number"
         name={"form[banner_grab][#{@name}]"}

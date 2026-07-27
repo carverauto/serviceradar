@@ -47,9 +47,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
           class="space-y-4"
         >
           <!-- Template Name -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Template Name</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Template Name</span>
             </label>
             <.input
               type="text"
@@ -60,9 +60,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
           </div>
           
     <!-- Description -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Description</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
             </label>
             <.input
               type="textarea"
@@ -74,9 +74,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
           </div>
           
     <!-- Category -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Category</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Category</span>
             </label>
             <select name={@form[:category].name} class={ui_field_class(class: "w-full")}>
               <option value="">Select a category...</option>
@@ -87,10 +87,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
           </div>
           
     <!-- OIDs Section -->
-          <div class="form-control">
+          <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between mb-2">
-              <label class="label">
-                <span class="label-text font-medium">OID Definitions</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">OID Definitions</span>
               </label>
               <.ui_button
                 type="button"
@@ -117,8 +117,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                   <div class="flex-1 grid grid-cols-2 gap-2">
                     <!-- OID -->
                     <div>
-                      <label class="label py-0">
-                        <span class="label-text text-xs">OID</span>
+                      <label class="flex items-center justify-between gap-2 py-0">
+                        <span class="text-xs font-medium text-sr-ink">OID</span>
                       </label>
                       <input
                         type="text"
@@ -134,8 +134,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                     
     <!-- Name -->
                     <div>
-                      <label class="label py-0">
-                        <span class="label-text text-xs">Name</span>
+                      <label class="flex items-center justify-between gap-2 py-0">
+                        <span class="text-xs font-medium text-sr-ink">Name</span>
                       </label>
                       <input
                         type="text"
@@ -151,8 +151,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                     
     <!-- Data Type -->
                     <div>
-                      <label class="label py-0">
-                        <span class="label-text text-xs">Data Type</span>
+                      <label class="flex items-center justify-between gap-2 py-0">
+                        <span class="text-xs font-medium text-sr-ink">Data Type</span>
                       </label>
                       <select
                         class={ui_field_class(size: "sm", class: "w-full text-xs")}
@@ -169,8 +169,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                     
     <!-- Scale -->
                     <div>
-                      <label class="label py-0">
-                        <span class="label-text text-xs">Scale</span>
+                      <label class="flex items-center justify-between gap-2 py-0">
+                        <span class="text-xs font-medium text-sr-ink">Scale</span>
                       </label>
                       <input
                         type="text"

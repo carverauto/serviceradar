@@ -1432,7 +1432,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
         <span class="text-[11px] tabular-nums text-sr-muted">{@pct}%</span>
       </div>
-      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
+      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-sr-brand">
         {@count}
       </div>
       <div class="mt-2 h-1 overflow-hidden rounded-full bg-sr-control">
@@ -1538,7 +1538,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <span class={["text-[11px] font-semibold tracking-wide", color_class(@color)]}>{@label}</span>
         <span class="text-[11px] tabular-nums text-sr-muted">{@pct}%</span>
       </div>
-      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-primary">
+      <div class="text-xl font-semibold tracking-tight tabular-nums group-hover:text-sr-brand">
         {@count}
       </div>
       <div class="mt-2 h-1 overflow-hidden rounded-full bg-sr-control">
@@ -1666,8 +1666,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
-              @view == "traffic" && "border-primary/50 bg-primary/5",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-sr-brand/40 hover:bg-sr-subtle/30",
+              @view == "traffic" && "border-sr-brand/50 bg-sr-brand/5",
               @view != "traffic" && "border-sr-line"
             ]}
           >
@@ -1686,8 +1686,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
-              @view == "talkers" && "border-primary/50 bg-primary/5",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-sr-brand/40 hover:bg-sr-subtle/30",
+              @view == "talkers" && "border-sr-brand/50 bg-sr-brand/5",
               @view != "talkers" && "border-sr-line"
             ]}
           >
@@ -1706,8 +1706,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
-              @view == "topology" && "border-primary/50 bg-primary/5",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-sr-brand/40 hover:bg-sr-subtle/30",
+              @view == "topology" && "border-sr-brand/50 bg-sr-brand/5",
               @view != "topology" && "border-sr-line"
             ]}
           >
@@ -1724,8 +1724,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               )
             }
             class={[
-              "rounded-xl border bg-sr-surface p-3 transition hover:border-primary/40 hover:bg-sr-subtle/30",
-              @view == "explorer" && "border-primary/50 bg-primary/5",
+              "rounded-xl border bg-sr-surface p-3 transition hover:border-sr-brand/40 hover:bg-sr-subtle/30",
+              @view == "explorer" && "border-sr-brand/50 bg-sr-brand/5",
               @view != "explorer" && "border-sr-line"
             ]}
           >
@@ -2632,7 +2632,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           type="button"
           phx-click="netflow_geo_click"
           phx-value-country={Map.get(row, :country)}
-          class="rounded-lg border border-sr-line p-2 text-left hover:border-primary/50 transition-colors"
+          class="rounded-lg border border-sr-line p-2 text-left hover:border-sr-brand/50 transition-colors"
           style={"background-color: rgba(59, 130, 246, #{alpha})"}
         >
           <div class="text-xs font-mono">{Map.get(row, :country)}</div>
@@ -2859,7 +2859,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               y={150 - h}
               width={w}
               height={h}
-              class="fill-primary/20 hover:fill-primary/35 transition-colors cursor-pointer"
+              class="fill-sr-brand/20 hover:fill-sr-brand/35 transition-colors cursor-pointer"
               phx-click="netflow_bucket"
               phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
               phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
@@ -2872,7 +2872,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <polyline
           points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140)}
           fill="none"
-          class="stroke-primary opacity-80"
+          class="stroke-sr-brand opacity-80"
           stroke-width="2"
         />
 
@@ -2894,7 +2894,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             cx={cx}
             cy={cy}
             r="2.6"
-            class="fill-primary/80 stroke-sr-surface cursor-pointer"
+            class="fill-sr-brand/80 stroke-sr-surface cursor-pointer"
             stroke-width="1"
             phx-click="netflow_bucket"
             phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
@@ -3103,7 +3103,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               patch={log_source_patch(@query, source.value, @limit)}
               class={[
                 "text-xs",
-                source_active?(@active_source, source.value) && "font-semibold text-primary"
+                source_active?(@active_source, source.value) && "font-semibold text-sr-brand"
               ]}
             >
               {source.label}
@@ -3438,14 +3438,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp color_class("error"), do: "text-error"
   defp color_class("warning"), do: "text-warning"
   defp color_class("info"), do: "text-info"
-  defp color_class("primary"), do: "text-primary"
+  defp color_class("primary"), do: "text-sr-brand"
   defp color_class("success"), do: "text-success"
   defp color_class(_), do: "text-sr-ink"
 
   defp color_bg("error"), do: "bg-error"
   defp color_bg("warning"), do: "bg-warning"
   defp color_bg("info"), do: "bg-info"
-  defp color_bg("primary"), do: "bg-primary"
+  defp color_bg("primary"), do: "bg-sr-brand"
   defp color_bg("success"), do: "bg-success"
   defp color_bg(_), do: "bg-sr-ink"
 
@@ -3790,7 +3790,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.link
                 id={"#{@id}-sort-duration"}
                 patch={traces_sort_href(@query, "duration_ms", @limit)}
-                class="inline-flex items-center gap-1 hover:text-primary"
+                class="inline-flex items-center gap-1 hover:text-sr-brand"
                 title="Sort by duration"
               >
                 Duration
@@ -3805,7 +3805,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.link
                 id={"#{@id}-sort-spans"}
                 patch={traces_sort_href(@query, "span_count", @limit)}
-                class="inline-flex items-center gap-1 hover:text-primary"
+                class="inline-flex items-center gap-1 hover:text-sr-brand"
                 title="Sort by span count"
               >
                 Spans
@@ -5101,8 +5101,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:attribution, attribution)
 
     ~H"""
-    <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
-      <div class="modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+      <div class="sr-ui-modal-box max-w-[96rem] w-[96vw] h-[92vh] p-0 overflow-hidden">
         <div class="flex items-start justify-between gap-4 border-b border-sr-line px-5 py-4">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
@@ -5269,7 +5269,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                         <span class={[
                           "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
                           if(active,
-                            do: "border-primary bg-primary/15 text-primary",
+                            do: "border-sr-brand bg-sr-brand/15 text-sr-brand",
                             else: "border-sr-line text-sr-muted"
                           )
                         ]}>
@@ -5441,8 +5441,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             phx-click="netflow_lookup_asn"
                             phx-value-asn={info.as_number}
                             class={[
-                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
-                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-primary"
+                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-sr-brand",
+                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-sr-brand"
                             ]}
                           >
                             AS{info.as_number}
@@ -5473,8 +5473,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                             phx-click="netflow_lookup_asn"
                             phx-value-asn={info.as_number}
                             class={[
-                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
-                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-primary"
+                              "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-sr-brand",
+                              Map.get(@arin_lookup || %{}, :asn) == info.as_number && "text-sr-brand"
                             ]}
                           >
                             AS{info.as_number}
@@ -5606,7 +5606,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </div>
 
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="netflow_close">close</button>
       </form>
     </dialog>

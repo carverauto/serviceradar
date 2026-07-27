@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
 
   def render(assigns) do
     ~H"""
-    <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
-      <div class="modal-box max-w-5xl">
+    <dialog class="sr-ui-modal sr-ui-modal-open" phx-window-keydown="netflow_close" phx-key="escape">
+      <div class="sr-ui-modal-box max-w-5xl">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
                         <span class={[
                           "inline-flex h-5 min-w-6 items-center justify-center rounded border px-1 text-[10px] font-mono cursor-help",
                           if(active,
-                            do: "border-primary bg-primary/15 text-primary",
+                            do: "border-sr-brand bg-sr-brand/15 text-sr-brand",
                             else: "border-sr-line text-sr-muted"
                           )
                         ]}>
@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
           <SecurityPanel.render context={@context} arin_lookup={@arin_lookup || %{}} />
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="netflow_close">close</button>
       </form>
     </dialog>

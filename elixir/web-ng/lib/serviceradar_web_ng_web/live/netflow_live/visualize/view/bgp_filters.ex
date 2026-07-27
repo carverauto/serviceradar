@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.BgpFilters do
     <!-- Active BGP Filters Display -->
       <div
         :if={@has_filters}
-        class="flex items-center gap-2 flex-wrap p-2 bg-primary/5 rounded-md border border-primary/20"
+        class="flex items-center gap-2 flex-wrap p-2 bg-sr-brand/5 rounded-md border border-sr-brand/20"
       >
         <span class="text-xs text-sr-muted">Active BGP filters:</span>
         <.ui_badge :if={@as_filter != ""} size="sm" variant="primary" class="gap-1">

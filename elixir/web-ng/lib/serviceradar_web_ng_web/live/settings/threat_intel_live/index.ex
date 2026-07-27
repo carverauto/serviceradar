@@ -575,8 +575,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Execution Mode</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Execution Mode</span>
                     </label>
                     <select
                       name="settings[otx_execution_mode]"
@@ -598,8 +598,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Core OTX API Key</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Core OTX API Key</span>
                     </label>
                     <input
                       type="password"
@@ -629,8 +629,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Base URL</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Base URL</span>
                     </label>
                     <input
                       type="url"
@@ -674,8 +674,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Modified Since</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Modified Since</span>
                     </label>
                     <input
                       type="text"
@@ -700,8 +700,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   class="space-y-3"
                 >
                   <div>
-                    <label class="label">
-                      <span class="label-text">Agent</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Agent</span>
                     </label>
                     <select
                       name="assignment[agent_uid]"
@@ -721,8 +721,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">OTX API Key</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">OTX API Key</span>
                     </label>
                     <input
                       type="password"
@@ -736,8 +736,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                   </div>
 
                   <div>
-                    <label class="label">
-                      <span class="label-text">Base URL</span>
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Base URL</span>
                     </label>
                     <input
                       type="url"
@@ -829,8 +829,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   defp number_input(assigns) do
     ~H"""
     <div>
-      <label class="label">
-        <span class="label-text">{@label}</span>
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">{@label}</span>
       </label>
       <input
         type="number"

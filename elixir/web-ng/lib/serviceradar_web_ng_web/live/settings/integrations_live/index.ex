@@ -725,16 +725,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
 
         <div class="mt-4">
-          <div class="tabs tabs-boxed">
+          <div class="sr-ui-tabs sr-ui-tabs-boxed">
             <.link
               patch={~p"/settings/networks/integrations?tab=crm_ipam"}
-              class={["tab", @settings_tab == "crm_ipam" && "tab-active"]}
+              class={["sr-ui-tab", @settings_tab == "crm_ipam" && "sr-ui-tab-active"]}
             >
               CRM/IPAM
             </.link>
             <.link
               patch={~p"/settings/networks/integrations?tab=mapbox"}
-              class={["tab", @settings_tab == "mapbox" && "tab-active"]}
+              class={["sr-ui-tab", @settings_tab == "mapbox" && "sr-ui-tab-active"]}
             >
               Mapbox
             </.link>
@@ -1111,8 +1111,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_create_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1238,9 +1238,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Label</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Label</span>
                     </label>
                     <input
                       type="text"
@@ -1252,9 +1252,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       phx-value-field="label"
                     />
                   </div>
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Query (AQL)</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Query (AQL)</span>
                     </label>
                     <input
                       type="text"
@@ -1278,9 +1278,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <%= if shows_network_blacklist?(@form[:source_type].value) do %>
             <div class="divider text-xs text-sr-muted">Network Settings</div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Network Blacklist</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Network Blacklist</span>
               </label>
               <textarea
                 name="network_blacklist_text"
@@ -1289,21 +1289,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
               ><%= @form_network_blacklist %></textarea>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   One CIDR per line - networks to exclude from discovery
                 </span>
               </label>
             </div>
           <% end %>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Create Source</.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_create_modal">close</button>
       </form>
     </dialog>
@@ -1312,8 +1312,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp edit_modal(assigns) do
     ~H"""
-    <dialog id="edit_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="edit_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_edit_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1334,9 +1334,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         >
           <div class="grid grid-cols-2 gap-4">
             <.input field={@form[:name]} type="text" label="Name" required />
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Source Type</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Source Type</span>
               </label>
               <input
                 type="text"
@@ -1428,9 +1428,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Label</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Label</span>
                     </label>
                     <input
                       type="text"
@@ -1442,9 +1442,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       phx-value-field="label"
                     />
                   </div>
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Query (AQL)</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Query (AQL)</span>
                     </label>
                     <input
                       type="text"
@@ -1468,9 +1468,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <%= if shows_network_blacklist?(@source && @source.source_type) do %>
             <div class="divider text-xs text-sr-muted">Network Settings</div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Network Blacklist</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Network Blacklist</span>
               </label>
               <textarea
                 name="network_blacklist_text"
@@ -1479,21 +1479,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
               ><%= @form_network_blacklist %></textarea>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   One CIDR per line - networks to exclude from discovery
                 </span>
               </label>
             </div>
           <% end %>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_edit_modal" size="sm" variant="neutral">Cancel</.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Update Source</.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_edit_modal">close</button>
       </form>
     </dialog>
@@ -1502,8 +1502,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1806,7 +1806,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
         </div>
 
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <.ui_button :if={armis_source?(@source)} type="button" phx-click="run_northbound_now" phx-value-id={@source.id} size="sm" variant="outline">
             Run Northbound Now
           </.ui_button>
@@ -1822,7 +1822,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_details_modal">close</button>
       </form>
     </dialog>
@@ -2405,9 +2405,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     <%= case @source_type do %>
       <% :armis -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Key</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Key</span>
             </label>
             <input
               type="text"
@@ -2418,9 +2418,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Secret</span>
             </label>
             <input
               type="password"
@@ -2441,8 +2441,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
             <%= if @mode == :edit do %>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   API secret:
                   <.ui_badge
                     size="xs"
@@ -2455,9 +2455,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <% end %>
           </div>
           <div class="divider my-2">V3 OAuth</div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client ID</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client ID</span>
             </label>
             <input
               type="text"
@@ -2468,9 +2468,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client Secret</span>
             </label>
             <input
               type="password"
@@ -2491,8 +2491,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
             <%= if @mode == :edit do %>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   V3 client secret:
                   <.ui_badge
                     size="xs"
@@ -2504,9 +2504,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </label>
             <% end %>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Vendor ID</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Vendor ID</span>
             </label>
             <input
               type="text"
@@ -2517,8 +2517,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
           </div>
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Credentials will be encrypted at rest
             </span>
           </label>
@@ -2526,18 +2526,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       <% :snmp -> %>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">SNMP Version</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">SNMP Version</span>
               </label>
               <select name="cred_snmp_version" class={ui_field_class(class: "w-full")}>
                 <option value="v2c">SNMPv2c</option>
                 <option value="v3">SNMPv3</option>
               </select>
             </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Community String</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Community String</span>
               </label>
               <input
                 type="password"
@@ -2549,17 +2549,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               />
             </div>
           </div>
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               For SNMPv3, use the SNMP Profiles section under Network settings
             </span>
           </label>
         </div>
       <% :netbox -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Netbox URL</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Netbox URL</span>
             </label>
             <input
               type="url"
@@ -2567,15 +2567,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="https://netbox.example.com"
             />
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Full URL to your Netbox instance (including https://)
               </span>
             </label>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Token</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Token</span>
             </label>
             <input
               type="password"
@@ -2587,15 +2587,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   else: "Enter your Netbox API token"
               }
             />
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Generate a token in Netbox: Admin → API Tokens
               </span>
             </label>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Verify SSL</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Verify SSL</span>
             </label>
             <select name="cred_netbox_verify_ssl" class={ui_field_class(class: "w-full")}>
               <option value="true">Yes (recommended)</option>
@@ -2605,9 +2605,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
       <% :custom -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Credentials (JSON)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Credentials (JSON)</span>
             </label>
             <textarea
               name="credentials_json"
@@ -2615,8 +2615,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               rows="3"
               placeholder='{"api_key": "your-key", "api_secret": "your-secret"}'
             ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
               </span>
             </label>
@@ -2624,9 +2624,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
       <% _ -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Credentials (JSON)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Credentials (JSON)</span>
             </label>
             <textarea
               name="credentials_json"
@@ -2634,8 +2634,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               rows="3"
               placeholder={credential_placeholder(@source_type)}
             ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
               </span>
             </label>
@@ -2673,9 +2673,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           placeholder="3600"
         />
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Armis Custom Property / Tag</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Armis Custom Property / Tag</span>
           </label>
           <input
             type="text"
@@ -2685,8 +2685,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             placeholder="availability"
             phx-blur="update_custom_fields"
           />
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               The updater uses the first configured value as the target property in Armis.
             </span>
           </label>

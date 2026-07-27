@@ -606,7 +606,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <% end %>
           </div>
 
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
               Done
             </.ui_button>
@@ -618,9 +618,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </p>
 
           <form phx-submit="create_package" class="mt-4 space-y-4">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Collector Type</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Collector Type</span>
               </label>
               <select name="collector_type" class={ui_field_class(class: "w-full")} required>
                 <%= for {label, value} <- @collector_types do %>
@@ -629,9 +629,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               </select>
             </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Site (optional)</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Site (optional)</span>
               </label>
               <input
                 type="text"
@@ -639,16 +639,16 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 class={ui_field_class(class: "w-full")}
                 placeholder="e.g., datacenter-1, office-nyc"
               />
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Deployment location for this collector
                 </span>
               </label>
             </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Hostname (optional)</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Hostname (optional)</span>
               </label>
               <input
                 type="text"
@@ -658,9 +658,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               />
             </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Edge Site (optional)</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Edge Site (optional)</span>
               </label>
               <select name="edge_site_id" class={ui_field_class(class: "w-full")}>
                 <option value="">Connect to SaaS (default)</option>
@@ -668,14 +668,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                   <option value={site.id}>{site.name} ({site.slug})</option>
                 <% end %>
               </select>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Connect to a local NATS leaf server for low latency
                 </span>
               </label>
             </div>
 
-            <div class="modal-action">
+            <div class="sr-ui-modal-action">
               <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
               <.ui_button type="submit" size="sm" variant="primary">Create Collector</.ui_button>
             </div>

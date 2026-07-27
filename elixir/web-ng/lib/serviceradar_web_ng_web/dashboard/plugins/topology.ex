@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                   stroke-width={if selected?, do: 2.5, else: 1.5}
                   class={
                     if selected?,
-                      do: "stroke-primary/80",
+                      do: "stroke-sr-brand/80",
                       else: "stroke-sr-muted/25"
                   }
                   marker-end="url(#arrow)"
@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
                     r={if selected?, do: 14, else: 11}
                     class={
                       if selected?,
-                        do: "fill-primary stroke-primary/40",
+                        do: "fill-sr-brand stroke-sr-brand/40",
                         else: "fill-sr-subtle stroke-sr-line"
                     }
                     stroke-width="2"

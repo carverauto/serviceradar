@@ -439,7 +439,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <div class="flex items-center gap-2">
                     <.link
                       navigate={~p"/settings/sysmon/#{profile.id}/edit"}
-                      class="font-medium hover:text-primary"
+                      class="font-medium hover:text-sr-brand"
                     >
                       {profile.name}
                     </.link>
@@ -561,7 +561,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label"><span class="label-text">Profile Name</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Profile Name</span></label>
               <.input
                 type="text"
                 field={@form[:name]}
@@ -571,15 +571,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               />
             </div>
             <div>
-              <label class="label"><span class="label-text">Sample Interval</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Sample Interval</span></label>
               <.input
                 type="text"
                 field={@form[:sample_interval]}
                 class={ui_field_class(class: "w-full")}
                 placeholder="e.g., 10s, 1m, 30s"
               />
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   How often to collect metrics (e.g., 10s, 1m, 500ms)
                 </span>
               </label>
@@ -587,7 +587,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </div>
 
           <div>
-            <label class="label"><span class="label-text">Description</span></label>
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
             <.input
               type="textarea"
               field={@form[:description]}
@@ -607,7 +607,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <div class="space-y-4">
             <!-- Query Input with Builder Toggle -->
             <div>
-              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span></label>
               <div class="flex items-center gap-2">
                 <div class="flex-1">
                   <.input
@@ -626,8 +626,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <.icon name="hero-adjustments-horizontal" class="size-4" />
                 </.ui_icon_button>
               </div>
-              <label class="label">
-                <span class="label-text-alt text-sr-muted">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   SRQL filters to match devices. Examples: <code class="bg-sr-subtle px-1 rounded">tags.environment:production</code>, <code class="bg-sr-subtle px-1 rounded">hostname:%prod%</code>,
                   <code class="bg-sr-subtle px-1 rounded">type:Server</code>
                 </span>
@@ -731,7 +731,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                    class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                     phx-click="builder_add_filter"
                   >
                     <.icon name="hero-plus" class="size-4" /> Add filter
@@ -752,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Priority</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Priority</span></label>
                 <.input
                   type="number"
                   field={@form[:priority]}
@@ -760,8 +760,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   min="0"
                   max="100"
                 />
-                <label class="label">
-                  <span class="label-text-alt text-sr-muted">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs text-sr-muted">
                     Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
@@ -783,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 field={@form[:collect_cpu]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">CPU</span>
+              <span class="text-sm font-medium text-sr-ink">CPU</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
@@ -791,7 +791,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 field={@form[:collect_memory]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Memory</span>
+              <span class="text-sm font-medium text-sr-ink">Memory</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
@@ -799,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 field={@form[:collect_disk]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Disk</span>
+              <span class="text-sm font-medium text-sr-ink">Disk</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
@@ -807,7 +807,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 field={@form[:collect_network]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Network</span>
+              <span class="text-sm font-medium text-sr-ink">Network</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
@@ -815,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 field={@form[:collect_processes]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Processes</span>
+              <span class="text-sm font-medium text-sr-ink">Processes</span>
             </label>
           </div>
           <p class="text-xs text-sr-muted">
@@ -823,9 +823,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </p>
 
           <div class="max-w-xs">
-            <label class="label">
-              <span class="label-text">Process sample limit</span>
-              <span class="label-text-alt text-sr-muted">Default 25, 0 = unlimited</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Process sample limit</span>
+              <span class="text-xs text-sr-muted">Default 25, 0 = unlimited</span>
             </label>
             <.input
               type="number"
@@ -844,8 +844,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </h3>
 
           <div>
-            <label class="label">
-              <span class="label-text">Mount Points to Monitor (optional)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Mount Points to Monitor (optional)</span>
             </label>
             <.input
               type="text"
@@ -853,8 +853,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               class={ui_field_class(class: "w-full")}
               placeholder="/, /data, /var"
             />
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Leave empty to collect all disks. Use a comma-separated list to restrict collection.
               </span>
             </label>
@@ -868,15 +868,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </h3>
 
           <div>
-            <label class="label"><span class="label-text">Mount Points to Exclude</span></label>
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Mount Points to Exclude</span></label>
             <.input
               type="text"
               field={@form[:disk_exclude_paths]}
               class={ui_field_class(class: "w-full")}
               placeholder="/var/lib/docker, /var/lib/kubelet"
             />
-            <label class="label">
-              <span class="label-text-alt text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Comma-separated list of mount points to ignore when collecting all disks.
               </span>
             </label>

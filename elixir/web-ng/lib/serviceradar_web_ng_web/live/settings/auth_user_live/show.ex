@@ -394,7 +394,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               <div class="card-body space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="card-title text-base">Login history</h2>
-                  <div class="join">
+                  <div class={ui_join_class()}>
                     <.ui_button type="button" phx-click="events_prev" disabled={is_nil(@events_page) or is_nil(@events_page.before)} title="Newer" size="xs" variant="neutral">
                       <.icon name="hero-chevron-left" class="size-4" />
                     </.ui_button>

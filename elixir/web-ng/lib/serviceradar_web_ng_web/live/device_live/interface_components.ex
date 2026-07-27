@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <.icon name="hero-signal" class="size-4 text-primary" />
+              <.icon name="hero-signal" class="size-4 text-sr-brand" />
               <span class="text-sm font-semibold">Network Interfaces</span>
               <span class="text-xs text-sr-muted">({length(@interfaces)} interfaces)</span>
             </div>
@@ -191,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                     is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
                   <% is_favorited =
                     is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
-                  <tr class={["hover:bg-sr-subtle/50", is_selected && "bg-primary/5"]}>
+                  <tr class={["hover:bg-sr-subtle/50", is_selected && "bg-sr-brand/5"]}>
                     <td class="w-8">
                       <input
                         :if={iface_uid}
@@ -290,7 +290,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
     <div class="rounded-xl border border-sr-line bg-sr-surface mb-4">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Favorited Interface Metrics</span>
           <span :if={@metrics.favorited_count > 0} class="text-xs text-sr-muted">
             ({@metrics.favorited_count} favorited)
@@ -371,9 +371,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         phx-submit="apply_interfaces_bulk_edit"
         class="space-y-4"
       >
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Action</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Action</span>
           </label>
           <div class="space-y-2">
             <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
@@ -469,9 +469,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
           </div>
         </div>
 
-        <div id="tags-input-container" class="form-control hidden" phx-hook="BulkEditTagsToggle">
-          <label class="label">
-            <span class="label-text font-medium">Tags</span>
+        <div id="tags-input-container" class="flex flex-col gap-1.5 hidden" phx-hook="BulkEditTagsToggle">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Tags</span>
           </label>
           <input
             type="text"
@@ -479,8 +479,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
             class={ui_field_class()}
             placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
           />
-          <label class="label">
-            <span class="label-text-alt text-sr-muted">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Tags will be added to existing tags
             </span>
           </label>

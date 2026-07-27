@@ -12,10 +12,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   def device_edit_section(assigns) do
     ~H"""
-    <div class="rounded-xl border border-primary/30 bg-sr-surface">
-      <div class="px-4 py-3 border-b border-sr-line bg-primary/5 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-brand/30 bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line bg-sr-brand/5 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-pencil-square" class="size-4 text-primary" />
+          <.icon name="hero-pencil-square" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Edit Device Details</span>
         </div>
         <div class="flex items-center gap-2">
@@ -36,9 +36,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
         class="p-4"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Hostname</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Hostname</span>
             </label>
             <input
               type="text"
@@ -49,9 +49,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">IP Address</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">IP Address</span>
             </label>
             <input
               type="text"
@@ -62,9 +62,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Type</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Type</span>
             </label>
             <select name="device[type]" class={ui_field_class(size: "sm")}>
               <option value="">Select type...</option>
@@ -92,9 +92,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             </select>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Vendor</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Vendor</span>
             </label>
             <input
               type="text"
@@ -105,9 +105,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Model</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Model</span>
             </label>
             <input
               type="text"
@@ -118,9 +118,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Gateway</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Gateway</span>
             </label>
             <input
               type="text"
@@ -128,14 +128,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               class={ui_field_class(size: "sm", mono: true, class: "bg-sr-subtle")}
               disabled
             />
-            <label class="label py-0">
-              <span class="label-text-alt text-xs text-sr-muted">Read-only</span>
+            <label class="flex items-center justify-between gap-2 py-0">
+              <span class="text-xs text-sr-muted">Read-only</span>
             </label>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Managed</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Managed</span>
             </label>
             <input
               type="hidden"
@@ -153,16 +153,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
               />
               <span>Mark as managed</span>
             </label>
-            <label :if={agent_device?(@device_row)} class="label py-0">
-              <span class="label-text-alt text-xs text-sr-muted">
+            <label :if={agent_device?(@device_row)} class="flex items-center justify-between gap-2 py-0">
+              <span class="text-xs text-sr-muted">
                 Agent devices are always managed.
               </span>
             </label>
           </div>
 
-          <div class="form-control">
-            <label class="label py-1">
-              <span class="label-text text-xs font-medium">Trusted</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2 py-1">
+              <span class="text-xs font-medium text-sr-ink font-medium">Trusted</span>
             </label>
             <input type="hidden" name="device[is_trusted]" value="false" />
             <label class="inline-flex items-center gap-2 text-xs">
@@ -178,10 +178,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
           </div>
         </div>
 
-        <div class="form-control mt-4">
-          <label class="label py-1">
-            <span class="label-text text-xs font-medium">Tags</span>
-            <span class="label-text-alt text-xs text-sr-muted">
+        <div class="flex flex-col gap-1.5 mt-4">
+          <label class="flex items-center justify-between gap-2 py-1">
+            <span class="text-xs font-medium text-sr-ink font-medium">Tags</span>
+            <span class="text-xs text-sr-muted">
               One per line (key or key=value)
             </span>
           </label>
@@ -228,8 +228,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label">
-                <span class="label-text text-xs font-medium">SNMP Version</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">SNMP Version</span>
               </label>
               <.input
                 type="select"
@@ -246,8 +246,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
           <%= if snmp_version in ["v1", "v2c"] do %>
             <div>
-              <label class="label">
-                <span class="label-text text-xs font-medium">Community</span>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">Community</span>
               </label>
               <.input
                 type="password"
@@ -261,8 +261,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 }
                 autocomplete="off"
               />
-              <label class="label py-0">
-                <span class="label-text-alt text-xs text-sr-muted">
+              <label class="flex items-center justify-between gap-2 py-0">
+                <span class="text-xs text-sr-muted">
                   Credentials are encrypted at rest.
                 </span>
               </label>
@@ -270,8 +270,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
           <% else %>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Username</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Username</span>
                 </label>
                 <.input
                   type="text"
@@ -280,8 +280,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Security Level</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Security Level</span>
                 </label>
                 <.input
                   type="select"
@@ -298,8 +298,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Auth Protocol</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Auth Protocol</span>
                 </label>
                 <.input
                   type="select"
@@ -316,8 +316,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Auth Password</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Auth Password</span>
                 </label>
                 <.input
                   type="password"
@@ -336,8 +336,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Privacy Protocol</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Privacy Protocol</span>
                 </label>
                 <.input
                   type="select"
@@ -352,8 +352,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
                 />
               </div>
               <div>
-                <label class="label">
-                  <span class="label-text text-xs font-medium">Privacy Password</span>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink font-medium">Privacy Password</span>
                 </label>
                 <.input
                   type="password"

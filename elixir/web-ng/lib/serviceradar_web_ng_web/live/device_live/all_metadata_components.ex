@@ -144,7 +144,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AllMetadataComponents do
                     <span class="block min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-sr-ink">
                       {entry.value}
                     </span>
-                    <.ui_button :if={entry.search_path} navigate={entry.search_path} data-metadata-find title={"Find other devices where #{entry.label} = #{entry.value}"} aria-label={"Find other devices where #{entry.key} equals #{entry.value}"} size="xs" variant="ghost" class="shrink-0 gap-1 text-sr-muted hover:text-primary">
+                    <.ui_button :if={entry.search_path} navigate={entry.search_path} data-metadata-find title={"Find other devices where #{entry.label} = #{entry.value}"} aria-label={"Find other devices where #{entry.key} equals #{entry.value}"} size="xs" variant="ghost" class="shrink-0 gap-1 text-sr-muted hover:text-sr-brand">
                       <.icon name="hero-magnifying-glass-circle" class="size-4" />
                       <span class="hidden text-[11px] font-medium sm:inline">Find similar</span>
                     </.ui_button>

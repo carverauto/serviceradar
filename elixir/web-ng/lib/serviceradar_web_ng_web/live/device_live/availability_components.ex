@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
-            <.icon name="hero-map-pin" class="size-4 text-primary" />
+            <.icon name="hero-map-pin" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">Agent Availability</span>
             <span :if={@row_count > 0} class="text-xs text-sr-muted">({@row_count})</span>
             <.ui_badge :if={present?(@source_profile_id)} size="xs" variant="info">

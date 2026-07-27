@@ -21,8 +21,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
           </p>
         </div>
         <div class="flex flex-1 flex-wrap gap-3">
-          <label :for={variable <- @variables} class="form-control min-w-44">
-            <span class="label-text text-xs">{variable.label}</span>
+          <label :for={variable <- @variables} class="flex flex-col gap-1.5 min-w-44">
+            <span class="text-xs font-medium text-sr-ink">{variable.label}</span>
             <select
               :if={variable.options != []}
               name={"variables[#{variable.name}]"}
@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents do
             <input
               :if={variable.options == []}
               name={"variables[#{variable.name}]"}
-              class="input input-sm"
+              class={ui_field_class(size: "sm")}
               value={Map.get(@values, variable.name, variable.default)}
             />
           </label>

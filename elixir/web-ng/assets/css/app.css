@@ -850,23 +850,74 @@ samp,
   color: #047857;
 }
 
-/* Modals */
+/* Modals — brand layout (no daisy modal dependency) */
+.sr-ui-modal,
 .modal {
+  pointer-events: none;
+  visibility: hidden;
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  height: 100%;
+  max-height: none;
+  width: 100%;
+  max-width: none;
+  align-items: center;
+  justify-items: center;
+  background-color: transparent;
+  padding: 0;
   color: var(--color-sr-ink);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  z-index: 999;
+  opacity: 0;
+  transition:
+    visibility 0.2s ease-out,
+    background-color 0.2s ease-out,
+    opacity 0.15s ease-out;
 }
 
+.sr-ui-modal.sr-ui-modal-open,
+.sr-ui-modal[open],
+.modal.modal-open,
+.modal[open] {
+  pointer-events: auto;
+  visibility: visible;
+  opacity: 1;
+  background-color: color-mix(in srgb, #020617 72%, transparent);
+}
+
+.sr-ui-modal-box,
 .modal-box {
+  grid-column-start: 1;
+  grid-row-start: 1;
+  max-height: calc(100vh - 2.5rem);
+  width: calc(11 / 12 * 100%);
+  max-width: 32rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-sr-line);
   border-radius: var(--radius-sr-surface);
   background: var(--color-sr-surface);
   color: var(--color-sr-ink);
   box-shadow: var(--shadow-sr-raised);
+  padding: 1.5rem;
 }
 
+.sr-ui-modal-backdrop,
 .modal-backdrop {
-  background: color-mix(in srgb, #020617 72%, transparent);
+  grid-column-start: 1;
+  grid-row-start: 1;
+  display: grid;
+  align-self: stretch;
+  justify-self: stretch;
+  color: transparent;
+  z-index: -1;
+  background: transparent;
 }
 
+.sr-ui-modal-action,
 .modal-action {
   display: flex;
   flex-wrap: wrap;
@@ -978,39 +1029,102 @@ samp,
   color: var(--color-sr-muted);
 }
 
-/* Tabs */
+/* Tabs — brand (sr-ui-*) with daisy class aliases for residual markup */
+.sr-ui-tabs,
 .tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
+  font-family: var(--sr-font-sans);
 }
 
-.tabs-boxed {
+.sr-ui-tabs-boxed,
+.tabs-boxed,
+.tabs-box {
   border: 1px solid var(--color-sr-line);
   border-radius: var(--radius-sr-control);
   background: color-mix(in srgb, var(--color-sr-subtle) 70%, transparent);
   padding: 0.2rem;
 }
 
+.sr-ui-tab,
 .tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.75rem;
   border-radius: calc(var(--radius-sr-control) - 0.1rem);
   color: var(--color-sr-muted);
+  font-family: inherit;
   font-size: 0.875rem;
   font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
   transition:
     background-color 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1)),
     color 160ms var(--ease-sr-out, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
+.sr-ui-tab:hover,
 .tab:hover {
   color: var(--color-sr-ink);
   background: color-mix(in srgb, var(--color-sr-control) 80%, transparent);
 }
 
+.sr-ui-tab-active,
+.sr-ui-tab.sr-ui-tab-active,
 .tab-active,
 .tab.tab-active {
   color: var(--color-sr-brand-strong);
   background: color-mix(in srgb, var(--color-sr-brand) 14%, transparent);
+}
+
+.sr-ui-tab:disabled,
+.tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Radio-driven tab panels (edge package install, etc.) */
+.sr-ui-tabs:has(> input[type="radio"].sr-ui-tab) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sr-ui-tab-content {
+  display: none;
+  width: 100%;
+  flex-basis: 100%;
+}
+
+input[type="radio"].sr-ui-tab {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input[type="radio"].sr-ui-tab::before {
+  content: attr(aria-label);
+}
+
+input[type="radio"].sr-ui-tab:checked,
+input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
+  /* checked radio looks active via sibling panel reveal */
+}
+
+input[type="radio"].sr-ui-tab:checked {
+  color: var(--color-sr-brand-strong);
+  background: color-mix(in srgb, var(--color-sr-brand) 14%, transparent);
+}
+
+input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
+  display: block;
 }
 
 /* Tooltip soft brand */

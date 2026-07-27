@@ -224,7 +224,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
           <form id="addon-fleet-filters" phx-change="filter" class="flex flex-wrap items-end gap-3">
             <div>
-              <label class="label"><span class="label-text">Agent</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent</span></label>
               <select name="filter[agent_uid]" class={ui_field_class(size: "sm", class: "min-w-[16rem]")}>
                 <option value="">All agents</option>
                 <%= for {label, uid} <- @agent_options do %>
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
 
             <div>
-              <label class="label"><span class="label-text">Health category</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Health category</span></label>
               <select name="filter[category]" class={ui_field_class(size: "sm", class: "min-w-[12rem]")}>
                 <option value="">All categories</option>
                 <%= for category <- @categories do %>
@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
 
             <div>
-              <label class="label"><span class="label-text">Add-on</span></label>
+              <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Add-on</span></label>
               <select name="filter[addon_id]" class={ui_field_class(size: "sm", class: "min-w-[12rem]")}>
                 <option value="">All add-ons</option>
                 <%= for addon_id <- @addon_options do %>
@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
               </select>
             </div>
 
-            <label class="label cursor-pointer gap-2">
+            <label class="flex cursor-pointer items-center gap-2 gap-2">
               <input
                 type="checkbox"
                 name="filter[attention_only]"
@@ -265,7 +265,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 checked={@filters["attention_only"] in [true, "true", "on"]}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Needs attention only</span>
+              <span class="text-sm font-medium text-sr-ink">Needs attention only</span>
             </label>
 
             <.ui_button variant="ghost" size="sm" type="button" phx-click="clear_filters">

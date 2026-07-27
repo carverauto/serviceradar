@@ -22,13 +22,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
     <div class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-arrows-right-left" class="size-4 text-primary" />
+          <.icon name="hero-arrows-right-left" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Recent Flows</span>
           <span class="text-xs text-sr-muted">({length(@flows)} rows)</span>
         </div>
         <.link
           navigate={~p"/observability?#{%{"tab" => "netflows", "view" => "explorer", "q" => @query}}"}
-          class="text-xs text-primary hover:underline"
+          class="text-xs text-sr-brand hover:underline"
         >
           Open full flows view
         </.link>

@@ -334,14 +334,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </p>
         </header>
 
-        <div role="tablist" class="tabs tabs-bordered">
+        <div role="tablist" class="sr-ui-tabs tabs-bordered">
           <button
             :for={{key, label} <- @tabs}
             type="button"
             role="tab"
             phx-click="select_tab"
             phx-value-tab={key}
-            class={["tab", @active_tab == key && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == key && "sr-ui-tab-active"]}
           >
             {label}
           </button>
@@ -504,8 +504,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         class="space-y-3"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
             <input
               type="text"
               name="controller[name]"
@@ -516,8 +516,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Agent ID</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent ID</span></label>
             <input
               type="text"
               name="controller[agent_id]"
@@ -528,8 +528,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
             <input
               type="text"
               name="controller[description]"
@@ -538,8 +538,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Base URL</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Base URL</span></label>
             <input
               type="url"
               name="controller[base_url]"
@@ -558,11 +558,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
           <fieldset class="fieldset rounded-box border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Sync credential</legend>
-            <label class="label">
-              <span class="label-text">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">
                 {if @editing_id, do: "New sync API token", else: "Sync API token"}
               </span>
-              <span class="label-text-alt text-xs text-sr-muted">
+              <span class="text-xs text-sr-muted">
                 {if @editing_id,
                   do: "Leave blank to keep the selected encrypted sync token.",
                   else: "Used only for health, catalog, and inventory reads."}
@@ -573,14 +573,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               id="controller-sync-awx-api-token"
               name="controller[sync_awx_api_token]"
               value=""
-              class="input input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               autocomplete="off"
               placeholder={if @editing_id, do: "Paste only to rotate sync", else: "Paste sync token"}
             />
 
-            <label class="label">
-              <span class="label-text">Existing sync credential secret</span>
-              <span class="label-text-alt text-xs text-sr-muted">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing sync credential secret</span>
+              <span class="text-xs text-sr-muted">
                 Provision AWX tokens in Settings → Credentials → New Secret → AWX API Token.
               </span>
             </label>
@@ -643,7 +643,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {@selected_execution_secret_id} (current)
               </option>
             </select>
-            <p class="label">
+            <p class="flex items-center justify-between gap-2">
               Requires only the exact inventory/template/credential use and job lifecycle roles.
             </p>
           </fieldset>
@@ -675,15 +675,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {@selected_callback_secret_id} (current)
               </option>
             </select>
-            <p class="label">
+            <p class="flex items-center justify-between gap-2">
               Use a principal limited to Credential Admin in a dedicated empty AWX organization.
               Selecting the same secret as execution is supported when intentionally reviewed.
             </p>
           </fieldset>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Inventory sync (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Inventory sync (s)</span>
             </label>
             <input
               type="number"
@@ -694,9 +694,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Catalog sync (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Catalog sync (s)</span>
             </label>
             <input
               type="number"
@@ -707,9 +707,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Run pulse (ms)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Run pulse (ms)</span>
             </label>
             <input
               type="number"
@@ -832,8 +832,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         class="space-y-3"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
             <input
               type="text"
               name="repository[name]"
@@ -844,8 +844,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Ref</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Ref</span></label>
             <input
               type="text"
               name="repository[git_ref]"
@@ -856,8 +856,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
             <input
               type="text"
               name="repository[description]"
@@ -866,8 +866,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Git URL (HTTPS)</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Git URL (HTTPS)</span></label>
             <input
               type="url"
               name="repository[git_url]"
@@ -878,10 +878,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Deploy token secret ID</span>
-              <span class="label-text-alt text-xs text-sr-muted">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Deploy token secret ID</span>
+              <span class="text-xs text-sr-muted">
                 Optional. Required for private repos. UUID from Settings → Credentials.
               </span>
             </label>
@@ -894,9 +894,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Sync interval (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Sync interval (s)</span>
             </label>
             <input
               type="number"
@@ -1039,8 +1039,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
       <.form for={@form} phx-change="validate_schedule" phx-submit="save_schedule" class="space-y-3">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Name</span></label>
             <input
               type="text"
               name="schedule[name]"
@@ -1051,8 +1051,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-2">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
               <input
                 type="checkbox"
                 name="schedule[enabled]"
@@ -1060,9 +1060,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 checked={truthy?(Phoenix.HTML.Form.input_value(@form, :enabled))}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Enabled</span>
+              <span class="text-sm font-medium text-sr-ink">Enabled</span>
             </label>
-            <label class="label cursor-pointer justify-start gap-2">
+            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
               <input
                 type="checkbox"
                 name="schedule[allow_concurrent]"
@@ -1070,12 +1070,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 checked={truthy?(Phoenix.HTML.Form.input_value(@form, :allow_concurrent))}
                 class={ui_checkbox_class()}
               />
-              <span class="label-text">Allow concurrent runs</span>
+              <span class="text-sm font-medium text-sr-ink">Allow concurrent runs</span>
             </label>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Description</span></label>
             <input
               type="text"
               name="schedule[description]"
@@ -1084,10 +1084,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Playbook</span>
-              <span class="label-text-alt text-xs text-sr-muted">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Playbook</span>
+              <span class="text-xs text-sr-muted">
                 {length(@playbooks)} launchable
               </span>
             </label>
@@ -1109,10 +1109,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </select>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Target device UIDs</span>
-              <span class="label-text-alt text-xs text-sr-muted">comma-separated</span>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target device UIDs</span>
+              <span class="text-xs text-sr-muted">comma-separated</span>
             </label>
             <input
               type="text"
@@ -1124,10 +1124,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Cron</span>
-              <span class="label-text-alt text-xs text-sr-muted">5-field, UTC for v1</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Cron</span>
+              <span class="text-xs text-sr-muted">5-field, UTC for v1</span>
             </label>
             <input
               type="text"
@@ -1139,8 +1139,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Timezone</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Timezone</span></label>
             <input
               type="text"
               name="schedule[timezone]"
@@ -1154,10 +1154,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </p>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">extra_vars (JSON)</span>
-              <span class="label-text-alt text-xs text-sr-muted">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">extra_vars (JSON)</span>
+              <span class="text-xs text-sr-muted">
                 passed to AWX on each fire
               </span>
             </label>

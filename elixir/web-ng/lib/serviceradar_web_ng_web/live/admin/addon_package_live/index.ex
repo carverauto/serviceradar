@@ -805,7 +805,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   phx-value-id={@selected_package.id}
                   class="space-y-2"
                 >
-                  <label class="label"><span class="label-text">Deny reason</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Deny reason</span></label>
                   <textarea
                     name="review[denied_reason]"
                     class={ui_field_class(class: "w-full min-h-[64px] py-2.5 text-sm")}
@@ -998,7 +998,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   class="space-y-3"
                 >
                   <div>
-                    <label class="label"><span class="label-text">Profile Name</span></label>
+                    <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Profile Name</span></label>
                     <input
                       name="profile[name]"
                       class={ui_field_class(class: "w-full")}
@@ -1006,7 +1006,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     />
                   </div>
                   <div>
-                    <label class="label"><span class="label-text">SRQL Target Query</span></label>
+                    <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">SRQL Target Query</span></label>
                     <input
                       name="profile[target_query]"
                       class={ui_field_class(mono: true, class: "w-full text-xs")}
@@ -1036,7 +1036,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     <div class="space-y-3 border-t border-sr-line p-3">
                       <div class="grid gap-3 md:grid-cols-2">
                         <div>
-                          <label class="label"><span class="label-text">Priority</span></label>
+                          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Priority</span></label>
                           <input
                             name="profile[priority]"
                             class={ui_field_class(class: "w-full")}
@@ -1044,7 +1044,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                           />
                         </div>
                         <div>
-                          <label class="label"><span class="label-text">Max Targets</span></label>
+                          <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Max Targets</span></label>
                           <input
                             name="profile[max_targets]"
                             class={ui_field_class(class: "w-full")}
@@ -1053,8 +1053,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         </div>
                       </div>
                       <div>
-                        <label class="label">
-                          <span class="label-text">Args (one per line)</span>
+                        <label class="flex items-center justify-between gap-2">
+                          <span class="text-sm font-medium text-sr-ink">Args (one per line)</span>
                         </label>
                         <textarea
                           name="profile[args]"
@@ -1062,8 +1062,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         ><%= @profile_form["args"] %></textarea>
                       </div>
                       <div>
-                        <label class="label">
-                          <span class="label-text">
+                        <label class="flex items-center justify-between gap-2">
+                          <span class="text-sm font-medium text-sr-ink">
                             {if config_schema_present?(@selected_package.config_schema),
                               do: "Raw Params (JSON)",
                               else: "Params (JSON)"}
@@ -1109,7 +1109,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 >
                   <div class="grid gap-3 md:grid-cols-2">
                     <div>
-                      <label class="label"><span class="label-text">Target</span></label>
+                      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target</span></label>
                       <select name="assignment[target_mode]" class={ui_field_class(class: "w-full")}>
                         <option value="agent" selected={@assignment_form["target_mode"] == "agent"}>
                           Single agent
@@ -1120,7 +1120,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       </select>
                     </div>
                     <div :if={@assignment_form["target_mode"] == "cohort"}>
-                      <label class="label"><span class="label-text">Cohort</span></label>
+                      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Cohort</span></label>
                       <select name="assignment[cohort]" class={ui_field_class(class: "w-full")}>
                         <%= for {label, value} <- @cohort_options do %>
                           <option value={value} selected={@assignment_form["cohort"] == value}>
@@ -1130,7 +1130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       </select>
                     </div>
                     <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
-                      <label class="label"><span class="label-text">Agent</span></label>
+                      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Agent</span></label>
                       <select name="assignment[agent_uid]" class={ui_field_class(class: "w-full")}>
                         <option value="">Select an agent</option>
                         <%= for agent <- @agents do %>
@@ -1149,7 +1149,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     @assignment_form["target_mode"] == "cohort" and
                       @assignment_form["cohort"] == "custom"
                   }>
-                    <label class="label"><span class="label-text">Custom Agent IDs</span></label>
+                    <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Custom Agent IDs</span></label>
                     <textarea
                       name="assignment[agent_ids]"
                       class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
@@ -1250,7 +1250,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     </details>
                   <% else %>
                     <div>
-                      <label class="label"><span class="label-text">Params (JSON)</span></label>
+                      <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Params (JSON)</span></label>
                       <textarea
                         name="assignment[params]"
                         class={ui_field_class(mono: true, class: "w-full min-h-[80px] py-2.5 text-xs")}
@@ -1259,7 +1259,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   <% end %>
 
                   <div>
-                    <label class="label"><span class="label-text">Args (one per line)</span></label>
+                    <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Args (one per line)</span></label>
                     <textarea
                       name="assignment[args]"
                       class={ui_field_class(mono: true, class: "w-full min-h-[60px] py-2.5 text-xs")}
@@ -1296,7 +1296,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     ~H"""
     <div class="rounded-lg border border-info/20 bg-info/5 p-3 space-y-3">
       <div>
-        <label class="label"><span class="label-text">Updates</span></label>
+        <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Updates</span></label>
         <select name={"#{@prefix}[update_policy]"} class={ui_field_class(class: "w-full")}>
           <option
             value="track_latest_approved"
@@ -1359,7 +1359,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp rollout_number(assigns) do
     ~H"""
     <div>
-      <label class="label"><span class="label-text text-xs">{@label}</span></label>
+      <label class="flex items-center justify-between gap-2"><span class="text-xs font-medium text-sr-ink">{@label}</span></label>
       <input
         type="number"
         min={@min}

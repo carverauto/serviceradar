@@ -29,9 +29,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
     <div class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-squares-2x2" class="size-4 text-primary" />
+          <.icon name="hero-squares-2x2" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Guests</span>
-          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <span class="rounded-full bg-sr-brand/10 px-2 py-0.5 text-[11px] font-semibold text-sr-brand">
             {length(@guests)} total
           </span>
         </div>
@@ -126,9 +126,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
     <div class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-server-stack" class="size-4 text-primary" />
+          <.icon name="hero-server-stack" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Virtualization</span>
-          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <span class="rounded-full bg-sr-brand/10 px-2 py-0.5 text-[11px] font-semibold text-sr-brand">
             {@provider_label}
           </span>
         </div>

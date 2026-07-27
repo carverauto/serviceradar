@@ -523,8 +523,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_create_modal" disabled={@creating} size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -641,9 +641,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     placeholder="Additional notes about this package"
                   />
 
-                  <div :if={@selected_component_type == "agent"} class="form-control">
-                    <label class="label">
-                      <span class="label-text">Initial Feature Set</span>
+                  <div :if={@selected_component_type == "agent"} class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-sm font-medium text-sr-ink">Initial Feature Set</span>
                     </label>
                     <select
                       name="form[initial_addon_package_ids][]"
@@ -665,9 +665,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     </p>
                   </div>
 
-                  <div class="form-control">
-                    <label class="label">
-                      <span class="label-text text-xs">Security Mode</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2">
+                      <span class="text-xs font-medium text-sr-ink">Security Mode</span>
                     </label>
                     <div class="flex items-center gap-2">
                       <.ui_badge variant="ghost" size="xs">
@@ -681,7 +681,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 </div>
               </div>
 
-              <div class="modal-action">
+              <div class="sr-ui-modal-action">
                 <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">Cancel</.ui_button>
                 <.ui_button type="submit" size="sm" variant="primary">Create Package</.ui_button>
               </div>
@@ -689,7 +689,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <% end %>
         <% end %>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_create_modal">close</button>
       </form>
     </dialog>
@@ -780,9 +780,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       <% else %>
         <div class="divider">Quick Install</div>
 
-        <div class="tabs tabs-boxed">
-          <input type="radio" name="install_tabs" class="tab" aria-label="Docker" checked />
-          <div class="tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+        <div class="sr-ui-tabs sr-ui-tabs-boxed">
+          <input type="radio" name="install_tabs" class="sr-ui-tab" aria-label="Docker" checked />
+          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
             <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via Docker:
             </p>
@@ -794,8 +794,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
           </div>
 
-          <input type="radio" name="install_tabs" class="tab" aria-label="systemd" />
-          <div class="tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
+          <input type="radio" name="install_tabs" class="sr-ui-tab" aria-label="systemd" />
+          <div class="sr-ui-tab-content bg-sr-surface border-sr-line rounded-box p-4 mt-2">
             <p class="text-sm text-sr-muted mb-3">
               Run this command on your target server to install via systemd:
             </p>
@@ -868,7 +868,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         </div>
       </div>
 
-      <div class="modal-action">
+      <div class="sr-ui-modal-action">
         <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
           Done
         </.ui_button>
@@ -937,8 +937,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open">
+      <div class="sr-ui-modal-box max-w-2xl">
         <form method="dialog">
           <.ui_icon_button phx-click="close_details_modal" size="sm" variant="ghost" class="absolute right-2 top-2">
             x
@@ -1043,7 +1043,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <% end %>
         </div>
 
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <%= if @package.status == :issued do %>
             <.ui_button type="button" phx-click="revoke_package" phx-value-id={@package.id} data-confirm="Are you sure you want to revoke this package?" size="sm" variant="warning">
               Revoke Package
@@ -1055,7 +1055,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">Close</.ui_button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_details_modal">close</button>
       </form>
     </dialog>

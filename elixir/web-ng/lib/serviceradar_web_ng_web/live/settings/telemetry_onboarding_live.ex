@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
         stats={@settings_stats}
       >
         <section class="space-y-2">
-          <p class="text-sm font-medium text-primary">Edge Ops</p>
+          <p class="text-sm font-medium text-sr-brand">Edge Ops</p>
           <h1 class="text-2xl font-semibold tracking-normal">Send your telemetry</h1>
           <p class="max-w-3xl text-sm text-sr-ink/65">
             Point an OpenTelemetry SDK or collector at this deployment, issue an ingestion key,
@@ -234,8 +234,8 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
             phx-submit="generate_key"
             class="flex flex-wrap items-end gap-3"
           >
-            <label class="form-control">
-              <span class="label-text text-xs">Sender identity (Secret key)</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-medium text-sr-ink">Sender identity (Secret key)</span>
               <input
                 type="text"
                 name="key_form[identity]"
@@ -243,8 +243,8 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
                 class={ui_field_class(size: "sm", mono: true, class: "w-48")}
               />
             </label>
-            <label class="form-control">
-              <span class="label-text text-xs">Secret name</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-medium text-sr-ink">Secret name</span>
               <input
                 type="text"
                 name="key_form[secret_name]"
@@ -350,8 +350,8 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
           </div>
 
           <form phx-submit="check_first_data" class="flex flex-wrap items-end gap-3">
-            <label class="form-control">
-              <span class="label-text text-xs">service.name (OTEL_SERVICE_NAME)</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-medium text-sr-ink">service.name (OTEL_SERVICE_NAME)</span>
               <input
                 type="text"
                 name="checker[service_name]"

@@ -752,7 +752,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <div class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-eye" class="size-4 text-primary" />
+          <.icon name="hero-eye" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Host Network Visibility</span>
           <.ui_badge size="sm" variant="primary">host-network-visibility</.ui_badge>
         </div>

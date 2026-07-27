@@ -145,10 +145,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :label, device_ref_label(assigns.device_ref))
 
     ~H"""
-    <div class="rounded-xl border border-primary/30 bg-primary/5 p-6">
+    <div class="rounded-xl border border-sr-brand/30 bg-sr-brand/5 p-6">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="min-w-0">
-          <span class="text-xs text-primary uppercase tracking-wider block mb-1">
+          <span class="text-xs text-sr-brand uppercase tracking-wider block mb-1">
             Affected Device
           </span>
           <div class="text-sm font-medium truncate">{@label}</div>

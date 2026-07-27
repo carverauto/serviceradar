@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
             <div
               class={[
                 "h-full rounded-full transition-all",
-                if(Bulk.throttled?(job), do: "bg-warning", else: "bg-primary")
+                if(Bulk.throttled?(job), do: "bg-warning", else: "bg-sr-brand")
               ]}
               style={"width: #{Bulk.bar_width(job, @max_rate)}"}
             >

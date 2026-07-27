@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class={["fieldset mb-2", @class]}>
-      <label :if={@label} for={@id} class="label mb-1">{@label}</label>
+      <label :if={@label} for={@id} class="flex items-center justify-between gap-2 mb-1">{@label}</label>
       <div
         :if={@compact}
         class="relative srql-input-frame"
@@ -75,9 +75,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           autocapitalize="off"
           spellcheck="false"
           class={[
-            "input input-sm w-full font-mono text-xs",
+            ui_field_class(size: "sm", mono: true, class: "w-full text-xs"),
             "rounded-lg border-sr-line bg-sr-surface",
-            "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+            "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
             "srql-input",
             @editor_class
           ]}
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         class={[
           ui_field_class(mono: true, class: "min-h-28 w-full text-xs leading-relaxed py-2.5"),
           "rounded-lg border-sr-line bg-sr-surface",
-          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+          "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
           @editor_class
         ]}
         disabled={@disabled}
@@ -382,7 +382,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
             fill="none"
             stroke="currentColor"
             stroke-width="2"
-            class="text-primary"
+            class="text-sr-brand"
             points={@spark}
           />
         </svg>
@@ -423,7 +423,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
             <div class="flex-1">
               <div class="h-2 rounded-full bg-sr-subtle overflow-hidden">
                 <div
-                  class="h-2 bg-primary/70"
+                  class="h-2 bg-sr-brand/70"
                   style={"width: #{max(round((v_num / @max_v) * 100), 0)}%"}
                 />
               </div>
@@ -453,7 +453,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           fill="none"
           stroke="currentColor"
           stroke-width="2"
-          class="text-primary"
+          class="text-sr-brand"
           points={@spark}
         />
       </svg>
@@ -1000,7 +1000,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </.ui_inline_select>
               </.query_builder_pill>
 
-              <div class="pl-10 border-l-2 border-primary/30 flex flex-col gap-5">
+              <div class="pl-10 border-l-2 border-sr-brand/30 flex flex-col gap-5">
                 <.query_builder_pill label="Time">
                   <.ui_inline_select name="builder[time]" disabled={not @supported}>
                     <option value="" selected={(@builder["time"] || "") == ""}>Any</option>
@@ -1238,7 +1238,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
                     <button
                       type="button"
-                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit disabled:opacity-60"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit disabled:opacity-60"
                       phx-click="srql_builder_add_filter"
                       disabled={not @supported}
                     >

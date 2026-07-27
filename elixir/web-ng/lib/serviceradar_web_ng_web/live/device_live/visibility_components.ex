@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
     <div :if={@has_fingerprints or @has_dpi} class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center gap-2">
-          <.icon name="hero-eye" class="size-4 text-primary" />
+          <.icon name="hero-eye" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Network Visibility</span>
           <.ui_badge :if={@has_fingerprints} size="sm" variant="ghost">
             Passive fingerprint
@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       <div :if={@has_summary} class="rounded-xl border border-sr-line bg-sr-surface">
         <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex flex-wrap items-center gap-2">
-            <.icon name="hero-finger-print" class="size-4 text-primary" />
+            <.icon name="hero-finger-print" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">Active OS fingerprint</span>
             <.ui_badge :if={@summary.source} size="sm" variant="ghost">
               {@summary.source}
@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       <div class="rounded-xl border border-sr-line bg-sr-surface">
         <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex flex-wrap items-center gap-2">
-            <.icon name="hero-server-stack" class="size-4 text-primary" />
+            <.icon name="hero-server-stack" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">Banner-grab matches</span>
             <.ui_badge :if={@has_rows} size="sm" variant="info">{length(@rows)}</.ui_badge>
           </div>
@@ -313,7 +313,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
       <div class="border-b border-sr-line px-4 py-3">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="flex items-center gap-2">
-            <.icon name="hero-command-line" class="size-4 text-primary" />
+            <.icon name="hero-command-line" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">Process Listeners</span>
             <.ui_badge :if={@row_count > 0} size="sm" variant="ghost">
               {@row_count} sockets

@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Target Name</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Target Name</span></label>
                 <.input
                   type="text"
                   field={@form[:name]}
@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 />
               </div>
               <div>
-                <label class="label"><span class="label-text">SNMP Version</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">SNMP Version</span></label>
                 <.input
                   type="select"
                   field={@form[:version]}
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div class="md:col-span-2">
-                <label class="label"><span class="label-text">Host</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Host</span></label>
                 <.input
                   type="text"
                   field={@form[:host]}
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                 />
               </div>
               <div>
-                <label class="label"><span class="label-text">Port</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Port</span></label>
                 <.input
                   type="number"
                   field={@form[:port]}
@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             <%= if @version in ["v1", "v2c"] do %>
               <!-- SNMPv1/v2c: Community String -->
               <div>
-                <label class="label"><span class="label-text">Community String</span></label>
+                <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Community String</span></label>
                 <div class="flex items-center gap-2">
                   <.input
                     type={if @show_password, do: "text", else: "password"}
@@ -113,8 +113,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                     />
                   </.ui_icon_button>
                 </div>
-                <label class="label">
-                  <span class="label-text-alt text-sr-muted">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs text-sr-muted">
                     <%= if @editing_target do %>
                       Leave blank to keep existing value
                     <% else %>
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               <!-- SNMPv3: Full authentication -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="label"><span class="label-text">Username</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Username</span></label>
                   <.input
                     type="text"
                     field={@form[:username]}
@@ -136,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   />
                 </div>
                 <div>
-                  <label class="label"><span class="label-text">Security Level</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Security Level</span></label>
                   <.input
                     type="select"
                     field={@form[:security_level]}
@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="label"><span class="label-text">Auth Protocol</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Auth Protocol</span></label>
                   <.input
                     type="select"
                     field={@form[:auth_protocol]}
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   />
                 </div>
                 <div>
-                  <label class="label"><span class="label-text">Auth Password</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Auth Password</span></label>
                   <div class="flex items-center gap-2">
                     <.input
                       type={if @show_password, do: "text", else: "password"}
@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="label"><span class="label-text">Privacy Protocol</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Privacy Protocol</span></label>
                   <.input
                     type="select"
                     field={@form[:priv_protocol]}
@@ -208,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
                   />
                 </div>
                 <div>
-                  <label class="label"><span class="label-text">Privacy Password</span></label>
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Privacy Password</span></label>
                   <.input
                     type={if @show_password, do: "text", else: "password"}
                     name="form[priv_password]"
@@ -386,7 +386,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
           </div>
           
     <!-- Modal Actions -->
-          <div class="modal-action">
+          <div class="sr-ui-modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_target_modal">
               Cancel
             </.ui_button>

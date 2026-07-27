@@ -19,14 +19,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
     <dialog
       :if={@editing_panel_id}
       id="dashboard-panel-composer-modal"
-      class="modal modal-open"
+      class="sr-ui-modal sr-ui-modal-open"
       phx-window-keydown="cancel_panel_edit"
       phx-key="Escape"
     >
-      <div class="modal-box flex max-h-[90vh] w-11/12 max-w-6xl flex-col overflow-hidden p-0">
+      <div class="sr-ui-modal-box flex max-h-[90vh] w-11/12 max-w-6xl flex-col overflow-hidden p-0">
         <div class="flex flex-col gap-3 border-b border-sr-line bg-sr-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-normal text-primary">
+            <p class="text-xs font-semibold uppercase tracking-normal text-sr-brand">
               SRQL panel composer
             </p>
             <h2 class="mt-1 text-lg font-semibold tracking-normal">
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
           </div>
         </div>
       </div>
-      <form phx-submit="cancel_panel_edit" class="modal-backdrop">
+      <form phx-submit="cancel_panel_edit" class="sr-ui-modal-backdrop">
         <button type="submit">close</button>
       </form>
     </dialog>

@@ -258,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
           end %>
         <div class="flex-1 flex flex-col items-center">
           <div
-            class="w-full rounded bg-primary/40"
+            class="w-full rounded bg-sr-brand/40"
             style={"height: #{height}%"}
             title={"#{bin.count} samples"}
           />

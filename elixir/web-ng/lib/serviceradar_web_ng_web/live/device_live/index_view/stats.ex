@@ -57,8 +57,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
         <!-- Total Devices -->
         <.link navigate={~p"/devices"} class="block group">
           <div class="rounded-xl border border-sr-line bg-sr-surface p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3">
-            <div class="p-2.5 rounded-lg bg-primary/10">
-              <.icon name="hero-server" class="size-5 text-primary" />
+            <div class="p-2.5 rounded-lg bg-sr-brand/10">
+              <.icon name="hero-server" class="size-5 text-sr-brand" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-xl font-bold text-sr-ink">{format_stat_number(@total)}</div>

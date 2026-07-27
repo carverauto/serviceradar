@@ -574,13 +574,13 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     <div
       :if={@open}
       id={@id}
-      class={["modal modal-open", @class]}
+      class={["sr-ui-modal sr-ui-modal-open", @class]}
       role="dialog"
       aria-modal="true"
       {@rest}
     >
       <div class={[
-        "modal-box relative border border-sr-line bg-sr-surface text-sr-ink shadow-sr-raised",
+        "sr-ui-modal-box relative border border-sr-line bg-sr-surface text-sr-ink shadow-sr-raised",
         ui_modal_size_class(@size),
         @box_class
       ]}>
@@ -600,9 +600,9 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           <h3 class="text-lg font-semibold tracking-tight text-sr-ink">{render_slot(@title)}</h3>
         </div>
         <div class="space-y-3">{render_slot(@inner_block)}</div>
-        <div :if={@actions != []} class="modal-action">{render_slot(@actions)}</div>
+        <div :if={@actions != []} class="sr-ui-modal-action">{render_slot(@actions)}</div>
       </div>
-      <div class="modal-backdrop" phx-click={@on_cancel} phx-target={@on_cancel_target}></div>
+      <div class="sr-ui-modal-backdrop" phx-click={@on_cancel} phx-target={@on_cancel_target}></div>
     </div>
     """
   end

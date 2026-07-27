@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                           class="flex items-center gap-3 hover:opacity-90 text-left"
                         >
                           <div class="avatar placeholder">
-                            <div class="bg-primary/10 text-primary w-10 rounded-full">
+                            <div class="bg-sr-brand/10 text-sr-brand w-10 rounded-full">
                               <span class="text-xs font-bold">{user_initials(user)}</span>
                             </div>
                           </div>

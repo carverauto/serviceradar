@@ -276,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
               patch={
                 ~p"/observability/camera-relays?#{filter_params(@filters, %{terminal: entry.kind})}"
               }
-              class="group rounded-xl border border-sr-line bg-base-50 px-4 py-3 transition hover:border-primary/30 hover:bg-primary/5"
+              class="group rounded-xl border border-sr-line bg-base-50 px-4 py-3 transition hover:border-sr-brand/30 hover:bg-sr-brand/5"
             >
               <div class="text-xs uppercase tracking-wide text-sr-ink/45">
                 {entry_label(entry.kind)}
@@ -366,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                         <div :if={device_uid(session)} class="text-xs">
                           <.link
                             navigate={~p"/devices/#{device_uid(session)}"}
-                            class="text-sr-brand hover:underline text-primary"
+                            class="text-sr-brand hover:underline text-sr-brand"
                           >
                             View device
                           </.link>
@@ -1042,25 +1042,25 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp tone_border("error"), do: "border-error/25"
   defp tone_border("warning"), do: "border-warning/25"
   defp tone_border("success"), do: "border-success/25"
-  defp tone_border("primary"), do: "border-primary/25"
+  defp tone_border("primary"), do: "border-sr-brand/25"
   defp tone_border(_tone), do: "border-sr-line"
 
   defp tone_bg("error"), do: "bg-error/10"
   defp tone_bg("warning"), do: "bg-warning/10"
   defp tone_bg("success"), do: "bg-success/10"
-  defp tone_bg("primary"), do: "bg-primary/10"
+  defp tone_bg("primary"), do: "bg-sr-brand/10"
   defp tone_bg(_tone), do: "bg-sr-subtle"
 
   defp tone_icon("error"), do: "text-error"
   defp tone_icon("warning"), do: "text-warning"
   defp tone_icon("success"), do: "text-success"
-  defp tone_icon("primary"), do: "text-primary"
+  defp tone_icon("primary"), do: "text-sr-brand"
   defp tone_icon(_tone), do: "text-sr-ink"
 
   defp tone_value("error"), do: "text-error"
   defp tone_value("warning"), do: "text-warning"
   defp tone_value("success"), do: "text-success"
-  defp tone_value("primary"), do: "text-primary"
+  defp tone_value("primary"), do: "text-sr-brand"
   defp tone_value(_tone), do: "text-sr-ink"
 
   defp alert_badge_variant("critical"), do: "error"

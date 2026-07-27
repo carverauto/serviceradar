@@ -399,13 +399,13 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </div>
           </.ui_panel>
 
-          <div class="tabs tabs-boxed bg-sr-subtle/40 p-1 w-fit flex-wrap">
+          <div class="sr-ui-tabs sr-ui-tabs-boxed bg-sr-subtle/40 p-1 w-fit flex-wrap">
             <button
               :for={tab <- @source_tabs}
               type="button"
               phx-click="select_source"
               phx-value-source={tab}
-              class={["tab", @source_tab == tab && "tab-active"]}
+              class={["sr-ui-tab", @source_tab == tab && "sr-ui-tab-active"]}
             >
               {tab}
             </button>
@@ -419,8 +419,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
             </:header>
             <form phx-submit="save" id="prefix-tag-form" class="space-y-4">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Prefix (CIDR)</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Prefix (CIDR)</span></label>
                   <input
                     type="text"
                     name="prefix_tag[prefix]"
@@ -430,8 +430,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">VRF (optional)</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">VRF (optional)</span></label>
                   <input
                     type="text"
                     name="prefix_tag[vrf]"
@@ -439,9 +439,9 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
-                <div class="form-control sm:col-span-2">
-                  <label class="label">
-                    <span class="label-text">Tags (comma or space separated)</span>
+                <div class="flex flex-col gap-1.5 sm:col-span-2">
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Tags (comma or space separated)</span>
                   </label>
                   <input
                     type="text"
@@ -452,8 +452,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm", mono: true)}
                   />
                 </div>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Site</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Site</span></label>
                   <input
                     type="text"
                     name="prefix_tag[site]"
@@ -461,8 +461,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm")}
                   />
                 </div>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Role</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Role</span></label>
                   <input
                     type="text"
                     name="prefix_tag[role]"
@@ -470,8 +470,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm")}
                   />
                 </div>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Tenant</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Tenant</span></label>
                   <input
                     type="text"
                     name="prefix_tag[tenant]"
@@ -479,8 +479,8 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                     class={ui_field_class(size: "sm")}
                   />
                 </div>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Status</span></label>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-sr-ink">Status</span></label>
                   <input
                     type="text"
                     name="prefix_tag[status]"

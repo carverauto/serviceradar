@@ -233,7 +233,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     ~H"""
     <.link
       navigate={@href}
-      class="block rounded-lg border border-sr-line bg-sr-surface p-4 hover:border-primary/40"
+      class="block rounded-lg border border-sr-line bg-sr-surface p-4 hover:border-sr-brand/40"
     >
       <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">{@label}</div>
       <div class={["mt-2 text-3xl font-semibold", stat_tone_class(@tone)]}>{@value}</div>

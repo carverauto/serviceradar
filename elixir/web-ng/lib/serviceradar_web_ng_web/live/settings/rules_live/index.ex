@@ -687,8 +687,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text text-xs font-medium">Rule</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-medium text-sr-ink font-medium">Rule</span>
                 <input
                   type="text"
                   value={@editing_stateful_rule && @editing_stateful_rule.name}
@@ -697,8 +697,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 />
               </label>
 
-              <label class="form-control">
-                <span class="label-text text-xs font-medium">Enabled</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-medium text-sr-ink font-medium">Enabled</span>
                 <select
                   name="stateful_rule[enabled]"
                   class={ui_field_class(size: "sm", class: "w-full")}
@@ -713,8 +713,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
               </label>
             </div>
 
-            <label class="form-control">
-              <span class="label-text text-xs font-medium">Group By</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-medium text-sr-ink font-medium">Group By</span>
               <input
                 type="text"
                 name="stateful_rule[group_by]"
@@ -722,14 +722,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 class={ui_field_class(size: "sm", class: "w-full")}
                 placeholder="rule, hostname"
               />
-              <span class="label-text-alt text-sr-muted">
+              <span class="text-xs text-sr-muted">
                 Comma-separated event fields used to decide whether a new event updates the current incident.
               </span>
             </label>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <label class="form-control">
-                <span class="label-text text-xs font-medium">Cooldown (seconds)</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-medium text-sr-ink font-medium">Cooldown (seconds)</span>
                 <input
                   type="number"
                   min="1"
@@ -739,8 +739,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 />
               </label>
 
-              <label class="form-control">
-                <span class="label-text text-xs font-medium">Renotify (seconds)</span>
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-medium text-sr-ink font-medium">Renotify (seconds)</span>
                 <input
                   type="number"
                   min="0"

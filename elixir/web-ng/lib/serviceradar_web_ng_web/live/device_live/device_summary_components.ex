@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
         <div class="card bg-sr-surface border border-sr-line">
           <div class="card-body p-4 gap-2">
             <div class="flex items-center gap-2">
-              <.icon name="hero-identification" class="size-4 text-primary" />
+              <.icon name="hero-identification" class="size-4 text-sr-brand" />
               <h3 class="text-sm font-semibold">Identity</h3>
             </div>
             <div class="space-y-1 text-sm">

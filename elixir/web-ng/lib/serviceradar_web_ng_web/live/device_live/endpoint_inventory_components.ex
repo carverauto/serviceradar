@@ -430,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               <span class="text-xs text-sr-muted">
                 Page {@current_page} of {@total_pages}
               </span>
-              <div class="join">
+              <div class={ui_join_class()}>
                 <.ui_button type="button" phx-click="endpoint_inventory_package_page" phx-value-page={@current_page - 1} disabled={@current_page <= 1} size="xs" variant="neutral">
                   <.icon name="hero-chevron-left" class="h-3 w-3" /> Prev
                 </.ui_button>
@@ -458,8 +458,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     assigns = assign(assigns, :match_count, length(assigns.matches || []))
 
     ~H"""
-    <div :if={@show and @package} class="modal modal-open" data-testid="endpoint-package-modal">
-      <div class="modal-box max-w-3xl">
+    <div :if={@show and @package} class="sr-ui-modal sr-ui-modal-open" data-testid="endpoint-package-modal">
+      <div class="sr-ui-modal-box max-w-3xl">
         <div class="mb-3 flex items-start justify-between gap-3">
           <div>
             <h3 class="text-lg font-bold">{field(@package, :name) || "Package"}</h3>
@@ -590,7 +590,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           </div>
         </div>
       </div>
-      <div class="modal-backdrop" phx-click="endpoint_inventory_close_package"></div>
+      <div class="sr-ui-modal-backdrop" phx-click="endpoint_inventory_close_package"></div>
     </div>
     """
   end
