@@ -62,10 +62,10 @@ config:
     default_isolation_type: "firecracker"
     enable_firecracker: true
     # Raise the default task size so actions that omit exec_properties still get
-    # a usable Firecracker VM (was ~2.5Gi class and OOMed agent linking).
+    # a usable Firecracker VM (was ~2.5Gi class; OOMed GoLink and rustc+ld).
     default_task_size:
-      estimated_milli_cpu: 2000
-      estimated_memory_bytes: 4294967296 # 4 GiB
+      estimated_milli_cpu: 4000
+      estimated_memory_bytes: 8589934592 # 8 GiB
       estimated_free_disk_bytes: 21474836480 # 20 GiB
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300

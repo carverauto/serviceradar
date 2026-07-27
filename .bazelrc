@@ -173,6 +173,9 @@ build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
+# Firecracker task sizing defaults (overridable per target/platform).
+build:remote_base --remote_default_exec_properties=EstimatedCPU=4
+build:remote_base --remote_default_exec_properties=EstimatedMemory=8GB
 test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
@@ -267,6 +270,9 @@ build:el9 --java_runtime_version=remotejdk_11
 build:el9 --tool_java_runtime_version=remotejdk_11
 build:el9 --define=EXECUTOR=remote
 build:el9 --incompatible_strict_action_env
+# Native-addons / EL9 publish path (rustc+ld, large pure-Go links).
+build:el9 --remote_default_exec_properties=EstimatedCPU=4
+build:el9 --remote_default_exec_properties=EstimatedMemory=8GB
 build:el9 --remote_download_outputs=all
 build:el9 --remote_upload_local_results
 build:el9 --jobs=100

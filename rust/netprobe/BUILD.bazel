@@ -96,6 +96,10 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8GB",
+    },
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "p0f-corpus/p0f.fp",
