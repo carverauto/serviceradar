@@ -273,6 +273,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert html =~ "dashboard-pve-#{unique}"
     assert html =~ "local-zfs"
     assert html =~ "1 storage warnings"
+
+    # Summary tiles (except Pressure, which expands in-card sources) deep-link to
+    # filtered device inventory queries.
+    assert has_element?(view, "a[href*='/devices'][href*='type'][href*='Hypervisor']")
+    assert has_element?(view, "a[href*='/devices'][href*='type'][href*='Virtual']", "Guests")
+    assert has_element?(view, "a[href*='/devices'][href*='is_available']", "Running")
+    assert has_element?(view, "a[href='#virtualization-pressure-details']", "Pressure")
   end
 
   test "renders honest empty states for feeds that are not implemented yet", %{conn: conn} do

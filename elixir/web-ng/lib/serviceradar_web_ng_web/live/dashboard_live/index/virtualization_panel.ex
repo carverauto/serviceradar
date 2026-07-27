@@ -30,24 +30,36 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
 
         <div :if={@virtualization_summary.available} class="sr-ops-virt-body">
           <div class="sr-ops-virt-summary">
-            <div>
+            <.link
+              navigate={virt_devices_href(:hosts)}
+              class="sr-ops-virt-summary-link"
+              aria-label="Open hypervisor devices"
+            >
               <span>{@virtualization_summary.provider_label}</span>
               <strong>
                 {format_compact_count(@virtualization_summary.host_count)} hosts
               </strong>
-            </div>
-            <div>
+            </.link>
+            <.link
+              navigate={virt_devices_href(:guests)}
+              class="sr-ops-virt-summary-link"
+              aria-label="Open virtual guest devices"
+            >
               <span>Guests</span>
               <strong>
                 {format_compact_count(@virtualization_summary.guest_count)}
               </strong>
-            </div>
-            <div>
+            </.link>
+            <.link
+              navigate={virt_devices_href(:running)}
+              class="sr-ops-virt-summary-link"
+              aria-label="Open running virtual guest devices"
+            >
               <span>Running</span>
               <strong>
                 {format_compact_count(@virtualization_summary.running_guests)}
               </strong>
-            </div>
+            </.link>
             <a
               href="#virtualization-pressure-details"
               class="sr-ops-virt-summary-link"
@@ -147,4 +159,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel do
   defp virtualization_status_class("warning"), do: "is-warning"
   defp virtualization_status_class("ok"), do: "is-ok"
   defp virtualization_status_class(_), do: "is-idle"
+
+  # Summary tiles deep-link into /devices with an SRQL inventory filter so operators
+  # can jump from the ops dashboard straight into the matching device list.
+  defp virt_devices_href(:hosts), do: ~p"/devices?#{%{q: ~s(in:devices type:"Hypervisor")}}"
+
+  defp virt_devices_href(:guests), do: ~p"/devices?#{%{q: ~s(in:devices type:"Virtual")}}"
+
+  # Guest power state lives on virtualization_guests; inventory uses availability as
+  # the closest durable signal for "running" VMs/LXCs on the devices index.
+  defp virt_devices_href(:running), do: ~p"/devices?#{%{q: ~s(in:devices type:"Virtual" is_available:true)}}"
 end

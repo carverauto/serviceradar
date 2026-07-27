@@ -61,6 +61,30 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 
+  test "SNMP anomaly finding shows device/interface/SNMP links and metric context", %{conn: conn} do
+    _device = device_fixture(%{uid: @device_uid, hostname: "core-sw-01"})
+    event_id = "snmp-anomaly-1"
+
+    {:ok, lv, html} = live(conn, ~p"/events/#{event_id}")
+
+    assert html =~ "Anomaly detection finding"
+    assert html =~ "Affected device"
+    assert html =~ "ifIndex 4"
+    assert html =~ "ifHCInOctets"
+    assert html =~ "Metric context"
+    assert html =~ "Vertical marker is this event time"
+
+    assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']", "View device")
+    assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}?tab=interfaces"}']", "Interfaces")
+    assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}?tab=interfaces"}']", "SNMP metrics")
+    assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}?tab=interfaces"}']", "SNMP metrics for interface")
+
+    # Async metric load should produce a chart panel (or at least leave empty state, not crash).
+    html_after = render(lv)
+    assert html_after =~ "Metric context"
+    refute html_after =~ "Failed to load metric context"
+  end
+
   defmodule EventShowSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -75,8 +99,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         String.contains?(query, "in:logs") ->
           {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
 
+        String.contains?(query, "in:snmp_metrics") ->
+          {:ok, %{"results" => snmp_metric_rows(), "pagination" => %{}, "error" => nil}}
+
         String.contains?(query, "in:events") and String.contains?(query, "no-device") ->
           {:ok, %{"results" => [non_device_event()], "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, "in:events") and String.contains?(query, "snmp-anomaly-1") ->
+          {:ok, %{"results" => [snmp_anomaly_event()], "pagination" => %{}, "error" => nil}}
 
         String.contains?(query, "in:events") ->
           {:ok, %{"results" => [proxmox_event()], "pagination" => %{}, "error" => nil}}
@@ -115,5 +145,76 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         "unmapped" => %{"condition_key" => "powerdns:rpz:suspicious.example"}
       }
     end
+
+    defp snmp_anomaly_event do
+      series_key =
+        Enum.join(
+          [
+            "v2",
+            component("partition", "demo"),
+            component("class", "snmp"),
+            component("family", "interface"),
+            component("identity", @device_uid),
+            component("if_index", "4"),
+            component("metric", "ifHCInOctets"),
+            tag_component("label", "Gi0/1")
+          ],
+          ":"
+        )
+
+      %{
+        "id" => "snmp-anomaly-1",
+        "time" => "2026-07-04T12:00:00Z",
+        "severity" => "High",
+        "log_provider" => "anomaly_detection",
+        "message" => "Anomalous SNMP interface traffic on Gi0/1",
+        "metadata" => %{
+          "service_radar" => %{"source_type" => "anomaly_detection"},
+          "detection_finding" => %{
+            "type" => "anomaly",
+            "series_key" => series_key,
+            "metric_name" => "ifHCInOctets",
+            "metric_class" => "snmp/interface",
+            "state" => "open",
+            "score" => "4.2",
+            "reason" => "rate spike above baseline"
+          },
+          "finding_info" => %{
+            "title" => "SNMP interface rate anomaly",
+            "uid" => "finding-snmp-1"
+          }
+        }
+      }
+    end
+
+    defp snmp_metric_rows do
+      [
+        %{
+          "timestamp" => "2026-07-04T11:00:00Z",
+          "metric_name" => "ifHCInOctets",
+          "value" => 1000.0,
+          "if_index" => 4,
+          "device_id" => @device_uid
+        },
+        %{
+          "timestamp" => "2026-07-04T12:00:00Z",
+          "metric_name" => "ifHCInOctets",
+          "value" => 9000.0,
+          "if_index" => 4,
+          "device_id" => @device_uid
+        },
+        %{
+          "timestamp" => "2026-07-04T13:00:00Z",
+          "metric_name" => "ifHCInOctets",
+          "value" => 1200.0,
+          "if_index" => 4,
+          "device_id" => @device_uid
+        }
+      ]
+    end
+
+    defp component(name, value), do: "#{name}=#{hex(value)}"
+    defp tag_component(name, value), do: "tag_#{hex(name)}=#{hex(value)}"
+    defp hex(value), do: value |> to_string() |> Base.encode16(case: :lower)
   end
 end

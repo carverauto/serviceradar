@@ -1519,15 +1519,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def completion_tokens, do: @completion_tokens
 
   def structured do
-    cache_key = {__MODULE__, :structured, :v1}
+    # Content-hash keyed cache so hot reloads that change filter fields (e.g.
+    # events.id) bust the previous catalog instead of serving a sticky
+    # :persistent_term snapshot until full BEAM restart.
+    cache_key = {__MODULE__, :structured, :v2}
+    catalog = structured_from_entities(@entities)
+    version = Map.fetch!(catalog, "version")
 
     case :persistent_term.get(cache_key, nil) do
-      nil ->
-        catalog = structured_from_entities(@entities)
-        :persistent_term.put(cache_key, catalog)
-        catalog
+      %{"version" => ^version} = cached ->
+        cached
 
-      catalog ->
+      _ ->
+        :persistent_term.put(cache_key, catalog)
         catalog
     end
   end

@@ -214,7 +214,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             phx-hook="DashboardWasmHost"
             phx-update="ignore"
             data-host={@host_payload_json}
-            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-sr-surface"
+            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-sr-surface px-3 py-3 sm:px-5 sm:py-4"
           >
             <div class="absolute inset-0 flex items-center justify-center">
               <div class="text-center">

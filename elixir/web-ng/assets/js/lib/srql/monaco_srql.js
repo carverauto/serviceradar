@@ -38,17 +38,28 @@ function catalogCache() {
   return window.__srqlCatalog
 }
 
-function loadSrqlCatalog() {
+function loadSrqlCatalog({force = false} = {}) {
   const cache = catalogCache()
-  if (cache.data) return Promise.resolve(cache.data)
+  // Always revalidate via ETag so hot-reloaded catalog fields (e.g. events.id)
+  // show up without a full page reload. `force` also drops the in-memory body.
+  if (!force && cache.data && cache.freshUntil && Date.now() < cache.freshUntil) {
+    return Promise.resolve(cache.data)
+  }
 
   cache.inflight ||= fetch(CATALOG_URL, {headers: cache.etag ? {"If-None-Match": cache.etag} : {}})
     .then(response => {
-      if (response.status === 304 && cache.data) return cache.data
+      if (response.status === 304 && cache.data) {
+        cache.freshUntil = Date.now() + 30_000
+        return cache.data
+      }
       if (!response.ok) throw new Error(`SRQL catalog request failed with ${response.status}`)
 
       cache.etag = response.headers.get("etag")
-      return response.json().then(data => (cache.data = data))
+      return response.json().then(data => {
+        cache.data = data
+        cache.freshUntil = Date.now() + 30_000
+        return data
+      })
     })
     .finally(() => {
       cache.inflight = null

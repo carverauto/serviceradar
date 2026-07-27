@@ -9,17 +9,23 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
+  alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
+  require Logger
 
   # Side stream only — must not drive the main Observability events list limit.
   @stream_page_size 10
   # Matches Observability events tab / SRQL bar defaults when running a query from detail.
   @srql_default_limit 20
+  @anomaly_chart_side_seconds 2 * 60 * 60
+  # Keep room for multi-series interface rates across ±2h at 1–5m buckets.
+  @snmp_metrics_limit 3_600
 
   @impl true
   def mount(_params, _session, socket) do
@@ -41,6 +47,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:stream_page, 1)
      |> assign(:stream_page_size, @stream_page_size)
      |> assign(:show_raw_json, false)
+     |> assign(:anomaly_context, nil)
+     |> assign(:anomaly_metric_panels, [])
+     |> assign(:anomaly_metrics_loading, false)
+     |> assign(:anomaly_metrics_error, nil)
      |> assign(:limit, @srql_default_limit)
      |> SRQLPage.init("events", default_limit: @srql_default_limit)}
   end
@@ -61,25 +71,70 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     signal_display = build_signal_display(event, device_lookup_scope)
     device_ref = build_device_ref(event, socket.assigns.current_scope)
+    anomaly_context = build_anomaly_context(event, device_ref)
 
+    socket =
+      socket
+      |> assign(:event_id, event_id)
+      |> assign(:event, event)
+      |> assign(:signal_display, signal_display)
+      |> assign(:device_ref, device_ref)
+      |> assign(:related, related)
+      |> assign(:error, error)
+      |> assign(:stream_entries, stream)
+      |> assign(:stream_query, stream_query)
+      |> assign(:stream_cursor, nil)
+      |> assign(:stream_next_cursor, next_cursor)
+      |> assign(:stream_prev_cursor, prev_cursor)
+      |> assign(:stream_page, 1)
+      |> assign(:stream_severity, "all")
+      |> assign(:show_raw_json, false)
+      |> assign(:anomaly_context, anomaly_context)
+      |> assign(:anomaly_metric_panels, [])
+      |> assign(:anomaly_metrics_loading, false)
+      |> assign(:anomaly_metrics_error, nil)
+      |> assign(:page_title, page_title_for(event, event_id))
+      |> prefill_srql_bar(detail_query, uri, event_id)
+
+    socket =
+      if connected?(socket) and anomaly_metrics_loadable?(anomaly_context) do
+        scope = socket.assigns.current_scope
+
+        socket
+        |> assign(:anomaly_metrics_loading, true)
+        |> start_async(:anomaly_metrics, fn ->
+          load_anomaly_metric_panels(anomaly_context, event, scope)
+        end)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_async(:anomaly_metrics, {:ok, {:ok, panels}}, socket) do
     {:noreply,
      socket
-     |> assign(:event_id, event_id)
-     |> assign(:event, event)
-     |> assign(:signal_display, signal_display)
-     |> assign(:device_ref, device_ref)
-     |> assign(:related, related)
-     |> assign(:error, error)
-     |> assign(:stream_entries, stream)
-     |> assign(:stream_query, stream_query)
-     |> assign(:stream_cursor, nil)
-     |> assign(:stream_next_cursor, next_cursor)
-     |> assign(:stream_prev_cursor, prev_cursor)
-     |> assign(:stream_page, 1)
-     |> assign(:stream_severity, "all")
-     |> assign(:show_raw_json, false)
-     |> assign(:page_title, page_title_for(event, event_id))
-     |> prefill_srql_bar(detail_query, uri, event_id)}
+     |> assign(:anomaly_metrics_loading, false)
+     |> assign(:anomaly_metric_panels, panels)
+     |> assign(:anomaly_metrics_error, nil)}
+  end
+
+  def handle_async(:anomaly_metrics, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:anomaly_metrics_loading, false)
+     |> assign(:anomaly_metric_panels, [])
+     |> assign(:anomaly_metrics_error, reason)}
+  end
+
+  def handle_async(:anomaly_metrics, {:exit, reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:anomaly_metrics_loading, false)
+     |> assign(:anomaly_metric_panels, [])
+     |> assign(:anomaly_metrics_error, "Failed to load metric context: #{inspect(reason)}")}
   end
 
   @impl true
@@ -235,9 +290,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.event_message_hero event={@event} />
               <.event_context_panel event={@event} />
-              <.affected_device :if={is_map(@device_ref)} device_ref={@device_ref} />
+              <.affected_device
+                :if={is_map(@device_ref)}
+                device_ref={@device_ref}
+                anomaly_context={@anomaly_context}
+              />
               <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
-              <.anomaly_detection_summary :if={anomaly_finding?(@event)} event={@event} />
+              <.anomaly_detection_summary
+                :if={anomaly_finding?(@event)}
+                event={@event}
+                anomaly_context={@anomaly_context}
+                metric_panels={@anomaly_metric_panels}
+                metrics_loading={@anomaly_metrics_loading}
+                metrics_error={@anomaly_metrics_error}
+              />
               <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
               <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
               <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
@@ -573,24 +639,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> Enum.reject(fn fact -> blank_value?(fact.value) end)
       |> Enum.uniq_by(fn fact -> {fact.label, fact.value} end)
 
-    n = length(facts)
-
-    col_class =
-      cond do
-        n <= 1 -> "grid-cols-1"
-        n == 2 -> "grid-cols-2"
-        n == 3 -> "grid-cols-2 sm:grid-cols-3"
-        n == 4 -> "grid-cols-2 lg:grid-cols-4"
-        true -> "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
-      end
-
-    assigns =
-      assigns
-      |> assign(:facts, facts)
-      |> assign(:col_class, col_class)
+    assigns = assign(assigns, :facts, facts)
 
     ~H"""
-    <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+    <%!-- auto-fit so a short final row expands to fill width (no dead empty cells) --%>
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-px border-b border-sr-line bg-sr-line">
       <div
         :for={fact <- @facts}
         class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
@@ -912,9 +965,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr(:device_ref, :map, required: true)
+  attr(:anomaly_context, :map, default: nil)
 
   defp affected_device(assigns) do
-    assigns = assign(assigns, :label, device_ref_label(assigns.device_ref))
+    ctx = assigns.anomaly_context || %{}
+    device_href = Map.get(ctx, :device_href) || ~p"/devices/#{assigns.device_ref.uid}"
+    iface_href = Map.get(ctx, :interfaces_href)
+    snmp_href = Map.get(ctx, :snmp_metrics_href)
+
+    assigns =
+      assigns
+      |> assign(:label, device_ref_label(assigns.device_ref))
+      |> assign(:device_href, device_href)
+      |> assign(:iface_href, iface_href)
+      |> assign(:snmp_href, snmp_href)
+      |> assign(:if_index, Map.get(ctx, :if_index))
+      |> assign(:metric_name, Map.get(ctx, :metric_name))
 
     ~H"""
     <div class="overflow-hidden rounded-sr-surface border border-sr-brand/30 bg-sr-brand/5 shadow-sr-surface">
@@ -930,10 +996,25 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           <div class="mt-0.5 text-xs font-mono text-sr-muted break-all">
             {@device_ref.uid}
           </div>
+          <div
+            :if={@if_index || @metric_name}
+            class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-sr-muted"
+          >
+            <span :if={@if_index} class="font-mono">ifIndex {@if_index}</span>
+            <span :if={@metric_name} class="font-mono">{@metric_name}</span>
+          </div>
         </div>
-        <.ui_button navigate={~p"/devices/#{@device_ref.uid}"} variant="primary" size="sm">
-          View device →
-        </.ui_button>
+        <div class="flex flex-wrap items-center gap-2">
+          <.ui_button navigate={@device_href} variant="primary" size="sm">
+            View device →
+          </.ui_button>
+          <.ui_button :if={@iface_href} navigate={@iface_href} variant="outline" size="sm">
+            Interfaces
+          </.ui_button>
+          <.ui_button :if={@snmp_href} navigate={@snmp_href} variant="outline" size="sm">
+            SNMP metrics
+          </.ui_button>
+        </div>
       </div>
     </div>
     """
@@ -949,12 +1030,506 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp build_device_ref(_event, _scope), do: nil
 
+  # -- anomaly context / metric panels -----------------------------------------
+
+  defp build_anomaly_context(event, device_ref) when is_map(event) do
+    if anomaly_finding?(event) do
+      finding = anomaly_detection_payload(event)
+      dimensions = anomaly_dimensions(event, finding)
+
+      series_key =
+        blank_to_nil(
+          first_present([
+            map_value(finding, "series_key"),
+            map_value(dimensions, "series_key"),
+            nested_value(event, ["metadata", "service_radar", "series_key"]),
+            nested_value(event, ["metadata", "security_signal", "series_key"])
+          ])
+        )
+
+      decoded = AnomalySeriesKey.decode(series_key)
+
+      device_uid =
+        blank_to_nil(
+          first_present([
+            is_map(device_ref) && Map.get(device_ref, :uid),
+            map_value(finding, "device_id"),
+            map_value(finding, "device_uid"),
+            map_value(dimensions, "device_id"),
+            map_value(dimensions, "device_uid"),
+            nested_value(event, ["metadata", "service_radar", "device_uid"]),
+            nested_value(event, ["metadata", "service_radar", "device_id"]),
+            nested_value(event, ["metadata", "security_signal", "device_id"]),
+            AnomalySeriesKey.component(decoded, "identity")
+          ])
+        )
+
+      if_index =
+        parse_if_index(
+          first_present([
+            map_value(finding, "if_index"),
+            map_value(dimensions, "if_index"),
+            nested_value(event, ["metadata", "service_radar", "if_index"]),
+            nested_value(event, ["metadata", "security_signal", "if_index"]),
+            AnomalySeriesKey.component(decoded, "if_index"),
+            nested_value(finding, ["source_identity", "if_index"]),
+            nested_value(event, ["unmapped", "if_index"])
+          ])
+        )
+
+      metric_name =
+        blank_to_nil(
+          first_present([
+            map_value(finding, "metric_name"),
+            map_value(dimensions, "metric_name"),
+            nested_value(event, ["metadata", "service_radar", "metric_name"]),
+            nested_value(event, ["metadata", "security_signal", "metric_name"]),
+            AnomalySeriesKey.component(decoded, "metric")
+          ])
+        )
+
+      metric_class =
+        blank_to_nil(
+          first_present([
+            map_value(finding, "metric_class"),
+            map_value(dimensions, "metric_class"),
+            nested_value(event, ["metadata", "service_radar", "metric_class"]),
+            nested_value(event, ["metadata", "security_signal", "metric_class"]),
+            anomaly_metric_class(decoded)
+          ])
+        )
+
+      interface_label = anomaly_interface_label(decoded, finding, dimensions, if_index)
+      snmp? = snmp_like_anomaly?(metric_class, metric_name, if_index, series_key, interface_label)
+      event_time = event_time_from_event(event)
+
+      base = %{
+        device_uid: device_uid,
+        if_index: if_index,
+        metric_name: metric_name,
+        metric_class: metric_class,
+        interface_label: interface_label,
+        series_key: series_key,
+        snmp?: snmp?,
+        event_time: event_time,
+        device_href: nil,
+        interfaces_href: nil,
+        snmp_metrics_href: nil,
+        chart_focus: anomaly_chart_focus(event, finding, series_key, metric_name, event_time)
+      }
+
+      if is_binary(device_uid) and device_uid != "" do
+        device_href = ~p"/devices/#{device_uid}"
+        interfaces_href = ~p"/devices/#{device_uid}?tab=interfaces"
+
+        %{
+          base
+          | device_href: device_href,
+            interfaces_href: if(snmp?, do: interfaces_href),
+            snmp_metrics_href: if(snmp?, do: interfaces_href)
+        }
+      else
+        base
+      end
+    end
+  end
+
+  defp build_anomaly_context(_event, _device_ref), do: nil
+
+  defp anomaly_dimensions(event, finding) when is_map(event) do
+    event
+    |> nested_map(["metadata", "finding_info", "dimensions"])
+    |> then(fn dims ->
+      if map_size(dims) > 0, do: dims, else: nested_map(finding, ["dimensions"])
+    end)
+  end
+
+  defp anomaly_dimensions(_event, _finding), do: %{}
+
+  # Load charts when we have enough identity to query collected metrics.
+  defp anomaly_metrics_loadable?(%{device_uid: device_uid, if_index: if_index, snmp?: true})
+       when is_binary(device_uid) and device_uid != "" and is_integer(if_index) and if_index > 0 do
+    true
+  end
+
+  defp anomaly_metrics_loadable?(%{device_uid: device_uid, metric_name: metric_name})
+       when is_binary(device_uid) and device_uid != "" and is_binary(metric_name) and metric_name != "" do
+    true
+  end
+
+  defp anomaly_metrics_loadable?(_), do: false
+
+  defp load_anomaly_metric_panels(ctx, event, scope) when is_map(ctx) do
+    queries = anomaly_metric_queries(ctx, event)
+
+    if queries == [] do
+      {:ok, []}
+    else
+      case try_anomaly_metric_queries(queries, scope, ctx) do
+        {:ok, panels} ->
+          {:ok, panels}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  rescue
+    error ->
+      Logger.warning("anomaly metric panel load crashed: #{Exception.message(error)}")
+      {:error, Exception.message(error)}
+  end
+
+  defp load_anomaly_metric_panels(_ctx, _event, _scope), do: {:ok, []}
+
+  defp try_anomaly_metric_queries(queries, scope, ctx) do
+    result =
+      Enum.reduce_while(queries, %{panels: [], last_error: nil}, fn query, acc ->
+        case query_anomaly_metric_panels(query, scope, ctx) do
+          {:ok, panels} when is_list(panels) and panels != [] ->
+            {:halt, %{panels: Enum.take(panels, 2), last_error: nil}}
+
+          {:ok, []} ->
+            {:cont, acc}
+
+          {:error, reason} ->
+            Logger.debug("anomaly metric query failed: #{inspect(reason)} query=#{query}")
+            {:cont, %{acc | last_error: format_error(reason)}}
+        end
+      end)
+
+    cond do
+      result.panels != [] -> {:ok, result.panels}
+      is_binary(result.last_error) -> {:error, result.last_error}
+      true -> {:ok, []}
+    end
+  end
+
+  defp query_anomaly_metric_panels(query, scope, ctx) when is_binary(query) do
+    case srql_module().query(query, %{scope: scope}) do
+      {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
+        panels =
+          response
+          |> Engine.build_panels()
+          |> Enum.reject(&(&1.plugin == TablePlugin))
+          |> Enum.map(&decorate_anomaly_metric_panel(&1, ctx))
+
+        if panels == [] do
+          # Still useful: force a timeseries attempt if Engine only built a table.
+          case Engine.build_panels(response) do
+            [panel | _] -> {:ok, [decorate_anomaly_metric_panel(panel, ctx)]}
+            _ -> {:ok, []}
+          end
+        else
+          {:ok, panels}
+        end
+
+      {:ok, %{"results" => []}} ->
+        {:ok, []}
+
+      {:ok, _other} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, "Unexpected metric response: #{inspect(other)}"}
+    end
+  end
+
+  defp decorate_anomaly_metric_panel(panel, ctx) when is_map(panel) do
+    title =
+      cond do
+        is_binary(Map.get(ctx, :metric_name)) and is_integer(Map.get(ctx, :if_index)) ->
+          "#{ctx.metric_name} · ifIndex #{ctx.if_index}"
+
+        is_binary(Map.get(ctx, :metric_name)) ->
+          ctx.metric_name
+
+        is_integer(Map.get(ctx, :if_index)) ->
+          "Interface ifIndex #{ctx.if_index}"
+
+        true ->
+          Map.get(panel, :title) || "Metric series"
+      end
+
+    assigns =
+      panel.assigns
+      |> Map.put(:compact, true)
+      |> Map.put(:chart_mode, :combined)
+      # SRQL already applies agg:rate when used; leave points as-is for display.
+      |> Map.put(:rate_mode, :none)
+      |> maybe_put_interface_label(ctx)
+
+    %{panel | title: title, assigns: assigns}
+  end
+
+  defp maybe_put_interface_label(assigns, %{interface_label: label}) when is_binary(label) do
+    Map.put(assigns, :interface_label, label)
+  end
+
+  defp maybe_put_interface_label(assigns, _ctx), do: assigns
+
+  defp anomaly_metric_queries(ctx, event) do
+    device_uid = Map.get(ctx, :device_uid)
+    if_index = Map.get(ctx, :if_index)
+    metric_name = Map.get(ctx, :metric_name)
+    snmp? = Map.get(ctx, :snmp?, false)
+    absolute = anomaly_metric_time_range(ctx, event)
+
+    # Prefer a wide relative window first (reliable), then absolute event window.
+    time_windows = [absolute, "last_24h", "last_6h"] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    for_result =
+      for time_range <- time_windows,
+          query <-
+            build_anomaly_metric_query_variants(device_uid, if_index, metric_name, snmp?, time_range),
+          is_binary(query) do
+        query
+      end
+
+    Enum.uniq(for_result)
+  end
+
+  defp build_anomaly_metric_query_variants(device_uid, if_index, metric_name, snmp?, time_range)
+       when is_binary(device_uid) and device_uid != "" and is_binary(time_range) do
+    escaped_uid = escape_value(device_uid)
+    metric_filter = metric_name_filter(metric_name)
+
+    snmp_queries =
+      if snmp? and is_integer(if_index) and if_index > 0 do
+        base =
+          "in:snmp_metrics device_id:\"#{escaped_uid}\" if_index:#{if_index} time:#{time_range}"
+
+        [
+          # Rate series (preferred for counters like ifOutOctets)
+          Enum.join(
+            Enum.reject(
+              [
+                base,
+                metric_filter,
+                "bucket:5m",
+                "agg:rate",
+                "series:metric_name",
+                "limit:#{@snmp_metrics_limit}"
+              ],
+              &is_nil/1
+            ),
+            " "
+          ),
+          # Avg fallback without rate transform
+          Enum.join(
+            Enum.reject(
+              [
+                base,
+                metric_filter,
+                "bucket:5m",
+                "agg:avg",
+                "series:metric_name",
+                "limit:#{@snmp_metrics_limit}"
+              ],
+              &is_nil/1
+            ),
+            " "
+          ),
+          # Raw points for the specific metric
+          if metric_filter do
+            "#{base} #{metric_filter} sort:timestamp:asc limit:#{@snmp_metrics_limit}"
+          end
+        ]
+      else
+        []
+      end
+
+    generic_queries =
+      if is_binary(metric_name) and metric_name != "" do
+        [
+          Enum.join(
+            [
+              "in:timeseries_metrics",
+              "device_id:\"#{escaped_uid}\"",
+              ~s(metric_name:"#{escape_value(metric_name)}"),
+              "time:#{time_range}",
+              "bucket:5m",
+              "agg:avg",
+              "series:metric_name",
+              "limit:#{@snmp_metrics_limit}"
+            ],
+            " "
+          ),
+          Enum.join(
+            [
+              "in:timeseries_metrics",
+              "device_id:\"#{escaped_uid}\"",
+              ~s(metric_name:"#{escape_value(metric_name)}"),
+              "time:#{time_range}",
+              "sort:timestamp:asc",
+              "limit:#{@snmp_metrics_limit}"
+            ],
+            " "
+          )
+        ]
+      else
+        []
+      end
+
+    Enum.reject(snmp_queries ++ generic_queries, &is_nil/1)
+  end
+
+  defp build_anomaly_metric_query_variants(_device_uid, _if_index, _metric_name, _snmp?, _time_range), do: []
+
+  defp metric_name_filter(metric_name) when is_binary(metric_name) and metric_name != "" do
+    ~s(metric_name:"#{escape_value(metric_name)}")
+  end
+
+  defp metric_name_filter(_), do: nil
+
+  defp anomaly_panel_assigns(panel, chart_focus) when is_map(panel) do
+    assigns =
+      panel
+      |> Map.get(:assigns, %{})
+      |> Map.put(:compact, true)
+
+    if is_map(chart_focus) do
+      Map.put(assigns, :chart_focus, chart_focus)
+    else
+      assigns
+    end
+  end
+
+  defp anomaly_panel_assigns(_panel, _chart_focus), do: %{compact: true}
+
+  defp anomaly_metric_time_range(ctx, event) do
+    center = Map.get(ctx, :event_time) || event_time_from_event(event)
+
+    case center do
+      %DateTime{} = dt ->
+        start_dt = DateTime.add(dt, -@anomaly_chart_side_seconds, :second)
+        end_dt = DateTime.add(dt, @anomaly_chart_side_seconds, :second)
+        "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+
+      _ ->
+        "last_24h"
+    end
+  end
+
+  defp anomaly_chart_focus(event, finding, series_key, metric_name, event_time) do
+    case event_time do
+      %DateTime{} = dt ->
+        %{
+          timestamp: dt,
+          label: metric_name || map_value(finding, "state") || "Anomaly event",
+          severity: Map.get(event, "severity") || Map.get(event, "severity_id"),
+          series: metric_name || series_key,
+          series_key: series_key,
+          metric_name: metric_name,
+          before_seconds: @anomaly_chart_side_seconds,
+          after_seconds: @anomaly_chart_side_seconds
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp snmp_like_anomaly?(metric_class, metric_name, if_index, series_key, interface_label) do
+    text =
+      [metric_class, metric_name, series_key, interface_label]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map_join(" ", &to_string/1)
+      |> String.downcase()
+
+    is_integer(if_index) or
+      String.contains?(text, "snmp") or
+      String.contains?(text, "interface") or
+      String.contains?(text, "if_") or
+      String.contains?(text, "ifhc") or
+      String.contains?(text, "ifinoctets") or
+      String.contains?(text, "ifoutoctets") or
+      String.contains?(text, "ifout") or
+      String.contains?(text, "ifin")
+  end
+
+  defp anomaly_metric_class(decoded) do
+    class = AnomalySeriesKey.component(decoded, "class")
+    family = AnomalySeriesKey.component(decoded, "family")
+
+    cond do
+      is_binary(class) and is_binary(family) -> "#{class}/#{family}"
+      is_binary(class) -> class
+      is_binary(family) -> family
+      true -> nil
+    end
+  end
+
+  defp anomaly_interface_label(decoded, finding, dimensions, if_index) do
+    label =
+      first_present([
+        AnomalySeriesKey.tag(decoded, "label"),
+        AnomalySeriesKey.tag(decoded, "if_name"),
+        AnomalySeriesKey.tag(decoded, "interface_name"),
+        map_value(finding, "interface_name"),
+        map_value(finding, "if_name"),
+        map_value(dimensions, "resource_label"),
+        nested_value(finding, ["source_identity", "label"]),
+        nested_value(finding, ["source_identity", "if_name"])
+      ])
+
+    cond do
+      is_binary(label) and is_integer(if_index) and not String.contains?(label, "ifIndex") ->
+        "#{label} / ifIndex #{if_index}"
+
+      is_binary(label) ->
+        label
+
+      is_integer(if_index) ->
+        "ifIndex #{if_index}"
+
+      true ->
+        nil
+    end
+  end
+
+  defp parse_if_index(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_if_index(value) when is_float(value) and value > 0 do
+    trunc(value)
+  end
+
+  defp parse_if_index(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, ""} when n > 0 -> n
+      _ -> nil
+    end
+  end
+
+  defp parse_if_index(_), do: nil
+
+  defp first_present(values) when is_list(values) do
+    Enum.find_value(values, fn
+      nil -> nil
+      false -> nil
+      value when is_binary(value) -> if String.trim(value) == "", do: nil, else: value
+      value -> value
+    end)
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: value)
+  defp blank_to_nil(value), do: value
+
   attr(:event, :map, required: true)
+  attr(:anomaly_context, :map, default: nil)
+  attr(:metric_panels, :list, default: [])
+  attr(:metrics_loading, :boolean, default: false)
+  attr(:metrics_error, :any, default: nil)
 
   defp anomaly_detection_summary(assigns) do
     finding = anomaly_detection_payload(assigns.event)
     finding_info = nested_map(assigns.event, ["metadata", "finding_info"])
     series_key = map_value(finding, "series_key")
+    ctx = assigns.anomaly_context || %{}
 
     assigns =
       assigns
@@ -962,6 +1537,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:finding_info, finding_info)
       |> assign(:series_key, series_key)
       |> assign(:series_display, AnomalySeriesKey.display(series_key) || series_key)
+      |> assign(:ctx, ctx)
+      |> assign(:chart_focus, Map.get(ctx, :chart_focus))
 
     ~H"""
     <div class="overflow-hidden rounded-sr-surface border border-amber-500/25 bg-amber-500/5 shadow-sr-surface">
@@ -980,11 +1557,95 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
       <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <.finding_fact label="Series" value={@series_display} title={@series_key} />
-        <.finding_fact label="Metric Class" value={map_value(@finding, "metric_class")} />
+        <.finding_fact
+          label="Metric"
+          value={Map.get(@ctx, :metric_name) || map_value(@finding, "metric_name")}
+          mono
+        />
+        <.finding_fact
+          label="Metric class"
+          value={map_value(@finding, "metric_class") || Map.get(@ctx, :metric_class)}
+        />
+        <.finding_fact label="Interface" value={Map.get(@ctx, :interface_label)} mono />
         <.finding_fact label="State" value={map_value(@finding, "state")} />
         <.finding_fact label="Score" value={map_value(@finding, "score")} mono />
         <.finding_fact label="Reason" value={map_value(@finding, "reason")} />
         <.finding_fact label="Finding UID" value={map_value(@finding_info, "uid")} mono />
+      </div>
+
+      <div
+        :if={
+          Map.get(@ctx, :device_href) || Map.get(@ctx, :interfaces_href) ||
+            Map.get(@ctx, :snmp_metrics_href)
+        }
+        class="flex flex-wrap gap-2 border-t border-amber-500/15 px-4 py-3 sm:px-5"
+      >
+        <.ui_button
+          :if={Map.get(@ctx, :device_href)}
+          navigate={Map.get(@ctx, :device_href)}
+          size="sm"
+          variant="primary"
+        >
+          Open device
+        </.ui_button>
+        <.ui_button
+          :if={Map.get(@ctx, :interfaces_href)}
+          navigate={Map.get(@ctx, :interfaces_href)}
+          size="sm"
+          variant="outline"
+        >
+          Device interfaces
+        </.ui_button>
+        <.ui_button
+          :if={Map.get(@ctx, :snmp_metrics_href)}
+          navigate={Map.get(@ctx, :snmp_metrics_href)}
+          size="sm"
+          variant="outline"
+        >
+          SNMP metrics for interface
+        </.ui_button>
+      </div>
+
+      <div class="border-t border-amber-500/15 px-4 py-4 sm:px-5">
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-sr-muted">
+              Metric context
+            </div>
+            <p class="mt-0.5 text-xs text-sr-muted">
+              Vertical marker is this event time. Chart is scoped to the series (±2h).
+            </p>
+          </div>
+          <span :if={@metrics_loading} class="text-xs text-sr-muted">Loading metrics…</span>
+        </div>
+
+        <div
+          :if={is_binary(@metrics_error)}
+          class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning"
+        >
+          {@metrics_error}
+        </div>
+
+        <div
+          :if={not @metrics_loading and @metric_panels == [] and is_nil(@metrics_error)}
+          class="rounded-lg border border-sr-line/70 bg-sr-surface/50 p-4 text-sm text-sr-muted"
+        >
+          No metric series loaded for this finding yet.
+          <span :if={Map.get(@ctx, :snmp_metrics_href)}>
+            Use the SNMP metrics link above to open the full series.
+          </span>
+        </div>
+
+        <div :if={@metric_panels != []} class="space-y-3">
+          <%= for {panel, idx} <- Enum.with_index(@metric_panels) do %>
+            <.live_component
+              module={panel.plugin}
+              id={"event-anomaly-metric-#{idx}"}
+              title={Map.get(panel, :title) || "Metric series"}
+              panel_assigns={anomaly_panel_assigns(panel, @chart_focus)}
+            />
+          <% end %>
+        </div>
       </div>
     </div>
     """
@@ -1532,12 +2193,36 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     dst_endpoint.ip
   )
 
+  @netflow_src_ip_paths ~w(
+    src_endpoint.ip
+    metadata.security_signal.diagnostics.network.source_ip
+  )
+
+  @netflow_dst_ip_paths ~w(
+    dst_endpoint.ip
+    metadata.security_signal.diagnostics.network.destination_ip
+  )
+
+  @netflow_src_port_paths ~w(
+    src_endpoint.port
+    metadata.security_signal.diagnostics.network.source_port
+  )
+
+  @netflow_dst_port_paths ~w(
+    dst_endpoint.port
+    metadata.security_signal.diagnostics.network.destination_port
+  )
+
+  @netflow_time_window "last_24h"
+
   defp build_signal_display(event, scope) when is_map(event) do
     case SignalDisplay.render_record(event) do
       {:ok, widgets} ->
         widgets =
           widgets
           |> Enum.map(&add_device_ip_links(&1, scope))
+          |> Enum.map(&add_netflow_endpoint_links/1)
+          |> maybe_append_related_netflow_fact(event)
           # Drop empty json sections; non-empty ones render as fact grids in the UI.
           |> Enum.reject(fn
             %{type: :json_section, sections: sections} -> sections == []
@@ -1563,13 +2248,161 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp add_device_ip_link(%{path: path, value: ip} = field, scope) when path in @device_ip_paths and is_binary(ip) do
     if valid_ip?(ip) do
-      Map.put(field, :href, device_ip_path(ip, scope))
+      field
+      |> Map.put(:href, device_ip_path(ip, scope))
+      |> Map.put(:href_label, "Open device inventory for #{ip}")
     else
       field
     end
   end
 
   defp add_device_ip_link(field, _scope), do: field
+
+  # Netflow links for ports (and IPs that didn't already resolve to a device link).
+  defp add_netflow_endpoint_links(%{type: type, fields: fields} = widget)
+       when type in [:facts, :timeline] and is_list(fields) do
+    Map.put(widget, :fields, Enum.map(fields, &add_netflow_endpoint_link/1))
+  end
+
+  defp add_netflow_endpoint_links(widget), do: widget
+
+  defp add_netflow_endpoint_link(%{path: path, value: value} = field)
+       when path in @netflow_src_port_paths or path in @netflow_dst_port_paths do
+    case normalize_port(value) do
+      port when is_integer(port) and port > 0 ->
+        field_name = if path in @netflow_src_port_paths, do: "src_endpoint_port", else: "dst_endpoint_port"
+
+        field
+        |> Map.put(:href, netflow_observability_path([{field_name, port}]))
+        |> Map.put(:href_label, "Open netflow for #{field_name} #{port}")
+
+      _ ->
+        field
+    end
+  end
+
+  defp add_netflow_endpoint_link(%{path: path, value: ip, href: nil} = field)
+       when path in @netflow_src_ip_paths or path in @netflow_dst_ip_paths do
+    if valid_ip?(to_string(ip)) do
+      field_name = if path in @netflow_src_ip_paths, do: "src_endpoint_ip", else: "dst_endpoint_ip"
+
+      field
+      |> Map.put(:href, netflow_observability_path([{field_name, to_string(ip)}]))
+      |> Map.put(:href_label, "Open netflow for #{field_name} #{ip}")
+    else
+      field
+    end
+  end
+
+  # Prefer device inventory when we already attached an inventory href for the IP.
+  defp add_netflow_endpoint_link(field), do: field
+
+  defp maybe_append_related_netflow_fact(widgets, event) when is_list(widgets) do
+    filters = netflow_filters_from_event(event)
+
+    if filters == [] do
+      widgets
+    else
+      related = %{
+        label: "Related netflow",
+        path: "related_netflow",
+        value: netflow_filters_label(filters),
+        href: netflow_observability_path(filters),
+        href_label: "Open related netflow conversation"
+      }
+
+      case Enum.split_with(widgets, &(&1.type == :facts)) do
+        {[], rest} ->
+          [%{type: :facts, fields: [related]} | rest]
+
+        {[facts | more_facts], rest} ->
+          fields = Map.get(facts, :fields, []) ++ [related]
+          [Map.put(facts, :fields, fields) | more_facts] ++ rest
+      end
+    end
+  end
+
+  defp maybe_append_related_netflow_fact(widgets, _event), do: widgets
+
+  defp netflow_filters_from_event(event) when is_map(event) do
+    Enum.flat_map(
+      [
+        {"src_endpoint_ip", dig_event_value(event, ["src_endpoint", "ip"])},
+        {"src_endpoint_port", dig_event_value(event, ["src_endpoint", "port"])},
+        {"dst_endpoint_ip", dig_event_value(event, ["dst_endpoint", "ip"])},
+        {"dst_endpoint_port", dig_event_value(event, ["dst_endpoint", "port"])}
+      ],
+      fn
+        {field, value} when field in ["src_endpoint_ip", "dst_endpoint_ip"] ->
+          if is_binary(value) and valid_ip?(value), do: [{field, value}], else: []
+
+        {field, value} when field in ["src_endpoint_port", "dst_endpoint_port"] ->
+          case normalize_port(value) do
+            port when is_integer(port) and port > 0 -> [{field, port}]
+            _ -> []
+          end
+      end
+    )
+  end
+
+  defp netflow_filters_from_event(_event), do: []
+
+  defp netflow_filters_label(filters) do
+    Enum.map_join(filters, " · ", fn
+      {"src_endpoint_ip", ip} -> "src #{ip}"
+      {"dst_endpoint_ip", ip} -> "dst #{ip}"
+      {"src_endpoint_port", port} -> "sport #{port}"
+      {"dst_endpoint_port", port} -> "dport #{port}"
+      {field, value} -> "#{field}=#{value}"
+    end)
+  end
+
+  defp netflow_observability_path(filters) when is_list(filters) and filters != [] do
+    tokens =
+      Enum.map(filters, fn
+        {field, value} when is_binary(value) -> ~s|#{field}:"#{escape_value(value)}"|
+        {field, value} when is_integer(value) -> "#{field}:#{value}"
+      end)
+
+    query =
+      Enum.join(
+        ["in:flows"] ++ tokens ++ ["time:#{@netflow_time_window}", "sort:time:desc"],
+        " "
+      )
+
+    ~p"/observability?#{%{tab: "netflows", q: query}}"
+  end
+
+  defp dig_event_value(map, [key]) when is_map(map) do
+    Map.get(map, key) || Map.get(map, endpoint_atom_key(key))
+  end
+
+  defp dig_event_value(map, [key | rest]) when is_map(map) do
+    case Map.get(map, key) || Map.get(map, endpoint_atom_key(key)) do
+      %{} = nested -> dig_event_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp dig_event_value(_map, _path), do: nil
+
+  # Avoid String.to_atom/1 on arbitrary paths; only known endpoint keys.
+  defp endpoint_atom_key("src_endpoint"), do: :src_endpoint
+  defp endpoint_atom_key("dst_endpoint"), do: :dst_endpoint
+  defp endpoint_atom_key("ip"), do: :ip
+  defp endpoint_atom_key("port"), do: :port
+  defp endpoint_atom_key(_), do: :__unknown__
+
+  defp normalize_port(value) when is_integer(value) and value > 0 and value <= 65_535, do: value
+
+  defp normalize_port(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {port, ""} when port > 0 and port <= 65_535 -> port
+      _ -> nil
+    end
+  end
+
+  defp normalize_port(_), do: nil
 
   defp device_ip_path(ip, scope) do
     case lookup_device_by_ip(ip, scope) do
@@ -1591,12 +2424,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end
   end
 
-  defp valid_ip?(ip) do
+  defp valid_ip?(ip) when is_binary(ip) do
     case :inet.parse_address(String.to_charlist(String.trim(ip))) do
       {:ok, _address} -> true
       {:error, _reason} -> false
     end
   end
+
+  defp valid_ip?(_), do: false
 
   defp format_timestamp(event) do
     ts =

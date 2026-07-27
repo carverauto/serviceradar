@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
             :if={Map.get(field, :href)}
             navigate={field.href}
             class="break-words text-sm text-sr-brand underline-offset-2 hover:underline"
-            aria-label={"View device for #{field.label} #{field.value}"}
+            aria-label={Map.get(field, :href_label) || "Open #{field.label} #{field.value}"}
           >
             {field.value}
           </.link>
