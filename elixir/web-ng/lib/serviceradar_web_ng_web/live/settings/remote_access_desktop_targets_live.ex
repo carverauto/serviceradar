@@ -304,7 +304,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   defp target_form_modal(assigns) do
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-5xl rounded-lg">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "Enable RDP Access", else: "Edit RDP Access"}

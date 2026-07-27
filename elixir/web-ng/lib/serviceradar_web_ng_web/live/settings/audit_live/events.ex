@@ -325,7 +325,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
       phx-window-keydown="close-event"
       phx-key="Escape"
     >
-      <div class="sr-ui-modal-box max-w-2xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <div class="flex items-start justify-between gap-4">
           <h2 class="text-lg font-semibold">Audit Event</h2>
           <.ui_icon_button

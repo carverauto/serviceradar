@@ -529,7 +529,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-3xl rounded-lg">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
           <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
@@ -696,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp rule_preview_modal(assigns) do
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-5xl rounded-lg">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
           <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">
@@ -916,7 +916,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-4xl rounded-lg">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
             {if @mode == :new, do: "New Credential Rule", else: "Edit Credential Rule"}

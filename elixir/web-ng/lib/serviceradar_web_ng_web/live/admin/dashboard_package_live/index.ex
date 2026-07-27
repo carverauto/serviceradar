@@ -485,7 +485,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp import_modal(assigns) do
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-2xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">Import Dashboard Package</h2>
@@ -653,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp details_modal(assigns) do
     ~H"""
     <div class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-4xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">{@package.name}</h2>

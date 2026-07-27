@@ -971,7 +971,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     ~H"""
     <dialog class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-form">
         <form method="dialog">
           <.ui_icon_button
             phx-click="close_group_modal"
@@ -1088,7 +1088,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     ~H"""
     <dialog class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-3xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <form method="dialog">
           <.ui_icon_button
             phx-click="close_metric_modal"

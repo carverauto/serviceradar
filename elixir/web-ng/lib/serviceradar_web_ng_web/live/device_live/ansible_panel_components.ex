@@ -286,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp launch_modal(assigns) do
     ~H"""
     <dialog id="device-ansible-launch" class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-2xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button
             phx-click="ansible_launch_close"

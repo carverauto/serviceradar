@@ -425,7 +425,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
     ~H"""
     <dialog id="anomaly-capacity-detail-modal" class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-5xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-xl">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">

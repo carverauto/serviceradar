@@ -524,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp create_modal(assigns) do
     ~H"""
     <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-2xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button
             phx-click="close_create_modal"
@@ -974,7 +974,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp details_modal(assigns) do
     ~H"""
     <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-2xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
           <.ui_icon_button
             phx-click="close_details_modal"

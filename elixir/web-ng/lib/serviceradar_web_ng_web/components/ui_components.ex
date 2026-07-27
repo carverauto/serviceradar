@@ -610,13 +610,17 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
-  defp ui_modal_size_class("sm"), do: "max-w-md"
-  defp ui_modal_size_class("form"), do: "max-w-lg"
-  defp ui_modal_size_class("lg"), do: "max-w-3xl"
-  defp ui_modal_size_class("xl"), do: "max-w-5xl"
-  defp ui_modal_size_class("2xl"), do: "max-w-4xl"
-  defp ui_modal_size_class("6xl"), do: "max-w-6xl"
-  defp ui_modal_size_class(_), do: "max-w-2xl"
+  # Map to CSS tokens that set max-width (and width for larger sizes).
+  # Do not rely on Tailwind max-w-* alone — older .sr-ui-modal-box rules
+  # hard-locked width and silently ignored max-w utilities.
+  defp ui_modal_size_class("sm"), do: "sr-ui-modal-box-sm"
+  defp ui_modal_size_class("form"), do: "sr-ui-modal-box-form"
+  defp ui_modal_size_class("md"), do: "sr-ui-modal-box-md"
+  defp ui_modal_size_class("lg"), do: "sr-ui-modal-box-lg"
+  defp ui_modal_size_class("xl"), do: "sr-ui-modal-box-xl"
+  defp ui_modal_size_class("2xl"), do: "sr-ui-modal-box-xl"
+  defp ui_modal_size_class("6xl"), do: "sr-ui-modal-box-2xl"
+  defp ui_modal_size_class(_), do: "sr-ui-modal-box-md"
 
   @doc """
   Brand class list for daisy `join` input+button clusters.

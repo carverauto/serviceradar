@@ -491,7 +491,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       class="sr-ui-modal sr-ui-modal-open"
       data-testid="endpoint-package-modal"
     >
-      <div class="sr-ui-modal-box max-w-3xl">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="mb-3 flex items-start justify-between gap-3">
           <div>
             <h3 class="text-lg font-bold">{field(@package, :name) || "Package"}</h3>

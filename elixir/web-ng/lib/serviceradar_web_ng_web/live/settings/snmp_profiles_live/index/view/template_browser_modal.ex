@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
 
     ~H"""
     <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open">
-      <div class="sr-ui-modal-box max-w-3xl max-h-[80vh]">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg max-h-[80vh]">
         <form method="dialog">
           <.ui_icon_button
             type="button"

@@ -265,10 +265,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
     ~H"""
     <%= if @show and @trace do %>
-      <%!--
-        Use sr-ui-modal-box-lg (56rem). Plain max-w-* does not override
-        .sr-ui-modal-box width: min(..., 32rem), which squished this dialog.
-      --%>
       <div class="sr-ui-modal sr-ui-modal-open">
         <div class="sr-ui-modal-box sr-ui-modal-box-lg">
           <div class="mb-4 flex items-start justify-between gap-3">

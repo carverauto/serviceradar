@@ -970,9 +970,13 @@ samp,
 .modal-box {
   grid-column-start: 1;
   grid-row-start: 1;
-  /* Defaults for small dialogs. Size utilities / sr-ui-modal-box-* variants override. */
-  width: min(calc(11 / 12 * 100%), 32rem);
-  max-width: min(calc(11 / 12 * 100%), 32rem);
+  /*
+    Width fills the track; max-width is the real size control.
+    Tailwind max-w-* and sr-ui-modal-box-* size variants must be able to
+    enlarge the dialog — never hard-lock both width and max-width to 32rem.
+  */
+  width: calc(11 / 12 * 100%);
+  max-width: 32rem;
   max-height: calc(100dvh - 2.5rem);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -984,10 +988,37 @@ samp,
   padding: 1.5rem;
 }
 
-/* Medium dialogs (attributed flow details, multi-column forms) */
+/* Named size tokens (prefer these over bare max-w-* when writing new modals) */
+.sr-ui-modal-box-sm {
+  max-width: 28rem;
+}
+
+.sr-ui-modal-box-md {
+  max-width: 32rem;
+}
+
+.sr-ui-modal-box-form {
+  max-width: 36rem;
+}
+
+/* Medium dialogs (attributed flow details, multi-column forms, MTR, anomaly) */
 .sr-ui-modal-box-lg {
   width: min(92vw, 56rem);
   max-width: min(92vw, 56rem);
+  max-height: min(90dvh, 90vh);
+  overflow-y: auto;
+}
+
+.sr-ui-modal-box-xl {
+  width: min(94vw, 64rem);
+  max-width: min(94vw, 64rem);
+  max-height: min(90dvh, 90vh);
+  overflow-y: auto;
+}
+
+.sr-ui-modal-box-2xl {
+  width: min(94vw, 72rem);
+  max-width: min(94vw, 72rem);
   max-height: min(90dvh, 90vh);
   overflow-y: auto;
 }

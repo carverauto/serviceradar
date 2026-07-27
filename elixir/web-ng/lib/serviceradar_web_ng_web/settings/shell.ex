@@ -426,7 +426,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       phx-hook="CommandPalette"
       phx-update="ignore"
     >
-      <div class="sr-ui-modal-box max-w-2xl p-0" data-command-palette-box>
+      <div class="sr-ui-modal-box sr-ui-modal-box-md p-0" data-command-palette-box>
         <div class="border-b border-sr-line p-3">
           <label class="flex min-h-11 items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3.5 shadow-sr-control">
             <.icon name="hero-magnifying-glass" class="size-4 opacity-60" />
