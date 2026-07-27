@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-shield-exclamation",
             tone: threat_tone(alerts, events),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/events",
+            href: "/observability?tab=events",
             aria_label: "Open security events"
           },
           %{
@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
             icon: "hero-document-text",
             tone: if(priority_event_count(events) > 0, do: "error", else: "info"),
             sparkline: Map.get(sparklines, :threats, []),
-            href: "/events",
+            href: "/observability?tab=events",
             aria_label: "Open recent events"
           }
         ]

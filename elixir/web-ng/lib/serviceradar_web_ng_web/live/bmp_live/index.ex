@@ -83,7 +83,9 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
               Raw routing telemetry from <code>platform.bmp_routing_events</code>.
             </p>
           </div>
-          <.ui_button href={~p"/events"} variant="ghost" size="sm">Curated Events</.ui_button>
+          <.ui_button href={~p"/observability?#{%{tab: "events"}}"} variant="ghost" size="sm">
+            Curated Events
+          </.ui_button>
         </div>
 
         <.summary_cards summary={@summary} />

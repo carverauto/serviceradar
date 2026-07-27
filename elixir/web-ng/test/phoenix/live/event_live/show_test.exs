@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     # Links to the resolved device details page.
     assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']", "View device")
     # Surfaces the resolved device hostname and the guest identifier for context.
-    assert html =~ "Affected Device"
+    assert html =~ "Affected device"
     assert html =~ device.hostname
     assert html =~ "qemu:116"
     assert html =~ @device_uid
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
   test "omits the Affected Device panel for a non-device signal", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/events/#{"no-device"}")
 
-    refute html =~ "Affected Device"
+    refute html =~ "Affected device"
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 

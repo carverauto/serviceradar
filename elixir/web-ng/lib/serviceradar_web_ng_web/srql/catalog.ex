@@ -244,7 +244,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "events",
       label: "Events",
-      route: "/events",
+      route: "/observability",
+      route_params: %{"tab" => "events"},
       default_time: "last_7d",
       default_sort_field: "time",
       default_sort_dir: "desc",

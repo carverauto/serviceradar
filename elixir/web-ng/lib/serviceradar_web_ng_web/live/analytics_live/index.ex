@@ -1056,7 +1056,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     ~H"""
     <div class="h-80 rounded-xl border border-sr-line bg-sr-surface flex flex-col overflow-hidden">
       <header class="px-4 py-3 bg-sr-subtle/40 flex items-start justify-between gap-3 shrink-0">
-        <.link href={~p"/events"} class="hover:text-sr-brand transition-colors">
+        <.link href={~p"/observability?#{%{tab: "events"}}"} class="hover:text-sr-brand transition-colors">
           <div class="text-sm font-semibold">Event Levels</div>
         </.link>
         <.link

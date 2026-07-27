@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 
     assert has_element?(view, "a.sr-ops-kpi-card[href='/devices']", "Total Assets")
-    assert has_element?(view, "a.sr-ops-kpi-card[href='/events']", "Threat Level")
+    assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=events']", "Threat Level")
     assert has_element?(view, "a.sr-ops-kpi-card[href='/services']", "Network Health")
     assert has_element?(view, "a.sr-ops-kpi-card[href='/alerts']", "Active Alerts")
     assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Window")

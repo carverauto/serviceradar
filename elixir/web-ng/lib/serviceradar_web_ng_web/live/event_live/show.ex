@@ -10,8 +10,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
   alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
+
+  # Side stream only — must not drive the main Observability events list limit.
+  @stream_page_size 10
+  # Matches Observability events tab / SRQL bar defaults when running a query from detail.
+  @srql_default_limit 20
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,34 +31,26 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:device_ref, nil)
      |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})}
+     |> assign(:stream_entries, [])
+     |> assign(:stream_severity, "all")
+     |> assign(:stream_query, nil)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, nil)
+     |> assign(:stream_prev_cursor, nil)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_page_size, @stream_page_size)
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("events", default_limit: @srql_default_limit)}
   end
 
   @impl true
-  def handle_params(%{"event_id" => event_id}, _uri, socket) do
-    query =
-      "in:events id:\"#{escape_value(event_id)}\" time:last_24h sort:time:desc limit:1"
+  def handle_params(%{"event_id" => event_id}, uri, socket) do
+    {event, error} = load_event(event_id)
+    stream_query = stream_query_for_event(event)
+    detail_query = detail_query_for_event(event_id)
 
-    {event, error} =
-      case srql_module().query(query) do
-        {:ok, %{"results" => [event | _]}} when is_map(event) ->
-          {event, nil}
-
-        {:ok, %{"results" => []}} ->
-          {nil, "Event not found. Note: Event detail view requires event_id field support."}
-
-        {:ok, _other} ->
-          {nil, "Unexpected response format"}
-
-        {:error, reason} ->
-          error_msg = format_error(reason)
-
-          if String.contains?(error_msg, "unsupported filter") do
-            {nil, "Event detail view is not available - the events entity does not support filtering by id."}
-          else
-            {nil, "Failed to load event: #{error_msg}"}
-          end
-      end
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(stream_query, event, event_id, nil)
 
     related = build_related(event, socket.assigns.current_scope)
 
@@ -68,45 +67,732 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:signal_display, signal_display)
      |> assign(:device_ref, device_ref)
      |> assign(:related, related)
-     |> assign(:error, error)}
+     |> assign(:error, error)
+     |> assign(:stream_entries, stream)
+     |> assign(:stream_query, stream_query)
+     |> assign(:stream_cursor, nil)
+     |> assign(:stream_next_cursor, next_cursor)
+     |> assign(:stream_prev_cursor, prev_cursor)
+     |> assign(:stream_page, 1)
+     |> assign(:stream_severity, "all")
+     |> assign(:page_title, page_title_for(event, event_id))
+     |> prefill_srql_bar(detail_query, uri, event_id)}
+  end
+
+  @impl true
+  def handle_event("set_stream_severity", %{"severity" => severity}, socket)
+      when severity in ~w(all critical high medium low info) do
+    {:noreply, assign(socket, :stream_severity, severity)}
+  end
+
+  def handle_event("stream_next", _params, socket) do
+    cursor = socket.assigns.stream_next_cursor
+
+    if is_binary(cursor) and cursor != "" do
+      {:noreply, load_stream_into_socket(socket, cursor, socket.assigns.stream_page + 1)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("stream_prev", _params, socket) do
+    cursor = socket.assigns.stream_prev_cursor
+    page = max(socket.assigns.stream_page - 1, 1)
+
+    cond do
+      page <= 1 ->
+        {:noreply, load_stream_into_socket(socket, nil, 1)}
+
+      is_binary(cursor) and cursor != "" ->
+        {:noreply, load_stream_into_socket(socket, cursor, page)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("copy_id", _params, socket) do
+    {:noreply, push_event(socket, "clipboard", %{text: socket.assigns.event_id || ""})}
+  end
+
+  def handle_event("copy_json", _params, socket) do
+    text =
+      case socket.assigns.event do
+        %{} = event -> Jason.encode!(event, pretty: true)
+        _ -> ""
+      end
+
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("copy_message", _params, socket) do
+    text =
+      case socket.assigns.event do
+        %{} = event -> event_message(event)
+        _ -> ""
+      end
+
+    {:noreply, push_event(socket, "clipboard", %{text: text})}
+  end
+
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_submit", params,
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "events"}
+     )}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "events")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    socket = SRQLPage.handle_event(socket, "srql_builder_apply", %{})
+    {:noreply, refresh_stream_from_srql(socket)}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", %{},
+       fallback_path: "/observability",
+       extra_params: %{"tab" => "events"}
+     )}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "events")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "events")}
   end
 
   @impl true
   def render(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :visible_stream,
+        filter_stream(assigns.stream_entries, assigns.stream_severity)
+      )
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-4xl p-6">
-        <.header>
-          Event Details
-          <:subtitle>
-            <span class="font-mono text-xs">{@event_id}</span>
-          </:subtitle>
-          <:actions>
-            <.ui_button href={~p"/events"} variant="ghost" size="sm">
-              Back to events
-            </.ui_button>
-          </:actions>
-        </.header>
-
-        <div :if={@error} class="rounded-xl border border-error/30 bg-error/5 p-6 text-center">
-          <p class="text-sm text-error">{@error}</p>
+      <div class="sr-event-viewer flex min-w-0 max-w-full flex-col pt-2 sm:pt-3 lg:h-[calc(100dvh-7.5rem)] lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-hidden">
+        <div :if={@error} class="shrink-0 border-b border-sr-line px-1 py-3 sm:px-2">
+          <div class={ui_alert_class(variant: "error")}>
+            <.icon name="hero-exclamation-circle" class="size-5 shrink-0" />
+            <p>{@error}</p>
+          </div>
         </div>
 
-        <div :if={is_map(@event)} class="space-y-4">
-          <.event_summary event={@event} />
-          <.affected_device :if={is_map(@device_ref)} device_ref={@device_ref} />
-          <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
-          <.anomaly_detection_summary :if={anomaly_finding?(@event)} event={@event} />
-          <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
-          <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
-          <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
-          <.related_links related={@related} />
-          <.event_details event={@event} />
+        <div
+          :if={is_map(@event)}
+          class="grid min-h-0 min-w-0 max-w-full flex-1 grid-cols-1 overflow-hidden border-t border-sr-line lg:grid-cols-[15.5rem_minmax(0,1fr)] xl:grid-cols-[16.5rem_minmax(0,1fr)]"
+        >
+          <%!-- Desktop-only stream; mobile is detail-only --%>
+          <.event_stream_pane
+            entries={@visible_stream}
+            page_count={length(@visible_stream)}
+            page={@stream_page}
+            page_size={@stream_page_size}
+            selected_id={@event_id}
+            stream_severity={@stream_severity}
+            context_label={stream_context_label(@event)}
+            stream_query={@stream_query || Map.get(@srql, :query)}
+            has_prev={@stream_page > 1}
+            has_next={is_binary(@stream_next_cursor) and @stream_next_cursor != ""}
+          />
+
+          <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
+            <.event_detail_header event={@event} event_id={@event_id} />
+            <.event_meta_strip event={@event} />
+
+            <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
+              <.event_message_hero event={@event} />
+              <.affected_device :if={is_map(@device_ref)} device_ref={@device_ref} />
+              <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+              <.anomaly_detection_summary :if={anomaly_finding?(@event)} event={@event} />
+              <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
+              <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
+              <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
+              <.related_links related={@related} />
+              <.event_details event={@event} />
+            </div>
+          </section>
         </div>
       </div>
     </Layouts.app>
     """
   end
+
+  # -- data loading -----------------------------------------------------------
+
+  defp load_event(event_id) do
+    query = detail_query_for_event(event_id) <> " limit:1"
+
+    case srql_module().query(query) do
+      {:ok, %{"results" => [event | _]}} when is_map(event) ->
+        {event, nil}
+
+      {:ok, %{"results" => []}} ->
+        {nil, "Event not found. Note: Event detail view requires event_id field support."}
+
+      {:ok, _other} ->
+        {nil, "Unexpected response format"}
+
+      {:error, reason} ->
+        error_msg = format_error(reason)
+
+        if String.contains?(error_msg, "unsupported filter") do
+          {nil, "Event detail view is not available - the events entity does not support filtering by id."}
+        else
+          {nil, "Failed to load event: #{error_msg}"}
+        end
+    end
+  end
+
+  # Query that pinpoints the open event (SRQL chrome / re-run from detail).
+  defp detail_query_for_event(event_id) when is_binary(event_id) do
+    ~s|in:events id:"#{escape_value(event_id)}" time:last_7d|
+  end
+
+  defp detail_query_for_event(_), do: "in:events time:last_7d"
+
+  # Related stream for the left rail — host/provider context, not the single-id lookup.
+  defp stream_query_for_event(%{} = event) do
+    host = Map.get(event, "host")
+    provider = Map.get(event, "log_provider")
+
+    cond do
+      is_binary(host) and String.trim(host) != "" ->
+        ~s|in:events host:"#{escape_value(host)}" time:last_7d sort:time:desc|
+
+      is_binary(provider) and String.trim(provider) != "" ->
+        ~s|in:events log_provider:"#{escape_value(provider)}" time:last_7d sort:time:desc|
+
+      true ->
+        "in:events time:last_7d sort:time:desc"
+    end
+  end
+
+  defp stream_query_for_event(_), do: "in:events time:last_7d sort:time:desc"
+
+  defp load_stream_into_socket(socket, cursor, page) do
+    query = socket.assigns.stream_query || stream_query_for_event(socket.assigns.event)
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.event, socket.assigns.event_id, cursor)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_cursor, cursor)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, page)
+  end
+
+  defp load_stream_page(query, event, selected_id, cursor) when is_binary(query) do
+    opts =
+      if is_binary(cursor) and cursor != "" do
+        %{limit: @stream_page_size, cursor: cursor}
+      else
+        %{limit: @stream_page_size}
+      end
+
+    case srql_module().query(strip_embedded_limit(query), opts) do
+      {:ok, %{"results" => results} = resp} when is_list(results) ->
+        entries = Enum.map(results, &stream_entry/1)
+
+        entries =
+          if is_nil(cursor) and is_map(event) do
+            ensure_selected_in_stream(entries, event, selected_id)
+          else
+            entries
+          end
+
+        pag = Map.get(resp, "pagination") || %{}
+        next_c = Map.get(pag, "next_cursor") || Map.get(pag, :next_cursor)
+        prev_c = Map.get(pag, "prev_cursor") || Map.get(pag, :prev_cursor)
+        {entries, next_c, prev_c}
+
+      _ ->
+        {[], nil, nil}
+    end
+  end
+
+  defp load_stream_page(_, event, selected_id, cursor) when is_map(event) do
+    load_stream_page(stream_query_for_event(event), event, selected_id, cursor)
+  end
+
+  defp load_stream_page(_, _, _, _), do: {[], nil, nil}
+
+  defp refresh_stream_from_srql(socket) do
+    raw =
+      case Map.get(socket.assigns.srql || %{}, :query) do
+        q when is_binary(q) -> String.trim(q)
+        _ -> ""
+      end
+
+    fallback = socket.assigns.stream_query || stream_query_for_event(socket.assigns.event)
+
+    query =
+      if raw != "" and String.contains?(raw, "in:events") do
+        strip_embedded_limit(raw)
+      else
+        fallback
+      end
+
+    {stream, next_cursor, prev_cursor} =
+      load_stream_page(query, socket.assigns.event, socket.assigns.event_id, nil)
+
+    socket
+    |> assign(:stream_entries, stream)
+    |> assign(:stream_query, query)
+    |> assign(:stream_cursor, nil)
+    |> assign(:stream_next_cursor, next_cursor)
+    |> assign(:stream_prev_cursor, prev_cursor)
+    |> assign(:stream_page, 1)
+    |> assign(:stream_severity, "all")
+  end
+
+  defp strip_embedded_limit(query) when is_binary(query) do
+    query
+    |> String.replace(~r/\s*limit:\d+\b/i, "")
+    |> String.trim()
+  end
+
+  defp prefill_srql_bar(socket, query, uri, event_id) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" ->
+          URI.parse(uri).path || "/events/#{event_id}"
+
+        _ ->
+          "/events/#{event_id}"
+      end
+
+    srql =
+      socket.assigns.srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "events",
+        query: query,
+        draft: query,
+        page_path: page_path || "/events/#{event_id}",
+        error: nil,
+        loading: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+
+      {:error, _reason} ->
+        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+    end
+  end
+
+  defp stream_entry(event) when is_map(event) do
+    %{
+      id: entry_id(event),
+      severity: Map.get(event, "severity"),
+      host: Map.get(event, "host") || Map.get(event, "log_provider") || "—",
+      time_short: format_time_short(event),
+      preview: message_preview(event_message(event))
+    }
+  end
+
+  defp ensure_selected_in_stream(entries, event, selected_id) do
+    if Enum.any?(entries, &(&1.id == selected_id)) do
+      entries
+    else
+      [stream_entry(Map.put(event, "id", selected_id)) | entries]
+    end
+  end
+
+  defp filter_stream(entries, "all"), do: entries
+
+  defp filter_stream(entries, severity) do
+    target = normalize_severity(severity)
+
+    Enum.filter(entries, fn entry ->
+      s = normalize_severity(entry.severity)
+
+      cond do
+        target == "critical" -> s in ["critical", "fatal"]
+        target == "high" -> s in ["high", "error", "warn", "warning"]
+        target == "medium" -> s in ["medium"]
+        target == "low" -> s in ["low"]
+        target == "info" -> s in ["info", "informational", "debug", "ok"]
+        true -> s == target
+      end
+    end)
+  end
+
+  defp page_title_for(%{} = event, event_id) do
+    case event_headline(event) do
+      nil -> "Event · #{String.slice(to_string(event_id), 0, 8)}"
+      title -> title
+    end
+  end
+
+  defp page_title_for(_, event_id), do: "Event · #{String.slice(to_string(event_id), 0, 8)}"
+
+  defp stream_context_label(%{} = event) do
+    Map.get(event, "host") || Map.get(event, "log_provider") || Map.get(event, "source")
+  end
+
+  defp stream_context_label(_), do: nil
+
+  # -- stream pane ------------------------------------------------------------
+
+  attr :entries, :list, required: true
+  attr :page_count, :integer, required: true
+  attr :page, :integer, required: true
+  attr :page_size, :integer, required: true
+  attr :selected_id, :string, required: true
+  attr :stream_severity, :string, required: true
+  attr :context_label, :any, default: nil
+  attr :stream_query, :any, default: nil
+  attr :has_prev, :boolean, default: false
+  attr :has_next, :boolean, default: false
+
+  defp event_stream_pane(assigns) do
+    ~H"""
+    <aside class="sr-event-stream hidden min-h-0 min-w-0 max-w-full flex-col overflow-hidden border-sr-line bg-sr-surface lg:flex">
+      <div class="min-w-0 shrink-0 space-y-2 border-b border-sr-line px-2.5 py-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold tracking-tight text-sr-ink">Event stream</h2>
+          <span class="font-mono text-xs text-sr-muted">
+            {if @page_count > 0, do: "p.#{@page}", else: "0"}
+          </span>
+        </div>
+
+        <div
+          :if={is_binary(@context_label) and @context_label != ""}
+          class="truncate text-[11px] text-sr-muted"
+          title={@context_label}
+        >
+          {@context_label}
+        </div>
+
+        <div
+          :if={is_binary(@stream_query) and @stream_query != ""}
+          class="truncate rounded-sr-control border border-sr-line bg-sr-subtle/50 px-2 py-1 font-mono text-[11px] text-sr-muted"
+          title={@stream_query}
+        >
+          {@stream_query}
+        </div>
+
+        <div class="flex flex-nowrap items-center gap-0.5 overflow-x-auto">
+          <.stream_sev_chip
+            :for={sev <- ~w(all critical high medium low info)}
+            severity={sev}
+            active={@stream_severity == sev}
+          />
+        </div>
+      </div>
+
+      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div :if={@entries == []} class="px-3 py-6 text-center text-sm text-sr-muted">
+          No matching events
+        </div>
+
+        <.link
+          :for={entry <- @entries}
+          navigate={~p"/events/#{entry.id}"}
+          id={"stream-" <> entry.id}
+          class={[
+            "group relative block min-w-0 border-b border-sr-line/70 px-2.5 py-2 transition-colors duration-150 ease-sr-out",
+            entry.id == @selected_id && "bg-sr-subtle",
+            entry.id != @selected_id && "hover:bg-sr-subtle/60"
+          ]}
+        >
+          <div :if={entry.id == @selected_id} class="absolute inset-y-0 left-0 w-0.5 bg-sr-brand"></div>
+          <div class="flex min-w-0 items-start gap-2">
+            <span class={["mt-1 size-1.5 shrink-0 rounded-full", severity_dot_class(entry.severity)]}></span>
+            <div class="min-w-0 flex-1 overflow-hidden">
+              <div class="flex min-w-0 items-baseline justify-between gap-2">
+                <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>
+                <span class="truncate font-mono text-[10px] text-sr-muted">{entry.host}</span>
+              </div>
+              <p class="mt-0.5 truncate text-xs leading-snug text-sr-ink">{entry.preview}</p>
+            </div>
+          </div>
+        </.link>
+      </div>
+
+      <div class="flex shrink-0 items-center justify-between gap-1 border-t border-sr-line px-2 py-1.5">
+        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_prev" disabled={not @has_prev}>
+          <.icon name="hero-chevron-left" class="size-3.5" /> Prev
+        </.ui_button>
+        <span class="font-mono text-[11px] text-sr-muted">{@page}</span>
+        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_next" disabled={not @has_next}>
+          Next <.icon name="hero-chevron-right" class="size-3.5" />
+        </.ui_button>
+      </div>
+    </aside>
+    """
+  end
+
+  attr :severity, :string, required: true
+  attr :active, :boolean, default: false
+
+  defp stream_sev_chip(assigns) do
+    label =
+      case assigns.severity do
+        "all" -> "All"
+        "critical" -> "Crit"
+        "high" -> "High"
+        "medium" -> "Med"
+        "low" -> "Low"
+        "info" -> "Info"
+        other -> String.upcase(other)
+      end
+
+    assigns = assign(assigns, :label, label)
+
+    ~H"""
+    <.ui_button
+      type="button"
+      size="xs"
+      variant={if(@active, do: "soft", else: "ghost")}
+      active={@active}
+      phx-click="set_stream_severity"
+      phx-value-severity={@severity}
+      class="!min-h-6 h-6 shrink-0 px-1.5 text-[10px] font-medium leading-none tracking-wide"
+    >
+      {@label}
+    </.ui_button>
+    """
+  end
+
+  # -- detail header / meta ---------------------------------------------------
+
+  attr :event, :map, required: true
+  attr :event_id, :string, required: true
+
+  defp event_detail_header(assigns) do
+    title = event_headline(assigns.event) || "Event"
+
+    assigns =
+      assigns
+      |> assign(:title, title)
+      |> assign(:source_kind, event_source_kind(assigns.event))
+      |> assign(:short_id, String.slice(assigns.event_id, 0, 8))
+
+    ~H"""
+    <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
+          <.link navigate={~p"/observability?#{%{tab: "events"}}"} class="hover:text-sr-ink">
+            events
+          </.link>
+          <span class="text-sr-line-strong">/</span>
+          <span class="text-sr-ink/80">{@source_kind}</span>
+          <span class="text-sr-line-strong">/</span>
+          <span class="font-mono text-sr-ink">{@short_id}</span>
+        </div>
+
+        <div class="flex shrink-0 flex-wrap items-center gap-1.5">
+          <.ui_button href={~p"/observability?#{%{tab: "events"}}"} variant="outline" size="xs">
+            Back to events
+          </.ui_button>
+          <.ui_button type="button" variant="outline" size="xs" phx-click="copy_json">
+            Copy JSON
+          </.ui_button>
+        </div>
+      </div>
+
+      <div class="min-w-0 space-y-2">
+        <div class="flex min-w-0 items-start gap-2.5">
+          <.severity_badge value={Map.get(@event, "severity")} />
+          <h1
+            class="min-w-0 flex-1 font-sans text-lg font-semibold leading-snug tracking-tight text-sr-ink sm:text-xl line-clamp-2"
+            title={@title}
+          >
+            {@title}
+          </h1>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="break-all font-mono text-xs text-sr-muted">{@event_id}</code>
+          <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_id">Copy ID</.ui_button>
+        </div>
+      </div>
+    </header>
+    """
+  end
+
+  attr :event, :map, required: true
+
+  defp event_meta_strip(assigns) do
+    host = Map.get(assigns.event, "host")
+    provider = Map.get(assigns.event, "log_provider")
+    activity = Map.get(assigns.event, "activity_name")
+    source = event_source(assigns.event)
+
+    facts =
+      [
+        %{label: "Time", value: format_timestamp(assigns.event), mono?: true, href: nil},
+        %{
+          label: "Host",
+          value: host,
+          mono?: true,
+          href: events_filter_href("host", host)
+        },
+        %{
+          label: "Provider",
+          value: provider,
+          mono?: false,
+          href: events_filter_href("log_provider", provider)
+        },
+        %{
+          label: "Activity",
+          value: activity,
+          mono?: false,
+          href: events_filter_href("activity_name", activity)
+        },
+        %{label: "Source", value: if(source != "—", do: source), mono?: false, href: nil},
+        %{label: "Log name", value: Map.get(assigns.event, "log_name"), mono?: true, href: nil}
+      ]
+      |> Enum.reject(fn fact -> blank_value?(fact.value) end)
+      # Avoid duplicate Source when it equals host/provider already shown
+      |> Enum.uniq_by(fn fact -> {fact.label, fact.value} end)
+
+    n = length(facts)
+
+    col_class =
+      cond do
+        n <= 1 -> "grid-cols-1"
+        n == 2 -> "grid-cols-2"
+        n == 3 -> "grid-cols-2 sm:grid-cols-3"
+        n == 4 -> "grid-cols-2 lg:grid-cols-4"
+        true -> "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+      end
+
+    assigns =
+      assigns
+      |> assign(:facts, facts)
+      |> assign(:col_class, col_class)
+
+    ~H"""
+    <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+      <div
+        :for={fact <- @facts}
+        class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
+      >
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          {fact.label}
+        </span>
+        <.link
+          :if={is_binary(fact.href)}
+          navigate={fact.href}
+          class={[
+            "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+          title={"Filter events by #{fact.label}: #{fact.value}"}
+        >
+          <span class="truncate">{fact.value}</span>
+          <.icon
+            name="hero-arrow-top-right-on-square"
+            class="size-3.5 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+          />
+        </.link>
+        <span
+          :if={is_nil(fact.href)}
+          class={[
+            "truncate font-sans text-sm text-sr-ink",
+            fact.mono? && "font-mono text-[13px] tracking-tight"
+          ]}
+        >
+          {fact.value}
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  # Main events list with a single equality filter.
+  defp events_filter_href(_field, value) when not is_binary(value) or value == "", do: nil
+
+  defp events_filter_href(field, value) when is_binary(field) and is_binary(value) do
+    value = String.trim(value)
+
+    if value == "" do
+      nil
+    else
+      query =
+        ~s|in:events #{field}:"#{escape_value(value)}" time:last_7d sort:time:desc|
+
+      ~p"/observability?#{%{tab: "events", q: query}}"
+    end
+  end
+
+  # -- message hero -----------------------------------------------------------
+
+  attr :event, :map, required: true
+
+  defp event_message_hero(assigns) do
+    short = Map.get(assigns.event, "short_message")
+    full = Map.get(assigns.event, "message")
+    body = event_message(assigns.event)
+
+    show_full? =
+      is_binary(full) and full != "" and full != short and
+        (is_nil(short) or short == "" or full != short)
+
+    assigns =
+      assigns
+      |> assign(:body, body)
+      |> assign(:short, short)
+      |> assign(:full, full)
+      |> assign(:show_full?, show_full?)
+      |> assign(:empty?, body == "")
+
+    ~H"""
+    <div :if={not @empty?} class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Message
+        </span>
+        <.ui_button type="button" size="xs" variant="ghost" phx-click="copy_message">Copy</.ui_button>
+      </div>
+
+      <div class="rounded-sr-surface border border-sr-line bg-[color-mix(in_srgb,var(--color-sr-canvas)_78%,var(--color-sr-subtle))] p-4 shadow-sr-surface sm:p-5">
+        <p class="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-sr-ink selection:bg-sr-brand/25">
+          {if is_binary(@short) and @short != "", do: @short, else: @body}
+        </p>
+      </div>
+
+      <div :if={@show_full?} class="space-y-2">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Full message
+        </span>
+        <div class="rounded-sr-surface border border-sr-line bg-sr-surface p-4 shadow-sr-surface sm:p-5">
+          <pre class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-sr-ink/90 selection:bg-sr-brand/25">{@full}</pre>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # -- domain panels (preserved) ----------------------------------------------
 
   attr(:related, :map, required: true)
 
@@ -122,16 +808,18 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     ~H"""
     <div
       :if={is_binary(@log_id) or is_struct(@alert)}
-      class="rounded-xl border border-sr-line bg-sr-surface p-6"
+      class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
     >
-      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-3">
-        Related Records
-      </span>
-      <div class="flex flex-wrap gap-2">
-        <.ui_button :if={@log_id} href={~p"/logs/#{@log_id}"} size="sm" variant="ghost">
+      <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Related records
+        </span>
+      </div>
+      <div class="flex flex-wrap gap-2 p-4">
+        <.ui_button :if={@log_id} href={~p"/logs/#{@log_id}"} size="sm" variant="outline">
           View source log
         </.ui_button>
-        <.ui_button :if={is_struct(@alert)} href={~p"/alerts/#{@alert.id}"} size="sm" variant="ghost">
+        <.ui_button :if={is_struct(@alert)} href={~p"/alerts/#{@alert.id}"} size="sm" variant="outline">
           View alert ({@alert.status})
         </.ui_button>
       </div>
@@ -145,13 +833,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :label, device_ref_label(assigns.device_ref))
 
     ~H"""
-    <div class="rounded-xl border border-sr-brand/30 bg-sr-brand/5 p-6">
-      <div class="flex flex-wrap items-center justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-sr-brand/30 bg-sr-brand/5 shadow-sr-surface">
+      <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-sr-brand uppercase tracking-wider block mb-1">
-            Affected Device
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-brand block mb-1">
+            Affected device
           </span>
-          <div class="text-sm font-medium truncate">{@label}</div>
+          <div class="text-sm font-medium text-sr-ink truncate">{@label}</div>
           <div :if={@device_ref.guest} class="mt-0.5 text-xs font-mono text-sr-muted">
             Guest {@device_ref.guest}
           </div>
@@ -179,60 +867,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   attr(:event, :map, required: true)
 
-  defp event_summary(assigns) do
-    source = event_source(assigns.event)
-
-    assigns = assign(assigns, :source, source)
-
-    ~H"""
-    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
-      <div class="flex flex-wrap gap-x-8 gap-y-4">
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-sr-muted uppercase tracking-wider">Severity</span>
-          <.severity_badge value={Map.get(@event, "severity")} />
-        </div>
-
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-sr-muted uppercase tracking-wider">Time</span>
-          <span class="text-sm font-mono">{format_timestamp(@event)}</span>
-        </div>
-
-        <div :if={has_value?(@event, "host")} class="flex flex-col gap-1">
-          <span class="text-xs text-sr-muted uppercase tracking-wider">Host</span>
-          <span class="text-sm font-mono">{Map.get(@event, "host")}</span>
-        </div>
-
-        <div :if={@source != "—"} class="flex flex-col gap-1">
-          <span class="text-xs text-sr-muted uppercase tracking-wider">Source</span>
-          <span class="text-sm">{@source}</span>
-        </div>
-      </div>
-
-      <div :if={has_value?(@event, "short_message")} class="mt-6 pt-6 border-t border-sr-line">
-        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-2">Message</span>
-        <p class="text-sm whitespace-pre-wrap">{Map.get(@event, "short_message")}</p>
-      </div>
-
-      <div
-        :if={
-          has_value?(@event, "message") and
-            Map.get(@event, "message") != Map.get(@event, "short_message")
-        }
-        class="mt-4"
-      >
-        <span class="text-xs text-sr-muted uppercase tracking-wider block mb-2">
-          Full Message
-        </span>
-        <p class="text-sm whitespace-pre-wrap font-mono text-sr-ink/90 bg-sr-subtle/30 p-3 rounded-lg">
-          {Map.get(@event, "message")}
-        </p>
-      </div>
-    </div>
-    """
-  end
-
-  attr(:event, :map, required: true)
-
   defp anomaly_detection_summary(assigns) do
     finding = anomaly_detection_payload(assigns.event)
     finding_info = nested_map(assigns.event, ["metadata", "finding_info"])
@@ -246,13 +880,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:series_display, AnomalySeriesKey.display(series_key) || series_key)
 
     ~H"""
-    <div class="rounded-xl border border-warning/20 bg-warning/5 p-6">
-      <div class="flex items-start justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-amber-500/25 bg-amber-500/5 shadow-sr-surface">
+      <div class="flex items-start justify-between gap-4 border-b border-amber-500/15 px-4 py-3 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-warning uppercase tracking-wider block mb-2">
-            Anomaly Detection Finding
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400 block mb-1">
+            Anomaly detection finding
           </span>
-          <h2 class="text-lg font-semibold leading-tight">
+          <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
             {map_value(@finding_info, "title") || Map.get(@event, "message") ||
               "Anomalous metric behavior detected"}
           </h2>
@@ -260,7 +894,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <.severity_badge value={Map.get(@event, "severity")} />
       </div>
 
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <.finding_fact label="Series" value={@series_display} title={@series_key} />
         <.finding_fact label="Metric Class" value={map_value(@finding, "metric_class")} />
         <.finding_fact label="State" value={map_value(@finding, "state")} />
@@ -283,20 +917,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:resource, map_value(forecast, "resource_label") || map_value(forecast, "resource_key"))
 
     ~H"""
-    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
-      <div class="flex items-start justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-rose-500/25 bg-rose-500/5 shadow-sr-surface">
+      <div class="flex items-start justify-between gap-4 border-b border-rose-500/15 px-4 py-3 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-error uppercase tracking-wider block mb-2">
-            Capacity Forecast
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-rose-600 dark:text-rose-400 block mb-1">
+            Capacity forecast
           </span>
-          <h2 class="text-lg font-semibold leading-tight">
+          <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
             {Map.get(@event, "message") || "Resource projected to cross capacity threshold"}
           </h2>
         </div>
         <.severity_badge value={Map.get(@event, "severity")} />
       </div>
 
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <.finding_fact label="Resource" value={@resource} mono />
         <.finding_fact label="Metric" value={map_value(@forecast, "metric_name")} />
         <.finding_fact label="Status" value={map_value(@forecast, "status")} />
@@ -324,12 +958,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted block mb-1">
         {@label}
       </span>
       <span
         class={[
-          "text-sm break-words",
+          "text-sm break-words text-sr-ink",
           if(@mono, do: "font-mono break-all", else: nil),
           if(blank?(@value), do: "text-sr-muted", else: nil)
         ]}
@@ -359,20 +993,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:attribution, diagnostic_value(diagnostics, ["attribution"]))
 
     ~H"""
-    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
-      <div class="flex items-start justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-rose-500/25 bg-rose-500/5 shadow-sr-surface">
+      <div class="flex items-start justify-between gap-4 border-b border-rose-500/15 px-4 py-3 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-error uppercase tracking-wider block mb-2">
-            Falco Runtime Event
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-rose-600 dark:text-rose-400 block mb-1">
+            Falco runtime event
           </span>
-          <h2 class="text-lg font-semibold leading-tight">
+          <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
             {diagnostic_value(@rule, ["name"]) || Map.get(@event, "message") || "Falco rule matched"}
           </h2>
         </div>
         <.severity_badge value={diagnostic_value(@rule, ["priority"]) || Map.get(@event, "severity")} />
       </div>
 
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <.diagnostic_fact label="Rule" value={diagnostic_value(@rule, ["name"])} />
         <.diagnostic_fact label="Host" value={diagnostic_value(@host, ["name"])} mono />
         <.diagnostic_fact label="Process" value={diagnostic_value(@process, ["name"])} />
@@ -409,11 +1043,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp diagnostic_fact(assigns) do
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted block mb-1">
         {@label}
       </span>
       <span class={[
-        "text-sm break-words",
+        "text-sm break-words text-sr-ink",
         if(@mono, do: "font-mono", else: nil),
         if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
@@ -432,20 +1066,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       |> assign(:src_ip, waf_src_ip(assigns.event))
 
     ~H"""
-    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
-      <div class="flex items-start justify-between gap-4">
+    <div class="overflow-hidden rounded-sr-surface border border-rose-500/25 bg-rose-500/5 shadow-sr-surface">
+      <div class="flex items-start justify-between gap-4 border-b border-rose-500/15 px-4 py-3 sm:px-5">
         <div class="min-w-0">
-          <span class="text-xs text-error uppercase tracking-wider block mb-2">
-            WAF Finding
+          <span class="font-sans text-xs font-medium uppercase tracking-wide text-rose-600 dark:text-rose-400 block mb-1">
+            WAF finding
           </span>
-          <h2 class="text-lg font-semibold leading-tight">
+          <h2 class="text-base font-semibold leading-tight text-sr-ink sm:text-lg">
             {waf_value(@waf, "rule_message") || Map.get(@event, "message") || "Coraza rule matched"}
           </h2>
         </div>
         <.severity_badge value={waf_value(@waf, "rule_severity") || Map.get(@event, "severity")} />
       </div>
 
-      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-5">
         <.waf_fact label="Client IP" value={@src_ip} mono />
         <.waf_fact label="Rule ID" value={waf_value(@waf, "rule_id")} mono />
         <.waf_fact label="Request Path" value={waf_value(@waf, "request_path")} mono />
@@ -464,11 +1098,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp waf_fact(assigns) do
     ~H"""
     <div class="min-w-0">
-      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-1">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted block mb-1">
         {@label}
       </span>
       <span class={[
-        "text-sm break-words",
+        "text-sm break-words text-sr-ink",
         if(@mono, do: "font-mono", else: nil),
         if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
@@ -481,11 +1115,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr(:event, :map, required: true)
 
   defp event_details(assigns) do
-    # Fields already shown in summary
     summary_fields =
-      ~w(id event_id severity severity_id time event_timestamp timestamp host source short_message message activity_name activity_id class_uid category_uid type_uid)
+      ~w(id event_id severity severity_id time event_timestamp timestamp host source short_message message activity_name activity_id class_uid category_uid type_uid log_provider log_name)
 
-    # Other fields (not summary)
     other_fields =
       assigns.event
       |> Map.keys()
@@ -495,18 +1127,19 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :other_fields, other_fields)
 
     ~H"""
-    <%!-- Event Details --%>
     <div
       :if={@other_fields != []}
-      class="rounded-xl border border-sr-line bg-sr-surface p-6"
+      class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface"
     >
-      <span class="text-xs text-sr-muted uppercase tracking-wider block mb-4">
-        Event Details
-      </span>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+      <div class="border-b border-sr-line bg-sr-subtle/30 px-4 py-2.5">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Event details
+        </span>
+      </div>
+      <div class="grid grid-cols-1 gap-x-6 gap-y-3 p-4 sm:grid-cols-2 sm:p-5">
         <%= for field <- @other_fields do %>
-          <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-xs text-sr-muted">{field_label(field)}</span>
+          <div class="flex min-w-0 flex-col gap-0.5">
+            <span class="font-sans text-xs text-sr-muted">{field_label(field)}</span>
             <.format_value value={Map.get(@event, field)} />
           </div>
         <% end %>
@@ -515,7 +1148,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  # CloudEvents field ordering
   attr(:value, :any, default: nil)
 
   defp format_value(%{value: nil} = assigns) do
@@ -539,12 +1171,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     assigns = assign(assigns, :formatted, formatted)
 
     ~H"""
-    <pre class="text-xs font-mono bg-sr-subtle/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+    <pre class="max-h-48 overflow-x-auto rounded-sr-control bg-sr-subtle/30 p-2 font-mono text-xs">{@formatted}</pre>
     """
   end
 
   defp format_value(%{value: value} = assigns) when is_binary(value) do
-    # Check if it looks like JSON
     if String.starts_with?(value, "{") or String.starts_with?(value, "[") do
       case Jason.decode(value) do
         {:ok, decoded} ->
@@ -552,24 +1183,24 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           assigns = assign(assigns, :formatted, formatted)
 
           ~H"""
-          <pre class="text-xs font-mono bg-sr-subtle/30 p-2 rounded overflow-x-auto max-h-48">{@formatted}</pre>
+          <pre class="max-h-48 overflow-x-auto rounded-sr-control bg-sr-subtle/30 p-2 font-mono text-xs">{@formatted}</pre>
           """
 
         {:error, _} ->
           ~H"""
-          <span class="font-mono text-xs break-all">{@value}</span>
+          <span class="break-all font-mono text-xs">{@value}</span>
           """
       end
     else
       ~H"""
-      <span class="break-all">{@value}</span>
+      <span class="break-all text-sm text-sr-ink">{@value}</span>
       """
     end
   end
 
   defp format_value(assigns) do
     ~H"""
-    <span class="break-all">{to_string(@value)}</span>
+    <span class="break-all text-sm text-sr-ink">{to_string(@value)}</span>
     """
   end
 
@@ -590,7 +1221,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     case normalize_severity(value) do
       s when s in ["critical", "fatal", "error"] -> "error"
       s when s in ["high", "warn", "warning"] -> "warning"
-      s when s in ["medium", "info"] -> "info"
+      s when s in ["medium", "info", "informational"] -> "info"
       s when s in ["low", "debug", "ok"] -> "success"
       _ -> "ghost"
     end
@@ -604,6 +1235,115 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(nil), do: ""
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
+
+  defp severity_dot_class(value) do
+    case normalize_severity(value) do
+      s when s in ["critical", "fatal", "error"] -> "bg-rose-500"
+      s when s in ["high", "warn", "warning"] -> "bg-amber-400"
+      s when s in ["medium", "info", "informational"] -> "bg-sr-brand"
+      s when s in ["low", "debug", "trace", "ok"] -> "bg-sky-400"
+      _ -> "bg-sr-muted"
+    end
+  end
+
+  defp format_time_short(event) do
+    ts =
+      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
+
+    case parse_timestamp(ts) do
+      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
+      _ -> "—"
+    end
+  end
+
+  defp entry_id(event) do
+    case Map.get(event, "id") || Map.get(event, "event_id") do
+      <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
+      id when is_binary(id) and id != "" -> id
+      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(event))
+    end
+  end
+
+  defp uuid_to_string(<<a::binary-size(4), b::binary-size(2), c::binary-size(2), d::binary-size(2), e::binary-size(6)>>) do
+    Base.encode16(a, case: :lower) <>
+      "-" <>
+      Base.encode16(b, case: :lower) <>
+      "-" <>
+      Base.encode16(c, case: :lower) <>
+      "-" <>
+      Base.encode16(d, case: :lower) <>
+      "-" <>
+      Base.encode16(e, case: :lower)
+  end
+
+  defp uuid_to_string(other), do: to_string(other)
+
+  defp message_preview(body, max \\ 72)
+
+  defp message_preview(body, max) when is_binary(body) do
+    body = body |> String.trim() |> String.replace(~r/\s+/, " ")
+
+    cond do
+      body == "" -> "—"
+      String.length(body) <= max -> body
+      true -> String.slice(body, 0, max - 1) <> "…"
+    end
+  end
+
+  defp message_preview(_, _), do: "—"
+
+  defp event_message(event) when is_map(event) do
+    case Map.get(event, "short_message") || Map.get(event, "message") do
+      v when is_binary(v) -> v
+      _ -> ""
+    end
+  end
+
+  defp event_message(_), do: ""
+
+  defp event_headline(event) when is_map(event) do
+    msg = event_message(event)
+
+    cond do
+      is_binary(msg) and String.trim(msg) != "" ->
+        msg
+        |> String.trim()
+        |> String.replace(~r/\s+/, " ")
+        |> then(fn s ->
+          if String.length(s) > 120, do: String.slice(s, 0, 119) <> "…", else: s
+        end)
+
+      is_binary(Map.get(event, "activity_name")) and Map.get(event, "activity_name") != "" ->
+        Map.get(event, "activity_name")
+
+      true ->
+        nil
+    end
+  end
+
+  defp event_headline(_), do: nil
+
+  defp event_source_kind(event) when is_map(event) do
+    cond do
+      anomaly_finding?(event) -> "anomaly"
+      capacity_forecast_event?(event) -> "capacity"
+      waf_event?(event) -> "waf"
+      falco_event?(event) -> "falco"
+      is_binary(Map.get(event, "log_provider")) and Map.get(event, "log_provider") != "" ->
+        Map.get(event, "log_provider")
+      is_binary(Map.get(event, "activity_name")) and Map.get(event, "activity_name") != "" ->
+        Map.get(event, "activity_name")
+      true ->
+        "event"
+    end
+  end
+
+  defp event_source_kind(_), do: "event"
+
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?("—"), do: true
+  defp blank_value?(_), do: false
 
   @device_ip_paths ~w(
     metadata.security_signal.diagnostics.network.source_ip
@@ -999,17 +1739,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp blank?(value), do: value in [nil, ""]
 
-  defp has_value?(map, key) do
-    case Map.get(map, key) do
-      nil -> false
-      "" -> false
-      _ -> true
-    end
-  end
-
-  # Known field label mappings
   @field_labels %{
-    # Common fields
     "_remote_addr" => "Remote Address",
     "short_message" => "Message",
     "timestamp" => "Timestamp",
