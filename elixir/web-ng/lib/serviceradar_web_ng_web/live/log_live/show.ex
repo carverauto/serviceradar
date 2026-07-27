@@ -909,8 +909,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp message_preview(_, _), do: "—"
 
   # Hero title next to the severity badge.
-  # Prefer real event names / message subject — never PIDs, MAC tails, or
-  # kernel bracket timestamps (e.g. not "1977", not "b9 idle(60) timeout(180)").
+  # Prefer a full useful subject (wevent + EVENT_* + STA…) — never PIDs alone,
+  # MAC tails, or kernel timestamps.
   defp log_headline(body) when is_binary(body) do
     body = body |> String.replace(~r/\s+/, " ") |> String.trim()
 
@@ -918,12 +918,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       nil
     else
       [
-        # UniFi/Ubiquiti: EVENT_STA_JOIN beats generic wevent.ubnt_custom_event()
-        extract_event_code(body),
+        # Full UniFi wevent payload (not just EVENT_STA_JOIN alone)
+        extract_wevent_headline(body),
+        extract_event_subject(body),
         extract_function_event(body),
         extract_subject_after_syslog(body),
         extract_bracket_title(body),
-        message_preview(peel_log_prefix(body), 240)
+        message_preview(peel_host_prefix(body), 240)
       ]
       |> Enum.find(&usable_headline?/1)
     end
@@ -936,12 +937,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     title != "" and has_latin_letter?(title) and not pure_numeric_token?(title) and
       not mac_tail_headline?(title) and not metrics_only_headline?(title) and
-      not kernel_timestamp_headline?(title) and not generic_wrapper_event?(title)
+      not kernel_timestamp_headline?(title) and not generic_wrapper_only?(title)
   end
 
   defp usable_headline?(_), do: false
 
-  # EVENT_STA_JOIN / EVENT_STA_LEAVE / … — the actionable event code.
+  # "wevent[2066]: wevent.ubnt_custom_event(): EVENT_STA_JOIN wifi0ap0: aa:bb:… / 2"
+  defp extract_wevent_headline(body) when is_binary(body) do
+    case Regex.run(~r/\b(wevent\[\d+\]:\s*.+)$/i, body) do
+      [_, subject] ->
+        subject = String.trim(subject)
+        if usable_headline?(subject), do: subject
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_wevent_headline(_), do: nil
+
+  # EVENT_STA_JOIN … (full tail including iface/MAC when present)
+  defp extract_event_subject(body) when is_binary(body) do
+    case Regex.run(~r/\b(EVENT_[A-Z][A-Z0-9_]{2,48}\b.*)$/, body) do
+      [_, subject] ->
+        subject = String.trim(subject)
+        if usable_headline?(subject), do: subject
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_event_subject(_), do: nil
+
   defp extract_event_code(body) when is_binary(body) do
     case Regex.run(~r/\b(EVENT_[A-Z][A-Z0-9_]{2,48})\b/, body) do
       [_, code] -> code
@@ -952,11 +980,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp extract_event_code(_), do: nil
 
   # "… mcad[1977]: wireless_agg_stats.log_sta_anomalies(): BSSID=…"
-  # Only accept empty-paren events with a dotted name (module.func()) so
-  # metric crumbs like idle(60) never win — those aren't empty ().
-  # Skip generic Ubiquiti wrappers (wevent.ubnt_custom_event) when an EVENT_* exists.
+  # Skip when a richer wevent/EVENT subject exists.
   defp extract_function_event(body) when is_binary(body) do
-    if extract_event_code(body) do
+    if extract_wevent_headline(body) || extract_event_code(body) do
       nil
     else
       case Regex.scan(~r"\b([A-Za-z_][\w.]*[A-Za-z0-9_]\(\))", body) do
@@ -970,7 +996,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             _ -> nil
           end)
           |> Enum.filter(&(is_binary(&1) and String.contains?(&1, ".")))
-          |> Enum.reject(&generic_wrapper_event?/1)
+          |> Enum.reject(&generic_wrapper_only?/1)
           |> List.last()
       end
     end
@@ -978,15 +1004,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp extract_function_event(_), do: nil
 
-  # Generic dispatch wrappers are not useful as page titles.
-  defp generic_wrapper_event?(name) when is_binary(name) do
+  # Bare wrapper name with nothing else is not a useful title.
+  defp generic_wrapper_only?(name) when is_binary(name) do
     n = name |> String.trim() |> String.downcase() |> String.trim_trailing("()")
 
     n in ["wevent.ubnt_custom_event", "ubnt_custom_event"] or
       String.ends_with?(n, ".ubnt_custom_event")
   end
 
-  defp generic_wrapper_event?(_), do: false
+  defp generic_wrapper_only?(_), do: false
 
   # Peel host/kernel/iface prefixes; keep the human subject intact.
   # Do NOT split on ":" — that shatters MAC addresses into "b9 idle(60)…".
@@ -999,6 +1025,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     cleaned =
       subject
+      |> peel_host_prefix()
       |> peel_log_prefix()
       |> String.trim()
       |> String.trim_trailing(":")
@@ -1058,25 +1085,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp kernel_timestamp_headline?(_), do: false
 
-  # Strip leading host/daemon/kernel noise; leave the message subject alone.
-  defp peel_log_prefix(body) when is_binary(body) do
+  # Host/mac only — keeps wevent[pid] and the rest of the payload.
+  defp peel_host_prefix(body) when is_binary(body) do
     cleaned =
       body
-      # d021f9b43279,UAP-nanoHD-6.7.54+15663:
+      # ac8ba9d587dd,U6-Mesh-6.8.2+15592:
       |> String.replace(~r/^[0-9a-fA-F]{6,},[^:]+:\s*/, "")
       # stray empty tag from "host: : wevent"
       |> String.replace(~r/^:\s*/, "")
-      # mcad[1977]: / wevent[2066]: / process[12345]:
-      |> String.replace(~r/\b[A-Za-z_][\w.-]*\[\d+\]:\s*/, "")
+      |> String.trim()
+
+    if cleaned == "", do: body, else: cleaned
+  end
+
+  defp peel_host_prefix(body), do: body
+
+  # Aggressive peel for non-wevent subjects (kernel, mcad, …).
+  defp peel_log_prefix(body) when is_binary(body) do
+    cleaned =
+      body
+      |> peel_host_prefix()
+      # mcad[1977]: / process[12345]: (not wevent — those stay in headline)
+      |> String.replace(~r/\b(?!wevent)[A-Za-z_][\w.-]*\[\d+\]:\s*/i, "")
       # one or more short facility tags at the front: kernel: syslog: …
       |> String.replace(~r/^(?:[A-Za-z_][\w.-]{0,24}:\s*)+/, "")
       # [2652784.576992] kernel uptime stamp
       |> String.replace(~r/^\[\d+(?:\.\d+)?\]\s*/, "")
-      # iface / subsystem tag: ra0: eth0: wlan0: (not MAC colons — only at start)
+      # iface / subsystem tag: ra0: eth0: wlan0:
       |> String.replace(~r/^[A-Za-z][\w.-]{0,15}:\s*/, "")
-      # generic wrapper call left behind: wevent.ubnt_custom_event():
-      |> String.replace(~r/^(?:wevent\.)?ubnt_custom_event\(\)\s*:\s*/i, "")
-      |> String.replace(~r/^[A-Za-z_][\w.]*\.\w+\(\)\s*:\s*/, "")
       |> String.trim()
 
     if cleaned == "", do: body, else: cleaned
@@ -1098,14 +1134,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp message_prefix(_), do: nil
 
-  # Prefix shown above the parsed field grid for wevent lines (no KEY=).
+  # Prefix above the parsed grid: host/device line (without the EVENT payload).
   defp wevent_message_prefix(body) when is_binary(body) do
-    if extract_event_code(body) do
-      peel_log_prefix(body)
-      |> String.replace(~r/\bEVENT_[A-Z][A-Z0-9_]{2,48}\b.*$/, "")
-      |> String.trim()
-      |> String.trim_trailing(":")
-      |> then(fn p -> if p == "", do: nil, else: p end)
+    if extract_event_code(body) || Regex.match?(~r/\bwevent\[\d+\]:/i, body) do
+      case Regex.run(~r/^(.*?)(?=\bwevent\[\d+\]:)/i, body) do
+        [_, host] ->
+          host = host |> String.trim() |> String.trim_trailing(":") |> String.trim()
+          if host == "", do: nil, else: host
+
+        _ ->
+          peel_host_prefix(body)
+          |> String.replace(~r/\bwevent\[\d+\]:.*$/i, "")
+          |> String.trim()
+          |> then(fn p -> if p == "", do: nil, else: p end)
+      end
     end
   end
 
@@ -1120,32 +1162,47 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp extract_message_pairs(_), do: []
 
-  # UniFi wevent: "EVENT_STA_JOIN wifi0ap0: 7a:b4:e3:d1:93:5a / 2"
+  # UniFi wevent: "wevent[2066]: wevent.ubnt_custom_event(): EVENT_STA_JOIN wifi0ap0: mac / 2"
   defp extract_event_pairs(body) when is_binary(body) do
+    process_pairs =
+      case Regex.run(~r/\b([A-Za-z_][\w.-]*)\[(\d+)\]:/, body) do
+        [_, name, pid] -> [{"process", name}, {"pid", pid}]
+        _ -> []
+      end
+
+    dispatcher_pairs =
+      case Regex.run(~r/\b((?:wevent\.)?ubnt_custom_event\(\))/i, body) do
+        [_, fn_name] -> [{"dispatcher", fn_name}]
+        _ -> []
+      end
+
     event = extract_event_code(body)
 
-    if is_nil(event) do
-      []
-    else
-      base = [{"event", event}]
+    event_pairs =
+      if is_nil(event) do
+        []
+      else
+        base = [{"event", event}]
 
-      rest =
-        case Regex.run(
-               ~r"\bEVENT_[A-Z][A-Z0-9_]{2,48}\s+([A-Za-z][\w.-]{0,24}):\s*([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})(?:\s*/\s*(\d+))?",
-               body
-             ) do
-          [_, iface, mac, count] when is_binary(count) and count != "" ->
-            [{"interface", iface}, {"sta", String.downcase(mac)}, {"index", count}]
+        rest =
+          case Regex.run(
+                 ~r"\bEVENT_[A-Z][A-Z0-9_]{2,48}\s+([A-Za-z][\w.-]{0,24}):\s*([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})(?:\s*/\s*(\d+))?",
+                 body
+               ) do
+            [_, iface, mac, count] when is_binary(count) and count != "" ->
+              [{"interface", iface}, {"sta", String.downcase(mac)}, {"index", count}]
 
-          [_, iface, mac | _] ->
-            [{"interface", iface}, {"sta", String.downcase(mac)}]
+            [_, iface, mac | _] ->
+              [{"interface", iface}, {"sta", String.downcase(mac)}]
 
-          _ ->
-            []
-        end
+            _ ->
+              []
+          end
 
-      base ++ rest
-    end
+        base ++ rest
+      end
+
+    process_pairs ++ dispatcher_pairs ++ event_pairs
   end
 
   defp extract_event_pairs(_), do: []
