@@ -15,11 +15,13 @@ resources:
   requests:
     cpu: "8"
     memory: "16Gi"
-    ephemeral-storage: "20Gi"
+    # Firecracker + init-dockerd needs room for container rootfs (~12Gi) plus
+    # scratch. 25Gi was too small when default free-disk was 20Gi (Marvin).
+    ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 affinity:
   nodeAffinity:
@@ -34,7 +36,8 @@ affinity:
 extraVolumes:
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache
+      # Live cluster path (do not switch back to /var/lib without migrating).
+      path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
   # Mount a Docker config with auth (secret must be created separately, e.g.
   # kubectl -n buildbuddy create secret docker-registry dockerhub-auth ...).
@@ -56,19 +59,20 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
-    # Default to OCI isolation for release reliability. Firecracker (#4752)
-    # mis-sized VMs when EstimatedMemory used invalid units ("8GB" is not a
-    # k8s quantity — use "8Gi") and when default_task_size was not applied,
-    # producing mem_size_mib≈44 + initrd failures / signal: killed OOMs.
-    # enable_firecracker stays on so isolation=firecracker can be re-enabled
-    # after default_task_size is verified live.
-    default_isolation_type: oci
+    # Firecracker is the intended default for Docker-in-RBE (Dgraph/PG E2E).
+    # OCI rollback (#4759) was temporary after invalid EstimatedMemory units
+    # ("8GB") and undersized free-disk + 25Gi ephemeral caused VM init panics.
+    default_isolation_type: firecracker
     enable_firecracker: true
-    # Used when isolation=firecracker; quantities are bytes/millicpu.
+    # Sizing for Firecracker microVMs when actions omit exec_properties.
+    # Do NOT set estimated_free_disk_bytes here: BB default is ~100Mi, and each
+    # additional VM only pays image size once. A 20Gi free-disk default plus
+    # ~12Gi init-dockerd exceeded the old 25Gi pod ephemeral limit and produced
+    # zero-size virtio disks + "Attempted to kill init" panics.
+    # Request larger free disk only on docker/DB test targets via exec_properties.
     default_task_size:
       estimated_milli_cpu: 4000
       estimated_memory_bytes: 8589934592 # 8 GiB
-      estimated_free_disk_bytes: 21474836480 # 20 GiB
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300

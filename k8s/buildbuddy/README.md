@@ -19,16 +19,16 @@ resources:
   requests:
     cpu: "8"
     memory: "16Gi"
-    ephemeral-storage: "20Gi"
+    ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 extraVolumes:
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache
+      path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
 
 extraVolumeMounts:
@@ -37,6 +37,14 @@ extraVolumeMounts:
 
 config:
   executor:
+    default_isolation_type: firecracker
+    enable_firecracker: true
+    # Leave estimated_free_disk_bytes unset (BB ~100Mi default). Raising the
+    # executor default to 20Gi + init-dockerd (~12Gi) exceeded the old 25Gi
+    # ephemeral limit and panic'd Firecracker init.
+    default_task_size:
+      estimated_milli_cpu: 4000
+      estimated_memory_bytes: 8589934592 # 8 GiB
     local_cache_directory: /cache
     local_cache_size_bytes: 50000000000
     root_directory: /cache/remotebuilds/
@@ -48,8 +56,9 @@ config:
 - **Resources per executor**:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
-  - Ephemeral Storage: 20-25Gi (request-limit)
-- **Cache path**: `/cache` (hostPath `/var/lib/buildbuddy/cache` on each node)
+  - Ephemeral Storage: 45-50Gi (request-limit; room for Firecracker rootfs + dockerd)
+- **Isolation**: Firecracker default (`enable_firecracker: true`); OCI still enabled as fallback
+- **Cache path**: `/cache` (hostPath `/mnt/buildbuddy/cache` on each node)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
@@ -130,19 +139,29 @@ kubectl get hpa -n buildbuddy
 If pods are being evicted due to resource pressure:
 1. Check node resources: `kubectl describe node <node-name>`
 2. Common causes:
-   - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect 20Gi/25Gi
-   - **Memory pressure**: Adjust memory limits
-   - **Disk pressure**: Check node disk usage
+   - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect 45Gi/50Gi for Firecracker + docker-in-VM
+   - **Memory pressure**: Adjust memory limits; Firecracker default_task_size targets 8Gi per task
+   - **Disk pressure**: Check node disk usage; do not set a large executor-wide `estimated_free_disk_bytes`
 3. Confirm the cache mount is present: `kubectl exec -n buildbuddy <pod> -- ls -la /cache`
 4. Reduce resource requests/limits in `values.yaml` if needed
 5. Add node affinity to avoid problematic nodes
 6. Reduce cache size (`local_cache_size_bytes`)
 7. Clean up evicted pods: `kubectl delete pods --field-selector status.phase=Failed -n buildbuddy`
 
+### Firecracker / Docker-in-RBE
+
+- Guest free disk defaults to ~100Mi unless a target sets `EstimatedFreeDiskBytes` via exec_properties.
+- Docker-using tests (Dgraph, Postgres, etc.) should request free disk on the **action**, not on the executor default.
+- If VMs die with `Attempted to kill init` or `virtio_blk ... 0` blocks, check pod ephemeral usage and that free-disk defaults are not inflated:
+  ```bash
+  kubectl -n buildbuddy exec $POD -- df -h /cache /tmp /
+  kubectl -n buildbuddy logs $POD | rg -i 'Kernel panic|virtio_blk|Configured runner pool'
+  ```
+
 ### Cache Backing Storage
 
 - Executors mount a hostPath volume named `cache-volume` at `/cache`.
-- The host path (`/var/lib/buildbuddy/cache`) is created per node and is not shared across nodes.
+- The host path (`/mnt/buildbuddy/cache`) is created per node and is not shared across nodes.
 - If a node runs out of disk, resize the node storage or adjust `local_cache_size_bytes`.
 
 ### Connection Issues
