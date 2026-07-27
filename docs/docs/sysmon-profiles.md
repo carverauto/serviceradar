@@ -30,7 +30,8 @@ Sysmon Profiles let you control:
 
 ## Accessing Sysmon Profiles
 
-Navigate to **Settings > Sysmon Profiles** in the web UI.
+Navigate to **Settings → Host Health** (`/settings/sysmon`) in the web UI
+(catalog title: **Host Health**; this is the Sysmon Profiles surface).
 
 ## Profile Management
 

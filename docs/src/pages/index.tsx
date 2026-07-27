@@ -66,11 +66,11 @@ function HomepageHeader() {
             language as the product.
           </p>
           <div className="sr-docs-hero__actions">
-            <Link className="sr-docs-btn sr-docs-btn--primary" to="/docs/intro">
-              Get started
+            <Link className="sr-docs-btn sr-docs-btn--primary" to="/docs/cloud-quickstart">
+              Cloud quickstart
             </Link>
             <Link className="sr-docs-btn sr-docs-btn--secondary" to="/docs/quickstart">
-              Quickstart
+              Self-hosted quickstart
             </Link>
             <Link
               className="sr-docs-btn sr-docs-btn--secondary"

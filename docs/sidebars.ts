@@ -11,9 +11,11 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Start Here',
+      collapsed: false,
       items: [
         {type: 'doc', id: 'intro', label: 'Introduction'},
-        {type: 'doc', id: 'quickstart', label: 'Quickstart'},
+        {type: 'doc', id: 'cloud-quickstart', label: 'Cloud Quickstart'},
+        {type: 'doc', id: 'quickstart', label: 'Self-hosted Quickstart'},
         {type: 'doc', id: 'architecture', label: 'Architecture'},
         {type: 'doc', id: 'web-ui-overview', label: 'Navigating the Web UI'},
       ],
@@ -22,12 +24,17 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Deploy',
       items: [
+        {type: 'doc', id: 'cloud-quickstart', label: 'Cloud Quickstart'},
         {type: 'doc', id: 'docker-setup', label: 'Docker Compose'},
         {type: 'doc', id: 'helm-configuration', label: 'Kubernetes (Helm)'},
         {type: 'doc', id: 'kubernetes-ingestion', label: 'Kubernetes Ingestion'},
         {type: 'doc', id: 'service-ports', label: 'Kubernetes Ingress'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
-        {type: 'doc', id: 'tls-security', label: 'TLS & mTLS'},
+        {
+          type: 'doc',
+          id: 'tls-security',
+          label: 'TLS & mTLS (advanced)',
+        },
         {type: 'doc', id: 'auth-configuration', label: 'Authentication'},
         {type: 'doc', id: 'rbac-and-roles', label: 'Roles & Permissions'},
       ],
