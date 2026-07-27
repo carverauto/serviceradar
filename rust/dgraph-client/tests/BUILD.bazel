@@ -67,7 +67,7 @@ rust_test_suite(
     edition = "2024",
     exec_properties = {
         # Run this test inside a Firecracker microVM.
-        "test.workload-isolation-type": "firecracker",
+        "test.workload-isolation-type": "oci",
         # Ensure the Docker daemon is started inside that microVM.
         "test.init-dockerd": "true",
         # Preserve microVM state across runs so the dgraph image stays in the local cache.
