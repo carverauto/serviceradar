@@ -645,7 +645,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       <div class="min-w-0 space-y-2">
         <div class="flex min-w-0 items-start gap-2.5">
           <.severity_badge value={Map.get(@log, "severity_text")} />
-          <h1 class="min-w-0 flex-1 font-sans text-lg font-semibold leading-snug tracking-tight text-sr-ink sm:text-xl">
+          <h1
+            class="min-w-0 flex-1 font-sans text-lg font-semibold leading-snug tracking-tight text-sr-ink sm:text-xl line-clamp-2"
+            title={@title}
+          >
             {@title}
           </h1>
         </div>
@@ -908,9 +911,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp message_preview(_, _), do: "—"
 
-  # Hero title next to the severity badge.
-  # Prefer a full useful subject (wevent + EVENT_* + STA…) — never PIDs alone,
-  # MAC tails, or kernel timestamps.
+  # Hero title next to the severity badge — short scan line only.
+  # Full body always lives in the Message section below.
   defp log_headline(body) when is_binary(body) do
     body = body |> String.replace(~r/\s+/, " ") |> String.trim()
 
@@ -918,19 +920,127 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       nil
     else
       [
-        # Full UniFi wevent payload (not just EVENT_STA_JOIN alone)
-        extract_wevent_headline(body),
+        # Compact UniFi wevent (EVENT + iface/MAC, not the whole host line)
         extract_event_subject(body),
+        extract_wevent_headline(body),
         extract_function_event(body),
         extract_subject_after_syslog(body),
         extract_bracket_title(body),
-        message_preview(peel_host_prefix(body), 240)
+        first_log_sentence(peel_host_prefix(body))
       ]
-      |> Enum.find(&usable_headline?/1)
+      |> Enum.find_value(fn candidate ->
+        case candidate do
+          title when is_binary(title) ->
+            title = summarize_headline(title)
+            if usable_headline?(title), do: title
+
+          _ ->
+            nil
+        end
+      end)
     end
   end
 
   defp log_headline(_), do: nil
+
+  # Cap hero text: drop stacktraces/docs, keep ~one short line.
+  defp summarize_headline(title) when is_binary(title) do
+    title
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> strip_logger_stack_and_docs()
+    |> first_log_sentence()
+    |> truncate_headline(110)
+  end
+
+  defp summarize_headline(_), do: nil
+
+  # Logger/Ash walls: cut at stack frames or the long "This happens when…" docs.
+  defp strip_logger_stack_and_docs(text) when is_binary(text) do
+    text
+    # (elixir 1.19.4) lib/... stack frames
+    |> then(fn t ->
+      case Regex.split(~r/\s*[,(]\s*\(elixir\s+\d/, t, parts: 2) do
+        [head | _] -> head
+        _ -> t
+      end
+    end)
+    # ", lib/foo.ex:" or " lib/ash/..." embedded frames
+    |> then(fn t ->
+      case Regex.split(~r/,\s*lib\/|\s+lib\/[a-z_]+\/|\s+lib\/[a-z_]+\.ex:/, t, parts: 2) do
+        [head | _] -> head
+        _ -> t
+      end
+    end)
+    # Ash missed-notifications essay after the real warning
+    |> then(fn t ->
+      case Regex.split(
+             ~r/,\s*,\s*This happens when\b|,\s*This happens when\b|\.\s+This happens when\b/,
+             t,
+             parts: 2
+           ) do
+        [head | _] -> head
+        _ -> t
+      end
+    end)
+    # Logger iodata glue ", ,"
+    |> then(fn t ->
+      case Regex.split(~r/,\s*,\s*/, t, parts: 2) do
+        [head | _] -> head
+        _ -> t
+      end
+    end)
+    |> String.trim()
+    |> String.trim_trailing(",")
+    |> String.trim()
+  end
+
+  defp strip_logger_stack_and_docs(text), do: text
+
+  # First sentence / clause; avoid chopping Module.Name.func.
+  defp first_log_sentence(text) when is_binary(text) do
+    text = String.trim(text)
+
+    cond do
+      text == "" ->
+        nil
+
+      # Sentence end: ". " then capital letter (prose), not Module.func
+      m = Regex.run(~r/^(.+?\.)\s+(?=[A-Z])(.*)$/s, text) ->
+        [_, first, _rest] = m
+        String.trim(first)
+
+      true ->
+        text
+    end
+  end
+
+  defp first_log_sentence(_), do: nil
+
+  defp truncate_headline(nil, _), do: nil
+
+  defp truncate_headline(text, max) when is_binary(text) and is_integer(max) do
+    text = String.trim(text)
+
+    cond do
+      text == "" ->
+        nil
+
+      String.length(text) <= max ->
+        text
+
+      true ->
+        cut =
+          text
+          |> String.slice(0, max)
+          |> String.replace(~r/\s+\S*$/, "")
+          |> String.trim_trailing(".,;:")
+
+        if cut == "", do: String.slice(text, 0, max) <> "…", else: cut <> "…"
+    end
+  end
+
+  defp truncate_headline(text, _), do: text
 
   defp usable_headline?(title) when is_binary(title) do
     title = String.trim(title)
