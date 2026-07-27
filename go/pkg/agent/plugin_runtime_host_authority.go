@@ -465,7 +465,7 @@ func validateProxmoxPublicParams(
 				case "_serviceradar_host_authority", "host_authority", "host_params", "host_params_json",
 					"credential_broker", "api_token_secret_ref", "credential_secret_ref",
 					"password_secret_ref", "api_key_secret_ref", "_secret_material",
-					"private_key", "password", "passphrase", "known_hosts_path", "ssh",
+					"private_key", credentialFormFieldPassword, "passphrase", "known_hosts_path", "ssh",
 					"ssh_host_key_policy":
 					return errPluginHostAuthorityMalformed
 				case "api_token", "credential_secret":
@@ -2077,8 +2077,8 @@ func pluginHostAuthoritySSHGrantAllowed(binding pluginHostAuthorityBinding, host
 
 func proxmoxConsoleSSHCredentialFromMaterial(material CredentialBrokerMaterial) (proxmoxConsoleSSHAuth, error) {
 	credential := proxmoxConsoleSSHAuth{
-		Username:   credentialMaterialFieldValue(material, "username", "user"),
-		Password:   credentialMaterialFieldValue(material, "password"),
+		Username:   credentialMaterialFieldValue(material, credentialFormFieldUsername, "user"),
+		Password:   credentialMaterialFieldValue(material, credentialFormFieldPassword),
 		PrivateKey: credentialMaterialFieldValue(material, "private_key"),
 		Passphrase: credentialMaterialFieldValue(material, "passphrase"),
 	}
