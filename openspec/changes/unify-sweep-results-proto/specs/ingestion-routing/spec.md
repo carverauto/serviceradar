@@ -148,114 +148,34 @@ processing durable data.
 - **AND** other executions SHALL continue or resume on the same logical lanes
   without waiting for a whole connection drain
 
-### Requirement: Edge records and delivery frames are byte-bounded and versioned
-Every `EdgeRecordV1` SHALL declare its platform payload family, exact output-
-contract ID/version/bundle digest and registry epoch, authenticated producer/
-package/assignment/run context, platform route profile, schema version,
-compression, encoded and uncompressed sizes, checksum, stable event ID,
-projected database-row cost, projected database-write bytes, and cost-model
-version. It SHALL also declare exactly one authoritative `network_scope_id`,
-immutable signed `traffic_class`, authorization kind/context, and any source/run/
-execution/shard/epoch/range ID/digest covered by its signed capability. Trusted
-projected cost, route, traffic class, and provenance SHALL be derived by the
-agent sink from the approved contract/grant rather than accepted from a producer.
-The agent sink SHALL encode these complete producer-neutral semantic record bytes
-once. Their semantic digest SHALL bind network scope, authenticated agent,
-traffic class, output/schema/cost contract, authorization, producer/run,
-execution, assignment, range, observation identity, and canonical content.
-
-Every `EdgeDeliveryFrameV1` SHALL carry the exact `EdgeRecordV1` bytes and digest
-plus persistent spool identity, monotonic lane sequence, and other bounded edge-
-delivery/session coordinates. Delivery coordinates SHALL NOT be part of the
-canonical semantic record or its digest. Recovery MAY wrap the same record bytes
-in a new fenced delivery frame without changing semantic identity. Gateway
-receipt, physical stream/sequence, and stream-map placement are broker placement
-metadata and SHALL NOT be injected into or rewrite `EdgeRecordV1`.
-
-The gateway SHALL validate the delivery frame and enough of the fixed semantic
-record to authorize and route it, then JetStream-publish the exact `record_bytes`
-unchanged. Before any protobuf unmarshal, the gateway and EventWriter SHALL reject
-a frame/record whose raw length exceeds its hard byte bound (512 KiB for
-`EdgeRecordV1`) AND SHALL verify `record_sha256` over `record_bytes`. On the STREAMING
-gRPC ingest path this bound SHALL be enforced at the TRANSPORT, BEFORE the body is
-buffered and BEFORE any decompression: the gateway SHALL reject a declared gRPC message
-length exceeding the client-message bound BEFORE accumulating any chunk toward it (never
-buffering to an attacker-declared 32-bit length), and SHALL DISABLE gRPC message
-compression on the edge-ingest lane: a message whose gRPC compressed-flag is set SHALL be
-REJECTED immediately (there is no bounded-decompression fallback, because decompression
-occurs before the codec/decode sees the bytes and a unary body-size limit does not cover
-the stream). Each component SHALL then
-decode and hash the record at most once and perform at most one streaming
-decompression bounded by an independent hard output/expansion limit, never trusting
-the declared `uncompressed_size` as an allocation authority. Broker
-headers SHALL be transport-minimal, limited to protocol fields required for
-deduplication, expected-stream fencing, and bounded tracing; they SHALL NOT
-duplicate semantic metadata or act as identity, contract, authorization, cost,
-or routing authority. EventWriter SHALL decode and validate the complete binary
-`EdgeRecordV1` from the JetStream body. Broker publication identity SHALL bind trusted
-network scope/agent, spool ID/sequence, the exact-record checksum
-`record_sha256`, and the semantic digest, so that two different outer encodings in
-one slot receive DIFFERENT `Nats-Msg-Id` values and both reach EventWriter for the
-physical-slot integrity check rather than one being silently suppressed by broker
-deduplication. A legitimate same-lane retry reuses the exact record bytes and
-therefore the same `record_sha256`, keeping lost-ACK deduplication intact. The
-initial `EdgeRecordV1` target encoded size SHALL be 256 KiB and its hard encoded
-size SHALL be 512 KiB. `EdgeDeliveryFrameV1` and transport-minimal broker headers
-SHALL add only separately bounded overhead.
-
-#### Scenario: Exact binary envelope is persisted
-- **GIVEN** the gateway validates a supported agent-spooled delivery frame
-- **WHEN** it durably publishes the contained record
-- **THEN** the JetStream body SHALL be byte-for-byte identical to
-  `EdgeDeliveryFrameV1.record_bytes` and the common-spooled `EdgeRecordV1` bytes
-- **AND** EventWriter SHALL recover contract, provenance, authorization, cost,
-  semantic identity, and canonical content by decoding that binary body rather
-  than an `Sr-Edge-*` header set
-- **AND** delivery-only reauthorization or recovery MAY replace delivery-frame
-  coordinates around those exact bytes but SHALL NOT rewrite the record,
-  semantic digest, traffic class, or original collection proof
-
-#### Scenario: Batch builder reaches its byte target
-- **WHEN** adding another observation would move a frame past its byte target
-- **THEN** the agent SHALL flush the current independently decodable frame
-- **AND** item-count guards SHALL remain secondary to actual encoded size
-
-#### Scenario: Unexpected record cannot fit
-- **WHEN** one record violates the configured field or frame bounds
-- **THEN** the producer SHALL quarantine it with a structured operator-visible
-  error
-- **AND** it SHALL NOT retry the same impossible frame indefinitely
-
-#### Scenario: Compressed size declaration lies
-- **WHEN** streaming decompression exceeds the independent output or expansion
-  limit or does not equal the declared size
-- **THEN** the consumer SHALL stop before unbounded allocation and classify the
-  event as poison
-- **AND** unsupported dictionaries, trailing frames, and excessive protobuf
-  recursion SHALL be rejected
-
-#### Scenario: Producer understates projected cost
-- **WHEN** a producer submission supplies a route, traffic class, provenance, or
-  projected database cost that differs from its effective grant
-- **THEN** the agent sink SHALL ignore and replace non-authoritative metadata or
-  reject the submission before spool acceptance
-- **AND** the consumer SHALL verify the platform-stamped cost-model version and
-  decoded worst-case cost before reserving destination capacity
-
 ### Requirement: Accepted dispositions mean durable JetStream acceptance
 The agent SHALL retain each `EdgeRecordV1` byte string and its unresolved
 delivery binding in a crash-safe local spool until the gateway reports a
 disposition covering the corresponding `EdgeDeliveryFrameV1` lane sequence. The
 gateway SHALL report an accepted disposition only after validating a JetStream
 PubAck for the exact record digest/stable event ID and expected authoritative
-stream. The gateway SHALL report the delivery disposition using the five
-gateway-publication outcomes: a `primary_publication` (authoritative accept)
-requires a PubAck on the expected authoritative stream; an `audit_publication` or
-`quarantine_publication` requires a PubAck on the mapped audit/DLQ stream and is
-explicitly non-authoritative -- neither an authoritative accept nor a permanent
-reject; a `permanent_rejection` requires an audit/DLQ PubAck; and a
-`retryable_rejection` SHALL NOT be reported as an advancing disposition and SHALL
-leave the covered lane sequence unresolved for retry. The finite platform-owned
+stream. The gateway SHALL compute one of SIX INTERNAL publication outcomes and
+SHALL report on the RPC only the GENERATED `EdgeRecordDispositionKind` member it
+maps to; the internal names are never wire values. The mapping is MANY-TO-ONE:
+
+| internal outcome | required PubAck | reported wire member |
+| --- | --- | --- |
+| `primary_publication` | expected authoritative stream | `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE` |
+| `audit_publication` | mapped audit stream | `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY` |
+| `quarantine_publication` | mapped quarantine DLQ | `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` |
+| `security_quarantine_publication` | SECURITY-quarantine DLQ | `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` |
+| `permanent_rejection` | reject-audit DLQ | `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT` |
+| `retryable_rejection` | none | `EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE` |
+
+The audit and both quarantine outcomes are explicitly NON-AUTHORITATIVE -- neither
+an authoritative accept nor a permanent reject. A `retryable_rejection` SHALL NOT be
+reported as an advancing disposition and SHALL leave the covered lane sequence
+unresolved for retry.
+
+Because both quarantine outcomes report the SAME wire member, the security-quarantine
+ROUTE SHALL be preserved independently of the reported disposition: a
+compromise-revoked record SHALL reach the security-quarantine DLQ, which the wire
+member alone cannot express. The finite platform-owned
 route-profile/traffic-class lanes and recovery SHALL use independent spool/
 credit sequences; lane identity SHALL NOT be keyed by output contract, payload
 kind, or package. Spool-loss recovery SHALL use separately reserved
@@ -322,7 +242,8 @@ after authoritative PubAck.
 - **GIVEN** a bounded frame violates a permanent protocol rule
 - **WHEN** safe rejection metadata is durably PubAcked to the authenticated
   installation's mapped audit/DLQ stream
-- **THEN** the gateway SHALL return a `permanent_rejection` disposition
+- **THEN** the gateway SHALL compute `permanent_rejection` and report
+  `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`
 - **AND** the agent SHALL move the raw frame to durable local quarantine before
   reclaiming its spool sequence
 
@@ -332,15 +253,28 @@ after authoritative PubAck.
   (quarantine) -- invalid protocol input is `permanent_rejection` per the frozen
   disposition table and is NOT admitted here
 - **WHEN** the gateway validates its audit/DLQ PubAck
-- **THEN** the gateway SHALL return `audit_publication` or `quarantine_publication`
-- **AND** the disposition SHALL be neither an authoritative accept nor a
-  `permanent_rejection`, and the agent SHALL resolve its spool sequence without
-  treating the record as authoritatively projected
+- **THEN** the gateway SHALL report `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY` or
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE` for the internal `audit_publication` or
+  `quarantine_publication` outcome
+- **AND** the disposition SHALL be neither an authoritative accept nor a permanent
+  reject, and the agent SHALL resolve its spool sequence without treating the record
+  as authoritatively projected
+
+#### Scenario: A compromise-revoked record reaches the security-quarantine DLQ
+- **GIVEN** a record whose signing key was revoked for compromise
+- **WHEN** the gateway validates its SECURITY-quarantine DLQ PubAck
+- **THEN** it SHALL compute `security_quarantine_publication` and report
+  `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`, the same member an ordinary quarantine reports
+- **AND** the security-quarantine ROUTE SHALL be distinct from the ordinary
+  quarantine DLQ, since the reported member cannot distinguish them
+- **AND** the agent SHALL resolve its spool sequence on that PubAck rather than
+  leaving it permanently unresolved
 
 #### Scenario: Retryable rejection leaves the sequence unresolved
 - **GIVEN** the gateway cannot admit a frame now for a retryable reason
 - **WHEN** it reports the outcome
-- **THEN** the gateway SHALL return `retryable_rejection`
+- **THEN** the gateway SHALL compute `retryable_rejection` and report
+  `EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE`
 - **AND** the covered lane sequence SHALL remain unresolved and the agent SHALL
   retain the frame for retry rather than advancing its resolved watermark
 
@@ -455,7 +389,10 @@ before a hot producer exhausts shared capacity.
   REQUIRES the allocated-sequence COVERAGE PROOF -- every allocated sequence in the
   segment, INCLUDING MARKERLESS ALLOCATED SLOTS, covered by a fully committed,
   sender-visible destination slot with its rebound attribution and directory
-  evidence, or by a PubAcked frozen loss span -- and the AGGREGATE recovery reserve,
+  evidence, or by a PubAcked frozen loss span WHOSE COVERED SEQUENCES ARE EACH BACKED
+  BY DURABLE PER-SEQUENCE LOSS EVIDENCE WHOSE JOURNALED CLASSIFICATION MATCHES THE
+  SPAN'S COMPLETE ONEOF BODY (the PubAck alone does not authorize
+  deletion) -- and the AGGREGATE recovery reserve,
   not one-segment scratch. A markerless allocated slot is often the only intact
   evidence that the sequence existed; copy-and-fsync does not see it, so a
   watermark-only rule deletes it
@@ -686,32 +623,13 @@ delivery mapping on the edge path -- the governed service owns its own publicati
 journal but likewise carries provenance in the message, not a broker-side
 mapping), and SHALL be used as transport provenance only, never as
 semantic or authorization truth. The `Sr-Edge-Transport-Provenance` header SHALL
-carry a bounded TYPED envelope that is field-framed under the Appendix A grammar
-`serviceradar.edge.transport-provenance` and then base64url-encoded (no padding) into
-the ASCII header value; EventWriter SHALL decode and validate it. The envelope SHALL
-declare `TransportProvenanceVersion = 1` (immutable; an unknown version SHALL be
-rejected fail-closed) and SHALL carry, in typed order, the version, a `slot_kind`
-discriminant (`0 = UNSPECIFIED` rejected, `1 = EDGE`, `2 = SERVICE_INGRESS`), the frozen
-slot tuple for that kind, `record_sha256`, a `delivery_proof` (exactly one 32-byte SHA-256
-over the delivery capability's grammar-2 signing bytes, NOT its raw protobuf) that is
-present ONLY for RENEWAL/ROLLOVER/LATE_FENCED_DELIVERY records and absent -- marked by its
-presence byte -- for fresh and service-ingress records, a publisher-attested `delivery_mode`
-(`1 = FRESH` / `2 = RENEWAL` / `3 = ROLLOVER` / `4 = LATE_FENCED_DELIVERY`; `0` rejected)
-REPLACING the old `source_kind`, and the `route_map_version` (nonzero). The framed envelope SHALL NOT exceed a
-hard bound of 512 bytes of ASCII. Trust SHALL come from per-class publisher-subject
-isolation, NOT from a global "only the gateway" rule: ONLY the authenticated gateway
-MAY publish to the durable edge-record subject and ONLY an authorized governed
-service MAY publish to its own service-ingress subject, each over its own isolated
-publisher credential, so the header is provenance the respective isolated publisher
-stamped and requires no separate signature or durable gateway-side mapping. A
-missing, duplicate, or unknown-version `Sr-Edge-Transport-Provenance` header on a
-durable record subject SHALL be a distinct `provenance_missing` quarantine (it cannot
-satisfy this DLQ retention requirement) whose DLQ record uses ONLY what is available
--- the publish subject, the raw `record_bytes`, and any `Nats-Msg-Id`-derivable
-coordinates -- and SHALL NOT require the missing provenance envelope. DLQ
-`MaxAge` SHALL be disabled;
-raw records SHALL leave the stream only through catalog-backed, state-aware,
-audited deletion.
+carry a bounded TYPED envelope whose grammar -- domain tag, version constant,
+slot-kind discriminants, ordered fields, presence rules, base64url(no-pad)
+encoding, and byte bound -- is frozen by the edge record v1 wire ABI and is NOT
+restated here. EventWriter SHALL decode and validate it under that frozen grammar
+and SHALL reject an unknown version fail-closed.
+
+
 
 #### Scenario: Event is delivered repeatedly
 - **WHEN** an event with the same `(network_scope_id, event_id)` and a matching
@@ -817,7 +735,7 @@ audited deletion.
 - **WHEN** it carries no `Sr-Edge-Transport-Provenance` header, a duplicate header
   (header names matched CASE-INSENSITIVELY; more than one value for any single required
   publication-identity header is a duplicate), or an envelope whose
-  `TransportProvenanceVersion` is unknown or exceeds the 512-byte hard bound
+  `TransportProvenanceVersion` is unknown or exceeds the frozen transport-provenance header bound
 - **THEN** EventWriter SHALL route it to a distinct `provenance_missing` quarantine
   whose DLQ record uses only the publish subject, the raw `record_bytes`, and any
   `Nats-Msg-Id`-derivable coordinates, and SHALL NOT require the missing provenance
@@ -971,3 +889,88 @@ unbounded retained history while new scan admission is stopped.
   drained
 - **THEN** removal of legacy emission and decode MAY proceed in a separately
   gated release
+
+### Requirement: Edge record ingestion is bounded at the transport and the gateway
+The transport and the gateway SHALL enforce the frozen record and frame bounds in operation, before buffering and before decompression.
+
+The field sets, the hard byte bound, and the `record_sha256` rule are frozen by the
+`freeze-edge-record-v1-abi` change. This requirement owns their enforcement and the
+surrounding pipeline: trusted projected cost, route, traffic class, and provenance
+SHALL be derived by the agent sink from the approved contract/grant rather than
+accepted from a producer, and the agent sink SHALL encode the complete
+producer-neutral semantic record bytes once.
+
+Every `EdgeDeliveryFrameV1` SHALL carry the exact `EdgeRecordV1` bytes and digest
+plus persistent spool identity, monotonic lane sequence, and other bounded edge-
+delivery/session coordinates. Delivery coordinates SHALL NOT be part of the
+canonical semantic record or its digest. Recovery MAY wrap the same record bytes
+in a new fenced delivery frame without changing semantic identity. Gateway
+receipt, physical stream/sequence, and stream-map placement are broker placement
+metadata and SHALL NOT be injected into or rewrite `EdgeRecordV1`.
+
+
+
+#### Scenario: Exact binary envelope is persisted
+
+- **GIVEN** the gateway validates a supported agent-spooled delivery frame
+- **WHEN** it durably publishes the contained record
+- **THEN** the JetStream body SHALL be byte-for-byte identical to
+  `EdgeDeliveryFrameV1.record_bytes` and the common-spooled `EdgeRecordV1` bytes
+- **AND** EventWriter SHALL recover contract, provenance, authorization, cost,
+  semantic identity, and canonical content by decoding that binary body rather
+  than an `Sr-Edge-*` header set
+- **AND** delivery-only reauthorization or recovery MAY replace delivery-frame
+  coordinates around those exact bytes but SHALL NOT rewrite the record,
+  semantic digest, traffic class, or original collection proof
+
+#### Scenario: Batch builder reaches its byte target
+
+- **WHEN** adding another observation would move a frame past its byte target
+- **THEN** the agent SHALL flush the current independently decodable frame
+- **AND** item-count guards SHALL remain secondary to actual encoded size
+
+#### Scenario: Unexpected record cannot fit
+
+- **WHEN** one record violates the configured field or frame bounds
+- **THEN** the producer SHALL quarantine it with a structured operator-visible
+  error
+- **AND** it SHALL NOT retry the same impossible frame indefinitely
+
+#### Scenario: Producer understates projected cost
+
+- **WHEN** a producer submission supplies a route, traffic class, provenance, or
+  projected database cost that differs from its effective grant
+- **THEN** the agent sink SHALL ignore and replace non-authoritative metadata or
+  reject the submission before spool acceptance
+- **AND** the consumer SHALL verify the platform-stamped cost-model version and
+  decoded worst-case cost before reserving destination capacity
+
+The gateway SHALL validate the delivery frame and enough of the fixed semantic
+record to authorize and route it, then JetStream-publish the exact `record_bytes`
+unchanged. Before any protobuf unmarshal, the gateway and EventWriter SHALL reject
+a frame/record whose raw length exceeds its frozen hard byte bound AND SHALL verify `record_sha256` over `record_bytes`. On the STREAMING
+gRPC ingest path this bound SHALL be enforced at the TRANSPORT, BEFORE the body is
+buffered and BEFORE any decompression: the gateway SHALL reject a declared gRPC message
+length exceeding the client-message bound BEFORE accumulating any chunk toward it (never
+buffering to an attacker-declared 32-bit length), and SHALL DISABLE gRPC message
+compression on the edge-ingest lane: a message whose gRPC compressed-flag is set SHALL be
+REJECTED immediately (there is no bounded-decompression fallback, because decompression
+occurs before the codec/decode sees the bytes and a unary body-size limit does not cover
+the stream). Each component SHALL then
+decode and hash the record at most once and perform at most one streaming
+decompression bounded by an independent hard output/expansion limit, never trusting
+the declared `uncompressed_size` as an allocation authority. Broker
+headers SHALL be transport-minimal, limited to protocol fields required for
+deduplication, expected-stream fencing, and bounded tracing; they SHALL NOT
+duplicate semantic metadata or act as identity, contract, authorization, cost,
+or routing authority. EventWriter SHALL decode and validate the complete binary
+`EdgeRecordV1` from the JetStream body. Broker publication identity SHALL bind trusted
+network scope/agent, spool ID/sequence, the exact-record checksum
+`record_sha256`, and the semantic digest, so that two different outer encodings in
+one slot receive DIFFERENT `Nats-Msg-Id` values and both reach EventWriter for the
+physical-slot integrity check rather than one being silently suppressed by broker
+deduplication. A legitimate same-lane retry reuses the exact record bytes and
+therefore the same `record_sha256`, keeping lost-ACK deduplication intact. The `EdgeRecordV1` target encoded size SHALL be 256 KiB; its hard bound, the
+delivery-frame bound, and the client-message bound are the frozen `MaxRecordBytes`,
+`MaxFrameBytes`, and `MaxClientMessageBytes` values owned by the edge record v1
+wire ABI, and SHALL NOT be restated as literals here.
