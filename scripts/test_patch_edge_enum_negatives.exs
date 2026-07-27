@@ -23,11 +23,12 @@
 defmodule TransformFixtureTest do
   @script Path.expand("patch_edge_enum_negatives.exs", __DIR__)
 
-  # Exactly the 15 modules the transform pins, so a clean fixture satisfies the inventory check.
+  # Exactly the 16 modules the transform pins, so a clean fixture satisfies the inventory check.
   @inventory ~w(
     EdgeCapabilityPurpose EdgeOriginKind EdgeRecordCompression EdgeRecordDispositionKind
     EdgeRecordPayloadFamily EdgeRecordRouteProfile EdgeRecordTrafficClass
-    EdgeSourceAuthorizationKind MtrOutcome SweepExecutionEventKind SweepExecutionSource
+    EdgeSourceAuthorizationKind EdgeUnattributableReason MtrOutcome SweepExecutionEventKind
+    SweepExecutionSource
     SweepMode SweepModeBit SweepModeOutcome TransportProtocol
   )
 
@@ -102,8 +103,8 @@ defmodule TransformFixtureTest do
 
     with {0, _} <- run_transform(dir),
          content = File.read!(file),
-         15 <- count(content, "def key(tag) when is_integer(tag) and tag < 0, do: tag"),
-         15 <- count(content, "def value(tag) when is_integer(tag) and tag < 0, do: tag"),
+         16 <- count(content, "def key(tag) when is_integer(tag) and tag < 0, do: tag"),
+         16 <- count(content, "def value(tag) when is_integer(tag) and tag < 0, do: tag"),
          {0, out} <- run_transform(dir),
          ^content <- File.read!(file),
          true <- String.contains?(out, "0 file(s) patched") do
@@ -161,7 +162,7 @@ defmodule TransformFixtureTest do
     {0, _} = run_transform(dir)
 
     # Strip the two clauses from ONE module while leaving its marker: a file-wide marker check would
-    # report "already patched" and ship a file with 15 markers but 14 clause pairs.
+    # report "already patched" and ship a file with 16 markers but 15 clause pairs.
     patched = File.read!(file)
 
     broken =
