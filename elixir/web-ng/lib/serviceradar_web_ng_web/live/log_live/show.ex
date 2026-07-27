@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+  alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -88,8 +89,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {:noreply, assign(socket, :show_rule_builder, true)}
   end
 
-  def handle_event("set_body_mode", %{"mode" => mode}, socket)
-      when mode in ~w(parsed raw json highlighted) do
+  def handle_event("set_body_mode", %{"mode" => mode}, socket) when mode in ~w(parsed raw json highlighted) do
     # "highlighted" kept as alias for older sessions
     mode = if mode == "highlighted", do: "parsed", else: mode
     {:noreply, assign(socket, :body_mode, mode)}
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   def handle_event("copy_json", _params, socket) do
     text =
       case socket.assigns.log do
-        %{} = log -> log |> Map.drop(["source_device_uid"]) |> Jason.encode!(pretty: true)
+        %{} = log -> log |> Map.delete("source_device_uid") |> Jason.encode!(pretty: true)
         _ -> ""
       end
 
@@ -214,7 +214,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       assign(
         assigns,
         :visible_stream,
-        filter_stream(assigns.stream_entries, assigns.stream_severity)
+        DetailStreamComponents.filter_stream_entries(
+          assigns.stream_entries,
+          assigns.stream_severity,
+          :logs
+        )
       )
 
     ~H"""
@@ -232,17 +236,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           class="grid min-h-0 min-w-0 max-w-full flex-1 grid-cols-1 overflow-hidden border-t border-sr-line lg:grid-cols-[15.5rem_minmax(0,1fr)] xl:grid-cols-[16.5rem_minmax(0,1fr)]"
         >
           <%!-- Desktop-only stream; mobile is detail-only --%>
-          <.log_stream_pane
+          <.detail_stream_pane
+            id="log-stream"
+            title="Log stream"
+            class="sr-log-stream"
             entries={@visible_stream}
             page_count={length(@visible_stream)}
             page={@stream_page}
-            page_size={@stream_page_size}
             selected_id={@log_id}
             stream_severity={@stream_severity}
-            service={Map.get(@log, "service_name")}
+            severity_filters={~w(all info warn error debug)}
+            context_label={Map.get(@log, "service_name")}
             stream_query={@stream_query || Map.get(@srql, :query)}
             has_prev={@stream_page > 1}
             has_next={is_binary(@stream_next_cursor) and @stream_next_cursor != ""}
+            empty_label="No matching entries"
           />
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
@@ -440,11 +448,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp stream_entry(log) when is_map(log) do
     body = log_message(log)
+    id = entry_id(log)
 
     %{
-      id: entry_id(log),
+      id: id,
+      href: ~p"/logs/#{id}",
       severity: Map.get(log, "severity_text"),
-      service: Map.get(log, "service_name") || Map.get(log, "service") || "—",
+      secondary: Map.get(log, "service_name") || Map.get(log, "service") || "—",
       time_short: format_time_short(log),
       preview: message_preview(body)
     }
@@ -458,22 +468,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp filter_stream(entries, "all"), do: entries
-
-  defp filter_stream(entries, severity) do
-    target = normalize_severity(severity)
-
-    Enum.filter(entries, fn entry ->
-      s = normalize_severity(entry.severity)
-
-      cond do
-        target in ["warn", "warning"] -> s in ["warn", "warning", "high"]
-        target == "error" -> s in ["error", "critical", "fatal"]
-        true -> s == target
-      end
-    end)
-  end
-
   defp page_title_for(%{} = log, log_id) do
     case log_headline(log_message(log)) do
       nil -> "Log · #{String.slice(to_string(log_id), 0, 8)}"
@@ -482,120 +476,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp page_title_for(_, log_id), do: "Log · #{String.slice(to_string(log_id), 0, 8)}"
-
-  # -- stream pane ------------------------------------------------------------
-
-  attr :entries, :list, required: true
-  attr :page_count, :integer, required: true
-  attr :page, :integer, required: true
-  attr :page_size, :integer, required: true
-  attr :selected_id, :string, required: true
-  attr :stream_severity, :string, required: true
-  attr :service, :any, default: nil
-  attr :stream_query, :any, default: nil
-  attr :has_prev, :boolean, default: false
-  attr :has_next, :boolean, default: false
-
-  defp log_stream_pane(assigns) do
-    ~H"""
-    <aside class="sr-log-stream hidden min-h-0 min-w-0 max-w-full flex-col overflow-hidden border-sr-line bg-sr-surface lg:flex">
-      <div class="min-w-0 shrink-0 space-y-2 border-b border-sr-line px-2.5 py-2.5">
-        <div class="flex items-center justify-between gap-2">
-          <h2 class="text-sm font-semibold tracking-tight text-sr-ink">Log stream</h2>
-          <span class="font-mono text-xs text-sr-muted">
-            {if @page_count > 0, do: "p.#{@page}", else: "0"}
-          </span>
-        </div>
-
-        <div
-          :if={is_binary(@stream_query) and @stream_query != ""}
-          class="truncate rounded-sr-control border border-sr-line bg-sr-subtle/50 px-2 py-1 font-mono text-[11px] text-sr-muted"
-          title={@stream_query}
-        >
-          {@stream_query}
-        </div>
-
-        <div class="flex flex-nowrap items-center gap-0.5">
-          <.stream_sev_chip
-            :for={sev <- ~w(all info warn error debug)}
-            severity={sev}
-            active={@stream_severity == sev}
-          />
-        </div>
-      </div>
-
-      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-        <div :if={@entries == []} class="px-3 py-6 text-center text-sm text-sr-muted">
-          No matching entries
-        </div>
-
-        <.link
-          :for={entry <- @entries}
-          navigate={~p"/logs/#{entry.id}"}
-          id={"stream-" <> entry.id}
-          class={[
-            "group relative block min-w-0 border-b border-sr-line/70 px-2.5 py-2 transition-colors duration-150 ease-sr-out",
-            entry.id == @selected_id && "bg-sr-subtle",
-            entry.id != @selected_id && "hover:bg-sr-subtle/60"
-          ]}
-        >
-          <div :if={entry.id == @selected_id} class="absolute inset-y-0 left-0 w-0.5 bg-sr-brand"></div>
-          <div class="flex min-w-0 items-start gap-2">
-            <span class={["mt-1 size-1.5 shrink-0 rounded-full", severity_dot_class(entry.severity)]}></span>
-            <div class="min-w-0 flex-1 overflow-hidden">
-              <div class="flex min-w-0 items-baseline justify-between gap-2">
-                <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>
-                <span class="truncate font-mono text-[10px] text-sr-muted">{entry.service}</span>
-              </div>
-              <p class="mt-0.5 truncate text-xs leading-snug text-sr-ink">{entry.preview}</p>
-            </div>
-          </div>
-        </.link>
-      </div>
-
-      <div class="flex shrink-0 items-center justify-between gap-1 border-t border-sr-line px-2 py-1.5">
-        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_prev" disabled={not @has_prev}>
-          <.icon name="hero-chevron-left" class="size-3.5" /> Prev
-        </.ui_button>
-        <span class="font-mono text-[11px] text-sr-muted">{@page}</span>
-        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_next" disabled={not @has_next}>
-          Next <.icon name="hero-chevron-right" class="size-3.5" />
-        </.ui_button>
-      </div>
-    </aside>
-    """
-  end
-
-  attr :severity, :string, required: true
-  attr :active, :boolean, default: false
-
-  defp stream_sev_chip(assigns) do
-    label =
-      case assigns.severity do
-        "all" -> "All"
-        "info" -> "Info"
-        "warn" -> "Warn"
-        "error" -> "Err"
-        "debug" -> "Dbg"
-        other -> String.upcase(other)
-      end
-
-    assigns = assign(assigns, :label, label)
-
-    ~H"""
-    <.ui_button
-      type="button"
-      size="xs"
-      variant={if(@active, do: "soft", else: "ghost")}
-      active={@active}
-      phx-click="set_stream_severity"
-      phx-value-severity={@severity}
-      class="!min-h-6 h-6 shrink-0 px-1.5 text-[10px] font-medium leading-none tracking-wide"
-    >
-      {@label}
-    </.ui_button>
-    """
-  end
 
   # -- detail header / meta ---------------------------------------------------
 
@@ -617,7 +497,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     <header class="space-y-3 border-b border-sr-line px-4 pb-4 pt-5 font-sans sm:px-6 sm:pt-6">
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-sr-muted">
-          <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">logs</.link>
+          <.link navigate={~p"/observability?#{%{tab: "logs"}}"} class="hover:text-sr-ink">
+            logs
+          </.link>
           <span class="text-sr-line-strong">/</span>
           <span class="text-sr-ink/80">{@source_kind}</span>
           <span class="text-sr-line-strong">/</span>
@@ -668,25 +550,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     source_ip = Map.get(assigns.log, "source_ip")
 
     facts =
-      [
-        %{label: "Timestamp", value: format_timestamp(assigns.log), mono?: true, href: nil},
-        %{
-          label: "Service",
-          value: service,
-          mono?: false,
-          href: logs_filter_href("service_name", service)
-        },
-        %{
-          label: "Source IP",
-          value: source_ip,
-          mono?: true,
-          href: logs_filter_href("source_ip", source_ip)
-        },
-        %{label: "Facility", value: log_facility(assigns.log), mono?: false, href: nil},
-        %{label: "Format", value: log_format(assigns.log), mono?: true, href: nil},
-        %{label: "Scope", value: Map.get(assigns.log, "scope_name"), mono?: true, href: nil}
-      ]
-      |> Enum.reject(fn fact -> blank_value?(fact.value) end)
+      Enum.reject(
+        [
+          %{label: "Timestamp", value: format_timestamp(assigns.log), mono?: true, href: nil},
+          %{
+            label: "Service",
+            value: service,
+            mono?: false,
+            href: logs_filter_href("service_name", service)
+          },
+          %{
+            label: "Source IP",
+            value: source_ip,
+            mono?: true,
+            href: logs_filter_href("source_ip", source_ip)
+          },
+          %{label: "Facility", value: log_facility(assigns.log), mono?: false, href: nil},
+          %{label: "Format", value: log_format(assigns.log), mono?: true, href: nil},
+          %{label: "Scope", value: Map.get(assigns.log, "scope_name"), mono?: true, href: nil}
+        ],
+        fn fact -> blank_value?(fact.value) end
+      )
 
     n = length(facts)
 
@@ -919,29 +803,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if body == "" do
       nil
     else
-      [
-        # iptables/nft LOG: [RULE] DESCR="Allow SSH…" (not bare rule id)
-        extract_firewall_rule_headline(body),
-        # Compact UniFi wevent (EVENT + iface/MAC)
-        extract_event_subject(body),
-        extract_wevent_headline(body),
-        # Syslog: keep process context — "dnsmasq-dhcp[4129]: Updating leases"
-        extract_syslog_process_headline(body),
-        extract_function_event(body),
-        extract_subject_after_syslog(body),
-        extract_bracket_title(body),
-        first_log_sentence(peel_host_prefix(body))
-      ]
-      |> Enum.find_value(fn candidate ->
-        case candidate do
-          title when is_binary(title) ->
-            title = summarize_headline(title)
-            if usable_headline?(title), do: title
+      # iptables/nft LOG: [RULE] DESCR="Allow SSH…" (not bare rule id)
+      # Compact UniFi wevent (EVENT + iface/MAC)
+      # Syslog: keep process context — "dnsmasq-dhcp[4129]: Updating leases"
+      Enum.find_value(
+        [
+          extract_firewall_rule_headline(body),
+          extract_event_subject(body),
+          extract_wevent_headline(body),
+          extract_syslog_process_headline(body),
+          extract_function_event(body),
+          extract_subject_after_syslog(body),
+          extract_bracket_title(body),
+          first_log_sentence(peel_host_prefix(body))
+        ],
+        fn candidate ->
+          case candidate do
+            title when is_binary(title) ->
+              title = summarize_headline(title)
+              if usable_headline?(title), do: title
 
-          _ ->
-            nil
+            _ ->
+              nil
+          end
         end
-      end)
+      )
     end
   end
 
@@ -1102,7 +988,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     descr =
       case Regex.run(~r/\bDESCR="([^"]{1,120})"/i, body) do
-        [_, text] -> String.trim(text)
+        [_, text] ->
+          String.trim(text)
+
         _ ->
           case Regex.run(~r/\bDESCR=([^\s]{1,120})/i, body) do
             [_, text] -> String.trim(text)
@@ -1333,7 +1221,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           if host == "", do: nil, else: host
 
         _ ->
-          peel_host_prefix(body)
+          body
+          |> peel_host_prefix()
           |> String.replace(~r/\bwevent\[\d+\]:.*$/i, "")
           |> String.trim()
           |> then(fn p -> if p == "", do: nil, else: p end)
@@ -1407,8 +1296,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp extract_kv_pairs(_), do: []
 
-  defp kv_pair_from_scan([_full, key, quoted, _plain])
-       when is_binary(key) and is_binary(quoted) and quoted != "" do
+  defp kv_pair_from_scan([_full, key, quoted, _plain]) when is_binary(key) and is_binary(quoted) and quoted != "" do
     [{key, quoted}]
   end
 
@@ -1425,16 +1313,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp value_looks_like_ip?(v) when is_binary(v), do: Regex.match?(~r/^(?:\d{1,3}\.){3}\d{1,3}$/, v)
   defp value_looks_like_ip?(_), do: false
-
-  defp severity_dot_class(value) do
-    case normalize_severity(value) do
-      s when s in ["critical", "fatal", "error"] -> "bg-rose-500"
-      s when s in ["high", "warn", "warning"] -> "bg-amber-400"
-      s when s in ["medium", "info"] -> "bg-sr-brand"
-      s when s in ["low", "debug", "trace", "ok"] -> "bg-sky-400"
-      _ -> "bg-sr-muted"
-    end
-  end
 
   defp format_time_short(log) do
     ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
@@ -1484,7 +1362,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp leaf_attr(_, _), do: nil
-
 
   # RBAC check - only operators and admins can create rules
   defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")

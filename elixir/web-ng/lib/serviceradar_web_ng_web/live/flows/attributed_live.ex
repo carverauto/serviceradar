@@ -553,7 +553,9 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <:header>
             <div class="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div class="text-sm font-semibold tracking-tight text-sr-ink">{filter_title(@filter)}</div>
+                <div class="text-sm font-semibold tracking-tight text-sr-ink">
+                  {filter_title(@filter)}
+                </div>
                 <div class="text-xs leading-relaxed text-sr-muted">
                   Last {@time_window_hours} hours. Page {@page} of {@page_count}.
                 </div>
@@ -726,13 +728,27 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
     ~H"""
     <div class="flex items-center justify-between gap-2">
-      <.ui_button type="button" phx-click="goto_page" phx-value-page={@previous_page} disabled={@page <= 1} size="xs" variant="ghost">
+      <.ui_button
+        type="button"
+        phx-click="goto_page"
+        phx-value-page={@previous_page}
+        disabled={@page <= 1}
+        size="xs"
+        variant="ghost"
+      >
         <.icon name="hero-chevron-left" class="size-3.5" /> Previous
       </.ui_button>
       <span class="min-w-20 text-center text-xs text-sr-muted tabular-nums">
         {@page} / {@page_count}
       </span>
-      <.ui_button type="button" phx-click="goto_page" phx-value-page={@next_page} disabled={@page >= @page_count} size="xs" variant="ghost">
+      <.ui_button
+        type="button"
+        phx-click="goto_page"
+        phx-value-page={@next_page}
+        disabled={@page >= @page_count}
+        size="xs"
+        variant="ghost"
+      >
         Next <.icon name="hero-chevron-right" class="size-3.5" />
       </.ui_button>
     </div>

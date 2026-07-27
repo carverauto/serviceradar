@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
+  alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -188,7 +189,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       assign(
         assigns,
         :visible_stream,
-        filter_stream(assigns.stream_entries, assigns.stream_severity)
+        DetailStreamComponents.filter_stream_entries(
+          assigns.stream_entries,
+          assigns.stream_severity,
+          :events
+        )
       )
 
     ~H"""
@@ -206,17 +211,21 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           class="grid min-h-0 min-w-0 max-w-full flex-1 grid-cols-1 overflow-hidden border-t border-sr-line lg:grid-cols-[15.5rem_minmax(0,1fr)] xl:grid-cols-[16.5rem_minmax(0,1fr)]"
         >
           <%!-- Desktop-only stream; mobile is detail-only --%>
-          <.event_stream_pane
+          <.detail_stream_pane
+            id="event-stream"
+            title="Event stream"
+            class="sr-event-stream"
             entries={@visible_stream}
             page_count={length(@visible_stream)}
             page={@stream_page}
-            page_size={@stream_page_size}
             selected_id={@event_id}
             stream_severity={@stream_severity}
+            severity_filters={~w(all critical high medium low info)}
             context_label={stream_context_label(@event)}
             stream_query={@stream_query || Map.get(@srql, :query)}
             has_prev={@stream_page > 1}
             has_next={is_binary(@stream_next_cursor) and @stream_next_cursor != ""}
+            empty_label="No matching events"
           />
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
@@ -416,10 +425,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp stream_entry(event) when is_map(event) do
+    id = entry_id(event)
+
     %{
-      id: entry_id(event),
+      id: id,
+      href: ~p"/events/#{id}",
       severity: Map.get(event, "severity"),
-      host: Map.get(event, "host") || Map.get(event, "log_provider") || "—",
+      secondary: Map.get(event, "host") || Map.get(event, "log_provider") || "—",
       time_short: format_time_short(event),
       preview: message_preview(event_message(event))
     }
@@ -431,25 +443,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     else
       [stream_entry(Map.put(event, "id", selected_id)) | entries]
     end
-  end
-
-  defp filter_stream(entries, "all"), do: entries
-
-  defp filter_stream(entries, severity) do
-    target = normalize_severity(severity)
-
-    Enum.filter(entries, fn entry ->
-      s = normalize_severity(entry.severity)
-
-      cond do
-        target == "critical" -> s in ["critical", "fatal"]
-        target == "high" -> s in ["high", "error", "warn", "warning"]
-        target == "medium" -> s in ["medium"]
-        target == "low" -> s in ["low"]
-        target == "info" -> s in ["info", "informational", "debug", "ok"]
-        true -> s == target
-      end
-    end)
   end
 
   defp page_title_for(%{} = event, event_id) do
@@ -466,129 +459,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp stream_context_label(_), do: nil
-
-  # -- stream pane ------------------------------------------------------------
-
-  attr :entries, :list, required: true
-  attr :page_count, :integer, required: true
-  attr :page, :integer, required: true
-  attr :page_size, :integer, required: true
-  attr :selected_id, :string, required: true
-  attr :stream_severity, :string, required: true
-  attr :context_label, :any, default: nil
-  attr :stream_query, :any, default: nil
-  attr :has_prev, :boolean, default: false
-  attr :has_next, :boolean, default: false
-
-  defp event_stream_pane(assigns) do
-    ~H"""
-    <aside class="sr-event-stream hidden min-h-0 min-w-0 max-w-full flex-col overflow-hidden border-sr-line bg-sr-surface lg:flex">
-      <div class="min-w-0 shrink-0 space-y-2 border-b border-sr-line px-2.5 py-2.5">
-        <div class="flex items-center justify-between gap-2">
-          <h2 class="text-sm font-semibold tracking-tight text-sr-ink">Event stream</h2>
-          <span class="font-mono text-xs text-sr-muted">
-            {if @page_count > 0, do: "p.#{@page}", else: "0"}
-          </span>
-        </div>
-
-        <div
-          :if={is_binary(@context_label) and @context_label != ""}
-          class="truncate text-[11px] text-sr-muted"
-          title={@context_label}
-        >
-          {@context_label}
-        </div>
-
-        <div
-          :if={is_binary(@stream_query) and @stream_query != ""}
-          class="truncate rounded-sr-control border border-sr-line bg-sr-subtle/50 px-2 py-1 font-mono text-[11px] text-sr-muted"
-          title={@stream_query}
-        >
-          {@stream_query}
-        </div>
-
-        <div class="flex flex-nowrap items-center gap-0.5 overflow-x-auto">
-          <.stream_sev_chip
-            :for={sev <- ~w(all critical high medium low info)}
-            severity={sev}
-            active={@stream_severity == sev}
-          />
-        </div>
-      </div>
-
-      <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-        <div :if={@entries == []} class="px-3 py-6 text-center text-sm text-sr-muted">
-          No matching events
-        </div>
-
-        <.link
-          :for={entry <- @entries}
-          navigate={~p"/events/#{entry.id}"}
-          id={"stream-" <> entry.id}
-          class={[
-            "group relative block min-w-0 border-b border-sr-line/70 px-2.5 py-2 transition-colors duration-150 ease-sr-out",
-            entry.id == @selected_id && "bg-sr-subtle",
-            entry.id != @selected_id && "hover:bg-sr-subtle/60"
-          ]}
-        >
-          <div :if={entry.id == @selected_id} class="absolute inset-y-0 left-0 w-0.5 bg-sr-brand"></div>
-          <div class="flex min-w-0 items-start gap-2">
-            <span class={["mt-1 size-1.5 shrink-0 rounded-full", severity_dot_class(entry.severity)]}></span>
-            <div class="min-w-0 flex-1 overflow-hidden">
-              <div class="flex min-w-0 items-baseline justify-between gap-2">
-                <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>
-                <span class="truncate font-mono text-[10px] text-sr-muted">{entry.host}</span>
-              </div>
-              <p class="mt-0.5 truncate text-xs leading-snug text-sr-ink">{entry.preview}</p>
-            </div>
-          </div>
-        </.link>
-      </div>
-
-      <div class="flex shrink-0 items-center justify-between gap-1 border-t border-sr-line px-2 py-1.5">
-        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_prev" disabled={not @has_prev}>
-          <.icon name="hero-chevron-left" class="size-3.5" /> Prev
-        </.ui_button>
-        <span class="font-mono text-[11px] text-sr-muted">{@page}</span>
-        <.ui_button type="button" size="xs" variant="outline" phx-click="stream_next" disabled={not @has_next}>
-          Next <.icon name="hero-chevron-right" class="size-3.5" />
-        </.ui_button>
-      </div>
-    </aside>
-    """
-  end
-
-  attr :severity, :string, required: true
-  attr :active, :boolean, default: false
-
-  defp stream_sev_chip(assigns) do
-    label =
-      case assigns.severity do
-        "all" -> "All"
-        "critical" -> "Crit"
-        "high" -> "High"
-        "medium" -> "Med"
-        "low" -> "Low"
-        "info" -> "Info"
-        other -> String.upcase(other)
-      end
-
-    assigns = assign(assigns, :label, label)
-
-    ~H"""
-    <.ui_button
-      type="button"
-      size="xs"
-      variant={if(@active, do: "soft", else: "ghost")}
-      active={@active}
-      phx-click="set_stream_severity"
-      phx-value-severity={@severity}
-      class="!min-h-6 h-6 shrink-0 px-1.5 text-[10px] font-medium leading-none tracking-wide"
-    >
-      {@label}
-    </.ui_button>
-    """
-  end
 
   # -- detail header / meta ---------------------------------------------------
 
@@ -1028,7 +898,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <.ui_button :if={@log_id} href={~p"/logs/#{@log_id}"} size="sm" variant="outline">
           View source log
         </.ui_button>
-        <.ui_button :if={is_struct(@alert)} href={~p"/alerts/#{@alert.id}"} size="sm" variant="outline">
+        <.ui_button
+          :if={is_struct(@alert)}
+          href={~p"/alerts/#{@alert.id}"}
+          size="sm"
+          variant="outline"
+        >
           View alert ({@alert.status})
         </.ui_button>
       </div>
@@ -1414,7 +1289,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       case assigns.event do
         %{} = event ->
           event
-          |> Map.drop(["source_device_uid"])
+          |> Map.delete("source_device_uid")
           |> Jason.encode!(pretty: true)
 
         _ ->
@@ -1509,16 +1384,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(nil), do: ""
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
-
-  defp severity_dot_class(value) do
-    case normalize_severity(value) do
-      s when s in ["critical", "fatal", "error"] -> "bg-rose-500"
-      s when s in ["high", "warn", "warning"] -> "bg-amber-400"
-      s when s in ["medium", "info", "informational"] -> "bg-sr-brand"
-      s when s in ["low", "debug", "trace", "ok"] -> "bg-sky-400"
-      _ -> "bg-sr-muted"
-    end
-  end
 
   defp format_time_short(event) do
     ts =

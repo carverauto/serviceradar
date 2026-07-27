@@ -82,8 +82,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
               BMP Routing Events
             </h1>
             <p class="mt-0.5 text-sm text-sr-muted">
-              Raw routing telemetry from
-              <code class="font-mono text-[12px] text-sr-ink/80">platform.bmp_routing_events</code>.
+              Raw routing telemetry from <code class="font-mono text-[12px] text-sr-ink/80">platform.bmp_routing_events</code>.
             </p>
           </div>
           <.ui_button href={~p"/observability?#{%{tab: "events"}}"} variant="outline" size="sm">

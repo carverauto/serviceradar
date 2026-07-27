@@ -80,13 +80,11 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "otel_metrics")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "otel_metrics")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "otel_metrics")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "otel_metrics")}
   end
 
   @impl true
@@ -121,10 +119,20 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <.ui_button :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""} href={correlated_logs_href(@metric)} size="xs" variant="outline">
+                <.ui_button
+                  :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""}
+                  href={correlated_logs_href(@metric)}
+                  size="xs"
+                  variant="outline"
+                >
                   Logs
                 </.ui_button>
-                <.ui_button :if={is_binary(trace_detail_path(@metric))} navigate={trace_detail_path(@metric)} size="xs" variant="outline">
+                <.ui_button
+                  :if={is_binary(trace_detail_path(@metric))}
+                  navigate={trace_detail_path(@metric)}
+                  size="xs"
+                  variant="outline"
+                >
                   Trace
                 </.ui_button>
               </div>

@@ -76,7 +76,9 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
           >
             {field.value}
           </.link>
-          <span :if={!Map.get(field, :href)} class="break-words text-sm text-sr-ink">{field.value}</span>
+          <span :if={!Map.get(field, :href)} class="break-words text-sm text-sr-ink">
+            {field.value}
+          </span>
         </div>
       </div>
     </div>
