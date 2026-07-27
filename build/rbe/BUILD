@@ -13,6 +13,10 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+        # Firecracker isolation (#4752) sizes VMs from these estimates. The
+        # historical OCI default left many GoLink/mix actions undersized.
+        "EstimatedCPU": "2",
+        "EstimatedMemory": "4GB",
     },
     visibility = ["//visibility:public"],
 )
