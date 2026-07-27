@@ -55,7 +55,7 @@ rust_binary(
     name = "workload_identity_daemon",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = ["src/bin/workload-identity.rs"],
     crate_root = "src/bin/workload-identity.rs",

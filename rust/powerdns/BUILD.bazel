@@ -46,7 +46,7 @@ rust_binary(
     name = "serviceradar-powerdns-addon",
     exec_properties = {
         "EstimatedCPU": "4",
-        "EstimatedMemory": "8GB",
+        "EstimatedMemory": "8Gi",
     },
     srcs = ["src/bin/serviceradar-powerdns-addon.rs"],
     crate_root = "src/bin/serviceradar-powerdns-addon.rs",
