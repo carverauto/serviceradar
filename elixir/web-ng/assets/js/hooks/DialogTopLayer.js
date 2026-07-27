@@ -7,13 +7,16 @@
 //   <dialog id="unique" class="sr-ui-modal sr-ui-modal-open"
 //           phx-hook="DialogTopLayer" data-cancel="close_event">
 //
-// data-cancel (optional): LiveView event to push on Escape / backdrop click.
+// data-cancel (optional): LiveView event to push on Escape / outside click.
 // data-cancel-target (optional): phx-target for that event.
+// data-static-backdrop (optional): "true" disables click-outside dismiss.
 
 export default {
   mounted() {
     this._onCancel = (e) => this._handleCancel(e)
+    this._onClick = (e) => this._handleOutsideClick(e)
     this.el.addEventListener("cancel", this._onCancel)
+    this.el.addEventListener("click", this._onClick)
     this._open()
   },
 
@@ -24,6 +27,7 @@ export default {
 
   destroyed() {
     this.el.removeEventListener("cancel", this._onCancel)
+    this.el.removeEventListener("click", this._onClick)
     try {
       if (this.el.open) this.el.close()
     } catch (_err) {
@@ -45,12 +49,34 @@ export default {
     }
   },
 
-  _handleCancel(e) {
-    const eventName = this.el.dataset.cancel
-    if (!eventName) return
+  _handleOutsideClick(e) {
+    // Native showModal() does not light-dismiss on backdrop click. Our dialog
+    // is a full-viewport grid; clicks on the dimmed chrome hit the <dialog>
+    // itself, while clicks on the panel hit .sr-ui-modal-box descendants.
+    if (this.el.dataset.staticBackdrop === "true") return
+    if (e.target !== this.el) return
+    this._requestClose()
+  },
 
+  _handleCancel(e) {
+    // Escape (and some browser light-dismiss paths) fire "cancel".
     // Keep the dialog open until LiveView removes it (controlled :if={@open}).
-    e.preventDefault()
+    if (this.el.dataset.cancel) {
+      e.preventDefault()
+      this._requestClose()
+    }
+  },
+
+  _requestClose() {
+    const eventName = this.el.dataset.cancel
+    if (!eventName) {
+      try {
+        this.el.close()
+      } catch (_err) {
+        // ignore
+      }
+      return
+    }
 
     const target = this.el.dataset.cancelTarget
     if (target) {
