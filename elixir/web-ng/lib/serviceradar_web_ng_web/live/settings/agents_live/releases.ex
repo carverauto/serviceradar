@@ -1382,7 +1382,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_details_modal(assigns) do
     ~H"""
-    <dialog id="rollout-details-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="hide_rollout_details">
+    <dialog
+      id="rollout-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="hide_rollout_details"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl p-0">
         <div class="flex items-start justify-between gap-4 border-b border-sr-line px-6 py-4">
           <div class="min-w-0">

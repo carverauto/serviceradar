@@ -303,7 +303,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp target_form_modal(assigns) do
     ~H"""
-    <dialog id="remote-access-desktop-ta-modal-1" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+    <dialog
+      id="remote-access-desktop-ta-modal-1"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">

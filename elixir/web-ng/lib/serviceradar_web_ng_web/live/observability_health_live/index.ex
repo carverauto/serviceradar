@@ -405,7 +405,12 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       |> assign(:resource, resource_label(assigns.row))
 
     ~H"""
-    <dialog id="capacity-forecast-detail-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_capacity_row">
+    <dialog
+      id="capacity-forecast-detail-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_capacity_row"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
           <div class="min-w-0">

@@ -970,7 +970,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:is_editing, is_editing)
 
     ~H"""
-    <dialog id="interface-group-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_group_modal">
+    <dialog
+      id="interface-group-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_group_modal"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-form">
         <form method="dialog">
           <.ui_icon_button
@@ -1087,7 +1092,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:has_speed_data, is_number(interface_speed_bps) and interface_speed_bps > 0)
 
     ~H"""
-    <dialog id="interface-metric-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_metric_modal">
+    <dialog
+      id="interface-metric-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_metric_modal"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <form method="dialog">
           <.ui_icon_button

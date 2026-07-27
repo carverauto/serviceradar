@@ -484,7 +484,12 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp import_modal(assigns) do
     ~H"""
-    <dialog id="dashboard-package-import-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_modal">
+    <dialog
+      id="dashboard-package-import-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_modal"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <div class="flex items-start justify-between gap-4">
           <div>
@@ -651,7 +656,12 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="dashboard-package-details-modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer" data-cancel="close_modal">
+    <dialog
+      id="dashboard-package-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_modal"
+    >
       <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <div class="flex items-start justify-between gap-4">
           <div>
