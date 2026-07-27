@@ -920,6 +920,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       nil
     else
       [
+        # iptables/nft LOG: [RULE] DESCR="Allow SSH…" (not bare rule id)
+        extract_firewall_rule_headline(body),
         # Compact UniFi wevent (EVENT + iface/MAC)
         extract_event_subject(body),
         extract_wevent_headline(body),
@@ -1088,6 +1090,58 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp extract_syslog_process_headline(_), do: nil
+
+  # tonka01 [WAN_CUSTOM2-A-10008] DESCR="Allow SSH to forgejo" IN=… DPT=22
+  # Prefer human DESCR + rule id over bare "[WAN_CUSTOM2-A-10008]".
+  defp extract_firewall_rule_headline(body) when is_binary(body) do
+    rule =
+      case Regex.run(~r/\[([A-Za-z][A-Za-z0-9_.-]{2,63})\]/, body) do
+        [_, name] -> name
+        _ -> nil
+      end
+
+    descr =
+      case Regex.run(~r/\bDESCR="([^"]{1,120})"/i, body) do
+        [_, text] -> String.trim(text)
+        _ ->
+          case Regex.run(~r/\bDESCR=([^\s]{1,120})/i, body) do
+            [_, text] -> String.trim(text)
+            _ -> nil
+          end
+      end
+
+    proto =
+      case Regex.run(~r/\bPROTO=([A-Za-z0-9]+)/i, body) do
+        [_, p] -> String.upcase(p)
+        _ -> nil
+      end
+
+    dpt =
+      case Regex.run(~r/\bDPT=(\d+)/i, body) do
+        [_, p] -> p
+        _ -> nil
+      end
+
+    port_bit =
+      cond do
+        is_binary(proto) and is_binary(dpt) -> " · #{proto}/#{dpt}"
+        is_binary(dpt) -> " · :#{dpt}"
+        true -> ""
+      end
+
+    cond do
+      is_binary(rule) and is_binary(descr) and descr != "" ->
+        "[#{rule}] #{descr}#{port_bit}"
+
+      is_binary(descr) and descr != "" ->
+        descr <> port_bit
+
+      true ->
+        nil
+    end
+  end
+
+  defp extract_firewall_rule_headline(_), do: nil
 
   # EVENT_STA_JOIN … (full tail including iface/MAC when present)
   defp extract_event_subject(body) when is_binary(body) do
