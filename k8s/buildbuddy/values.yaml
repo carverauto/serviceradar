@@ -59,17 +59,18 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
-    # Firecracker is the intended default for Docker-in-RBE (Dgraph/PG E2E).
-    # OCI rollback (#4759) was temporary after invalid EstimatedMemory units
-    # ("8GB") and undersized free-disk + 25Gi ephemeral caused VM init panics.
-    default_isolation_type: firecracker
+    # Default OCI for reliable release builds. Firecracker stays enabled so
+    # docker-in-RBE targets (Dgraph/PG E2E) can set isolation=firecracker.
+    # #4759 rolled back default FC after invalid EstimatedMemory units ("8GB")
+    # and undersized free-disk + 25Gi ephemeral caused VM init panics.
+    default_isolation_type: oci
     enable_firecracker: true
-    # Sizing for Firecracker microVMs when actions omit exec_properties.
-    # Do NOT set estimated_free_disk_bytes here: BB default is ~100Mi, and each
-    # additional VM only pays image size once. A 20Gi free-disk default plus
-    # ~12Gi init-dockerd exceeded the old 25Gi pod ephemeral limit and produced
+    # Used when isolation=firecracker. Do NOT set estimated_free_disk_bytes
+    # here: BB default is ~100Mi. A 20Gi free-disk default plus ~12Gi
+    # init-dockerd exceeded the old 25Gi pod ephemeral limit and produced
     # zero-size virtio disks + "Attempted to kill init" panics.
-    # Request larger free disk only on docker/DB test targets via exec_properties.
+    # Request larger free disk only on docker/DB test targets via
+    # EstimatedFreeDiskBytes exec_properties.
     default_task_size:
       estimated_milli_cpu: 4000
       estimated_memory_bytes: 8589934592 # 8 GiB

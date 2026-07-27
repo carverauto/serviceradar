@@ -37,7 +37,7 @@ extraVolumeMounts:
 
 config:
   executor:
-    default_isolation_type: firecracker
+    default_isolation_type: oci
     enable_firecracker: true
     # Leave estimated_free_disk_bytes unset (BB ~100Mi default). Raising the
     # executor default to 20Gi + init-dockerd (~12Gi) exceeded the old 25Gi
@@ -57,7 +57,7 @@ config:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
   - Ephemeral Storage: 45-50Gi (request-limit; room for Firecracker rootfs + dockerd)
-- **Isolation**: Firecracker default (`enable_firecracker: true`); OCI still enabled as fallback
+- **Isolation**: OCI default; Firecracker enabled for opt-in (`isolation=firecracker` / docker-in-RBE)
 - **Cache path**: `/cache` (hostPath `/mnt/buildbuddy/cache` on each node)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
