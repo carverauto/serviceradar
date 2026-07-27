@@ -4043,8 +4043,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                   {metric_operation(metric)}
                 </span>
               </td>
-              <td class="whitespace-nowrap text-xs font-mono text-right">
-                {format_metric_value(metric)}
+              <td class="whitespace-nowrap text-right">
+                <% val_ms = metric_value_ms(metric) %>
+                <span
+                  class={[
+                    "inline-flex min-w-[3.25rem] items-center justify-end rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums",
+                    duration_ms_class(val_ms)
+                  ]}
+                  title={duration_ms_title(val_ms)}
+                >
+                  {format_metric_value(metric)}
+                </span>
                 <span
                   :if={cumulative_metric?(metric)}
                   class="ml-1 font-sans text-[10px] text-sr-muted"
