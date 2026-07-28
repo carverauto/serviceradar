@@ -14,11 +14,6 @@ proto_dgraph = { path = "../../proto/dgraph" }
 # by sslmode=verify-ca. Enabled per-crate rather than in [workspace.dependencies], matching
 # rust/kvutil, rust/otel, rust/flowgger and rust/rperf-client.
 tonic = { workspace = true, features = ["tls-ring", "tls-native-roots"] }
-# tonic 0.14 moved the prost codec into its own crate; the generated service stubs call
-# tonic_prost::ProstCodec, so this is a real dependency of the code we link.
-tonic-prost = { workspace = true }
-# Needed only for the sslmode=require certificate verifier. `ring` matches the tls-ring
-# feature above, keeping one crypto provider and no OpenSSL anywhere in the tree.
 rustls = { workspace = true, features = ["ring"] }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt"] }
@@ -26,8 +21,5 @@ tracing = { workspace = true }
 urlencoding = { workspace = true }
 
 [dev-dependencies]
-# Starts a throwaway dgraph/standalone container for the integration suite.
 docker_utils = { workspace = true }
-# No "macros": the acceptance test is a plain #[test] driving one explicit runtime.
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
-pretty_assertions = { workspace = true }

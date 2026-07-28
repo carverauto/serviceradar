@@ -439,7 +439,6 @@ _NORMAL_DEPENDENCIES = {
             "rustls": Label("//third_party/crates/rustls-0.23.42:rustls"),
             "tokio": Label("//third_party/crates/tokio-1.53.1:tokio"),
             "tonic": Label("//third_party/crates/tonic-0.14.6:tonic"),
-            "tonic-prost": Label("//third_party/crates/tonic-prost-0.14.6:tonic_prost"),
             "tracing": Label("//third_party/crates/tracing-0.1.44:tracing"),
             "urlencoding": Label("//third_party/crates/urlencoding-2.1.3:urlencoding"),
         },
@@ -1035,7 +1034,6 @@ _NORMAL_DEV_DEPENDENCIES = {
     "rust/dgraph-client": {
         _COMMON_CONDITION: {
             "docker_utils": Label("//third_party/crates/docker_utils-0.3.0:docker_utils"),
-            "pretty_assertions": Label("//third_party/crates/pretty_assertions-1.4.1:pretty_assertions"),
         },
     },
     "rust/edge-onboarding": {

@@ -1532,13 +1532,11 @@ name = "dgraph-client"
 version = "0.1.0"
 dependencies = [
  "docker_utils",
- "pretty_assertions",
  "prost",
  "proto_dgraph",
  "rustls",
  "tokio",
  "tonic",
- "tonic-prost",
  "tracing",
  "urlencoding",
 ]
