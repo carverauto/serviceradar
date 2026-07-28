@@ -1,0 +1,23 @@
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_1243381eb5fb18::t_f490db7ecff0cc 39,42-47
+  s_1243381eb5fb18::t_dcfa11ae230fa5 54,56-59
+  s_1243381eb5fb18::t_001dd23afb6868 68-70,72-77,82,84-85,87-91,93-96
+  s_1243381eb5fb18::t_48a3c3d352fc80 160
+  s_1243381eb5fb18::t_ee379e79f20830 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5f2117795111f37579782e3a122f9e0fb4125920",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
