@@ -302,7 +302,12 @@ func TestMtrCompletionDispositionSymbolNumbers(t *testing.T) {
 		if got[number] != symbol {
 			t.Errorf("number %d maps to %q, want %q", number, got[number], symbol)
 		}
-		if n := edgev1.MtrCompletionDisposition_value[symbol]; n != number {
+		// Comma-ok, not a bare index: a MISSING entry reads back as 0, which is the
+		// expected value for UNSPECIFIED, so a bare lookup would prove nothing for it.
+		n, ok := edgev1.MtrCompletionDisposition_value[symbol]
+		if !ok {
+			t.Errorf("symbol %q is absent from the generated value map", symbol)
+		} else if n != number {
 			t.Errorf("symbol %q maps to %d, want %d", symbol, n, number)
 		}
 	}
