@@ -159,12 +159,15 @@ here.
   divergence is caught only because both generate from one proto -- 1.15 replaces
   that argument with per-value vectors both runtimes decode (the existing shared
   goldens exercise dispositions 1 and 2 only).
-  1.4 REMAINS UNCHECKED: the disposition sub-target is the CLOSED part. The
-  zero-MTR (`expected == 0`) BLOCKER recorded under task 1.15 names 1.4 by name --
-  a COMPLETED sweep admitting no MTR targets can today neither omit a completion
-  proof nor construct a valid one, and candidate (A) vs (B) is an unmade decision,
-  not a discovered fact. Do NOT check 1.4 until that behaviour is chosen and the
-  lifecycle validator agrees with it.
+  1.4 REMAINS UNCHECKED, but no longer for the zero-MTR reason. That decision is
+  CLOSED -- candidate (B), the mandatory canonical zero-leaf proof -- and both
+  runtimes implement it, so a COMPLETED sweep admitting no MTR targets now has
+  exactly one valid representation. What still blocks 1.4: the CONSUMER side is not
+  implemented. `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must
+  supply already-validated plan state; there is no such carrier, because the
+  authoritative assignment record is task 1.3. Until 1.3 lands, nothing in either
+  runtime can prove an event's completion against real plan state, and two
+  plan-derived relations stay unverifiable (see the 1.15 entry).
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
@@ -583,8 +586,8 @@ here.
   both are IMPLEMENTED CANDIDATES, not accepted ABI -- task 1.7 is still the
   accept gate. What remains open is the
   1.3 assignment-record contract, 1.5's residual clauses, 1.6's version vectors,
-  the zero-MTR decision, and task 1.15's shared per-value vectors. The freeze
-  itself is task 1.7.
+  and task 1.15's shared per-value vectors. The zero-MTR decision is CLOSED
+  (candidate B). The freeze itself is task 1.7.
 
 - [x] 1.14 Define and implement the `Sr-Edge-Transport-Provenance` header grammar
   and the service-slot variants of the two publication transcripts, per the frozen
@@ -643,11 +646,26 @@ here.
   COMPLETED event against PLAN-DERIVED expected count and commitment rather than the
   event's self-reported counters. Shared vectors landed: `lifecycle_zero_mtr.bin`
   and `zero_mtr_commitment.bin`, recomputed byte-for-byte in Elixir.
-  STILL OPEN for this task: the PRODUCER path. Nothing in this repository computes a
-  completion proof today -- `execstate.Tracker` builds lifecycle events and sets only
-  `expected/emitted` counters -- so emitting the zero-leaf proof belongs to the
-  downstream `unify-sweep-results-proto` runtime change, per this task list's scope
-  note. The full per-value shared leaf-vector inventory remains task 1.15.
+  STILL OPEN, and these are BLOCKERS ON 1.7, not footnotes:
+  (a) PRODUCER PATH -- nothing in this repository computes a completion proof.
+  `execstate.Tracker` builds lifecycle events and sets only `expected/emitted`
+  counters. Owned downstream by `unify-sweep-results-proto` task 2.3b, per this task
+  list's scope note. `go/pkg/edge/execstate/**` is now in the Proto ABI workflow path
+  filters so a producer change cannot bypass the ABI gate.
+  (b) CONSUMER VERIFICATION IS NOT IMPLEMENTED.
+  `VerifyCompletionAgainstPlanState` is a comparison PRIMITIVE: every authoritative
+  value is a caller argument, so a caller that derives them from the event gets a
+  VACUOUS check that always passes. There is deliberately NO production caller, and
+  `ValidateLifecycleRecord` remains shape-only. Elixir has no peer verifier at all.
+  Real verification needs a validated, authenticated plan/assignment carrier, which
+  is task 1.3. GATED ON 1.3.
+  (c) TWO PLAN-DERIVED RELATIONS ARE UNDEFINED. `range_root_sha256` is only
+  LENGTH-checked -- nothing relates it to the plan's ranges -- and `ValidatePlanHeader`
+  cannot prove a zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte
+  commitment, because the header alone does not say whether the plan admits MTR. Both
+  need authoritative assignment-state semantics (task 1.3). Do NOT freeze at 1.7 over
+  either.
+  The full per-value shared leaf-vector inventory remains task 1.15.
   UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
   an unsupported-input vector. Add matching field-framed grammar
