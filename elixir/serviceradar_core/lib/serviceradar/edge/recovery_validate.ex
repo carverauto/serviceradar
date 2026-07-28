@@ -139,9 +139,12 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   defp decode_all(raw) do
     raw
     |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
-      case propagate_decode(WireDecode.decode_manifest_page(b)) do
+      case WireDecode.decode_manifest_page(b) do
+        # Success is handled HERE and never travels through the helper: a helper that
+        # accepts a caller-supplied {:ok, page} could hand back a page, which is the
+        # capability this module must not expose at all.
         {:ok, page} -> {:cont, {:ok, [page | acc]}}
-        {:error, _} = err -> {:halt, err}
+        {:error, _} = err -> {:halt, propagate_decode_error(err)}
       end
     end)
     |> case do
@@ -334,19 +337,18 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # Elixir would admit an identity Go rejects, which is the parity this validator
   # exists to hold.
   @doc false
-  # PURE result normalization: the single place a decode outcome becomes this module's
-  # return value. It cannot authorize admission -- it decodes nothing, produces no
-  # page, and only maps a result it was handed.
+  # ERROR-ONLY propagation. It takes an error and returns an error: it cannot decode,
+  # cannot construct a page, and has no success clause to pass one through -- so
+  # exposing it grants no capability whatsoever. An earlier version also accepted
+  # `{:ok, page}`, which meant a caller could hand it a page and get one back; that
+  # contradicted its own "produces no page" claim and was broader than the proof needs.
   #
-  # It exists because propagation cannot otherwise be proven. Fixed malformed bytes
-  # only ever yield `:poison`, so an end-to-end suite cannot distinguish propagation
-  # from a hardcoded `:poison`, and a mutation collapsing `:not_ready`/`:systemic` --
-  # the transient outcomes whose loss is destructive, since they mean PAUSE AND REPLAY
-  # rather than quarantine -- would survive. Exposing an injectable DECODER would have
-  # proven the same thing while handing callers a bypass; exposing this cannot.
-  @spec propagate_decode(WireDecode.outcome()) :: {:ok, struct()} | {:error, decode_error()}
-  def propagate_decode({:ok, page}), do: {:ok, page}
-  def propagate_decode({:error, reason}), do: {:error, reason}
+  # It exists because propagation cannot otherwise be proven: fixed malformed bytes
+  # only ever yield `:poison`, so a mutation collapsing `:not_ready`/`:systemic` -- the
+  # transient outcomes whose loss is destructive, since they mean PAUSE AND REPLAY
+  # rather than quarantine -- would survive an end-to-end-only suite.
+  @spec propagate_decode_error({:error, decode_error()}) :: {:error, decode_error()}
+  def propagate_decode_error({:error, reason}), do: {:error, reason}
 
   defp uuid?(<<_::binary-size(6), v, _, var, _::binary-size(7)>> = b)
        when byte_size(b) == @uuid_len do
