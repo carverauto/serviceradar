@@ -671,26 +671,68 @@ func validateSingleManifestPage(p *edgev1.EdgeLossManifestPageV1) error {
 // candidate discards data the consumer still owes.
 //
 // prior is the previously published watermark; the result never retreats below it.
+//
+// TOTAL AND BOUNDED. An earlier version walked seq := prior+1 to the high-water one
+// sequence at a time, which was neither: prior+1 WRAPS at MaxUint64 (so
+// prior=MaxUint64 retreated to 0, and prior=MaxUint64-1 looped forever), and a legal
+// gap of a trillion sequences cost a trillion iterations. Gaps are legal and can be
+// arbitrarily wide, so enumerating them is not an optimisation problem -- it is a
+// liveness bug on valid input.
+//
+// This walks the ORDERED loss spans instead and skips gaps wholesale. Work is
+// O(#spans + |appliedDurably|): a gap costs one step regardless of width, and inside
+// a lost span the prefix can only advance while consecutive sequences are applied, so
+// that region is bounded by the applied set, not by the span.
+//
+// lost MUST be the validated, ordered, non-overlapping union. Passing an unordered or
+// partial union yields a value that looks plausible and is wrong.
 func AppliedThroughSequence(prior, allocatedHighWater uint64, appliedDurably map[uint64]bool, lost []*edgev1.EdgeClassificationSpanV1) uint64 {
-	s := prior
-	for seq := prior + 1; seq <= allocatedHighWater; seq++ {
-		if appliedDurably[seq] || !inSpanUnion(seq, lost) {
-			s = seq
-			continue
-		}
-		break
+	if prior >= allocatedHighWater {
+		return prior
 	}
-	return s
+	s := prior
+
+	for _, sp := range lost {
+		from, through := sp.GetFromSequence(), sp.GetThroughSequence()
+		if through <= s {
+			continue // already behind the prefix
+		}
+		// Everything strictly below this span's start is absent from the union, hence
+		// NOT LOST, so the prefix clears it in one step however wide the gap is.
+		if from > 0 && from-1 > s {
+			s = min64(from-1, allocatedHighWater)
+			if s >= allocatedHighWater {
+				return s
+			}
+		}
+		// Inside the span every sequence must be individually applied.
+		for seq := max64(s+1, from); seq <= through && seq <= allocatedHighWater; seq++ {
+			if !appliedDurably[seq] {
+				return s
+			}
+			s = seq
+			if seq == ^uint64(0) {
+				return s // MaxUint64 reached: seq++ would wrap
+			}
+		}
+		if s < through && s < allocatedHighWater {
+			return s
+		}
+	}
+	// Past the last span everything is absent from the union.
+	return allocatedHighWater
 }
 
-// inSpanUnion reports whether seq falls inside any span. The caller MUST pass a
-// VALIDATED COMPLETE union: absence from a partial union proves nothing, and treating
-// it as not-lost is how a gap becomes an unnoticed data loss.
-func inSpanUnion(seq uint64, lost []*edgev1.EdgeClassificationSpanV1) bool {
-	for _, sp := range lost {
-		if seq >= sp.GetFromSequence() && seq <= sp.GetThroughSequence() {
-			return true
-		}
+func min64(a, b uint64) uint64 {
+	if a < b {
+		return a
 	}
-	return false
+	return b
+}
+
+func max64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
