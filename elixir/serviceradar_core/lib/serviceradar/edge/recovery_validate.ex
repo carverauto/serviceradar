@@ -55,6 +55,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL
   ]
 
+  @typedoc """
+  RELATIONAL failures -- the manifest itself is well-formed enough to inspect and is
+  wrong. Every one of these is a permanent verdict about the data.
+  """
   @type error ::
           :unknown_fields
           | :manifest_empty
@@ -68,6 +72,20 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
           | :manifest_span_body
           | :manifest_root
           | :tombstone_mismatch
+
+  @typedoc """
+  DECODE outcomes propagated verbatim from `ServiceRadar.Edge.WireDecode`.
+
+  These are NOT relational errors and callers MUST NOT treat them as one:
+  `:not_ready` and `:systemic` are deployment/decoder faults that require PAUSE AND
+  REPLAY, while `:poison` and `:too_large` authorize permanent resolution. They are a
+  SEPARATE type precisely so a caller pattern-matching on `t:error/0` cannot silently
+  absorb a transient fault as a permanent one.
+  """
+  @type decode_error :: :not_ready | :systemic | :poison | :too_large
+
+  @typedoc "Anything `manifest_chain_from_raw/3` can return."
+  @type raw_error :: error() | decode_error()
 
   @doc """
   The RAW-BYTE entry point: bounds every page on the bytes ACTUALLY RECEIVED,
@@ -83,12 +101,22 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   re-encoded sizes therefore admits an over-budget manifest whose pages carry
   duplicate fields or non-minimal varints.
   """
-  @spec manifest_chain_from_raw([binary()], binary() | nil) :: :ok | {:error, error()}
-  def manifest_chain_from_raw([], _expected_root), do: {:error, :manifest_empty}
+  @spec manifest_chain_from_raw([binary()], binary() | nil, keyword()) ::
+          :ok | {:error, raw_error()}
+  def manifest_chain_from_raw(raw, expected_root, opts \\ [])
 
-  def manifest_chain_from_raw(raw, expected_root) when is_list(raw) do
+  def manifest_chain_from_raw([], _expected_root, _opts), do: {:error, :manifest_empty}
+
+  def manifest_chain_from_raw(raw, expected_root, opts) when is_list(raw) do
+    # `:decoder` is a TEST SEAM, and it exists for a specific reason: fixed malformed
+    # bytes only ever produce `:poison`, so a suite built on them cannot distinguish
+    # propagation from a hardcoded `:poison`. A mutation collapsing `:not_ready` and
+    # `:systemic` -- the transient outcomes whose loss is destructive -- would survive.
+    # Injecting the decoder is what makes all four outcomes reachable in a test.
+    decoder = Keyword.get(opts, :decoder, &WireDecode.decode_manifest_page/1)
+
     with :ok <- bound_received(raw),
-         {:ok, pages} <- decode_all(raw) do
+         {:ok, pages} <- decode_all(raw, decoder) do
       manifest_chain(pages, expected_root)
     end
   end
@@ -113,10 +141,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # Decoding goes through the shared WireDecode stage, so a recovery page gets the
   # same recursive structural gate as every other ingress rather than a private
   # `Protobuf.decode` that skips it.
-  defp decode_all(raw) do
+  defp decode_all(raw, decoder) do
     raw
     |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
-      case WireDecode.decode_manifest_page(b) do
+      case decoder.(b) do
         {:ok, page} ->
           {:cont, {:ok, [page | acc]}}
 
