@@ -66,7 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Container Tools
         skopeo \
         iptables \
-        # Docker CE. Required by BuildBuddy Firecracker MicroVM
+        # Docker CE. Required by BuildBuddy's Firecracker guest init when an action
+        # sets test.init-dockerd: it LookPath's BOTH `docker` and `dockerd` and returns
+        # an error if either is missing, which exits init(1) and panics the guest kernel
+        # ("Attempted to kill init!"). Do not drop these.
         docker-ce \
         docker-ce-cli \
         containerd.io \
@@ -149,14 +152,11 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-# Install Rust toolchains for native builds.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
-    && chmod +x /tmp/rustup-init \
-    && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
-    && rm -f /tmp/rustup-init \
-    && source /opt/cargo/env \
-    && /opt/cargo/bin/rustup default stable \
-    && /opt/cargo/bin/cargo install --locked bpf-linker
+# Install syft for SBOM generation
+ARG SYFT_VERSION=1.38.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
+    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
+    && syft version
 
 # Install cosign for container signing/attestation
 ARG COSIGN_VERSION=2.4.1
@@ -165,11 +165,33 @@ RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VE
     && chmod +x /usr/local/bin/cosign \
     && cosign version
 
-# Install syft for SBOM generation
-ARG SYFT_VERSION=1.38.0
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
-    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
-    && syft version
+# Force the legacy (x_tables) iptables backend for dockerd.
+#
+# Ubuntu 24.04 selects iptables-nft, but BuildBuddy's Firecracker guest kernel has no
+# nf_tables support -- see the DOCKER_INSECURE_NO_IPTABLES_RAW comment in goinit, which
+# applies that workaround only on non-amd64 because their amd64 image already avoids nft.
+# On the nft backend dockerd cannot program the bridge, so it never starts serving
+# /var/run/docker.sock and the guest's `docker ps` readiness poll spins until BuildBuddy
+# gives up with "docker init timed out after 30s".
+#
+# This cannot be fixed through /etc/docker/daemon.json: the guest init overwrites that
+# file from MMDS on every boot, so the backend has to be baked into the image.
+#
+# Kept late in the file deliberately: it depends only on the `iptables` package from the
+# first layer, and placing it here avoids invalidating the expensive rustup/bpf-linker
+# layer on rebuild.
+RUN update-alternatives --set iptables /usr/sbin/iptables-legacy \
+    && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+
+# Assert the switch took, so a silent alternatives change cannot reintroduce the 30s
+# timeout, which surfaces far from its cause. Check the backend iptables reports
+# ("v1.8.10 (legacy)"
+RUN iptables --version | grep -q '(legacy)' \
+    && ip6tables --version | grep -q '(legacy)'
+
+# Assert that docker works.
+RUN docker --version && dockerd --version \
+    && test -x /usr/bin/docker && test -x /usr/bin/dockerd
 
 # Set up work directory
 RUN mkdir -p /workspace
