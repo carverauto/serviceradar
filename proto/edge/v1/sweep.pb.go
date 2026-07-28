@@ -339,6 +339,85 @@ func (MtrOutcome) EnumDescriptor() ([]byte, []int) {
 	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{4}
 }
 
+// MtrCompletionDisposition is the terminal state of ONE PLANNED MTR ordinal in
+// the completion proof, and this is its SOLE declaration. Every runtime is a
+// consumer: the Go `MtrTerminalDisposition` constants and the Elixir completion
+// guards reference these generated values rather than restating the numbering.
+//
+// This is not tidiness. The number is hashed INTO the frozen completion leaf
+// preimage (`MtrCompletionDigestVersion = 2`), so the numbering is part of the
+// digest grammar -- two implementations that disagree by one produce two
+// different completion roots for the same completion, and the disagreement
+// surfaces as an unexplained proof mismatch rather than as a compile error.
+//
+// DISTINCT from the per-hop `MtrOutcome` above, whose numbering it SHALL NOT
+// reuse: they describe different things -- what happened to a planned MTR
+// ordinal versus what a probe observed at a hop -- and collapsing them would
+// make the frozen leaf grammar depend on an enum that evolves for unrelated
+// reasons.
+//
+// The set is CLOSED at the leaf: zero, negative, and unknown-positive values are
+// rejected BEFORE the value is widened to u64 and hashed, and a value declared
+// in a LATER proto revision stays rejected until the completion grammar version
+// itself changes. `TRACE_ALLOCATED` is the ONLY value carrying a `trace_id`.
+type MtrCompletionDisposition int32
+
+const (
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_UNSPECIFIED     MtrCompletionDisposition = 0
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED MtrCompletionDisposition = 1
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_NOT_ADMITTED    MtrCompletionDisposition = 2
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_PROBE_FAILED    MtrCompletionDisposition = 3
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_QUARANTINED     MtrCompletionDisposition = 4
+	MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST  MtrCompletionDisposition = 5
+)
+
+// Enum value maps for MtrCompletionDisposition.
+var (
+	MtrCompletionDisposition_name = map[int32]string{
+		0: "MTR_COMPLETION_DISPOSITION_UNSPECIFIED",
+		1: "MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED",
+		2: "MTR_COMPLETION_DISPOSITION_NOT_ADMITTED",
+		3: "MTR_COMPLETION_DISPOSITION_PROBE_FAILED",
+		4: "MTR_COMPLETION_DISPOSITION_QUARANTINED",
+		5: "MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST",
+	}
+	MtrCompletionDisposition_value = map[string]int32{
+		"MTR_COMPLETION_DISPOSITION_UNSPECIFIED":     0,
+		"MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED": 1,
+		"MTR_COMPLETION_DISPOSITION_NOT_ADMITTED":    2,
+		"MTR_COMPLETION_DISPOSITION_PROBE_FAILED":    3,
+		"MTR_COMPLETION_DISPOSITION_QUARANTINED":     4,
+		"MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST":  5,
+	}
+)
+
+func (x MtrCompletionDisposition) Enum() *MtrCompletionDisposition {
+	p := new(MtrCompletionDisposition)
+	*p = x
+	return p
+}
+
+func (x MtrCompletionDisposition) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MtrCompletionDisposition) Descriptor() protoreflect.EnumDescriptor {
+	return file_edge_v1_sweep_proto_enumTypes[5].Descriptor()
+}
+
+func (MtrCompletionDisposition) Type() protoreflect.EnumType {
+	return &file_edge_v1_sweep_proto_enumTypes[5]
+}
+
+func (x MtrCompletionDisposition) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MtrCompletionDisposition.Descriptor instead.
+func (MtrCompletionDisposition) EnumDescriptor() ([]byte, []int) {
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{5}
+}
+
 // SweepExecutionSource names what produced an observation. It covers sweep
 // executions (scheduled sweep, sweep profile) and the non-sweep MTR producers
 // (scheduled MTR check, ad-hoc scan, on-demand command). `SCHEDULED_CHECK` is
@@ -385,11 +464,11 @@ func (x SweepExecutionSource) String() string {
 }
 
 func (SweepExecutionSource) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_sweep_proto_enumTypes[5].Descriptor()
+	return file_edge_v1_sweep_proto_enumTypes[6].Descriptor()
 }
 
 func (SweepExecutionSource) Type() protoreflect.EnumType {
-	return &file_edge_v1_sweep_proto_enumTypes[5]
+	return &file_edge_v1_sweep_proto_enumTypes[6]
 }
 
 func (x SweepExecutionSource) Number() protoreflect.EnumNumber {
@@ -398,7 +477,7 @@ func (x SweepExecutionSource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SweepExecutionSource.Descriptor instead.
 func (SweepExecutionSource) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{5}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{6}
 }
 
 type SweepExecutionEventKind int32
@@ -440,11 +519,11 @@ func (x SweepExecutionEventKind) String() string {
 }
 
 func (SweepExecutionEventKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_edge_v1_sweep_proto_enumTypes[6].Descriptor()
+	return file_edge_v1_sweep_proto_enumTypes[7].Descriptor()
 }
 
 func (SweepExecutionEventKind) Type() protoreflect.EnumType {
-	return &file_edge_v1_sweep_proto_enumTypes[6]
+	return &file_edge_v1_sweep_proto_enumTypes[7]
 }
 
 func (x SweepExecutionEventKind) Number() protoreflect.EnumNumber {
@@ -453,7 +532,7 @@ func (x SweepExecutionEventKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SweepExecutionEventKind.Descriptor instead.
 func (SweepExecutionEventKind) EnumDescriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{6}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{7}
 }
 
 type SweepTestV1 struct {
@@ -2780,7 +2859,14 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x15MTR_OUTCOME_TIMED_OUT\x10\x04\x12\x1c\n" +
 	"\x18MTR_OUTCOME_NOT_ADMITTED\x10\x05\x12\x1b\n" +
 	"\x17MTR_OUTCOME_QUARANTINED\x10\x06\x12\x1e\n" +
-	"\x1aMTR_OUTCOME_SCHEDULER_LOST\x10\a*\x89\x02\n" +
+	"\x1aMTR_OUTCOME_SCHEDULER_LOST\x10\a*\xab\x02\n" +
+	"\x18MtrCompletionDisposition\x12*\n" +
+	"&MTR_COMPLETION_DISPOSITION_UNSPECIFIED\x10\x00\x12.\n" +
+	"*MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED\x10\x01\x12+\n" +
+	"'MTR_COMPLETION_DISPOSITION_NOT_ADMITTED\x10\x02\x12+\n" +
+	"'MTR_COMPLETION_DISPOSITION_PROBE_FAILED\x10\x03\x12*\n" +
+	"&MTR_COMPLETION_DISPOSITION_QUARANTINED\x10\x04\x12-\n" +
+	")MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST\x10\x05*\x89\x02\n" +
 	"\x14SweepExecutionSource\x12&\n" +
 	"\"SWEEP_EXECUTION_SOURCE_UNSPECIFIED\x10\x00\x12*\n" +
 	"&SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP\x10\x01\x12(\n" +
@@ -2807,7 +2893,7 @@ func file_edge_v1_sweep_proto_rawDescGZIP() []byte {
 	return file_edge_v1_sweep_proto_rawDescData
 }
 
-var file_edge_v1_sweep_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_edge_v1_sweep_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
 var file_edge_v1_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_edge_v1_sweep_proto_goTypes = []any{
 	(SweepMode)(0),                     // 0: serviceradar.edge.v1.SweepMode
@@ -2815,55 +2901,56 @@ var file_edge_v1_sweep_proto_goTypes = []any{
 	(TransportProtocol)(0),             // 2: serviceradar.edge.v1.TransportProtocol
 	(SweepModeOutcome)(0),              // 3: serviceradar.edge.v1.SweepModeOutcome
 	(MtrOutcome)(0),                    // 4: serviceradar.edge.v1.MtrOutcome
-	(SweepExecutionSource)(0),          // 5: serviceradar.edge.v1.SweepExecutionSource
-	(SweepExecutionEventKind)(0),       // 6: serviceradar.edge.v1.SweepExecutionEventKind
-	(*SweepTestV1)(nil),                // 7: serviceradar.edge.v1.SweepTestV1
-	(*SweepObservationBatchV1)(nil),    // 8: serviceradar.edge.v1.SweepObservationBatchV1
-	(*SweepHostObservationV1)(nil),     // 9: serviceradar.edge.v1.SweepHostObservationV1
-	(*SweepIcmpSummaryV1)(nil),         // 10: serviceradar.edge.v1.SweepIcmpSummaryV1
-	(*SweepTcpSummaryV1)(nil),          // 11: serviceradar.edge.v1.SweepTcpSummaryV1
-	(*SweepOpenPortV1)(nil),            // 12: serviceradar.edge.v1.SweepOpenPortV1
-	(*SweepPortErrorV1)(nil),           // 13: serviceradar.edge.v1.SweepPortErrorV1
-	(*SweepMtrSummaryV1)(nil),          // 14: serviceradar.edge.v1.SweepMtrSummaryV1
-	(*MtrMplsLabelV1)(nil),             // 15: serviceradar.edge.v1.MtrMplsLabelV1
-	(*MtrTraceHopV1)(nil),              // 16: serviceradar.edge.v1.MtrTraceHopV1
-	(*MtrTraceEventV1)(nil),            // 17: serviceradar.edge.v1.MtrTraceEventV1
-	(*MtrSweepContextV1)(nil),          // 18: serviceradar.edge.v1.MtrSweepContextV1
-	(*MtrScheduledCheckContextV1)(nil), // 19: serviceradar.edge.v1.MtrScheduledCheckContextV1
-	(*MtrAdHocContextV1)(nil),          // 20: serviceradar.edge.v1.MtrAdHocContextV1
-	(*MtrCommandContextV1)(nil),        // 21: serviceradar.edge.v1.MtrCommandContextV1
-	(*MtrTraceBatchV1)(nil),            // 22: serviceradar.edge.v1.MtrTraceBatchV1
-	(*SweepExecutionEventV1)(nil),      // 23: serviceradar.edge.v1.SweepExecutionEventV1
-	(*TargetRangeV1)(nil),              // 24: serviceradar.edge.v1.TargetRangeV1
-	(*ScheduledPlanPageV1)(nil),        // 25: serviceradar.edge.v1.ScheduledPlanPageV1
-	(*ScheduledPlanHeaderV1)(nil),      // 26: serviceradar.edge.v1.ScheduledPlanHeaderV1
+	(MtrCompletionDisposition)(0),      // 5: serviceradar.edge.v1.MtrCompletionDisposition
+	(SweepExecutionSource)(0),          // 6: serviceradar.edge.v1.SweepExecutionSource
+	(SweepExecutionEventKind)(0),       // 7: serviceradar.edge.v1.SweepExecutionEventKind
+	(*SweepTestV1)(nil),                // 8: serviceradar.edge.v1.SweepTestV1
+	(*SweepObservationBatchV1)(nil),    // 9: serviceradar.edge.v1.SweepObservationBatchV1
+	(*SweepHostObservationV1)(nil),     // 10: serviceradar.edge.v1.SweepHostObservationV1
+	(*SweepIcmpSummaryV1)(nil),         // 11: serviceradar.edge.v1.SweepIcmpSummaryV1
+	(*SweepTcpSummaryV1)(nil),          // 12: serviceradar.edge.v1.SweepTcpSummaryV1
+	(*SweepOpenPortV1)(nil),            // 13: serviceradar.edge.v1.SweepOpenPortV1
+	(*SweepPortErrorV1)(nil),           // 14: serviceradar.edge.v1.SweepPortErrorV1
+	(*SweepMtrSummaryV1)(nil),          // 15: serviceradar.edge.v1.SweepMtrSummaryV1
+	(*MtrMplsLabelV1)(nil),             // 16: serviceradar.edge.v1.MtrMplsLabelV1
+	(*MtrTraceHopV1)(nil),              // 17: serviceradar.edge.v1.MtrTraceHopV1
+	(*MtrTraceEventV1)(nil),            // 18: serviceradar.edge.v1.MtrTraceEventV1
+	(*MtrSweepContextV1)(nil),          // 19: serviceradar.edge.v1.MtrSweepContextV1
+	(*MtrScheduledCheckContextV1)(nil), // 20: serviceradar.edge.v1.MtrScheduledCheckContextV1
+	(*MtrAdHocContextV1)(nil),          // 21: serviceradar.edge.v1.MtrAdHocContextV1
+	(*MtrCommandContextV1)(nil),        // 22: serviceradar.edge.v1.MtrCommandContextV1
+	(*MtrTraceBatchV1)(nil),            // 23: serviceradar.edge.v1.MtrTraceBatchV1
+	(*SweepExecutionEventV1)(nil),      // 24: serviceradar.edge.v1.SweepExecutionEventV1
+	(*TargetRangeV1)(nil),              // 25: serviceradar.edge.v1.TargetRangeV1
+	(*ScheduledPlanPageV1)(nil),        // 26: serviceradar.edge.v1.ScheduledPlanPageV1
+	(*ScheduledPlanHeaderV1)(nil),      // 27: serviceradar.edge.v1.ScheduledPlanHeaderV1
 }
 var file_edge_v1_sweep_proto_depIdxs = []int32{
 	0,  // 0: serviceradar.edge.v1.SweepTestV1.mode:type_name -> serviceradar.edge.v1.SweepMode
 	2,  // 1: serviceradar.edge.v1.SweepTestV1.protocol:type_name -> serviceradar.edge.v1.TransportProtocol
-	7,  // 2: serviceradar.edge.v1.SweepObservationBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
-	5,  // 3: serviceradar.edge.v1.SweepObservationBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	9,  // 4: serviceradar.edge.v1.SweepObservationBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
-	10, // 5: serviceradar.edge.v1.SweepHostObservationV1.icmp:type_name -> serviceradar.edge.v1.SweepIcmpSummaryV1
-	11, // 6: serviceradar.edge.v1.SweepHostObservationV1.tcp:type_name -> serviceradar.edge.v1.SweepTcpSummaryV1
-	12, // 7: serviceradar.edge.v1.SweepHostObservationV1.open_ports:type_name -> serviceradar.edge.v1.SweepOpenPortV1
-	13, // 8: serviceradar.edge.v1.SweepHostObservationV1.port_errors:type_name -> serviceradar.edge.v1.SweepPortErrorV1
-	14, // 9: serviceradar.edge.v1.SweepHostObservationV1.mtr:type_name -> serviceradar.edge.v1.SweepMtrSummaryV1
+	8,  // 2: serviceradar.edge.v1.SweepObservationBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
+	6,  // 3: serviceradar.edge.v1.SweepObservationBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
+	10, // 4: serviceradar.edge.v1.SweepObservationBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
+	11, // 5: serviceradar.edge.v1.SweepHostObservationV1.icmp:type_name -> serviceradar.edge.v1.SweepIcmpSummaryV1
+	12, // 6: serviceradar.edge.v1.SweepHostObservationV1.tcp:type_name -> serviceradar.edge.v1.SweepTcpSummaryV1
+	13, // 7: serviceradar.edge.v1.SweepHostObservationV1.open_ports:type_name -> serviceradar.edge.v1.SweepOpenPortV1
+	14, // 8: serviceradar.edge.v1.SweepHostObservationV1.port_errors:type_name -> serviceradar.edge.v1.SweepPortErrorV1
+	15, // 9: serviceradar.edge.v1.SweepHostObservationV1.mtr:type_name -> serviceradar.edge.v1.SweepMtrSummaryV1
 	3,  // 10: serviceradar.edge.v1.SweepIcmpSummaryV1.outcome:type_name -> serviceradar.edge.v1.SweepModeOutcome
 	3,  // 11: serviceradar.edge.v1.SweepTcpSummaryV1.outcome:type_name -> serviceradar.edge.v1.SweepModeOutcome
 	4,  // 12: serviceradar.edge.v1.SweepMtrSummaryV1.outcome:type_name -> serviceradar.edge.v1.MtrOutcome
-	15, // 13: serviceradar.edge.v1.MtrTraceHopV1.mpls_labels:type_name -> serviceradar.edge.v1.MtrMplsLabelV1
+	16, // 13: serviceradar.edge.v1.MtrTraceHopV1.mpls_labels:type_name -> serviceradar.edge.v1.MtrMplsLabelV1
 	4,  // 14: serviceradar.edge.v1.MtrTraceEventV1.outcome:type_name -> serviceradar.edge.v1.MtrOutcome
 	2,  // 15: serviceradar.edge.v1.MtrTraceEventV1.protocol:type_name -> serviceradar.edge.v1.TransportProtocol
-	16, // 16: serviceradar.edge.v1.MtrTraceEventV1.hops:type_name -> serviceradar.edge.v1.MtrTraceHopV1
-	5,  // 17: serviceradar.edge.v1.MtrTraceBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	17, // 18: serviceradar.edge.v1.MtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.MtrTraceEventV1
-	18, // 19: serviceradar.edge.v1.MtrTraceBatchV1.sweep:type_name -> serviceradar.edge.v1.MtrSweepContextV1
-	19, // 20: serviceradar.edge.v1.MtrTraceBatchV1.scheduled_check:type_name -> serviceradar.edge.v1.MtrScheduledCheckContextV1
-	20, // 21: serviceradar.edge.v1.MtrTraceBatchV1.ad_hoc:type_name -> serviceradar.edge.v1.MtrAdHocContextV1
-	21, // 22: serviceradar.edge.v1.MtrTraceBatchV1.command:type_name -> serviceradar.edge.v1.MtrCommandContextV1
-	6,  // 23: serviceradar.edge.v1.SweepExecutionEventV1.kind:type_name -> serviceradar.edge.v1.SweepExecutionEventKind
-	24, // 24: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
+	17, // 16: serviceradar.edge.v1.MtrTraceEventV1.hops:type_name -> serviceradar.edge.v1.MtrTraceHopV1
+	6,  // 17: serviceradar.edge.v1.MtrTraceBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
+	18, // 18: serviceradar.edge.v1.MtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.MtrTraceEventV1
+	19, // 19: serviceradar.edge.v1.MtrTraceBatchV1.sweep:type_name -> serviceradar.edge.v1.MtrSweepContextV1
+	20, // 20: serviceradar.edge.v1.MtrTraceBatchV1.scheduled_check:type_name -> serviceradar.edge.v1.MtrScheduledCheckContextV1
+	21, // 21: serviceradar.edge.v1.MtrTraceBatchV1.ad_hoc:type_name -> serviceradar.edge.v1.MtrAdHocContextV1
+	22, // 22: serviceradar.edge.v1.MtrTraceBatchV1.command:type_name -> serviceradar.edge.v1.MtrCommandContextV1
+	7,  // 23: serviceradar.edge.v1.SweepExecutionEventV1.kind:type_name -> serviceradar.edge.v1.SweepExecutionEventKind
+	25, // 24: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
 	25, // [25:25] is the sub-list for method output_type
 	25, // [25:25] is the sub-list for method input_type
 	25, // [25:25] is the sub-list for extension type_name
@@ -2892,7 +2979,7 @@ func file_edge_v1_sweep_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_sweep_proto_rawDesc), len(file_edge_v1_sweep_proto_rawDesc)),
-			NumEnums:      7,
+			NumEnums:      8,
 			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,

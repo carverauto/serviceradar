@@ -41,6 +41,7 @@ defmodule PatchEdgeEnumNegatives do
     Serviceradar.Edge.V1.EdgeRecordTrafficClass
     Serviceradar.Edge.V1.EdgeSourceAuthorizationKind
     Serviceradar.Edge.V1.EdgeUnattributableReason
+    Serviceradar.Edge.V1.MtrCompletionDisposition
     Serviceradar.Edge.V1.MtrOutcome
     Serviceradar.Edge.V1.SweepExecutionEventKind
     Serviceradar.Edge.V1.SweepExecutionSource

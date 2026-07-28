@@ -8,6 +8,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
   each side decodes protobuf.
   """
 
+  alias Serviceradar.Edge.V1.MtrCompletionDisposition
+
   @recovery_digest_version 1
   @plan_digest_version 1
 
@@ -268,20 +270,24 @@ defmodule ServiceRadar.Edge.HashGrammar do
   # Mirrors Go MaxMtrCompletionOrdinals (2^31).
   @max_mtr_ordinals 2_147_483_648
 
-  @doc """
-  Recompute the order-independent MTR completion root. Mirrors
-  `edgerecord.MtrCompletionRoot`: an additive 256-bit multiset hash over per-leaf
-  digests, bound to the expected ordinal count and plan root. A leaf is
-  `{ordinal, disposition, trace_id, range_sha256}` where disposition is the
-  integer disposition (allocated=1, not_admitted=2, ...).
-  """
+  # The raw order-independent completion root: an additive 256-bit multiset hash
+  # over per-leaf digests, bound to the expected ordinal count and plan root. A
+  # leaf is `{ordinal, disposition, trace_id, range_sha256}`, the disposition
+  # being a `Serviceradar.Edge.V1.MtrCompletionDisposition` value.
+  #
+  # PRIVATE on purpose, and reached ONLY from `mtr_completion_verify/4` once every
+  # leaf has been validated. Go exports no unvalidated hasher --
+  # `edgerecord.MtrCompletionRoot` folds through the accumulator, whose `Add`
+  # rejects a bad disposition BEFORE it is widened to u64 and hashed. A public raw
+  # hasher here would be the one path by which an unrecognised number enters the
+  # frozen preimage and yields a root no other implementation can reproduce.
   @spec mtr_completion_root(
-          [{non_neg_integer(), non_neg_integer(), binary() | nil, binary()}],
+          [{non_neg_integer(), integer(), binary() | nil, binary()}],
           non_neg_integer(),
           binary(),
           binary()
         ) :: binary()
-  def mtr_completion_root(leaves, expected, plan_root, commitment) do
+  defp mtr_completion_root(leaves, expected, plan_root, commitment) do
     acc =
       Enum.reduce(leaves, <<0::256>>, fn leaf, acc ->
         add256(acc, mtr_leaf_hash(leaf))
@@ -320,7 +326,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
   cannot detect.
   """
   @spec mtr_completion_verify(
-          [{non_neg_integer(), non_neg_integer(), binary() | nil, binary()}],
+          [{non_neg_integer(), integer(), binary() | nil, binary()}],
           pos_integer(),
           binary(),
           binary()
@@ -355,8 +361,6 @@ defmodule ServiceRadar.Edge.HashGrammar do
     end
   end
 
-  # disposition ints: allocated=1, not_admitted=2, probe_failed=3, quarantined=4,
-  # scheduler_lost=5. A v7 trace id is present ONLY for allocated.
   defp valid_completion_leaf?({ord, disp, trace, range}, expected) do
     is_integer(ord) and ord >= 1 and ord <= expected and
       is_binary(range) and byte_size(range) == 32 and valid_completion_disposition?(disp, trace)
@@ -364,8 +368,34 @@ defmodule ServiceRadar.Edge.HashGrammar do
 
   defp valid_completion_leaf?(_, _), do: false
 
-  defp valid_completion_disposition?(1, trace), do: uuidv7?(trace)
-  defp valid_completion_disposition?(disp, trace) when disp in 2..5, do: trace in [nil, <<>>]
+  # A CLOSED set, and a CONSUMER of the generated enum rather than a restatement
+  # of it. The disposition number is hashed into the frozen leaf preimage, so
+  # literals here and an `iota` block in Go are two hand-maintained copies of one
+  # numbering: disagree by one and the two runtimes produce different completion
+  # roots for the same completion, surfacing as an unexplained proof mismatch
+  # instead of a compile error. Zero, negative, and unknown-positive values are
+  # rejected here, BEFORE `mtr_leaf_hash/1` widens the value to u64 -- and a value
+  # declared in a LATER proto revision stays rejected until the completion grammar
+  # version itself changes, because the leaf grammar is frozen.
+  @disposition_trace_allocated MtrCompletionDisposition.value(
+                                 :MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED
+                               )
+
+  @dispositions_without_trace Enum.map(
+                                [
+                                  :MTR_COMPLETION_DISPOSITION_NOT_ADMITTED,
+                                  :MTR_COMPLETION_DISPOSITION_PROBE_FAILED,
+                                  :MTR_COMPLETION_DISPOSITION_QUARANTINED,
+                                  :MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST
+                                ],
+                                &MtrCompletionDisposition.value/1
+                              )
+
+  defp valid_completion_disposition?(@disposition_trace_allocated, trace), do: uuidv7?(trace)
+
+  defp valid_completion_disposition?(disp, trace) when disp in @dispositions_without_trace,
+    do: trace in [nil, <<>>]
+
   defp valid_completion_disposition?(_, _), do: false
 
   defp uuidv7?(<<_::48, ver::4, _::12, var::2, _::62>>) when ver == 7 and var == 2, do: true
