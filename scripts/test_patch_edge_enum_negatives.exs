@@ -23,12 +23,12 @@
 defmodule TransformFixtureTest do
   @script Path.expand("patch_edge_enum_negatives.exs", __DIR__)
 
-  # Exactly the 17 modules the transform pins, so a clean fixture satisfies the inventory check.
+  # Exactly the modules the transform pins, so a clean fixture satisfies the inventory check.
   @inventory ~w(
     EdgeCapabilityPurpose EdgeOriginKind EdgeRecordCompression EdgeRecordDispositionKind
     EdgeRecordPayloadFamily EdgeRecordRouteProfile EdgeRecordTrafficClass
     EdgeSourceAuthorizationKind EdgeUnattributableReason MtrCompletionDisposition MtrOutcome
-    SweepExecutionEventKind
+    SweepAssignmentState SweepExecutionEventKind
     SweepExecutionSource
     SweepMode SweepModeBit SweepModeOutcome TransportProtocol
   )

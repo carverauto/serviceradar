@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "edgerecord",
     srcs = [
+        "assignment.go",
         "canonical.go",
         "capability.go",
         "claims_framing.go",
@@ -30,6 +31,7 @@ go_library(
 go_test(
     name = "edgerecord_test",
     srcs = [
+        "assignment_test.go",
         "capability_test.go",
         "domain_test.go",
         "principal_test.go",

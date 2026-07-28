@@ -179,9 +179,12 @@ func ValidateSweepExecutionEvent(ev *edgev1.SweepExecutionEventV1) error {
 			ev.GetEmittedMtrTraces() > ev.GetExpectedMtrTraces() {
 			return fmt.Errorf("%w: mtr counts", ErrLifecycle)
 		}
+		// range_root_sha256 (tag 20) is RETIRED: a range binding the producer asserts
+		// about its own attempt proves nothing, and the authoritative range-set
+		// commitment now lives on SweepAssignmentRecordV1.
 		if ev.GetMtrCompletionDigestVersion() != MtrCompletionDigestVersion ||
 			len(ev.GetMtrCompletionDigest()) != sha256Len ||
-			len(ev.GetPlanRootSha256()) != sha256Len || len(ev.GetRangeRootSha256()) != sha256Len {
+			len(ev.GetPlanRootSha256()) != sha256Len {
 			return fmt.Errorf("%w: completion proof", ErrLifecycle)
 		}
 	} else if len(ev.GetMtrCompletionDigest()) != 0 {

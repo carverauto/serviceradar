@@ -1013,6 +1013,71 @@ not an implementation-time choice between alternatives.
 - **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
   the Appendix A transcript SHALL already be frozen
 
+### Requirement: The authoritative assignment record owns the MTR expectation
+An append-only, SCHEDULER-authored `SweepAssignmentRecordV1` SHALL be the authority
+for what an assignment attempt was authorized to cover. Every record SHALL carry a
+REQUIRED `SweepMtrExpectationV1` submessage holding BOTH `ordinal_count` AND
+`ordinal_range_commitment`.
+
+An ABSENT expectation SHALL be rejected and SHALL NOT be read as zero. Zero is an
+assignment that admits no MTR and still owes the canonical zero-leaf completion
+proof; absent is a record that never stated what it expected, and treating the two
+alike turns a missing authority into an implicit waiver.
+
+`ordinal_count == 0` and a 32-ZERO-byte `ordinal_range_commitment` SHALL be required
+to agree in BOTH directions. This biconditional is what makes the zero-MTR rule
+CHECKABLE: the commitment is an additive multiset hash and cannot be inverted to a
+count, so without a carried count "32 zero bytes means no MTR admitted" is
+unfalsifiable.
+
+The count SHALL be CARRIED, never DERIVED. It SHALL NOT be taken from the producer's
+`SweepExecutionEventV1` counters (producer-self-reported, the hole the mandatory
+completion proof closes), from `ordinal_range_commitment` (not invertible), or from
+`TargetRangeV1.mtr_admission_budget` (a CEILING, not an exact count).
+
+A completion proof for an assignment attempt SHALL verify against THAT ASSIGNMENT's
+expectation. `ScheduledPlanHeaderV1.mtr_ordinal_range_commitment` remains the
+PLAN-WIDE commitment and SHALL NOT be used as the per-attempt authority: a plan may
+be divided across assignments, so the two are equal only when one assignment covers
+the whole plan.
+
+An assignment's covered-range binding SHALL live on this record as
+`range_set_commitment`, ALWAYS exactly 32 bytes, and SHALL NOT be a self-reported
+field of the producer's lifecycle event. The retired `range_root_sha256` (tag 20,
+reserved by number and name) was exactly that: a range binding the producer asserted
+about its own attempt, with no definition of what it was a root of.
+
+`record_sequence` SHALL start at 1 and strictly increase per
+`producer_assignment_id`; a state change SHALL be a NEW record, never an edit.
+`superseded_by_assignment_id` SHALL be present EXACTLY when the state is
+`SUPERSEDED`, and SHALL NOT name the record itself.
+
+#### Scenario: An absent expectation is not zero
+- **WHEN** an assignment record carries no `mtr_expectation`
+- **THEN** it SHALL be rejected
+- **AND** it SHALL NOT be treated as admitting zero MTR ordinals
+
+#### Scenario: Count and commitment agree in both directions
+- **WHEN** `ordinal_count` is 0 and the commitment is not 32 zero bytes, or the
+  commitment is 32 zero bytes and `ordinal_count` is not 0
+- **THEN** the record SHALL be rejected
+
+#### Scenario: The per-attempt authority is the assignment, not the plan
+- **WHEN** a completion proof is verified for an assignment attempt
+- **THEN** the expected count and commitment SHALL come from that assignment's
+  expectation
+- **AND** the plan header's commitment SHALL NOT be substituted for it
+
+#### Scenario: An append-only record is never edited
+- **WHEN** an assignment changes state
+- **THEN** a NEW record with a higher `record_sequence` SHALL be appended
+- **AND** `record_sequence` 0 SHALL be rejected
+
+#### Scenario: A supersede link is exact
+- **WHEN** a record's state is not `SUPERSEDED` but it names a successor, or its
+  state is `SUPERSEDED` and it names none or names itself
+- **THEN** it SHALL be rejected
+
 ### Requirement: A zero-MTR completion is a mandatory canonical proof, not an absence
 Every `SWEEP_EXECUTION_EVENT_KIND_COMPLETED` event SHALL carry a completion proof --
 `mtr_completion_digest_version`, `mtr_completion_digest`, `plan_root_sha256`, and
@@ -1028,9 +1093,10 @@ bytes -- and SHALL NOT carry empty bytes. Empty bytes would be a second spelling
 "no MTR" that no comparison can distinguish from an omitted commitment, and the
 zero-leaf proof verifies its (zero) member accumulator against exactly this field.
 
-The expected ordinal count and the commitment SHALL be taken from VALIDATED PLAN AND
-ASSIGNMENT STATE, never from the event's own `expected_mtr_*` / `emitted_mtr_*`
-counters. Those counters are producer-reported: allowing them to establish "expected
+The expected ordinal count and the commitment SHALL be taken from the ASSIGNMENT
+RECORD's required `SweepMtrExpectationV1` (see "The authoritative assignment record
+owns the MTR expectation"), never from the event's own `expected_mtr_*` /
+`emitted_mtr_*` counters. Those counters are producer-reported: allowing them to establish "expected
 0" would let a producer waive its own evidence, which is precisely what this
 requirement exists to prevent. Field-shape validation alone SHALL NOT be treated as
 verification -- it cannot distinguish a correct proof from a well-formed wrong one.
