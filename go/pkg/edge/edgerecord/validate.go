@@ -782,7 +782,9 @@ func validateProductionCapability(r *edgev1.EdgeRecordV1) error {
 func validateSourceAuthorization(r *edgev1.EdgeRecordV1) error {
 	sa := r.GetSourceAuthorization()
 	if sa == nil {
-		return nil // passive producer-assignment record; absence is explicit
+		// No source authorization. Absence is explicit and legal, and does NOT imply
+		// PASSIVE attribution -- the two axes are independent.
+		return nil
 	}
 	if !knownSourceAuthKind(sa.GetKind()) {
 		return ErrSourceAuthKind

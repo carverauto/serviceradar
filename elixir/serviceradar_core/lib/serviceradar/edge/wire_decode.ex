@@ -10,7 +10,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   ## Stage-specific, not module-generic
 
   The ONLY public entries are a FINITE set of stage decoders -- `decode_client_message/1`,
-  `decode_frame/1`, `decode_record/1` -- each bound to exactly one generated edge message module.
+  `decode_frame/1`, `decode_record/1`, and `decode_manifest_page/1` -- each bound to exactly one
+  generated edge message module. The manifest-page stage EXTENDS this set rather than standing up a
+  separate raw-bytes ingress, so recovery pages get the same bound-before-decode discipline and the
+  same typed outcomes as the transport stages.
   There is no public "decode any module" entry (that was a bypass: a caller-defined struct decoder
   could return `{:ok, fake_struct}`). A decode result is additionally accepted only when it is
   genuinely a struct of the target module (`is_struct(decoded, mod)`).
@@ -90,6 +93,7 @@ defmodule ServiceRadar.Edge.WireDecode do
   """
 
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
+  alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireValidate
@@ -109,6 +113,9 @@ defmodule ServiceRadar.Edge.WireDecode do
   @max_delivery_envelope_bytes 16 * 1024
   @max_frame_bytes @max_record_bytes + @max_delivery_envelope_bytes
   @max_client_message_bytes @max_frame_bytes + 8
+  # Whole-manifest budget, mirroring Go's edgerecord.MaxManifestBytes. Used as the
+  # per-page ceiling too: one page can never be larger than the entire manifest.
+  @max_manifest_bytes 256 * 1024
 
   # Protobuf field numbers for the RAW outer-wire peel (P1-2). EdgeRecordClientMessage is a oneof of
   # lane_open (field 1) / delivery_frame (field 2); EdgeDeliveryFrameV1.record_bytes is field 5.
@@ -188,8 +195,26 @@ defmodule ServiceRadar.Edge.WireDecode do
   @spec decode_record(binary()) :: outcome()
   def decode_record(bytes), do: run(EdgeRecordV1, @max_record_bytes, bytes)
 
+  @doc """
+  Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
+
+  This EXTENDS the finite stage API rather than superseding it, and deliberately so:
+  a recovery page arrives as raw bytes and needs the same bound-BEFORE-decode
+  discipline, the same recursive `WireValidate` gate, and the same typed outcomes as
+  the transport stages. Standing up a separate raw-bytes ingress for it would leave
+  two boundaries claiming the same guarantee, with only one of them maintained.
+
+  The page ceiling is `@max_manifest_bytes`, the whole-manifest budget: no single
+  page may exceed what the entire manifest is allowed. The AGGREGATE budget across a
+  chain is enforced by `ServiceRadar.Edge.RecoveryValidate.manifest_chain_from_raw/2`,
+  which sums exact received lengths -- a per-page check alone cannot see it. See
+  `t:outcome/0`.
+  """
+  @spec decode_manifest_page(binary()) :: outcome()
+  def decode_manifest_page(bytes), do: run(EdgeLossManifestPageV1, @max_manifest_bytes, bytes)
+
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
-  # module bypass: only the three curated message modules can be decoded, and only their own struct is
+  # module bypass: only the four curated message modules can be decoded, and only their own struct is
   # accepted (is_struct/2).
   defp run(mod, max_bytes, bytes) when is_binary(bytes) do
     cond do

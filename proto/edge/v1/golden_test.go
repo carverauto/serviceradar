@@ -29,6 +29,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -290,6 +291,31 @@ func mustBytes(b []byte, err error) []byte {
 		panic("publication-identity preimage rejected valid golden input: " + err.Error())
 	}
 	return b
+}
+
+// padToLen pads encoded page bytes to exactly target with DECODABLE filler: repeated
+// copies of the singular digest_version field (tag 8, varint), which protobuf resolves
+// last-one-wins to the value already present. An ODD byte count uses one 3-byte
+// NON-MINIMAL varint. Trailing zero bytes do NOT work -- protobuf rejects tag 0, so a
+// zero-padded page fails to decode and never reaches the budget check at all.
+func padToLen(t *testing.T, b []byte, target int) []byte {
+	t.Helper()
+	need := target - len(b)
+	if need < 0 {
+		t.Fatalf("page is already %d bytes, over target %d", len(b), target)
+	}
+	out := append([]byte{}, b...)
+	if need%2 == 1 {
+		if need < 3 {
+			t.Fatalf("cannot pad %d bytes", need)
+		}
+		out = append(out, 0x40, 0x81, 0x00)
+		need -= 3
+	}
+	for ; need > 0; need -= 2 {
+		out = append(out, 0x40, 0x01)
+	}
+	return out
 }
 
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
@@ -1060,21 +1086,175 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	rid := uuidv7(0x80)
 	page := &edgev1.EdgeLossManifestPageV1{
 		RecoveryId: rid, PageIndex: 0, PageCount: 1, Terminal: true, DigestVersion: edgerecord.RecoveryDigestVersion,
-		LostRanges: []*edgev1.EdgeLostRangeV1{{FromSequence: 10, ThroughSequence: 20}},
-		Affected: []*edgev1.EdgeAffectedScopeV1{{
-			FromSequence: 10, ThroughSequence: 20, ContractBundleSha256: digest32(0x40),
-			ProducerAssignmentId: uuidv7(0x72), RunId: uuidv7(0x73), RunShard: 3, AuthorityEpoch: 5,
-			ScopeSha256: digest32(0x84), RangeSha256: digest32(0x85),
-		}},
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{
+			// ATTRIBUTED_ACTIVE with a source identity PRESENT.
+			{
+				FromSequence: 10, ThroughSequence: 20,
+				Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+					AttributedActive: &edgev1.EdgeAttributedActiveV1{
+						Identity: &edgev1.EdgeAttributedSpanIdentityV1{
+							ProducerAssignmentId: uuidv7(0x72), RunId: uuidv7(0x73), RunShard: 3,
+							AuthorityEpoch: 5, ProductionScopeId: uuidv7(0x74),
+							ScopeSha256: digest32(0x84), ContractBundleSha256: digest32(0x40),
+							Source: &edgev1.EdgeSourceSpanIdentityV1{
+								Kind:              edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
+								ContextId:         uuidv7(0x76),
+								SourceScopeId:     uuidv7(0x77),
+								SourceScopeSha256: digest32(0x86),
+							},
+						},
+						RangeSha256: digest32(0x85),
+					},
+				},
+			},
+			// ATTRIBUTED_PASSIVE with the source identity ABSENT. Absence is part of
+			// the identity and is NOT the same as PASSIVE -- the two axes are
+			// independent, and this vector carries one of each so a cross-language
+			// fixture pins both framings.
+			{
+				FromSequence: 22, ThroughSequence: 22,
+				Classification: &edgev1.EdgeClassificationSpanV1_AttributedPassive{
+					AttributedPassive: &edgev1.EdgeAttributedPassiveV1{
+						Identity: &edgev1.EdgeAttributedSpanIdentityV1{
+							ProducerAssignmentId: uuidv7(0x78), RunId: uuidv7(0x79), RunShard: 3,
+							AuthorityEpoch: 5, ProductionScopeId: uuidv7(0x7a),
+							ScopeSha256: digest32(0x87), ContractBundleSha256: digest32(0x40),
+						},
+					},
+				},
+			},
+			// UNATTRIBUTABLE. Sequences 21 and 23-29 are deliberately omitted: a gap
+			// means NOT LOST, and gaps are legal within a page.
+			{
+				FromSequence: 30, ThroughSequence: 31,
+				Classification: &edgev1.EdgeClassificationSpanV1_Unattributable{
+					Unattributable: &edgev1.EdgeUnattributableV1{
+						Reason: edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+					},
+				},
+			},
+		},
 	}
 	page.PageSha256 = edgerecord.ManifestPageDigest(page)
 	pages := []*edgev1.EdgeLossManifestPageV1{page}
 	root := edgerecord.ManifestRoot(pages)
 	golden(t, "manifest_page.bin", page)
 
+	// EVERY UNATTRIBUTABLE REASON as a shared vector. manifest_page.bin exercises all
+	// three classifications but only ONE reason, so the other four were pinned by
+	// runtime-local tests only -- each runtime self-consistent, neither cross-checked.
+	// One page per reason, so a divergence names the reason rather than the page.
+	for i, r := range []edgev1.EdgeUnattributableReason{
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE,
+	} {
+		rp := &edgev1.EdgeLossManifestPageV1{
+			RecoveryId: uuidv7(byte(0x90 + i)), PageIndex: 0, PageCount: 1, Terminal: true,
+			DigestVersion: edgerecord.RecoveryDigestVersion,
+			ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{{
+				FromSequence: 1, ThroughSequence: 2,
+				Classification: &edgev1.EdgeClassificationSpanV1_Unattributable{
+					Unattributable: &edgev1.EdgeUnattributableV1{Reason: r},
+				},
+			}},
+		}
+		rp.PageSha256 = edgerecord.ManifestPageDigest(rp)
+		if err := edgerecord.ValidateManifestChain([]*edgev1.EdgeLossManifestPageV1{rp}, nil); err != nil {
+			t.Fatalf("reason %v vector must validate: %v", r, err)
+		}
+		golden(t, fmt.Sprintf("manifest_page_reason_%d.bin", int32(r.Number())), rp)
+	}
+
+	// NON-CANONICAL BLOAT as SHARED bytes. Both runtimes previously constructed this
+	// case independently, so each proved its own decoder against its own padding --
+	// which cannot show the two agree on what "the received bytes" are. Same page,
+	// re-encoded with a duplicate singular field so the RECEIVED size exceeds the
+	// re-encoded size.
+	canonical, err := proto.Marshal(page)
+	if err != nil {
+		t.Fatalf("marshal page: %v", err)
+	}
+	bloated := append(append([]byte{}, canonical...), 0x40, 0x01) // digest_version again
+	goldenBytes(t, "manifest_page_bloated.bin", bloated)
+
+	// THE AGGREGATE OVER-BUDGET PAIR, as SHARED bytes and a GENUINE TWO-PAGE CHAIN.
+	//
+	// An earlier version padded two copies of the same single-page manifest, so the
+	// pair decoded as page 0/1 terminal TWICE. Relational validation rejected it as a
+	// broken chain -- meaning an implementation that summed RE-ENCODED sizes would
+	// still have rejected the pair, just later and for an unrelated reason. The
+	// intended bypass was never isolated.
+	//
+	// These are page 0/2 nonterminal and page 1/2 terminal, correctly chained by
+	// predecessor digest with globally ordered spans, so the DECODED pair is valid.
+	// Each is individually UNDER the cap and their re-encoded aggregate is far below
+	// it, while the RAW pair is exactly one byte over: the only thing that can reject
+	// them is received-byte accounting.
+	chainA := &edgev1.EdgeLossManifestPageV1{
+		RecoveryId: rid, PageIndex: 0, PageCount: 2, Terminal: false,
+		DigestVersion:       edgerecord.RecoveryDigestVersion,
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{page.GetClassificationSpans()[0]},
+	}
+	chainA.PageSha256 = edgerecord.ManifestPageDigest(chainA)
+
+	chainB := &edgev1.EdgeLossManifestPageV1{
+		RecoveryId: rid, PageIndex: 1, PageCount: 2, Terminal: true,
+		PrevPageSha256:      chainA.GetPageSha256(),
+		DigestVersion:       edgerecord.RecoveryDigestVersion,
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{page.GetClassificationSpans()[2]},
+	}
+	chainB.PageSha256 = edgerecord.ManifestPageDigest(chainB)
+
+	chain := []*edgev1.EdgeLossManifestPageV1{chainA, chainB}
+	if err := edgerecord.ValidateManifestChain(chain, edgerecord.ManifestRoot(chain)); err != nil {
+		t.Fatalf("the over-budget pair must be a VALID chain when decoded, or the "+
+			"bounds rejection is not attributable to byte accounting: %v", err)
+	}
+
+	half := edgerecord.MaxManifestBytes / 2
+	targets := [...]int{half, half + 1}
+	names := [...]string{"manifest_page_overbudget_a.bin", "manifest_page_overbudget_b.bin"}
+
+	rawTotal, reencodedTotal := 0, 0
+	padded := make([][]byte, len(chain))
+	for i, pg := range chain {
+		canon, err := proto.Marshal(pg)
+		if err != nil {
+			t.Fatalf("marshal chain page %d: %v", i, err)
+		}
+		reencodedTotal += len(canon)
+
+		p := padToLen(t, canon, targets[i])
+		if len(p) > edgerecord.MaxManifestBytes {
+			t.Fatalf("%s is %d bytes, individually over the cap; the pair would not isolate the aggregate",
+				names[i], len(p))
+		}
+		var probe edgev1.EdgeLossManifestPageV1
+		if err := proto.Unmarshal(p, &probe); err != nil {
+			t.Fatalf("%s must decode: %v", names[i], err)
+		}
+		if !proto.Equal(&probe, pg) {
+			t.Fatalf("%s decoded to a different message; the padding is not inert", names[i])
+		}
+		rawTotal += len(p)
+		padded[i] = p
+		goldenBytes(t, names[i], p)
+	}
+
+	if rawTotal != edgerecord.MaxManifestBytes+1 {
+		t.Fatalf("raw pair totals %d, want exactly %d", rawTotal, edgerecord.MaxManifestBytes+1)
+	}
+	if reencodedTotal >= edgerecord.MaxManifestBytes {
+		t.Fatalf("re-encoded aggregate is %d, must be BELOW %d so a re-encode-summing "+
+			"implementation would ADMIT this pair", reencodedTotal, edgerecord.MaxManifestBytes)
+	}
+
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: uuidv7(0x01), NewSpoolId: uuidv7(0x82),
-		LostFromSequence: 10, LostThroughSequence: 20, ManifestRootSha256: root, ManifestPageCount: 1,
+		ManifestRootSha256: root, ManifestPageCount: 1,
 		DetectedAtUnixNano: fixedNanos, Reason: "torn-tail", DigestVersion: edgerecord.RecoveryDigestVersion,
 	}
 	golden(t, "tombstone.bin", tomb)

@@ -21,9 +21,10 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     * a RECURSIVE RETAINED-VALUE GATE over the whole decoded message graph. After the transform a
       known member always surfaces as its ATOM and a retained non-member always surfaces as a raw
       INTEGER, so "any enum-typed field holding an integer" is exactly "a retained non-member" --
-      at any depth, in oneof members, repeated fields, and map values. This covers all 15 patched
+      at any depth, in oneof members, repeated fields, and map values. This covers all 16 patched
       enums, including ones with no field-specific rule of their own (compression, origin kind,
-      nested production/source claim enums, sweep/MTR domain enums).
+      nested production/source claim enums, sweep/MTR domain enums, and the recovery
+      unattributable reason).
     * the FIELD-SPECIFIC allowed sets Go applies on top (`knownPayloadFamily`/`knownRouteProfile`/
       `knownTrafficClass`/`knownSourceAuthKind`), which additionally reject KNOWN atoms that are not
       permitted -- notably `UNSPECIFIED`, which Go's switches exclude.
@@ -78,6 +79,17 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     :EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND,
     :EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN,
     :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL
+  ]
+  # Frozen v1 accepted SET for recovery classification spans (1.6a). NOT "any declared
+  # member": a member added by a later proto revision must not begin hashing under an
+  # unchanged RecoveryDigestVersion. The reserved numbers 1 (SEGMENT_CORRUPT) and 5
+  # (COARSENED) are absent because they were retired before first use.
+  @unattributable_reason [
+    :EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
+    :EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+    :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
+    :EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
+    :EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE
   ]
   @disposition_kind [
     :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
@@ -155,6 +167,11 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     {EdgeSourceClaimsV1, :origin_kind} => @origin_kind,
     {EdgeSourceClaimsV1, :route_profile} => @route_profile,
     {EdgeSourceClaimsV1, :traffic_class} => @traffic_class,
+    # --- recovery classification spans (1.6a) ---
+    # The span's source kind reuses @source_auth_kind, the SAME set the record's own
+    # source_authorization is policed by, so the two can never diverge.
+    {Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1, :kind} => @source_auth_kind,
+    {Serviceradar.Edge.V1.EdgeUnattributableV1, :reason} => @unattributable_reason,
     # --- domain payload families ---
     {Serviceradar.Edge.V1.MtrTraceBatchV1, :source} => @sweep_source,
     {MtrTraceEventV1, :outcome} => @mtr_outcome,
