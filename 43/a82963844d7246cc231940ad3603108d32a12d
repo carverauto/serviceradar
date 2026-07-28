@@ -1,0 +1,23 @@
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_5a238a8f0d927f 1,35
+rust/rdp-adapter/Cargo.toml
+  s_1243381eb5fb18::t_9121eb4cd5cf24 3
+Cargo.lock
+  s_1243381eb5fb18::t_6109046ae240fe 5013
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "43a82963844d7246cc231940ad3603108d32a12d",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
