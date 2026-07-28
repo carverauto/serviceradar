@@ -7,9 +7,17 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   therefore true of the digest and vacuous of every relational rule. These tests are
   the other half of that claim.
 
-  Every ACCEPT case is built from the committed Go fixture, and every REJECT case is
-  a single-field mutation of it -- so a rule that Go enforces and Elixir does not
-  shows up here rather than in production.
+  Most ACCEPT cases start from the committed Go fixture and most REJECT cases are a
+  single-field mutation of it, so a rule Go enforces and Elixir does not shows up here
+  rather than in production.
+
+  Some cases are necessarily SYNTHETIC and are marked as such where they appear:
+  the UUID negative vectors construct byte patterns no valid producer emits, the
+  raw-byte cases build padded or malformed pages the fixture cannot express, the
+  two-page chains are constructed because the corpus has a single page, and the
+  decode-outcome test injects a decoder because fixed bytes only ever yield one
+  outcome. Where a case is synthetic, its accept-side counterpart is still anchored to
+  the fixture wherever one exists.
   """
   use ExUnit.Case, async: true
 
@@ -460,6 +468,31 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
              )
     end
 
+    test "EVERY decode outcome propagates, including the transient ones" do
+      # Fixed malformed bytes only ever yield :poison, so a suite built on them cannot
+      # tell propagation from a hardcoded :poison -- a mutation collapsing :not_ready
+      # and :systemic into :poison would survive, and those are exactly the outcomes
+      # whose loss is destructive: they mean PAUSE AND REPLAY, not quarantine.
+      #
+      # The injected decoder makes all four reachable.
+      page = go_page()
+      raw = [IO.iodata_to_binary(EdgeLossManifestPageV1.encode(page))]
+
+      for outcome <- [:not_ready, :systemic, :poison, :too_large] do
+        assert {:error, ^outcome} =
+                 RecoveryValidate.manifest_chain_from_raw(raw, nil,
+                   decoder: fn _bytes -> {:error, outcome} end
+                 ),
+               "#{outcome} must propagate verbatim"
+      end
+
+      # And the seam does not change the accept path.
+      assert :ok =
+               RecoveryValidate.manifest_chain_from_raw(raw, HashGrammar.manifest_root([page]),
+                 decoder: fn b -> WireDecode.decode_manifest_page(b) end
+               )
+    end
+
     test "a single oversize page is rejected before decode" do
       limit = RecoveryValidate.limits().max_manifest_bytes
 
@@ -487,6 +520,64 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
                  RecoveryValidate.manifest_chain([with_spans(page, [span])], nil),
                "#{name} must be rejected as a span identity"
       end
+    end
+
+    test "EVERY UUID-bearing field is validated, not just one per message" do
+      # Dropping validation at any single call site must fail. Without a table, a
+      # mutation removing the check on run_id, a source ID, or new_spool_id survives
+      # because no vector touches that field.
+      page = go_page()
+      bad = <<0::128>>
+
+      span_fields = [:producer_assignment_id, :run_id, :production_scope_id]
+
+      for field <- span_fields do
+        span = passive(1, 1, identity([{field, bad}]))
+
+        assert {:error, :manifest_span_body} =
+                 RecoveryValidate.manifest_chain([with_spans(page, [span])], nil),
+               "identity.#{field} must be validated"
+      end
+
+      for field <- [:context_id, :source_scope_id] do
+        src =
+          struct!(
+            %EdgeSourceSpanIdentityV1{
+              kind: :EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
+              context_id: uuid(0x31),
+              source_scope_id: uuid(0x32),
+              source_scope_sha256: d32(0x33)
+            },
+            [{field, bad}]
+          )
+
+        span = passive(1, 1, identity(source: src))
+
+        assert {:error, :manifest_span_body} =
+                 RecoveryValidate.manifest_chain([with_spans(page, [span])], nil),
+               "source.#{field} must be validated"
+      end
+
+      t = go_tombstone()
+
+      for field <- [:recovery_id, :prior_spool_id, :new_spool_id] do
+        assert {:error, :tombstone_mismatch} =
+                 RecoveryValidate.tombstone(struct!(t, [{field, bad}]), [page]),
+               "tombstone.#{field} must be validated"
+      end
+    end
+
+    test "the UUIDv7 VARIANT check is load-bearing, not just the version nibble" do
+      # Version 7 with a NON-RFC variant. A check testing only the version nibble
+      # accepts this; Go requires both.
+      v7_bad_variant = <<1, 1, 1, 1, 1, 1, 0x7A, 1, 0x0A, 1, 1, 1, 1, 1, 1, 1>>
+      page = go_page()
+
+      assert {:error, :manifest_recovery_id} =
+               RecoveryValidate.manifest_chain(
+                 [reseal(%{page | recovery_id: v7_bad_variant})],
+                 nil
+               )
     end
 
     test "recovery and spool IDs must be UUIDv7 specifically, not merely canonical" do
