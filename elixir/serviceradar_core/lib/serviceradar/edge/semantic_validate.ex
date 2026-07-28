@@ -21,9 +21,10 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     * a RECURSIVE RETAINED-VALUE GATE over the whole decoded message graph. After the transform a
       known member always surfaces as its ATOM and a retained non-member always surfaces as a raw
       INTEGER, so "any enum-typed field holding an integer" is exactly "a retained non-member" --
-      at any depth, in oneof members, repeated fields, and map values. This covers all 15 patched
+      at any depth, in oneof members, repeated fields, and map values. This covers all 16 patched
       enums, including ones with no field-specific rule of their own (compression, origin kind,
-      nested production/source claim enums, sweep/MTR domain enums).
+      nested production/source claim enums, sweep/MTR domain enums, and the recovery
+      unattributable reason).
     * the FIELD-SPECIFIC allowed sets Go applies on top (`knownPayloadFamily`/`knownRouteProfile`/
       `knownTrafficClass`/`knownSourceAuthKind`), which additionally reject KNOWN atoms that are not
       permitted -- notably `UNSPECIFIED`, which Go's switches exclude.
