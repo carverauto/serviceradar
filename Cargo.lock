@@ -1639,20 +1639,20 @@ dependencies = [
 
 [[package]]
 name = "displaydoc"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ac70aa55017e108007fbaf5aa0f54b021c98f92ff8af59d42eda9da96e3dd4f"
+checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
 name = "docker_utils"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef97393c0176f94f190f8a9df0bccfb2625f52a583edec4e5eae5e7e164e68af"
+checksum = "11a26c4fe803b36b9e5afaba9fec518da872b3a64b4665e09a883840db21fa2b"
 dependencies = [
  "bon",
  "tokio",
@@ -6243,9 +6243,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wait_utils"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1495ce36a623b24b66c0bde0626f7d120b53ccb56233352f80f986ec083dc44c"
+checksum = "de6ec729e5be48624a79cb13cf6df1e310a1fc0da5b6b5a926c8aee363d720be"
 dependencies = [
  "tokio",
  "tonic",
