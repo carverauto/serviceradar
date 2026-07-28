@@ -382,24 +382,27 @@ defmodule ServiceRadar.Edge.HashGrammar do
   @spec mtr_completion_verify(
           [{non_neg_integer(), integer(), binary() | nil, binary()}],
           non_neg_integer(),
+          non_neg_integer(),
           binary(),
           binary()
         ) ::
           {:ok, binary()} | :error
-  def mtr_completion_verify(leaves, expected, plan_root, commitment) do
+  def mtr_completion_verify(leaves, plan_ordinal_offset, expected, plan_root, commitment) do
     # Count-first bounds (mirrors Go) BEFORE the O(expected) canonical pass, then
     # per-leaf validation, then exact-set coverage + ordinal->range membership.
     cond do
       not (is_integer(expected) and expected >= 0 and expected <= @max_mtr_ordinals) -> :error
+      not (is_integer(plan_ordinal_offset) and plan_ordinal_offset >= 0) -> :error
+      plan_ordinal_offset > @max_mtr_ordinals - expected -> :error
       not (is_binary(plan_root) and byte_size(plan_root) == 32) -> :error
       not (is_binary(commitment) and byte_size(commitment) == 32) -> :error
       length(leaves) != expected -> :error
       not Enum.all?(leaves, &valid_completion_leaf?(&1, expected)) -> :error
-      true -> verify_coverage(leaves, expected, plan_root, commitment)
+      true -> verify_coverage(leaves, plan_ordinal_offset, expected, plan_root, commitment)
     end
   end
 
-  defp verify_coverage(leaves, expected, plan_root, commitment) do
+  defp verify_coverage(leaves, plan_ordinal_offset, expected, plan_root, commitment) do
     ordinal_acc =
       Enum.reduce(leaves, <<0::256>>, fn {ord, _, _, _}, acc -> add256(acc, ordinal_hash(ord)) end)
 
@@ -412,7 +415,15 @@ defmodule ServiceRadar.Edge.HashGrammar do
     canonical =
       Enum.reduce(1..expected//1, <<0::256>>, fn i, acc -> add256(acc, ordinal_hash(i)) end)
 
-    member_acc = mtr_ordinal_range_commitment(leaves)
+    # MEMBERSHIP is folded over PLAN-GLOBAL ordinals, because that is what the
+    # assignment's commitment was built over. Leaf hashes and the coverage
+    # accumulator stay LOCAL: the leaf grammar and the exact-set `{1..expected}` check
+    # are frozen. Only this accumulator is compared against a plan-derived value, so
+    # only this one shifts.
+    member_acc =
+      Enum.reduce(leaves, <<0::256>>, fn {ord, _, _, range}, acc ->
+        add256(acc, member_hash(plan_ordinal_offset + ord, range))
+      end)
 
     if ordinal_acc == canonical and member_acc == commitment do
       {:ok, mtr_completion_root(leaves, expected, plan_root, commitment)}

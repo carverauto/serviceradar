@@ -1207,6 +1207,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:ok, ev.mtr_completion_digest} ==
              HashGrammar.mtr_completion_verify(
                [],
+               assignment.mtr_expectation.plan_ordinal_offset,
                assignment.mtr_expectation.ordinal_count,
                ev.plan_root_sha256,
                assignment.mtr_expectation.ordinal_range_commitment
@@ -1229,21 +1230,22 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # Byte parity on the zero-leaf root, through the validating entry point.
     assert {:ok, ev.mtr_completion_digest} ==
-             HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32)
+             HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, zero32)
 
     # EMPTY commitment bytes are not the zero-MTR commitment.
-    assert :error = HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, <<>>)
+    assert :error = HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, <<>>)
 
     # A leaf at expected 0 is work the plan never admitted.
     rng = digest32(0x93)
 
     assert :error =
-             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, ev.plan_root_sha256, zero32)
+             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, 0, ev.plan_root_sha256, zero32)
 
     # Zero leaves against a non-empty commitment fails the membership proof.
     assert :error =
              HashGrammar.mtr_completion_verify(
                [],
+               0,
                0,
                ev.plan_root_sha256,
                HashGrammar.mtr_ordinal_range_commitment([{1, 2, nil, rng}])
@@ -1253,8 +1255,60 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # iterates [1, 0] descending, so it would fold two ordinal hashes for a
     # completion with none and reject every valid zero-MTR proof. If this assertion
     # and the byte-parity one above both hold, the fold really was empty.
-    assert HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32) !=
-             HashGrammar.mtr_completion_verify([], 1, ev.plan_root_sha256, zero32)
+    assert HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, zero32) !=
+             HashGrammar.mtr_completion_verify([], 0, 1, ev.plan_root_sha256, zero32)
+  end
+
+  test "a second, non-prefix assignment proves its completion in Elixir too" do
+    # The shared split vector: range A owns plan-global ordinals 1..2, range B owns
+    # 3..5. B is the case the first version of this model could not express -- its
+    # membership is folded over GLOBAL ordinals while its completion leaves stay LOCAL
+    # at {1..3}.
+    header = ScheduledPlanHeaderV1.decode(load("plan_header_split.bin"))
+    page = ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    assignment = SweepAssignmentRecordV1.decode(load("assignment_split_second.bin"))
+    ev = SweepExecutionEventV1.decode(load("lifecycle_split_second.bin"))
+
+    assert HashGrammar.plan_page_digest(page) == page.page_sha256
+    assert HashGrammar.plan_header_digest(header) == header.execution_plan_sha256
+
+    # Windows are the PREFIX SUM over ranges in page order: A starts at 0, B at 2.
+    [range_a, range_b] = page.ranges
+    assert range_a.mtr_ordinal_count == 2
+    assert range_b.mtr_ordinal_count == 3
+    offset_b = range_a.mtr_ordinal_count
+    assert assignment.mtr_expectation.plan_ordinal_offset == offset_b
+    assert offset_b > 0, "the second window must not be a prefix, or this test is vacuous"
+
+    # The expectation is RECOMPUTED, not trusted.
+    assert assignment.mtr_expectation.ordinal_range_commitment ==
+             HashGrammar.mtr_window_commitment(offset_b, range_b.mtr_ordinal_count, range_b.range_sha256)
+
+    # Plan-wide is the additive SUM of both windows.
+    assert header.mtr_ordinal_range_commitment ==
+             HashGrammar.plan_mtr_ordinal_range_commitment([page])
+
+    # And the non-prefix completion proves: LOCAL leaves {1..3}, GLOBAL membership.
+    leaves = for i <- 1..3, do: {i, 2, nil, range_b.range_sha256}
+
+    assert {:ok, ev.mtr_completion_digest} ==
+             HashGrammar.mtr_completion_verify(
+               leaves,
+               offset_b,
+               range_b.mtr_ordinal_count,
+               header.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
+
+    # Dropping the offset must FAIL, or the vector proves nothing about threading it.
+    assert :error =
+             HashGrammar.mtr_completion_verify(
+               leaves,
+               0,
+               range_b.mtr_ordinal_count,
+               header.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
   end
 
   test "MTR completion disposition symbols are pinned to their exact numbers" do
@@ -1303,7 +1357,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # in one call: there is no unvalidated Elixir hasher to check the bytes with,
     # exactly as Go exports no unvalidated `MtrCompletionRoot`.
     assert {:ok, ev.mtr_completion_digest} ==
-             HashGrammar.mtr_completion_verify(leaves, 2, ev.plan_root_sha256, commitment)
+             HashGrammar.mtr_completion_verify(leaves, 0, 2, ev.plan_root_sha256, commitment)
 
     rng = digest32(0x93)
     root = ev.plan_root_sha256
@@ -1312,6 +1366,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error =
              HashGrammar.mtr_completion_verify(
                [{2, 2, nil, rng}, {2, 2, nil, rng}, {2, 2, nil, rng}],
+               0,
                3,
                root,
                commitment
@@ -1321,6 +1376,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error =
              HashGrammar.mtr_completion_verify(
                [{1, 1, uuidv7(0x30), digest32(0xFE)}, {2, 2, nil, digest32(0xFE)}],
+               0,
                2,
                root,
                commitment
@@ -1328,10 +1384,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # r5-08: leaf-level invalid vectors Go rejects.
     c1 = HashGrammar.mtr_ordinal_range_commitment([{1, 2, nil, rng}])
-    assert :error = HashGrammar.mtr_completion_verify([{1, 999, <<1>>, <<2>>}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 1, <<0>>, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 999, <<1>>, <<2>>}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, 1, <<0>>, c1)
 
     # The disposition is a CLOSED set: 0, -1, 6 (the next unallocated number, i.e.
     # one a LATER proto revision could declare) and 999 are all rejected BEFORE the
@@ -1339,7 +1395,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # closure is proven against the generated enum rather than against a literal.
     for disp <- [0, -1, 6, 999] do
       assert :error =
-               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 1, root, c1),
+               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 0, 1, root, c1),
              "disposition #{disp} must be rejected by the frozen leaf grammar"
     end
 
@@ -1347,6 +1403,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       assert {:ok, _} =
                HashGrammar.mtr_completion_verify(
                  [{1, disp, trace, rng}],
+                 0,
                  1,
                  root,
                  HashGrammar.mtr_ordinal_range_commitment([{1, disp, trace, rng}])

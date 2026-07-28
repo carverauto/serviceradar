@@ -78,6 +78,12 @@ func ValidateMtrExpectation(e *edgev1.SweepMtrExpectationV1) error {
 	if len(e.GetOrdinalRangeCommitment()) != sha256Len {
 		return ErrAssignmentExpectation
 	}
+	// REQUIRED PRESENCE, enforced by the OWNING validator rather than only by the
+	// plan relation: offset 0 is the first range's legal window, so an absent field
+	// that defaults to 0 would silently pass as it wherever the relation is not run.
+	if e.PlanOrdinalOffset == nil {
+		return ErrAssignmentExpectation
+	}
 	if e.GetOrdinalCount() > MaxMtrCompletionOrdinals {
 		return ErrAssignmentExpectation
 	}

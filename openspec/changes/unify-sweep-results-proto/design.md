@@ -1951,7 +1951,7 @@ them — puts the decision somewhere that cannot see what it is deciding about.
 
 | Failure | Required behavior |
 |---|---|
-| Agent crash | Replay the fsynced spool with original IDs/sequences; if terminal evidence never arrives, the scheduler terminalizes/fences the attempt and retries remaining coverage. |
+| Agent crash | Replay the fsynced spool with original IDs/sequences; if terminal evidence never arrives, the scheduler terminalizes/fences the attempt and REASSIGNS THE WHOLE RANGE WINDOW. v1 cannot represent a sparse remainder -- an assignment's MTR expectation is one contiguous plan-global window -- so a retry replays the complete window. |
 | Gateway/link failure before PubAck | Do not ACK; reconnect and replay. |
 | PubAck succeeds but edge ACK is lost | Replay same event ID; broker/DB deduplicate. |
 | JetStream unavailable or full | Stop ACK progress; retain at agent and apply backpressure. |

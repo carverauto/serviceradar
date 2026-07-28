@@ -1084,7 +1084,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// The plan commits the (ordinal, range) assignment; completion proves membership
 	// against it.
 	commitment := edgerecord.MtrOrdinalRangeCommitment(leaves)
-	completion, err := edgerecord.MtrCompletionRoot(leaves, 2, planRoot, commitment)
+	completion, err := edgerecord.MtrCompletionRoot(leaves, 0, 2, planRoot, commitment)
 	if err != nil {
 		t.Fatalf("completion root: %v", err)
 	}
@@ -1139,7 +1139,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if err := edgerecord.ValidatePlanHeader(zeroHeader); err != nil {
 		t.Fatalf("zero-MTR plan header must validate: %v", err)
 	}
-	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(zeroPlanRoot, zeroCommitment)
+	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(0, zeroPlanRoot, zeroCommitment)
 	if err != nil {
 		t.Fatalf("zero-MTR completion root: %v", err)
 	}
@@ -1166,9 +1166,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if err := proto.Unmarshal(zeroBytes, &zeroEv); err != nil {
 		t.Fatalf("decode lifecycle_zero_mtr.bin: %v", err)
 	}
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		&zeroEv, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
-	); err != nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(&zeroEv, 0, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil); err != nil {
 		t.Fatalf("committed zero-MTR event must verify against its paired plan: %v", err)
 	}
 
@@ -1177,9 +1175,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	perturbed := proto.Clone(&zeroEv).(*edgev1.SweepExecutionEventV1)
 	perturbed.MtrCompletionDigest = append([]byte(nil), zeroEv.GetMtrCompletionDigest()...)
 	perturbed.MtrCompletionDigest[0] ^= 0xFF
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		perturbed, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
-	); err == nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(perturbed, 0, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil); err == nil {
 		t.Fatal("a perturbed completion digest must not verify")
 	}
 
@@ -1223,6 +1219,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// The completion proof verifies against the ASSIGNMENT's expectation.
 	if err := edgerecord.VerifyCompletionAgainstPlanState(
 		&zeroEv,
+		decodedAssignment.GetMtrExpectation().GetPlanOrdinalOffset(),
 		decodedAssignment.GetMtrExpectation().GetOrdinalCount(),
 		zeroHeader.GetPlanRootSha256(),
 		decodedAssignment.GetMtrExpectation().GetOrdinalRangeCommitment(),
@@ -1247,7 +1244,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if bytes.Equal(planWideCommitment, attemptCommitment) {
 		t.Fatal("split vector is vacuous: plan-wide and per-attempt commitments are equal")
 	}
-	splitRoot, err := edgerecord.MtrCompletionRoot(attemptLeaves, 1, planRoot, attemptCommitment)
+	splitRoot, err := edgerecord.MtrCompletionRoot(attemptLeaves, 0, 1, planRoot, attemptCommitment)
 	if err != nil {
 		t.Fatalf("split completion root: %v", err)
 	}
@@ -1267,16 +1264,116 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	goldenBytes(t, "split_plan_wide_commitment.bin", planWideCommitment)
 
 	// The ASSIGNMENT's expectation verifies.
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		splitEv, 1, planRoot, attemptCommitment, attemptLeaves,
-	); err != nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(splitEv, 0, 1, planRoot, attemptCommitment, attemptLeaves); err != nil {
 		t.Fatalf("split completion must verify against the ASSIGNMENT expectation: %v", err)
 	}
 	// Substituting the PLAN-WIDE commitment -- the forbidden shortcut -- fails.
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		splitEv, 2, planRoot, planWideCommitment, planWideLeaves,
-	); err == nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(splitEv, 0, 2, planRoot, planWideCommitment, planWideLeaves); err == nil {
 		t.Fatal("substituting the plan-wide commitment for the per-attempt one must FAIL")
+	}
+
+	// SHARED SECOND-ASSIGNMENT VECTOR. A two-range plan split across two assignments:
+	// range A owns plan-global ordinals 1..2, range B owns 3..5. B is the NON-PREFIX
+	// case -- its completion leaves stay LOCAL at {1..3} while its membership is folded
+	// over global 3..5. Both runtimes consume these bytes.
+	splitCheck := digest32(0x7B)
+	mkSplitRange := func(tag byte, cidr string, count, budget uint64) *edgev1.TargetRangeV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: uuidv7(tag), Cidr: cidr, TargetCount: 256, CheckSetSha256: splitCheck,
+			AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget:   budget, MtrOrdinalCount: proto.Uint64(count),
+		}
+		r.RangeSha256 = edgerecord.RangeDigest(r)
+		return r
+	}
+	splitPlanID := uuidv7(0x28)
+	rangeA := mkSplitRange(0x29, "10.20.0.0/24", 2, 4)
+	rangeB := mkSplitRange(0x2A, "10.20.1.0/24", 3, 3)
+	splitPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: splitPlanID, PageIndex: 0, PageCount: 1, CheckSetSha256: splitCheck,
+		DigestVersion: edgerecord.PlanDigestVersion,
+		Ranges:        []*edgev1.TargetRangeV1{rangeA, rangeB},
+	}
+	splitPage.PageSha256 = edgerecord.PlanPageDigest(splitPage)
+	splitPages := []*edgev1.ScheduledPlanPageV1{splitPage}
+	splitPlanCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(splitPages)
+	if err != nil {
+		t.Fatalf("split plan commitment: %v", err)
+	}
+	splitHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: splitPlanID, PageCount: 1, TotalTargetCount: 512,
+		PlanRootSha256: edgerecord.PlanRoot(splitPages), DigestVersion: edgerecord.PlanDigestVersion,
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), MtrOrdinalRangeCommitment: splitPlanCommitment,
+	}
+	splitHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(splitHeader)
+	golden(t, "plan_header_split.bin", splitHeader)
+	golden(t, "plan_page_split.bin", splitPage)
+
+	splitWindows, _, err := edgerecord.PlanMtrWindows(splitPages)
+	if err != nil {
+		t.Fatalf("split windows: %v", err)
+	}
+	offsetB := splitWindows[string(rangeB.GetRangeId())]
+	commitB, err := edgerecord.MtrWindowCommitment(offsetB, rangeB.GetMtrOrdinalCount(), rangeB.GetRangeSha256())
+	if err != nil {
+		t.Fatalf("window B commitment: %v", err)
+	}
+	secondAssignment := &edgev1.SweepAssignmentRecordV1{
+		ProducerAssignmentId: uuidv7(0x2B), ExecutionId: uuidv7(0x2C),
+		ExecutionPlanId: splitPlanID, ExecutionPlanSha256: splitHeader.GetExecutionPlanSha256(),
+		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
+		TargetRangeId: rangeB.GetRangeId(), TargetRangeSha256: rangeB.GetRangeSha256(),
+		LeaseId: []byte("lease-split-b"), FenceToken: 9, LeaseExpiresAtUnixNano: fixedNanos + 1,
+		State: edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED, TerminalBatchSequence: 7,
+		MtrExpectation: &edgev1.SweepMtrExpectationV1{
+			OrdinalCount: rangeB.GetMtrOrdinalCount(), OrdinalRangeCommitment: commitB,
+			PlanOrdinalOffset: proto.Uint64(offsetB),
+		},
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
+		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
+		ContractBundleSha256: digest32(0x7A),
+	}
+	secondBytes := golden(t, "assignment_split_second.bin", secondAssignment)
+	var decodedSecond edgev1.SweepAssignmentRecordV1
+	if err := proto.Unmarshal(secondBytes, &decodedSecond); err != nil {
+		t.Fatalf("decode assignment_split_second.bin: %v", err)
+	}
+	if err := edgerecord.ValidateAssignmentAgainstPlan(&decodedSecond, splitHeader, splitPages); err != nil {
+		t.Fatalf("second assignment must relate to the split plan: %v", err)
+	}
+
+	secondLeaves := make([]edgerecord.MtrCompletionLeaf, 0, rangeB.GetMtrOrdinalCount())
+	for i := uint64(1); i <= rangeB.GetMtrOrdinalCount(); i++ {
+		secondLeaves = append(secondLeaves, edgerecord.MtrCompletionLeaf{
+			Ordinal: i, Disposition: edgerecord.MtrDispositionNotAdmitted, RangeSha256: rangeB.GetRangeSha256(),
+		})
+	}
+	secondRoot, err := edgerecord.MtrCompletionRoot(secondLeaves, offsetB, rangeB.GetMtrOrdinalCount(),
+		splitHeader.GetPlanRootSha256(), commitB)
+	if err != nil {
+		t.Fatalf("non-prefix completion must prove: %v", err)
+	}
+	splitSecondEv := &edgev1.SweepExecutionEventV1{
+		ExecutionId: uuidv7(0x2C), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: splitPlanID, ExecutionPlanSha256: splitHeader.GetExecutionPlanSha256(),
+		TargetRangeId:     rangeB.GetRangeId(),
+		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 7, DurableThroughBatchSequence: 7,
+		ExpectedMtrTraces: 3, EmittedMtrTraces: 3,
+		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
+		MtrCompletionDigest:        secondRoot,
+		PlanRootSha256:             splitHeader.GetPlanRootSha256(),
+	}
+	splitSecondBytes := golden(t, "lifecycle_split_second.bin", splitSecondEv)
+	mustValidateLifecycleBytes(t, "lifecycle_split_second.bin", splitSecondBytes)
+
+	// Without the offset the SAME leaves against the SAME commitment must fail, so the
+	// shared vector cannot pass by coincidence.
+	if _, err := edgerecord.MtrCompletionRoot(secondLeaves, 0, rangeB.GetMtrOrdinalCount(),
+		splitHeader.GetPlanRootSha256(), commitB); err == nil {
+		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
 	}
 
 	// STALE-WIRE PROOF for the retired tag 20. Reserving a tag prevents source reuse; it

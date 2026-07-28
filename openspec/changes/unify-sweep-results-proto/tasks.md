@@ -277,6 +277,15 @@
 - [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
   assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
   array in config, command, agent memory, or terminal evidence.
+- [ ] 2.3c **v1 retry/supersession replays the WHOLE range window.** The frozen ABI
+  gives each plan range ONE CONTIGUOUS plan-global ordinal window and gives an
+  assignment ONE window, so a SPARSE REMAINDER is not representable: a retry that
+  covered "only what is left" would have to renumber or omit ordinals, and its
+  completion proof requires exactly `{1..ordinal_count}`. Reassignment therefore
+  replays the complete window under a new authority epoch. Anything narrower needs the
+  deferred bounded-subset representation and its own frozen grammar -- do NOT
+  approximate it by shrinking `ordinal_count`, which the plan relation rejects.
+
 - [ ] 2.3b **Produce the MTR completion proof in `go/pkg/edge/execstate`, and
   verify it against real plan state.** DEPENDS ON 2.3a, which fetches, validates and caches the
   bounded immutable plan pages -- that IS the validated plan state this task folds
@@ -500,10 +509,11 @@
   express both, because a durable negative means there is no execution.
 
 - [ ] 2.20 **Implement the durable assignment mapping (runtime half of the split
-  1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY --
-  `(trust_namespace, span_identity)` -- and the tagged POSITIVE / EXPLICIT-NEGATIVE
-  value shape. This task implements everything over it, which that change
-  deliberately does not own: durable storage; idempotent replay of both value
+  1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY ONLY --
+  `(trust_namespace, span_identity)`. It does NOT freeze the tagged POSITIVE /
+  EXPLICIT-NEGATIVE value shape: no message there represents one, so the earlier
+  claim described prose rather than a contract. Task 2.20a above OWNS that shape, and
+  this task implements everything over it: durable storage; idempotent replay of both value
   forms; a DIFFERING second candidate as an integrity conflict; an APPEND-ONLY
   conflict-resolution record that SELECTS one candidate as the projection while
   RETAINING the rejected one, with its own replay semantics and resolver fencing
