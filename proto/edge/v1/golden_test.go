@@ -1111,11 +1111,14 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// The event is paired with a REAL zero-MTR plan header carrying that same 32-zero
 	// commitment, so the fixture shows both halves of the relation rather than an
 	// event asserting a plan nobody wrote.
-	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil)
+	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil) // 32 zero bytes
 	zeroPlanID := uuidv7(0x24)
 	zeroRange := &edgev1.TargetRangeV1{
 		RangeId: uuidv7(0x25), Cidr: "10.9.0.0/24", TargetCount: 256,
 		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
+		// Explicit presence: this range admits NO MTR, which is distinct from a plan
+		// that never stated a count.
+		MtrOrdinalCount: proto.Uint64(0),
 	}
 	zeroRange.RangeSha256 = edgerecord.RangeDigest(zeroRange)
 	zeroPage := &edgev1.ScheduledPlanPageV1{
@@ -1127,7 +1130,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	zeroHeader := &edgev1.ScheduledPlanHeaderV1{
 		ExecutionPlanId: zeroPlanID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: zeroPlanRoot,
 		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: digest32(0x78),
-		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11), AssignmentEpoch: 5,
+		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),
 		MtrOrdinalRangeCommitment: zeroCommitment,
 	}
 	zeroHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(zeroHeader)
@@ -1193,6 +1196,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		TerminalBatchSequence: 4,
 		MtrExpectation: &edgev1.SweepMtrExpectationV1{
 			OrdinalCount: 0, OrdinalRangeCommitment: zeroCommitment,
+			PlanOrdinalOffset: proto.Uint64(0),
 		},
 		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
 		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
@@ -1493,7 +1497,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 func TestGoldenPlan(t *testing.T) {
 	planID := uuidv7(0xA0)
 	checkSet := digest32(0x77)
-	r := &edgev1.TargetRangeV1{RangeId: uuidv7(0xA1), Cidr: "10.0.0.0/24", TargetCount: 256, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), MtrAdmissionBudget: 8}
+	r := &edgev1.TargetRangeV1{RangeId: uuidv7(0xA1), Cidr: "10.0.0.0/24", TargetCount: 256, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), MtrAdmissionBudget: 8, MtrOrdinalCount: proto.Uint64(2)}
 	r.RangeSha256 = edgerecord.RangeDigest(r)
 	page := &edgev1.ScheduledPlanPageV1{ExecutionPlanId: planID, PageIndex: 0, PageCount: 1, CheckSetSha256: checkSet, DigestVersion: edgerecord.PlanDigestVersion, Ranges: []*edgev1.TargetRangeV1{r}}
 	page.PageSha256 = edgerecord.PlanPageDigest(page)
@@ -1502,10 +1506,10 @@ func TestGoldenPlan(t *testing.T) {
 	// (ordinal, range) assignment the completion proof proves membership against. A
 	// plan admitting NO MTR carries 32 ZERO bytes here -- never empty bytes; see
 	// lifecycle_zero_mtr.bin. The field is ALWAYS 32 bytes either way.
-	mtrCommitment := edgerecord.MtrOrdinalRangeCommitment([]edgerecord.MtrCompletionLeaf{
-		{Ordinal: 1, RangeSha256: r.RangeSha256},
-		{Ordinal: 2, RangeSha256: r.RangeSha256},
-	})
+	mtrCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(pages)
+	if err != nil {
+		t.Fatalf("plan mtr commitment: %v", err)
+	}
 	h := &edgev1.ScheduledPlanHeaderV1{
 		ExecutionPlanId: planID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: edgerecord.PlanRoot(pages),
 		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),

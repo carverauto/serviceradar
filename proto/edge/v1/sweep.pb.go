@@ -2323,14 +2323,34 @@ type SweepMtrExpectationV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Admitted MTR ordinals for this assignment. 0 is LEGAL and means the assignment
 	// admits no MTR targets; it then requires the canonical zero-leaf completion
-	// proof, never an omitted one.
+	// proof, never an omitted one. In v1 this MUST equal the selected plan range's
+	// `mtr_ordinal_count`: a retry or supersession replays the SAME COMPLETE window.
 	OrdinalCount uint64 `protobuf:"varint,1,opt,name=ordinal_count,json=ordinalCount,proto3" json:"ordinal_count,omitempty"`
-	// The (ordinal, range_sha256) additive multiset commitment. ALWAYS exactly 32
-	// bytes; 32 ZERO bytes -- the empty-set hash -- when ordinal_count is 0, never
-	// empty bytes.
+	// The additive multiset commitment over
+	// `(plan_ordinal_offset + local_ordinal, target_range_sha256)` for
+	// local_ordinal in 1..ordinal_count. ALWAYS exactly 32 bytes; 32 ZERO bytes --
+	// the empty-set hash -- when ordinal_count is 0, never empty bytes.
+	//
+	// It is RECOMPUTED from committed plan data, never trusted as carried bytes:
+	// count and range digest determine it exactly, so accepting any 32 bytes would
+	// make the per-attempt authority self-asserted.
 	OrdinalRangeCommitment []byte `protobuf:"bytes,2,opt,name=ordinal_range_commitment,json=ordinalRangeCommitment,proto3" json:"ordinal_range_commitment,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// REQUIRED PRESENCE (proto3 `optional`), because offset 0 is the FIRST range's
+	// legal window and must be distinguishable from an unset field.
+	//
+	// Each plan range owns ONE CONTIGUOUS plan-global ordinal window. This is the
+	// start of the selected range's window: plan-global ordinal =
+	// `plan_ordinal_offset + local_ordinal`. Completion-leaf ordinals stay LOCAL
+	// (`{1..ordinal_count}`), because the exact-set coverage check is frozen; the
+	// offset is what lets a SECOND, non-prefix assignment describe the plan-wide
+	// members it covers without renumbering them.
+	//
+	// SPARSE remainders and FAN-OUT splitting are NOT v1: a window is contiguous and
+	// is replayed whole. Representing a non-contiguous subset needs a bounded
+	// subset/member representation and its own frozen grammar.
+	PlanOrdinalOffset *uint64 `protobuf:"varint,3,opt,name=plan_ordinal_offset,json=planOrdinalOffset,proto3,oneof" json:"plan_ordinal_offset,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SweepMtrExpectationV1) Reset() {
@@ -2375,6 +2395,13 @@ func (x *SweepMtrExpectationV1) GetOrdinalRangeCommitment() []byte {
 		return x.OrdinalRangeCommitment
 	}
 	return nil
+}
+
+func (x *SweepMtrExpectationV1) GetPlanOrdinalOffset() uint64 {
+	if x != nil && x.PlanOrdinalOffset != nil {
+		return *x.PlanOrdinalOffset
+	}
+	return 0
 }
 
 // SweepAssignmentRecordV1 is the APPEND-ONLY authoritative record of one
@@ -2671,9 +2698,16 @@ type TargetRangeV1 struct {
 	TargetCount          uint64                 `protobuf:"varint,6,opt,name=target_count,json=targetCount,proto3" json:"target_count,omitempty"`                             // hosts this range expands to (MUST be >= 1)
 	CheckSetSha256       []byte                 `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact per-range check/config identity
 	AvailabilityPolicyId []byte                 `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // per-range availability policy
-	MtrAdmissionBudget   uint64                 `protobuf:"varint,9,opt,name=mtr_admission_budget,json=mtrAdmissionBudget,proto3" json:"mtr_admission_budget,omitempty"`      // per-range MTR probe budget
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	MtrAdmissionBudget   uint64                 `protobuf:"varint,9,opt,name=mtr_admission_budget,json=mtrAdmissionBudget,proto3" json:"mtr_admission_budget,omitempty"`      // per-range MTR probe CEILING (never a count)
+	// REQUIRED PRESENCE: the EXACT number of MTR ordinals this range admits, and the
+	// width of its plan-global ordinal window. 0 is legal and distinct from absent.
+	//
+	// `mtr_admission_budget` is a CEILING and MUST NOT be read as this count -- that
+	// is precisely the derivation the expectation rules forbid. The count MUST NOT
+	// exceed the budget.
+	MtrOrdinalCount *uint64 `protobuf:"varint,10,opt,name=mtr_ordinal_count,json=mtrOrdinalCount,proto3,oneof" json:"mtr_ordinal_count,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *TargetRangeV1) Reset() {
@@ -2765,6 +2799,13 @@ func (x *TargetRangeV1) GetAvailabilityPolicyId() []byte {
 func (x *TargetRangeV1) GetMtrAdmissionBudget() uint64 {
 	if x != nil {
 		return x.MtrAdmissionBudget
+	}
+	return 0
+}
+
+func (x *TargetRangeV1) GetMtrOrdinalCount() uint64 {
+	if x != nil && x.MtrOrdinalCount != nil {
+		return *x.MtrOrdinalCount
 	}
 	return 0
 }
@@ -2891,7 +2932,6 @@ type ScheduledPlanHeaderV1 struct {
 	DigestVersion        uint32                 `protobuf:"varint,6,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`                       // canonical page/root digest algorithm version
 	CheckSetSha256       []byte                 `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact planned check/config identity
 	AvailabilityPolicyId []byte                 `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // versioned availability policy
-	AssignmentEpoch      uint64                 `protobuf:"varint,9,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
 	NetworkScopeId       []byte                 `protobuf:"bytes,10,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
 	// Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
 	// additive multiset hash the MTR completion proof compares its leaves against,
@@ -2989,13 +3029,6 @@ func (x *ScheduledPlanHeaderV1) GetAvailabilityPolicyId() []byte {
 		return x.AvailabilityPolicyId
 	}
 	return nil
-}
-
-func (x *ScheduledPlanHeaderV1) GetAssignmentEpoch() uint64 {
-	if x != nil {
-		return x.AssignmentEpoch
-	}
-	return 0
 }
 
 func (x *ScheduledPlanHeaderV1) GetNetworkScopeId() []byte {
@@ -3201,10 +3234,12 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x1dmtr_completion_digest_version\x18\x11 \x01(\rR\x1amtrCompletionDigestVersion\x122\n" +
 	"\x15mtr_completion_digest\x18\x12 \x01(\fR\x13mtrCompletionDigest\x12(\n" +
 	"\x10plan_root_sha256\x18\x13 \x01(\fR\x0eplanRootSha256\x12!\n" +
-	"\fabort_reason\x18\x15 \x01(\tR\vabortReasonJ\x04\b\x14\x10\x15R\x11range_root_sha256\"v\n" +
+	"\fabort_reason\x18\x15 \x01(\tR\vabortReasonJ\x04\b\x14\x10\x15R\x11range_root_sha256\"\xc3\x01\n" +
 	"\x15SweepMtrExpectationV1\x12#\n" +
 	"\rordinal_count\x18\x01 \x01(\x04R\fordinalCount\x128\n" +
-	"\x18ordinal_range_commitment\x18\x02 \x01(\fR\x16ordinalRangeCommitment\"\xaa\t\n" +
+	"\x18ordinal_range_commitment\x18\x02 \x01(\fR\x16ordinalRangeCommitment\x123\n" +
+	"\x13plan_ordinal_offset\x18\x03 \x01(\x04H\x00R\x11planOrdinalOffset\x88\x01\x01B\x16\n" +
+	"\x14_plan_ordinal_offset\"\xaa\t\n" +
 	"\x17SweepAssignmentRecordV1\x124\n" +
 	"\x16producer_assignment_id\x18\x01 \x01(\fR\x14producerAssignmentId\x12!\n" +
 	"\fexecution_id\x18\x02 \x01(\fR\vexecutionId\x12*\n" +
@@ -3231,7 +3266,7 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x16authenticated_agent_id\x18\x15 \x01(\fR\x14authenticatedAgentId\x12.\n" +
 	"\x13production_scope_id\x18\x16 \x01(\fR\x11productionScopeId\x12!\n" +
 	"\fscope_sha256\x18\x17 \x01(\fR\vscopeSha256\x124\n" +
-	"\x16contract_bundle_sha256\x18\x18 \x01(\fR\x14contractBundleSha256\"\xde\x02\n" +
+	"\x16contract_bundle_sha256\x18\x18 \x01(\fR\x14contractBundleSha256\"\xa5\x03\n" +
 	"\rTargetRangeV1\x12\x19\n" +
 	"\brange_id\x18\x01 \x01(\fR\arangeId\x12!\n" +
 	"\frange_sha256\x18\x02 \x01(\fR\vrangeSha256\x12\x12\n" +
@@ -3241,7 +3276,10 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\ftarget_count\x18\x06 \x01(\x04R\vtargetCount\x12(\n" +
 	"\x10check_set_sha256\x18\a \x01(\fR\x0echeckSetSha256\x124\n" +
 	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x120\n" +
-	"\x14mtr_admission_budget\x18\t \x01(\x04R\x12mtrAdmissionBudget\"\xd8\x02\n" +
+	"\x14mtr_admission_budget\x18\t \x01(\x04R\x12mtrAdmissionBudget\x12/\n" +
+	"\x11mtr_ordinal_count\x18\n" +
+	" \x01(\x04H\x00R\x0fmtrOrdinalCount\x88\x01\x01B\x14\n" +
+	"\x12_mtr_ordinal_count\"\xd8\x02\n" +
 	"\x13ScheduledPlanPageV1\x12*\n" +
 	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x12\x1d\n" +
 	"\n" +
@@ -3253,7 +3291,7 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"pageSha256\x12(\n" +
 	"\x10check_set_sha256\x18\x06 \x01(\fR\x0echeckSetSha256\x12%\n" +
 	"\x0edigest_version\x18\a \x01(\rR\rdigestVersion\x12;\n" +
-	"\x06ranges\x18\b \x03(\v2#.serviceradar.edge.v1.TargetRangeV1R\x06ranges\"\x8b\x04\n" +
+	"\x06ranges\x18\b \x03(\v2#.serviceradar.edge.v1.TargetRangeV1R\x06ranges\"\xf8\x03\n" +
 	"\x15ScheduledPlanHeaderV1\x12*\n" +
 	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x122\n" +
 	"\x15execution_plan_sha256\x18\x02 \x01(\fR\x13executionPlanSha256\x12\x1d\n" +
@@ -3263,11 +3301,11 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x10plan_root_sha256\x18\x05 \x01(\fR\x0eplanRootSha256\x12%\n" +
 	"\x0edigest_version\x18\x06 \x01(\rR\rdigestVersion\x12(\n" +
 	"\x10check_set_sha256\x18\a \x01(\fR\x0echeckSetSha256\x124\n" +
-	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x12)\n" +
-	"\x10assignment_epoch\x18\t \x01(\x04R\x0fassignmentEpoch\x12(\n" +
+	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x12(\n" +
 	"\x10network_scope_id\x18\n" +
 	" \x01(\fR\x0enetworkScopeId\x12?\n" +
-	"\x1cmtr_ordinal_range_commitment\x18\v \x01(\fR\x19mtrOrdinalRangeCommitment*\x84\x01\n" +
+	"\x1cmtr_ordinal_range_commitment\x18\v \x01(\fR\x19mtrOrdinalRangeCommitmentJ\x04\b\t\x10\n" +
+	"R\x10assignment_epoch*\x84\x01\n" +
 	"\tSweepMode\x12\x1a\n" +
 	"\x16SWEEP_MODE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fSWEEP_MODE_ICMP\x10\x01\x12\x16\n" +
@@ -3430,6 +3468,8 @@ func file_edge_v1_sweep_proto_init() {
 		(*MtrTraceBatchV1_AdHoc)(nil),
 		(*MtrTraceBatchV1_Command)(nil),
 	}
+	file_edge_v1_sweep_proto_msgTypes[17].OneofWrappers = []any{}
+	file_edge_v1_sweep_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

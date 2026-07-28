@@ -783,9 +783,8 @@ func buildPlan(t *testing.T, planID, checkSet []byte, pageRanges [][]uint64) (*e
 		ExecutionPlanId: planID, PageCount: uint32(count), TotalTargetCount: total,
 		PlanRootSha256: PlanRoot(pages), DigestVersion: PlanDigestVersion, CheckSetSha256: checkSet,
 		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: mustUUID(t),
-		// These plans admit no MTR targets, so the commitment is the empty-set multiset
-		// hash: 32 ZERO bytes, never empty bytes. The field is ALWAYS 32 bytes.
-		MtrOrdinalRangeCommitment: MtrOrdinalRangeCommitment(nil),
+		// RECOMPUTED from the committed pages, never a carried constant.
+		MtrOrdinalRangeCommitment: mustPlanCommitment(t, pages),
 	}
 	h.ExecutionPlanSha256 = PlanHeaderDigest(h)
 	return h, pages
@@ -796,6 +795,15 @@ func buildPlan(t *testing.T, planID, checkSet []byte, pageRanges [][]uint64) (*e
 // correct 32-byte commitment, so nothing exercises the boundary. Empty is the case
 // that matters most -- it was the PREVIOUS spelling of "no MTR", and the zero-leaf
 // completion proof cannot distinguish it from an omitted commitment.
+func mustPlanCommitment(t *testing.T, pages []*edgev1.ScheduledPlanPageV1) []byte {
+	t.Helper()
+	c, err := PlanMtrOrdinalRangeCommitment(pages)
+	if err != nil {
+		t.Fatalf("plan mtr commitment: %v", err)
+	}
+	return c
+}
+
 func TestPlanHeaderRejectsNon32ByteMtrCommitment(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

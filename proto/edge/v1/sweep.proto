@@ -389,12 +389,32 @@ message SweepExecutionEventV1 {
 message SweepMtrExpectationV1 {
   // Admitted MTR ordinals for this assignment. 0 is LEGAL and means the assignment
   // admits no MTR targets; it then requires the canonical zero-leaf completion
-  // proof, never an omitted one.
+  // proof, never an omitted one. In v1 this MUST equal the selected plan range's
+  // `mtr_ordinal_count`: a retry or supersession replays the SAME COMPLETE window.
   uint64 ordinal_count = 1;
-  // The (ordinal, range_sha256) additive multiset commitment. ALWAYS exactly 32
-  // bytes; 32 ZERO bytes -- the empty-set hash -- when ordinal_count is 0, never
-  // empty bytes.
+  // The additive multiset commitment over
+  // `(plan_ordinal_offset + local_ordinal, target_range_sha256)` for
+  // local_ordinal in 1..ordinal_count. ALWAYS exactly 32 bytes; 32 ZERO bytes --
+  // the empty-set hash -- when ordinal_count is 0, never empty bytes.
+  //
+  // It is RECOMPUTED from committed plan data, never trusted as carried bytes:
+  // count and range digest determine it exactly, so accepting any 32 bytes would
+  // make the per-attempt authority self-asserted.
   bytes ordinal_range_commitment = 2;
+  // REQUIRED PRESENCE (proto3 `optional`), because offset 0 is the FIRST range's
+  // legal window and must be distinguishable from an unset field.
+  //
+  // Each plan range owns ONE CONTIGUOUS plan-global ordinal window. This is the
+  // start of the selected range's window: plan-global ordinal =
+  // `plan_ordinal_offset + local_ordinal`. Completion-leaf ordinals stay LOCAL
+  // (`{1..ordinal_count}`), because the exact-set coverage check is frozen; the
+  // offset is what lets a SECOND, non-prefix assignment describe the plan-wide
+  // members it covers without renumbering them.
+  //
+  // SPARSE remainders and FAN-OUT splitting are NOT v1: a window is contiguous and
+  // is replayed whole. Representing a non-contiguous subset needs a bounded
+  // subset/member representation and its own frozen grammar.
+  optional uint64 plan_ordinal_offset = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -519,7 +539,14 @@ message TargetRangeV1 {
   uint64 target_count = 6;            // hosts this range expands to (MUST be >= 1)
   bytes check_set_sha256 = 7;         // exact per-range check/config identity
   bytes availability_policy_id = 8;   // per-range availability policy
-  uint64 mtr_admission_budget = 9;    // per-range MTR probe budget
+  uint64 mtr_admission_budget = 9;    // per-range MTR probe CEILING (never a count)
+  // REQUIRED PRESENCE: the EXACT number of MTR ordinals this range admits, and the
+  // width of its plan-global ordinal window. 0 is legal and distinct from absent.
+  //
+  // `mtr_admission_budget` is a CEILING and MUST NOT be read as this count -- that
+  // is precisely the derivation the expectation rules forbid. The count MUST NOT
+  // exceed the budget.
+  optional uint64 mtr_ordinal_count = 10;
 }
 
 // ScheduledPlanPageV1 is one content-addressed, chained page of target ranges.
@@ -554,7 +581,14 @@ message ScheduledPlanHeaderV1 {
   uint32 digest_version = 6;         // canonical page/root digest algorithm version
   bytes check_set_sha256 = 7;        // exact planned check/config identity
   bytes availability_policy_id = 8;  // versioned availability policy
-  uint64 assignment_epoch = 9;
+  // RETIRED (tag 9, `assignment_epoch`). The plan is IMMUTABLE, but reassignment
+  // advances the epoch WITHOUT changing the plan -- so committing the epoch inside
+  // the plan's content-addressed header made the two contradict each other: either
+  // the plan changes identity for a reason that is not a plan change, or the epoch
+  // is stale. The monotonic authority epoch lives on assignment records and
+  // capabilities, which are the things that actually advance.
+  reserved 9;
+  reserved "assignment_epoch";
   bytes network_scope_id = 10;
   // Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
   // additive multiset hash the MTR completion proof compares its leaves against,

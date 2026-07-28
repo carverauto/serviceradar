@@ -491,6 +491,14 @@
   durable requirement, which is why it lives here and not in the spec. Promotion of
   the edge feature branch to `staging` is BLOCKED until each correction is
   demonstrated against the specification rather than against compilation success.
+- [ ] 2.20a **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
+  the KEY only; it explicitly does NOT freeze the value, because no message there
+  represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
+  the tagged body here -- POSITIVE (execution/plan/range identities and digests, shard,
+  epoch, contract-specific correlation operand) or EXPLICIT NEGATIVE (durable negative
+  evidence and reason, no positive-only fields). A single untagged schema cannot
+  express both, because a durable negative means there is no execution.
+
 - [ ] 2.20 **Implement the durable assignment mapping (runtime half of the split
   1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY --
   `(trust_namespace, span_identity)` -- and the tagged POSITIVE / EXPLICIT-NEGATIVE

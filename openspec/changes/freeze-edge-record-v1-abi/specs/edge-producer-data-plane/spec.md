@@ -1041,11 +1041,67 @@ PLAN-WIDE commitment and SHALL NOT be used as the per-attempt authority: a plan 
 be divided across assignments, so the two are equal only when one assignment covers
 the whole plan.
 
-An assignment's covered-range binding SHALL live on this record as
-`range_set_commitment`, ALWAYS exactly 32 bytes, and SHALL NOT be a self-reported
-field of the producer's lifecycle event. The retired `range_root_sha256` (tag 20,
-reserved by number and name) was exactly that: a range binding the producer asserted
-about its own attempt, with no definition of what it was a root of.
+An assignment SHALL cover EXACTLY ONE plan range in v1 and SHALL name it directly as
+`target_range_id` + `target_range_sha256`, both REQUIRED. It SHALL NOT be a
+self-reported field of the producer's lifecycle event, and it SHALL NOT be an opaque
+set commitment: a non-invertible digest cannot say WHICH ranges were assigned, so it
+would be verifiable only for length. The retired `range_root_sha256` (tag 20,
+reserved by number and name) was exactly that defect on the lifecycle event.
+
+FROZEN v1 ORDINAL MODEL. Each plan range SHALL own ONE CONTIGUOUS plan-global ordinal
+window. `TargetRangeV1` SHALL carry the EXACT admitted MTR count with REQUIRED
+PRESENCE (0 legal and distinct from absent); `mtr_admission_budget` remains a CEILING
+only and the count SHALL NOT exceed it, nor SHALL the count ever be DERIVED from it.
+`SweepMtrExpectationV1` SHALL carry `plan_ordinal_offset` with REQUIRED PRESENCE,
+because offset 0 is the first range's legal window and MUST be distinguishable from
+an unset field. Completion-leaf ordinals SHALL remain LOCAL `{1..ordinal_count}`; the
+plan-global ordinal is `plan_ordinal_offset + local_ordinal`, and membership SHALL be
+hashed as `(plan_ordinal_offset + local_ordinal, target_range_sha256)`. In v1 a retry
+or supersession SHALL replay the SAME COMPLETE range window; sparse remainders and
+fan-out splitting are NOT v1 and require a bounded subset representation with its own
+frozen grammar.
+
+BOTH the assignment's `ordinal_range_commitment` AND the plan header's plan-wide
+`mtr_ordinal_range_commitment` SHALL be RECOMPUTED from committed plan data and
+compared, never accepted as carried bytes. The count and the range digest DETERMINE
+the assignment value, and the plan-wide value is the ADDITIVE SUM of every range's
+window -- which is what makes a split plan verifiable without renumbering any
+attempt. A carried value nothing derives is self-asserted authority.
+
+The relation SHALL reject: ordinal-space overflow; an `ordinal_count` that is not the
+selected range's admitted count; a count exceeding the range's admission budget; an
+absent or wrong `plan_ordinal_offset`; a commitment that is not the recomputed window;
+and a range identity whose digest is not the plan's.
+
+The plan header SHALL NOT commit an assignment epoch. `assignment_epoch` (tag 9) is
+RETIRED and reserved by number and name: the plan is IMMUTABLE while reassignment
+ADVANCES the epoch without changing the plan, so committing it inside the plan's
+content-addressed header made the two contradict each other. The monotonic authority
+epoch lives on assignment records and capabilities.
+
+#### Scenario: A second, non-prefix assignment is representable
+- **WHEN** a plan's ranges are assigned separately and a later range's window does not
+  start at ordinal 1
+- **THEN** its assignment SHALL carry that window's `plan_ordinal_offset`
+- **AND** its completion-leaf ordinals SHALL still be exactly `{1..ordinal_count}`
+
+#### Scenario: The expectation is recomputed, not trusted
+- **WHEN** an assignment carries an `ordinal_range_commitment` that is not the window
+  recomputed from the selected plan range
+- **THEN** the relation SHALL be rejected
+
+#### Scenario: The budget is a ceiling, never a count
+- **WHEN** a range's admitted MTR count exceeds its `mtr_admission_budget`
+- **THEN** the plan SHALL be rejected
+- **AND** the count SHALL NOT be derived from the budget
+
+#### Scenario: An absent ordinal offset is not offset zero
+- **WHEN** an expectation omits `plan_ordinal_offset`
+- **THEN** it SHALL be rejected rather than read as the first range's window
+
+#### Scenario: The plan header commits no assignment epoch
+- **WHEN** reassignment advances the authority epoch
+- **THEN** the immutable plan's identity SHALL NOT change
 
 `record_sequence` SHALL start at 1 and strictly increase per
 `producer_assignment_id`; a state change SHALL be a NEW record, never an edit.
@@ -1385,10 +1441,18 @@ sequence intervals are adjacent and their classification matches.
 ### Requirement: The assignment mapping's key is the frozen span identity
 The durable assignment mapping's KEY SHALL be the ordered pair `(trust_namespace, span_identity)`, frozen here because the attributed span omits execution and plan identity on the strength of it.
 
-This ABI change freezes the KEY and the tagged VALUE shape only. Whether such a
-mapping EXISTS, and everything it then does, is downstream runtime work with its
-own task -- this requirement SHALL NOT be read as asserting the mapping's
-existence, which would make an ABI change depend on runtime it does not own.
+This ABI change freezes the KEY ONLY. Whether such a mapping EXISTS, and everything
+it then does, is downstream runtime work with its own task -- this requirement SHALL
+NOT be read as asserting the mapping's existence, which would make an ABI change
+depend on runtime it does not own.
+
+The tagged VALUE is explicitly NOT frozen here, and ownership of it moves DOWNSTREAM.
+An earlier revision claimed both, which contradicted the proposal and task list and,
+more importantly, was not backed by anything: no message in this change represents a
+POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason, so "frozen" described
+prose rather than a contract. The paragraph below therefore states what such a value
+must eventually distinguish, as GUIDANCE for the downstream task that owns it, not as
+a frozen shape.
 
 The key SHALL be the ordered pair `(trust_namespace, span_identity)`:
 
@@ -1416,11 +1480,11 @@ identity as defined does NOT include the trust namespace, while the key must, so
 that phrasing permits two incompatible implementations. The pair is explicit for
 that reason.
 
-The VALUE SHALL be a TAGGED body: POSITIVE (execution, plan, and range identities
-and digests, shard, epoch, and the contract-specific correlation operand) or
-EXPLICIT NEGATIVE (durable negative evidence and reason, no positive-only fields).
-A single untagged schema cannot express both, because a durable negative means
-there is no execution.
+GUIDANCE FOR THE DOWNSTREAM OWNER (not frozen here): the value will need to be a
+TAGGED body -- POSITIVE (execution, plan, and range identities and digests, shard,
+epoch, and the contract-specific correlation operand) or EXPLICIT NEGATIVE (durable
+negative evidence and reason, no positive-only fields). A single untagged schema
+cannot express both, because a durable negative means there is no execution.
 
 Its DURABLE STORAGE, replay and repair state machine, conflict resolution,
 retention, garbage collection, and lookup-outcome transitions are DOWNSTREAM and
@@ -1437,7 +1501,7 @@ them alongside the wire ABI is what made the predecessor change unreviewable.
 - **AND** a key built from the span identity ALONE SHALL be rejected: the span
   identity does not include the trust namespace
 
-#### Scenario: A durable negative is representable
-- **WHEN** an assignment has no scheduler execution
-- **THEN** the mapping SHALL be able to record an explicit negative
-- **AND** SHALL NOT require fabricating positive-only fields
+#### Scenario: The value shape is not frozen by this change
+- **WHEN** a reader asks what this ABI change froze about the mapping
+- **THEN** it SHALL be the KEY only
+- **AND** the tagged value's shape SHALL be owned downstream
