@@ -34,8 +34,8 @@ func validAssignment(t *testing.T) *edgev1.SweepAssignmentRecordV1 {
 		AssignmentEpoch:        5,
 		RecordSequence:         1,
 		AuthoredAtUnixNano:     1,
-		RangeSetCommitment:     MtrOrdinalRangeCommitment([]MtrCompletionLeaf{{Ordinal: 1, RangeSha256: d32domain(0x20)}}),
 		TargetRangeId:          mustUUID(t),
+		TargetRangeSha256:      d32domain(0x20),
 		LeaseId:                []byte("lease-1"),
 		FenceToken:             7,
 		LeaseExpiresAtUnixNano: 2,
@@ -113,24 +113,78 @@ func TestValidateSweepAssignmentRecord(t *testing.T) {
 		t.Fatalf("state 99 = %v, want ErrAssignmentState", err)
 	}
 
-	// Multi-range: an empty target_range_id is legal, arbitrary bytes are not.
-	multi := validAssignment(t)
-	multi.TargetRangeId = nil
-	if err := ValidateSweepAssignmentRecord(multi); err != nil {
-		t.Fatalf("multi-range assignment: %v", err)
+	// BOTH halves of the range binding are REQUIRED. An assignment that does not name
+	// a resolvable range is the defect that retired range_root_sha256.
+	noID := validAssignment(t)
+	noID.TargetRangeId = nil
+	if err := ValidateSweepAssignmentRecord(noID); !errors.Is(err, ErrAssignmentScope) {
+		t.Fatalf("absent target range id = %v, want ErrAssignmentScope", err)
 	}
 	junk := validAssignment(t)
 	junk.TargetRangeId = []byte("not-a-uuid")
 	if err := ValidateSweepAssignmentRecord(junk); !errors.Is(err, ErrAssignmentScope) {
 		t.Fatalf("junk target range = %v, want ErrAssignmentScope", err)
 	}
-
-	// The range-set commitment is ALWAYS 32 bytes, like every other commitment.
 	for _, bad := range [][]byte{nil, {}, make([]byte, 31), make([]byte, 33)} {
 		r := validAssignment(t)
-		r.RangeSetCommitment = bad
+		r.TargetRangeSha256 = bad
 		if err := ValidateSweepAssignmentRecord(r); !errors.Is(err, ErrAssignmentScope) {
-			t.Fatalf("range-set commitment %d bytes = %v, want ErrAssignmentScope", len(bad), err)
+			t.Fatalf("range sha %d bytes = %v, want ErrAssignmentScope", len(bad), err)
+		}
+	}
+}
+
+// TestValidateAssignmentAgainstPlan pins the RELATION. Each artifact can be
+// internally valid while describing a different plan, which independent validation
+// cannot notice -- and did not, in the first version of this slice's fixture.
+func TestValidateAssignmentAgainstPlan(t *testing.T) {
+	planID := mustUUID(t)
+	h, pages := buildPlan(t, planID, d32(0x77), [][]uint64{{256}})
+	rng := pages[0].GetRanges()[0]
+
+	bound := func() *edgev1.SweepAssignmentRecordV1 {
+		r := validAssignment(t)
+		r.ExecutionPlanId = h.GetExecutionPlanId()
+		r.ExecutionPlanSha256 = h.GetExecutionPlanSha256()
+		r.AssignmentEpoch = h.GetAssignmentEpoch()
+		r.CheckSetSha256 = h.GetCheckSetSha256()
+		r.AvailabilityPolicyId = h.GetAvailabilityPolicyId()
+		r.NetworkScopeId = h.GetNetworkScopeId()
+		r.TargetRangeId = rng.GetRangeId()
+		r.TargetRangeSha256 = rng.GetRangeSha256()
+		return r
+	}
+
+	if err := ValidateAssignmentAgainstPlan(bound(), h, pages); err != nil {
+		t.Fatalf("bound assignment must relate to its plan: %v", err)
+	}
+
+	// A range the plan never committed.
+	stranger := bound()
+	stranger.TargetRangeId = mustUUID(t)
+	if err := ValidateAssignmentAgainstPlan(stranger, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("foreign range = %v, want ErrAssignmentPlanRelation", err)
+	}
+	// The plan's range identity carrying someone else's content digest.
+	swapped := bound()
+	swapped.TargetRangeSha256 = d32(0xEE)
+	if err := ValidateAssignmentAgainstPlan(swapped, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("substituted range digest = %v, want ErrAssignmentPlanRelation", err)
+	}
+	// Facts both artifacts carry must agree -- the epoch mismatch this slice shipped
+	// in its first fixture is exactly this case.
+	for name, mutate := range map[string]func(*edgev1.SweepAssignmentRecordV1){
+		"epoch":     func(r *edgev1.SweepAssignmentRecordV1) { r.AssignmentEpoch = h.GetAssignmentEpoch() + 1 },
+		"check set": func(r *edgev1.SweepAssignmentRecordV1) { r.CheckSetSha256 = d32(0xEE) },
+		"policy":    func(r *edgev1.SweepAssignmentRecordV1) { r.AvailabilityPolicyId = []byte("other") },
+		"scope":     func(r *edgev1.SweepAssignmentRecordV1) { r.NetworkScopeId = mustUUID(t) },
+		"plan id":   func(r *edgev1.SweepAssignmentRecordV1) { r.ExecutionPlanId = mustUUID(t) },
+		"plan hash": func(r *edgev1.SweepAssignmentRecordV1) { r.ExecutionPlanSha256 = d32(0xEE) },
+	} {
+		r := bound()
+		mutate(r)
+		if err := ValidateAssignmentAgainstPlan(r, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+			t.Fatalf("%s mismatch = %v, want ErrAssignmentPlanRelation", name, err)
 		}
 	}
 }

@@ -32,6 +32,10 @@ var (
 	// assignment that admits no MTR and still owes the canonical zero-leaf proof.
 	ErrAssignmentExpectation = errors.New("edgerecord: assignment record mtr expectation invalid")
 	ErrAssignmentScope       = errors.New("edgerecord: assignment record scope/config invalid")
+	// ErrAssignmentPlanRelation fires when a record and a plan are each internally
+	// valid but do not describe the same plan, or the covered range is not a member
+	// of it.
+	ErrAssignmentPlanRelation = errors.New("edgerecord: assignment record does not match the plan")
 )
 
 // zero32 is the empty-set additive multiset hash: the commitment a set with no
@@ -119,14 +123,12 @@ func ValidateSweepAssignmentRecord(r *edgev1.SweepAssignmentRecordV1) error {
 		return ErrAssignmentIdentity
 	}
 
-	// The covered-range commitment is ALWAYS 32 bytes, exactly like the expectation's:
-	// an assignment covering no ranges carries the 32-zero empty-set hash.
-	if len(r.GetRangeSetCommitment()) != sha256Len {
-		return ErrAssignmentScope
-	}
-	// target_range_id is the single-range convenience name. Empty means multi-range;
-	// present means it must be a real identifier, never arbitrary bytes.
-	if len(r.GetTargetRangeId()) != 0 && ValidateCanonicalUUID(r.GetTargetRangeId()) != nil {
+	// The covered range is named DIRECTLY and both halves are REQUIRED: an identifier
+	// a consumer can look up, and the digest it must match. An opaque commitment
+	// checkable only for length is what retired `range_root_sha256`; it would have
+	// been no better here.
+	if ValidateCanonicalUUID(r.GetTargetRangeId()) != nil ||
+		len(r.GetTargetRangeSha256()) != sha256Len {
 		return ErrAssignmentScope
 	}
 
@@ -173,4 +175,52 @@ func ValidateSweepAssignmentRecord(r *edgev1.SweepAssignmentRecordV1) error {
 		return ErrAssignmentScope
 	}
 	return nil
+}
+
+// ValidateAssignmentAgainstPlan proves the assignment/plan RELATION, which
+// validating the two artifacts independently cannot: each can be internally
+// perfect while describing different plans.
+//
+// It requires the plan header and pages to be valid first, then checks that the
+// assignment names THIS plan (id AND self-hash), agrees on the facts both carry
+// (epoch, check set, availability policy, network scope), and that its covered
+// range is actually a MEMBER of the committed plan -- matching a page range by id
+// AND by `range_sha256`, so a record cannot claim a range identity with someone
+// else's content digest.
+func ValidateAssignmentAgainstPlan(
+	r *edgev1.SweepAssignmentRecordV1,
+	h *edgev1.ScheduledPlanHeaderV1,
+	pages []*edgev1.ScheduledPlanPageV1,
+) error {
+	if err := ValidateSweepAssignmentRecord(r); err != nil {
+		return err
+	}
+	if err := ValidatePlanPages(h, pages); err != nil {
+		return err
+	}
+	if !bytes.Equal(r.GetExecutionPlanId(), h.GetExecutionPlanId()) ||
+		!bytes.Equal(r.GetExecutionPlanSha256(), h.GetExecutionPlanSha256()) {
+		return ErrAssignmentPlanRelation
+	}
+	// Facts both artifacts carry MUST agree. A disagreement here is not a detail:
+	// it means the scheduler authorized an attempt against a plan it did not write.
+	if r.GetAssignmentEpoch() != h.GetAssignmentEpoch() ||
+		!bytes.Equal(r.GetCheckSetSha256(), h.GetCheckSetSha256()) ||
+		!bytes.Equal(r.GetAvailabilityPolicyId(), h.GetAvailabilityPolicyId()) ||
+		!bytes.Equal(r.GetNetworkScopeId(), h.GetNetworkScopeId()) {
+		return ErrAssignmentPlanRelation
+	}
+	for _, p := range pages {
+		for _, rng := range p.GetRanges() {
+			if bytes.Equal(rng.GetRangeId(), r.GetTargetRangeId()) {
+				if bytes.Equal(rng.GetRangeSha256(), r.GetTargetRangeSha256()) {
+					return nil
+				}
+				// Right identity, wrong content: a claimed range whose digest is not
+				// the plan's is a substitution, not a near miss.
+				return ErrAssignmentPlanRelation
+			}
+		}
+	}
+	return ErrAssignmentPlanRelation
 }

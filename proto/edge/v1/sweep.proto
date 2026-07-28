@@ -334,7 +334,8 @@ enum SweepExecutionEventKind {
 // SweepExecutionEventV1 is per-assignment-attempt evidence. Terminal evidence
 // closes `[1, terminal_batch_sequence]` and carries cumulative counts plus the
 // expected/emitted MTR summary AND trace counts, a versioned completion digest,
-// and the plan/range roots the canonical ordinal proof composes over.
+// and the PLAN ROOT the canonical ordinal proof composes over. There is no range
+// root: see the retired tag 20.
 message SweepExecutionEventV1 {
   bytes execution_id = 1;
   uint32 execution_shard = 2;
@@ -442,18 +443,24 @@ message SweepAssignmentRecordV1 {
   uint64 record_sequence = 7;
   int64 authored_at_unix_nano = 8;
 
-  // --- covered ranges -----------------------------------------------------
-  // range_set_commitment is the additive multiset commitment over the
-  // `range_sha256` of every range THIS assignment covers. ALWAYS exactly 32 bytes;
-  // 32 ZERO bytes when the assignment covers no ranges. It lives here rather than
-  // on the lifecycle event because a range binding a producer asserts about itself
-  // proves nothing -- see the retired `range_root_sha256` (tag 20).
+  // --- covered range ------------------------------------------------------
+  // An assignment covers EXACTLY ONE plan range in v1, and names it DIRECTLY. Both
+  // fields are REQUIRED, and `target_range_sha256` MUST equal that range's
+  // `range_sha256` in the plan pages, so a consumer can resolve the assignment to a
+  // committed plan range and CHECK it.
   //
-  // Today an assignment covers exactly one range and `target_range_id` names it;
-  // the commitment is defined over a SET so a multi-range assignment needs no new
-  // field and no grammar change.
-  bytes range_set_commitment = 9;
-  bytes target_range_id = 10;  // single-range assignments; empty when multi-range
+  // Deliberately NOT an opaque set commitment. A non-invertible digest cannot tell a
+  // consumer WHICH ranges were assigned, so it would be an authoritative-looking
+  // 32-byte field verifiable only for length -- exactly the defect that retired
+  // `range_root_sha256` (tag 20). Moving that defect from the lifecycle event to
+  // this record would not have fixed it.
+  //
+  // MULTI-RANGE IS NOT IN v1. Supporting it means a bounded member/subset
+  // representation (or an immutable subset reference) WITH cardinality and its own
+  // frozen commitment grammar and shared non-empty vectors -- not reinterpreting
+  // these two fields or emptying one of them.
+  bytes target_range_id = 9;
+  bytes target_range_sha256 = 10;
 
   // --- lease / fence ------------------------------------------------------
   // The fence token is monotonic per assignment identity: a holder presenting a

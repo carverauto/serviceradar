@@ -17,6 +17,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SemanticDigest
   alias ServiceRadar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.WireValidate
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -1125,10 +1126,52 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert assignment.mtr_expectation
     assert assignment.mtr_expectation.ordinal_count == 0
     assert assignment.mtr_expectation.ordinal_range_commitment == <<0::256>>
-    assert byte_size(assignment.range_set_commitment) == 32
     assert assignment.record_sequence >= 1
     assert assignment.state == :SWEEP_ASSIGNMENT_STATE_COMPLETED
+
+    # The RELATION to the paired plan, not two artifacts validated in isolation. The
+    # range binding is RESOLVABLE -- an id a consumer can look up plus the digest it
+    # must match -- rather than an opaque commitment checkable only for length.
+    assert assignment.execution_plan_id == header.execution_plan_id
     assert assignment.execution_plan_sha256 == header.execution_plan_sha256
+    assert assignment.assignment_epoch == header.assignment_epoch
+    assert assignment.check_set_sha256 == header.check_set_sha256
+    assert assignment.availability_policy_id == header.availability_policy_id
+    assert assignment.network_scope_id == header.network_scope_id
+    assert byte_size(assignment.target_range_id) == 16
+    assert byte_size(assignment.target_range_sha256) == 32
+
+    page = ScheduledPlanPageV1.decode(load("plan_page_zero_mtr.bin"))
+    [plan_range] = page.ranges
+    assert assignment.target_range_id == plan_range.range_id
+    assert assignment.target_range_sha256 == plan_range.range_sha256
+    assert HashGrammar.range_digest(plan_range) == plan_range.range_sha256
+
+    # The state enum is POLICED, not merely decodable. Registering it in the negative
+    # transform only makes the decoder total; admission is a separate table, and its
+    # absence made this exact fixture fail with {:unpoliced_enum_field, [:state]}.
+    assert :ok = SemanticValidate.validate_message(assignment)
+
+    assert {:error, {:unsupported_enum, [:state]}} =
+             SemanticValidate.validate_message(%{
+               assignment
+               | state: :SWEEP_ASSIGNMENT_STATE_UNSPECIFIED
+             })
+
+    assert {:error, {:unsupported_enum, [:state]}} =
+             SemanticValidate.validate_message(%{assignment | state: 99})
+
+    # STALE-WIRE PROOF for the RETIRED tag 20. Reserving a tag stops source reuse; it
+    # does not stop a sender that still emits the field. The shared vector is the valid
+    # event plus a length-delimited field 20, and Elixir must reject it at the same
+    # boundary Go does -- the retained bytes are visible, so admitting them would let a
+    # pre-retirement producer's range root ride through unvalidated.
+    stale = load("lifecycle_stale_tag20.bin")
+    decoded_stale = SweepExecutionEventV1.decode(stale)
+    assert decoded_stale.__unknown_fields__ != []
+    assert [{20, 2, _}] = decoded_stale.__unknown_fields__
+
+    assert {:error, _} = WireValidate.validate(stale, SweepExecutionEventV1)
 
     # And the completion proof verifies against THAT expectation.
     assert {:ok, ev.mtr_completion_digest} ==
