@@ -15,11 +15,11 @@ resources:
   requests:
     cpu: "8"
     memory: "16Gi"
-    ephemeral-storage: "20Gi"
+    ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 affinity:
   nodeAffinity:
@@ -56,24 +56,24 @@ config:
   executor:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
-    # Default to OCI isolation for release reliability. Firecracker (#4752)
-    # mis-sized VMs when EstimatedMemory used invalid units ("8GB" is not a
-    # k8s quantity — use "8Gi") and when default_task_size was not applied,
-    # producing mem_size_mib≈44 + initrd failures / signal: killed OOMs.
-    # enable_firecracker stays on so isolation=firecracker can be re-enabled
-    # after default_task_size is verified live.
     default_isolation_type: oci
     enable_firecracker: true
-    # Used when isolation=firecracker; quantities are bytes/millicpu.
+    firecracker_debug_stream_vm_logs: true
+    # Floor for VM sizing; without it predicted sizes are used verbatim and a
+    # Firecracker VM can end up too small to unpack its own 49 MB initrd
+    # ("Initramfs unpacking failed" -> "No working init found" panic).
+    #
+    # estimated_memory_bytes is an int64 COUNT OF BYTES (scheduler.proto TaskSize),
+    # not a k8s quantity. "2Gi" here does not parse. That syntax belongs to the
+    # separate EstimatedMemory exec_property in the Bazel platform definitions.
     default_task_size:
-      estimated_milli_cpu: 4000
-      estimated_memory_bytes: 8589934592 # 8 GiB
-      estimated_free_disk_bytes: 21474836480 # 20 GiB
+      estimated_milli_cpu: 2000
+      estimated_memory_bytes: 2147483648 # 2 GiB
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23
+      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1
     oci:
       mounts:
         - source: /cache
