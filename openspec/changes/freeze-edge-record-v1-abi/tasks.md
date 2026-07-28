@@ -73,8 +73,17 @@ here.
   terminals, shard/range digests, terminal sequences, counts, expected MTR,
   configuration identity, epoch, lease/fence, and authorization metadata.
   AUDIT (1.1-1.6, post-#4739): the plan header/pages and `SweepExecutionEventV1`
-  EXIST, but the authoritative assignment-record message DOES NOT -- there is no
-  such message in `proto/edge/v1`. It must be designed before the 1.7 freeze or
+  EXIST, but the authoritative assignment-record message DID NOT.
+  PARTIALLY CLOSED: `SweepAssignmentRecordV1` now exists in `proto/edge/v1/sweep.proto`
+  with a REQUIRED `SweepMtrExpectationV1` (`ordinal_count` + `ordinal_range_commitment`
+  together), append-only `record_sequence`, scheduler-authored LOST/EXPIRED/SUPERSEDED
+  states, lease/fence, a 32-byte `range_set_commitment`, and configuration/authorization
+  identity, validated by `ValidateSweepAssignmentRecord`. The count is CARRIED, never
+  derived from the producer's counters, from the non-invertible commitment, or from
+  `mtr_admission_budget` (a ceiling). STILL OPEN in 1.3: the frozen
+  `SweepObservationBatchV1` CORRELATION MATRIX (per permitted `SweepExecutionSource`,
+  with a positive and a mismatch vector per variant).
+  Original audit text follows. It must be designed before the 1.7 freeze or
   explicitly cut from it, because it is an append-only authoritative contract on
   the frozen ABI. It is also what binds a span's `producer_assignment_id` to the
   scheduler's `execution_plan_id`, which is why the span itself does not carry
@@ -167,11 +176,15 @@ here.
   to close, so anything named here becomes a 1.7 gate; blocking 1.4 on runtime
   wiring would make the ABI wait on `unify-sweep-results-proto`, which waits on the
   frozen ABI. Remaining local work:
-  (i) the two plan-derived relations have NO DEFINED MEANING in the ABI --
-  `range_root_sha256` does not say what it is a root OF, and no field states whether
-  a plan admits MTR, so "32 zero bytes means none admitted" is unwritten. Both are
-  normative definitions owed by task 1.3; and
-  (ii) task 1.15's shared per-value leaf vectors.
+  (i) CLOSED by 1.3's assignment record. `range_root_sha256` is RETIRED (tag 20 and
+  the name reserved) rather than defined: an assignment's range binding must not be a
+  self-reported lifecycle field, and the authoritative `range_set_commitment` now
+  lives on `SweepAssignmentRecordV1`. And the required `SweepMtrExpectationV1` STATES
+  the admitted ordinal count, so "32 zero bytes means none admitted" is now written
+  down AND checkable -- `ordinal_count == 0` and the 32-zero commitment must agree in
+  both directions, which the non-invertible commitment alone could never establish;
+  and
+  (ii) task 1.15's shared per-value leaf vectors -- the remaining local blocker.
   NOT A BLOCKER ON 1.4: that no consumer performs the check.
   `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must supply
   already-validated plan state, and wiring a real carrier is downstream task 2.3b.

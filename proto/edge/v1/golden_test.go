@@ -1099,7 +1099,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		ExpectedMtrSummaries: 2, EmittedMtrSummaries: 2, ExpectedMtrTraces: 2, EmittedMtrTraces: 1,
 		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
 		MtrCompletionDigest:        completion,
-		PlanRootSha256:             planRoot, RangeRootSha256: digest32(0x93),
+		PlanRootSha256:             planRoot,
 	})
 	mustValidateLifecycleBytes(t, "lifecycle.bin", lifecycleBytes)
 
@@ -1148,7 +1148,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		// present, which is the whole point of the decision.
 		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
 		MtrCompletionDigest:        zeroCompletion,
-		PlanRootSha256:             zeroPlanRoot, RangeRootSha256: digest32(0x95),
+		PlanRootSha256:             zeroPlanRoot,
 	})
 	mustValidateLifecycleBytes(t, "lifecycle_zero_mtr.bin", zeroBytes)
 	goldenBytes(t, "zero_mtr_commitment.bin", zeroCommitment)
@@ -1176,6 +1176,44 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		perturbed, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
 	); err == nil {
 		t.Fatal("a perturbed completion digest must not verify")
+	}
+
+	// The AUTHORITATIVE assignment record for the zero-MTR attempt. Its required
+	// expectation is what a completion proof verifies against; the plan header's
+	// commitment is the plan-wide fact, not the per-attempt authority.
+	zeroAssignment := &edgev1.SweepAssignmentRecordV1{
+		ProducerAssignmentId: uuidv7(0x26), ExecutionId: uuidv7(0x21),
+		ExecutionPlanId: zeroPlanID, ExecutionPlanSha256: zeroHeader.GetExecutionPlanSha256(),
+		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
+		RangeSetCommitment: edgerecord.MtrOrdinalRangeCommitment(nil), TargetRangeId: uuidv7(0x25),
+		LeaseId: []byte("lease-zero"), FenceToken: 7, LeaseExpiresAtUnixNano: fixedNanos + 1,
+		State:                 edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED,
+		TerminalBatchSequence: 4,
+		MtrExpectation: &edgev1.SweepMtrExpectationV1{
+			OrdinalCount: 0, OrdinalRangeCommitment: zeroCommitment,
+		},
+		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
+		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
+		ContractBundleSha256: digest32(0x7A),
+	}
+	assignmentBytes := golden(t, "assignment_zero_mtr.bin", zeroAssignment)
+	var decodedAssignment edgev1.SweepAssignmentRecordV1
+	if err := proto.Unmarshal(assignmentBytes, &decodedAssignment); err != nil {
+		t.Fatalf("decode assignment_zero_mtr.bin: %v", err)
+	}
+	if err := edgerecord.ValidateSweepAssignmentRecord(&decodedAssignment); err != nil {
+		t.Fatalf("committed assignment record must be VALID: %v", err)
+	}
+	// The completion proof verifies against the ASSIGNMENT's expectation.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		&zeroEv,
+		decodedAssignment.GetMtrExpectation().GetOrdinalCount(),
+		zeroHeader.GetPlanRootSha256(),
+		decodedAssignment.GetMtrExpectation().GetOrdinalRangeCommitment(),
+		nil,
+	); err != nil {
+		t.Fatalf("completion must verify against the assignment expectation: %v", err)
 	}
 
 	rid := uuidv7(0x80)

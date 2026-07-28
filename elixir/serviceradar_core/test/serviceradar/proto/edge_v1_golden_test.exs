@@ -31,6 +31,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SpoolLossTombstoneV1
+  alias Serviceradar.Edge.V1.SweepAssignmentRecordV1
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
@@ -1115,6 +1116,28 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert HashGrammar.plan_header_digest(header) == header.execution_plan_sha256
     assert ev.execution_plan_sha256 == header.execution_plan_sha256
     assert ev.plan_root_sha256 == header.plan_root_sha256
+
+    # The AUTHORITATIVE expectation lives on the assignment record, not on the event
+    # and not on the plan header. `ordinal_count` is CARRIED: the commitment is an
+    # additive multiset hash and cannot be inverted, so a count is not recoverable
+    # from it, and the producer's own counters are not the authority.
+    assignment = SweepAssignmentRecordV1.decode(load("assignment_zero_mtr.bin"))
+    assert assignment.mtr_expectation
+    assert assignment.mtr_expectation.ordinal_count == 0
+    assert assignment.mtr_expectation.ordinal_range_commitment == <<0::256>>
+    assert byte_size(assignment.range_set_commitment) == 32
+    assert assignment.record_sequence >= 1
+    assert assignment.state == :SWEEP_ASSIGNMENT_STATE_COMPLETED
+    assert assignment.execution_plan_sha256 == header.execution_plan_sha256
+
+    # And the completion proof verifies against THAT expectation.
+    assert {:ok, ev.mtr_completion_digest} ==
+             HashGrammar.mtr_completion_verify(
+               [],
+               assignment.mtr_expectation.ordinal_count,
+               ev.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
 
     # The plan admitted NO MTR targets, so every MTR counter is zero -- and the
     # proof is STILL present. That is the decision: missing evidence must never be

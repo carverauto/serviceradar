@@ -343,7 +343,6 @@ func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 			MtrCompletionDigestVersion: MtrCompletionDigestVersion,
 			MtrCompletionDigest:        root,
 			PlanRootSha256:             planRoot,
-			RangeRootSha256:            d32domain(0x92),
 		}
 	}
 
