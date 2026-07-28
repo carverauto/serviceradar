@@ -23,14 +23,19 @@
 defmodule TransformFixtureTest do
   @script Path.expand("patch_edge_enum_negatives.exs", __DIR__)
 
-  # Exactly the 16 modules the transform pins, so a clean fixture satisfies the inventory check.
+  # Exactly the 17 modules the transform pins, so a clean fixture satisfies the inventory check.
   @inventory ~w(
     EdgeCapabilityPurpose EdgeOriginKind EdgeRecordCompression EdgeRecordDispositionKind
     EdgeRecordPayloadFamily EdgeRecordRouteProfile EdgeRecordTrafficClass
-    EdgeSourceAuthorizationKind EdgeUnattributableReason MtrOutcome SweepExecutionEventKind
+    EdgeSourceAuthorizationKind EdgeUnattributableReason MtrCompletionDisposition MtrOutcome
+    SweepExecutionEventKind
     SweepExecutionSource
     SweepMode SweepModeBit SweepModeOutcome TransportProtocol
   )
+
+  # Derived, never restated: adding an enum to the inventory above must not require
+  # also finding and bumping a hardcoded count in the checks below.
+  @inventory_count length(@inventory)
 
   def run do
     results = [
@@ -103,8 +108,9 @@ defmodule TransformFixtureTest do
 
     with {0, _} <- run_transform(dir),
          content = File.read!(file),
-         16 <- count(content, "def key(tag) when is_integer(tag) and tag < 0, do: tag"),
-         16 <- count(content, "def value(tag) when is_integer(tag) and tag < 0, do: tag"),
+         @inventory_count <- count(content, "def key(tag) when is_integer(tag) and tag < 0, do: tag"),
+         @inventory_count <-
+           count(content, "def value(tag) when is_integer(tag) and tag < 0, do: tag"),
          {0, out} <- run_transform(dir),
          ^content <- File.read!(file),
          true <- String.contains?(out, "0 file(s) patched") do
@@ -162,7 +168,7 @@ defmodule TransformFixtureTest do
     {0, _} = run_transform(dir)
 
     # Strip the two clauses from ONE module while leaving its marker: a file-wide marker check would
-    # report "already patched" and ship a file with 16 markers but 15 clause pairs.
+    # report "already patched" and ship a file with N markers but N-1 clause pairs.
     patched = File.read!(file)
 
     broken =

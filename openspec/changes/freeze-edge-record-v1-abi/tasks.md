@@ -117,7 +117,7 @@ here.
   `proto.Marshal` re-encode, or on execution-wide trace materialization. Allocate and durably record UUIDv7 trace
   IDs before probing and add cross-language UUIDv7/identity-time fixtures.
   AUDIT (1.1-1.6): the proof machinery is implemented in both runtimes, but the
-  completion-leaf disposition is declared NOWHERE in the protos -- it is a Go
+  completion-leaf disposition was declared NOWHERE in the protos -- it was a Go
   `iota` block (`MtrTerminalDisposition`) and separately a set of literal
   integers in Elixir guards. Declare it ONCE as the generated enum
   `MtrCompletionDisposition`, with the members and numbers frozen by the requirement "MTR completion disposition is one generated enum". Distinct from the per-hop `MtrOutcome` numbering
@@ -130,6 +130,30 @@ here.
   changes. The number is hashed into the frozen leaf preimage, so a hand-maintained
   pair can produce two different roots for one completion. (This target was
   previously duplicated inside checked task 1.13; it lives here and in 1.15 only.)
+  CLOSED: `MtrCompletionDisposition` is declared in `proto/edge/v1/sweep.proto`
+  and both runtimes now read it -- Go's `MtrTerminalDisposition` is a type ALIAS
+  of the generated enum (`domain.go`), and Elixir's completion guards derive
+  `@disposition_trace_allocated` / `@dispositions_without_trace` from the
+  generated module at compile time (`hash_grammar.ex`), so neither restates a
+  number. Both runtimes assert the closed set (`0`, `-1`, `6`, `999` rejected;
+  `1..5` accepted); `-1` is expressible in Go for the first time because the
+  disposition is now the generated `int32` enum rather than a local `uint32`.
+  Elixir's unvalidated `mtr_completion_root/4` was made PRIVATE in the same pass:
+  it was the one path by which an unrecognised number could reach the frozen
+  preimage, and Go exports no such hasher. PROVEN by mutation -- renumbering
+  `SCHEDULER_LOST` 5 -> 6 in the proto and regenerating, with NO edit to either
+  runtime, fails Go's `TestMtrCompletionDispositionIsAClosedSet` and Elixir's
+  golden closed-set vectors (both accept `6`); the mutation compiles, so it is a
+  kill and not a failed experiment. Every existing completion golden vector stays
+  byte-identical, so the digest grammar did not move. STILL 1.15: the SHARED
+  cross-language leaf fixture both runtimes read (each asserts the set against its
+  own generated enum today).
+  1.4 REMAINS UNCHECKED: the disposition sub-target is the CLOSED part. The
+  zero-MTR (`expected == 0`) BLOCKER recorded under task 1.15 names 1.4 by name --
+  a COMPLETED sweep admitting no MTR targets can today neither omit a completion
+  proof nor construct a valid one, and candidate (A) vs (B) is an unmade decision,
+  not a discovered fact. Do NOT check 1.4 until that behaviour is chosen and the
+  lifecycle validator agrees with it.
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,

@@ -406,18 +406,23 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      32-byte accumulators the zero value, with `plan_root_sha256` still committed). Every
      current implementation contradicts this, so it is NOT authoritative and MUST NOT be
      frozen at 1.7 until 1.15 chooses one behaviour.
-   - terminal disposition values (the u64) -- `MTR_COMPLETION_DISPOSITION` enum, CANDIDATE
-     (not frozen; see below),
+   - terminal disposition values (the u64) -- `MtrCompletionDisposition`,
      DISTINCT from the per-hop `MtrOutcome` enum:
-     the members and numbers frozen by the requirement "MTR completion disposition is one generated enum". CANDIDATE, NOT FROZEN: this enum is not
-     generated yet (tasks 1.4/1.15); calling it FROZEN while it exists only as a Go
-     `iota` block and Elixir integer guards is what the 1.1-1.6 audit found. Declared ONCE as the generated proto enum
-     `MtrCompletionDisposition` (full symbols `MTR_COMPLETION_DISPOSITION_*`); Go and Elixir are
-     CONSUMERS, not co-owners -- the number is hashed into the frozen leaf preimage, so two
-     hand-maintained copies can produce two roots for one completion. Cross-language leaf
-     vectors are NOT "per value": VALID vectors for `1..5`, and REJECT vectors for `0`,
-     `-1`, `6`, and `999` -- zero is rejected before hashing, so an accepted vector for it
-     would contradict the rule. Do NOT reuse the per-hop `MtrOutcome` numbering (`REACHED = 1`,
+     the members and numbers frozen by the requirement "MTR completion disposition is one
+     generated enum". DECLARED (task 1.4): the enum now exists ONCE in
+     `proto/edge/v1/sweep.proto` (full symbols `MTR_COMPLETION_DISPOSITION_*`), and Go and
+     Elixir are CONSUMERS, not co-owners -- Go's `MtrTerminalDisposition` is an ALIAS of the
+     generated type and Elixir's completion guards read the generated values through module
+     attributes. The earlier audit finding -- that calling this FROZEN while it existed only
+     as a Go `iota` block and Elixir integer guards was an overstatement -- is closed: a
+     renumbering in the proto now fails both runtimes' closed-set tests without either
+     runtime being edited. The number is hashed into the frozen leaf preimage, which is why
+     two hand-maintained copies could produce two roots for one completion. STILL OPEN for
+     1.15: the SHARED cross-language leaf vectors, which are NOT "per value" -- VALID vectors
+     for `1..5`, and REJECT vectors for `0`, `-1`, `6`, and `999` -- zero is rejected before
+     hashing, so an accepted vector for it would contradict the rule. (Each runtime already
+     asserts that reject/accept set against its own generated enum; what 1.15 adds is the
+     shared fixture both read.) Do NOT reuse the per-hop `MtrOutcome` numbering (`REACHED = 1`,
      `PROBE_FAILED = 3`, `NOT_ADMITTED = 5`, `QUARANTINED = 6`, `SCHEDULER_LOST = 7`) --
      they are a different enum. This SUPERSEDES #4713's local declarations, which the
      generated enum replaces (see the

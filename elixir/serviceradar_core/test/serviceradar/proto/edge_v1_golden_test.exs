@@ -1103,12 +1103,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     commitment = HashGrammar.mtr_ordinal_range_commitment(leaves)
 
-    assert HashGrammar.mtr_completion_root(leaves, 2, ev.plan_root_sha256, commitment) ==
-             ev.mtr_completion_digest
-
-    # Exact-set coverage + membership parity: the valid set verifies; the invalid
-    # vectors Go rejects are rejected here too.
-    assert {:ok, _} =
+    # Byte parity with the Go-emitted digest AND exact-set coverage + membership,
+    # in one call: there is no unvalidated Elixir hasher to check the bytes with,
+    # exactly as Go exports no unvalidated `MtrCompletionRoot`.
+    assert {:ok, ev.mtr_completion_digest} ==
              HashGrammar.mtr_completion_verify(leaves, 2, ev.plan_root_sha256, commitment)
 
     rng = digest32(0x93)
@@ -1138,6 +1136,27 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 1, root, c1)
     assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 1, root, c1)
     assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 1, <<0>>, c1)
+
+    # The disposition is a CLOSED set: 0, -1, 6 (the next unallocated number, i.e.
+    # one a LATER proto revision could declare) and 999 are all rejected BEFORE the
+    # value is widened to u64 and hashed. Every valid member is accepted, so the
+    # closure is proven against the generated enum rather than against a literal.
+    for disp <- [0, -1, 6, 999] do
+      assert :error =
+               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 1, root, c1),
+             "disposition #{disp} must be rejected by the frozen leaf grammar"
+    end
+
+    for {disp, trace} <- [{1, uuidv7(0x30)}, {2, nil}, {3, nil}, {4, nil}, {5, nil}] do
+      assert {:ok, _} =
+               HashGrammar.mtr_completion_verify(
+                 [{1, disp, trace, rng}],
+                 1,
+                 root,
+                 HashGrammar.mtr_ordinal_range_commitment([{1, disp, trace, rng}])
+               ),
+             "disposition #{disp} is a declared member and must be accepted"
+    end
   end
 
   test "the lane-open ack round-trips byte-identically through the Elixir encoder" do

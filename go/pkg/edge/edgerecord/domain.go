@@ -676,16 +676,21 @@ const MtrCompletionDigestVersion = 2
 const MaxMtrCompletionOrdinals = 1 << 31
 
 // MtrTerminalDisposition is the per-ordinal terminal state in the completion
-// proof (matches the design's disposition set).
-type MtrTerminalDisposition uint32
+// proof. It is an ALIAS of the generated enum, not a parallel declaration: the
+// numbering lives ONCE in proto/edge/v1/sweep.proto and is hashed into the frozen
+// leaf preimage below, so restating it here is exactly the hand-maintained
+// numeric parity that lets two runtimes produce different roots for the same
+// completion. Distinct from the per-hop MtrOutcome; it reuses none of its
+// numbers.
+type MtrTerminalDisposition = edgev1.MtrCompletionDisposition
 
 const (
-	MtrDispositionUnspecified MtrTerminalDisposition = iota
-	MtrDispositionTraceAllocated
-	MtrDispositionNotAdmitted
-	MtrDispositionProbeFailed
-	MtrDispositionQuarantined
-	MtrDispositionSchedulerLost
+	MtrDispositionUnspecified    = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_UNSPECIFIED
+	MtrDispositionTraceAllocated = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED
+	MtrDispositionNotAdmitted    = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_NOT_ADMITTED
+	MtrDispositionProbeFailed    = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_PROBE_FAILED
+	MtrDispositionQuarantined    = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_QUARANTINED
+	MtrDispositionSchedulerLost  = edgev1.MtrCompletionDisposition_MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST
 )
 
 // MtrCompletionLeaf is one plan ordinal's terminal disposition bound to the plan
