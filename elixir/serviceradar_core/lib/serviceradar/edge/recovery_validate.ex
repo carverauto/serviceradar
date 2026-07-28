@@ -332,6 +332,40 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
+  @doc """
+  The frozen meaning of `RecoveryResolvedV1.applied_through_sequence`: the consumer's
+  DURABLY APPLIED CONTIGUOUS PREFIX over the ALLOCATED sequence space.
+
+  The highest S such that every allocated sequence at or below S is either durably
+  applied by the consumer transaction, or ABSENT from a VALIDATED COMPLETE span
+  union. The union is the LOST set, so only ABSENCE from a complete union establishes
+  not-lost -- the inverse reading releases a journal over sequences never processed.
+
+  It is NOT the maximum span end and NOT the allocated high-water. For lost spans
+  `[1,1]` and `[100,100]` over an allocated space of 1..100 with only sequence 1
+  applied, all three differ: max span end and high-water are 100, the correct value
+  is 99. This gates durable journal release, so the wrong candidate discards data the
+  consumer still owes.
+  """
+  @spec applied_through_sequence(non_neg_integer(), non_neg_integer(), MapSet.t(), [
+          {non_neg_integer(), non_neg_integer()}
+        ]) :: non_neg_integer()
+  def applied_through_sequence(prior, allocated_high_water, applied, lost) do
+    Enum.reduce_while((prior + 1)..allocated_high_water//1, prior, fn seq, acc ->
+      if MapSet.member?(applied, seq) or not in_span_union?(seq, lost) do
+        {:cont, seq}
+      else
+        {:halt, acc}
+      end
+    end)
+  end
+
+  # The caller MUST pass a VALIDATED COMPLETE union: absence from a partial union
+  # proves nothing, and treating it as not-lost is how a gap becomes unnoticed loss.
+  defp in_span_union?(seq, lost) do
+    Enum.any?(lost, fn {from, through} -> seq >= from and seq <= through end)
+  end
+
   @doc false
   # ERROR-ONLY propagation. It takes an error and returns an error: it cannot decode,
   # cannot construct a page, and has no success clause to pass one through -- so

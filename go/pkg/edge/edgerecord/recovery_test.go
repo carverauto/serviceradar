@@ -21,9 +21,13 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -783,5 +787,247 @@ func TestPlanRejectsSemanticallyInvalidRange(t *testing.T) {
 	h3.ExecutionPlanSha256 = PlanHeaderDigest(h3)
 	if err := ValidatePlanPages(h3, pages3); !errors.Is(err, ErrPlanCheckSet) {
 		t.Fatalf("range check set mismatch = %v, want ErrPlanCheckSet", err)
+	}
+}
+
+// appliedPrefixVector is one COMPLETE input set for AppliedThroughSequence. The
+// frozen rule needs all four inputs -- a bare span pair pins nothing, because the
+// same union yields different answers depending on what was allocated and applied.
+type appliedPrefixVector struct {
+	name      string
+	prior     uint64
+	highWater uint64
+	applied   []uint64
+	lost      [][2]uint64
+	expected  uint64
+}
+
+func appliedPrefixVectors() []appliedPrefixVector {
+	return []appliedPrefixVector{
+		{
+			// THE GAPPED VECTOR. Lost [1,1] and [100,100] over an allocated space of
+			// 1..100, with only sequence 1 applied. The three candidate meanings all
+			// differ here, which is the whole point: max span end = 100, allocated
+			// high-water = 100, correct contiguous applied prefix = 99.
+			name:  "gapped union, tail lost and unapplied",
+			prior: 0, highWater: 100, applied: []uint64{1},
+			lost: [][2]uint64{{1, 1}, {100, 100}}, expected: 99,
+		},
+		{
+			// Same union, tail now applied: the prefix reaches the high-water.
+			name:  "gapped union, tail applied",
+			prior: 0, highWater: 100, applied: []uint64{1, 100},
+			lost: [][2]uint64{{1, 1}, {100, 100}}, expected: 100,
+		},
+		{
+			// Sequence 1 is lost and unapplied, so nothing advances at all.
+			name:  "head lost and unapplied blocks everything",
+			prior: 0, highWater: 100, applied: nil,
+			lost: [][2]uint64{{1, 1}, {100, 100}}, expected: 0,
+		},
+		{
+			// No loss at all: every sequence is absent from the union, so the prefix
+			// runs to the high-water without anything being applied.
+			name:  "empty union advances to the high-water",
+			prior: 0, highWater: 50, applied: nil,
+			lost: nil, expected: 50,
+		},
+		{
+			// The result never retreats below the prior watermark.
+			name:  "prior watermark is never retreated",
+			prior: 40, highWater: 100, applied: nil,
+			lost: [][2]uint64{{41, 41}}, expected: 40,
+		},
+		{
+			// A LOST-BUT-APPLIED sequence still advances: applied satisfies the rule
+			// independently of loss. This is the disjunction, not a conjunction.
+			name:  "lost but durably applied still advances",
+			prior: 0, highWater: 5, applied: []uint64{1, 2, 3, 4, 5},
+			lost: [][2]uint64{{1, 5}}, expected: 5,
+		},
+	}
+}
+
+func (v appliedPrefixVector) spans(t *testing.T) []*edgev1.EdgeClassificationSpanV1 {
+	t.Helper()
+	out := make([]*edgev1.EdgeClassificationSpanV1, 0, len(v.lost))
+	for _, r := range v.lost {
+		out = append(out, activeSpan(t, r[0], r[1]))
+	}
+	return out
+}
+
+func (v appliedPrefixVector) appliedSet() map[uint64]bool {
+	m := map[uint64]bool{}
+	for _, s := range v.applied {
+		m[s] = true
+	}
+	return m
+}
+
+func TestAppliedThroughSequence(t *testing.T) {
+	for _, v := range appliedPrefixVectors() {
+		t.Run(v.name, func(t *testing.T) {
+			got := AppliedThroughSequence(v.prior, v.highWater, v.appliedSet(), v.spans(t))
+			if got != v.expected {
+				t.Fatalf("AppliedThroughSequence = %d, want %d", got, v.expected)
+			}
+		})
+	}
+}
+
+// TestGoldenAppliedPrefixVectors exports the vectors so Elixir computes the SAME
+// value from the SAME complete inputs. Without a shared corpus each runtime would
+// only be self-consistent, which is exactly how the three candidate meanings could
+// diverge unnoticed.
+func TestGoldenAppliedPrefixVectors(t *testing.T) {
+	var b bytes.Buffer
+	for _, v := range appliedPrefixVectors() {
+		lost := make([]string, 0, len(v.lost))
+		for _, r := range v.lost {
+			lost = append(lost, fmt.Sprintf("%d-%d", r[0], r[1]))
+		}
+		applied := make([]string, 0, len(v.applied))
+		for _, s := range v.applied {
+			applied = append(applied, strconv.FormatUint(s, 10))
+		}
+		fmt.Fprintf(&b, "%s\t%d\t%d\t%s\t%s\t%d\n",
+			v.name, v.prior, v.highWater,
+			strings.Join(applied, ","), strings.Join(lost, ","), v.expected)
+	}
+	goldenBytesLocal(t, "applied_prefix_vectors.txt", b.Bytes())
+}
+
+// retiredTagVector is ONE retired tag carried on otherwise-valid bytes.
+//
+// SIX INDEPENDENT FIXTURES, deliberately not bundled. A decoder that rejects the
+// retired REPEATED fields while silently accepting a stale BOOLEAN passes a combined
+// fixture and still admits a page whose digest cannot be reproduced -- so each tag
+// needs its own vector or a surviving acceptance hides behind a sibling.
+type retiredTagVector struct {
+	name    string
+	message string
+	tag     int
+	field   string
+	raw     []byte
+}
+
+// varintField encodes one protobuf varint field: tag<<3|0, then the value.
+func varintField(tag int, v uint64) []byte {
+	out := protowire.AppendTag(nil, protowire.Number(tag), protowire.VarintType)
+	return protowire.AppendVarint(out, v)
+}
+
+// fixedUUIDv7 builds a DETERMINISTIC canonical UUIDv7 from a seed byte. The golden
+// vectors below are committed, so they must be byte-stable across runs: mustUUID is
+// random per call and would rewrite the fixtures on every regeneration, turning a
+// drift guard into noise.
+func fixedUUIDv7(seed byte) []byte {
+	b := bytes.Repeat([]byte{seed}, 16)
+	b[6] = 0x70 | (seed & 0x0F) // version 7
+	b[8] = 0x80 | (seed & 0x3F) // RFC variant
+	return b
+}
+
+// fixedActiveSpan is activeSpan with DETERMINISTIC identity bytes, for the committed
+// golden vectors. Random identities would rewrite them on every regeneration.
+func fixedActiveSpan(from, through uint64) *edgev1.EdgeClassificationSpanV1 {
+	return &edgev1.EdgeClassificationSpanV1{
+		FromSequence: from, ThroughSequence: through,
+		Classification: &edgev1.EdgeClassificationSpanV1_AttributedActive{
+			AttributedActive: &edgev1.EdgeAttributedActiveV1{
+				Identity: &edgev1.EdgeAttributedSpanIdentityV1{
+					ProducerAssignmentId: fixedUUIDv7(0x61),
+					RunId:                fixedUUIDv7(0x62),
+					RunShard:             2,
+					AuthorityEpoch:       5,
+					ProductionScopeId:    fixedUUIDv7(0x63),
+					ScopeSha256:          d32(0x64),
+					ContractBundleSha256: d32(0x65),
+				},
+				RangeSha256: d32(0x66),
+			},
+		},
+	}
+}
+
+func retiredTagVectors(t *testing.T) []retiredTagVector {
+	t.Helper()
+
+	page := buildManifest(t, fixedUUIDv7(0x51), [][]*edgev1.EdgeClassificationSpanV1{{fixedActiveSpan(1, 5)}})[0]
+	pageBytes, err := proto.Marshal(page)
+	if err != nil {
+		t.Fatalf("marshal page: %v", err)
+	}
+
+	tomb := &edgev1.SpoolLossTombstoneV1{
+		RecoveryId: page.GetRecoveryId(), PriorSpoolId: fixedUUIDv7(0x52), NewSpoolId: fixedUUIDv7(0x53),
+		ManifestRootSha256: ManifestRoot([]*edgev1.EdgeLossManifestPageV1{page}),
+		ManifestPageCount:  1, DigestVersion: RecoveryDigestVersion,
+		DetectedAtUnixNano: 1, Reason: "torn-tail",
+	}
+	tombBytes, err := proto.Marshal(tomb)
+	if err != nil {
+		t.Fatalf("marshal tombstone: %v", err)
+	}
+
+	// Retired PAGE tags: 7 coarsened (bool), 9 lost_ranges, 10 affected.
+	// Retired TOMBSTONE tags: 3/4 the loss interval (varints), 8 coarsened (bool).
+	// The repeated fields are encoded as empty length-delimited submessages, which is
+	// what a stale candidate encoder would have emitted.
+	lenField := func(tag int) []byte {
+		out := protowire.AppendTag(nil, protowire.Number(tag), protowire.BytesType)
+		return protowire.AppendBytes(out, nil)
+	}
+
+	return []retiredTagVector{
+		{"page_tag7_coarsened", "EdgeLossManifestPageV1", 7, "coarsened",
+			append(append([]byte{}, pageBytes...), varintField(7, 1)...)},
+		{"page_tag9_lost_ranges", "EdgeLossManifestPageV1", 9, "lost_ranges",
+			append(append([]byte{}, pageBytes...), lenField(9)...)},
+		{"page_tag10_affected", "EdgeLossManifestPageV1", 10, "affected",
+			append(append([]byte{}, pageBytes...), lenField(10)...)},
+		{"tombstone_tag3_lost_from", "SpoolLossTombstoneV1", 3, "lost_from_sequence",
+			append(append([]byte{}, tombBytes...), varintField(3, 10)...)},
+		{"tombstone_tag4_lost_through", "SpoolLossTombstoneV1", 4, "lost_through_sequence",
+			append(append([]byte{}, tombBytes...), varintField(4, 20)...)},
+		{"tombstone_tag8_coarsened", "SpoolLossTombstoneV1", 8, "coarsened",
+			append(append([]byte{}, tombBytes...), varintField(8, 1)...)},
+	}
+}
+
+// Each retired tag must be rejected INDEPENDENTLY. Tag reservation prevents SOURCE
+// reuse; it does not by itself prove old bytes are refused at runtime, and the
+// grammar deliberately keeps version 1 -- so a same-version atomic rewrite could
+// otherwise admit stale candidate bytes.
+func TestRetiredTagsAreRejectedIndependently(t *testing.T) {
+	for _, v := range retiredTagVectors(t) {
+		t.Run(v.name, func(t *testing.T) {
+			switch v.message {
+			case "EdgeLossManifestPageV1":
+				if err := ValidateManifestChainFromRaw([][]byte{v.raw}, nil); err == nil {
+					t.Fatalf("page carrying retired tag %d (%s) was ACCEPTED", v.tag, v.field)
+				}
+			case "SpoolLossTombstoneV1":
+				var tomb edgev1.SpoolLossTombstoneV1
+				if err := proto.Unmarshal(v.raw, &tomb); err != nil {
+					t.Fatalf("vector must decode to reach the validator: %v", err)
+				}
+				pages := buildManifest(t, tomb.GetRecoveryId(),
+					[][]*edgev1.EdgeClassificationSpanV1{{fixedActiveSpan(1, 5)}})
+				if err := ValidateTombstone(&tomb, pages); !errors.Is(err, ErrUnknownFields) {
+					t.Fatalf("tombstone carrying retired tag %d (%s) = %v, want ErrUnknownFields",
+						v.tag, v.field, err)
+				}
+			}
+		})
+	}
+}
+
+// TestGoldenRetiredTagVectors exports the six raw byte vectors so Elixir refuses the
+// SAME bytes. A Go-only proof would leave the Elixir decoder free to accept them.
+func TestGoldenRetiredTagVectors(t *testing.T) {
+	for _, v := range retiredTagVectors(t) {
+		goldenBytesLocal(t, "retired_"+v.name+".bin", v.raw)
 	}
 }
