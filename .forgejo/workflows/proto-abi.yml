@@ -148,6 +148,13 @@ jobs:
       - name: Edge enum parity (Elixir semantic validation)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
+      # The Elixir RELATIONAL validator. Its whole purpose is Go parity, so like the
+      # wire/semantic suites above it must be a REQUIRED status here: the general Elixir
+      # Quality workflow is filtered to base=staging and never runs for this stack, and
+      # it does not run tests at all.
+      - name: Edge recovery relational parity (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/recovery_validate_test.exs
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
       - name: Edge enum transform fail-closed fixture

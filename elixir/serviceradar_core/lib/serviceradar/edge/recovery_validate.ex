@@ -19,6 +19,8 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   bounds them. Splitting them keeps the impossible check from looking possible.
   """
 
+  import Bitwise, only: []
+
   alias ServiceRadar.Edge.HashGrammar
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias ServiceRadar.Edge.WireDecode
@@ -54,7 +56,8 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   ]
 
   @type error ::
-          :manifest_empty
+          :unknown_fields
+          | :manifest_empty
           | :manifest_bounds
           | :manifest_digest_version
           | :manifest_recovery_id
@@ -114,8 +117,16 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     raw
     |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
       case WireDecode.decode_manifest_page(b) do
-        {:ok, page} -> {:cont, {:ok, [page | acc]}}
-        {:error, _} -> {:halt, {:error, :manifest_chain}}
+        {:ok, page} ->
+          {:cont, {:ok, [page | acc]}}
+
+        # PRESERVE the typed outcome. The caller needs :not_ready/:systemic (pause and
+        # replay -- a deployment or decoder fault) distinguishable from
+        # :poison/:too_large (permanently resolvable bad bytes). Mapping them all to
+        # :manifest_chain would make a missing decoder look like a malformed manifest
+        # and quarantine data that was never bad.
+        {:error, _} = err ->
+          {:halt, err}
       end
     end)
     |> case do
@@ -136,9 +147,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   def manifest_chain(pages, expected_root) when is_list(pages) do
     count = length(pages)
 
-    with :ok <- check(count <= @max_manifest_pages, :manifest_bounds),
+    with :ok <- check(Enum.all?(pages, &no_unknown_fields?/1), :unknown_fields),
+         :ok <- check(count <= @max_manifest_pages, :manifest_bounds),
          recovery_id = hd(pages).recovery_id,
-         :ok <- check(byte_size(recovery_id) == @uuid_len, :manifest_recovery_id),
+         :ok <- check(uuidv7?(recovery_id), :manifest_recovery_id),
          :ok <- walk_pages(pages, recovery_id, count) do
       check_root(pages, expected_root)
     end
@@ -286,10 +298,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   """
   @spec tombstone(struct(), [struct()]) :: :ok | {:error, error()}
   def tombstone(t, pages) when is_list(pages) do
-    with :ok <- check(byte_size(t.recovery_id) == @uuid_len, :tombstone_mismatch),
+    with :ok <- check(no_unknown_fields?(t), :unknown_fields),
+         :ok <- check(uuidv7?(t.recovery_id), :tombstone_mismatch),
          :ok <-
            check(
-             uuid?(t.prior_spool_id) and uuid?(t.new_spool_id),
+             uuidv7?(t.prior_spool_id) and uuidv7?(t.new_spool_id),
              :tombstone_mismatch
            ),
          :ok <- check(t.prior_spool_id != t.new_spool_id, :tombstone_mismatch),
@@ -300,11 +313,58 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp uuid?(b) when is_binary(b), do: byte_size(b) == @uuid_len
+  # CANONICAL UUID, mirroring Go's ValidateCanonicalUUID exactly: 16 bytes, RFC
+  # version 1..8 in the high nibble of byte 6, RFC variant 10xx in byte 8, and not
+  # all-zero. A bare byte_size check accepts the nil UUID and every non-RFC blob --
+  # Elixir would admit an identity Go rejects, which is the parity this validator
+  # exists to hold.
+  defp uuid?(<<_::binary-size(6), v, _, var, _::binary-size(7)>> = b)
+       when byte_size(b) == @uuid_len do
+    version = Bitwise.bsr(v, 4)
+
+    version >= 1 and version <= 8 and Bitwise.band(var, 0xC0) == 0x80 and
+      b != <<0::128>>
+  end
+
   defp uuid?(_), do: false
+
+  # UUIDv7 specifically, mirroring Go's ValidateUUIDv7: version nibble exactly 7 and
+  # the RFC variant. Recovery and spool IDs are v7 because their embedded timestamp is
+  # load-bearing; span/source identities are only required to be canonical, since a
+  # scheduler legitimately allocates v4.
+  defp uuidv7?(<<_::binary-size(6), v, _, var, _::binary-size(7)>> = b)
+       when byte_size(b) == @uuid_len do
+    Bitwise.band(v, 0xF0) == 0x70 and Bitwise.band(var, 0xC0) == 0x80
+  end
+
+  defp uuidv7?(_), do: false
 
   defp digest32?(b) when is_binary(b), do: byte_size(b) == @sha256_len
   defp digest32?(_), do: false
+
+  # Appendix A requires unknown fields to be REJECTED in every grammar-covered
+  # position BEFORE hashing: the field-framed digests walk DECLARED fields only, so
+  # retained unknown bytes are invisible to the digest while still riding along on the
+  # wire -- a page with retained unknowns keeps the same digest and would otherwise
+  # validate. That is load-bearing for content addressing.
+  #
+  # RECURSIVE, matching Go's hasUnknownFields: a struct nested at any depth can carry
+  # them, and a top-level-only check would miss a span body or a source identity.
+  #
+  # The RAW path already rejects ordinary unknown tags at the WireDecode gate; this
+  # closes the same hole for callers handing in already-decoded structs.
+  defp no_unknown_fields?(%{__unknown_fields__: unknown}) when unknown not in [nil, []], do: false
+
+  defp no_unknown_fields?(%_{} = struct) do
+    struct
+    |> Map.from_struct()
+    |> Map.values()
+    |> Enum.all?(&no_unknown_fields?/1)
+  end
+
+  defp no_unknown_fields?(list) when is_list(list), do: Enum.all?(list, &no_unknown_fields?/1)
+  defp no_unknown_fields?({_tag, value}), do: no_unknown_fields?(value)
+  defp no_unknown_fields?(_), do: true
 
   defp check(true, _err), do: :ok
   defp check(false, err), do: {:error, err}
