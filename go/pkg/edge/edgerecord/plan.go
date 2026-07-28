@@ -40,6 +40,14 @@ const (
 	MaxRangeStrBytes = 64
 )
 
+// MaxPlanMtrOrdinals bounds the TOTAL admitted MTR ordinals across one plan, so that
+// recomputing a commitment is bounded WORK. It is deliberately far below
+// MaxMtrCompletionOrdinals (2^31): that constant bounds what the ordinal space can
+// REPRESENT, this one bounds what a validator will COMPUTE. Without it a compact plan
+// could declare a 2^31 window and cost billions of SHA-256 operations inside a
+// validator -- denial of service reachable from a small message.
+const MaxPlanMtrOrdinals = 1 << 20
+
 var (
 	ErrPlanDigestVersion = errors.New("edgerecord: unsupported plan digest version")
 	ErrPlanHeaderDigest  = errors.New("edgerecord: plan header digest mismatch")
@@ -434,6 +442,12 @@ func PlanMtrWindows(pages []*edgev1.ScheduledPlanPageV1) (map[string]uint64, uin
 	var next uint64
 	for _, p := range pages {
 		for _, r := range p.GetRanges() {
+			// REQUIRED PRESENCE. An absent count is NOT zero: it is a plan that never
+			// stated its window, and accepting it would hash identically to an explicit
+			// zero -- the exact collapse that makes "required presence" decorative.
+			if r.MtrOrdinalCount == nil {
+				return nil, 0, ErrPlanMtrWindow
+			}
 			// A range's admitted count may never exceed its ceiling. The count is
 			// CARRIED, not derived from the budget -- but it is still bounded by it.
 			if r.GetMtrOrdinalCount() > r.GetMtrAdmissionBudget() {
@@ -448,6 +462,14 @@ func PlanMtrWindows(pages []*edgev1.ScheduledPlanPageV1) (map[string]uint64, uin
 			}
 			windows[string(r.GetRangeId())] = next
 			next += r.GetMtrOrdinalCount()
+			// VALIDATION-COST CEILING. Recomputing a commitment is O(ordinals), so a
+			// compact plan declaring a 2^31 window would cost billions of SHA-256 ops
+			// inside a validator -- a denial of service reachable from a small message.
+			// The ordinal SPACE bound (MaxMtrCompletionOrdinals) bounds correctness;
+			// this bounds work.
+			if next > MaxPlanMtrOrdinals {
+				return nil, 0, ErrPlanMtrWindow
+			}
 		}
 	}
 	return windows, next, nil

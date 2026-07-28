@@ -316,21 +316,38 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - RangeDigest (plan.go, excl `range_sha256`): `str "serviceradar.edge.plan.range.v1"`,
      `version` (u64), `range_id` (bytes), `cidr` (str), `first_address` (str), `last_address`
      (str), `target_count` (u64), `check_set_sha256` (bytes), `availability_policy_id`
-     (bytes), `mtr_admission_budget` (u64).
+     (bytes), `mtr_admission_budget` (u64), `mtr_ordinal_count` (u64; absent hashes as
+     0 but is REJECTED by the validator -- see the required-presence rule).
    - PlanPageDigest (plan.go, excl `page_sha256`): `str "serviceradar.edge.plan.page.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_index` (u64), `page_count`
      (u64), `prev_page_sha256` (bytes), `check_set_sha256` (bytes), `len(ranges)` (u64), then
      EACH range inlined in order (`range_id`, `range_sha256`, `cidr`, `first_address`,
      `last_address`, `target_count`, `check_set_sha256`, `availability_policy_id`,
-     `mtr_admission_budget` -- the page commits each range's `range_sha256`, unlike
-     RangeDigest itself).
+     `mtr_admission_budget`, `mtr_ordinal_count` -- the page commits each range's
+     `range_sha256`, unlike RangeDigest itself).
    - PlanRoot (excl `plan_root_sha256`): `str "serviceradar.edge.plan.root.v1"`, `version`
      (u64), `len(pages)` (u64), then each `page_sha256` (bytes) in order.
    - PlanHeaderDigest (excl `execution_plan_sha256`): `str "serviceradar.edge.plan.header.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_count` (u64),
      `total_target_count` (u64), `plan_root_sha256` (bytes), `check_set_sha256` (bytes),
-     `availability_policy_id` (bytes), `assignment_epoch` (u64), `network_scope_id` (bytes),
-     `mtr_ordinal_range_commitment` (bytes).
+     `availability_policy_id` (bytes), `network_scope_id` (bytes),
+     `mtr_ordinal_range_commitment` (bytes). NOTE: `assignment_epoch` (tag 9) is RETIRED
+     and is NOT hashed -- an immutable plan must not commit a value that reassignment
+     advances without changing the plan.
+   - MTR ORDINAL WINDOWS (frozen derivation, not a digest). Each plan range owns one
+     CONTIGUOUS plan-global window. The offset is the PREFIX SUM of `mtr_ordinal_count`
+     over the ranges that PRECEDE it in plan order -- pages by ascending `page_index`,
+     ranges in their committed order within a page. The first range's offset is 0.
+     A range's window commitment is the additive multiset fold of
+     `mtrMemberHash(offset + i, range_sha256)` for i in 1..`mtr_ordinal_count`, and the
+     plan-wide `mtr_ordinal_range_commitment` is the additive SUM of every range's
+     window commitment. Completion-leaf ordinals remain LOCAL (`{1..count}`); ONLY the
+     membership accumulator is shifted by the offset. Without this derivation frozen, a
+     clean-room implementation would produce different windows from the same plan.
+
+     GRAMMAR VERSION: these entries change the v1 preimages. `PlanDigestVersion` stays 1
+     because the plan grammar is an UNSHIPPED CANDIDATE -- no producer emits it and no
+     fixture predates this change. Any later edit, once shipped, is a version bump.
    - **RETIRED — replaced atomically by task 1.6a, which has LANDED.** The
      ManifestPageDigest entry below hashes the `lost_ranges` + `affected` pair,
      which 1.6a replaced with ONE ordered `classification_spans` list. Nothing had

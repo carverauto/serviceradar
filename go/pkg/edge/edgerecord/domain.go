@@ -729,7 +729,13 @@ type MtrCompletionAccumulator struct {
 	memberAcc  [32]byte
 	count      uint64
 	expected   uint64
-	err        error
+	// planOrdinalOffset shifts LOCAL leaf ordinals to the PLAN-GLOBAL ordinals the
+	// assignment's commitment was built over. Leaf hashes and the coverage
+	// accumulator stay LOCAL (the leaf grammar and the exact-set check are frozen);
+	// only membership is global, because that is the only accumulator compared
+	// against a plan-derived value.
+	planOrdinalOffset uint64
+	err               error
 }
 
 // NewMtrCompletionAccumulator starts an accumulator for a known expected ordinal
@@ -742,10 +748,10 @@ type MtrCompletionAccumulator struct {
 // masquerade as empty work -- the alternative (waive the proof when a producer
 // says it did no MTR) would admit both an absent and a present proof for one
 // state and would trust a self-reported counter to decide which.
-func NewMtrCompletionAccumulator(expected uint64) *MtrCompletionAccumulator {
-	a := &MtrCompletionAccumulator{expected: expected}
-	if expected > MaxMtrCompletionOrdinals {
-		a.err = fmt.Errorf("%w: expected out of range", ErrMtrCompletion)
+func NewMtrCompletionAccumulator(planOrdinalOffset, expected uint64) *MtrCompletionAccumulator {
+	a := &MtrCompletionAccumulator{expected: expected, planOrdinalOffset: planOrdinalOffset}
+	if expected > MaxMtrCompletionOrdinals || planOrdinalOffset > MaxMtrCompletionOrdinals-expected {
+		a.err = fmt.Errorf("%w: expected/offset out of range", ErrMtrCompletion)
 	}
 	return a
 }
@@ -788,6 +794,10 @@ func mtrMemberHash(ordinal uint64, rangeSha256 []byte) [32]byte {
 	return out
 }
 
+// MtrOrdinalRangeCommitment folds an additive multiset commitment over the supplied
+// (ordinal, range_sha256) pairs. The ordinals are PLAN-GLOBAL: callers building an
+// assignment's window use MtrWindowCommitment, which applies the offset.
+//
 // MtrOrdinalRangeCommitment computes the plan's authenticated commitment over its
 // (ordinal, range_sha256) assignments (an additive multiset hash). The scheduler
 // stores it in ScheduledPlanHeaderV1.mtr_ordinal_range_commitment; completion is
@@ -859,7 +869,7 @@ func (a *MtrCompletionAccumulator) Add(l MtrCompletionLeaf) error {
 	lh := mtrLeafHash(l)
 	add256(&a.acc, lh)
 	add256(&a.ordinalAcc, mtrOrdinalHash(l.Ordinal))
-	add256(&a.memberAcc, mtrMemberHash(l.Ordinal, l.RangeSha256))
+	add256(&a.memberAcc, mtrMemberHash(a.planOrdinalOffset+l.Ordinal, l.RangeSha256))
 	a.count++
 	return nil
 }
@@ -906,8 +916,8 @@ func bytesEq32(a [32]byte, b []byte) bool { return len(b) == 32 && bytes.Equal(a
 // MtrCompletionRoot is a convenience wrapper folding a slice of leaves for a known
 // expected count, plan root, and plan ordinal->range commitment. Order-independent;
 // O(N) time; O(1) extra memory.
-func MtrCompletionRoot(leaves []MtrCompletionLeaf, expected uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
-	a := NewMtrCompletionAccumulator(expected)
+func MtrCompletionRoot(leaves []MtrCompletionLeaf, planOrdinalOffset, expected uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
+	a := NewMtrCompletionAccumulator(planOrdinalOffset, expected)
 	for _, l := range leaves {
 		if err := a.Add(l); err != nil {
 			return nil, err
@@ -925,8 +935,8 @@ func MtrCompletionRoot(leaves []MtrCompletionLeaf, expected uint64, planRootSha2
 //
 // ordinalRangeCommitment MUST be the plan header's field, which for such a plan is
 // 32 zero bytes (the empty-set multiset hash). Passing empty bytes is rejected.
-func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
-	return MtrCompletionRoot(nil, 0, planRootSha256, ordinalRangeCommitment)
+func ZeroMtrCompletionRoot(planOrdinalOffset uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
+	return MtrCompletionRoot(nil, planOrdinalOffset, 0, planRootSha256, ordinalRangeCommitment)
 }
 
 // VerifyCompletionAgainstPlanState compares a COMPLETED lifecycle event's proof
@@ -951,7 +961,7 @@ func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byt
 // proof; it is NOT a licence to omit one.
 func VerifyCompletionAgainstPlanState(
 	ev *edgev1.SweepExecutionEventV1,
-	planExpectedMtr uint64,
+	planOrdinalOffset, planExpectedMtr uint64,
 	planRootSha256, planOrdinalRangeCommitment []byte,
 	leaves []MtrCompletionLeaf,
 ) error {
@@ -971,7 +981,7 @@ func VerifyCompletionAgainstPlanState(
 	if !bytes.Equal(ev.GetPlanRootSha256(), planRootSha256) {
 		return fmt.Errorf("%w: event plan root is not the plan's", ErrMtrCompletion)
 	}
-	want, err := MtrCompletionRoot(leaves, planExpectedMtr, planRootSha256, planOrdinalRangeCommitment)
+	want, err := MtrCompletionRoot(leaves, planOrdinalOffset, planExpectedMtr, planRootSha256, planOrdinalRangeCommitment)
 	if err != nil {
 		return err
 	}

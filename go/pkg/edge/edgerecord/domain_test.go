@@ -208,12 +208,12 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 	}
 	comm := MtrOrdinalRangeCommitment(leaves)
 	root := MtrCompletionRoot
-	a, err := root(leaves, 2, planRoot, comm)
+	a, err := root(leaves, 0, 2, planRoot, comm)
 	if err != nil {
 		t.Fatalf("valid completion: %v", err)
 	}
 	// Order-independent: shuffling input leaves yields the same root.
-	b, err := root([]MtrCompletionLeaf{leaves[1], leaves[0]}, 2, planRoot, comm)
+	b, err := root([]MtrCompletionLeaf{leaves[1], leaves[0]}, 0, 2, planRoot, comm)
 	if err != nil || string(a) != string(b) {
 		t.Fatalf("completion root must be order-independent: %v", err)
 	}
@@ -221,12 +221,12 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 	changed, err := root([]MtrCompletionLeaf{
 		{Ordinal: 1, Disposition: MtrDispositionProbeFailed, RangeSha256: rng},
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
-	}, 2, planRoot, comm)
+	}, 0, 2, planRoot, comm)
 	if err != nil || string(a) == string(changed) {
 		t.Fatalf("completion root must change when a disposition changes: %v", err)
 	}
 	// A different plan root changes the root.
-	other, _ := root(leaves, 2, d32domain(0x33), comm)
+	other, _ := root(leaves, 0, 2, d32domain(0x33), comm)
 	if string(a) == string(other) {
 		t.Fatal("completion root must bind the plan root")
 	}
@@ -236,7 +236,7 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
-	}, 3, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+	}, 0, 3, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("{2,2,2} for expected 3 = %v, want ErrMtrCompletion", err)
 	}
 	// Reviewer P0 repro: {1,1,4,4}/4.
@@ -245,7 +245,7 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 		{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 		{Ordinal: 4, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 		{Ordinal: 4, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
-	}, 4, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+	}, 0, 4, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("{1,1,4,4} for expected 4 = %v, want ErrMtrCompletion", err)
 	}
 	// Reviewer P1 repro (r5-07): a leaf claiming an ordinal belongs to a range the
@@ -253,7 +253,7 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 	if _, err := root([]MtrCompletionLeaf{
 		{Ordinal: 1, Disposition: MtrDispositionTraceAllocated, TraceID: trace, RangeSha256: d32domain(0xFE)},
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: d32domain(0xFE)},
-	}, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+	}, 0, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("wrong ordinal->range = %v, want ErrMtrCompletion", err)
 	}
 	// Ordinal zero, unspecified disposition, trace-on-non-allocated, and incomplete
@@ -263,11 +263,11 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 		{{Ordinal: 1, Disposition: MtrDispositionUnspecified, RangeSha256: rng}},
 		{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, TraceID: trace, RangeSha256: rng}},
 	} {
-		if _, err := root(bad, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
+		if _, err := root(bad, 0, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
 			t.Fatalf("bad leaf %+v = %v, want ErrMtrCompletion", bad, err)
 		}
 	}
-	if _, err := root([]MtrCompletionLeaf{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng}}, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
+	if _, err := root([]MtrCompletionLeaf{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng}}, 0, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("incomplete coverage = %v, want ErrMtrCompletion", err)
 	}
 }
@@ -279,7 +279,7 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 	planRoot := d32domain(0x90)
 	zero32 := make([]byte, 32)
 
-	root, err := ZeroMtrCompletionRoot(planRoot, zero32)
+	root, err := ZeroMtrCompletionRoot(0, planRoot, zero32)
 	if err != nil {
 		t.Fatalf("zero-MTR completion must be constructible: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 
 	// It is bound to the plan root like any other proof: a different plan root is a
 	// different completion, so a zero-MTR proof cannot be replayed across plans.
-	other, err := ZeroMtrCompletionRoot(d32domain(0x33), zero32)
+	other, err := ZeroMtrCompletionRoot(0, d32domain(0x33), zero32)
 	if err != nil || bytes.Equal(root, other) {
 		t.Fatalf("zero-MTR root must bind the plan root: %v", err)
 	}
@@ -304,19 +304,19 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 	// EMPTY commitment bytes are NOT the zero-MTR commitment. This is the whole
 	// reason the field is always 32 bytes: empty would be a second spelling of
 	// "no MTR" that no comparison could distinguish from an omitted commitment.
-	if _, err := ZeroMtrCompletionRoot(planRoot, nil); !errors.Is(err, ErrMtrCompletion) {
+	if _, err := ZeroMtrCompletionRoot(0, planRoot, nil); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("empty commitment = %v, want ErrMtrCompletion", err)
 	}
 
 	// A leaf at expected 0 is evidence of work the plan never admitted.
 	leaf := MtrCompletionLeaf{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: d32domain(0x91)}
-	if _, err := MtrCompletionRoot([]MtrCompletionLeaf{leaf}, 0, planRoot, zero32); !errors.Is(err, ErrMtrCompletion) {
+	if _, err := MtrCompletionRoot([]MtrCompletionLeaf{leaf}, 0, 0, planRoot, zero32); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("leaf at expected 0 = %v, want ErrMtrCompletion", err)
 	}
 
 	// A non-zero commitment with no leaves fails the membership proof: the plan
 	// committed ordinal->range assignments the completion never covered.
-	if _, err := MtrCompletionRoot(nil, 0, planRoot, d32domain(0x91)); !errors.Is(err, ErrMtrCompletion) {
+	if _, err := MtrCompletionRoot(nil, 0, 0, planRoot, d32domain(0x91)); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("zero leaves against a non-empty commitment = %v, want ErrMtrCompletion", err)
 	}
 }
@@ -329,7 +329,7 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 	planRoot := d32domain(0x90)
 	zero32 := make([]byte, 32)
-	root, err := ZeroMtrCompletionRoot(planRoot, zero32)
+	root, err := ZeroMtrCompletionRoot(0, planRoot, zero32)
 	if err != nil {
 		t.Fatalf("zero root: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 		}
 	}
 
-	if err := VerifyCompletionAgainstPlanState(ev(), 0, planRoot, zero32, nil); err != nil {
+	if err := VerifyCompletionAgainstPlanState(ev(), 0, 0, planRoot, zero32, nil); err != nil {
 		t.Fatalf("canonical zero-MTR completion must verify: %v", err)
 	}
 
@@ -363,28 +363,28 @@ func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 	}
 	comm := MtrOrdinalRangeCommitment(leaves)
-	if err := VerifyCompletionAgainstPlanState(bad, 2, planRoot, comm, leaves); !errors.Is(err, ErrMtrCompletion) {
+	if err := VerifyCompletionAgainstPlanState(bad, 0, 2, planRoot, comm, leaves); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("self-reported zero against a 2-ordinal plan = %v, want ErrMtrCompletion", err)
 	}
 
 	// A proof for a different plan root is rejected even when internally valid.
 	wrongPlan := ev()
 	wrongPlan.PlanRootSha256 = d32domain(0x33)
-	if err := VerifyCompletionAgainstPlanState(wrongPlan, 0, planRoot, zero32, nil); !errors.Is(err, ErrMtrCompletion) {
+	if err := VerifyCompletionAgainstPlanState(wrongPlan, 0, 0, planRoot, zero32, nil); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("mismatched plan root = %v, want ErrMtrCompletion", err)
 	}
 
 	// An omitted proof is a lifecycle failure, not a permitted zero-MTR shape.
 	omitted := ev()
 	omitted.MtrCompletionDigest = nil
-	if err := VerifyCompletionAgainstPlanState(omitted, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+	if err := VerifyCompletionAgainstPlanState(omitted, 0, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
 		t.Fatalf("omitted proof = %v, want ErrLifecycle", err)
 	}
 
 	// A wrong digest version is rejected before the digest is compared.
 	badVersion := ev()
 	badVersion.MtrCompletionDigestVersion = MtrCompletionDigestVersion + 1
-	if err := VerifyCompletionAgainstPlanState(badVersion, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+	if err := VerifyCompletionAgainstPlanState(badVersion, 0, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
 		t.Fatalf("wrong digest version = %v, want ErrLifecycle", err)
 	}
 }
@@ -461,7 +461,7 @@ func TestMtrCompletionDispositionIsAClosedSet(t *testing.T) {
 
 	for _, disp := range []MtrTerminalDisposition{0, -1, 6, 999} {
 		bad := []MtrCompletionLeaf{{Ordinal: 1, Disposition: disp, RangeSha256: rng}}
-		if _, err := MtrCompletionRoot(bad, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
+		if _, err := MtrCompletionRoot(bad, 0, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
 			t.Fatalf("disposition %d = %v, want ErrMtrCompletion", disp, err)
 		}
 	}
@@ -478,7 +478,7 @@ func TestMtrCompletionDispositionIsAClosedSet(t *testing.T) {
 		{MtrDispositionSchedulerLost, nil},
 	} {
 		good := []MtrCompletionLeaf{{Ordinal: 1, Disposition: tc.disp, TraceID: tc.trace, RangeSha256: rng}}
-		if _, err := MtrCompletionRoot(good, 1, planRoot, MtrOrdinalRangeCommitment(good)); err != nil {
+		if _, err := MtrCompletionRoot(good, 0, 1, planRoot, MtrOrdinalRangeCommitment(good)); err != nil {
 			t.Fatalf("declared member %d rejected: %v", tc.disp, err)
 		}
 	}

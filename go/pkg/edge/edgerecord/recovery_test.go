@@ -767,6 +767,9 @@ func buildPlan(t *testing.T, planID, checkSet []byte, pageRanges [][]uint64) (*e
 				TargetCount: tc, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"),
 			}
 			uniq++
+			// REQUIRED PRESENCE: these plans admit no MTR, stated explicitly. An absent
+			// count is rejected, so a fixture cannot rely on the proto default.
+			r.MtrOrdinalCount = proto.Uint64(0)
 			r.RangeSha256 = RangeDigest(r)
 			ranges = append(ranges, r)
 			total += tc
