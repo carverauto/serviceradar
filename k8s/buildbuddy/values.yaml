@@ -58,6 +58,7 @@ config:
     enable_oci: true
     default_isolation_type: "firecracker"
     enable_firecracker: true
+    firecracker_debug_stream_vm_logs: true
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
