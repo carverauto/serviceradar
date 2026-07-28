@@ -1077,6 +1077,10 @@ func enumPolicyContexts() []enumPolicyContext {
 	routeEnum := edgev1.EdgeRecordRouteProfile(0).Descriptor()
 	trafficEnum := edgev1.EdgeRecordTrafficClass(0).Descriptor()
 	sourceKindEnum := edgev1.EdgeSourceAuthorizationKind(0).Descriptor()
+	reasonEnum := edgev1.EdgeUnattributableReason(0).Descriptor()
+	unattributableReason := func(v int32) bool {
+		return knownUnattributableReason(edgev1.EdgeUnattributableReason(v))
+	}
 	sweepSourceEnum := edgev1.SweepExecutionSource(0).Descriptor()
 	protocolEnum := edgev1.TransportProtocol(0).Descriptor()
 	mtrEnum := edgev1.MtrOutcome(0).Descriptor()
@@ -1116,6 +1120,11 @@ func enumPolicyContexts() []enumPolicyContext {
 		{"EdgeRecordV1.traffic_class", trafficEnum, traffic},
 		{"EdgeSourceAuthorizationV1.kind", sourceKindEnum, sourceKind},
 		{"EdgeSourceClaimsV1.kind", sourceKindEnum, sourceKind},
+		// --- recovery classification spans (1.6a) ---
+		// The span's source kind reuses the SAME predicate as the record's own
+		// source_authorization, so the two can never police different sets.
+		{"EdgeSourceSpanIdentityV1.kind", sourceKindEnum, sourceKind},
+		{"EdgeUnattributableV1.reason", reasonEnum, unattributableReason},
 		{"EdgeSourceClaimsV1.origin_kind", originEnum, origin},
 		{"EdgeSourceClaimsV1.route_profile", routeEnum, route},
 		{"EdgeSourceClaimsV1.traffic_class", trafficEnum, traffic},
