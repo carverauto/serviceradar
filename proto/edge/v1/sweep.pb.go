@@ -354,7 +354,10 @@ func (MtrOutcome) EnumDescriptor() ([]byte, []int) {
 // reuse: they describe different things -- what happened to a planned MTR
 // ordinal versus what a probe observed at a hop -- and collapsing them would
 // make the frozen leaf grammar depend on an enum that evolves for unrelated
-// reasons.
+// reasons. "SHALL NOT reuse" is about the MAPPING, not the number space: both
+// enums allocate small integers and `PROBE_FAILED = 3` happens to coincide, but
+// `NOT_ADMITTED` is 2 here and 5 there. Never read one enum's value through the
+// other.
 //
 // The set is CLOSED at the leaf: zero, negative, and unknown-positive values are
 // rejected BEFORE the value is widened to u64 and hashed, and a value declared
