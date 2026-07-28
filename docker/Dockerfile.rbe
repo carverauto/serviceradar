@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     && gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    # Docker CE official repo. arch=amd64 is required here: the arm64 foreign
+    # architecture added below makes apt fetch an arm64 index for every repo
+    # that does not pin an arch, which fails 'apt-get update'.
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && sh -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list' \
     && dpkg --add-architecture arm64 \
     && awk '{print} /^Signed-By:/ {print "Architectures: amd64"}' /etc/apt/sources.list.d/ubuntu.sources > /tmp/ubuntu.sources \
     && mv /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources \
@@ -126,36 +133,11 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9"
-ARG GHCR_USERNAME=""
-
-# Fetch the CNPG test fixture image into a local docker-archive.
-# This logic remains identical to the original, relying on skopeo.
-RUN --mount=type=secret,id=ghcr_token <<'EOF'
-set -euo pipefail
-TOKEN_FILE="/run/secrets/ghcr_token"
-if [[ -z "${GHCR_CNPG_IMAGE:-}" ]]; then
-  echo "CNPG image not set; skipping preload"
-  exit 0
-fi
-if [[ -f "$TOKEN_FILE" && -s "$TOKEN_FILE" && -n "${GHCR_USERNAME:-}" ]]; then
-  TOKEN_VALUE=$(cat "$TOKEN_FILE")
-  skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
-elif skopeo copy "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"; then
-  echo "Pulled CNPG image without auth"
-else
-  echo "Warning: CNPG preload skipped (missing credentials or pull failed)" >&2
-fi
-EOF
-
-# Install Rust toolchains for native builds.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
-    && chmod +x /tmp/rustup-init \
-    && /tmp/rustup-init -y --profile minimal --default-toolchain stable --no-modify-path \
-    && rm -f /tmp/rustup-init \
-    && source /opt/cargo/env \
-    && /opt/cargo/bin/rustup default stable \
-    && /opt/cargo/bin/cargo install --locked bpf-linker
+# Install syft for SBOM generation
+ARG SYFT_VERSION=1.38.0
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
+    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
+    && syft version
 
 # Install cosign for container signing/attestation
 ARG COSIGN_VERSION=2.4.1
@@ -164,11 +146,29 @@ RUN curl -sSfL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VE
     && chmod +x /usr/local/bin/cosign \
     && cosign version
 
-# Install syft for SBOM generation
-ARG SYFT_VERSION=1.38.0
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | \
-    sh -s -- -b /usr/local/bin v${SYFT_VERSION} \
-    && syft version
+# Force the legacy (x_tables) iptables backend for dockerd.
+#
+# Ubuntu 24.04 selects iptables-nft, but BuildBuddy's Firecracker guest kernel has no
+# nf_tables support -- see the DOCKER_INSECURE_NO_IPTABLES_RAW comment in goinit, which
+# applies that workaround only on non-amd64 because their amd64 image already avoids nft.
+# On the nft backend dockerd cannot program the bridge, so it never starts serving
+# /var/run/docker.sock and the guest's `docker ps` readiness poll spins until BuildBuddy
+# gives up with "docker init timed out after 30s".
+#
+# This cannot be fixed through /etc/docker/daemon.json: the guest init overwrites that
+# file from MMDS on every boot, so the backend has to be baked into the image.
+#
+# Kept late in the file deliberately: it depends only on the `iptables` package from the
+# first layer, and placing it here avoids invalidating the expensive rustup/bpf-linker
+# layer on rebuild.
+RUN update-alternatives --set iptables /usr/sbin/iptables-legacy \
+    && update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+
+# Assert the switch took, so a silent alternatives change cannot reintroduce the 30s
+# timeout, which surfaces far from its cause. Check the backend iptables reports
+# ("v1.8.10 (legacy)"
+RUN iptables --version | grep -q '(legacy)' \
+    && ip6tables --version | grep -q '(legacy)'
 
 # Set up work directory
 RUN mkdir -p /workspace
