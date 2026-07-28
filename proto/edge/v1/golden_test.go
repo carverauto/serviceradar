@@ -293,6 +293,31 @@ func mustBytes(b []byte, err error) []byte {
 	return b
 }
 
+// padToLen pads encoded page bytes to exactly target with DECODABLE filler: repeated
+// copies of the singular digest_version field (tag 8, varint), which protobuf resolves
+// last-one-wins to the value already present. An ODD byte count uses one 3-byte
+// NON-MINIMAL varint. Trailing zero bytes do NOT work -- protobuf rejects tag 0, so a
+// zero-padded page fails to decode and never reaches the budget check at all.
+func padToLen(t *testing.T, b []byte, target int) []byte {
+	t.Helper()
+	need := target - len(b)
+	if need < 0 {
+		t.Fatalf("page is already %d bytes, over target %d", len(b), target)
+	}
+	out := append([]byte{}, b...)
+	if need%2 == 1 {
+		if need < 3 {
+			t.Fatalf("cannot pad %d bytes", need)
+		}
+		out = append(out, 0x40, 0x81, 0x00)
+		need -= 3
+	}
+	for ; need > 0; need -= 2 {
+		out = append(out, 0x40, 0x01)
+	}
+	return out
+}
+
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", name)
@@ -1154,6 +1179,47 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	}
 	bloated := append(append([]byte{}, canonical...), 0x40, 0x01) // digest_version again
 	goldenBytes(t, "manifest_page_bloated.bin", bloated)
+
+	// THE AGGREGATE OVER-BUDGET PAIR, as SHARED bytes.
+	//
+	// manifest_page_bloated.bin is 455 bytes against a 262,144-byte ceiling, so it
+	// proves the bytes are non-canonical but never reaches the bound -- the actual
+	// MaxManifestBytes+1 case was still constructed independently in each runtime,
+	// which cannot show the two agree on where the ceiling falls.
+	//
+	// Each page is individually UNDER the cap; together they are exactly one byte
+	// OVER. Both decode to the same message as the canonical page and re-encode far
+	// below the cap, so an implementation summing RE-ENCODED sizes accepts them --
+	// which is the bypass these two files exist to close.
+	half := edgerecord.MaxManifestBytes / 2
+	over := [...]struct {
+		name   string
+		target int
+	}{
+		{"manifest_page_overbudget_a.bin", half},
+		{"manifest_page_overbudget_b.bin", half + 1},
+	}
+	total := 0
+	for _, o := range over {
+		padded := padToLen(t, canonical, o.target)
+		if len(padded) > edgerecord.MaxManifestBytes {
+			t.Fatalf("%s is %d bytes, individually over the cap; the pair would not isolate the aggregate",
+				o.name, len(padded))
+		}
+		var probe edgev1.EdgeLossManifestPageV1
+		if err := proto.Unmarshal(padded, &probe); err != nil {
+			t.Fatalf("%s must decode: %v", o.name, err)
+		}
+		if !proto.Equal(&probe, page) {
+			t.Fatalf("%s decoded to a different message; the padding is not inert", o.name)
+		}
+		total += len(padded)
+		goldenBytes(t, o.name, padded)
+	}
+	if total != edgerecord.MaxManifestBytes+1 {
+		t.Fatalf("over-budget pair totals %d, want exactly %d",
+			total, edgerecord.MaxManifestBytes+1)
+	}
 
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: uuidv7(0x01), NewSpoolId: uuidv7(0x82),
