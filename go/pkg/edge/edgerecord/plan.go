@@ -479,7 +479,10 @@ func PlanMtrWindows(pages []*edgev1.ScheduledPlanPageV1) (map[string]uint64, uin
 // the members `(offset + i, rangeSha256)` for i in 1..count. It is the value an
 // assignment's expectation MUST carry, recomputed rather than trusted.
 func MtrWindowCommitment(offset, count uint64, rangeSha256 []byte) ([]byte, error) {
-	if len(rangeSha256) != sha256Len || count > MaxMtrCompletionOrdinals ||
+	// The WORK ceiling applies here too, not only in PlanMtrWindows: this function is
+	// exported and folds one hash per ordinal, so bounding only the caller would leave
+	// the expensive loop reachable directly.
+	if len(rangeSha256) != sha256Len || count > MaxPlanMtrOrdinals ||
 		offset > MaxMtrCompletionOrdinals-count {
 		return nil, ErrPlanMtrWindow
 	}
@@ -495,6 +498,8 @@ func MtrWindowCommitment(offset, count uint64, rangeSha256 []byte) ([]byte, erro
 // plan-wide value is exactly the sum of the per-assignment values -- which is what
 // makes a split plan verifiable without renumbering any attempt's local ordinals.
 func PlanMtrOrdinalRangeCommitment(pages []*edgev1.ScheduledPlanPageV1) ([]byte, error) {
+	// PlanMtrWindows enforces every bound BEFORE a single hash is computed, so an
+	// over-budget plan costs a walk rather than a fold.
 	windows, _, err := PlanMtrWindows(pages)
 	if err != nil {
 		return nil, err

@@ -1311,6 +1311,23 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
              )
   end
 
+  test "the plan MTR work ceiling is an ABI fact both runtimes agree on" do
+    # A ceiling enforced in only one runtime is a divergence, not a safeguard: a plan
+    # Go rejects and Elixir accepts would pass the written ABI. Both consume the SAME
+    # two pages and must return the same verdict at exactly the boundary.
+    at_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_at_max.bin"))
+    over_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_over_max.bin"))
+
+    [at_max_range] = at_max.ranges
+    [over_max_range] = over_max.ranges
+    assert at_max_range.mtr_ordinal_count == 1_048_576
+    assert over_max_range.mtr_ordinal_count == 1_048_577
+
+    # Bounds are decided WITHOUT hashing, so the max case is cheap to accept.
+    assert {:ok, _windows, 1_048_576} = HashGrammar.plan_mtr_windows([at_max])
+    assert :error = HashGrammar.plan_mtr_windows([over_max])
+  end
+
   test "MTR completion disposition symbols are pinned to their exact numbers" do
     # The closed-set vectors below prove only which NUMBERS are accepted, so
     # swapping two valid members -- QUARANTINED=4 and SCHEDULER_LOST=5 -- would

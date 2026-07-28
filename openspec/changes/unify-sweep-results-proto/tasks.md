@@ -273,7 +273,8 @@
 - [ ] 2.3 Emit stable execution start, bounded progress/watermark, completion,
   and aborted evidence, with each data frame independently decodable and useful;
   integrate scheduler lease recovery so an agent crash produces authoritative
-  lost/expired/superseded attempt state and retriable remaining coverage.
+  lost/expired/superseded attempt state and a retriable WHOLE range window (v1 has no
+  sparse-remainder representation -- see task 2.3c).
 - [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
   assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
   array in config, command, agent memory, or terminal evidence.
