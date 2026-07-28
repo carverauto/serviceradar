@@ -940,11 +940,12 @@ func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byt
 // that the event's completion matches reality; that requires the caller to hold
 // state it obtained from a validated, authenticated plan/assignment carrier.
 //
-// NO SUCH CARRIER EXISTS YET. The authoritative assignment record is task 1.3 and is
-// not in `proto/edge/v1`, so there is deliberately NO production caller: the
-// comparison is frozen here, and genuine consumer verification is downstream work
-// gated on 1.3. Do not read the existence of this function as consumer verification
-// being implemented.
+// The carrier now EXISTS -- `SweepAssignmentRecordV1` -- and
+// `ValidateAssignmentAgainstPlan` is what derives trustworthy values from it by
+// recomputing the expectation from committed plan data. Callers should obtain the
+// count and commitment THAT way and pass them here. There is still deliberately no
+// production caller in this repository: wiring one is downstream runtime work. Do not
+// read the existence of this function as consumer verification being implemented.
 //
 // planExpectedMtr == 0 is the zero-MTR case and requires the canonical zero-leaf
 // proof; it is NOT a licence to omit one.

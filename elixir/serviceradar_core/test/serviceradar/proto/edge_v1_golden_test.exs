@@ -1134,7 +1134,11 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # must match -- rather than an opaque commitment checkable only for length.
     assert assignment.execution_plan_id == header.execution_plan_id
     assert assignment.execution_plan_sha256 == header.execution_plan_sha256
-    assert assignment.assignment_epoch == header.assignment_epoch
+    # The plan header no longer carries an assignment epoch (tag 9 RETIRED): an
+    # immutable plan must not commit a value that reassignment advances without
+    # changing the plan. The monotonic epoch lives on the assignment record alone.
+    refute Map.has_key?(header, :assignment_epoch)
+    assert assignment.assignment_epoch > 0
     assert assignment.check_set_sha256 == header.check_set_sha256
     assert assignment.availability_policy_id == header.availability_policy_id
     assert assignment.network_scope_id == header.network_scope_id
@@ -1146,6 +1150,28 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert assignment.target_range_id == plan_range.range_id
     assert assignment.target_range_sha256 == plan_range.range_sha256
     assert HashGrammar.range_digest(plan_range) == plan_range.range_sha256
+
+    # The expectation is RECOMPUTED from committed plan data, not trusted. Each plan
+    # range owns one CONTIGUOUS plan-global ordinal window; this range is the first, so
+    # its offset is 0 -- and REQUIRED PRESENCE means that 0 must be carried explicitly,
+    # not inferred from an absent field.
+    assert assignment.mtr_expectation.plan_ordinal_offset == 0
+    assert assignment.mtr_expectation.ordinal_count == plan_range.mtr_ordinal_count
+
+    assert assignment.mtr_expectation.ordinal_range_commitment ==
+             HashGrammar.mtr_window_commitment(
+               assignment.mtr_expectation.plan_ordinal_offset,
+               plan_range.mtr_ordinal_count,
+               plan_range.range_sha256
+             )
+
+    # The plan-wide commitment is the ADDITIVE SUM of every range's window, so a split
+    # plan is verifiable without renumbering any attempt's local ordinals.
+    assert header.mtr_ordinal_range_commitment ==
+             HashGrammar.plan_mtr_ordinal_range_commitment([page])
+
+    # `mtr_admission_budget` is a CEILING, never the count.
+    assert plan_range.mtr_ordinal_count <= plan_range.mtr_admission_budget
 
     # The state enum is POLICED, not merely decodable. Registering it in the negative
     # transform only makes the decoder total; admission is a separate table, and its
@@ -1171,7 +1197,11 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert decoded_stale.__unknown_fields__ != []
     assert [{20, 2, _}] = decoded_stale.__unknown_fields__
 
-    assert {:error, _} = WireValidate.validate(stale, SweepExecutionEventV1)
+    # PIN THE DISPOSITION, not merely "some error". A regression returning :systemic or
+    # :not_ready for every lifecycle message would still satisfy {:error, _}, silently
+    # turning stale retired data from permanent poison into pause-and-replay.
+    assert :ok = WireValidate.validate(load("lifecycle_zero_mtr.bin"), SweepExecutionEventV1)
+    assert {:error, :poison} = WireValidate.validate(stale, SweepExecutionEventV1)
 
     # And the completion proof verifies against THAT expectation.
     assert {:ok, ev.mtr_completion_digest} ==

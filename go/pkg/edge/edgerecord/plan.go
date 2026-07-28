@@ -54,6 +54,9 @@ var (
 	// ErrPlanMtrCommitment fires when mtr_ordinal_range_commitment is not exactly 32
 	// bytes. A zero-MTR plan carries 32 ZERO bytes, never empty bytes.
 	ErrPlanMtrCommitment = errors.New("edgerecord: plan mtr ordinal-range commitment must be 32 bytes")
+	// ErrPlanMtrWindow fires when a range's admitted MTR count exceeds its ceiling,
+	// overflows the ordinal space, or the plan's windows are not well formed.
+	ErrPlanMtrWindow = errors.New("edgerecord: plan mtr ordinal window invalid")
 )
 
 // Per-object domain tags: each plan-digest preimage leads with its own frozen
@@ -83,6 +86,10 @@ func RangeDigest(r *edgev1.TargetRangeV1) []byte {
 	d.bytes(r.GetCheckSetSha256())
 	d.bytes(r.GetAvailabilityPolicyId())
 	d.u64(r.GetMtrAdmissionBudget())
+	// The EXACT admitted MTR count is part of the range's content. An assignment binds
+	// to `range_sha256`, so leaving the window width outside the digest would let two
+	// ranges share an identity while admitting different numbers of ordinals.
+	d.u64(r.GetMtrOrdinalCount())
 	return d.finish()
 }
 
@@ -108,6 +115,7 @@ func PlanPageDigest(p *edgev1.ScheduledPlanPageV1) []byte {
 		d.bytes(r.GetCheckSetSha256())
 		d.bytes(r.GetAvailabilityPolicyId())
 		d.u64(r.GetMtrAdmissionBudget())
+		d.u64(r.GetMtrOrdinalCount())
 	}
 	return d.finish()
 }
@@ -137,7 +145,8 @@ func PlanHeaderDigest(h *edgev1.ScheduledPlanHeaderV1) []byte {
 	d.bytes(h.GetPlanRootSha256())
 	d.bytes(h.GetCheckSetSha256())
 	d.bytes(h.GetAvailabilityPolicyId())
-	d.u64(h.GetAssignmentEpoch())
+	// tag 9 (assignment_epoch) RETIRED: an immutable plan must not commit a value that
+	// reassignment advances without changing the plan.
 	d.bytes(h.GetNetworkScopeId())
 	d.bytes(h.GetMtrOrdinalRangeCommitment())
 	return d.finish()
@@ -274,6 +283,17 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 	if !bytes.Equal(PlanRoot(pages), h.GetPlanRootSha256()) {
 		return ErrPlanRoot
 	}
+	// The header's plan-wide MTR commitment is RECOMPUTED from the committed pages,
+	// never trusted: it is the additive sum of every range's window commitment. A
+	// carried 32-byte value that nothing derives is verifiable only for length, which
+	// is the defect this change spent three rounds removing elsewhere.
+	wantCommitment, err := PlanMtrOrdinalRangeCommitment(pages)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(wantCommitment, h.GetMtrOrdinalRangeCommitment()) {
+		return ErrPlanMtrCommitment
+	}
 	return nil
 }
 
@@ -401,4 +421,73 @@ func binaryBE64(b []byte) uint64 {
 		v = v<<8 | uint64(x)
 	}
 	return v
+}
+
+// PlanMtrWindows walks the committed plan in page order and assigns each range its
+// CONTIGUOUS plan-global ordinal window, returning the offset keyed by range id.
+//
+// Order is the plan's own: pages by index, ranges within a page as committed. The
+// window is therefore a fact of the plan, recomputable by any consumer, rather than
+// something an assignment asserts about itself.
+func PlanMtrWindows(pages []*edgev1.ScheduledPlanPageV1) (map[string]uint64, uint64, error) {
+	windows := make(map[string]uint64)
+	var next uint64
+	for _, p := range pages {
+		for _, r := range p.GetRanges() {
+			// A range's admitted count may never exceed its ceiling. The count is
+			// CARRIED, not derived from the budget -- but it is still bounded by it.
+			if r.GetMtrOrdinalCount() > r.GetMtrAdmissionBudget() {
+				return nil, 0, ErrPlanMtrWindow
+			}
+			if r.GetMtrOrdinalCount() > MaxMtrCompletionOrdinals ||
+				next > MaxMtrCompletionOrdinals-r.GetMtrOrdinalCount() {
+				return nil, 0, ErrPlanMtrWindow
+			}
+			if _, dup := windows[string(r.GetRangeId())]; dup {
+				return nil, 0, ErrPlanMtrWindow
+			}
+			windows[string(r.GetRangeId())] = next
+			next += r.GetMtrOrdinalCount()
+		}
+	}
+	return windows, next, nil
+}
+
+// MtrWindowCommitment folds the additive multiset commitment for ONE range's window:
+// the members `(offset + i, rangeSha256)` for i in 1..count. It is the value an
+// assignment's expectation MUST carry, recomputed rather than trusted.
+func MtrWindowCommitment(offset, count uint64, rangeSha256 []byte) ([]byte, error) {
+	if len(rangeSha256) != sha256Len || count > MaxMtrCompletionOrdinals ||
+		offset > MaxMtrCompletionOrdinals-count {
+		return nil, ErrPlanMtrWindow
+	}
+	var acc [32]byte
+	for i := uint64(1); i <= count; i++ {
+		add256(&acc, mtrMemberHash(offset+i, rangeSha256))
+	}
+	return acc[:], nil
+}
+
+// PlanMtrOrdinalRangeCommitment recomputes the PLAN-WIDE commitment as the additive
+// sum of every range's window commitment. Because the multiset hash is additive, the
+// plan-wide value is exactly the sum of the per-assignment values -- which is what
+// makes a split plan verifiable without renumbering any attempt's local ordinals.
+func PlanMtrOrdinalRangeCommitment(pages []*edgev1.ScheduledPlanPageV1) ([]byte, error) {
+	windows, _, err := PlanMtrWindows(pages)
+	if err != nil {
+		return nil, err
+	}
+	var acc [32]byte
+	for _, p := range pages {
+		for _, r := range p.GetRanges() {
+			c, err := MtrWindowCommitment(windows[string(r.GetRangeId())], r.GetMtrOrdinalCount(), r.GetRangeSha256())
+			if err != nil {
+				return nil, err
+			}
+			var w [32]byte
+			copy(w[:], c)
+			add256(&acc, w)
+		}
+	}
+	return acc[:], nil
 }

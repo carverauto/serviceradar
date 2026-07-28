@@ -156,7 +156,12 @@ defmodule ServiceRadar.Edge.HashGrammar do
       u64(r.target_count),
       bytes(r.check_set_sha256),
       bytes(r.availability_policy_id),
-      u64(r.mtr_admission_budget)
+      u64(r.mtr_admission_budget),
+      # The EXACT admitted MTR count is part of the range's CONTENT: an assignment
+      # binds to `range_sha256`, so leaving the window width outside the digest would
+      # let two ranges share an identity while admitting different ordinal counts.
+      # Absent presence hashes as 0, matching Go's zero-value getter.
+      u64(r.mtr_ordinal_count || 0)
     ]
 
     :crypto.hash(:sha256, io)
@@ -183,7 +188,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
           u64(r.target_count),
           bytes(r.check_set_sha256),
           bytes(r.availability_policy_id),
-          u64(r.mtr_admission_budget)
+          u64(r.mtr_admission_budget),
+          u64(r.mtr_ordinal_count || 0)
         ]
       end)
     ]
@@ -214,7 +220,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
       bytes(h.plan_root_sha256),
       bytes(h.check_set_sha256),
       bytes(h.availability_policy_id),
-      u64(h.assignment_epoch),
+      # tag 9 (assignment_epoch) RETIRED: an immutable plan must not commit a value
+      # that reassignment advances without changing the plan.
       bytes(h.network_scope_id),
       bytes(h.mtr_ordinal_range_commitment)
     ]
@@ -300,6 +307,46 @@ defmodule ServiceRadar.Edge.HashGrammar do
       bytes(commitment),
       bytes(acc)
     ])
+  end
+
+  @doc """
+  The additive multiset commitment for ONE plan range's ordinal window: the members
+  `(offset + i, range_sha256)` for i in 1..count.
+
+  Peer of Go's `edgerecord.MtrWindowCommitment`. It is RECOMPUTED from committed plan
+  data, never trusted as carried bytes -- the count and the range digest determine it
+  exactly, so accepting whatever an assignment carried would leave the per-attempt MTR
+  authority self-asserted.
+  """
+  @spec mtr_window_commitment(non_neg_integer(), non_neg_integer(), binary()) :: binary()
+  def mtr_window_commitment(offset, count, range_sha256)
+      when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
+             is_binary(range_sha256) do
+    # `1..count//1` for the same reason the completion fold uses it: an unstepped
+    # `1..0` is a DESCENDING range that iterates [1, 0].
+    Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
+      add256(acc, member_hash(offset + i, range_sha256))
+    end)
+  end
+
+  @doc """
+  The PLAN-WIDE commitment: the additive sum of every range's window commitment, in
+  plan order (pages by index, ranges as committed).
+
+  Peer of Go's `edgerecord.PlanMtrOrdinalRangeCommitment`. Because the multiset hash is
+  additive, the plan-wide value is exactly the sum of the per-assignment window values
+  -- which is what makes a SPLIT plan verifiable while each attempt keeps its
+  completion-leaf ordinals local to `{1..ordinal_count}`.
+  """
+  @spec plan_mtr_ordinal_range_commitment([map()]) :: binary()
+  def plan_mtr_ordinal_range_commitment(pages) do
+    pages
+    |> Enum.flat_map(& &1.ranges)
+    |> Enum.reduce({<<0::256>>, 0}, fn r, {acc, offset} ->
+      count = r.mtr_ordinal_count || 0
+      {add256(acc, mtr_window_commitment(offset, count, r.range_sha256)), offset + count}
+    end)
+    |> elem(0)
   end
 
   @doc "The plan's authenticated (ordinal, range_sha256) commitment (additive multiset hash)."

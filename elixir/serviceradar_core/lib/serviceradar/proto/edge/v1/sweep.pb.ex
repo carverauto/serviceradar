@@ -598,6 +598,11 @@ defmodule Serviceradar.Edge.V1.SweepMtrExpectationV1 do
 
   field :ordinal_count, 1, type: :uint64, json_name: "ordinalCount"
   field :ordinal_range_commitment, 2, type: :bytes, json_name: "ordinalRangeCommitment"
+
+  field :plan_ordinal_offset, 3,
+    proto3_optional: true,
+    type: :uint64,
+    json_name: "planOrdinalOffset"
 end
 
 defmodule Serviceradar.Edge.V1.SweepAssignmentRecordV1 do
@@ -655,6 +660,7 @@ defmodule Serviceradar.Edge.V1.TargetRangeV1 do
   field :check_set_sha256, 7, type: :bytes, json_name: "checkSetSha256"
   field :availability_policy_id, 8, type: :bytes, json_name: "availabilityPolicyId"
   field :mtr_admission_budget, 9, type: :uint64, json_name: "mtrAdmissionBudget"
+  field :mtr_ordinal_count, 10, proto3_optional: true, type: :uint64, json_name: "mtrOrdinalCount"
 end
 
 defmodule Serviceradar.Edge.V1.ScheduledPlanPageV1 do
@@ -691,7 +697,6 @@ defmodule Serviceradar.Edge.V1.ScheduledPlanHeaderV1 do
   field :digest_version, 6, type: :uint32, json_name: "digestVersion"
   field :check_set_sha256, 7, type: :bytes, json_name: "checkSetSha256"
   field :availability_policy_id, 8, type: :bytes, json_name: "availabilityPolicyId"
-  field :assignment_epoch, 9, type: :uint64, json_name: "assignmentEpoch"
   field :network_scope_id, 10, type: :bytes, json_name: "networkScopeId"
   field :mtr_ordinal_range_commitment, 11, type: :bytes, json_name: "mtrOrdinalRangeCommitment"
 end
