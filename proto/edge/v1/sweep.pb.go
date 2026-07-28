@@ -2104,7 +2104,8 @@ func (*MtrTraceBatchV1_Command) isMtrTraceBatchV1_Correlation() {}
 // SweepExecutionEventV1 is per-assignment-attempt evidence. Terminal evidence
 // closes `[1, terminal_batch_sequence]` and carries cumulative counts plus the
 // expected/emitted MTR summary AND trace counts, a versioned completion digest,
-// and the plan/range roots the canonical ordinal proof composes over.
+// and the PLAN ROOT the canonical ordinal proof composes over. There is no range
+// root: see the retired tag 20.
 type SweepExecutionEventV1 struct {
 	state                 protoimpl.MessageState  `protogen:"open.v1"`
 	ExecutionId           []byte                  `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -2402,18 +2403,24 @@ type SweepAssignmentRecordV1 struct {
 	// starting at 1 and strictly increasing. It is not a batch sequence.
 	RecordSequence     uint64 `protobuf:"varint,7,opt,name=record_sequence,json=recordSequence,proto3" json:"record_sequence,omitempty"`
 	AuthoredAtUnixNano int64  `protobuf:"varint,8,opt,name=authored_at_unix_nano,json=authoredAtUnixNano,proto3" json:"authored_at_unix_nano,omitempty"`
-	// --- covered ranges -----------------------------------------------------
-	// range_set_commitment is the additive multiset commitment over the
-	// `range_sha256` of every range THIS assignment covers. ALWAYS exactly 32 bytes;
-	// 32 ZERO bytes when the assignment covers no ranges. It lives here rather than
-	// on the lifecycle event because a range binding a producer asserts about itself
-	// proves nothing -- see the retired `range_root_sha256` (tag 20).
+	// --- covered range ------------------------------------------------------
+	// An assignment covers EXACTLY ONE plan range in v1, and names it DIRECTLY. Both
+	// fields are REQUIRED, and `target_range_sha256` MUST equal that range's
+	// `range_sha256` in the plan pages, so a consumer can resolve the assignment to a
+	// committed plan range and CHECK it.
 	//
-	// Today an assignment covers exactly one range and `target_range_id` names it;
-	// the commitment is defined over a SET so a multi-range assignment needs no new
-	// field and no grammar change.
-	RangeSetCommitment []byte `protobuf:"bytes,9,opt,name=range_set_commitment,json=rangeSetCommitment,proto3" json:"range_set_commitment,omitempty"`
-	TargetRangeId      []byte `protobuf:"bytes,10,opt,name=target_range_id,json=targetRangeId,proto3" json:"target_range_id,omitempty"` // single-range assignments; empty when multi-range
+	// Deliberately NOT an opaque set commitment. A non-invertible digest cannot tell a
+	// consumer WHICH ranges were assigned, so it would be an authoritative-looking
+	// 32-byte field verifiable only for length -- exactly the defect that retired
+	// `range_root_sha256` (tag 20). Moving that defect from the lifecycle event to
+	// this record would not have fixed it.
+	//
+	// MULTI-RANGE IS NOT IN v1. Supporting it means a bounded member/subset
+	// representation (or an immutable subset reference) WITH cardinality and its own
+	// frozen commitment grammar and shared non-empty vectors -- not reinterpreting
+	// these two fields or emptying one of them.
+	TargetRangeId     []byte `protobuf:"bytes,9,opt,name=target_range_id,json=targetRangeId,proto3" json:"target_range_id,omitempty"`
+	TargetRangeSha256 []byte `protobuf:"bytes,10,opt,name=target_range_sha256,json=targetRangeSha256,proto3" json:"target_range_sha256,omitempty"`
 	// --- lease / fence ------------------------------------------------------
 	// The fence token is monotonic per assignment identity: a holder presenting a
 	// lower token than the recorded one has been fenced and its writes are stale.
@@ -2535,16 +2542,16 @@ func (x *SweepAssignmentRecordV1) GetAuthoredAtUnixNano() int64 {
 	return 0
 }
 
-func (x *SweepAssignmentRecordV1) GetRangeSetCommitment() []byte {
+func (x *SweepAssignmentRecordV1) GetTargetRangeId() []byte {
 	if x != nil {
-		return x.RangeSetCommitment
+		return x.TargetRangeId
 	}
 	return nil
 }
 
-func (x *SweepAssignmentRecordV1) GetTargetRangeId() []byte {
+func (x *SweepAssignmentRecordV1) GetTargetRangeSha256() []byte {
 	if x != nil {
-		return x.TargetRangeId
+		return x.TargetRangeSha256
 	}
 	return nil
 }
@@ -3197,7 +3204,7 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\fabort_reason\x18\x15 \x01(\tR\vabortReasonJ\x04\b\x14\x10\x15R\x11range_root_sha256\"v\n" +
 	"\x15SweepMtrExpectationV1\x12#\n" +
 	"\rordinal_count\x18\x01 \x01(\x04R\fordinalCount\x128\n" +
-	"\x18ordinal_range_commitment\x18\x02 \x01(\fR\x16ordinalRangeCommitment\"\xac\t\n" +
+	"\x18ordinal_range_commitment\x18\x02 \x01(\fR\x16ordinalRangeCommitment\"\xaa\t\n" +
 	"\x17SweepAssignmentRecordV1\x124\n" +
 	"\x16producer_assignment_id\x18\x01 \x01(\fR\x14producerAssignmentId\x12!\n" +
 	"\fexecution_id\x18\x02 \x01(\fR\vexecutionId\x12*\n" +
@@ -3206,10 +3213,10 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x0fexecution_shard\x18\x05 \x01(\rR\x0eexecutionShard\x12)\n" +
 	"\x10assignment_epoch\x18\x06 \x01(\x04R\x0fassignmentEpoch\x12'\n" +
 	"\x0frecord_sequence\x18\a \x01(\x04R\x0erecordSequence\x121\n" +
-	"\x15authored_at_unix_nano\x18\b \x01(\x03R\x12authoredAtUnixNano\x120\n" +
-	"\x14range_set_commitment\x18\t \x01(\fR\x12rangeSetCommitment\x12&\n" +
-	"\x0ftarget_range_id\x18\n" +
-	" \x01(\fR\rtargetRangeId\x12\x19\n" +
+	"\x15authored_at_unix_nano\x18\b \x01(\x03R\x12authoredAtUnixNano\x12&\n" +
+	"\x0ftarget_range_id\x18\t \x01(\fR\rtargetRangeId\x12.\n" +
+	"\x13target_range_sha256\x18\n" +
+	" \x01(\fR\x11targetRangeSha256\x12\x19\n" +
 	"\blease_id\x18\v \x01(\fR\aleaseId\x12\x1f\n" +
 	"\vfence_token\x18\f \x01(\x04R\n" +
 	"fenceToken\x12:\n" +

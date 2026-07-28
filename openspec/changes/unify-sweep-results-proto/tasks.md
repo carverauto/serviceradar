@@ -298,9 +298,11 @@
   the ABI change. GATED ON 1.3; do not claim consumer verification before it lands.
   Elixir has no completion verifier at all beyond the `HashGrammar` primitive, so
   the consumer side must name which runtime performs the check.
-  ALSO: `range_root_sha256` is only length-validated today, and nothing can prove a
-  zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte commitment.
-  Both are plan-derived relations with no authoritative source until 1.3.
+  ALSO: both plan-derived relations are now RESOLVED upstream -- `range_root_sha256`
+  is RETIRED (tag 20 reserved) in favour of the assignment record's resolvable
+  `target_range_id` + `target_range_sha256`, and the assignment's required MTR
+  expectation states the admitted ordinal count. Verify against the ASSIGNMENT's
+  expectation, never the plan-wide commitment.
 
 - [ ] 2.4 Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives

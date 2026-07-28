@@ -1080,8 +1080,12 @@ about its own attempt, with no definition of what it was a root of.
 
 ### Requirement: A zero-MTR completion is a mandatory canonical proof, not an absence
 Every `SWEEP_EXECUTION_EVENT_KIND_COMPLETED` event SHALL carry a completion proof --
-`mtr_completion_digest_version`, `mtr_completion_digest`, `plan_root_sha256`, and
-`range_root_sha256` -- INCLUDING when the plan admits no MTR targets. A plan admitting
+`mtr_completion_digest_version`, `mtr_completion_digest`, and `plan_root_sha256` --
+INCLUDING when the plan admits no MTR targets. It SHALL NOT carry a range root:
+`range_root_sha256` (tag 20) is RETIRED and reserved by number and name, because a
+range binding the PRODUCER asserts about its own attempt is not evidence. The
+authoritative range binding is the assignment record's `target_range_id` +
+`target_range_sha256`, which resolve against the committed plan. A plan admitting
 no MTR targets SHALL carry the CANONICAL ZERO-LEAF proof: `MtrCompletionDigestVersion
 = 2`, `expected = 0`, no leaves, all three accumulators the 32-byte zero value, and the
 ordinary root framing `SHA-256(version || expected || plan_root_sha256 ||

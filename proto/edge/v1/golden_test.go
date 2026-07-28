@@ -35,6 +35,7 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -1126,11 +1127,12 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	zeroHeader := &edgev1.ScheduledPlanHeaderV1{
 		ExecutionPlanId: zeroPlanID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: zeroPlanRoot,
 		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: digest32(0x78),
-		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),
+		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11), AssignmentEpoch: 5,
 		MtrOrdinalRangeCommitment: zeroCommitment,
 	}
 	zeroHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(zeroHeader)
 	golden(t, "plan_header_zero_mtr.bin", zeroHeader)
+	golden(t, "plan_page_zero_mtr.bin", zeroPage)
 	if err := edgerecord.ValidatePlanHeader(zeroHeader); err != nil {
 		t.Fatalf("zero-MTR plan header must validate: %v", err)
 	}
@@ -1185,7 +1187,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		ProducerAssignmentId: uuidv7(0x26), ExecutionId: uuidv7(0x21),
 		ExecutionPlanId: zeroPlanID, ExecutionPlanSha256: zeroHeader.GetExecutionPlanSha256(),
 		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
-		RangeSetCommitment: edgerecord.MtrOrdinalRangeCommitment(nil), TargetRangeId: uuidv7(0x25),
+		TargetRangeId: zeroRange.GetRangeId(), TargetRangeSha256: zeroRange.GetRangeSha256(),
 		LeaseId: []byte("lease-zero"), FenceToken: 7, LeaseExpiresAtUnixNano: fixedNanos + 1,
 		State:                 edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED,
 		TerminalBatchSequence: 4,
@@ -1205,6 +1207,15 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if err := edgerecord.ValidateSweepAssignmentRecord(&decodedAssignment); err != nil {
 		t.Fatalf("committed assignment record must be VALID: %v", err)
 	}
+	// The RELATION, on committed bytes: the assignment names THIS plan, agrees with it
+	// on every shared fact, and its range is a member of the committed plan. The first
+	// version of this fixture passed independent validation while naming a real range
+	// with an empty-set commitment and an epoch the header did not share.
+	if err := edgerecord.ValidateAssignmentAgainstPlan(
+		&decodedAssignment, zeroHeader, []*edgev1.ScheduledPlanPageV1{zeroPage},
+	); err != nil {
+		t.Fatalf("committed assignment must relate to its paired plan: %v", err)
+	}
 	// The completion proof verifies against the ASSIGNMENT's expectation.
 	if err := edgerecord.VerifyCompletionAgainstPlanState(
 		&zeroEv,
@@ -1214,6 +1225,79 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		nil,
 	); err != nil {
 		t.Fatalf("completion must verify against the assignment expectation: %v", err)
+	}
+
+	// SPLIT-PLAN, NONZERO vector. The zero-MTR pair above cannot distinguish the
+	// assignment expectation from the plan-wide commitment, because both are zero32 --
+	// a regression substituting the forbidden plan value stays green. Here the plan
+	// admits TWO ordinals while the assignment covers ONE, so the two commitments
+	// DIFFER and the substitution is observable.
+	splitRange := digest32(0x93)
+	planWideLeaves := []edgerecord.MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: edgerecord.MtrDispositionTraceAllocated, TraceID: uuidv7(0x30), RangeSha256: splitRange},
+		{Ordinal: 2, Disposition: edgerecord.MtrDispositionNotAdmitted, RangeSha256: splitRange},
+	}
+	planWideCommitment := edgerecord.MtrOrdinalRangeCommitment(planWideLeaves)
+	attemptLeaves := planWideLeaves[:1]
+	attemptCommitment := edgerecord.MtrOrdinalRangeCommitment(attemptLeaves)
+	if bytes.Equal(planWideCommitment, attemptCommitment) {
+		t.Fatal("split vector is vacuous: plan-wide and per-attempt commitments are equal")
+	}
+	splitRoot, err := edgerecord.MtrCompletionRoot(attemptLeaves, 1, planRoot, attemptCommitment)
+	if err != nil {
+		t.Fatalf("split completion root: %v", err)
+	}
+	splitEv := &edgev1.SweepExecutionEventV1{
+		ExecutionId: uuidv7(0x27), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: uuidv7(0x22), ExecutionPlanSha256: digest32(0x96), TargetRangeId: uuidv7(0x23),
+		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 4, DurableThroughBatchSequence: 4,
+		ExpectedMtrTraces: 1, EmittedMtrTraces: 1,
+		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
+		MtrCompletionDigest:        splitRoot,
+		PlanRootSha256:             planRoot,
+	}
+	splitBytes := golden(t, "lifecycle_split_attempt.bin", splitEv)
+	mustValidateLifecycleBytes(t, "lifecycle_split_attempt.bin", splitBytes)
+	goldenBytes(t, "split_attempt_commitment.bin", attemptCommitment)
+	goldenBytes(t, "split_plan_wide_commitment.bin", planWideCommitment)
+
+	// The ASSIGNMENT's expectation verifies.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		splitEv, 1, planRoot, attemptCommitment, attemptLeaves,
+	); err != nil {
+		t.Fatalf("split completion must verify against the ASSIGNMENT expectation: %v", err)
+	}
+	// Substituting the PLAN-WIDE commitment -- the forbidden shortcut -- fails.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		splitEv, 2, planRoot, planWideCommitment, planWideLeaves,
+	); err == nil {
+		t.Fatal("substituting the plan-wide commitment for the per-attempt one must FAIL")
+	}
+
+	// STALE-WIRE PROOF for the retired tag 20. Reserving a tag prevents source reuse; it
+	// does not prove a sender that still emits the field is rejected. This vector is the
+	// valid zero-MTR event with a length-delimited field 20 appended, exactly as a
+	// pre-retirement sender would encode range_root_sha256.
+	staleTag20 := append(append([]byte(nil), zeroBytes...), 0xA2, 0x01, 0x20)
+	staleTag20 = append(staleTag20, digest32(0x95)...)
+	staleBytes := goldenBytes(t, "lifecycle_stale_tag20.bin", staleTag20)
+
+	var stale edgev1.SweepExecutionEventV1
+	if err := proto.Unmarshal(staleBytes, &stale); err != nil {
+		t.Fatalf("stale tag-20 vector must still DECODE (that is why it is dangerous): %v", err)
+	}
+	// Assert the retained bytes really are tag 20, wire type 2 -- otherwise the
+	// rejection below could be firing on something else entirely.
+	unknown := stale.ProtoReflect().GetUnknown()
+	if len(unknown) == 0 {
+		t.Fatal("stale vector retained no unknown field; the fixture is vacuous")
+	}
+	if num, typ, n := protowire.ConsumeTag(unknown); n < 0 || num != 20 || typ != protowire.BytesType {
+		t.Fatalf("retained tag = %v/%v, want field 20 wire type 2", num, typ)
+	}
+	if err := edgerecord.ValidateSweepExecutionEvent(&stale); !errors.Is(err, edgerecord.ErrUnknownFields) {
+		t.Fatalf("stale tag-20 event = %v, want ErrUnknownFields", err)
 	}
 
 	rid := uuidv7(0x80)

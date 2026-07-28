@@ -77,12 +77,26 @@ here.
   PARTIALLY CLOSED: `SweepAssignmentRecordV1` now exists in `proto/edge/v1/sweep.proto`
   with a REQUIRED `SweepMtrExpectationV1` (`ordinal_count` + `ordinal_range_commitment`
   together), append-only `record_sequence`, scheduler-authored LOST/EXPIRED/SUPERSEDED
-  states, lease/fence, a 32-byte `range_set_commitment`, and configuration/authorization
-  identity, validated by `ValidateSweepAssignmentRecord`. The count is CARRIED, never
-  derived from the producer's counters, from the non-invertible commitment, or from
-  `mtr_admission_budget` (a ceiling). STILL OPEN in 1.3: the frozen
-  `SweepObservationBatchV1` CORRELATION MATRIX (per permitted `SweepExecutionSource`,
-  with a positive and a mismatch vector per variant).
+  states, lease/fence, a RESOLVABLE range binding (`target_range_id` +
+  `target_range_sha256`, NOT an opaque set commitment), and configuration/authorization
+  identity, validated by `ValidateSweepAssignmentRecord` and related to the committed
+  plan by `ValidateAssignmentAgainstPlan` (plan id/hash, epoch, check set, policy,
+  scope, and RANGE MEMBERSHIP). The count is CARRIED, never derived from the producer's
+  counters, from the non-invertible commitment, or from `mtr_admission_budget` (a
+  ceiling).
+  STILL OPEN in 1.3 -- MORE THAN THE CORRELATION MATRIX. An earlier revision of this
+  entry claimed the matrix was the only remaining half; that was FALSE:
+  (1) the ASSIGNMENT/MAPPING ABI is incomplete. The frozen mapping key is
+  `(trust_namespace, FULL span_identity)` including `run_id`, the source identity, and
+  ACTIVE `range_sha256`; `SweepAssignmentRecordV1` carries neither `run_id` nor the
+  source identity, and NO message in this change represents the tagged POSITIVE /
+  EXPLICIT_NEGATIVE mapping VALUE or a durable negative reason. The record also lacks
+  the compiled-assignment facts the downstream sweep-jobs spec requires (config
+  generation, result format, immutable traffic class, scheduler-signed capability), or
+  a reference to a carrier supplying them -- a proto comment saying
+  "scheduler-authored" plus a shape validator does NOT establish scheduler authority;
+  (2) the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
+  `SweepExecutionSource`, with a positive and a mismatch vector per variant).
   Original audit text follows. It must be designed before the 1.7 freeze or
   explicitly cut from it, because it is an append-only authoritative contract on
   the frozen ABI. It is also what binds a span's `producer_assignment_id` to the
@@ -687,12 +701,12 @@ here.
   Wiring a real carrier is task 2.3b's job, downstream of the freeze.
   LOCAL 1.7 PREREQUISITES (normative FIELD MEANINGS only -- what the ABI must SAY,
   never who implements it):
-  (c) TWO PLAN-DERIVED RELATIONS HAVE NO DEFINED MEANING. `range_root_sha256` is only
-  LENGTH-checked and the ABI does not say what it is a root OF; and nothing in the
-  header states whether a plan admits MTR, so "32 ZERO bytes means no MTR admitted"
-  is unstated rather than merely unverified. Both are normative gaps owed by task 1.3
-  (the authoritative assignment record), and 1.7 SHALL NOT freeze over either. Once
-  1.3 states them, VERIFYING them at runtime is again downstream.
+  (c) RESOLVED by 1.3's assignment record. `range_root_sha256` is RETIRED (tag 20,
+  reserved by number and name) rather than defined -- the authoritative binding is the
+  assignment's resolvable `target_range_id` + `target_range_sha256`, related to the
+  committed plan by `ValidateAssignmentAgainstPlan`. And the required
+  `SweepMtrExpectationV1` STATES the admitted ordinal count, so "32 ZERO bytes means
+  no MTR admitted" is written down and checkable in both directions.
   The full per-value shared leaf-vector inventory remains task 1.15.
   UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for

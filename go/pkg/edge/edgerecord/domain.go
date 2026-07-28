@@ -160,6 +160,13 @@ func ValidateSweepExecutionEvent(ev *edgev1.SweepExecutionEventV1) error {
 	if ev == nil {
 		return ErrNilRecord
 	}
+	// Retained unknown fields are rejected HERE, not only on the outer unmarshal path.
+	// This validator is PUBLIC and is what a consumer holding a decoded event calls, so
+	// without this a stale sender's RETIRED tag 20 rides through: reserving a tag stops
+	// source reuse, it does not stop bytes already on the wire.
+	if hasUnknownFields(ev) {
+		return ErrUnknownFields
+	}
 	if ValidateCanonicalUUID(ev.GetExecutionId()) != nil || ValidateCanonicalUUID(ev.GetExecutionPlanId()) != nil ||
 		ValidateCanonicalUUID(ev.GetTargetRangeId()) != nil {
 		return fmt.Errorf("%w: identity", ErrLifecycle)
