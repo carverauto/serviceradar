@@ -81,7 +81,6 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   # `b >>> 4` -- non-canonical for almost every b. That MASKED a real parity defect:
   # Elixir checked only byte_size and accepted identities Go rejects.
   defp uuid(b), do: canonical(b, 0x40)
-  defp uuidv7(b), do: canonical(b, 0x70)
 
   defp canonical(b, version_nibble) do
     <<b, b, b, b, b, b, version_nibble ||| 0x0A, b, 0x80 ||| rem(b, 0x40), b, b, b, b, b, b, b>>
@@ -492,8 +491,12 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       # hand it a page and get one back -- the capability this module must not expose,
       # and the reason the earlier injectable-decoder seam was a bypass. Asserted here
       # so adding that clause fails the suite rather than passing review unnoticed.
+      # apply/3 so the call is resolved at RUNTIME. A direct call is STATICALLY
+      # invalid -- there is no matching clause, which is the property under test -- and
+      # the type checker rightly rejects it, turning the proof into a compile error
+      # under --warnings-as-errors.
       assert_raise FunctionClauseError, fn ->
-        RecoveryValidate.propagate_decode_error({:ok, go_page()})
+        apply(RecoveryValidate, :propagate_decode_error, [{:ok, go_page()}])
       end
     end
 
@@ -732,21 +735,39 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
     end
 
     test "the shared OVER-BUDGET pair is rejected on the aggregate bound" do
-      # The same bytes the Go suite reads. Each runtime already built its own padded
-      # pages, which proves self-consistency but not that the two agree on WHERE the
-      # ceiling falls -- and the bloat vector above is only 455 bytes, far under it.
+      # The same bytes the Go suite reads, and a GENUINE two-page chain: page 0/2
+      # nonterminal and page 1/2 terminal, correctly chained. An earlier version padded
+      # two copies of the same page 0/1 terminal, so the pair was a BROKEN chain and a
+      # re-encode-summing implementation would still have rejected it -- just later,
+      # for an unrelated reason. The bypass was never isolated.
       a = load("manifest_page_overbudget_a.bin")
       b = load("manifest_page_overbudget_b.bin")
       limit = RecoveryValidate.limits().max_manifest_bytes
 
-      assert byte_size(a) <= limit and byte_size(b) <= limit,
-             "each page must be individually UNDER the cap, or the pair does not isolate the aggregate"
+      # (1) the DECODED pair is a valid chain
+      pages = Enum.map([a, b], &EdgeLossManifestPageV1.decode/1)
 
+      assert :ok = RecoveryValidate.manifest_chain(pages, HashGrammar.manifest_root(pages)),
+             "the decoded pair must be a VALID chain, or the bounds rejection is not " <>
+               "attributable to byte accounting"
+
+      # (2) its RE-ENCODED aggregate is below the cap, so a re-encode-summing
+      # implementation would ADMIT it -- the bypass under test
+      reencoded =
+        pages
+        |> Enum.map(&byte_size(IO.iodata_to_binary(EdgeLossManifestPageV1.encode(&1))))
+        |> Enum.sum()
+
+      assert reencoded < limit,
+             "re-encoded aggregate #{reencoded} must be BELOW #{limit}"
+
+      # (3) the RAW pair is exactly one byte over, each page individually under
+      assert byte_size(a) <= limit and byte_size(b) <= limit
       assert byte_size(a) + byte_size(b) == limit + 1
 
+      # (4) the raw boundary rejects, and neither page alone does
       assert {:error, :manifest_bounds} = RecoveryValidate.manifest_chain_from_raw([a, b], nil)
 
-      # Each alone is in budget, so the rejection is attributable to the AGGREGATE.
       for one <- [a, b] do
         refute match?(
                  {:error, :manifest_bounds},

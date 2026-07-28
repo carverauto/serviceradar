@@ -1180,45 +1180,76 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	bloated := append(append([]byte{}, canonical...), 0x40, 0x01) // digest_version again
 	goldenBytes(t, "manifest_page_bloated.bin", bloated)
 
-	// THE AGGREGATE OVER-BUDGET PAIR, as SHARED bytes.
+	// THE AGGREGATE OVER-BUDGET PAIR, as SHARED bytes and a GENUINE TWO-PAGE CHAIN.
 	//
-	// manifest_page_bloated.bin is 455 bytes against a 262,144-byte ceiling, so it
-	// proves the bytes are non-canonical but never reaches the bound -- the actual
-	// MaxManifestBytes+1 case was still constructed independently in each runtime,
-	// which cannot show the two agree on where the ceiling falls.
+	// An earlier version padded two copies of the same single-page manifest, so the
+	// pair decoded as page 0/1 terminal TWICE. Relational validation rejected it as a
+	// broken chain -- meaning an implementation that summed RE-ENCODED sizes would
+	// still have rejected the pair, just later and for an unrelated reason. The
+	// intended bypass was never isolated.
 	//
-	// Each page is individually UNDER the cap; together they are exactly one byte
-	// OVER. Both decode to the same message as the canonical page and re-encode far
-	// below the cap, so an implementation summing RE-ENCODED sizes accepts them --
-	// which is the bypass these two files exist to close.
-	half := edgerecord.MaxManifestBytes / 2
-	over := [...]struct {
-		name   string
-		target int
-	}{
-		{"manifest_page_overbudget_a.bin", half},
-		{"manifest_page_overbudget_b.bin", half + 1},
+	// These are page 0/2 nonterminal and page 1/2 terminal, correctly chained by
+	// predecessor digest with globally ordered spans, so the DECODED pair is valid.
+	// Each is individually UNDER the cap and their re-encoded aggregate is far below
+	// it, while the RAW pair is exactly one byte over: the only thing that can reject
+	// them is received-byte accounting.
+	chainA := &edgev1.EdgeLossManifestPageV1{
+		RecoveryId: rid, PageIndex: 0, PageCount: 2, Terminal: false,
+		DigestVersion:       edgerecord.RecoveryDigestVersion,
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{page.GetClassificationSpans()[0]},
 	}
-	total := 0
-	for _, o := range over {
-		padded := padToLen(t, canonical, o.target)
-		if len(padded) > edgerecord.MaxManifestBytes {
+	chainA.PageSha256 = edgerecord.ManifestPageDigest(chainA)
+
+	chainB := &edgev1.EdgeLossManifestPageV1{
+		RecoveryId: rid, PageIndex: 1, PageCount: 2, Terminal: true,
+		PrevPageSha256:      chainA.GetPageSha256(),
+		DigestVersion:       edgerecord.RecoveryDigestVersion,
+		ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{page.GetClassificationSpans()[2]},
+	}
+	chainB.PageSha256 = edgerecord.ManifestPageDigest(chainB)
+
+	chain := []*edgev1.EdgeLossManifestPageV1{chainA, chainB}
+	if err := edgerecord.ValidateManifestChain(chain, edgerecord.ManifestRoot(chain)); err != nil {
+		t.Fatalf("the over-budget pair must be a VALID chain when decoded, or the "+
+			"bounds rejection is not attributable to byte accounting: %v", err)
+	}
+
+	half := edgerecord.MaxManifestBytes / 2
+	targets := [...]int{half, half + 1}
+	names := [...]string{"manifest_page_overbudget_a.bin", "manifest_page_overbudget_b.bin"}
+
+	rawTotal, reencodedTotal := 0, 0
+	padded := make([][]byte, len(chain))
+	for i, pg := range chain {
+		canon, err := proto.Marshal(pg)
+		if err != nil {
+			t.Fatalf("marshal chain page %d: %v", i, err)
+		}
+		reencodedTotal += len(canon)
+
+		p := padToLen(t, canon, targets[i])
+		if len(p) > edgerecord.MaxManifestBytes {
 			t.Fatalf("%s is %d bytes, individually over the cap; the pair would not isolate the aggregate",
-				o.name, len(padded))
+				names[i], len(p))
 		}
 		var probe edgev1.EdgeLossManifestPageV1
-		if err := proto.Unmarshal(padded, &probe); err != nil {
-			t.Fatalf("%s must decode: %v", o.name, err)
+		if err := proto.Unmarshal(p, &probe); err != nil {
+			t.Fatalf("%s must decode: %v", names[i], err)
 		}
-		if !proto.Equal(&probe, page) {
-			t.Fatalf("%s decoded to a different message; the padding is not inert", o.name)
+		if !proto.Equal(&probe, pg) {
+			t.Fatalf("%s decoded to a different message; the padding is not inert", names[i])
 		}
-		total += len(padded)
-		goldenBytes(t, o.name, padded)
+		rawTotal += len(p)
+		padded[i] = p
+		goldenBytes(t, names[i], p)
 	}
-	if total != edgerecord.MaxManifestBytes+1 {
-		t.Fatalf("over-budget pair totals %d, want exactly %d",
-			total, edgerecord.MaxManifestBytes+1)
+
+	if rawTotal != edgerecord.MaxManifestBytes+1 {
+		t.Fatalf("raw pair totals %d, want exactly %d", rawTotal, edgerecord.MaxManifestBytes+1)
+	}
+	if reencodedTotal >= edgerecord.MaxManifestBytes {
+		t.Fatalf("re-encoded aggregate is %d, must be BELOW %d so a re-encode-summing "+
+			"implementation would ADMIT this pair", reencodedTotal, edgerecord.MaxManifestBytes)
 	}
 
 	tomb := &edgev1.SpoolLossTombstoneV1{
