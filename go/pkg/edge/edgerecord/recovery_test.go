@@ -783,9 +783,46 @@ func buildPlan(t *testing.T, planID, checkSet []byte, pageRanges [][]uint64) (*e
 		ExecutionPlanId: planID, PageCount: uint32(count), TotalTargetCount: total,
 		PlanRootSha256: PlanRoot(pages), DigestVersion: PlanDigestVersion, CheckSetSha256: checkSet,
 		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: mustUUID(t),
+		// These plans admit no MTR targets, so the commitment is the empty-set multiset
+		// hash: 32 ZERO bytes, never empty bytes. The field is ALWAYS 32 bytes.
+		MtrOrdinalRangeCommitment: MtrOrdinalRangeCommitment(nil),
 	}
 	h.ExecutionPlanSha256 = PlanHeaderDigest(h)
 	return h, pages
+}
+
+// TestPlanHeaderRejectsNon32ByteMtrCommitment pins the length rule. Without it the
+// suite stays green with the check deleted: every other test builds a header with a
+// correct 32-byte commitment, so nothing exercises the boundary. Empty is the case
+// that matters most -- it was the PREVIOUS spelling of "no MTR", and the zero-leaf
+// completion proof cannot distinguish it from an omitted commitment.
+func TestPlanHeaderRejectsNon32ByteMtrCommitment(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		commitment []byte
+	}{
+		{"empty", []byte{}},
+		{"nil", nil},
+		{"31 bytes", make([]byte, 31)},
+		{"33 bytes", make([]byte, 33)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := buildPlan(t, mustUUID(t), d32(0x77), [][]uint64{{256}})
+			h.MtrOrdinalRangeCommitment = tc.commitment
+			// Re-seal the header so the ONLY reason it can fail is the length rule --
+			// otherwise a stale self-hash would mask a deleted check.
+			h.ExecutionPlanSha256 = PlanHeaderDigest(h)
+			if err := ValidatePlanHeader(h); !errors.Is(err, ErrPlanMtrCommitment) {
+				t.Fatalf("commitment %s = %v, want ErrPlanMtrCommitment", tc.name, err)
+			}
+		})
+	}
+
+	// Control: the 32-zero commitment a zero-MTR plan carries IS accepted.
+	h, _ := buildPlan(t, mustUUID(t), d32(0x77), [][]uint64{{256}})
+	if err := ValidatePlanHeader(h); err != nil {
+		t.Fatalf("32-zero commitment must be accepted: %v", err)
+	}
 }
 
 func TestPlanValidAndConstantSize(t *testing.T) {

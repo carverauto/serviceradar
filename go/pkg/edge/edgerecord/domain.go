@@ -724,9 +724,17 @@ type MtrCompletionAccumulator struct {
 
 // NewMtrCompletionAccumulator starts an accumulator for a known expected ordinal
 // count (the plan's admitted MTR target count).
+//
+// expected == 0 is LEGAL and is the plan that admits NO MTR targets. It yields the
+// canonical zero-leaf proof: no leaves, all three accumulators the 32-byte zero
+// value, and the ordinary root framing still bound to plan_root_sha256. A
+// COMPLETED event therefore ALWAYS carries a proof, so missing evidence can never
+// masquerade as empty work -- the alternative (waive the proof when a producer
+// says it did no MTR) would admit both an absent and a present proof for one
+// state and would trust a self-reported counter to decide which.
 func NewMtrCompletionAccumulator(expected uint64) *MtrCompletionAccumulator {
 	a := &MtrCompletionAccumulator{expected: expected}
-	if expected == 0 || expected > MaxMtrCompletionOrdinals {
+	if expected > MaxMtrCompletionOrdinals {
 		a.err = fmt.Errorf("%w: expected out of range", ErrMtrCompletion)
 	}
 	return a
@@ -822,6 +830,14 @@ func (a *MtrCompletionAccumulator) Add(l MtrCompletionLeaf) error {
 	if a.err != nil {
 		return a.err
 	}
+	// A zero-MTR completion admits NO leaves. validateCompletionLeaf would reject
+	// each one anyway (every ordinal is > expected), but saying so explicitly keeps
+	// the failure legible: the plan admitted no MTR targets, so a leaf is evidence
+	// of work the plan never authorized, not merely an out-of-range ordinal.
+	if a.expected == 0 {
+		a.err = fmt.Errorf("%w: a zero-MTR completion admits no leaves", ErrMtrCompletion)
+		return a.err
+	}
 	if err := validateCompletionLeaf(l, a.expected); err != nil {
 		a.err = err
 		return err
@@ -888,6 +904,70 @@ func MtrCompletionRoot(leaves []MtrCompletionLeaf, expected uint64, planRootSha2
 		}
 	}
 	return a.Root(planRootSha256, ordinalRangeCommitment)
+}
+
+// ZeroMtrCompletionRoot is the canonical proof for a plan that admits NO MTR
+// targets: expected = 0, no leaves, all three accumulators the 32-byte zero value,
+// and the ordinary root framing still bound to planRootSha256. It exists as a
+// NAMED constructor because "the completion proof for no MTR" is a specific
+// frozen value, not an absence -- a producer that cannot name it will be tempted
+// to omit the proof instead.
+//
+// ordinalRangeCommitment MUST be the plan header's field, which for such a plan is
+// 32 zero bytes (the empty-set multiset hash). Passing empty bytes is rejected.
+func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
+	return MtrCompletionRoot(nil, 0, planRootSha256, ordinalRangeCommitment)
+}
+
+// VerifyCompletionAgainstPlanState compares a COMPLETED lifecycle event's proof
+// against an expected count, plan root, commitment, and leaf set supplied BY THE
+// CALLER. It is a GRAMMAR PRIMITIVE, not plan-aware verification.
+//
+// READ THIS BEFORE CALLING. Every authoritative input is an argument, so this
+// function cannot tell where they came from. A caller that derives them from the
+// event itself gets a VACUOUS check that always passes -- `(ev, 0, ev.PlanRootSha256,
+// zero32, nil)` succeeds no matter what the real plan said. Nothing here establishes
+// that the event's completion matches reality; that requires the caller to hold
+// state it obtained from a validated, authenticated plan/assignment carrier.
+//
+// NO SUCH CARRIER EXISTS YET. The authoritative assignment record is task 1.3 and is
+// not in `proto/edge/v1`, so there is deliberately NO production caller: the
+// comparison is frozen here, and genuine consumer verification is downstream work
+// gated on 1.3. Do not read the existence of this function as consumer verification
+// being implemented.
+//
+// planExpectedMtr == 0 is the zero-MTR case and requires the canonical zero-leaf
+// proof; it is NOT a licence to omit one.
+func VerifyCompletionAgainstPlanState(
+	ev *edgev1.SweepExecutionEventV1,
+	planExpectedMtr uint64,
+	planRootSha256, planOrdinalRangeCommitment []byte,
+	leaves []MtrCompletionLeaf,
+) error {
+	if ev == nil {
+		return ErrNilRecord
+	}
+	if ev.GetKind() != edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED {
+		return fmt.Errorf("%w: not a completed event", ErrLifecycle)
+	}
+	// Shape first, so a malformed event fails as a lifecycle error rather than as a
+	// confusing proof mismatch.
+	if err := ValidateSweepExecutionEvent(ev); err != nil {
+		return err
+	}
+	// The event's roots must be the PLAN's roots. Without this the proof could be a
+	// perfectly valid completion of some other plan.
+	if !bytes.Equal(ev.GetPlanRootSha256(), planRootSha256) {
+		return fmt.Errorf("%w: event plan root is not the plan's", ErrMtrCompletion)
+	}
+	want, err := MtrCompletionRoot(leaves, planExpectedMtr, planRootSha256, planOrdinalRangeCommitment)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(ev.GetMtrCompletionDigest(), want) {
+		return fmt.Errorf("%w: completion digest does not match the plan-derived proof", ErrMtrCompletion)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

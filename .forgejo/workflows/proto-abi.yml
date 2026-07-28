@@ -26,6 +26,9 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'go/pkg/edge/edgerecord/**'
+      # execstate builds the lifecycle events that carry the completion proof, so a
+      # producer change there can break the frozen ABI without touching edgerecord.
+      - 'go/pkg/edge/execstate/**'
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
@@ -46,6 +49,9 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'go/pkg/edge/edgerecord/**'
+      # execstate builds the lifecycle events that carry the completion proof, so a
+      # producer change there can break the frozen ABI without touching edgerecord.
+      - 'go/pkg/edge/execstate/**'
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
@@ -135,7 +141,7 @@ jobs:
       - name: Elixir binding regeneration drift guard
         run: make verify-proto-elixir
       - name: Edge ABI golden parity (Go)
-        run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/...
+        run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/... ./go/pkg/edge/execstate/...
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs

@@ -2488,7 +2488,10 @@ type ScheduledPlanHeaderV1 struct {
 	// Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
 	// additive multiset hash the MTR completion proof compares its leaves against,
 	// so a completion leaf cannot claim an ordinal belongs to a range the plan never
-	// assigned it. Empty when the plan admits no MTR targets.
+	// assigned it. ALWAYS exactly 32 bytes: a plan admitting NO MTR targets carries the
+	// empty-set multiset hash, which is 32 ZERO bytes, and NEVER empty bytes. Empty
+	// would be a second spelling of "no MTR" that the zero-leaf completion proof could
+	// not distinguish from an omitted commitment.
 	MtrOrdinalRangeCommitment []byte `protobuf:"bytes,11,opt,name=mtr_ordinal_range_commitment,json=mtrOrdinalRangeCommitment,proto3" json:"mtr_ordinal_range_commitment,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache

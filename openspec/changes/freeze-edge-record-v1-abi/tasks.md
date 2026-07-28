@@ -159,12 +159,23 @@ here.
   divergence is caught only because both generate from one proto -- 1.15 replaces
   that argument with per-value vectors both runtimes decode (the existing shared
   goldens exercise dispositions 1 and 2 only).
-  1.4 REMAINS UNCHECKED: the disposition sub-target is the CLOSED part. The
-  zero-MTR (`expected == 0`) BLOCKER recorded under task 1.15 names 1.4 by name --
-  a COMPLETED sweep admitting no MTR targets can today neither omit a completion
-  proof nor construct a valid one, and candidate (A) vs (B) is an unmade decision,
-  not a discovered fact. Do NOT check 1.4 until that behaviour is chosen and the
-  lifecycle validator agrees with it.
+  1.4 REMAINS UNCHECKED, but no longer for the zero-MTR reason. That decision is
+  CLOSED -- candidate (B), the mandatory canonical zero-leaf proof -- and both
+  runtimes implement it, so a COMPLETED sweep admitting no MTR targets now has
+  exactly one valid representation.
+  WHAT BLOCKS 1.4 IS LOCAL ABI/SCHEMA WORK ONLY. Task 1.7 requires every local task
+  to close, so anything named here becomes a 1.7 gate; blocking 1.4 on runtime
+  wiring would make the ABI wait on `unify-sweep-results-proto`, which waits on the
+  frozen ABI. Remaining local work:
+  (i) the two plan-derived relations have NO DEFINED MEANING in the ABI --
+  `range_root_sha256` does not say what it is a root OF, and no field states whether
+  a plan admits MTR, so "32 zero bytes means none admitted" is unwritten. Both are
+  normative definitions owed by task 1.3; and
+  (ii) task 1.15's shared per-value leaf vectors.
+  NOT A BLOCKER ON 1.4: that no consumer performs the check.
+  `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must supply
+  already-validated plan state, and wiring a real carrier is downstream task 2.3b.
+  Implementing a verifier is not ABI work, and 1.4 SHALL NOT wait on it.
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
@@ -583,8 +594,8 @@ here.
   both are IMPLEMENTED CANDIDATES, not accepted ABI -- task 1.7 is still the
   accept gate. What remains open is the
   1.3 assignment-record contract, 1.5's residual clauses, 1.6's version vectors,
-  the zero-MTR decision, and task 1.15's shared per-value vectors. The freeze
-  itself is task 1.7.
+  and task 1.15's shared per-value vectors. The zero-MTR decision is CLOSED
+  (candidate B). The freeze itself is task 1.7.
 
 - [x] 1.14 Define and implement the `Sr-Edge-Transport-Provenance` header grammar
   and the service-slot variants of the two publication transcripts, per the frozen
@@ -625,23 +636,51 @@ here.
   `999`. Zero is rejected BEFORE hashing, so an accepted leaf vector for it would
   contradict the normative rule. The numbering is distinct from the per-hop
   `MtrOutcome`.
-  ZERO-MTR (`expected == 0`) IS AN OPEN DECISION, NOT A SELECTION. Two candidates:
-  (A) no completion proof required, `mtr_ordinal_range_commitment` EMPTY, and any
-  computed root over zero leaves (all three 32-byte accumulators zero,
-  `plan_root_sha256` still committed); or (B) a proof always required, with a
-  defined zero-leaf root the accumulator accepts. Choose ONE before writing
-  vectors.
-  BLOCKER, MUST BE RESOLVED BEFORE 1.4/1.15 AND THE 1.7 FREEZE: the zero-MTR
-  behaviour described here CONTRADICTS all three implementations. Verified at this
-  base: `NewMtrCompletionAccumulator` sets an error when `expected == 0`
-  (`go/pkg/edge/edgerecord/domain.go:722`); the Elixir verifier rejects zero
-  (`hash_grammar.ex`); and the Go lifecycle validator requires a 32-byte
-  completion digest, a matching digest version, and 32-byte plan/range roots for
-  EVERY COMPLETED event unconditionally (`domain.go:182-186`), so a COMPLETED
-  sweep with no admitted MTR targets can neither omit a proof nor construct a
-  valid one. Record ONE authoritative behaviour -- candidate (A) with the lifecycle
-  validator relaxed, or candidate (B) -- and add vectors, before
-  either task proceeds. Do NOT freeze the ABI over an unreconciled rule.
+  ZERO-MTR (`expected == 0`) IS DECIDED: candidate (B), a MANDATORY canonical
+  zero-leaf proof, frozen by the requirement "A zero-MTR completion is a mandatory
+  canonical proof, not an absence". Candidate (A) (no proof required,
+  `mtr_ordinal_range_commitment` EMPTY) was REJECTED: it permitted both an absent
+  and a present proof for one state, and rested the choice between them on the
+  event's own producer-reported counters. Under (B) there is ONE representation for
+  every COMPLETED event, so missing evidence can never masquerade as empty work.
+  RESOLVED (was the blocker on 1.4/1.15 and the 1.7 freeze): the contradiction is
+  gone. `NewMtrCompletionAccumulator` now accepts `expected == 0`; the Elixir
+  verifier accepts it; the Go lifecycle validator's unconditional demand for a
+  32-byte digest, matching version, and 32-byte plan/range roots on EVERY COMPLETED
+  event is now CORRECT rather than contradictory, because the zero-MTR case has a
+  proof to carry. `ValidatePlanHeader` additionally requires
+  `mtr_ordinal_range_commitment` to be exactly 32 bytes (32 ZERO bytes when no MTR
+  is admitted, never empty), and `VerifyCompletionAgainstPlanState` freezes the
+  COMPARISON a consumer performs -- a PRIMITIVE only: every authoritative value is a
+  caller argument, so it establishes nothing about where those values came from and
+  has deliberately no production caller. Shared vectors landed:
+  `lifecycle_zero_mtr.bin`, `zero_mtr_commitment.bin`, and the paired
+  `plan_header_zero_mtr.bin`, recomputed byte-for-byte in Elixir.
+  STILL OPEN. Split deliberately, because `unify-sweep-results-proto` depends on the
+  FROZEN ABI: an ABI task that blocked on a runtime task would be a cycle, and the
+  runtime work could never start.
+  DOWNSTREAM, AND EXPLICITLY *NOT* A 1.7 GATE:
+  (a) PRODUCER PATH -- nothing in this repository computes a completion proof.
+  `execstate.Tracker` builds lifecycle events and sets only `expected/emitted`
+  counters. Owned by `unify-sweep-results-proto` task 2.3b, per this task list's
+  scope note. `go/pkg/edge/execstate/**` is now in the Proto ABI workflow path
+  filters so a producer change cannot bypass the ABI drift gate -- that is CI
+  coverage, not a task dependency.
+  (b) CONSUMER VERIFICATION IS NOT IMPLEMENTED, and 1.7 does not wait for it.
+  `VerifyCompletionAgainstPlanState` is a comparison PRIMITIVE: every authoritative
+  value is a caller argument, so a caller that derives them from the event gets a
+  VACUOUS check that always passes. There is deliberately NO production caller, and
+  `ValidateLifecycleRecord` remains shape-only. Elixir has no peer verifier at all.
+  Wiring a real carrier is task 2.3b's job, downstream of the freeze.
+  LOCAL 1.7 PREREQUISITES (normative FIELD MEANINGS only -- what the ABI must SAY,
+  never who implements it):
+  (c) TWO PLAN-DERIVED RELATIONS HAVE NO DEFINED MEANING. `range_root_sha256` is only
+  LENGTH-checked and the ABI does not say what it is a root OF; and nothing in the
+  header states whether a plan admits MTR, so "32 ZERO bytes means no MTR admitted"
+  is unstated rather than merely unverified. Both are normative gaps owed by task 1.3
+  (the authoritative assignment record), and 1.7 SHALL NOT freeze over either. Once
+  1.3 states them, VERIFYING them at runtime is again downstream.
+  The full per-value shared leaf-vector inventory remains task 1.15.
   UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
   an unsupported-input vector. Add matching field-framed grammar
