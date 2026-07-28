@@ -1,0 +1,24 @@
+[package]
+name = "wait_utils"
+version = "0.1.6"
+description = "Utilities for implementing wait loops using varies wait strategies"
+readme = "README.md"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+authors.workspace = true
+license.workspace = true
+# Exclude all bazel files as these conflict with Bazel workspace when vencored.
+exclude = ["*.bazel", "*/*.bazel",  "*.bazel.*", "BUILD", "BUILD.bazel", "MODULE.bazel", ".bazelignore",".bazelrc", "tests/**/*"]
+
+
+[lints]
+workspace = true
+
+
+[dependencies]
+tokio = {workspace = true}
+tonic = { workspace = true }
+tonic-health = { workspace = true }

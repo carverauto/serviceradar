@@ -379,14 +379,14 @@ alias(
 )
 
 alias(
-    name = "docker_utils-0.3.0",
-    actual = "//third_party/crates/docker_utils-0.3.0:docker_utils",
+    name = "docker_utils-0.3.1",
+    actual = "//third_party/crates/docker_utils-0.3.1:docker_utils",
     tags = ["manual"],
 )
 
 alias(
     name = "docker_utils",
-    actual = "//third_party/crates/docker_utils-0.3.0:docker_utils",
+    actual = "//third_party/crates/docker_utils-0.3.1:docker_utils",
     tags = ["manual"],
 )
 

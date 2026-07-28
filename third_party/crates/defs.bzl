@@ -1033,7 +1033,7 @@ _NORMAL_DEV_DEPENDENCIES = {
     },
     "rust/dgraph-client": {
         _COMMON_CONDITION: {
-            "docker_utils": Label("//third_party/crates/docker_utils-0.3.0:docker_utils"),
+            "docker_utils": Label("//third_party/crates/docker_utils-0.3.1:docker_utils"),
         },
     },
     "rust/edge-onboarding": {

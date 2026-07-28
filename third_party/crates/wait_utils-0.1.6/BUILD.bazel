@@ -17,7 +17,7 @@ cargo_toml_env_vars(
 )
 
 rust_library(
-    name = "der_parser",
+    name = "wait_utils",
     srcs = glob(
         include = ["**/*.rs"],
         allow_empty = False,
@@ -34,17 +34,8 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
-    crate_features = [
-        "bigint",
-        "default",
-        "num-bigint",
-        "std",
-    ],
     crate_root = "src/lib.rs",
-    edition = "2018",
-    proc_macro_deps = [
-        "//third_party/crates/displaydoc-0.2.7:displaydoc",
-    ],
+    edition = "2024",
     rustc_env_files = [
         ":cargo_toml_env_vars",
     ],
@@ -53,7 +44,7 @@ rust_library(
     ],
     tags = [
         "cargo-bazel",
-        "crate-name=der-parser",
+        "crate-name=wait_utils",
         "manual",
         "noclippy",
         "norustfmt",
@@ -101,12 +92,10 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-unknown-uefi": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    version = "10.0.0",
+    version = "0.1.6",
     deps = [
-        "//third_party/crates/asn1-rs-0.7.2:asn1_rs",
-        "//third_party/crates/nom-7.1.3:nom",
-        "//third_party/crates/num-bigint-0.4.8:num_bigint",
-        "//third_party/crates/num-traits-0.2.19:num_traits",
-        "//third_party/crates/rusticata-macros-4.1.0:rusticata_macros",
+        "//third_party/crates/tokio-1.53.1:tokio",
+        "//third_party/crates/tonic-0.14.6:tonic",
+        "//third_party/crates/tonic-health-0.14.6:tonic_health",
     ],
 )
