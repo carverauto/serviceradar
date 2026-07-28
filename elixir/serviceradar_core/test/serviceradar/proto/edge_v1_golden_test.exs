@@ -1111,8 +1111,12 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       assert MtrCompletionDisposition.key(number) == symbol
     end
 
-    # Membership: 6 is the next number, and an undeclared tag falls through the
-    # generated catchall as the integer itself rather than resolving to a symbol.
+    # EXACT membership, not just the six pairs above: a per-pair loop plus a `key(6)`
+    # probe would still pass if a seventh member were declared at any other number.
+    assert MtrCompletionDisposition.mapping() == Map.new(pinned)
+
+    # 6 is the next number, and an undeclared tag falls through the generated
+    # catchall as the integer itself rather than resolving to a symbol.
     assert MtrCompletionDisposition.key(6) == 6
   end
 

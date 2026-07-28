@@ -289,7 +289,14 @@ func TestMtrCompletionDispositionSymbolNumbers(t *testing.T) {
 	}
 	got := edgev1.MtrCompletionDisposition_name
 	if len(got) != len(want) {
-		t.Fatalf("membership drift: generated enum has %d values, want %d (%v)", len(got), len(want), got)
+		t.Fatalf("membership drift: generated enum has %d numbers, want %d (%v)", len(got), len(want), got)
+	}
+	// _name is keyed by NUMBER, so it collapses same-number aliases and would not
+	// notice a second symbol declared at an existing number. _value is keyed by
+	// SYMBOL, so its cardinality is what catches that.
+	if n := len(edgev1.MtrCompletionDisposition_value); n != len(want) {
+		t.Fatalf("membership drift: generated enum has %d symbols, want %d (%v)",
+			n, len(want), edgev1.MtrCompletionDisposition_value)
 	}
 	for number, symbol := range want {
 		if got[number] != symbol {
