@@ -321,8 +321,11 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 	}
 }
 
-// TestVerifyCompletionAgainstPlanState proves the verification is PLAN-aware:
-// the event's own expected/emitted counters cannot decide whether evidence is owed.
+// TestVerifyCompletionAgainstPlanState exercises the comparison PRIMITIVE. It does
+// NOT demonstrate plan-aware verification, and cannot: this test supplies the
+// authoritative values itself, exactly as any caller does, which IS the limitation.
+// What it pins is that GIVEN correct plan state the comparison accepts only the
+// matching proof -- so the primitive is ready for a real carrier (task 1.3) to drive.
 func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 	planRoot := d32domain(0x90)
 	zero32 := make([]byte, 32)
@@ -348,9 +351,10 @@ func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 		t.Fatalf("canonical zero-MTR completion must verify: %v", err)
 	}
 
-	// THE POINT: a producer that self-reports "expected 0" does not get to waive
-	// evidence. The plan says 2 MTR ordinals are owed, so the zero-leaf proof the
-	// event carries is rejected even though the event's own counters agree with it.
+	// The comparison ignores the event's own counters: with the CALLER passing an
+	// expected count of 2, the zero-leaf proof is rejected even though the event's
+	// self-reported counters agree with it. That is a property of the primitive, not
+	// evidence that anything in production sources the 2 from real plan state.
 	bad := ev()
 	bad.ExpectedMtrTraces, bad.EmittedMtrTraces = 0, 0
 	trace := mustUUID(t)
