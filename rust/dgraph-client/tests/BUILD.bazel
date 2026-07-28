@@ -87,6 +87,12 @@ rust_test_suite(
         # CI selector for the acceptance job.
         "acceptance_test",
     ],
+    # Without this the target inherits Bazel's default "moderate" (300s), which has to
+    # cover microVM boot, a cold `docker pull` of dgraph/standalone, and the suite's own
+    # 120s readiness budget. That leaves under three minutes for the pull, which is not a
+    # safe margin on a contended executor. This is only a backstop: the test bounds itself
+    # with READY_TIMEOUT, so a genuine hang still fails in about two minutes, not fifteen.
+    timeout = "long",
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
         normal = True,

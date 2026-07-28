@@ -48,6 +48,31 @@ fn predicates_delegate_to_the_wrapped_error() {
     assert!(!not_ready.is_aborted());
 }
 
+// tonic never delivers a gRPC status for an RPC whose connection broke mid-call, so it
+// synthesises `Unknown: transport error` instead. Callers must be able to tell that apart
+// from a genuine `Unknown` returned by the server, which is not retryable.
+#[test]
+fn transport_failures_are_retryable_however_they_arrive() {
+    assert!(DgraphError::from(ConnectError::Transport("boom".to_string())).is_transport());
+    assert!(DgraphError::from(Status::new(Code::Unavailable, "no route")).is_transport());
+    assert!(DgraphError::from(Status::new(Code::Unknown, "transport error")).is_transport());
+}
+
+#[test]
+fn server_rejections_are_not_transport_failures() {
+    // Same code, real answer from the server: retrying re-asks a question already answered.
+    assert!(!DgraphError::from(Status::new(Code::Unknown, "schema is invalid")).is_transport());
+    assert!(!DgraphError::from(Status::new(Code::NotFound, "missing")).is_transport());
+    assert!(!DgraphError::from(TransactionError::Finished()).is_transport());
+    assert!(
+        !DgraphError::from(ConnectError::ClusterNotReady(
+            Code::Unavailable,
+            "Please retry".to_string()
+        ))
+        .is_transport()
+    );
+}
+
 #[test]
 fn display_delegates_to_the_wrapped_error() {
     let inner = ConnectionStringError::MissingPort();

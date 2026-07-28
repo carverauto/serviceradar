@@ -51,6 +51,12 @@ impl ConnectError {
         matches!(self.0, ConnectErrorEnum::ClusterNotReady { .. })
     }
 
+    /// Whether the failure was at the transport layer rather than a rejection by the
+    /// server, so the caller may retry against a fresh connection.
+    pub fn is_transport(&self) -> bool {
+        matches!(self.0, ConnectErrorEnum::Transport(_))
+    }
+
     #[allow(non_snake_case)]
     pub fn NoEndpoints() -> Self {
         Self::new(ConnectErrorEnum::NoEndpoints)

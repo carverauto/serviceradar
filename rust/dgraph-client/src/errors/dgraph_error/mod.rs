@@ -62,6 +62,29 @@ impl DgraphError {
         }
     }
 
+    /// Whether the failure was a transport failure rather than a rejection by the server,
+    /// so the caller may retry.
+    ///
+    /// An RPC counts as one in two cases:
+    ///
+    /// - `Unavailable`, gRPC's own "could not reach the server".
+    /// - `Unknown` carrying the message `transport error`. This is not an arbitrary string
+    ///   match: when a connection breaks mid-call the RPC never receives a gRPC status at
+    ///   all, and tonic synthesises exactly this status to stand in for the one that never
+    ///   arrived. Translating it here, once, is what keeps callers from having to match on
+    ///   message text themselves -- the same reasoning that gives "Please retry" its own
+    ///   typed variant.
+    pub fn is_transport(&self) -> bool {
+        match &self.0 {
+            DgraphErrorEnum::Connect(err) => err.is_transport(),
+            DgraphErrorEnum::Rpc { code, message } => {
+                *code == Code::Unavailable
+                    || (*code == Code::Unknown && message.contains("transport error"))
+            }
+            _ => false,
+        }
+    }
+
     #[allow(non_snake_case)]
     pub fn ConnectionString(err: ConnectionStringError) -> Self {
         Self::new(DgraphErrorEnum::ConnectionString(err))
