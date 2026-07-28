@@ -138,6 +138,23 @@ func TestManifestRejectsCrossRecoveryAndOverlap(t *testing.T) {
 		t.Fatalf("cross-page overlap = %v, want ErrManifestSpan", err)
 	}
 
+	// TOUCHING AT A POINT: the next span starts ON the previous span's last sequence.
+	// The rule is `from <= prevThrough`, so this is the exact boundary separating it
+	// from `from < prevThrough`; without this vector, weakening the comparison by one
+	// goes unnoticed. Both within a page and across a page boundary.
+	for _, tc := range []struct {
+		name  string
+		pages [][]*edgev1.EdgeClassificationSpanV1
+	}{
+		{"within a page", [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 1, 5), activeSpan(t, 5, 10)}}},
+		{"across a page boundary", [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 1, 5)}, {activeSpan(t, 5, 10)}}},
+	} {
+		pages := buildManifest(t, mustUUID(t), tc.pages)
+		if err := ValidateManifestChain(pages, nil); !errors.Is(err, ErrManifestSpan) {
+			t.Fatalf("touching at a point (%s) = %v, want ErrManifestSpan", tc.name, err)
+		}
+	}
+
 	// Lost sequence 0 (lane sequences start at 1) is rejected.
 	c := buildManifest(t, mustUUID(t), [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 0, 5)}})
 	if err := ValidateManifestChain(c, nil); !errors.Is(err, ErrManifestSpan) {
