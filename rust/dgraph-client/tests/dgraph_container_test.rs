@@ -4,8 +4,7 @@
 
 //! Acceptance tests against a real Dgraph.
 //!
-//! Starts a `dgraph/standalone` container with `docker_utils` and drives the client
-//! against it, so a working Docker daemon is required.
+//! Starts a `dgraph/standalone` container with `docker_utils` and tests the client.
 //!
 //! ```bash
 //! cargo test -p dgraph-client -- --ignored
