@@ -744,8 +744,24 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       b = load("manifest_page_overbudget_b.bin")
       limit = RecoveryValidate.limits().max_manifest_bytes
 
-      # (1) the DECODED pair is a valid chain
-      pages = Enum.map([a, b], &EdgeLossManifestPageV1.decode/1)
+      # (1) the DECODED pair is a valid chain -- decoded through the REAL ingress
+      # stage, not the generated decoder.
+      #
+      # EdgeLossManifestPageV1.decode/1 bypasses WireDecode/WireValidate entirely. That
+      # matters here because the aggregate bound is checked BEFORE any decode: a
+      # regression making either padded page :poison at the preflight would still
+      # produce {:error, :manifest_bounds} for the pair, and the per-page controls
+      # below only REFUTE the bounds error, which :poison satisfies. Asserting {:ok, _}
+      # from the stage is what pins that these bytes are genuinely admissible and the
+      # rejection is the aggregate alone.
+      pages =
+        Enum.map([a, b], fn raw ->
+          assert {:ok, page} = WireDecode.decode_manifest_page(raw),
+                 "each padded page must pass the ingress preflight, or the bounds " <>
+                   "rejection is not attributable to the aggregate"
+
+          page
+        end)
 
       assert :ok = RecoveryValidate.manifest_chain(pages, HashGrammar.manifest_root(pages)),
              "the decoded pair must be a VALID chain, or the bounds rejection is not " <>
