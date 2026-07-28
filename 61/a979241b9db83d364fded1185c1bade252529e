@@ -1,0 +1,24 @@
+docker/Dockerfile.rbe
+  s_1243381eb5fb18::t_d632bec4a4c37a 24-30
+  s_1243381eb5fb18::t_dfd09d599f4186 149-169,171
+  s_1243381eb5fb18::t_33eb35db383e42 170
+k8s/buildbuddy/values.yaml
+  s_1243381eb5fb18::t_1df3fb360b32f7 62-71
+  s_1243381eb5fb18::t_5a7e47297b16c9 59,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "61a979241b9db83d364fded1185c1bade252529e",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
