@@ -1,0 +1,45 @@
+buildbuddy.yaml
+  s_1243381eb5fb18::t_36a02092696fc4 20
+build/platforms/BUILD.bazel
+  s_1243381eb5fb18::t_36a02092696fc4 159,181
+k8s/buildbuddy/deploy.sh
+  s_1243381eb5fb18::t_6845eb947da328 10-21
+docker/Dockerfile.rbe
+  s_1243381eb5fb18::t_e49f70dfc3e779 24-30
+  s_1243381eb5fb18::t_521119bdf6eff9 114-123
+  s_1243381eb5fb18::t_aef807ac57d99a 70-74
+  s_1243381eb5fb18::t_844eeb3917a6a7 69
+build/rbe/BUILD
+  s_1243381eb5fb18::t_36a02092696fc4 15
+docker/Dockerfile.rbe-ora9
+  s_1243381eb5fb18::t_c734cf3b4cd169 74-77
+MODULE.bazel
+  s_1243381eb5fb18::t_36a02092696fc4 252
+k8s/buildbuddy/README.md
+  s_1243381eb5fb18::t_41ec184e32994d 175,179,184,187-188
+  s_1243381eb5fb18::t_eb5393e2c80acc 94-102
+  s_1243381eb5fb18::t_ca836657f0ff52 189
+  s_1243381eb5fb18::t_de528ede55f615 22,26
+BUILD.bazel
+  s_1243381eb5fb18::t_36a02092696fc4 52
+MODULE.bazel.lock
+  s_1243381eb5fb18::t_a988d65e1b9f30 6004,6010
+k8s/buildbuddy/values.yaml
+  s_1243381eb5fb18::t_fba1a470381b46 18,22,75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "d370e3b51e6a2f56b67e6f2d66e2ace070844075",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
