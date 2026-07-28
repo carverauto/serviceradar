@@ -324,10 +324,17 @@ defmodule ServiceRadar.Edge.HashGrammar do
   root, mirroring `MtrCompletionAccumulator.Root`. Fails when the leaf ordinals do
   not form exactly {1..expected} -- e.g. {2,2,2} for expected 3, which count+sum
   cannot detect.
+
+  `expected == 0` is LEGAL and is the plan that admits NO MTR targets: it requires
+  EXACTLY the canonical zero-leaf proof -- no leaves, all accumulators the 32-byte
+  zero value, `commitment` the 32 ZERO bytes of the empty-set multiset hash (never
+  empty bytes), and the ordinary root framing bound to `plan_root`. It is not a
+  licence to omit the proof: a COMPLETED event always carries one, so missing
+  evidence can never masquerade as empty work.
   """
   @spec mtr_completion_verify(
           [{non_neg_integer(), integer(), binary() | nil, binary()}],
-          pos_integer(),
+          non_neg_integer(),
           binary(),
           binary()
         ) ::
@@ -336,7 +343,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
     # Count-first bounds (mirrors Go) BEFORE the O(expected) canonical pass, then
     # per-leaf validation, then exact-set coverage + ordinal->range membership.
     cond do
-      not (is_integer(expected) and expected >= 1 and expected <= @max_mtr_ordinals) -> :error
+      not (is_integer(expected) and expected >= 0 and expected <= @max_mtr_ordinals) -> :error
       not (is_binary(plan_root) and byte_size(plan_root) == 32) -> :error
       not (is_binary(commitment) and byte_size(commitment) == 32) -> :error
       length(leaves) != expected -> :error
@@ -349,8 +356,14 @@ defmodule ServiceRadar.Edge.HashGrammar do
     ordinal_acc =
       Enum.reduce(leaves, <<0::256>>, fn {ord, _, _, _}, acc -> add256(acc, ordinal_hash(ord)) end)
 
+    # `1..expected//1`, NOT `1..expected`. At expected == 0 an unstepped `1..0` is a
+    # DESCENDING range that iterates [1, 0], so the canonical accumulator would fold
+    # two ordinal hashes for a completion that has none -- it would not merely be
+    # wrong, it would reject every valid zero-MTR proof while accepting nothing. The
+    # explicit step makes the range empty exactly when there is nothing to cover.
+    # Go's `for i := 1; i <= expected; i++` is naturally empty here; Elixir is not.
     canonical =
-      Enum.reduce(1..expected, <<0::256>>, fn i, acc -> add256(acc, ordinal_hash(i)) end)
+      Enum.reduce(1..expected//1, <<0::256>>, fn i, acc -> add256(acc, ordinal_hash(i)) end)
 
     member_acc = mtr_ordinal_range_commitment(leaves)
 

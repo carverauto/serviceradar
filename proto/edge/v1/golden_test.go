@@ -1083,6 +1083,28 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		PlanRootSha256:             planRoot, RangeRootSha256: digest32(0x93),
 	})
 
+	// ZERO-MTR terminal: the plan admitted NO MTR targets, so the completion is the
+	// canonical zero-leaf proof rather than an absent one. The commitment is 32 ZERO
+	// bytes, never empty. This is the shared vector Elixir reproduces byte-for-byte.
+	zeroPlanRoot := digest32(0x94)
+	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil)
+	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(zeroPlanRoot, zeroCommitment)
+	if err != nil {
+		t.Fatalf("zero-MTR completion root: %v", err)
+	}
+	golden(t, "lifecycle_zero_mtr.bin", &edgev1.SweepExecutionEventV1{
+		ExecutionId: uuidv7(0x21), ExecutionShard: 3, AssignmentEpoch: 5,
+		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 4, DurableThroughBatchSequence: 4,
+		HostsObserved: 100, HostsAvailable: 60,
+		// No MTR was planned, so every MTR counter is zero -- but the proof is still
+		// present, which is the whole point of the decision.
+		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
+		MtrCompletionDigest:        zeroCompletion,
+		PlanRootSha256:             zeroPlanRoot, RangeRootSha256: digest32(0x95),
+	})
+	goldenBytes(t, "zero_mtr_commitment.bin", zeroCommitment)
+
 	rid := uuidv7(0x80)
 	page := &edgev1.EdgeLossManifestPageV1{
 		RecoveryId: rid, PageIndex: 0, PageCount: 1, Terminal: true, DigestVersion: edgerecord.RecoveryDigestVersion,
@@ -1281,9 +1303,18 @@ func TestGoldenPlan(t *testing.T) {
 	page := &edgev1.ScheduledPlanPageV1{ExecutionPlanId: planID, PageIndex: 0, PageCount: 1, CheckSetSha256: checkSet, DigestVersion: edgerecord.PlanDigestVersion, Ranges: []*edgev1.TargetRangeV1{r}}
 	page.PageSha256 = edgerecord.PlanPageDigest(page)
 	pages := []*edgev1.ScheduledPlanPageV1{page}
+	// This plan ADMITS MTR (the range carries a budget), so the header commits the
+	// (ordinal, range) assignment the completion proof proves membership against. A
+	// plan admitting NO MTR carries 32 ZERO bytes here -- never empty bytes; see
+	// lifecycle_zero_mtr.bin. The field is ALWAYS 32 bytes either way.
+	mtrCommitment := edgerecord.MtrOrdinalRangeCommitment([]edgerecord.MtrCompletionLeaf{
+		{Ordinal: 1, RangeSha256: r.RangeSha256},
+		{Ordinal: 2, RangeSha256: r.RangeSha256},
+	})
 	h := &edgev1.ScheduledPlanHeaderV1{
 		ExecutionPlanId: planID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: edgerecord.PlanRoot(pages),
 		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),
+		MtrOrdinalRangeCommitment: mtrCommitment,
 	}
 	h.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(h)
 	golden(t, "plan_header.bin", h)

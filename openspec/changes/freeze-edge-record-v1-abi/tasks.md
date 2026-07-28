@@ -625,23 +625,29 @@ here.
   `999`. Zero is rejected BEFORE hashing, so an accepted leaf vector for it would
   contradict the normative rule. The numbering is distinct from the per-hop
   `MtrOutcome`.
-  ZERO-MTR (`expected == 0`) IS AN OPEN DECISION, NOT A SELECTION. Two candidates:
-  (A) no completion proof required, `mtr_ordinal_range_commitment` EMPTY, and any
-  computed root over zero leaves (all three 32-byte accumulators zero,
-  `plan_root_sha256` still committed); or (B) a proof always required, with a
-  defined zero-leaf root the accumulator accepts. Choose ONE before writing
-  vectors.
-  BLOCKER, MUST BE RESOLVED BEFORE 1.4/1.15 AND THE 1.7 FREEZE: the zero-MTR
-  behaviour described here CONTRADICTS all three implementations. Verified at this
-  base: `NewMtrCompletionAccumulator` sets an error when `expected == 0`
-  (`go/pkg/edge/edgerecord/domain.go:722`); the Elixir verifier rejects zero
-  (`hash_grammar.ex`); and the Go lifecycle validator requires a 32-byte
-  completion digest, a matching digest version, and 32-byte plan/range roots for
-  EVERY COMPLETED event unconditionally (`domain.go:182-186`), so a COMPLETED
-  sweep with no admitted MTR targets can neither omit a proof nor construct a
-  valid one. Record ONE authoritative behaviour -- candidate (A) with the lifecycle
-  validator relaxed, or candidate (B) -- and add vectors, before
-  either task proceeds. Do NOT freeze the ABI over an unreconciled rule.
+  ZERO-MTR (`expected == 0`) IS DECIDED: candidate (B), a MANDATORY canonical
+  zero-leaf proof, frozen by the requirement "A zero-MTR completion is a mandatory
+  canonical proof, not an absence". Candidate (A) (no proof required,
+  `mtr_ordinal_range_commitment` EMPTY) was REJECTED: it permitted both an absent
+  and a present proof for one state, and rested the choice between them on the
+  event's own producer-reported counters. Under (B) there is ONE representation for
+  every COMPLETED event, so missing evidence can never masquerade as empty work.
+  RESOLVED (was the blocker on 1.4/1.15 and the 1.7 freeze): the contradiction is
+  gone. `NewMtrCompletionAccumulator` now accepts `expected == 0`; the Elixir
+  verifier accepts it; the Go lifecycle validator's unconditional demand for a
+  32-byte digest, matching version, and 32-byte plan/range roots on EVERY COMPLETED
+  event is now CORRECT rather than contradictory, because the zero-MTR case has a
+  proof to carry. `ValidatePlanHeader` additionally requires
+  `mtr_ordinal_range_commitment` to be exactly 32 bytes (32 ZERO bytes when no MTR
+  is admitted, never empty), and `VerifyLifecycleCompletionAgainstPlan` verifies a
+  COMPLETED event against PLAN-DERIVED expected count and commitment rather than the
+  event's self-reported counters. Shared vectors landed: `lifecycle_zero_mtr.bin`
+  and `zero_mtr_commitment.bin`, recomputed byte-for-byte in Elixir.
+  STILL OPEN for this task: the PRODUCER path. Nothing in this repository computes a
+  completion proof today -- `execstate.Tracker` builds lifecycle events and sets only
+  `expected/emitted` counters -- so emitting the zero-leaf proof belongs to the
+  downstream `unify-sweep-results-proto` runtime change, per this task list's scope
+  note. The full per-value shared leaf-vector inventory remains task 1.15.
   UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
   an unsupported-input vector. Add matching field-framed grammar
