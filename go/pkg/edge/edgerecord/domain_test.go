@@ -270,3 +270,38 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 		t.Fatalf("incomplete coverage = %v, want ErrMtrCompletion", err)
 	}
 }
+
+// TestMtrCompletionDispositionIsAClosedSet pins the leaf disposition to the
+// generated enum's declared members. 6 is the next UNALLOCATED number -- the one a
+// later proto revision could declare -- and it must stay rejected until the
+// completion grammar version itself changes, because the leaf grammar is frozen.
+// -1 is only expressible at all because the disposition IS the generated int32
+// enum; the previous local uint32 declaration could not represent it.
+func TestMtrCompletionDispositionIsAClosedSet(t *testing.T) {
+	planRoot := d32domain(0x90)
+	rng := d32domain(0x91)
+
+	for _, disp := range []MtrTerminalDisposition{0, -1, 6, 999} {
+		bad := []MtrCompletionLeaf{{Ordinal: 1, Disposition: disp, RangeSha256: rng}}
+		if _, err := MtrCompletionRoot(bad, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
+			t.Fatalf("disposition %d = %v, want ErrMtrCompletion", disp, err)
+		}
+	}
+
+	trace := mustUUID(t)
+	for _, tc := range []struct {
+		disp  MtrTerminalDisposition
+		trace []byte
+	}{
+		{MtrDispositionTraceAllocated, trace},
+		{MtrDispositionNotAdmitted, nil},
+		{MtrDispositionProbeFailed, nil},
+		{MtrDispositionQuarantined, nil},
+		{MtrDispositionSchedulerLost, nil},
+	} {
+		good := []MtrCompletionLeaf{{Ordinal: 1, Disposition: tc.disp, TraceID: tc.trace, RangeSha256: rng}}
+		if _, err := MtrCompletionRoot(good, 1, planRoot, MtrOrdinalRangeCommitment(good)); err != nil {
+			t.Fatalf("declared member %d rejected: %v", tc.disp, err)
+		}
+	}
+}
