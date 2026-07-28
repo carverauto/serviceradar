@@ -469,28 +469,36 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
     end
 
     test "EVERY decode outcome propagates, including the transient ones" do
-      # Fixed malformed bytes only ever yield :poison, so a suite built on them cannot
-      # tell propagation from a hardcoded :poison -- a mutation collapsing :not_ready
-      # and :systemic into :poison would survive, and those are exactly the outcomes
-      # whose loss is destructive: they mean PAUSE AND REPLAY, not quarantine.
+      # Proven through the PURE normalization helper, not an injected decoder.
       #
-      # The injected decoder makes all four reachable.
-      page = go_page()
-      raw = [IO.iodata_to_binary(EdgeLossManifestPageV1.encode(page))]
-
+      # An injectable decoder would prove the same property while handing callers a
+      # bypass: malformed raw bytes plus `fn _ -> {:ok, valid_page} end` would be
+      # admitted, skipping WireDecode and WireValidate entirely. `propagate_decode/1`
+      # cannot do that -- it decodes nothing and produces no page.
+      #
+      # Fixed malformed bytes only ever yield :poison, so without this the transient
+      # outcomes are unreachable in a test, and :not_ready/:systemic are exactly the
+      # ones whose loss is destructive: they mean PAUSE AND REPLAY, not quarantine.
       for outcome <- [:not_ready, :systemic, :poison, :too_large] do
-        assert {:error, ^outcome} =
-                 RecoveryValidate.manifest_chain_from_raw(raw, nil,
-                   decoder: fn _bytes -> {:error, outcome} end
-                 ),
-               "#{outcome} must propagate verbatim"
+        assert {:error, ^outcome} = RecoveryValidate.propagate_decode({:error, outcome}),
+               "#{outcome} must propagate verbatim, not collapse"
       end
 
-      # And the seam does not change the accept path.
-      assert :ok =
-               RecoveryValidate.manifest_chain_from_raw(raw, HashGrammar.manifest_root([page]),
-                 decoder: fn b -> WireDecode.decode_manifest_page(b) end
-               )
+      # The success side passes the page through untouched.
+      page = go_page()
+      assert {:ok, ^page} = RecoveryValidate.propagate_decode({:ok, page})
+    end
+
+    test "the real API routes decode failures through that helper" do
+      # End-to-end: the hard-wired WireDecode path surfaces its own outcome rather than
+      # a generic chain error. Together with the helper test above, this pins both the
+      # mapping and the fact that the API uses it.
+      malformed = <<0xFF, 0xFF, 0xFF>>
+      assert byte_size(malformed) < RecoveryValidate.limits().max_manifest_bytes
+
+      assert {:error, reason} = WireDecode.decode_manifest_page(malformed)
+      assert {:error, ^reason} = RecoveryValidate.manifest_chain_from_raw([malformed], nil)
+      refute reason == :manifest_chain
     end
 
     test "a single oversize page is rejected before decode" do
@@ -508,6 +516,10 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       # Go's ValidateCanonicalUUID: 16 bytes, version 1..8, RFC variant 10xx, not
       # all-zero. A byte_size-only check accepts every one of these.
       for {name, bad} <- [
+            # The nil UUID is rejected by the VERSION range (its version nibble is 0),
+            # not by the explicit all-zero guard, which is redundant. Listed because
+            # it is the value most likely to be passed by accident, not because it
+            # isolates that guard.
             {"nil UUID", <<0::128>>},
             {"version 0", <<1, 1, 1, 1, 1, 1, 0x0A, 1, 0x8A, 1, 1, 1, 1, 1, 1, 1>>},
             {"version 9", <<1, 1, 1, 1, 1, 1, 0x9A, 1, 0x8A, 1, 1, 1, 1, 1, 1, 1>>},
@@ -560,11 +572,17 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
 
       t = go_tombstone()
 
-      for field <- [:recovery_id, :prior_spool_id, :new_spool_id] do
+      # prior/new spool IDs isolate their call sites: nothing else inspects them.
+      for field <- [:prior_spool_id, :new_spool_id] do
         assert {:error, :tombstone_mismatch} =
                  RecoveryValidate.tombstone(struct!(t, [{field, bad}]), [page]),
                "tombstone.#{field} must be validated"
       end
+
+      # recovery_id does NOT isolate its call site: a bad value is also caught by
+      # manifest validation and by the final tombstone/manifest ID equality, so this
+      # asserts the OUTCOME rather than proving the tombstone's own check runs.
+      assert {:error, _} = RecoveryValidate.tombstone(%{t | recovery_id: bad}, [page])
     end
 
     test "the UUIDv7 VARIANT check is load-bearing, not just the version nibble" do
