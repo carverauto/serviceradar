@@ -54,6 +54,12 @@ extraVolumeMounts:
 
 config:
   executor:
+    # Makes goinit pass -enable_rootfs, so the guest mounts a single ext4 root
+    # instead of overlayfs-over-ext4. Required for Docker-in-Firecracker: on an
+    # overlayfs root, docker's overlay2 driver is nested and cannot set
+    # trusted.overlay.opaque, so any image with an opaque dir fails to extract
+    # ("failed to convert whiteout file ... operation not supported").
+    enable_local_snapshot_sharing: true
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
