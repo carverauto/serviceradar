@@ -9,6 +9,10 @@ package(default_visibility = ["//visibility:public"])
 # crate_universe deps.
 rust_binary(
     name = "serviceradar-otel-addon",
+    exec_properties = {
+        "EstimatedCPU": "4",
+        "EstimatedMemory": "8Gi",
+    },
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     deps = all_crate_deps(normal = True) + [

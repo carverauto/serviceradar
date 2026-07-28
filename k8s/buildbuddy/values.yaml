@@ -15,11 +15,11 @@ resources:
   requests:
     cpu: "8"
     memory: "16Gi"
-    ephemeral-storage: "20Gi"
+    ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 affinity:
   nodeAffinity:

@@ -114,6 +114,16 @@ RUN curl -fsSL http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1
 
 RUN ln -sf /usr/sbin/iptables /usr/bin/iptables
 
+# Fail the image build rather than the microVM if Docker went missing. The guest
+# init resolves these against its own hardcoded PATH, not the image ENV, so they
+# must live under /usr/bin (where the docker-ce packages install them).
+RUN docker --version && dockerd --version && docker buildx version \
+    && test -x /usr/bin/docker && test -x /usr/bin/dockerd
+
+# Note: do NOT ship /etc/docker/daemon.json here. The Firecracker guest init
+# overwrites it from MMDS on every boot; registry mirrors and insecure registries
+# are configured on the executor via --executor.firecracker_vm_docker_* flags.
+
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Provide the common RHEL-style lib64 path expected by some build scripts.
