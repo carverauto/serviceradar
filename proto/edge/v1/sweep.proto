@@ -359,8 +359,137 @@ message SweepExecutionEventV1 {
   uint32 mtr_completion_digest_version = 17; // algorithm/version of the proof
   bytes mtr_completion_digest = 18;          // order-independent plan-order proof
   bytes plan_root_sha256 = 19;               // plan root the proof composes over
-  bytes range_root_sha256 = 20;              // range root the proof composes over
+  // RETIRED (tag 20, `range_root_sha256`). It had no producer, no consumer, and no
+  // definition in either runtime -- only a length check -- so nothing could say what
+  // it was a root OF. More importantly, an assignment's range binding MUST NOT be a
+  // SELF-REPORTED LIFECYCLE FIELD: the producer emits this event, so a range root it
+  // asserts about itself proves nothing. Per-range binding is already proven by the
+  // completion proof's member accumulator against an authoritative commitment. If
+  // multi-range assignments arrive, their range-set commitment is defined on the
+  // AUTHORITATIVE ASSIGNMENT RECORD, which the scheduler writes.
+  reserved 20;
+  reserved "range_root_sha256";
   string abort_reason = 21;
+}
+
+// SweepMtrExpectationV1 is the AUTHORITATIVE MTR expectation for one assignment
+// attempt: how many MTR ordinals were admitted, and the commitment their
+// (ordinal, range_sha256) assignment folds to. It is ONE required submessage on
+// purpose -- a count without its commitment, or a commitment without its count, is
+// half a check, and the completion proof needs both.
+//
+// The count is CARRIED, never DERIVED. Each tempting derivation fails for its own
+// reason, and all three have been rejected:
+//   * from the lifecycle event -- producer-SELF-REPORTED, which is the hole the
+//     mandatory-completion-proof rule exists to close;
+//   * from `ordinal_range_commitment` -- an additive multiset hash is NOT
+//     INVERTIBLE; no count can be recovered from it;
+//   * from `TargetRangeV1.mtr_admission_budget` -- a CEILING, not an exact count.
+message SweepMtrExpectationV1 {
+  // Admitted MTR ordinals for this assignment. 0 is LEGAL and means the assignment
+  // admits no MTR targets; it then requires the canonical zero-leaf completion
+  // proof, never an omitted one.
+  uint64 ordinal_count = 1;
+  // The (ordinal, range_sha256) additive multiset commitment. ALWAYS exactly 32
+  // bytes; 32 ZERO bytes -- the empty-set hash -- when ordinal_count is 0, never
+  // empty bytes.
+  bytes ordinal_range_commitment = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative assignment record (append-only, SCHEDULER-authored)
+// ---------------------------------------------------------------------------
+
+// SweepAssignmentState is the scheduler's view of one assignment attempt. The
+// non-OPEN members are TERMINAL. LOST, EXPIRED, and SUPERSEDED are the three the
+// producer can never author for itself -- a crashed agent emits nothing, an expired
+// lease is a clock fact the holder cannot attest, and being superseded is a
+// statement about a DIFFERENT attempt -- which is why this record is authored by
+// the scheduler and is the authority a producer's own lifecycle event is not.
+enum SweepAssignmentState {
+  SWEEP_ASSIGNMENT_STATE_UNSPECIFIED = 0;
+  SWEEP_ASSIGNMENT_STATE_OPEN = 1;
+  SWEEP_ASSIGNMENT_STATE_COMPLETED = 2;
+  SWEEP_ASSIGNMENT_STATE_ABORTED = 3;
+  SWEEP_ASSIGNMENT_STATE_LOST = 4;
+  SWEEP_ASSIGNMENT_STATE_EXPIRED = 5;
+  SWEEP_ASSIGNMENT_STATE_SUPERSEDED = 6;
+}
+
+// SweepAssignmentRecordV1 is the APPEND-ONLY authoritative record of one
+// assignment attempt, authored by the scheduler. It is the counterpart to
+// `SweepExecutionEventV1`: the event is what the PRODUCER says it did, this is what
+// the SCHEDULER authorized and observed. Every field a consumer must not take on
+// the producer's word lives here.
+//
+// Append-only means a state change is a NEW record with a higher
+// `record_sequence`, never an edit: an authority that can be rewritten cannot
+// settle a dispute about what was authorized.
+message SweepAssignmentRecordV1 {
+  // --- identity -----------------------------------------------------------
+  // producer_assignment_id is the SAME identifier an attributed span carries, and
+  // is NOT assumed globally unique -- it is unique within the trust namespace
+  // (network_scope_id, authenticated_agent_id) below, which is exactly why the
+  // assignment mapping's key names that namespace explicitly.
+  bytes producer_assignment_id = 1;
+  bytes execution_id = 2;
+  bytes execution_plan_id = 3;      // UUIDv7
+  bytes execution_plan_sha256 = 4;  // the header self-hash this attempt was cut from
+  uint32 execution_shard = 5;
+  uint64 assignment_epoch = 6;
+  // record_sequence orders the append-only series for ONE producer_assignment_id,
+  // starting at 1 and strictly increasing. It is not a batch sequence.
+  uint64 record_sequence = 7;
+  int64 authored_at_unix_nano = 8;
+
+  // --- covered ranges -----------------------------------------------------
+  // range_set_commitment is the additive multiset commitment over the
+  // `range_sha256` of every range THIS assignment covers. ALWAYS exactly 32 bytes;
+  // 32 ZERO bytes when the assignment covers no ranges. It lives here rather than
+  // on the lifecycle event because a range binding a producer asserts about itself
+  // proves nothing -- see the retired `range_root_sha256` (tag 20).
+  //
+  // Today an assignment covers exactly one range and `target_range_id` names it;
+  // the commitment is defined over a SET so a multi-range assignment needs no new
+  // field and no grammar change.
+  bytes range_set_commitment = 9;
+  bytes target_range_id = 10;  // single-range assignments; empty when multi-range
+
+  // --- lease / fence ------------------------------------------------------
+  // The fence token is monotonic per assignment identity: a holder presenting a
+  // lower token than the recorded one has been fenced and its writes are stale.
+  bytes lease_id = 11;
+  uint64 fence_token = 12;
+  int64 lease_expires_at_unix_nano = 13;
+
+  // --- state --------------------------------------------------------------
+  SweepAssignmentState state = 14;
+  // Set ONLY when state is SUPERSEDED, and names the attempt that replaced this
+  // one, so a reader can follow the chain without scanning.
+  bytes superseded_by_assignment_id = 15;
+  // Terminal evidence interval this attempt closed. 0 means an empty interval.
+  uint64 terminal_batch_sequence = 16;
+
+  // --- authoritative expectation -----------------------------------------
+  // REQUIRED on every record. This is the authority a completion proof verifies
+  // against; the producer's own `expected_mtr_*` counters are corroboration, never
+  // the source. Absent is NOT the same as zero: zero is an assignment that admits
+  // no MTR and still owes the canonical zero-leaf proof, while absent is a record
+  // that failed to state its expectation at all and SHALL be rejected.
+  SweepMtrExpectationV1 mtr_expectation = 17;
+
+  // --- configuration identity --------------------------------------------
+  bytes check_set_sha256 = 18;
+  bytes availability_policy_id = 19;
+
+  // --- authorization ------------------------------------------------------
+  // (network_scope_id, authenticated_agent_id) is the trust namespace the
+  // assignment mapping's key names.
+  bytes network_scope_id = 20;
+  bytes authenticated_agent_id = 21;
+  bytes production_scope_id = 22;
+  bytes scope_sha256 = 23;
+  bytes contract_bundle_sha256 = 24;
 }
 
 // ---------------------------------------------------------------------------
