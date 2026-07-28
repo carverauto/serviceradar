@@ -132,6 +132,33 @@ defmodule Serviceradar.Edge.V1.MtrOutcome do
   field :MTR_OUTCOME_SCHEDULER_LOST, 7
 end
 
+defmodule Serviceradar.Edge.V1.MtrCompletionDisposition do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.MtrCompletionDisposition",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :MTR_COMPLETION_DISPOSITION_UNSPECIFIED, 0
+  field :MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED, 1
+  field :MTR_COMPLETION_DISPOSITION_NOT_ADMITTED, 2
+  field :MTR_COMPLETION_DISPOSITION_PROBE_FAILED, 3
+  field :MTR_COMPLETION_DISPOSITION_QUARANTINED, 4
+  field :MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST, 5
+end
+
 defmodule Serviceradar.Edge.V1.SweepExecutionSource do
   @moduledoc false
 

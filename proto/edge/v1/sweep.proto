@@ -83,6 +83,39 @@ enum MtrOutcome {
   MTR_OUTCOME_SCHEDULER_LOST = 7;
 }
 
+// MtrCompletionDisposition is the terminal state of ONE PLANNED MTR ordinal in
+// the completion proof, and this is its SOLE declaration. Every runtime is a
+// consumer: the Go `MtrTerminalDisposition` constants and the Elixir completion
+// guards reference these generated values rather than restating the numbering.
+//
+// This is not tidiness. The number is hashed INTO the frozen completion leaf
+// preimage (`MtrCompletionDigestVersion = 2`), so the numbering is part of the
+// digest grammar -- two implementations that disagree by one produce two
+// different completion roots for the same completion, and the disagreement
+// surfaces as an unexplained proof mismatch rather than as a compile error.
+//
+// DISTINCT from the per-hop `MtrOutcome` above, whose numbering it SHALL NOT
+// reuse: they describe different things -- what happened to a planned MTR
+// ordinal versus what a probe observed at a hop -- and collapsing them would
+// make the frozen leaf grammar depend on an enum that evolves for unrelated
+// reasons. "SHALL NOT reuse" is about the MAPPING, not the number space: both
+// enums allocate small integers and `PROBE_FAILED = 3` happens to coincide, but
+// `NOT_ADMITTED` is 2 here and 5 there. Never read one enum's value through the
+// other.
+//
+// The set is CLOSED at the leaf: zero, negative, and unknown-positive values are
+// rejected BEFORE the value is widened to u64 and hashed, and a value declared
+// in a LATER proto revision stays rejected until the completion grammar version
+// itself changes. `TRACE_ALLOCATED` is the ONLY value carrying a `trace_id`.
+enum MtrCompletionDisposition {
+  MTR_COMPLETION_DISPOSITION_UNSPECIFIED = 0;
+  MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED = 1;
+  MTR_COMPLETION_DISPOSITION_NOT_ADMITTED = 2;
+  MTR_COMPLETION_DISPOSITION_PROBE_FAILED = 3;
+  MTR_COMPLETION_DISPOSITION_QUARANTINED = 4;
+  MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST = 5;
+}
+
 // SweepExecutionSource names what produced an observation. It covers sweep
 // executions (scheduled sweep, sweep profile) and the non-sweep MTR producers
 // (scheduled MTR check, ad-hoc scan, on-demand command). `SCHEDULED_CHECK` is

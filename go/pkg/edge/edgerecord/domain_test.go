@@ -270,3 +270,98 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 		t.Fatalf("incomplete coverage = %v, want ErrMtrCompletion", err)
 	}
 }
+
+// TestMtrCompletionDispositionSymbolNumbers pins each SYMBOL to its exact NUMBER,
+// and pins the membership to exactly six values. The closed-set test below proves
+// only which NUMBERS are accepted, so swapping two valid members -- QUARANTINED=4
+// and SCHEDULER_LOST=5 -- would leave it green while changing which meaning is
+// hashed at those numbers, and the completion root for a quarantined ordinal would
+// silently become the root for a scheduler-lost one. The number is part of the
+// digest grammar, so the symbol->number pair is what has to be frozen, not the set.
+func TestMtrCompletionDispositionSymbolNumbers(t *testing.T) {
+	want := map[int32]string{
+		0: "MTR_COMPLETION_DISPOSITION_UNSPECIFIED",
+		1: "MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED",
+		2: "MTR_COMPLETION_DISPOSITION_NOT_ADMITTED",
+		3: "MTR_COMPLETION_DISPOSITION_PROBE_FAILED",
+		4: "MTR_COMPLETION_DISPOSITION_QUARANTINED",
+		5: "MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST",
+	}
+	got := edgev1.MtrCompletionDisposition_name
+	if len(got) != len(want) {
+		t.Fatalf("membership drift: generated enum has %d numbers, want %d (%v)", len(got), len(want), got)
+	}
+	// _name is keyed by NUMBER, so it collapses same-number aliases and would not
+	// notice a second symbol declared at an existing number. _value is keyed by
+	// SYMBOL, so its cardinality is what catches that.
+	if n := len(edgev1.MtrCompletionDisposition_value); n != len(want) {
+		t.Fatalf("membership drift: generated enum has %d symbols, want %d (%v)",
+			n, len(want), edgev1.MtrCompletionDisposition_value)
+	}
+	for number, symbol := range want {
+		if got[number] != symbol {
+			t.Errorf("number %d maps to %q, want %q", number, got[number], symbol)
+		}
+		// Comma-ok, not a bare index: a MISSING entry reads back as 0, which is the
+		// expected value for UNSPECIFIED, so a bare lookup would prove nothing for it.
+		n, ok := edgev1.MtrCompletionDisposition_value[symbol]
+		if !ok {
+			t.Errorf("symbol %q is absent from the generated value map", symbol)
+		} else if n != number {
+			t.Errorf("symbol %q maps to %d, want %d", symbol, n, number)
+		}
+	}
+
+	// The Go-side aliases must carry the same numbers, so a constant repointed at a
+	// different generated member is caught here rather than in a proof mismatch.
+	for _, tc := range []struct {
+		disp MtrTerminalDisposition
+		want int32
+	}{
+		{MtrDispositionUnspecified, 0},
+		{MtrDispositionTraceAllocated, 1},
+		{MtrDispositionNotAdmitted, 2},
+		{MtrDispositionProbeFailed, 3},
+		{MtrDispositionQuarantined, 4},
+		{MtrDispositionSchedulerLost, 5},
+	} {
+		if int32(tc.disp) != tc.want {
+			t.Errorf("alias %v = %d, want %d", tc.disp, int32(tc.disp), tc.want)
+		}
+	}
+}
+
+// TestMtrCompletionDispositionIsAClosedSet pins the leaf disposition to the
+// generated enum's declared members. 6 is the next UNALLOCATED number -- the one a
+// later proto revision could declare -- and it must stay rejected until the
+// completion grammar version itself changes, because the leaf grammar is frozen.
+// -1 is only expressible at all because the disposition IS the generated int32
+// enum; the previous local uint32 declaration could not represent it.
+func TestMtrCompletionDispositionIsAClosedSet(t *testing.T) {
+	planRoot := d32domain(0x90)
+	rng := d32domain(0x91)
+
+	for _, disp := range []MtrTerminalDisposition{0, -1, 6, 999} {
+		bad := []MtrCompletionLeaf{{Ordinal: 1, Disposition: disp, RangeSha256: rng}}
+		if _, err := MtrCompletionRoot(bad, 1, planRoot, MtrOrdinalRangeCommitment(bad)); !errors.Is(err, ErrMtrCompletion) {
+			t.Fatalf("disposition %d = %v, want ErrMtrCompletion", disp, err)
+		}
+	}
+
+	trace := mustUUID(t)
+	for _, tc := range []struct {
+		disp  MtrTerminalDisposition
+		trace []byte
+	}{
+		{MtrDispositionTraceAllocated, trace},
+		{MtrDispositionNotAdmitted, nil},
+		{MtrDispositionProbeFailed, nil},
+		{MtrDispositionQuarantined, nil},
+		{MtrDispositionSchedulerLost, nil},
+	} {
+		good := []MtrCompletionLeaf{{Ordinal: 1, Disposition: tc.disp, TraceID: tc.trace, RangeSha256: rng}}
+		if _, err := MtrCompletionRoot(good, 1, planRoot, MtrOrdinalRangeCommitment(good)); err != nil {
+			t.Fatalf("declared member %d rejected: %v", tc.disp, err)
+		}
+	}
+}

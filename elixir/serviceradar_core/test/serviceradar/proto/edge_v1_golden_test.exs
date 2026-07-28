@@ -25,6 +25,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+  alias Serviceradar.Edge.V1.MtrCompletionDisposition
   alias Serviceradar.Edge.V1.MtrTraceBatchV1
   alias Serviceradar.Edge.V1.RecoveryResolvedV1
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
@@ -1090,6 +1091,35 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert host.first_seen_delta_nano == nil
   end
 
+  test "MTR completion disposition symbols are pinned to their exact numbers" do
+    # The closed-set vectors below prove only which NUMBERS are accepted, so
+    # swapping two valid members -- QUARANTINED=4 and SCHEDULER_LOST=5 -- would
+    # leave them green while changing which meaning is hashed at those numbers.
+    # The number is part of the digest grammar, so the symbol->number PAIR is what
+    # must be frozen. Mirrors Go's TestMtrCompletionDispositionSymbolNumbers.
+    pinned = [
+      {:MTR_COMPLETION_DISPOSITION_UNSPECIFIED, 0},
+      {:MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED, 1},
+      {:MTR_COMPLETION_DISPOSITION_NOT_ADMITTED, 2},
+      {:MTR_COMPLETION_DISPOSITION_PROBE_FAILED, 3},
+      {:MTR_COMPLETION_DISPOSITION_QUARANTINED, 4},
+      {:MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST, 5}
+    ]
+
+    for {symbol, number} <- pinned do
+      assert MtrCompletionDisposition.value(symbol) == number
+      assert MtrCompletionDisposition.key(number) == symbol
+    end
+
+    # EXACT membership, not just the six pairs above: a per-pair loop plus a `key(6)`
+    # probe would still pass if a seventh member were declared at any other number.
+    assert MtrCompletionDisposition.mapping() == Map.new(pinned)
+
+    # 6 is the next number, and an undeclared tag falls through the generated
+    # catchall as the integer itself rather than resolving to a symbol.
+    assert MtrCompletionDisposition.key(6) == 6
+  end
+
   test "lifecycle terminal carries an MTR completion proof Elixir recomputes" do
     ev = SweepExecutionEventV1.decode(load("lifecycle.bin"))
     assert ev.kind == :SWEEP_EXECUTION_EVENT_KIND_COMPLETED
@@ -1103,12 +1133,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     commitment = HashGrammar.mtr_ordinal_range_commitment(leaves)
 
-    assert HashGrammar.mtr_completion_root(leaves, 2, ev.plan_root_sha256, commitment) ==
-             ev.mtr_completion_digest
-
-    # Exact-set coverage + membership parity: the valid set verifies; the invalid
-    # vectors Go rejects are rejected here too.
-    assert {:ok, _} =
+    # Byte parity with the Go-emitted digest AND exact-set coverage + membership,
+    # in one call: there is no unvalidated Elixir hasher to check the bytes with,
+    # exactly as Go exports no unvalidated `MtrCompletionRoot`.
+    assert {:ok, ev.mtr_completion_digest} ==
              HashGrammar.mtr_completion_verify(leaves, 2, ev.plan_root_sha256, commitment)
 
     rng = digest32(0x93)
@@ -1138,6 +1166,27 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 1, root, c1)
     assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 1, root, c1)
     assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 1, <<0>>, c1)
+
+    # The disposition is a CLOSED set: 0, -1, 6 (the next unallocated number, i.e.
+    # one a LATER proto revision could declare) and 999 are all rejected BEFORE the
+    # value is widened to u64 and hashed. Every valid member is accepted, so the
+    # closure is proven against the generated enum rather than against a literal.
+    for disp <- [0, -1, 6, 999] do
+      assert :error =
+               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 1, root, c1),
+             "disposition #{disp} must be rejected by the frozen leaf grammar"
+    end
+
+    for {disp, trace} <- [{1, uuidv7(0x30)}, {2, nil}, {3, nil}, {4, nil}, {5, nil}] do
+      assert {:ok, _} =
+               HashGrammar.mtr_completion_verify(
+                 [{1, disp, trace, rng}],
+                 1,
+                 root,
+                 HashGrammar.mtr_ordinal_range_commitment([{1, disp, trace, rng}])
+               ),
+             "disposition #{disp} is a declared member and must be accepted"
+    end
   end
 
   test "the lane-open ack round-trips byte-identically through the Elixir encoder" do
