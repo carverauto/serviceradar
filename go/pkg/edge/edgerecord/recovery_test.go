@@ -501,6 +501,36 @@ func TestAggregateReceivedByteBound(t *testing.T) {
 	}
 }
 
+// The aggregate bound is checked BEFORE any decode.
+//
+// A malformed page followed by one that pushes the AGGREGATE over the cap: if the
+// implementation interleaved bounding and decoding, the malformed page would fail to
+// unmarshal first and report ErrManifestChain, masking the budget violation. Bounding
+// first makes ErrManifestBounds the only possible verdict.
+//
+// The interleaving bug was real and was found during development, but nothing in the
+// committed suite pinned it until now -- so this regression exists to keep the
+// ordering, not merely to have observed it once.
+func TestAggregateBoundPrecedesDecode(t *testing.T) {
+	malformed := []byte{0xFF, 0xFF, 0xFF}
+	big := bytes.Repeat([]byte{0x40, 0x01}, (MaxManifestBytes+1-len(malformed))/2)
+
+	if len(malformed)+len(big) <= MaxManifestBytes {
+		t.Fatalf("inputs total %d, must exceed %d for this test to isolate the ordering",
+			len(malformed)+len(big), MaxManifestBytes)
+	}
+	// The malformed page must genuinely be undecodable, or the test proves nothing.
+	var probe edgev1.EdgeLossManifestPageV1
+	if err := proto.Unmarshal(malformed, &probe); err == nil {
+		t.Fatal("the malformed page decoded; it cannot demonstrate decode-before-bound")
+	}
+
+	if err := ValidateManifestChainFromRaw([][]byte{malformed, big}, nil); !errors.Is(err, ErrManifestBounds) {
+		t.Fatalf("aggregate over budget with a malformed first page = %v, want ErrManifestBounds "+
+			"(a chain error means decoding ran before the budget was checked)", err)
+	}
+}
+
 func TestTombstoneMustReconcile(t *testing.T) {
 	rid := mustUUID(t)
 	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 10, 20)}})
