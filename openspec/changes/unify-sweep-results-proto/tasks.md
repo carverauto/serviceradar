@@ -274,9 +274,14 @@
   and aborted evidence, with each data frame independently decodable and useful;
   integrate scheduler lease recovery so an agent crash produces authoritative
   lost/expired/superseded attempt state and retriable remaining coverage.
+- [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
+  assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
+  array in config, command, agent memory, or terminal evidence.
 - [ ] 2.3b **Produce the MTR completion proof in `go/pkg/edge/execstate`, and
-  verify it against real plan state.** OWNS the producer half the ABI change
-  deliberately did not land. Today `execstate.Tracker` builds every lifecycle event
+  verify it against real plan state.** DEPENDS ON 2.3a, which fetches, validates and caches the
+  bounded immutable plan pages -- that IS the validated plan state this task folds
+  over and verifies against, so it cannot start first. OWNS the producer half the
+  ABI change deliberately did not land. Today `execstate.Tracker` builds every lifecycle event
   but NEVER touches the completion accumulator -- it sets only the
   `expected_mtr_*`/`emitted_mtr_*` counters -- so no COMPLETED event this repository
   produces carries a real proof.
@@ -297,9 +302,6 @@
   zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte commitment.
   Both are plan-derived relations with no authoritative source until 1.3.
 
-- [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
-  assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
-  array in config, command, agent memory, or terminal evidence.
 - [ ] 2.4 Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives
   restart without overwriting unacknowledged data; cover record/tail checksums,
