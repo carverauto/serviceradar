@@ -1,0 +1,33 @@
+buildbuddy.yaml
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 20
+k8s/buildbuddy/README.md
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 175
+BUILD.bazel
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 52
+build/platforms/BUILD.bazel
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 159,177
+build/rbe/BUILD
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 15
+MODULE.bazel
+  s_1243381eb5fb18::t_c7d560cdfa0f2e 252
+MODULE.bazel.lock
+  s_1243381eb5fb18::t_5af51a5914ae82 6004,6010
+k8s/buildbuddy/values.yaml
+  s_1243381eb5fb18::t_64762bbb748db7 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "23d4121abaf1522ac5a1f3c51cc415f00b43e00c",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
