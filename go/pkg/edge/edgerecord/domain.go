@@ -680,8 +680,10 @@ const MaxMtrCompletionOrdinals = 1 << 31
 // numbering lives ONCE in proto/edge/v1/sweep.proto and is hashed into the frozen
 // leaf preimage below, so restating it here is exactly the hand-maintained
 // numeric parity that lets two runtimes produce different roots for the same
-// completion. Distinct from the per-hop MtrOutcome; it reuses none of its
-// numbers.
+// completion. Distinct from the per-hop MtrOutcome: the two NUMBER SPACES overlap
+// (both allocate 1..5) but the MAPPINGS are independent, so neither enum's
+// numbering constrains the other and the same number means different things in
+// each. Do not read one through the other.
 type MtrTerminalDisposition = edgev1.MtrCompletionDisposition
 
 const (

@@ -814,7 +814,9 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
     end
 
     # These are exactly the fields that slipped through a field-specific-only validator: the
-    # transform makes ALL 16 enums retainable, so the gate must cover the whole graph.
+    # transform makes EVERY edge enum retainable (the pinned inventory in
+    # scripts/patch_edge_enum_negatives.exs, not a fixed count), so the gate must cover the
+    # whole graph.
     test "a negative COMPRESSION is rejected", %{record: record} do
       assert {:error, {:unsupported_enum, [:compression]}} =
                SemanticValidate.validate_record(%{record | compression: -1})

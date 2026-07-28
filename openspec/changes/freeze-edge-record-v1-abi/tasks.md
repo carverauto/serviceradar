@@ -140,14 +140,25 @@ here.
   disposition is now the generated `int32` enum rather than a local `uint32`.
   Elixir's unvalidated `mtr_completion_root/4` was made PRIVATE in the same pass:
   it was the one path by which an unrecognised number could reach the frozen
-  preimage, and Go exports no such hasher. PROVEN by mutation -- renumbering
-  `SCHEDULER_LOST` 5 -> 6 in the proto and regenerating, with NO edit to either
-  runtime, fails Go's `TestMtrCompletionDispositionIsAClosedSet` and Elixir's
-  golden closed-set vectors (both accept `6`); the mutation compiles, so it is a
-  kill and not a failed experiment. Every existing completion golden vector stays
-  byte-identical, so the digest grammar did not move. STILL 1.15: the SHARED
-  cross-language leaf fixture both runtimes read (each asserts the set against its
-  own generated enum today).
+  preimage, and Go exports no such hasher. Each runtime ALSO pins every
+  symbol->number pair and the exact membership
+  (`TestMtrCompletionDispositionSymbolNumbers`; "MTR completion disposition
+  symbols are pinned to their exact numbers"). That pin is not redundant with the
+  closed set: the closed set fixes which NUMBERS are accepted, so SWAPPING two
+  valid members -- `QUARANTINED=4` and `SCHEDULER_LOST=5` -- would leave it green
+  while changing which meaning is hashed at those numbers, and a quarantined
+  ordinal's completion root would silently become a scheduler-lost one's.
+  PROVEN by two mutations, each of which COMPILES (so each is a kill, not a failed
+  experiment), with NO edit to either runtime: renumbering `SCHEDULER_LOST` 5 -> 6
+  fails the closed-set tests in both runtimes, and SWAPPING `QUARANTINED` and
+  `SCHEDULER_LOST` fails the symbol-pin tests in both runtimes while the
+  closed-set tests stay green -- which is exactly why both tests exist. Every
+  existing completion golden vector stays byte-identical, so the digest grammar
+  did not move. STILL 1.15: the SHARED cross-language leaf fixture both runtimes
+  read. Today each runtime pins the mapping against its OWN generated enum, so a
+  divergence is caught only because both generate from one proto -- 1.15 replaces
+  that argument with per-value vectors both runtimes decode (the existing shared
+  goldens exercise dispositions 1 and 2 only).
   1.4 REMAINS UNCHECKED: the disposition sub-target is the CLOSED part. The
   zero-MTR (`expected == 0`) BLOCKER recorded under task 1.15 names 1.4 by name --
   a COMPLETED sweep admitting no MTR targets can today neither omit a completion
@@ -518,7 +529,8 @@ here.
 - [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices.
   SCOPE: item (7) is MOVED OUT to tasks 1.4/1.15 and is NOT delivered here, so no
   statement in this task asserts the generated `MtrCompletionDisposition` enum
-  exists or that the freeze prerequisite it represents is met. Slices:
+  exists or that the freeze prerequisite it represents is met -- task 1.4 has
+  since delivered the enum, but it was never 1.13's to claim. Slices:
   `usp-v2-02-wire-contract` (#4713), `usp-v2-03-ci-harness` (#4714), and
   `usp-v2-04-publication-identity` (#4715). This is a field/schema CANDIDATE (draft PRs,
   reviewable), NOT a frozen/accepted cross-runtime ABI: the freeze/accept gate is task 1.7
@@ -565,10 +577,12 @@ here.
   THE RESTACK SLICES ACTUALLY LISTED ABOVE -- items (1)-(6) and (8); there is no
   item (7), which was moved to tasks 1.4/1.15 -- are IMPLEMENTED with matching
   cross-language Go/Elixir fixtures, so THOSE SLICES no longer block the wire-ABI
-  FREEZE gate. This says nothing about the other freeze prerequisites: the
-  generated `MtrCompletionDisposition` enum (tasks 1.4/1.15), the 1.3
-  assignment-record contract, 1.5's residual clauses, 1.6's version vectors, and
-  1.6a all remain open, and the freeze itself is task 1.7.
+  FREEZE gate. This says nothing about the other freeze prerequisites. Since this
+  paragraph was written, task 1.6a has MERGED (#4764) and the generated
+  `MtrCompletionDisposition` enum has LANDED (task 1.4); what remains open is the
+  1.3 assignment-record contract, 1.5's residual clauses, 1.6's version vectors,
+  the zero-MTR decision, and task 1.15's shared per-value vectors. The freeze
+  itself is task 1.7.
 
 - [x] 1.14 Define and implement the `Sr-Edge-Transport-Provenance` header grammar
   and the service-slot variants of the two publication transcripts, per the frozen

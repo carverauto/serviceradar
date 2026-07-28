@@ -123,8 +123,8 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | --- | --- | --- |
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
-| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: **CANDIDATE, NOT FROZEN** -- task 1.6a atomically rewrites the manifest-page and tombstone-scope grammars, so no recovery entry here may be relied on for cross-language identity until it lands. DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
-| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` is the not-yet-generated `MtrCompletionDisposition` enum (tasks 1.4/1.15) and the zero-MTR behaviour is an open decision. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a transcript. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, but the zero-MTR behaviour remains an open decision and task 1.15 still owes the shared per-value leaf vectors. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
 authorization, merge, or logical-content grammar, and there is no decode ->
@@ -145,8 +145,12 @@ reproducibility aid, not a protocol invariant. WHO encodes, fsyncs, or preserves
 the bytes end to end is runtime.
 
 SCOPE NOTE: this appendix is frozen EXCEPT where an entry is marked a candidate.
-The recovery manifest-page, tombstone-scope, RESOLVED-scope, and MTR-completion
-entries are CANDIDATES until tasks 1.6a and 1.4/1.15 land. "TombstoneScopeDigest
+Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
+RESOLVED-scope entries now describe the shipped transcript), and task 1.4's
+disposition enum is DECLARED. What still holds those entries and the
+MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the two
+OPEN items it carries: the zero-MTR decision and task 1.15's shared per-value
+vectors. "TombstoneScopeDigest
 retired" means the OLD TRANSCRIPT is replaced -- the scope OBJECT itself remains,
 and stays in task 1.6's proof inventory; task 1.7 is the freeze gate and
 carries those prerequisites explicitly. Reading the appendix title as "everything
@@ -326,10 +330,10 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      `total_target_count` (u64), `plan_root_sha256` (bytes), `check_set_sha256` (bytes),
      `availability_policy_id` (bytes), `assignment_epoch` (u64), `network_scope_id` (bytes),
      `mtr_ordinal_range_commitment` (bytes).
-   - **UNFROZEN CANDIDATE — retired atomically by task 1.6a.** The
+   - **RETIRED — replaced atomically by task 1.6a, which has LANDED.** The
      ManifestPageDigest entry below hashes the `lost_ranges` + `affected` pair,
-     which 1.6a replaces with ONE ordered `classification_spans` list. Nothing has
-     shipped against it; 1.6a rewrites this transcript, the page/manifest messages,
+     which 1.6a replaced with ONE ordered `classification_spans` list. Nothing had
+     shipped against it; 1.6a rewrote this transcript, the page/manifest messages,
      every `recovery_grammar_version = 1` reference, both runtimes' validators, and
      all fixtures together. Do NOT implement against the entry below: its
      `coarsened` marker and its `lost_ranges`/`affected` arrays are all RETIRED, and
@@ -354,7 +358,7 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    RecoveryResolvedV1 have NO self-hash field, so these scope digests (not a self-hash) are
    their only grammar:
    - TombstoneScopeDigest (body kind 0) -- the members below are the PRE-1.6a
-     CANDIDATE, retained only to show what changes. Task 1.6a REMOVES
+     transcript, retained only to show what changed. Task 1.6a (LANDED) REMOVED
      `lost_from_sequence`, `lost_through_sequence`, and `coarsened`, because with
      gaps legal the manifest min/max is not the loss and a SIGNED interval would be
      an authenticated second source of truth. THE TARGET TRANSCRIPT IS FROZEN in the
@@ -369,22 +373,26 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - ManifestPageScopeDigest (body kind 1): `version` (u64), `1` (u64), `recovery_id`
      (bytes), `page_sha256` (bytes).
    - ResolvedScopeDigest (body kind 2): `version` (u64), `2` (u64), `recovery_id` (bytes),
-     `manifest_root_sha256` (bytes), `applied_through_sequence` (u64) -- CANDIDATE
-     pending task 1.6a, which freezes this scalar as the consumer's durably applied
-     CONTIGUOUS PREFIX over the allocated sequence space (not the maximum span
-     end); with gaps legal those differ, and the value gates journal release.
+     `manifest_root_sha256` (bytes), `applied_through_sequence` (u64) -- task 1.6a
+     (LANDED) fixed this scalar as the consumer's durably applied CONTIGUOUS PREFIX
+     over the allocated sequence space (not the maximum span end); with gaps legal
+     those differ, and the value gates journal release.
    Go and Elixir (`ServiceRadar.Edge.HashGrammar`) reproduce every self-hash AND scope digest
    byte-for-byte; the committed testdata (`tombstone_scope.bin` / `manifest_page_scope.bin` /
    `resolved_scope.bin` + the plan/manifest `*.bin`) are the cross-language vectors.
-5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`. CANDIDATE MIGRATION
-   TARGET, not a description of the code: the leaf `disposition` becomes the generated
-   `MtrCompletionDisposition` enum (tasks 1.4/1.15), which does NOT exist yet, and the
-   zero-MTR behaviour is an open decision every implementation currently contradicts.
-   It therefore does NOT "match the code exactly", and it supersedes rather than
-   matches #4713's local declarations. Framing below
+5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`. The leaf
+   `disposition` IS the generated `MtrCompletionDisposition` enum (task 1.4, landed):
+   it is declared once in `proto/edge/v1/sweep.proto`, Go's `MtrTerminalDisposition`
+   is a type alias of it, and Elixir's guards read it through compile-time module
+   attributes, so this framing now DOES describe the code and it supersedes #4713's
+   local declarations. STILL CANDIDATE for two reasons that are NOT the enum: the
+   zero-MTR behaviour is an open decision every implementation currently contradicts,
+   and task 1.15 still owes the shared per-value leaf vectors. Framing below
    (domain.go:706-847):
    - leaf element (`mtrLeafHash`): `version` (u64 = 2), `ordinal` (u64), `disposition`
-     (u64, the uint32 widened to u64), `trace_id` (bytes, empty unless TRACE_ALLOCATED),
+     (u64, the generated enum's int32 widened to u64 -- zero, negative and
+     unknown-positive values are rejected BEFORE the widening, so no unrecognised
+     number reaches the preimage), `trace_id` (bytes, empty unless TRACE_ALLOCATED),
      `range_sha256` (bytes). NO string sub-tag on the leaf. SHA-256 -> 32-byte point.
    - ordinal element (`mtrOrdinalHash`): `version` (u64 = 2), `str
      "mtr-completion-ordinal"`, `ordinal` (u64). SHA-256 -> point.
