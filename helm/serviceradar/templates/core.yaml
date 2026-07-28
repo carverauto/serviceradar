@@ -694,7 +694,7 @@ spec:
         resources:
           limits:
             cpu: {{ default "4" $coreResourceLimits.cpu | quote }}
-            memory: {{ default "4Gi" $coreResourceLimits.memory | quote }}
+            memory: {{ default "8Gi" $coreResourceLimits.memory | quote }}
           requests:
             cpu: {{ default "500m" $coreResourceRequests.cpu | quote }}
             memory: {{ default "1Gi" $coreResourceRequests.memory | quote }}

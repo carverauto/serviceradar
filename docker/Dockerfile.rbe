@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     && gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     && sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
+    # Docker CE official repo. arch=amd64 is required here: the arm64 foreign
+    # architecture added below makes apt fetch an arm64 index for every repo
+    # that does not pin an arch, which fails 'apt-get update'.
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && sh -c 'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list' \
     && dpkg --add-architecture arm64 \
     && awk '{print} /^Signed-By:/ {print "Architectures: amd64"}' /etc/apt/sources.list.d/ubuntu.sources > /tmp/ubuntu.sources \
     && mv /tmp/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources \
@@ -59,6 +66,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Container Tools
         skopeo \
         iptables \
+        # Docker CE. Required by BuildBuddy Firecracker MicroVM
+        docker-ce \
+        docker-ce-cli \
+        containerd.io \
+        docker-buildx-plugin \
+        docker-compose-plugin \
         # Database / Libs
         postgresql-server-dev-18 \
         libpq-dev \
@@ -98,6 +111,16 @@ RUN curl -fsSL http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1
 
 RUN ln -sf /usr/sbin/iptables /usr/bin/iptables
 
+# Fail the image build rather than the microVM if Docker went missing. The guest
+# init resolves these against its own hardcoded PATH, not the image ENV, so they
+# must live under /usr/bin (where the docker-ce packages install them).
+RUN docker --version && dockerd --version && docker buildx version \
+    && test -x /usr/bin/docker && test -x /usr/bin/dockerd
+
+# Note: do NOT ship /etc/docker/daemon.json here. The Firecracker guest init
+# overwrites it from MMDS on every boot; registry mirrors and insecure registries
+# are configured on the executor via --executor.firecracker_vm_docker_* flags.
+
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Provide the common RHEL-style lib64 path expected by some build scripts.
@@ -125,28 +148,6 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
     AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
-
-ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9"
-ARG GHCR_USERNAME=""
-
-# Fetch the CNPG test fixture image into a local docker-archive.
-# This logic remains identical to the original, relying on skopeo.
-RUN --mount=type=secret,id=ghcr_token <<'EOF'
-set -euo pipefail
-TOKEN_FILE="/run/secrets/ghcr_token"
-if [[ -z "${GHCR_CNPG_IMAGE:-}" ]]; then
-  echo "CNPG image not set; skipping preload"
-  exit 0
-fi
-if [[ -f "$TOKEN_FILE" && -s "$TOKEN_FILE" && -n "${GHCR_USERNAME:-}" ]]; then
-  TOKEN_VALUE=$(cat "$TOKEN_FILE")
-  skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
-elif skopeo copy "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"; then
-  echo "Pulled CNPG image without auth"
-else
-  echo "Warning: CNPG preload skipped (missing credentials or pull failed)" >&2
-fi
-EOF
 
 # Install Rust toolchains for native builds.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \
