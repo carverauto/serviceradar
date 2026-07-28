@@ -84,7 +84,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   """
   @type decode_error :: :not_ready | :systemic | :poison | :too_large
 
-  @typedoc "Anything `manifest_chain_from_raw/3` can return."
+  @typedoc "Anything `manifest_chain_from_raw/2` can return."
   @type raw_error :: error() | decode_error()
 
   @doc """
@@ -101,22 +101,12 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   re-encoded sizes therefore admits an over-budget manifest whose pages carry
   duplicate fields or non-minimal varints.
   """
-  @spec manifest_chain_from_raw([binary()], binary() | nil, keyword()) ::
-          :ok | {:error, raw_error()}
-  def manifest_chain_from_raw(raw, expected_root, opts \\ [])
+  @spec manifest_chain_from_raw([binary()], binary() | nil) :: :ok | {:error, raw_error()}
+  def manifest_chain_from_raw([], _expected_root), do: {:error, :manifest_empty}
 
-  def manifest_chain_from_raw([], _expected_root, _opts), do: {:error, :manifest_empty}
-
-  def manifest_chain_from_raw(raw, expected_root, opts) when is_list(raw) do
-    # `:decoder` is a TEST SEAM, and it exists for a specific reason: fixed malformed
-    # bytes only ever produce `:poison`, so a suite built on them cannot distinguish
-    # propagation from a hardcoded `:poison`. A mutation collapsing `:not_ready` and
-    # `:systemic` -- the transient outcomes whose loss is destructive -- would survive.
-    # Injecting the decoder is what makes all four outcomes reachable in a test.
-    decoder = Keyword.get(opts, :decoder, &WireDecode.decode_manifest_page/1)
-
+  def manifest_chain_from_raw(raw, expected_root) when is_list(raw) do
     with :ok <- bound_received(raw),
-         {:ok, pages} <- decode_all(raw, decoder) do
+         {:ok, pages} <- decode_all(raw) do
       manifest_chain(pages, expected_root)
     end
   end
@@ -141,20 +131,17 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # Decoding goes through the shared WireDecode stage, so a recovery page gets the
   # same recursive structural gate as every other ingress rather than a private
   # `Protobuf.decode` that skips it.
-  defp decode_all(raw, decoder) do
+  # The decoder is HARD-WIRED. An injectable one would let a caller pass malformed raw
+  # bytes together with `fn _ -> {:ok, valid_page} end` and be admitted, skipping
+  # WireDecode and WireValidate entirely -- exactly the caller-defined-decoder bypass
+  # the finite-stage boundary exists to forbid. Propagation is proven instead through
+  # `propagate_decode/1`, which cannot authorize anything.
+  defp decode_all(raw) do
     raw
     |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
-      case decoder.(b) do
-        {:ok, page} ->
-          {:cont, {:ok, [page | acc]}}
-
-        # PRESERVE the typed outcome. The caller needs :not_ready/:systemic (pause and
-        # replay -- a deployment or decoder fault) distinguishable from
-        # :poison/:too_large (permanently resolvable bad bytes). Mapping them all to
-        # :manifest_chain would make a missing decoder look like a malformed manifest
-        # and quarantine data that was never bad.
-        {:error, _} = err ->
-          {:halt, err}
+      case propagate_decode(WireDecode.decode_manifest_page(b)) do
+        {:ok, page} -> {:cont, {:ok, [page | acc]}}
+        {:error, _} = err -> {:halt, err}
       end
     end)
     |> case do
@@ -346,10 +333,28 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # all-zero. A bare byte_size check accepts the nil UUID and every non-RFC blob --
   # Elixir would admit an identity Go rejects, which is the parity this validator
   # exists to hold.
+  @doc false
+  # PURE result normalization: the single place a decode outcome becomes this module's
+  # return value. It cannot authorize admission -- it decodes nothing, produces no
+  # page, and only maps a result it was handed.
+  #
+  # It exists because propagation cannot otherwise be proven. Fixed malformed bytes
+  # only ever yield `:poison`, so an end-to-end suite cannot distinguish propagation
+  # from a hardcoded `:poison`, and a mutation collapsing `:not_ready`/`:systemic` --
+  # the transient outcomes whose loss is destructive, since they mean PAUSE AND REPLAY
+  # rather than quarantine -- would survive. Exposing an injectable DECODER would have
+  # proven the same thing while handing callers a bypass; exposing this cannot.
+  @spec propagate_decode(WireDecode.outcome()) :: {:ok, struct()} | {:error, decode_error()}
+  def propagate_decode({:ok, page}), do: {:ok, page}
+  def propagate_decode({:error, reason}), do: {:error, reason}
+
   defp uuid?(<<_::binary-size(6), v, _, var, _::binary-size(7)>> = b)
        when byte_size(b) == @uuid_len do
     version = Bitwise.bsr(v, 4)
 
+    # The all-zero guard is REDUNDANT given the version range -- the nil UUID has
+    # version nibble 0, which already fails 1..8 -- and is kept only to mirror Go's
+    # ValidateCanonicalUUID structurally, so the two read as the same rule.
     version >= 1 and version <= 8 and Bitwise.band(var, 0xC0) == 0x80 and
       b != <<0::128>>
   end
