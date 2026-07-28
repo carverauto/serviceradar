@@ -162,12 +162,20 @@ here.
   1.4 REMAINS UNCHECKED, but no longer for the zero-MTR reason. That decision is
   CLOSED -- candidate (B), the mandatory canonical zero-leaf proof -- and both
   runtimes implement it, so a COMPLETED sweep admitting no MTR targets now has
-  exactly one valid representation. What still blocks 1.4: the CONSUMER side is not
-  implemented. `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must
-  supply already-validated plan state; there is no such carrier, because the
-  authoritative assignment record is task 1.3. Until 1.3 lands, nothing in either
-  runtime can prove an event's completion against real plan state, and two
-  plan-derived relations stay unverifiable (see the 1.15 entry).
+  exactly one valid representation.
+  WHAT BLOCKS 1.4 IS LOCAL ABI/SCHEMA WORK ONLY. Task 1.7 requires every local task
+  to close, so anything named here becomes a 1.7 gate; blocking 1.4 on runtime
+  wiring would make the ABI wait on `unify-sweep-results-proto`, which waits on the
+  frozen ABI. Remaining local work:
+  (i) the two plan-derived relations have NO DEFINED MEANING in the ABI --
+  `range_root_sha256` does not say what it is a root OF, and no field states whether
+  a plan admits MTR, so "32 zero bytes means none admitted" is unwritten. Both are
+  normative definitions owed by task 1.3; and
+  (ii) task 1.15's shared per-value leaf vectors.
+  NOT A BLOCKER ON 1.4: that no consumer performs the check.
+  `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must supply
+  already-validated plan state, and wiring a real carrier is downstream task 2.3b.
+  Implementing a verifier is not ABI work, and 1.4 SHALL NOT wait on it.
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
