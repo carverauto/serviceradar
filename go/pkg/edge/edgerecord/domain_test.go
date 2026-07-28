@@ -321,9 +321,9 @@ func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
 	}
 }
 
-// TestVerifyLifecycleCompletionAgainstPlan proves the verification is PLAN-aware:
+// TestVerifyCompletionAgainstPlanState proves the verification is PLAN-aware:
 // the event's own expected/emitted counters cannot decide whether evidence is owed.
-func TestVerifyLifecycleCompletionAgainstPlan(t *testing.T) {
+func TestVerifyCompletionAgainstPlanState(t *testing.T) {
 	planRoot := d32domain(0x90)
 	zero32 := make([]byte, 32)
 	root, err := ZeroMtrCompletionRoot(planRoot, zero32)
@@ -344,7 +344,7 @@ func TestVerifyLifecycleCompletionAgainstPlan(t *testing.T) {
 		}
 	}
 
-	if err := VerifyLifecycleCompletionAgainstPlan(ev(), 0, planRoot, zero32, nil); err != nil {
+	if err := VerifyCompletionAgainstPlanState(ev(), 0, planRoot, zero32, nil); err != nil {
 		t.Fatalf("canonical zero-MTR completion must verify: %v", err)
 	}
 
@@ -360,28 +360,28 @@ func TestVerifyLifecycleCompletionAgainstPlan(t *testing.T) {
 		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
 	}
 	comm := MtrOrdinalRangeCommitment(leaves)
-	if err := VerifyLifecycleCompletionAgainstPlan(bad, 2, planRoot, comm, leaves); !errors.Is(err, ErrMtrCompletion) {
+	if err := VerifyCompletionAgainstPlanState(bad, 2, planRoot, comm, leaves); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("self-reported zero against a 2-ordinal plan = %v, want ErrMtrCompletion", err)
 	}
 
 	// A proof for a different plan root is rejected even when internally valid.
 	wrongPlan := ev()
 	wrongPlan.PlanRootSha256 = d32domain(0x33)
-	if err := VerifyLifecycleCompletionAgainstPlan(wrongPlan, 0, planRoot, zero32, nil); !errors.Is(err, ErrMtrCompletion) {
+	if err := VerifyCompletionAgainstPlanState(wrongPlan, 0, planRoot, zero32, nil); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("mismatched plan root = %v, want ErrMtrCompletion", err)
 	}
 
 	// An omitted proof is a lifecycle failure, not a permitted zero-MTR shape.
 	omitted := ev()
 	omitted.MtrCompletionDigest = nil
-	if err := VerifyLifecycleCompletionAgainstPlan(omitted, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+	if err := VerifyCompletionAgainstPlanState(omitted, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
 		t.Fatalf("omitted proof = %v, want ErrLifecycle", err)
 	}
 
 	// A wrong digest version is rejected before the digest is compared.
 	badVersion := ev()
 	badVersion.MtrCompletionDigestVersion = MtrCompletionDigestVersion + 1
-	if err := VerifyLifecycleCompletionAgainstPlan(badVersion, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+	if err := VerifyCompletionAgainstPlanState(badVersion, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
 		t.Fatalf("wrong digest version = %v, want ErrLifecycle", err)
 	}
 }
