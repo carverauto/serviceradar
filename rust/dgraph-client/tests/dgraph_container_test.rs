@@ -36,19 +36,27 @@ use dgraph_client::{DgraphClient, Mutation};
 const CONTAINER_NAME: &str = "dgraph-standalone";
 const IMAGE: &str = "dgraph/standalone";
 const TAG: &str = "v25.3.8";
+/// Address the container binds. `0.0.0.0` means "every interface".
 const BIND_URL: &str = "0.0.0.0";
+
+/// Address the test connects to.
+///
+/// Deliberately separate from [`BIND_URL`]: a wildcard bind address is not a meaningful
+/// connection target. Under host networking Dgraph binds directly in this network
+/// namespace, so loopback reaches it without any published port.
+const CONNECT_HOST: &str = "127.0.0.1";
 
 /// gRPC port. This is the one the client talks to.
 const GRPC_PORT: u16 = 9080;
 /// HTTP admin/health port, published as well so the readiness probe can use it.
 const HTTP_PORT: u16 = 8080;
 
-/// Fixed settle time after `docker run`, before the readiness loop starts probing.
+/// Seconds to wait for alpha's `/health` to answer 200.
 ///
-/// A cold `dgraph/standalone` answers `/health` in ~7s and peaks around 52 MiB, so 15s is
-/// comfortably past first-ready without being a meaningful share of the test budget.
-/// This is deliberately a dumb sleep rather than a health check -- see [`wait_strategy`].
-const STARTUP_WAIT_SECS: u64 = 15;
+/// Generous on purpose: it is an upper bound, not a sleep. A cold `dgraph/standalone`
+/// answers in ~7s locally, but a cold microVM on a contended executor is far slower, and
+/// overshooting the bound costs nothing when the endpoint turns green early.
+const HEALTH_TIMEOUT_SECS: u64 = 60;
 
 /// Attempts to make when the alpha answers but reports itself not ready.
 ///
@@ -57,31 +65,35 @@ const STARTUP_WAIT_SECS: u64 = 15;
 const READY_ATTEMPTS: u32 = 30;
 const READY_RETRY_DELAY: Duration = Duration::from_secs(2);
 
-/// Extra settle time after [`STARTUP_WAIT_SECS`], before the first client call.
+/// Extra settle time after `/health` turns 200, before the first client call.
 ///
-/// Alpha accepting a connection does not mean its gRPC surface is fully up. Connecting
-/// immediately produced a genuine cold-start flake: the version probe succeeded and a
-/// later query died with `transport error`.
+/// Measured cold-start milestones for `dgraph/standalone`, in the order they go green:
+///
+/// | read query | `Alter` (`drop_all`) | `/health` 200 |
+/// |------------|----------------------|---------------|
+/// | 1s         | 5s                   | 7s            |
+///
+/// `/health` is last, so waiting on it already implies `Alter` works. These five seconds
+/// are margin on top of that, not the thing being relied on.
 const POST_HEALTH_SETTLE: Duration = Duration::from_secs(5);
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
 
-/// Wait a fixed interval rather than probing a health endpoint.
+/// Wait until alpha's HTTP `/health` answers 200.
 ///
-/// Two strategies are unusable here:
+/// `WaitForGrpcHealthCheck` is unusable: Dgraph does not implement `grpc.health.v1`, so it
+/// could never succeed.
 ///
-/// * `WaitForGrpcHealthCheck` -- Dgraph does not implement `grpc.health.v1`, so it can
-///   never succeed.
-/// * `WaitForHttpHealthCheck` -- on timeout `docker_utils` calls `.expect()` internally
-///   (`docker/start.rs:293`) instead of returning an error, so the process aborts inside
-///   `setup_container` and the test can never report what actually went wrong. That is
-///   exactly how a CI failure here surfaced as a bare 60s timeout with no container logs.
-///
-/// `WaitForDuration` cannot fail, which keeps control in the test. Actual readiness is
-/// still enforced -- by [`connect_when_ready`], which retries the real gRPC surface and
-/// is the signal that matters to a client.
+/// `/health` is the right gate because it is the *last* readiness signal to go green -- it
+/// trails `Alter` by ~2s. Gating on anything earlier opens a window where reads succeed but
+/// the suite's first operation, `drop_all`, does not: that window is what produced
+/// `drop_all failed: RPC Error: Unknown: transport error` in CI while passing locally,
+/// where a fixed sleep happened to overshoot it.
 fn wait_strategy() -> WaitStrategy {
-    WaitStrategy::WaitForDuration(STARTUP_WAIT_SECS)
+    WaitStrategy::WaitForHttpHealthCheck(
+        format!("http://{CONNECT_HOST}:{HTTP_PORT}/health"),
+        HEALTH_TIMEOUT_SECS,
+    )
 }
 
 /// Run on the host network instead of publishing ports.
@@ -145,7 +157,7 @@ fn dgraph_client_acceptance() {
 /// Every scenario, in order. Ordering matters: several call `drop_all`.
 async fn run_scenarios(port: u16) -> Result<(), String> {
     // Plaintext: the standalone image serves gRPC without TLS.
-    let connection_string = format!("dgraph://127.0.0.1:{port}");
+    let connection_string = format!("dgraph://{CONNECT_HOST}:{port}");
     let client = connect_when_ready(&connection_string).await?;
 
     connects_and_probes(&client)?;
