@@ -119,6 +119,16 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     :SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
     :SWEEP_EXECUTION_EVENT_KIND_ABORTED
   ]
+  # The scheduler-authored assignment states. UNSPECIFIED is excluded exactly as every
+  # other policy excludes it: an unset enum is not a state.
+  @assignment_state [
+    :SWEEP_ASSIGNMENT_STATE_OPEN,
+    :SWEEP_ASSIGNMENT_STATE_COMPLETED,
+    :SWEEP_ASSIGNMENT_STATE_ABORTED,
+    :SWEEP_ASSIGNMENT_STATE_LOST,
+    :SWEEP_ASSIGNMENT_STATE_EXPIRED,
+    :SWEEP_ASSIGNMENT_STATE_SUPERSEDED
+  ]
   @transport_protocol [
     :TRANSPORT_PROTOCOL_ICMP,
     :TRANSPORT_PROTOCOL_TCP,
@@ -181,6 +191,7 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     {Serviceradar.Edge.V1.MtrTraceBatchV1, :source} => @sweep_source,
     {MtrTraceEventV1, :outcome} => @mtr_outcome,
     {MtrTraceEventV1, :protocol} => @transport_protocol,
+    {Serviceradar.Edge.V1.SweepAssignmentRecordV1, :state} => @assignment_state,
     {Serviceradar.Edge.V1.SweepExecutionEventV1, :kind} => @lifecycle_kind,
     {Serviceradar.Edge.V1.SweepIcmpSummaryV1, :outcome} => @mode_outcome,
     {Serviceradar.Edge.V1.SweepMtrSummaryV1, :outcome} => @mtr_outcome,

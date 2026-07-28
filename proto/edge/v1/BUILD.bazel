@@ -69,6 +69,7 @@ go_test(
     deps = [
         ":edgev1",
         "//go/pkg/edge/edgerecord",
+        "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
     ],
 )
