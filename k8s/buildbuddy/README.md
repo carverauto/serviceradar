@@ -19,11 +19,11 @@ resources:
   requests:
     cpu: "8"
     memory: "16Gi"
-    ephemeral-storage: "20Gi"
+    ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 extraVolumes:
   - name: cache-volume
@@ -90,6 +90,15 @@ The deployment is configured to avoid `k8s-cp3-worker3` due to disk pressure iss
 > **⚠️ SECURITY**: `values.yaml` is gitignored and should NEVER be committed. Only the template is versioned.
 
 ### Deployment
+
+**Prerequisite: add the BuildBuddy chart repo.** Both options below install
+`buildbuddy/buildbuddy-executor`, which resolves against a locally configured Helm
+repo. Without this you get `Error: repo buildbuddy not found`:
+
+```bash
+helm repo add buildbuddy https://helm.buildbuddy.io
+helm repo update buildbuddy
+```
 
 **Option 1: Using deploy.sh script** (Recommended)
 ```bash
@@ -163,20 +172,21 @@ Executors expose Prometheus metrics on port 9090:
 Two different container images are involved in remote execution:
 
 1. **BuildBuddy executor pods (Helm)** – run the BuildBuddy binary and should stay on the upstream image `gcr.io/flame-public/buildbuddy-executor-enterprise:<tag>` unless we intentionally rebuild the executor ourselves.
-2. **Bazel action image** – the toolchain container (`ghcr.io/carverauto/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, etc.
+2. **Bazel action image** – the toolchain container (`registry.carverauto.dev/serviceradar/rbe-executor:<tag>`) that Bazel runs for each action via `exec_properties`. This is where we add compilers, Postgres libraries, etc.
 
 Only the Bazel action image is customized today. After updating `docker/Dockerfile.rbe`:
 
-1. Build and push the image (requires GHCR access):
+1. Build and push the image (requires Harbor access; see `scripts/docker-login.sh`):
    ```bash
    docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.23 \
+     -t registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24 \
      --push .
    ```
-   (Alternatively, push via `.github/workflows/build-rbe-image.yml`.)
-2. Bump the tag everywhere it is referenced for Bazel (`docker/Dockerfile.rbe`, `MODULE.bazel`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, and `buildbuddy.yaml`).
+2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`).
+   The `rbe-executor-el9` tag in `.bazelrc` and `build/platforms/BUILD.bazel` is a *different* image
+   (built from `docker/Dockerfile.rbe-ora9`) and moves independently — do not bump it in lockstep.
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
