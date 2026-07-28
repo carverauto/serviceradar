@@ -158,7 +158,7 @@ fn dgraph_client_acceptance() {
     // One runtime for the whole run. The client is async because tonic is; docker_utils is
     // not, so nothing outside these scenarios needs a runtime.
     let runtime = tokio::runtime::Runtime::new().expect("failed to build a tokio runtime");
-    let outcome = runtime.block_on(run_scenarios(port));
+    let outcome = runtime.block_on(run_scenarios(&container_id, port));
 
     // Dump the container's own account of events *before* tearing it down. Once
     // `stop_container` deletes it the logs are unrecoverable, and on a remote executor
@@ -222,10 +222,10 @@ fn run_diagnostic(label: &str, args: &[&str]) {
 }
 
 /// Every scenario, in order. Ordering matters: several call `drop_all`.
-async fn run_scenarios(port: u16) -> Result<(), String> {
+async fn run_scenarios(container_id: &str, port: u16) -> Result<(), String> {
     // Plaintext: the standalone image serves gRPC without TLS.
     let connection_string = format!("dgraph://{CONNECT_HOST}:{port}");
-    let client = wait_until_serving(&connection_string).await?;
+    let client = wait_until_serving(container_id, &connection_string).await?;
 
     // Named so a failure names the scenario, not just a line number.
     scenario("connects_and_probes", || connects_and_probes(&client))?;
@@ -296,7 +296,10 @@ async fn scenario_async(
 /// failures, the latter being how tonic reports a connection that the alpha closed while
 /// still starting. Every other error aborts immediately rather than being retried into a
 /// timeout that buries the real cause.
-async fn wait_until_serving(connection_string: &str) -> Result<DgraphClient, String> {
+async fn wait_until_serving(
+    container_id: &str,
+    connection_string: &str,
+) -> Result<DgraphClient, String> {
     let deadline = Instant::now() + READY_TIMEOUT;
     let mut attempt = 0u32;
     // Uninitialised on purpose: the only path that reaches the deadline check is the
@@ -322,6 +325,19 @@ async fn wait_until_serving(connection_string: &str) -> Result<DgraphClient, Str
                 return Err(err);
             }
             Err(Readiness::Retry(err)) => {
+                // A dead container produces exactly the same "tcp connect error" as one
+                // that has not finished booting. Without this check the loop would retry a
+                // corpse for the full budget and report a timeout, when what happened was
+                // an OOM kill seconds in. Check promptly, too: `docker run --rm` reaps the
+                // container, and once it is gone so is the exit code that explains it.
+                if container_running(container_id) == Some(false) {
+                    repeated.flush();
+                    return Err(format!(
+                        "container '{container_id}' stopped while waiting for it to serve \
+                         (last error: {err})"
+                    ));
+                }
+
                 repeated.observe(attempt, &err);
                 last_error = err;
             }
@@ -337,6 +353,25 @@ async fn wait_until_serving(connection_string: &str) -> Result<DgraphClient, Str
 
         tokio::time::sleep(READY_RETRY_DELAY).await;
     }
+}
+
+/// Whether the container is still running.
+///
+/// `None` means docker could not be asked and the caller should not conclude anything;
+/// `Some(false)` covers both "exited" and "no longer exists", since `--rm` deletes a
+/// container the moment it dies and both mean the same thing to a client trying to reach
+/// it.
+fn container_running(container_id: &str) -> Option<bool> {
+    let out = Command::new("docker")
+        .args(["inspect", "-f", "{{.State.Running}}", container_id])
+        .output()
+        .ok()?;
+
+    if !out.status.success() {
+        return Some(false);
+    }
+
+    Some(String::from_utf8_lossy(&out.stdout).trim() == "true")
 }
 
 /// Collapses consecutive identical retry messages into one line plus a count.

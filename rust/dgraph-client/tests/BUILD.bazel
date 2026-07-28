@@ -66,6 +66,17 @@ rust_test_suite(
     args = ["--include-ignored"],
     edition = "2024",
     exec_properties = {
+        # Size the microVM for what actually runs inside it. The executor's
+        # default_task_size is 2 GiB, and that one budget has to cover the guest kernel,
+        # dockerd, containerd, the test binary AND dgraph. Measured peak RSS of
+        # dgraph/standalone:v25.3.8 while this suite drives it is ~826 MiB -- roughly 40%
+        # of the whole VM for a single process, which is what got the alpha OOM-killed
+        # mid-run (`oom=true exit=137`, surfacing to the client as
+        # `drop_all failed: RPC Error: Unknown: transport error`).
+        #
+        # Do not size this from an idle container: idle dgraph sits near 50 MiB, which is
+        # 16x below what it needs once mutations and badger compaction start.
+        "test.EstimatedMemory": "4Gi",
         # Run this test inside a Firecracker microVM.
         "test.workload-isolation-type": "firecracker",
         # Ensure the Docker daemon is started inside that microVM.
