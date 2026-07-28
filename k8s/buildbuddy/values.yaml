@@ -73,7 +73,7 @@ config:
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24
+      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1
     oci:
       mounts:
         - source: /cache
