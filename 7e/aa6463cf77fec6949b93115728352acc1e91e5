@@ -1,0 +1,21 @@
+addons/rdp-adapter/addon.yaml
+  s_1243381eb5fb18::t_3e5bae9292300c 9
+third_party/crates/.serviceradar-vendor-inputs
+  s_1243381eb5fb18::t_092c3072f0d462 1,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7eaa6463cf77fec6949b93115728352acc1e91e5",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
