@@ -25,6 +25,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
+  alias Serviceradar.Edge.V1.MtrCompletionDisposition
   alias Serviceradar.Edge.V1.MtrTraceBatchV1
   alias Serviceradar.Edge.V1.RecoveryResolvedV1
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
@@ -1088,6 +1089,31 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert batch.source == :SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK
     assert [host] = batch.hosts
     assert host.first_seen_delta_nano == nil
+  end
+
+  test "MTR completion disposition symbols are pinned to their exact numbers" do
+    # The closed-set vectors below prove only which NUMBERS are accepted, so
+    # swapping two valid members -- QUARANTINED=4 and SCHEDULER_LOST=5 -- would
+    # leave them green while changing which meaning is hashed at those numbers.
+    # The number is part of the digest grammar, so the symbol->number PAIR is what
+    # must be frozen. Mirrors Go's TestMtrCompletionDispositionSymbolNumbers.
+    pinned = [
+      {:MTR_COMPLETION_DISPOSITION_UNSPECIFIED, 0},
+      {:MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED, 1},
+      {:MTR_COMPLETION_DISPOSITION_NOT_ADMITTED, 2},
+      {:MTR_COMPLETION_DISPOSITION_PROBE_FAILED, 3},
+      {:MTR_COMPLETION_DISPOSITION_QUARANTINED, 4},
+      {:MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST, 5}
+    ]
+
+    for {symbol, number} <- pinned do
+      assert MtrCompletionDisposition.value(symbol) == number
+      assert MtrCompletionDisposition.key(number) == symbol
+    end
+
+    # Membership: 6 is the next number, and an undeclared tag falls through the
+    # generated catchall as the integer itself rather than resolving to a symbol.
+    assert MtrCompletionDisposition.key(6) == 6
   end
 
   test "lifecycle terminal carries an MTR completion proof Elixir recomputes" do
