@@ -44,11 +44,15 @@ unbounded execution.
 
 #### Scenario: Agent disappears before terminal evidence
 - **GIVEN** an assignment lease expires without durable agent terminal evidence
-- **WHEN** the scheduler fences or reassigns its remaining coverage
+- **WHEN** the scheduler fences the attempt and REASSIGNS ITS COVERAGE
 - **THEN** the scheduler SHALL atomically append an authoritative
   lost/expired/superseded terminal state for the old attempt
 - **AND** the replacement SHALL receive a new epoch without mutating the
   immutable plan
+- **AND** the replacement SHALL cover the WHOLE range window the old attempt held,
+  never a partial remainder: an assignment's MTR expectation is ONE CONTIGUOUS
+  plan-global ordinal window and its completion proof requires exactly
+  `{1..ordinal_count}`, so a sparse remainder is NOT REPRESENTABLE in v1
 
 ### Requirement: Scan admission accounts for downstream backlog
 The scheduler SHALL consider agent spool pressure, gateway capacity, JetStream

@@ -1068,7 +1068,18 @@ the assignment value, and the plan-wide value is the ADDITIVE SUM of every range
 window -- which is what makes a split plan verifiable without renumbering any
 attempt. A carried value nothing derives is self-asserted authority.
 
-The relation SHALL reject: ordinal-space overflow; an `ordinal_count` that is not the
+The TOTAL admitted MTR ordinals across ONE plan SHALL NOT exceed
+`MaxPlanMtrOrdinals = 1048576` (2^20), and every implementation SHALL enforce it.
+This is a WORK ceiling distinct from `MaxMtrCompletionOrdinals` (2^31), which bounds
+what the ordinal space can REPRESENT: recomputing a commitment costs one hash per
+ordinal, so without this bound a compact plan could demand billions of SHA-256
+operations inside a validator. The bound SHALL be decided BEFORE any hashing, so an
+over-budget plan costs a walk rather than a fold. A ceiling enforced in only one
+runtime is a DIVERGENCE, not a safeguard, so shared vectors SHALL cover exactly the
+limit (accepted) and the limit plus one (rejected).
+
+The relation SHALL reject: ordinal-space overflow; a plan total over
+`MaxPlanMtrOrdinals`; an `ordinal_count` that is not the
 selected range's admitted count; a count exceeding the range's admission budget; an
 absent or wrong `plan_ordinal_offset`; a commitment that is not the recomputed window;
 and a range identity whose digest is not the plan's.
@@ -1089,6 +1100,11 @@ epoch lives on assignment records and capabilities.
 - **WHEN** an assignment carries an `ordinal_range_commitment` that is not the window
   recomputed from the selected plan range
 - **THEN** the relation SHALL be rejected
+
+#### Scenario: The plan work ceiling is enforced by every runtime
+- **WHEN** a plan's total admitted MTR ordinals exceed `MaxPlanMtrOrdinals`
+- **THEN** EVERY runtime SHALL reject it
+- **AND** the verdict SHALL be reached without computing the commitment
 
 #### Scenario: The budget is a ceiling, never a count
 - **WHEN** a range's admitted MTR count exceeds its `mtr_admission_budget`
