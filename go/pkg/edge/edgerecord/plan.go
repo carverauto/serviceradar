@@ -51,6 +51,9 @@ var (
 	ErrPlanPolicy        = errors.New("edgerecord: plan availability policy missing")
 	ErrPlanRange         = errors.New("edgerecord: plan target range invalid")
 	ErrPlanTotals        = errors.New("edgerecord: plan target-count total mismatch")
+	// ErrPlanMtrCommitment fires when mtr_ordinal_range_commitment is not exactly 32
+	// bytes. A zero-MTR plan carries 32 ZERO bytes, never empty bytes.
+	ErrPlanMtrCommitment = errors.New("edgerecord: plan mtr ordinal-range commitment must be 32 bytes")
 )
 
 // Per-object domain tags: each plan-digest preimage leads with its own frozen
@@ -174,6 +177,14 @@ func ValidatePlanHeader(h *edgev1.ScheduledPlanHeaderV1) error {
 	}
 	if h.GetPageCount() == 0 {
 		return ErrPlanBounds
+	}
+	// The commitment is ALWAYS 32 bytes. A plan that admits no MTR targets carries
+	// the empty-set multiset hash -- 32 ZERO bytes -- never empty bytes: the zero-MTR
+	// completion proof compares its (zero) member accumulator against this field, and
+	// empty bytes would be a second, unverifiable spelling of "no MTR" that the
+	// comparison could not distinguish from an omitted commitment.
+	if len(h.GetMtrOrdinalRangeCommitment()) != sha256Len {
+		return ErrPlanMtrCommitment
 	}
 	if len(h.GetExecutionPlanSha256()) != sha256Len ||
 		!bytes.Equal(PlanHeaderDigest(h), h.GetExecutionPlanSha256()) {

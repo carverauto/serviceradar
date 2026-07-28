@@ -1013,6 +1013,61 @@ not an implementation-time choice between alternatives.
 - **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
   the Appendix A transcript SHALL already be frozen
 
+### Requirement: A zero-MTR completion is a mandatory canonical proof, not an absence
+Every `SWEEP_EXECUTION_EVENT_KIND_COMPLETED` event SHALL carry a completion proof --
+`mtr_completion_digest_version`, `mtr_completion_digest`, `plan_root_sha256`, and
+`range_root_sha256` -- INCLUDING when the plan admits no MTR targets. A plan admitting
+no MTR targets SHALL carry the CANONICAL ZERO-LEAF proof: `MtrCompletionDigestVersion
+= 2`, `expected = 0`, no leaves, all three accumulators the 32-byte zero value, and the
+ordinary root framing `SHA-256(version || expected || plan_root_sha256 ||
+mtr_ordinal_range_commitment || leaf_accumulator)` still bound to `plan_root_sha256`.
+
+`ScheduledPlanHeaderV1.mtr_ordinal_range_commitment` SHALL ALWAYS be exactly 32 bytes.
+A plan admitting no MTR targets SHALL carry the empty-set multiset hash -- 32 ZERO
+bytes -- and SHALL NOT carry empty bytes. Empty bytes would be a second spelling of
+"no MTR" that no comparison can distinguish from an omitted commitment, and the
+zero-leaf proof verifies its (zero) member accumulator against exactly this field.
+
+The expected ordinal count and the commitment SHALL be taken from VALIDATED PLAN AND
+ASSIGNMENT STATE, never from the event's own `expected_mtr_*` / `emitted_mtr_*`
+counters. Those counters are producer-reported: allowing them to establish "expected
+0" would let a producer waive its own evidence, which is precisely what this
+requirement exists to prevent. Field-shape validation alone SHALL NOT be treated as
+verification -- it cannot distinguish a correct proof from a well-formed wrong one.
+
+The following SHALL be rejected: any leaf presented at `expected = 0`; an omitted or
+non-32-byte completion digest on a COMPLETED event; an empty, non-32-byte, or
+non-matching `mtr_ordinal_range_commitment`; a digest version other than the frozen
+one; and a digest that does not equal the plan-derived root, including one that is a
+valid completion of a DIFFERENT plan root.
+
+This is candidate (B) of the previously open zero-MTR decision. Candidate (A) -- no
+proof required when no MTR is admitted -- is REJECTED: it would have permitted both an
+absent and a present proof for one state, and would have rested the choice between
+them on a self-reported counter.
+
+#### Scenario: A zero-MTR completion still carries a proof
+- **WHEN** a COMPLETED event's plan admits no MTR targets
+- **THEN** it SHALL carry the canonical zero-leaf proof
+- **AND** an omitted completion digest SHALL be rejected
+
+#### Scenario: The empty-set commitment is 32 zero bytes
+- **WHEN** a plan admits no MTR targets
+- **THEN** `mtr_ordinal_range_commitment` SHALL be 32 zero bytes
+- **AND** empty bytes SHALL be rejected
+
+#### Scenario: A leaf cannot appear at expected zero
+- **WHEN** a completion with `expected = 0` presents any leaf
+- **THEN** it SHALL be rejected
+
+#### Scenario: Producer counters cannot waive evidence
+- **WHEN** an event reports zero expected MTR but validated plan state expects more
+- **THEN** the zero-leaf proof SHALL be rejected
+
+#### Scenario: A zero-MTR proof is bound to its plan
+- **WHEN** a zero-leaf proof is presented against a different `plan_root_sha256`
+- **THEN** it SHALL be rejected
+
 ### Requirement: MTR completion disposition is one generated enum
 The MTR completion leaf's terminal disposition SHALL be declared ONCE, as a
 generated protobuf enum `MtrCompletionDisposition`, with these exact
