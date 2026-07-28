@@ -363,6 +363,10 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # a performance nit. This walks the ordered spans and clears each gap in ONE step;
   # inside a lost span the prefix advances only while consecutive sequences are
   # applied, so that region is bounded by the applied set rather than the span width.
+  #
+  # Complexity is O(n log n + |applied|) for n spans: this sorts defensively, because a
+  # caller passing an unordered union would otherwise get a plausible wrong answer.
+  # (Go takes the union already ordered and is O(n + |applied|).)
   defp walk_spans(s, high, _applied, []), do: max(s, high)
 
   defp walk_spans(s, high, applied, [{from, through} | rest]) do

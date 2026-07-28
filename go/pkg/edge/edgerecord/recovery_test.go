@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -535,6 +536,43 @@ func TestAggregateBoundPrecedesDecode(t *testing.T) {
 	}
 }
 
+// The SHARED over-budget pair, from the committed corpus rather than built here.
+//
+// TestAggregateReceivedByteBound builds its own padded pages, which proves this
+// implementation is self-consistent but not that Go and Elixir agree on where the
+// ceiling falls. These are the same bytes the Elixir suite reads.
+func TestSharedOverBudgetPairIsRejected(t *testing.T) {
+	read := func(name string) []byte {
+		t.Helper()
+		raw, err := os.ReadFile(goldenPath(name))
+		if err != nil {
+			t.Fatalf("read shared vector %s: %v", name, err)
+		}
+		return raw
+	}
+	a := read("manifest_page_overbudget_a.bin")
+	b := read("manifest_page_overbudget_b.bin")
+
+	if len(a) > MaxManifestBytes || len(b) > MaxManifestBytes {
+		t.Fatalf("each page must be individually UNDER the cap (%d, %d vs %d); "+
+			"otherwise the pair does not isolate the AGGREGATE bound",
+			len(a), len(b), MaxManifestBytes)
+	}
+	if len(a)+len(b) != MaxManifestBytes+1 {
+		t.Fatalf("pair totals %d, want exactly %d", len(a)+len(b), MaxManifestBytes+1)
+	}
+	if err := ValidateManifestChainFromRaw([][]byte{a, b}, nil); !errors.Is(err, ErrManifestBounds) {
+		t.Fatalf("shared over-budget pair = %v, want ErrManifestBounds", err)
+	}
+	// Each alone is in budget, so the rejection above is attributable to the AGGREGATE
+	// and not to either page being oversize on its own.
+	for i, one := range [][]byte{a, b} {
+		if err := ValidateManifestChainFromRaw([][]byte{one}, nil); errors.Is(err, ErrManifestBounds) {
+			t.Fatalf("page %d alone was rejected on bounds; it must be in budget", i)
+		}
+	}
+}
+
 func TestTombstoneMustReconcile(t *testing.T) {
 	rid := mustUUID(t)
 	pages := buildManifest(t, rid, [][]*edgev1.EdgeClassificationSpanV1{{activeSpan(t, 10, 20)}})
@@ -945,8 +983,13 @@ type retiredTagVector struct {
 	name    string
 	message string
 	tag     int
-	field   string
-	raw     []byte
+	// wire is the retired field's ORIGINAL wire type. Proving the tag number alone is
+	// not enough: a tag-9 VARINT would satisfy a number-only check even though
+	// lost_ranges was length-delimited, so a vector could advertise a retired repeated
+	// field while carrying bytes that field could never have produced.
+	wire  protowire.Type
+	field string
+	raw   []byte
 }
 
 // varintField encodes one protobuf varint field: tag<<3|0, then the value.
@@ -1017,18 +1060,20 @@ func retiredTagVectors(t *testing.T) []retiredTagVector {
 		return protowire.AppendBytes(out, nil)
 	}
 
+	// Wire types are the RETIRED fields' own: bool/uint64 were varints, the two
+	// repeated message fields were length-delimited.
 	return []retiredTagVector{
-		{"page_tag7_coarsened", "EdgeLossManifestPageV1", 7, "coarsened",
+		{"page_tag7_coarsened", "EdgeLossManifestPageV1", 7, protowire.VarintType, "coarsened",
 			append(append([]byte{}, pageBytes...), varintField(7, 1)...)},
-		{"page_tag9_lost_ranges", "EdgeLossManifestPageV1", 9, "lost_ranges",
+		{"page_tag9_lost_ranges", "EdgeLossManifestPageV1", 9, protowire.BytesType, "lost_ranges",
 			append(append([]byte{}, pageBytes...), lenField(9)...)},
-		{"page_tag10_affected", "EdgeLossManifestPageV1", 10, "affected",
+		{"page_tag10_affected", "EdgeLossManifestPageV1", 10, protowire.BytesType, "affected",
 			append(append([]byte{}, pageBytes...), lenField(10)...)},
-		{"tombstone_tag3_lost_from", "SpoolLossTombstoneV1", 3, "lost_from_sequence",
+		{"tombstone_tag3_lost_from", "SpoolLossTombstoneV1", 3, protowire.VarintType, "lost_from_sequence",
 			append(append([]byte{}, tombBytes...), varintField(3, 10)...)},
-		{"tombstone_tag4_lost_through", "SpoolLossTombstoneV1", 4, "lost_through_sequence",
+		{"tombstone_tag4_lost_through", "SpoolLossTombstoneV1", 4, protowire.VarintType, "lost_through_sequence",
 			append(append([]byte{}, tombBytes...), varintField(4, 20)...)},
-		{"tombstone_tag8_coarsened", "SpoolLossTombstoneV1", 8, "coarsened",
+		{"tombstone_tag8_coarsened", "SpoolLossTombstoneV1", 8, protowire.VarintType, "coarsened",
 			append(append([]byte{}, tombBytes...), varintField(8, 1)...)},
 	}
 }
@@ -1092,13 +1137,17 @@ func assertCarriesTag(t *testing.T, v retiredTagVector) {
 		t.Fatalf("%s retained no unknown field; the vector is inert", v.name)
 	}
 
-	var tags []protowire.Number
+	type retained struct {
+		num protowire.Number
+		typ protowire.Type
+	}
+	var got []retained
 	for b := unknown; len(b) > 0; {
 		num, typ, n := protowire.ConsumeTag(b)
 		if n < 0 {
 			t.Fatalf("%s: malformed retained bytes", v.name)
 		}
-		tags = append(tags, num)
+		got = append(got, retained{num, typ})
 		b = b[n:]
 		n = protowire.ConsumeFieldValue(num, typ, b)
 		if n < 0 {
@@ -1106,12 +1155,16 @@ func assertCarriesTag(t *testing.T, v retiredTagVector) {
 		}
 		b = b[n:]
 	}
-	for _, got := range tags {
-		if int(got) == v.tag {
+	// TAG AND WIRE TYPE. The number alone would accept a tag-9 varint even though
+	// lost_ranges was length-delimited -- bytes that retired field could never have
+	// produced, advertised as if it had.
+	for _, r := range got {
+		if int(r.num) == v.tag && r.typ == v.wire {
 			return
 		}
 	}
-	t.Fatalf("%s advertises tag %d (%s) but retained %v", v.name, v.tag, v.field, tags)
+	t.Fatalf("%s advertises tag %d wire %v (%s) but retained %v",
+		v.name, v.tag, v.wire, v.field, got)
 }
 
 // TestGoldenRetiredTagVectors exports the six raw byte vectors so Elixir refuses the
