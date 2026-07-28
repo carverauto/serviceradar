@@ -291,7 +291,7 @@ here.
   digests and their versions are compile-time constants, exactly like the semantic
   envelope. EVERY Appendix A object SHALL appear in exactly ONE class.
 
-- [ ] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
+- [x] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
   Replace the ad-hoc `lost_ranges` + `affected` pairing on
   `EdgeLossManifestPageV1` with ONE ordered classification-span representation.
   Each span carries a PHYSICAL sequence interval plus exactly one classification:
