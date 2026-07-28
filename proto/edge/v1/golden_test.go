@@ -29,6 +29,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1113,6 +1114,46 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	pages := []*edgev1.EdgeLossManifestPageV1{page}
 	root := edgerecord.ManifestRoot(pages)
 	golden(t, "manifest_page.bin", page)
+
+	// EVERY UNATTRIBUTABLE REASON as a shared vector. manifest_page.bin exercises all
+	// three classifications but only ONE reason, so the other four were pinned by
+	// runtime-local tests only -- each runtime self-consistent, neither cross-checked.
+	// One page per reason, so a divergence names the reason rather than the page.
+	for i, r := range []edgev1.EdgeUnattributableReason{
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE,
+	} {
+		rp := &edgev1.EdgeLossManifestPageV1{
+			RecoveryId: uuidv7(byte(0x90 + i)), PageIndex: 0, PageCount: 1, Terminal: true,
+			DigestVersion: edgerecord.RecoveryDigestVersion,
+			ClassificationSpans: []*edgev1.EdgeClassificationSpanV1{{
+				FromSequence: 1, ThroughSequence: 2,
+				Classification: &edgev1.EdgeClassificationSpanV1_Unattributable{
+					Unattributable: &edgev1.EdgeUnattributableV1{Reason: r},
+				},
+			}},
+		}
+		rp.PageSha256 = edgerecord.ManifestPageDigest(rp)
+		if err := edgerecord.ValidateManifestChain([]*edgev1.EdgeLossManifestPageV1{rp}, nil); err != nil {
+			t.Fatalf("reason %v vector must validate: %v", r, err)
+		}
+		golden(t, fmt.Sprintf("manifest_page_reason_%d.bin", int32(r.Number())), rp)
+	}
+
+	// NON-CANONICAL BLOAT as SHARED bytes. Both runtimes previously constructed this
+	// case independently, so each proved its own decoder against its own padding --
+	// which cannot show the two agree on what "the received bytes" are. Same page,
+	// re-encoded with a duplicate singular field so the RECEIVED size exceeds the
+	// re-encoded size.
+	canonical, err := proto.Marshal(page)
+	if err != nil {
+		t.Fatalf("marshal page: %v", err)
+	}
+	bloated := append(append([]byte{}, canonical...), 0x40, 0x01) // digest_version again
+	goldenBytes(t, "manifest_page_bloated.bin", bloated)
 
 	tomb := &edgev1.SpoolLossTombstoneV1{
 		RecoveryId: rid, PriorSpoolId: uuidv7(0x01), NewSpoolId: uuidv7(0x82),

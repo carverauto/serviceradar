@@ -845,6 +845,43 @@ func appliedPrefixVectors() []appliedPrefixVector {
 			prior: 0, highWater: 5, applied: []uint64{1, 2, 3, 4, 5},
 			lost: [][2]uint64{{1, 5}}, expected: 5,
 		},
+		{
+			// A TRILLION-WIDE legal gap. Gaps are legal and unbounded, so an
+			// implementation that enumerates sequences HANGS here rather than failing --
+			// a liveness bug on VALID input, which is why this is a vector and not a
+			// benchmark. Must terminate immediately, clearing the gap wholesale.
+			name:  "trillion-wide gap is skipped wholesale",
+			prior: 0, highWater: 2_000_000_000_000, applied: []uint64{1},
+			lost:     [][2]uint64{{1, 1}, {2_000_000_000_000, 2_000_000_000_000}},
+			expected: 1_999_999_999_999,
+		},
+		{
+			// prior AT MaxUint64: `prior+1` wraps to 0, and an implementation starting
+			// its walk there RETREATS the watermark to 0, releasing a journal over
+			// everything. Must return prior untouched.
+			name:  "prior at MaxUint64 does not wrap or retreat",
+			prior: ^uint64(0), highWater: 0, applied: nil, lost: nil,
+			expected: ^uint64(0),
+		},
+		{
+			// high-water AT MaxUint64 with the final sequence lost and unapplied. The
+			// increment at the top of the range wraps, which is how the earlier version
+			// looped forever.
+			name:  "high-water at MaxUint64, tail lost and unapplied",
+			prior: ^uint64(0) - 2, highWater: ^uint64(0), applied: nil,
+			lost:     [][2]uint64{{^uint64(0), ^uint64(0)}},
+			expected: ^uint64(0) - 1,
+		},
+		{
+			// The same boundary with the final sequence APPLIED: the prefix must reach
+			// MaxUint64 and stop, not wrap past it.
+			name:      "high-water at MaxUint64, tail applied",
+			prior:     ^uint64(0) - 2,
+			highWater: ^uint64(0),
+			applied:   []uint64{^uint64(0) - 1, ^uint64(0)},
+			lost:      [][2]uint64{{^uint64(0) - 1, ^uint64(0)}},
+			expected:  ^uint64(0),
+		},
 	}
 }
 
@@ -1003,6 +1040,11 @@ func retiredTagVectors(t *testing.T) []retiredTagVector {
 func TestRetiredTagsAreRejectedIndependently(t *testing.T) {
 	for _, v := range retiredTagVectors(t) {
 		t.Run(v.name, func(t *testing.T) {
+			// GUARD THE GUARD: the vector must actually carry the tag it advertises.
+			// Without this, a vector built with the WRONG tag -- or none -- would still
+			// be rejected for some unrelated reason and the subtest would pass while
+			// proving nothing about the tag in its own name.
+			assertCarriesTag(t, v)
 			switch v.message {
 			case "EdgeLossManifestPageV1":
 				if err := ValidateManifestChainFromRaw([][]byte{v.raw}, nil); err == nil {
@@ -1022,6 +1064,54 @@ func TestRetiredTagsAreRejectedIndependently(t *testing.T) {
 			}
 		})
 	}
+}
+
+// assertCarriesTag decodes the vector and requires its advertised retired tag to be
+// present among the RETAINED unknown fields. A retired tag is reserved, so protobuf
+// keeps it as unknown rather than mapping it to a field -- which is exactly the
+// property the rejection depends on.
+func assertCarriesTag(t *testing.T, v retiredTagVector) {
+	t.Helper()
+
+	var unknown []byte
+	switch v.message {
+	case "EdgeLossManifestPageV1":
+		var m edgev1.EdgeLossManifestPageV1
+		if err := proto.Unmarshal(v.raw, &m); err != nil {
+			t.Fatalf("%s must decode to be a meaningful vector: %v", v.name, err)
+		}
+		unknown = m.ProtoReflect().GetUnknown()
+	case "SpoolLossTombstoneV1":
+		var m edgev1.SpoolLossTombstoneV1
+		if err := proto.Unmarshal(v.raw, &m); err != nil {
+			t.Fatalf("%s must decode to be a meaningful vector: %v", v.name, err)
+		}
+		unknown = m.ProtoReflect().GetUnknown()
+	}
+	if len(unknown) == 0 {
+		t.Fatalf("%s retained no unknown field; the vector is inert", v.name)
+	}
+
+	var tags []protowire.Number
+	for b := unknown; len(b) > 0; {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			t.Fatalf("%s: malformed retained bytes", v.name)
+		}
+		tags = append(tags, num)
+		b = b[n:]
+		n = protowire.ConsumeFieldValue(num, typ, b)
+		if n < 0 {
+			t.Fatalf("%s: malformed retained value", v.name)
+		}
+		b = b[n:]
+	}
+	for _, got := range tags {
+		if int(got) == v.tag {
+			return
+		}
+	}
+	t.Fatalf("%s advertises tag %d (%s) but retained %v", v.name, v.tag, v.field, tags)
 }
 
 // TestGoldenRetiredTagVectors exports the six raw byte vectors so Elixir refuses the

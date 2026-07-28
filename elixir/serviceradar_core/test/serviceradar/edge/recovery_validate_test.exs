@@ -704,6 +704,54 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
     end
   end
 
+  describe "shared cross-language vectors" do
+    test "every unattributable reason validates from the Go-authored page" do
+      # manifest_page.bin carries only ONE reason, so the other four were pinned by
+      # runtime-local tests -- each runtime self-consistent, neither cross-checked.
+      # One page per reason, so a divergence names the reason.
+      for {file, reason} <- [
+            {"manifest_page_reason_2.bin", :EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING},
+            {"manifest_page_reason_3.bin", :EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT},
+            {"manifest_page_reason_4.bin", :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL},
+            {"manifest_page_reason_6.bin",
+             :EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED},
+            {"manifest_page_reason_7.bin",
+             :EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE}
+          ] do
+        page = EdgeLossManifestPageV1.decode(load(file))
+
+        assert [%{classification: {:unattributable, %{reason: ^reason}}}] =
+                 page.classification_spans,
+               "#{file} must carry #{reason}"
+
+        # The digest agrees AND the relational validator accepts -- both halves, since
+        # a digest match alone would not prove the reason is policed.
+        assert HashGrammar.manifest_page_digest(page) == page.page_sha256
+        assert :ok = RecoveryValidate.manifest_chain([page], HashGrammar.manifest_root([page]))
+      end
+    end
+
+    test "the shared non-canonical bloat vector decodes identically but is larger" do
+      # Previously each runtime built its OWN padded bytes, so neither proved the two
+      # agree on what "the received bytes" are. Same Go-authored bytes now.
+      bloated = load("manifest_page_bloated.bin")
+      canonical = load("manifest_page.bin")
+
+      assert byte_size(bloated) > byte_size(canonical),
+             "the bloat vector must be larger on the wire"
+
+      assert {:ok, decoded} = WireDecode.decode_manifest_page(bloated)
+
+      # It decodes to the SAME message: the extra bytes are a duplicate singular field,
+      # resolved last-one-wins. That is what makes it non-canonical BLOAT rather than a
+      # different page -- and why a re-encoded byte count would miss it.
+      assert decoded == EdgeLossManifestPageV1.decode(canonical)
+
+      assert byte_size(IO.iodata_to_binary(EdgeLossManifestPageV1.encode(decoded))) <
+               byte_size(bloated)
+    end
+  end
+
   describe "retired tags" do
     test "each retired tag is refused INDEPENDENTLY, on the Go-authored bytes" do
       # SIX separate vectors, deliberately not bundled: a decoder that refuses the
@@ -722,8 +770,11 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       for {file, tag, field} <- pages do
         raw = load(file)
 
-        assert {:error, _} = RecoveryValidate.manifest_chain_from_raw([raw], nil),
-               "page carrying retired tag #{tag} (#{field}) was ACCEPTED"
+        # Pin the OUTCOME, not merely "some error": a page carrying a retired tag is
+        # bad bytes, so it must be :poison. Accepting any error would pass if the page
+        # were rejected for an unrelated relational reason instead.
+        assert {:error, :poison} = RecoveryValidate.manifest_chain_from_raw([raw], nil),
+               "page carrying retired tag #{tag} (#{field}) must be :poison"
       end
 
       tombstones = [
@@ -742,21 +793,29 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       end
     end
 
-    test "the retired bytes really do carry their tag" do
-      # Guard the guard: if a vector decoded cleanly with nothing retained, the
-      # rejections above would prove nothing about retired tags.
-      for file <- [
-            "retired_page_tag7_coarsened.bin",
-            "retired_tombstone_tag3_lost_from.bin"
-          ] do
-        decoded =
-          case file do
-            "retired_page_tag7_coarsened.bin" -> EdgeLossManifestPageV1.decode(load(file))
-            _ -> SpoolLossTombstoneV1.decode(load(file))
-          end
+    test "every retired vector carries ITS OWN advertised tag" do
+      # Guard the guard, for ALL SIX and by TAG NUMBER. Checking two files for "some
+      # unknown field" would pass if a vector carried the WRONG retired tag, or none --
+      # in which case the rejections above prove nothing about the tag they name.
+      vectors = [
+        {"retired_page_tag7_coarsened.bin", EdgeLossManifestPageV1, 7},
+        {"retired_page_tag9_lost_ranges.bin", EdgeLossManifestPageV1, 9},
+        {"retired_page_tag10_affected.bin", EdgeLossManifestPageV1, 10},
+        {"retired_tombstone_tag3_lost_from.bin", SpoolLossTombstoneV1, 3},
+        {"retired_tombstone_tag4_lost_through.bin", SpoolLossTombstoneV1, 4},
+        {"retired_tombstone_tag8_coarsened.bin", SpoolLossTombstoneV1, 8}
+      ]
 
-        refute decoded.__unknown_fields__ in [nil, []],
-               "#{file} retained no unknown field; the vector is inert"
+      for {file, mod, tag} <- vectors do
+        decoded = mod.decode(load(file))
+        unknown = decoded.__unknown_fields__
+
+        refute unknown in [nil, []], "#{file} retained no unknown field; the vector is inert"
+
+        tags = Enum.map(unknown, fn {t, _wire, _bytes} -> t end)
+
+        assert tag in tags,
+               "#{file} advertises tag #{tag} but retained #{inspect(tags)}"
       end
     end
   end
