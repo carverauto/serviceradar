@@ -1,0 +1,43 @@
+rust/dgraph-client/tests/BUILD.bazel
+  s_1243381eb5fb18::t_f93ed6e8ac6f11 90-95
+rust/dgraph-client/src/errors/dgraph_error/mod.rs
+  s_1243381eb5fb18::t_74dafef27c651b 65-87
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_1243381eb5fb18::t_6ff92bde160ec2 306-309,313,315,318-326,331,340-369,379-383,385,388,390,394,397-398,402,408
+  s_1243381eb5fb18::t_7207306371e320 76,78-82,86-89,91-100,102-104,106
+  s_1243381eb5fb18::t_9ec1647bed1ad9 232-256
+  s_1243381eb5fb18::t_d26dac1a2b5650 28-30,36-53
+  s_1243381eb5fb18::t_56a28db01d2a2a 145-154
+  s_1243381eb5fb18::t_a02c6a7b0e827b 222,273,275-276,278-279,281-286,288-301,310-312,314,316-317,328-330,332-335,370-371,373-376,384,386-387,389,391-393,395-396,403-407,409-410
+  s_1243381eb5fb18::t_fbb663bd7273e6 302-305
+  s_1243381eb5fb18::t_9714145d247709 138-140,144,156,163-170,178,182-221
+  s_1243381eb5fb18::t_be3e05f5b08f32 228,230-231,257,262-272
+  s_1243381eb5fb18::t_743bfca0675bab 72-73
+  s_1243381eb5fb18::t_dfa53507ccf59b 54
+  s_1243381eb5fb18::t_f34ee3256f3381 223
+  s_1243381eb5fb18::t_fa1f3116c10620 274
+rust/dgraph-client/src/errors/connect_error/mod.rs
+  s_1243381eb5fb18::t_e69e07cad16015 54-59
+rust/dgraph-client/tests/errors/connect_error_tests.rs
+  s_1243381eb5fb18::t_b8d3592966c9b1 29-33,38-41
+  s_1243381eb5fb18::t_11ac41d8e6c8d0 34-37
+  s_1243381eb5fb18::t_a0534fdf9eb54a 28
+rust/dgraph-client/tests/errors/dgraph_error_tests.rs
+  s_1243381eb5fb18::t_af097023bc77d3 51-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "02309e989b04d3bb2d6d26b7285bbcd23301a162",
+  "prompts": {},
+  "sessions": {
+    "s_1243381eb5fb18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c80cd9b1-98fc-432b-9832-9538fb1ae01c",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
