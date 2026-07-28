@@ -553,19 +553,53 @@ func TestSharedOverBudgetPairIsRejected(t *testing.T) {
 	a := read("manifest_page_overbudget_a.bin")
 	b := read("manifest_page_overbudget_b.bin")
 
+	// (1) THE DECODED PAIR IS A VALID CHAIN. Without this the bounds rejection proves
+	// nothing: an earlier version padded two copies of the same page 0/1 terminal, so
+	// the pair was a BROKEN chain and a re-encode-summing implementation would still
+	// have rejected it -- just later, for an unrelated reason. The bypass was never
+	// isolated.
+	pages := make([]*edgev1.EdgeLossManifestPageV1, 0, 2)
+	for i, raw := range [][]byte{a, b} {
+		var pg edgev1.EdgeLossManifestPageV1
+		if err := proto.Unmarshal(raw, &pg); err != nil {
+			t.Fatalf("shared page %d must decode: %v", i, err)
+		}
+		pages = append(pages, &pg)
+	}
+	if err := ValidateManifestChain(pages, ManifestRoot(pages)); err != nil {
+		t.Fatalf("the decoded pair must be a VALID chain, or the bounds rejection is "+
+			"not attributable to byte accounting: %v", err)
+	}
+
+	// (2) ITS RE-ENCODED AGGREGATE IS BELOW THE CAP, so an implementation summing
+	// re-encoded sizes would ADMIT this pair. That is the bypass under test.
+	reencoded := 0
+	for _, pg := range pages {
+		enc, err := proto.Marshal(pg)
+		if err != nil {
+			t.Fatalf("re-marshal: %v", err)
+		}
+		reencoded += len(enc)
+	}
+	if reencoded >= MaxManifestBytes {
+		t.Fatalf("re-encoded aggregate is %d; it must be BELOW %d or a re-encode-summing "+
+			"implementation would reject the pair anyway", reencoded, MaxManifestBytes)
+	}
+
+	// (3) THE RAW PAIR IS EXACTLY ONE BYTE OVER, with each page individually under.
 	if len(a) > MaxManifestBytes || len(b) > MaxManifestBytes {
-		t.Fatalf("each page must be individually UNDER the cap (%d, %d vs %d); "+
-			"otherwise the pair does not isolate the AGGREGATE bound",
+		t.Fatalf("each page must be individually UNDER the cap (%d, %d vs %d)",
 			len(a), len(b), MaxManifestBytes)
 	}
 	if len(a)+len(b) != MaxManifestBytes+1 {
-		t.Fatalf("pair totals %d, want exactly %d", len(a)+len(b), MaxManifestBytes+1)
+		t.Fatalf("raw pair totals %d, want exactly %d", len(a)+len(b), MaxManifestBytes+1)
 	}
+
+	// (4) THE RAW BOUNDARY REJECTS, and each page alone does not -- so the verdict is
+	// the AGGREGATE bound and nothing else.
 	if err := ValidateManifestChainFromRaw([][]byte{a, b}, nil); !errors.Is(err, ErrManifestBounds) {
 		t.Fatalf("shared over-budget pair = %v, want ErrManifestBounds", err)
 	}
-	// Each alone is in budget, so the rejection above is attributable to the AGGREGATE
-	// and not to either page being oversize on its own.
 	for i, one := range [][]byte{a, b} {
 		if err := ValidateManifestChainFromRaw([][]byte{one}, nil); errors.Is(err, ErrManifestBounds) {
 			t.Fatalf("page %d alone was rejected on bounds; it must be in budget", i)
