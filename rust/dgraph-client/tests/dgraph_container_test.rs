@@ -85,17 +85,24 @@ fn wait_strategy() -> WaitStrategy {
     WaitStrategy::WaitForDuration(STARTUP_WAIT_SECS)
 }
 
+/// Run on the host network instead of publishing ports.
+/// Host networking removes NAT from the picture: Dgraph binds 9080/8080 directly in the
+/// VM's network namespace, so no iptables rule has to exist for the test to reach it.
 fn dgraph_container_config() -> ContainerConfig<'static> {
     ContainerConfig::builder()
         .name(CONTAINER_NAME)
         .image(IMAGE)
         .tag(TAG)
         .url(BIND_URL)
-        // The gRPC port is the primary connection; HTTP is published alongside it.
+        // The gRPC port is the primary connection; HTTP accompanies it. Under host
+        // networking nothing is published -- these are the ports Dgraph binds directly,
+        // and `setup_container` still hands back `connection_port`, so the client's
+        // `dgraph://127.0.0.1:9080` is correct in both modes.
         .connection_port(GRPC_PORT)
         .additional_ports(&[HTTP_PORT])
         .reuse_container(true)
         .keep_configuration(true)
+        .host_network(true)
         .wait_strategy(wait_strategy())
         .build()
 }
