@@ -350,20 +350,51 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec applied_through_sequence(non_neg_integer(), non_neg_integer(), MapSet.t(), [
           {non_neg_integer(), non_neg_integer()}
         ]) :: non_neg_integer()
+  def applied_through_sequence(prior, allocated_high_water, _applied, _lost)
+      when prior >= allocated_high_water, do: prior
+
   def applied_through_sequence(prior, allocated_high_water, applied, lost) do
-    Enum.reduce_while((prior + 1)..allocated_high_water//1, prior, fn seq, acc ->
-      if MapSet.member?(applied, seq) or not in_span_union?(seq, lost) do
-        {:cont, seq}
-      else
-        {:halt, acc}
-      end
-    end)
+    walk_spans(prior, allocated_high_water, applied, Enum.sort_by(lost, &elem(&1, 0)))
   end
 
-  # The caller MUST pass a VALIDATED COMPLETE union: absence from a partial union
-  # proves nothing, and treating it as not-lost is how a gap becomes unnoticed loss.
-  defp in_span_union?(seq, lost) do
-    Enum.any?(lost, fn {from, through} -> seq >= from and seq <= through end)
+  # TOTAL AND BOUNDED. An earlier version stepped one sequence at a time from prior+1
+  # to the high-water, which was neither: gaps are LEGAL and arbitrarily wide, so a
+  # trillion-wide gap cost a trillion iterations -- a liveness bug on valid input, not
+  # a performance nit. This walks the ordered spans and clears each gap in ONE step;
+  # inside a lost span the prefix advances only while consecutive sequences are
+  # applied, so that region is bounded by the applied set rather than the span width.
+  defp walk_spans(s, high, _applied, []), do: max(s, high)
+
+  defp walk_spans(s, high, applied, [{from, through} | rest]) do
+    cond do
+      through <= s ->
+        walk_spans(s, high, applied, rest)
+
+      from > s + 1 ->
+        # Everything below this span's start is absent from the union, hence NOT LOST.
+        cleared = min(from - 1, high)
+
+        if cleared >= high,
+          do: cleared,
+          else: walk_spans(cleared, high, applied, [{from, through} | rest])
+
+      true ->
+        case advance_in_span(s, high, applied, max(s + 1, from), through) do
+          {:blocked, s2} -> s2
+          {:cleared, s2} -> walk_spans(s2, high, applied, rest)
+        end
+    end
+  end
+
+  defp advance_in_span(s, high, _applied, seq, through) when seq > through or seq > high,
+    do: {:cleared, s}
+
+  defp advance_in_span(s, high, applied, seq, through) do
+    if MapSet.member?(applied, seq) do
+      advance_in_span(seq, high, applied, seq + 1, through)
+    else
+      {:blocked, s}
+    end
   end
 
   @doc false
