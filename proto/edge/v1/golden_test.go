@@ -318,6 +318,21 @@ func padToLen(t *testing.T, b []byte, target int) []byte {
 	return out
 }
 
+// mustValidateLifecycleBytes decodes the EXACT committed fixture bytes and runs the
+// real validator over them. Building a message in memory and validating THAT proves
+// nothing about what is on disk; a fixture the validator rejects is dead weight,
+// because every consumer validates before it reaches the completion proof.
+func mustValidateLifecycleBytes(t *testing.T, name string, b []byte) {
+	t.Helper()
+	var ev edgev1.SweepExecutionEventV1
+	if err := proto.Unmarshal(b, &ev); err != nil {
+		t.Fatalf("%s: decode: %v", name, err)
+	}
+	if err := edgerecord.ValidateSweepExecutionEvent(&ev); err != nil {
+		t.Fatalf("%s: committed bytes must be a VALID event: %v", name, err)
+	}
+}
+
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", name)
@@ -1072,8 +1087,12 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion root: %v", err)
 	}
-	golden(t, "lifecycle.bin", &edgev1.SweepExecutionEventV1{
+	// The event carries the full plan/range identity, so the COMMITTED BYTES are a
+	// valid event: a fixture that ValidateSweepExecutionEvent rejects can never
+	// exercise the completion-proof logic it exists to pin, in either runtime.
+	lifecycleBytes := golden(t, "lifecycle.bin", &edgev1.SweepExecutionEventV1{
 		ExecutionId: uuidv7(0x20), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: uuidv7(0x22), ExecutionPlanSha256: digest32(0x96), TargetRangeId: uuidv7(0x23),
 		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
 		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 4, DurableThroughBatchSequence: 4,
 		HostsObserved: 100, HostsAvailable: 60,
@@ -1082,18 +1101,46 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		MtrCompletionDigest:        completion,
 		PlanRootSha256:             planRoot, RangeRootSha256: digest32(0x93),
 	})
+	mustValidateLifecycleBytes(t, "lifecycle.bin", lifecycleBytes)
 
 	// ZERO-MTR terminal: the plan admitted NO MTR targets, so the completion is the
 	// canonical zero-leaf proof rather than an absent one. The commitment is 32 ZERO
 	// bytes, never empty. This is the shared vector Elixir reproduces byte-for-byte.
-	zeroPlanRoot := digest32(0x94)
+	//
+	// The event is paired with a REAL zero-MTR plan header carrying that same 32-zero
+	// commitment, so the fixture shows both halves of the relation rather than an
+	// event asserting a plan nobody wrote.
 	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil)
+	zeroPlanID := uuidv7(0x24)
+	zeroRange := &edgev1.TargetRangeV1{
+		RangeId: uuidv7(0x25), Cidr: "10.9.0.0/24", TargetCount: 256,
+		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
+	}
+	zeroRange.RangeSha256 = edgerecord.RangeDigest(zeroRange)
+	zeroPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: zeroPlanID, PageIndex: 0, PageCount: 1, CheckSetSha256: digest32(0x78),
+		DigestVersion: edgerecord.PlanDigestVersion, Ranges: []*edgev1.TargetRangeV1{zeroRange},
+	}
+	zeroPage.PageSha256 = edgerecord.PlanPageDigest(zeroPage)
+	zeroPlanRoot := edgerecord.PlanRoot([]*edgev1.ScheduledPlanPageV1{zeroPage})
+	zeroHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: zeroPlanID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: zeroPlanRoot,
+		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: digest32(0x78),
+		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),
+		MtrOrdinalRangeCommitment: zeroCommitment,
+	}
+	zeroHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(zeroHeader)
+	golden(t, "plan_header_zero_mtr.bin", zeroHeader)
+	if err := edgerecord.ValidatePlanHeader(zeroHeader); err != nil {
+		t.Fatalf("zero-MTR plan header must validate: %v", err)
+	}
 	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(zeroPlanRoot, zeroCommitment)
 	if err != nil {
 		t.Fatalf("zero-MTR completion root: %v", err)
 	}
-	golden(t, "lifecycle_zero_mtr.bin", &edgev1.SweepExecutionEventV1{
+	zeroBytes := golden(t, "lifecycle_zero_mtr.bin", &edgev1.SweepExecutionEventV1{
 		ExecutionId: uuidv7(0x21), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: zeroPlanID, ExecutionPlanSha256: zeroHeader.GetExecutionPlanSha256(), TargetRangeId: uuidv7(0x25),
 		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
 		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 4, DurableThroughBatchSequence: 4,
 		HostsObserved: 100, HostsAvailable: 60,
@@ -1103,7 +1150,16 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		MtrCompletionDigest:        zeroCompletion,
 		PlanRootSha256:             zeroPlanRoot, RangeRootSha256: digest32(0x95),
 	})
+	mustValidateLifecycleBytes(t, "lifecycle_zero_mtr.bin", zeroBytes)
 	goldenBytes(t, "zero_mtr_commitment.bin", zeroCommitment)
+
+	// The event's proof verifies against the PAIRED plan header's state -- the same
+	// values a real consumer would have to obtain from a validated carrier.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		&edgev1.SweepExecutionEventV1{}, 0, zeroPlanRoot, zeroCommitment, nil,
+	); err == nil {
+		t.Fatal("an empty event must not verify")
+	}
 
 	rid := uuidv7(0x80)
 	page := &edgev1.EdgeLossManifestPageV1{

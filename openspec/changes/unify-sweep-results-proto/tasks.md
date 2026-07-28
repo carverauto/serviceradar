@@ -274,6 +274,29 @@
   and aborted evidence, with each data frame independently decodable and useful;
   integrate scheduler lease recovery so an agent crash produces authoritative
   lost/expired/superseded attempt state and retriable remaining coverage.
+- [ ] 2.3b **Produce the MTR completion proof in `go/pkg/edge/execstate`, and
+  verify it against real plan state.** OWNS the producer half the ABI change
+  deliberately did not land. Today `execstate.Tracker` builds every lifecycle event
+  but NEVER touches the completion accumulator -- it sets only the
+  `expected_mtr_*`/`emitted_mtr_*` counters -- so no COMPLETED event this repository
+  produces carries a real proof.
+  PRODUCER: fold `MtrCompletionLeaf`s through `edgerecord.MtrCompletionAccumulator`
+  as ordinals reach a terminal disposition, and emit `Root` on the terminal event.
+  A plan admitting NO MTR targets emits `edgerecord.ZeroMtrCompletionRoot` -- the
+  proof is MANDATORY (frozen by "A zero-MTR completion is a mandatory canonical
+  proof, not an absence"), so omitting it is not an option the producer has.
+  CONSUMER: `edgerecord.VerifyCompletionAgainstPlanState` is a comparison PRIMITIVE
+  whose caller supplies every authoritative value, so a caller that derives them
+  from the event gets a VACUOUS check. Real verification needs the expected ordinal
+  count and `mtr_ordinal_range_commitment` to come from a validated, authenticated
+  plan/assignment carrier -- which is task 1.3's authoritative assignment record in
+  the ABI change. GATED ON 1.3; do not claim consumer verification before it lands.
+  Elixir has no completion verifier at all beyond the `HashGrammar` primitive, so
+  the consumer side must name which runtime performs the check.
+  ALSO: `range_root_sha256` is only length-validated today, and nothing can prove a
+  zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte commitment.
+  Both are plan-derived relations with no authoritative source until 1.3.
+
 - [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
   assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
   array in config, command, agent memory, or terminal evidence.

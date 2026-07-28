@@ -919,19 +919,26 @@ func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byt
 	return MtrCompletionRoot(nil, 0, planRootSha256, ordinalRangeCommitment)
 }
 
-// VerifyLifecycleCompletionAgainstPlan verifies a COMPLETED lifecycle event's
-// completion proof against PLAN-DERIVED state, and is the only verification that
-// proves anything: ValidateSweepExecutionEvent checks the proof FIELDS are
-// present and well-shaped, but it cannot tell a correct proof from a well-formed
-// wrong one, and the event's own expected/emitted MTR counters are producer-
-// reported. The expected ordinal count and the ordinal->range commitment MUST come
-// from validated plan/assignment state -- otherwise a producer claiming "expected
-// 0" would waive its own evidence, which is exactly the hole the zero-MTR decision
-// closes.
+// VerifyCompletionAgainstPlanState compares a COMPLETED lifecycle event's proof
+// against an expected count, plan root, commitment, and leaf set supplied BY THE
+// CALLER. It is a GRAMMAR PRIMITIVE, not plan-aware verification.
+//
+// READ THIS BEFORE CALLING. Every authoritative input is an argument, so this
+// function cannot tell where they came from. A caller that derives them from the
+// event itself gets a VACUOUS check that always passes -- `(ev, 0, ev.PlanRootSha256,
+// zero32, nil)` succeeds no matter what the real plan said. Nothing here establishes
+// that the event's completion matches reality; that requires the caller to hold
+// state it obtained from a validated, authenticated plan/assignment carrier.
+//
+// NO SUCH CARRIER EXISTS YET. The authoritative assignment record is task 1.3 and is
+// not in `proto/edge/v1`, so there is deliberately NO production caller: the
+// comparison is frozen here, and genuine consumer verification is downstream work
+// gated on 1.3. Do not read the existence of this function as consumer verification
+// being implemented.
 //
 // planExpectedMtr == 0 is the zero-MTR case and requires the canonical zero-leaf
 // proof; it is NOT a licence to omit one.
-func VerifyLifecycleCompletionAgainstPlan(
+func VerifyCompletionAgainstPlanState(
 	ev *edgev1.SweepExecutionEventV1,
 	planExpectedMtr uint64,
 	planRootSha256, planOrdinalRangeCommitment []byte,

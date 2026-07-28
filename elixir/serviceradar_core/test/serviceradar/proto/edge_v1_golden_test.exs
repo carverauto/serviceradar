@@ -1096,6 +1096,26 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert ev.kind == :SWEEP_EXECUTION_EVENT_KIND_COMPLETED
     assert ev.mtr_completion_digest_version == 2
 
+    # The COMMITTED BYTES are a valid event. Go asserts this through
+    # ValidateSweepExecutionEvent; Elixir has no peer validator, so it asserts the
+    # same identity preconditions directly. A fixture missing them never reaches the
+    # completion-proof logic in either runtime, so the vector would prove nothing.
+    assert byte_size(ev.execution_id) == 16
+    assert byte_size(ev.execution_plan_id) == 16
+    assert byte_size(ev.target_range_id) == 16
+    assert byte_size(ev.execution_plan_sha256) == 32
+    assert ev.emitted_at_unix_nano > 0
+
+    # The PAIRED plan header: the event's plan digest is that header's self-hash, the
+    # header commits the 32-zero empty-set commitment, and Elixir recomputes the
+    # header digest byte-for-byte. This is the relation the event depends on, shown
+    # rather than asserted.
+    header = ScheduledPlanHeaderV1.decode(load("plan_header_zero_mtr.bin"))
+    assert header.mtr_ordinal_range_commitment == <<0::256>>
+    assert HashGrammar.plan_header_digest(header) == header.execution_plan_sha256
+    assert ev.execution_plan_sha256 == header.execution_plan_sha256
+    assert ev.plan_root_sha256 == header.plan_root_sha256
+
     # The plan admitted NO MTR targets, so every MTR counter is zero -- and the
     # proof is STILL present. That is the decision: missing evidence must never be
     # able to masquerade as empty work.
