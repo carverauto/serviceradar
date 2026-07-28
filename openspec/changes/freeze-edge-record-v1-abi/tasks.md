@@ -192,8 +192,9 @@ here.
   frozen ABI. Remaining local work:
   (i) CLOSED by 1.3's assignment record. `range_root_sha256` is RETIRED (tag 20 and
   the name reserved) rather than defined: an assignment's range binding must not be a
-  self-reported lifecycle field, and the authoritative `range_set_commitment` now
-  lives on `SweepAssignmentRecordV1`. And the required `SweepMtrExpectationV1` STATES
+  self-reported lifecycle field, and the authoritative binding is now the assignment's
+  RESOLVABLE `target_range_id` + `target_range_sha256` -- NOT an opaque set commitment,
+  which could not say WHICH ranges were assigned. And the required `SweepMtrExpectationV1` STATES
   the admitted ordinal count, so "32 zero bytes means none admitted" is now written
   down AND checkable -- `ordinal_count == 0` and the 32-zero commitment must agree in
   both directions, which the non-invertible commitment alone could never establish;

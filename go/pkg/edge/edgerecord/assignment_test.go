@@ -17,8 +17,11 @@
 package edgerecord
 
 import (
+	"bytes"
 	"errors"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -43,6 +46,7 @@ func validAssignment(t *testing.T) *edgev1.SweepAssignmentRecordV1 {
 		MtrExpectation: &edgev1.SweepMtrExpectationV1{
 			OrdinalCount:           2,
 			OrdinalRangeCommitment: d32domain(0x30),
+			PlanOrdinalOffset:      proto.Uint64(0),
 		},
 		CheckSetSha256:       d32domain(0x40),
 		AvailabilityPolicyId: []byte("policy-1"),
@@ -146,12 +150,27 @@ func TestValidateAssignmentAgainstPlan(t *testing.T) {
 		r := validAssignment(t)
 		r.ExecutionPlanId = h.GetExecutionPlanId()
 		r.ExecutionPlanSha256 = h.GetExecutionPlanSha256()
-		r.AssignmentEpoch = h.GetAssignmentEpoch()
 		r.CheckSetSha256 = h.GetCheckSetSha256()
 		r.AvailabilityPolicyId = h.GetAvailabilityPolicyId()
 		r.NetworkScopeId = h.GetNetworkScopeId()
 		r.TargetRangeId = rng.GetRangeId()
 		r.TargetRangeSha256 = rng.GetRangeSha256()
+		// The expectation is DERIVED from the plan, exactly as the relation recomputes
+		// it. A hand-picked commitment would be the self-authoritative hole again.
+		windows, _, err := PlanMtrWindows(pages)
+		if err != nil {
+			t.Fatalf("plan windows: %v", err)
+		}
+		off := windows[string(rng.GetRangeId())]
+		commit, err := MtrWindowCommitment(off, rng.GetMtrOrdinalCount(), rng.GetRangeSha256())
+		if err != nil {
+			t.Fatalf("window commitment: %v", err)
+		}
+		r.MtrExpectation = &edgev1.SweepMtrExpectationV1{
+			OrdinalCount:           rng.GetMtrOrdinalCount(),
+			OrdinalRangeCommitment: commit,
+			PlanOrdinalOffset:      proto.Uint64(off),
+		}
 		return r
 	}
 
@@ -174,7 +193,6 @@ func TestValidateAssignmentAgainstPlan(t *testing.T) {
 	// Facts both artifacts carry must agree -- the epoch mismatch this slice shipped
 	// in its first fixture is exactly this case.
 	for name, mutate := range map[string]func(*edgev1.SweepAssignmentRecordV1){
-		"epoch":     func(r *edgev1.SweepAssignmentRecordV1) { r.AssignmentEpoch = h.GetAssignmentEpoch() + 1 },
 		"check set": func(r *edgev1.SweepAssignmentRecordV1) { r.CheckSetSha256 = d32(0xEE) },
 		"policy":    func(r *edgev1.SweepAssignmentRecordV1) { r.AvailabilityPolicyId = []byte("other") },
 		"scope":     func(r *edgev1.SweepAssignmentRecordV1) { r.NetworkScopeId = mustUUID(t) },
@@ -243,5 +261,170 @@ func TestMtrExpectationIsRequiredAndSelfConsistent(t *testing.T) {
 	}
 	if err := ValidateSweepAssignmentRecord(over); !errors.Is(err, ErrAssignmentExpectation) {
 		t.Fatalf("count over the ceiling = %v, want ErrAssignmentExpectation", err)
+	}
+}
+
+// splitPlan builds a TWO-range plan with real MTR windows: range A owns plan-global
+// ordinals 1..2, range B owns 3..5. B's window is the case that was previously
+// unrepresentable -- a second, NON-PREFIX assignment.
+func splitPlan(t *testing.T) (*edgev1.ScheduledPlanHeaderV1, []*edgev1.ScheduledPlanPageV1) {
+	t.Helper()
+	planID := mustUUID(t)
+	checkSet := d32(0x77)
+	mk := func(cidr string, count, budget uint64) *edgev1.TargetRangeV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: mustUUID(t), Cidr: cidr, TargetCount: 256, CheckSetSha256: checkSet,
+			AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget:   budget, MtrOrdinalCount: proto.Uint64(count),
+		}
+		r.RangeSha256 = RangeDigest(r)
+		return r
+	}
+	page := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: planID, PageIndex: 0, PageCount: 1, CheckSetSha256: checkSet,
+		DigestVersion: PlanDigestVersion,
+		Ranges:        []*edgev1.TargetRangeV1{mk("10.0.0.0/24", 2, 4), mk("10.0.1.0/24", 3, 3)},
+	}
+	page.PageSha256 = PlanPageDigest(page)
+	pages := []*edgev1.ScheduledPlanPageV1{page}
+	h := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: planID, PageCount: 1, TotalTargetCount: 512, PlanRootSha256: PlanRoot(pages),
+		DigestVersion: PlanDigestVersion, CheckSetSha256: checkSet,
+		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: mustUUID(t),
+		MtrOrdinalRangeCommitment: mustPlanCommitment(t, pages),
+	}
+	h.ExecutionPlanSha256 = PlanHeaderDigest(h)
+	return h, pages
+}
+
+func assignmentFor(t *testing.T, h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.ScheduledPlanPageV1, idx int) *edgev1.SweepAssignmentRecordV1 {
+	t.Helper()
+	rng := pages[0].GetRanges()[idx]
+	windows, _, err := PlanMtrWindows(pages)
+	if err != nil {
+		t.Fatalf("windows: %v", err)
+	}
+	off := windows[string(rng.GetRangeId())]
+	commit, err := MtrWindowCommitment(off, rng.GetMtrOrdinalCount(), rng.GetRangeSha256())
+	if err != nil {
+		t.Fatalf("window commitment: %v", err)
+	}
+	r := validAssignment(t)
+	r.ExecutionPlanId = h.GetExecutionPlanId()
+	r.ExecutionPlanSha256 = h.GetExecutionPlanSha256()
+	r.CheckSetSha256 = h.GetCheckSetSha256()
+	r.AvailabilityPolicyId = h.GetAvailabilityPolicyId()
+	r.NetworkScopeId = h.GetNetworkScopeId()
+	r.TargetRangeId = rng.GetRangeId()
+	r.TargetRangeSha256 = rng.GetRangeSha256()
+	r.MtrExpectation = &edgev1.SweepMtrExpectationV1{
+		OrdinalCount: rng.GetMtrOrdinalCount(), OrdinalRangeCommitment: commit,
+		PlanOrdinalOffset: proto.Uint64(off),
+	}
+	return r
+}
+
+// TestSplitPlanSecondAssignment proves the frozen ordinal model: a plan divided
+// across assignments, where the SECOND one owns a non-prefix window (3..5) and still
+// keeps its completion-leaf ordinals local to {1..3}.
+func TestSplitPlanSecondAssignment(t *testing.T) {
+	h, pages := splitPlan(t)
+
+	first := assignmentFor(t, h, pages, 0)
+	second := assignmentFor(t, h, pages, 1)
+	if err := ValidateAssignmentAgainstPlan(first, h, pages); err != nil {
+		t.Fatalf("first assignment: %v", err)
+	}
+	if err := ValidateAssignmentAgainstPlan(second, h, pages); err != nil {
+		t.Fatalf("SECOND, non-prefix assignment must be representable: %v", err)
+	}
+	// The windows are genuinely different, so neither test is passing by coincidence.
+	if second.GetMtrExpectation().GetPlanOrdinalOffset() == 0 {
+		t.Fatal("second assignment's window is a prefix; the split vector is vacuous")
+	}
+	if bytes.Equal(first.GetMtrExpectation().GetOrdinalRangeCommitment(),
+		second.GetMtrExpectation().GetOrdinalRangeCommitment()) {
+		t.Fatal("the two window commitments are equal; the split vector is vacuous")
+	}
+
+	// The plan-wide commitment is the ADDITIVE SUM of the per-assignment windows --
+	// which is what lets a split plan be verified without renumbering any attempt.
+	var sum [32]byte
+	for _, r := range []*edgev1.SweepAssignmentRecordV1{first, second} {
+		var w [32]byte
+		copy(w[:], r.GetMtrExpectation().GetOrdinalRangeCommitment())
+		add256(&sum, w)
+	}
+	if !bytes.Equal(sum[:], h.GetMtrOrdinalRangeCommitment()) {
+		t.Fatal("plan-wide commitment must equal the sum of the per-assignment windows")
+	}
+}
+
+// TestExpectationIsRecomputedNotTrusted is the P0 this slice missed twice: the
+// relation must DERIVE the expectation from the plan, so an assignment cannot assert
+// its own MTR authority.
+func TestExpectationIsRecomputedNotTrusted(t *testing.T) {
+	h, pages := splitPlan(t)
+
+	// An arbitrary 32-byte commitment used to pass; the count and range digest
+	// DETERMINE it, so anything else is a different membership claim.
+	arbitrary := assignmentFor(t, h, pages, 0)
+	arbitrary.MtrExpectation.OrdinalRangeCommitment = d32(0x30)
+	if err := ValidateAssignmentAgainstPlan(arbitrary, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("arbitrary commitment = %v, want ErrAssignmentPlanRelation", err)
+	}
+
+	// Another range's window commitment is equally rejected -- otherwise a completion
+	// whose leaves all name range B could verify against an assignment on range A.
+	crossed := assignmentFor(t, h, pages, 0)
+	crossed.MtrExpectation.OrdinalRangeCommitment =
+		assignmentFor(t, h, pages, 1).GetMtrExpectation().GetOrdinalRangeCommitment()
+	if err := ValidateAssignmentAgainstPlan(crossed, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("other range's window = %v, want ErrAssignmentPlanRelation", err)
+	}
+
+	// The count must equal the range's admitted count: v1 replays the WHOLE window.
+	shortened := assignmentFor(t, h, pages, 0)
+	shortened.MtrExpectation.OrdinalCount = 1
+	if err := ValidateAssignmentAgainstPlan(shortened, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("partial window = %v, want ErrAssignmentPlanRelation", err)
+	}
+
+	// REQUIRED PRESENCE: an absent offset must not pass as the legal offset 0.
+	absent := assignmentFor(t, h, pages, 0)
+	absent.MtrExpectation.PlanOrdinalOffset = nil
+	if err := ValidateAssignmentAgainstPlan(absent, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("absent offset = %v, want ErrAssignmentPlanRelation", err)
+	}
+	wrongOff := assignmentFor(t, h, pages, 1)
+	wrongOff.MtrExpectation.PlanOrdinalOffset = proto.Uint64(0)
+	if err := ValidateAssignmentAgainstPlan(wrongOff, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
+		t.Fatalf("wrong offset = %v, want ErrAssignmentPlanRelation", err)
+	}
+}
+
+// TestPlanMtrWindowBounds pins the ceiling rule and the overflow guard.
+func TestPlanMtrWindowBounds(t *testing.T) {
+	h, pages := splitPlan(t)
+
+	// The admitted count may never exceed the ceiling. The count is carried, not
+	// derived from the budget -- but the budget still bounds it.
+	over := proto.Clone(pages[0]).(*edgev1.ScheduledPlanPageV1)
+	over.Ranges[0].MtrOrdinalCount = proto.Uint64(over.Ranges[0].GetMtrAdmissionBudget() + 1)
+	if _, _, err := PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{over}); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("count over budget = %v, want ErrPlanMtrWindow", err)
+	}
+
+	// Overflow of the ordinal space is rejected rather than wrapping.
+	if _, err := MtrWindowCommitment(MaxMtrCompletionOrdinals, 1, d32(0x20)); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("window overflow = %v, want ErrPlanMtrWindow", err)
+	}
+
+	// A header whose commitment is not the recomputed sum is rejected.
+	bad := proto.Clone(h).(*edgev1.ScheduledPlanHeaderV1)
+	bad.MtrOrdinalRangeCommitment = d32(0x30)
+	bad.ExecutionPlanSha256 = PlanHeaderDigest(bad)
+	if err := ValidatePlanPages(bad, pages); !errors.Is(err, ErrPlanMtrCommitment) {
+		t.Fatalf("unrecomputable header commitment = %v, want ErrPlanMtrCommitment", err)
 	}
 }
