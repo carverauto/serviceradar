@@ -17,6 +17,7 @@
 package edgerecord
 
 import (
+	"bytes"
 	"errors"
 	"math"
 	"testing"
@@ -268,6 +269,120 @@ func TestMtrCompletionRootOrderIndependentAndValidated(t *testing.T) {
 	}
 	if _, err := root([]MtrCompletionLeaf{{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng}}, 2, planRoot, comm); !errors.Is(err, ErrMtrCompletion) {
 		t.Fatalf("incomplete coverage = %v, want ErrMtrCompletion", err)
+	}
+}
+
+// TestZeroMtrCompletionIsMandatoryAndCanonical pins the zero-MTR decision: a plan
+// admitting no MTR targets has exactly ONE valid completion proof, and it is a
+// proof rather than an absence.
+func TestZeroMtrCompletionIsMandatoryAndCanonical(t *testing.T) {
+	planRoot := d32domain(0x90)
+	zero32 := make([]byte, 32)
+
+	root, err := ZeroMtrCompletionRoot(planRoot, zero32)
+	if err != nil {
+		t.Fatalf("zero-MTR completion must be constructible: %v", err)
+	}
+	if len(root) != sha256Len {
+		t.Fatalf("zero-MTR root is %d bytes, want %d", len(root), sha256Len)
+	}
+
+	// The empty-set commitment IS 32 zero bytes -- the same value a producer gets
+	// from folding no assignments, so the plan header and the proof agree by
+	// construction rather than by convention.
+	if got := MtrOrdinalRangeCommitment(nil); !bytes.Equal(got, zero32) {
+		t.Fatalf("empty-set commitment = %x, want 32 zero bytes", got)
+	}
+
+	// It is bound to the plan root like any other proof: a different plan root is a
+	// different completion, so a zero-MTR proof cannot be replayed across plans.
+	other, err := ZeroMtrCompletionRoot(d32domain(0x33), zero32)
+	if err != nil || bytes.Equal(root, other) {
+		t.Fatalf("zero-MTR root must bind the plan root: %v", err)
+	}
+
+	// EMPTY commitment bytes are NOT the zero-MTR commitment. This is the whole
+	// reason the field is always 32 bytes: empty would be a second spelling of
+	// "no MTR" that no comparison could distinguish from an omitted commitment.
+	if _, err := ZeroMtrCompletionRoot(planRoot, nil); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("empty commitment = %v, want ErrMtrCompletion", err)
+	}
+
+	// A leaf at expected 0 is evidence of work the plan never admitted.
+	leaf := MtrCompletionLeaf{Ordinal: 1, Disposition: MtrDispositionNotAdmitted, RangeSha256: d32domain(0x91)}
+	if _, err := MtrCompletionRoot([]MtrCompletionLeaf{leaf}, 0, planRoot, zero32); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("leaf at expected 0 = %v, want ErrMtrCompletion", err)
+	}
+
+	// A non-zero commitment with no leaves fails the membership proof: the plan
+	// committed ordinal->range assignments the completion never covered.
+	if _, err := MtrCompletionRoot(nil, 0, planRoot, d32domain(0x91)); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("zero leaves against a non-empty commitment = %v, want ErrMtrCompletion", err)
+	}
+}
+
+// TestVerifyLifecycleCompletionAgainstPlan proves the verification is PLAN-aware:
+// the event's own expected/emitted counters cannot decide whether evidence is owed.
+func TestVerifyLifecycleCompletionAgainstPlan(t *testing.T) {
+	planRoot := d32domain(0x90)
+	zero32 := make([]byte, 32)
+	root, err := ZeroMtrCompletionRoot(planRoot, zero32)
+	if err != nil {
+		t.Fatalf("zero root: %v", err)
+	}
+
+	ev := func() *edgev1.SweepExecutionEventV1 {
+		return &edgev1.SweepExecutionEventV1{
+			ExecutionId: mustUUID(t), ExecutionPlanId: mustUUID(t), TargetRangeId: mustUUID(t),
+			ExecutionPlanSha256: d32domain(0x10),
+			Kind:                edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+			EmittedAtUnixNano:   1, TerminalBatchSequence: 1,
+			MtrCompletionDigestVersion: MtrCompletionDigestVersion,
+			MtrCompletionDigest:        root,
+			PlanRootSha256:             planRoot,
+			RangeRootSha256:            d32domain(0x92),
+		}
+	}
+
+	if err := VerifyLifecycleCompletionAgainstPlan(ev(), 0, planRoot, zero32, nil); err != nil {
+		t.Fatalf("canonical zero-MTR completion must verify: %v", err)
+	}
+
+	// THE POINT: a producer that self-reports "expected 0" does not get to waive
+	// evidence. The plan says 2 MTR ordinals are owed, so the zero-leaf proof the
+	// event carries is rejected even though the event's own counters agree with it.
+	bad := ev()
+	bad.ExpectedMtrTraces, bad.EmittedMtrTraces = 0, 0
+	trace := mustUUID(t)
+	rng := d32domain(0x91)
+	leaves := []MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: MtrDispositionTraceAllocated, TraceID: trace, RangeSha256: rng},
+		{Ordinal: 2, Disposition: MtrDispositionNotAdmitted, RangeSha256: rng},
+	}
+	comm := MtrOrdinalRangeCommitment(leaves)
+	if err := VerifyLifecycleCompletionAgainstPlan(bad, 2, planRoot, comm, leaves); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("self-reported zero against a 2-ordinal plan = %v, want ErrMtrCompletion", err)
+	}
+
+	// A proof for a different plan root is rejected even when internally valid.
+	wrongPlan := ev()
+	wrongPlan.PlanRootSha256 = d32domain(0x33)
+	if err := VerifyLifecycleCompletionAgainstPlan(wrongPlan, 0, planRoot, zero32, nil); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatalf("mismatched plan root = %v, want ErrMtrCompletion", err)
+	}
+
+	// An omitted proof is a lifecycle failure, not a permitted zero-MTR shape.
+	omitted := ev()
+	omitted.MtrCompletionDigest = nil
+	if err := VerifyLifecycleCompletionAgainstPlan(omitted, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+		t.Fatalf("omitted proof = %v, want ErrLifecycle", err)
+	}
+
+	// A wrong digest version is rejected before the digest is compared.
+	badVersion := ev()
+	badVersion.MtrCompletionDigestVersion = MtrCompletionDigestVersion + 1
+	if err := VerifyLifecycleCompletionAgainstPlan(badVersion, 0, planRoot, zero32, nil); !errors.Is(err, ErrLifecycle) {
+		t.Fatalf("wrong digest version = %v, want ErrLifecycle", err)
 	}
 }
 

@@ -1091,6 +1091,54 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert host.first_seen_delta_nano == nil
   end
 
+  test "zero-MTR terminal carries the canonical zero-leaf proof Elixir recomputes" do
+    ev = SweepExecutionEventV1.decode(load("lifecycle_zero_mtr.bin"))
+    assert ev.kind == :SWEEP_EXECUTION_EVENT_KIND_COMPLETED
+    assert ev.mtr_completion_digest_version == 2
+
+    # The plan admitted NO MTR targets, so every MTR counter is zero -- and the
+    # proof is STILL present. That is the decision: missing evidence must never be
+    # able to masquerade as empty work.
+    assert ev.expected_mtr_traces == 0
+    assert ev.emitted_mtr_traces == 0
+    assert byte_size(ev.mtr_completion_digest) == 32
+
+    # The empty-set commitment is 32 ZERO bytes, never empty bytes, and Elixir folds
+    # it to the same value Go wrote.
+    zero32 = load("zero_mtr_commitment.bin")
+    assert zero32 == <<0::256>>
+    assert HashGrammar.mtr_ordinal_range_commitment([]) == zero32
+
+    # Byte parity on the zero-leaf root, through the validating entry point.
+    assert {:ok, ev.mtr_completion_digest} ==
+             HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32)
+
+    # EMPTY commitment bytes are not the zero-MTR commitment.
+    assert :error = HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, <<>>)
+
+    # A leaf at expected 0 is work the plan never admitted.
+    rng = digest32(0x93)
+
+    assert :error =
+             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, ev.plan_root_sha256, zero32)
+
+    # Zero leaves against a non-empty commitment fails the membership proof.
+    assert :error =
+             HashGrammar.mtr_completion_verify(
+               [],
+               0,
+               ev.plan_root_sha256,
+               HashGrammar.mtr_ordinal_range_commitment([{1, 2, nil, rng}])
+             )
+
+    # REGRESSION GUARD for the `1..0` trap: an unstepped range in the canonical fold
+    # iterates [1, 0] descending, so it would fold two ordinal hashes for a
+    # completion with none and reject every valid zero-MTR proof. If this assertion
+    # and the byte-parity one above both hold, the fold really was empty.
+    assert HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32) !=
+             HashGrammar.mtr_completion_verify([], 1, ev.plan_root_sha256, zero32)
+  end
+
   test "MTR completion disposition symbols are pinned to their exact numbers" do
     # The closed-set vectors below prove only which NUMBERS are accepted, so
     # swapping two valid members -- QUARANTINED=4 and SCHEDULER_LOST=5 -- would

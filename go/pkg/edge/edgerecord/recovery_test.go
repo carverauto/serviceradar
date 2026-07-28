@@ -783,6 +783,9 @@ func buildPlan(t *testing.T, planID, checkSet []byte, pageRanges [][]uint64) (*e
 		ExecutionPlanId: planID, PageCount: uint32(count), TotalTargetCount: total,
 		PlanRootSha256: PlanRoot(pages), DigestVersion: PlanDigestVersion, CheckSetSha256: checkSet,
 		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: mustUUID(t),
+		// These plans admit no MTR targets, so the commitment is the empty-set multiset
+		// hash: 32 ZERO bytes, never empty bytes. The field is ALWAYS 32 bytes.
+		MtrOrdinalRangeCommitment: MtrOrdinalRangeCommitment(nil),
 	}
 	h.ExecutionPlanSha256 = PlanHeaderDigest(h)
 	return h, pages

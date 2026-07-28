@@ -409,13 +409,21 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - gates (domain.go:821-838): `len(plan_root_sha256) == 32` && `len(commitment) == 32`;
      `count == expected`; `ordinalAcc ==` the big-endian add of `mtrOrdinalHash(i)` for
      `i in 1..expected`; `memberAcc == mtr_ordinal_range_commitment`.
-   - empty (`expected == 0`, the plan admits NO MTR targets) -- UNFROZEN CANDIDATE,
-     OPEN DECISION (task 1.15): the candidate says NO completion proof is required; the
-     plan's `mtr_ordinal_range_commitment` (`ScheduledPlanHeaderV1` field 11) is EMPTY
-     bytes; and if a root is computed it is over zero leaves (`count == 0`, all three
-     32-byte accumulators the zero value, with `plan_root_sha256` still committed). Every
-     current implementation contradicts this, so it is NOT authoritative and MUST NOT be
-     frozen at 1.7 until 1.15 chooses one behaviour.
+   - empty (`expected == 0`, the plan admits NO MTR targets) -- DECIDED: candidate (B),
+     a MANDATORY canonical zero-leaf proof. A COMPLETED event ALWAYS carries a proof;
+     the zero-MTR one is `expected = 0`, no leaves, all three 32-byte accumulators the
+     zero value, and the ordinary root framing still bound to `plan_root_sha256`. The
+     plan's `mtr_ordinal_range_commitment` (`ScheduledPlanHeaderV1` field 11) is 32 ZERO
+     bytes -- the empty-set multiset hash -- and NEVER empty bytes. Candidate (A) (no
+     proof required) was REJECTED: it admitted both an absent and a present proof for
+     one state and rested the choice on a producer-reported counter. The gates above
+     already yield this for free -- `count == expected` holds at 0, the canonical
+     ordinal fold over an EMPTY range is the zero accumulator, and `memberAcc ==
+     commitment` compares zero32 to zero32 -- which is why (B) needed no new framing.
+     NOTE for implementers: Go's `for i := 1; i <= expected; i++` is naturally empty at
+     0, but Elixir's `1..0` is a DESCENDING range that iterates `[1, 0]`; the canonical
+     fold uses `1..expected//1` so the range is empty exactly when there is nothing to
+     cover. Without the step, every valid zero-MTR proof is rejected.
    - terminal disposition values (the u64) -- `MtrCompletionDisposition`,
      DISTINCT from the per-hop `MtrOutcome` enum:
      the members and numbers frozen by the requirement "MTR completion disposition is one
