@@ -181,7 +181,7 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
    docker buildx build \
      --platform linux/amd64 \
      -f docker/Dockerfile.rbe \
-     -t ghcr.io/carverauto/serviceradar/rbe-executor:v1.0.24.1 \
+     -t registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1 \
      --push .
    ```
 2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`).
