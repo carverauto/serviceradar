@@ -340,23 +340,39 @@ func validateClassificationSpanBody(sp *edgev1.EdgeClassificationSpanV1) error {
 		return validateSpanIdentity(b.AttributedPassive.GetIdentity())
 
 	case *edgev1.EdgeClassificationSpanV1_Unattributable:
-		// Closed accepted SET, not "any declared member": a member added by a later
-		// proto revision must not begin hashing under an unchanged
-		// RecoveryDigestVersion. Admitting one requires a grammar version change.
-		switch b.Unattributable.GetReason() {
-		case edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
-			edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
-			edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
-			edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
-			edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE:
-			return nil
-		default:
+		if !knownUnattributableReason(b.Unattributable.GetReason()) {
 			return ErrManifestSpanBody
 		}
+		return nil
 
 	default:
 		// Unset oneof: an interval with no classification, which no consumer can act on.
 		return ErrManifestSpanBody
+	}
+}
+
+// knownUnattributableReason is the frozen v1 accepted SET, not "any declared member".
+// A member added by a later proto revision must NOT begin hashing under an unchanged
+// RecoveryDigestVersion; admitting one is a deliberate grammar version change. The
+// reserved numbers 1 and 5 fall through to the default arm like any other.
+//
+// TWO GATES COVER THIS PREDICATE, and neither covers the other's case. The enum-policy
+// manifest proves Go and Elixir police the same DECLARED members -- but it enumerates
+// the descriptor, so widening this to accept a RESERVED or unknown number is invisible
+// to it (a reserved number has no descriptor entry to export). That case is covered by
+// the explicit reject vectors for 0, -1, 1, 5, 8 and 999 in recovery_test.go and
+// recovery_validate_test.exs. Removing either gate leaves a real hole.
+func knownUnattributableReason(v edgev1.EdgeUnattributableReason) bool {
+	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted value
+	switch v {
+	case edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
+		edgev1.EdgeUnattributableReason_EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -383,15 +399,12 @@ func validateSpanIdentity(id *edgev1.EdgeAttributedSpanIdentityV1) error {
 		return nil
 	}
 	// All four members travel together; a partial combination is rejected.
-	switch src.GetKind() {
-	case edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN,
-		edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL:
-	default:
+	//
+	// The accepted set is knownSourceAuthKind -- the SAME production predicate the
+	// record's own source_authorization uses, not a copy. An earlier revision restated
+	// the seven members inline here, which is a second source of truth for one frozen
+	// set and would drift silently from the enum-policy manifest.
+	if !knownSourceAuthKind(src.GetKind()) {
 		return ErrManifestSpanBody
 	}
 	if ValidateCanonicalUUID(src.GetContextId()) != nil || ValidateCanonicalUUID(src.GetSourceScopeId()) != nil {
