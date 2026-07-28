@@ -579,7 +579,9 @@ here.
   cross-language Go/Elixir fixtures, so THOSE SLICES no longer block the wire-ABI
   FREEZE gate. This says nothing about the other freeze prerequisites. Since this
   paragraph was written, task 1.6a has MERGED (#4764) and the generated
-  `MtrCompletionDisposition` enum has LANDED (task 1.4); what remains open is the
+  `MtrCompletionDisposition` enum has LANDED (task 1.4's disposition sub-target);
+  both are IMPLEMENTED CANDIDATES, not accepted ABI -- task 1.7 is still the
+  accept gate. What remains open is the
   1.3 assignment-record contract, 1.5's residual clauses, 1.6's version vectors,
   the zero-MTR decision, and task 1.15's shared per-value vectors. The freeze
   itself is task 1.7.

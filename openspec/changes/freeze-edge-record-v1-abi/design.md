@@ -123,7 +123,7 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | --- | --- | --- |
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
-| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a transcript. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a IMPLEMENTED CANDIDATE. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
 | MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, but the zero-MTR behaviour remains an open decision and task 1.15 still owes the shared per-value leaf vectors. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
@@ -146,8 +146,9 @@ the bytes end to end is runtime.
 
 SCOPE NOTE: this appendix is frozen EXCEPT where an entry is marked a candidate.
 Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
-RESOLVED-scope entries now describe the shipped transcript), and task 1.4's
-disposition enum is DECLARED. What still holds those entries and the
+RESOLVED-scope entries now describe the IMPLEMENTED CANDIDATE transcript -- landed
+is not shipped, and task 1.7 is still what accepts it), and task 1.4's disposition
+sub-target is DECLARED. What still holds those entries and the
 MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the two
 OPEN items it carries: the zero-MTR decision and task 1.15's shared per-value
 vectors. "TombstoneScopeDigest
@@ -381,7 +382,8 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    byte-for-byte; the committed testdata (`tombstone_scope.bin` / `manifest_page_scope.bin` /
    `resolved_scope.bin` + the plan/manifest `*.bin`) are the cross-language vectors.
 5. MTR completion proof -- `u64 MtrCompletionDigestVersion = 2`. The leaf
-   `disposition` IS the generated `MtrCompletionDisposition` enum (task 1.4, landed):
+   `disposition` IS the generated `MtrCompletionDisposition` enum (task 1.4's
+   disposition sub-target, landed):
    it is declared once in `proto/edge/v1/sweep.proto`, Go's `MtrTerminalDisposition`
    is a type alias of it, and Elixir's guards read it through compile-time module
    attributes, so this framing now DOES describe the code and it supersedes #4713's

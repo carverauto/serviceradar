@@ -1031,18 +1031,27 @@ by references to the generated enum, and no document SHALL describe the values a
 pinned in `domain.go`.
 
 This is not tidiness. The disposition number is hashed INTO the frozen completion
-leaf preimage, so the numbering is part of the digest grammar. It is currently
+leaf preimage, so the numbering is part of the digest grammar. It was previously
 written twice and generated from nothing -- as a Go `iota` block
 (`MtrTerminalDisposition`) and as literal integers in Elixir guards -- which is
 exactly the hand-maintained numeric parity that can silently diverge. Two
 implementations that disagree by one produce two different completion roots for
 the same completion, and the disagreement surfaces as an unexplained proof
-mismatch rather than as a compile error.
+mismatch rather than as a compile error. The generated enum now exists and both
+runtimes consume it (task 1.4's disposition sub-target); the rule above is what
+keeps a future runtime from reintroducing a local copy.
 
 `MtrCompletionDisposition` SHALL be distinct from the per-hop `MtrOutcome` and
 SHALL NOT reuse its numbering. They describe different things -- what happened to
 a planned MTR ordinal versus what a probe observed at a hop -- and collapsing them
 would make the leaf grammar depend on an enum that evolves for unrelated reasons.
+"SHALL NOT reuse its numbering" governs the MAPPING, not the number space: both
+enums allocate small integers and MAY coincide at a number (`PROBE_FAILED` is 3
+in both), and the frozen members above are themselves the authority on which
+number carries which meaning. What is forbidden is adopting `MtrOutcome`'s
+symbol-to-number assignment or reading one enum's value through the other --
+`NOT_ADMITTED` is 2 here and 5 there, so a consumer that conflates them
+mis-hashes the leaf.
 
 No new leaf message SHALL be introduced: the disposition is a field of the
 existing completion leaf grammar. `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
