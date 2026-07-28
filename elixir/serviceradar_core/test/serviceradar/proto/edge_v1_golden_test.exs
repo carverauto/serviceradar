@@ -1121,6 +1121,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # able to masquerade as empty work.
     assert ev.expected_mtr_traces == 0
     assert ev.emitted_mtr_traces == 0
+    assert ev.expected_mtr_summaries == 0
+    assert ev.emitted_mtr_summaries == 0
     assert byte_size(ev.mtr_completion_digest) == 32
 
     # The empty-set commitment is 32 ZERO bytes, never empty bytes, and Elixir folds

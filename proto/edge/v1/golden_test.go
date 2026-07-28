@@ -1153,12 +1153,29 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	mustValidateLifecycleBytes(t, "lifecycle_zero_mtr.bin", zeroBytes)
 	goldenBytes(t, "zero_mtr_commitment.bin", zeroCommitment)
 
-	// The event's proof verifies against the PAIRED plan header's state -- the same
-	// values a real consumer would have to obtain from a validated carrier.
+	// The COMMITTED BYTES verify against the PAIRED plan header's state -- the values
+	// a real consumer would have to obtain from a validated carrier. Decoding the
+	// fixture is the point: asserting that some OTHER event fails would say nothing
+	// about the vector that actually ships.
+	var zeroEv edgev1.SweepExecutionEventV1
+	if err := proto.Unmarshal(zeroBytes, &zeroEv); err != nil {
+		t.Fatalf("decode lifecycle_zero_mtr.bin: %v", err)
+	}
 	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		&edgev1.SweepExecutionEventV1{}, 0, zeroPlanRoot, zeroCommitment, nil,
+		&zeroEv, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
+	); err != nil {
+		t.Fatalf("committed zero-MTR event must verify against its paired plan: %v", err)
+	}
+
+	// Negative control, so the positive above cannot pass vacuously: one flipped
+	// digest byte must be rejected.
+	perturbed := proto.Clone(&zeroEv).(*edgev1.SweepExecutionEventV1)
+	perturbed.MtrCompletionDigest = append([]byte(nil), zeroEv.GetMtrCompletionDigest()...)
+	perturbed.MtrCompletionDigest[0] ^= 0xFF
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		perturbed, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
 	); err == nil {
-		t.Fatal("an empty event must not verify")
+		t.Fatal("a perturbed completion digest must not verify")
 	}
 
 	rid := uuidv7(0x80)

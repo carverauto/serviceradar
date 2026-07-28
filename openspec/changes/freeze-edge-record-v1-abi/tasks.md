@@ -642,29 +642,36 @@ here.
   event is now CORRECT rather than contradictory, because the zero-MTR case has a
   proof to carry. `ValidatePlanHeader` additionally requires
   `mtr_ordinal_range_commitment` to be exactly 32 bytes (32 ZERO bytes when no MTR
-  is admitted, never empty), and `VerifyLifecycleCompletionAgainstPlan` verifies a
-  COMPLETED event against PLAN-DERIVED expected count and commitment rather than the
-  event's self-reported counters. Shared vectors landed: `lifecycle_zero_mtr.bin`
-  and `zero_mtr_commitment.bin`, recomputed byte-for-byte in Elixir.
-  STILL OPEN, and these are BLOCKERS ON 1.7, not footnotes:
+  is admitted, never empty), and `VerifyCompletionAgainstPlanState` freezes the
+  COMPARISON a consumer performs -- a PRIMITIVE only: every authoritative value is a
+  caller argument, so it establishes nothing about where those values came from and
+  has deliberately no production caller. Shared vectors landed:
+  `lifecycle_zero_mtr.bin`, `zero_mtr_commitment.bin`, and the paired
+  `plan_header_zero_mtr.bin`, recomputed byte-for-byte in Elixir.
+  STILL OPEN. Split deliberately, because `unify-sweep-results-proto` depends on the
+  FROZEN ABI: an ABI task that blocked on a runtime task would be a cycle, and the
+  runtime work could never start.
+  DOWNSTREAM, AND EXPLICITLY *NOT* A 1.7 GATE:
   (a) PRODUCER PATH -- nothing in this repository computes a completion proof.
   `execstate.Tracker` builds lifecycle events and sets only `expected/emitted`
-  counters. Owned downstream by `unify-sweep-results-proto` task 2.3b, per this task
-  list's scope note. `go/pkg/edge/execstate/**` is now in the Proto ABI workflow path
-  filters so a producer change cannot bypass the ABI gate.
-  (b) CONSUMER VERIFICATION IS NOT IMPLEMENTED.
+  counters. Owned by `unify-sweep-results-proto` task 2.3b, per this task list's
+  scope note. `go/pkg/edge/execstate/**` is now in the Proto ABI workflow path
+  filters so a producer change cannot bypass the ABI drift gate -- that is CI
+  coverage, not a task dependency.
+  (b) CONSUMER VERIFICATION IS NOT IMPLEMENTED, and 1.7 does not wait for it.
   `VerifyCompletionAgainstPlanState` is a comparison PRIMITIVE: every authoritative
   value is a caller argument, so a caller that derives them from the event gets a
   VACUOUS check that always passes. There is deliberately NO production caller, and
   `ValidateLifecycleRecord` remains shape-only. Elixir has no peer verifier at all.
-  Real verification needs a validated, authenticated plan/assignment carrier, which
-  is task 1.3. GATED ON 1.3.
-  (c) TWO PLAN-DERIVED RELATIONS ARE UNDEFINED. `range_root_sha256` is only
-  LENGTH-checked -- nothing relates it to the plan's ranges -- and `ValidatePlanHeader`
-  cannot prove a zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte
-  commitment, because the header alone does not say whether the plan admits MTR. Both
-  need authoritative assignment-state semantics (task 1.3). Do NOT freeze at 1.7 over
-  either.
+  Wiring a real carrier is task 2.3b's job, downstream of the freeze.
+  LOCAL 1.7 PREREQUISITES (normative FIELD MEANINGS only -- what the ABI must SAY,
+  never who implements it):
+  (c) TWO PLAN-DERIVED RELATIONS HAVE NO DEFINED MEANING. `range_root_sha256` is only
+  LENGTH-checked and the ABI does not say what it is a root OF; and nothing in the
+  header states whether a plan admits MTR, so "32 ZERO bytes means no MTR admitted"
+  is unstated rather than merely unverified. Both are normative gaps owed by task 1.3
+  (the authoritative assignment record), and 1.7 SHALL NOT freeze over either. Once
+  1.3 states them, VERIFYING them at runtime is again downstream.
   The full per-value shared leaf-vector inventory remains task 1.15.
   UNSUPPORTED-VERSION coverage is the vector ASSIGNED BY EACH OBJECT'S PROOF CLASS
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
