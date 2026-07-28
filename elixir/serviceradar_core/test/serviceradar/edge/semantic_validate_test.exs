@@ -931,6 +931,12 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
       # added enum field on an INACTIVE or optional domain branch is invisible to this assertion --
       # the golden controls only cover branches those fixtures happen to populate, and the evolution
       # test only iterates policy entries that already exist.
+      #
+      # The RECOVERY graph is a domain root for the same reason, and its absence was a real hole
+      # rather than a theoretical one: the two recovery enum contexts were added to the Go table and
+      # the Elixir policy BY HAND. If a future nested recovery enum field were omitted from both,
+      # their key sets would stay equally incomplete and the bidirectional equality assertion would
+      # still pass. Walking the graph makes every reachable recovery enum field require an entry.
       roots = [
         EdgeRecordClientMessage,
         EdgeRecordV1,
@@ -938,7 +944,9 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
         EdgeRecordServerMessage,
         SweepObservationBatchV1,
         MtrTraceBatchV1,
-        SweepExecutionEventV1
+        SweepExecutionEventV1,
+        Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1,
+        Serviceradar.Edge.V1.EdgeLossManifestPageV1
       ]
 
       policy = SemanticValidate.enum_field_policy()

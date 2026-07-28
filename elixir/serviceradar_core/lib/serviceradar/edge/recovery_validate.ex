@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   import Bitwise, only: []
 
   alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias ServiceRadar.Edge.WireDecode
 
@@ -37,23 +38,23 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # Frozen v1 ACCEPTED SETS -- not "any declared member". A member added by a later
   # proto revision must NOT begin hashing under an unchanged @recovery_digest_version;
   # admitting one is a deliberate grammar version change.
-  @accepted_reasons [
-    :EDGE_UNATTRIBUTABLE_REASON_BINDING_MISSING,
-    :EDGE_UNATTRIBUTABLE_REASON_BINDING_CORRUPT,
-    :EDGE_UNATTRIBUTABLE_REASON_TORN_TAIL,
-    :EDGE_UNATTRIBUTABLE_REASON_BINDING_VERSION_UNSUPPORTED,
-    :EDGE_UNATTRIBUTABLE_REASON_DISCRIMINATOR_UNREPRESENTABLE
-  ]
+  #
+  # DERIVED AT COMPILE TIME from the shared enum-policy map, NOT restated. That map is
+  # the one the Go enum-policy manifest is compared against, so deriving here makes
+  # this module provably policed by the same contract. Local copies looked identical
+  # but were only checked by tests that iterated those same copies: removing a member
+  # here would have shortened the positive test with it, left the manifest comparing Go
+  # against SemanticValidate, and stayed green while Go accepted a value this admission
+  # path rejected.
+  @accepted_reasons Map.fetch!(
+                      SemanticValidate.enum_field_policy(),
+                      {Serviceradar.Edge.V1.EdgeUnattributableV1, :reason}
+                    )
 
-  @accepted_source_kinds [
-    :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN,
-    :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL
-  ]
+  @accepted_source_kinds Map.fetch!(
+                           SemanticValidate.enum_field_policy(),
+                           {Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1, :kind}
+                         )
 
   @typedoc """
   RELATIONAL failures -- the manifest itself is well-formed enough to inspect and is
