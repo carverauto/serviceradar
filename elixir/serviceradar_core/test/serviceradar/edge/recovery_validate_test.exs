@@ -484,6 +484,14 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
         assert {:error, ^outcome} = RecoveryValidate.propagate_decode_error({:error, outcome}),
                "#{outcome} must propagate verbatim, not collapse"
       end
+
+      # The helper must have NO success clause. Reintroducing one would let a caller
+      # hand it a page and get one back -- the capability this module must not expose,
+      # and the reason the earlier injectable-decoder seam was a bypass. Asserted here
+      # so adding that clause fails the suite rather than passing review unnoticed.
+      assert_raise FunctionClauseError, fn ->
+        RecoveryValidate.propagate_decode_error({:ok, go_page()})
+      end
     end
 
     test "a real decode failure surfaces its own outcome end to end" do
