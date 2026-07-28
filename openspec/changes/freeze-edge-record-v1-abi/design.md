@@ -316,8 +316,14 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - RangeDigest (plan.go, excl `range_sha256`): `str "serviceradar.edge.plan.range.v1"`,
      `version` (u64), `range_id` (bytes), `cidr` (str), `first_address` (str), `last_address`
      (str), `target_count` (u64), `check_set_sha256` (bytes), `availability_policy_id`
-     (bytes), `mtr_admission_budget` (u64), `mtr_ordinal_count` (u64; absent hashes as
-     0 but is REJECTED by the validator -- see the required-presence rule).
+     (bytes), `mtr_admission_budget` (u64), `mtr_ordinal_count` (u64).
+     PRESENCE-MARKER EXCEPTION, stated because Appendix A's general rule gives every
+     `optional` field a 1-byte marker: `mtr_ordinal_count` is hashed as a BARE u64 with
+     NO marker. The marker rule exists so an absent value cannot hash identically to an
+     explicit zero -- but here absence is REJECTED BEFORE HASHING by both owning
+     validators, so the digest never sees an absent value and a marker would encode a
+     state that cannot reach it. The proto keeps `optional` solely so the validator can
+     tell absent from zero.
    - PlanPageDigest (plan.go, excl `page_sha256`): `str "serviceradar.edge.plan.page.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_index` (u64), `page_count`
      (u64), `prev_page_sha256` (bytes), `check_set_sha256` (bytes), `len(ranges)` (u64), then

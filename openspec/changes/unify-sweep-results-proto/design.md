@@ -607,8 +607,9 @@ bounded pages and a plan root, never one database value, config blob, or command
 containing every target. Page fetch, validation, caching, and assignment are
 byte/count bounded. Assignment attempts are not part of that immutable plan: the
 scheduler appends separate authoritative attempt records with agent, page/range,
-epoch, lease/fence generation, remaining coverage, and state. This permits
-retries that did not exist when the plan was created.
+epoch, lease/fence generation, the covered range window, and state. This permits
+retries that did not exist when the plan was created. A retry covers the WHOLE
+window, never a partial remainder -- see the whole-window rule below.
 
 Each assignment attempt has exactly one sweep-data batch sequence space,
 starting at one and allocated contiguously when batches become durable even when
@@ -629,8 +630,11 @@ carry plan identity, assignment epoch, terminal batch sequence, cumulative
 counts, scanner/banner summary, and expected/emitted MTR-summary and trace
 counts/digests. If the agent disappears or cannot durably write its terminal,
 the scheduler fences the attempt and atomically records an authoritative
-`expired`, `superseded`, `lost`, or `aborted` terminal state before assigning
-remaining coverage. Overall execution state is reconciled from the immutable
+`expired`, `superseded`, `lost`, or `aborted` terminal state before REASSIGNING THE
+WHOLE RANGE WINDOW. v1 cannot express a sparse remainder: an assignment holds one
+CONTIGUOUS plan-global ordinal window and its completion proof requires exactly
+`{1..ordinal_count}`, so "what is left" has no representation. Narrowing coverage
+needs the deferred bounded-subset grammar, not a smaller `ordinal_count`. Overall execution state is reconciled from the immutable
 plan, append-only authoritative attempt records, and agent evidence; no
 distributed agent authors a global completion record.
 
@@ -1577,8 +1581,8 @@ fields; reusing an existing network-scope trace ID for another target/context is
 Reachability projection may complete first, but the execution exposes MTR
 `pending`, `projected`, `failed`, `missing`, or `quarantined` counts and is not
 fully reconciled until its authoritative plan/attempt state and terminal
-evidence's expected binding count/digest are satisfied, remaining coverage is
-retried, or every missing trace has an explicit terminal disposition.
+evidence's expected binding count/digest are satisfied, the WHOLE uncovered window
+is retried, or every missing trace has an explicit terminal disposition.
 
 The source MTR transaction also inserts an idempotent graph-outbox row keyed by
 `(network_scope_id, trace_id, graph_schema_version)` before the JetStream delivery is

@@ -1376,6 +1376,37 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
 	}
 
+	// SHARED WORK-CEILING BOUNDARY. The ceiling is an ABI fact, not a Go
+	// implementation detail: a plan Go rejects and Elixir accepts is a divergence, so
+	// both runtimes consume these two pages and must agree on the verdict. Bounds are
+	// checked BEFORE any hashing, so a max-sized page costs a walk here, not a fold.
+	mkCeilingPage := func(tag byte, total uint64) *edgev1.ScheduledPlanPageV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: uuidv7(tag), Cidr: "10.30.0.0/24", TargetCount: 256,
+			CheckSetSha256: digest32(0x7C), AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget: total, MtrOrdinalCount: proto.Uint64(total),
+		}
+		r.RangeSha256 = edgerecord.RangeDigest(r)
+		p := &edgev1.ScheduledPlanPageV1{
+			ExecutionPlanId: uuidv7(0x2D), PageIndex: 0, PageCount: 1,
+			CheckSetSha256: digest32(0x7C), DigestVersion: edgerecord.PlanDigestVersion,
+			Ranges: []*edgev1.TargetRangeV1{r},
+		}
+		p.PageSha256 = edgerecord.PlanPageDigest(p)
+		return p
+	}
+	atMax := mkCeilingPage(0x2E, edgerecord.MaxPlanMtrOrdinals)
+	overMax := mkCeilingPage(0x2F, edgerecord.MaxPlanMtrOrdinals+1)
+	golden(t, "plan_page_ordinals_at_max.bin", atMax)
+	golden(t, "plan_page_ordinals_over_max.bin", overMax)
+
+	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{atMax}); err != nil {
+		t.Fatalf("exactly MaxPlanMtrOrdinals must be ACCEPTED: %v", err)
+	}
+	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{overMax}); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("MaxPlanMtrOrdinals+1 = %v, want ErrPlanMtrWindow", err)
+	}
+
 	// STALE-WIRE PROOF for the retired tag 20. Reserving a tag prevents source reuse; it
 	// does not prove a sender that still emits the field is rejected. This vector is the
 	// valid zero-MTR event with a length-delimited field 20 appended, exactly as a

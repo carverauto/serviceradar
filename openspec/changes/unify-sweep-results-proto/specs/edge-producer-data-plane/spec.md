@@ -913,9 +913,11 @@ coverage proof yet accounts for.
 ### Requirement: The assignment mapping's durable behaviour is replay-safe
 The durable assignment mapping SHALL be replay-safe, repairable, and bounded, over the KEY frozen by the edge record v1 wire ABI change.
 
-That change owns the mapping's KEY and its tagged positive/explicit-negative VALUE,
-because the attributed span omits execution and plan identity on the strength of
-them. This requirement owns everything the runtime must then do with it: storage,
+That change owns the mapping's KEY ONLY, because the attributed span omits execution
+and plan identity on the strength of it. It does NOT own the tagged
+positive/explicit-negative VALUE: no message there represents one, so claiming it was
+frozen described prose rather than a contract. THIS change owns that value shape (see
+the assignment-mapping value task) and everything the runtime must then do with it: storage,
 replay, conflict repair, retention, collection, and the lookup-outcome transitions
 a consumer acts on. Splitting it this way is deliberate -- freezing a state machine
 alongside a wire contract is what made the predecessor change unreviewable.

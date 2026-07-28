@@ -495,3 +495,49 @@ func TestNonPrefixCompletionProof(t *testing.T) {
 		t.Fatal("a shifted offset must not prove the committed window")
 	}
 }
+
+// TestVerifyCompletionForwardsTheOffset pins the WRAPPER, not just the accumulator.
+// The split tests call MtrCompletionRoot directly, so hardcoding a zero offset inside
+// VerifyCompletionAgainstPlanState would leave them all green while every non-prefix
+// consumer silently failed.
+func TestVerifyCompletionForwardsTheOffset(t *testing.T) {
+	h, pages := splitPlan(t)
+	second := assignmentFor(t, h, pages, 1)
+	exp := second.GetMtrExpectation()
+	if exp.GetPlanOrdinalOffset() == 0 {
+		t.Fatal("fixture drift: the second window must be non-prefix")
+	}
+
+	leaves := make([]MtrCompletionLeaf, 0, exp.GetOrdinalCount())
+	for i := uint64(1); i <= exp.GetOrdinalCount(); i++ {
+		leaves = append(leaves, MtrCompletionLeaf{
+			Ordinal: i, Disposition: MtrDispositionNotAdmitted, RangeSha256: second.GetTargetRangeSha256(),
+		})
+	}
+	root, err := MtrCompletionRoot(leaves, exp.GetPlanOrdinalOffset(), exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment())
+	if err != nil {
+		t.Fatalf("split root: %v", err)
+	}
+
+	ev := &edgev1.SweepExecutionEventV1{
+		ExecutionId: mustUUID(t), ExecutionPlanId: mustUUID(t), TargetRangeId: mustUUID(t),
+		ExecutionPlanSha256: d32(0x10),
+		Kind:                edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano:   1, TerminalBatchSequence: 1,
+		MtrCompletionDigestVersion: MtrCompletionDigestVersion,
+		MtrCompletionDigest:        root,
+		PlanRootSha256:             h.GetPlanRootSha256(),
+	}
+
+	if err := VerifyCompletionAgainstPlanState(ev, exp.GetPlanOrdinalOffset(), exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment(), leaves); err != nil {
+		t.Fatalf("the wrapper must forward the offset: %v", err)
+	}
+	// Passing zero must FAIL -- otherwise the assertion above would hold even if the
+	// wrapper ignored its offset argument entirely.
+	if err := VerifyCompletionAgainstPlanState(ev, 0, exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment(), leaves); err == nil {
+		t.Fatal("a zero offset must not verify a non-prefix window; the test is vacuous otherwise")
+	}
+}

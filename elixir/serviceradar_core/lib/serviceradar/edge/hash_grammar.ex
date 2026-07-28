@@ -309,6 +309,38 @@ defmodule ServiceRadar.Edge.HashGrammar do
     ])
   end
 
+  # MaxPlanMtrOrdinals peer (Go: edgerecord.MaxPlanMtrOrdinals). Bounds the TOTAL
+  # admitted MTR ordinals across ONE plan so that recomputing a commitment is bounded
+  # WORK. Distinct from @max_mtr_ordinals, which bounds what the ordinal space can
+  # REPRESENT. A Go-only ceiling would mean a plan Go rejects and Elixir accepts.
+  @max_plan_mtr_ordinals 1_048_576
+
+  @doc """
+  Plan-global ordinal WINDOWS: each range's contiguous window offset, as the PREFIX
+  SUM of `mtr_ordinal_count` over the ranges preceding it in plan order (pages by
+  index, ranges as committed).
+
+  Peer of Go's `edgerecord.PlanMtrWindows`. Returns `:error` without hashing anything
+  when a range omits its REQUIRED count, a count exceeds its admission-budget CEILING,
+  a range id repeats, or the plan's total exceeds the work ceiling.
+  """
+  @spec plan_mtr_windows([map()]) :: {:ok, %{binary() => non_neg_integer()}, non_neg_integer()} | :error
+  def plan_mtr_windows(pages) do
+    pages
+    |> Enum.flat_map(& &1.ranges)
+    |> Enum.reduce_while({:ok, %{}, 0}, fn r, {:ok, windows, next} ->
+      cond do
+        # REQUIRED PRESENCE: an absent count is not zero, it is a plan that never
+        # stated its window.
+        is_nil(r.mtr_ordinal_count) -> {:halt, :error}
+        r.mtr_ordinal_count > (r.mtr_admission_budget || 0) -> {:halt, :error}
+        Map.has_key?(windows, r.range_id) -> {:halt, :error}
+        next + r.mtr_ordinal_count > @max_plan_mtr_ordinals -> {:halt, :error}
+        true -> {:cont, {:ok, Map.put(windows, r.range_id, next), next + r.mtr_ordinal_count}}
+      end
+    end)
+  end
+
   @doc """
   The additive multiset commitment for ONE plan range's ordinal window: the members
   `(offset + i, range_sha256)` for i in 1..count.
@@ -321,7 +353,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
   @spec mtr_window_commitment(non_neg_integer(), non_neg_integer(), binary()) :: binary()
   def mtr_window_commitment(offset, count, range_sha256)
       when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
-             is_binary(range_sha256) do
+             count <= @max_plan_mtr_ordinals and is_binary(range_sha256) do
     # `1..count//1` for the same reason the completion fold uses it: an unstepped
     # `1..0` is a DESCENDING range that iterates [1, 0].
     Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
@@ -340,6 +372,10 @@ defmodule ServiceRadar.Edge.HashGrammar do
   """
   @spec plan_mtr_ordinal_range_commitment([map()]) :: binary()
   def plan_mtr_ordinal_range_commitment(pages) do
+    # Bounds are checked for the WHOLE plan BEFORE a single hash: an over-budget plan
+    # must cost a walk, not a fold.
+    {:ok, _windows, _total} = plan_mtr_windows(pages)
+
     pages
     |> Enum.flat_map(& &1.ranges)
     |> Enum.reduce({<<0::256>>, 0}, fn r, {acc, offset} ->
