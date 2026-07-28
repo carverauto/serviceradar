@@ -13,6 +13,8 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   """
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.RecoveryValidate
   alias Serviceradar.Edge.V1.EdgeAttributedActiveV1
@@ -23,6 +25,7 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.EdgeUnattributableV1
   alias Serviceradar.Edge.V1.SpoolLossTombstoneV1
+  alias ServiceRadar.Edge.WireDecode
 
   @fixtures Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
 
@@ -37,7 +40,45 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
 
   defp with_spans(page, spans), do: reseal(%{page | classification_spans: spans})
 
-  defp uuid(b), do: :binary.copy(<<b>>, 16)
+  # A REAL two-page chain: page_index/page_count/terminal/prev_page_sha256 all set and
+  # each page resealed. Needed because every acceptance case being single-page would
+  # leave cross-page behaviour unproven -- a mutation rejecting every second page
+  # would survive.
+  defp chain(page, spans_a, spans_b) do
+    a =
+      reseal(%{
+        page
+        | page_index: 0,
+          page_count: 2,
+          terminal: false,
+          prev_page_sha256: "",
+          classification_spans: spans_a
+      })
+
+    b =
+      reseal(%{
+        page
+        | page_index: 1,
+          page_count: 2,
+          terminal: true,
+          prev_page_sha256: a.page_sha256,
+          classification_spans: spans_b
+      })
+
+    [a, b]
+  end
+
+  # CANONICAL UUIDs, not 16 arbitrary bytes. An earlier version of this helper used
+  # `:binary.copy(<<b>>, 16)`, which has version nibble `b >>> 4` and variant nibble
+  # `b >>> 4` -- non-canonical for almost every b. That MASKED a real parity defect:
+  # Elixir checked only byte_size and accepted identities Go rejects.
+  defp uuid(b), do: canonical(b, 0x40)
+  defp uuidv7(b), do: canonical(b, 0x70)
+
+  defp canonical(b, version_nibble) do
+    <<b, b, b, b, b, b, version_nibble ||| 0x0A, b, 0x80 ||| rem(b, 0x40), b, b, b, b, b, b, b>>
+  end
+
   defp d32(b), do: :binary.copy(<<b>>, 32)
 
   defp identity(overrides \\ []) do
@@ -100,7 +141,7 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   end
 
   describe "span ordering" do
-    test "gaps and adjacency are accepted, within a page and across pages" do
+    test "gaps and adjacency are accepted WITHIN a page" do
       page = go_page()
 
       for {name, spans} <- [
@@ -111,6 +152,24 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
         p = with_spans(page, spans)
 
         assert :ok = RecoveryValidate.manifest_chain([p], HashGrammar.manifest_root([p])),
+               "#{name} must be accepted"
+      end
+    end
+
+    test "gaps and adjacency are accepted ACROSS a page boundary" do
+      # Adjacency is not special at a page boundary, and a gap there still means NOT
+      # LOST. Every other acceptance case is single-page, so without these a mutation
+      # rejecting every second page would go unnoticed.
+      page = go_page()
+
+      for {name, a, b} <- [
+            {"gap across the boundary", [active(1, 1)], [active(100, 100)]},
+            {"adjacent across the boundary", [active(1, 1)], [passive(2, 2)]},
+            {"multi-span pages", [active(1, 1), active(3, 3)], [passive(10, 12), active(20, 20)]}
+          ] do
+        pages = chain(page, a, b)
+
+        assert :ok = RecoveryValidate.manifest_chain(pages, HashGrammar.manifest_root(pages)),
                "#{name} must be accepted"
       end
     end
@@ -353,7 +412,7 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       # Each padded page must still DECODE, and to the same page it started as, so the
       # only thing rejecting the chain can be the aggregate received size.
       for b <- fat do
-        assert {:ok, decoded} = ServiceRadar.Edge.WireDecode.decode_manifest_page(b)
+        assert {:ok, decoded} = WireDecode.decode_manifest_page(b)
         assert decoded == page
 
         assert byte_size(IO.iodata_to_binary(EdgeLossManifestPageV1.encode(decoded))) <
@@ -363,11 +422,115 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       assert {:error, :manifest_bounds} = RecoveryValidate.manifest_chain_from_raw(fat, nil)
     end
 
+    test "the aggregate bound is checked BEFORE any decode" do
+      # A malformed page that would fail to decode, followed by a page that pushes the
+      # AGGREGATE over the cap. If the implementation interleaved bounding and
+      # decoding, page 1 would fail to decode first and report a decode outcome --
+      # masking the budget violation entirely. Bounding first makes :manifest_bounds
+      # the only possible verdict.
+      limit = RecoveryValidate.limits().max_manifest_bytes
+      malformed = <<0xFF, 0xFF, 0xFF>>
+      big = :binary.copy(<<0x40, 0x01>>, div(limit + 1 - byte_size(malformed), 2))
+
+      assert byte_size(malformed) + byte_size(big) > limit
+
+      assert {:error, :manifest_bounds} =
+               RecoveryValidate.manifest_chain_from_raw([malformed, big], nil)
+    end
+
+    test "the typed WireDecode outcome is PROPAGATED, not collapsed" do
+      # An in-budget but malformed page must surface its own decode outcome. Collapsing
+      # every decode failure into one generic chain error makes a deployment/decoder
+      # fault (:not_ready / :systemic -- pause and replay) indistinguishable from bad
+      # customer bytes (:poison / :too_large -- permanently resolvable), and the caller
+      # cannot make the required decision.
+      malformed = <<0xFF, 0xFF, 0xFF>>
+      assert byte_size(malformed) < RecoveryValidate.limits().max_manifest_bytes
+
+      # Whatever WireDecode says for these bytes is what the chain API must return.
+      expected = WireDecode.decode_manifest_page(malformed)
+      assert {:error, reason} = expected
+      assert reason in [:poison, :systemic, :not_ready, :too_large]
+
+      assert {:error, ^reason} = RecoveryValidate.manifest_chain_from_raw([malformed], nil)
+
+      refute match?(
+               {:error, :manifest_chain},
+               RecoveryValidate.manifest_chain_from_raw([malformed], nil)
+             )
+    end
+
     test "a single oversize page is rejected before decode" do
       limit = RecoveryValidate.limits().max_manifest_bytes
 
       assert {:error, :manifest_bounds} =
                RecoveryValidate.manifest_chain_from_raw([:binary.copy(<<0>>, limit + 1)], nil)
+    end
+  end
+
+  describe "UUID parity with Go" do
+    test "rejects the non-canonical IDs Go rejects" do
+      page = go_page()
+
+      # Go's ValidateCanonicalUUID: 16 bytes, version 1..8, RFC variant 10xx, not
+      # all-zero. A byte_size-only check accepts every one of these.
+      for {name, bad} <- [
+            {"nil UUID", <<0::128>>},
+            {"version 0", <<1, 1, 1, 1, 1, 1, 0x0A, 1, 0x8A, 1, 1, 1, 1, 1, 1, 1>>},
+            {"version 9", <<1, 1, 1, 1, 1, 1, 0x9A, 1, 0x8A, 1, 1, 1, 1, 1, 1, 1>>},
+            {"non-RFC variant", <<1, 1, 1, 1, 1, 1, 0x4A, 1, 0x0A, 1, 1, 1, 1, 1, 1, 1>>},
+            {"15 bytes", :binary.copy(<<1>>, 15)}
+          ] do
+        span = passive(1, 1, identity(production_scope_id: bad))
+
+        assert {:error, :manifest_span_body} =
+                 RecoveryValidate.manifest_chain([with_spans(page, [span])], nil),
+               "#{name} must be rejected as a span identity"
+      end
+    end
+
+    test "recovery and spool IDs must be UUIDv7 specifically, not merely canonical" do
+      page = go_page()
+      # A canonical v4 is fine for a SPAN identity but not for a recovery id, whose
+      # embedded timestamp is load-bearing.
+      v4 = uuid(0x22)
+
+      assert {:error, :manifest_recovery_id} =
+               RecoveryValidate.manifest_chain([reseal(%{page | recovery_id: v4})], nil)
+
+      t = go_tombstone()
+
+      assert {:error, :tombstone_mismatch} =
+               RecoveryValidate.tombstone(%{t | prior_spool_id: v4}, [page])
+    end
+  end
+
+  describe "retained unknown fields" do
+    test "are rejected on a decoded page and on a tombstone" do
+      # The field-framed digest walks DECLARED fields only, so retained unknown bytes
+      # are invisible to it: the page keeps the SAME digest and would otherwise
+      # validate. The raw path rejects unknown tags at the WireDecode gate; this closes
+      # the same hole for callers handing in already-decoded structs.
+      page = go_page()
+      dirty = %{page | __unknown_fields__: [{99, 2, "junk"}]}
+      assert HashGrammar.manifest_page_digest(dirty) == page.page_sha256
+
+      assert {:error, :unknown_fields} = RecoveryValidate.manifest_chain([dirty], nil)
+
+      t = go_tombstone()
+
+      assert {:error, :unknown_fields} =
+               RecoveryValidate.tombstone(%{t | __unknown_fields__: [{99, 2, "junk"}]}, [page])
+    end
+
+    test "are rejected when NESTED inside a span body" do
+      # A top-level-only check would miss this.
+      page = go_page()
+      id = identity()
+      dirty_id = %{id | __unknown_fields__: [{77, 0, <<1>>}]}
+
+      assert {:error, :unknown_fields} =
+               RecoveryValidate.manifest_chain([with_spans(page, [passive(1, 1, dirty_id)])], nil)
     end
   end
 

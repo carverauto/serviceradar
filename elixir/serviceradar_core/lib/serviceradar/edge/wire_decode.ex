@@ -10,7 +10,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   ## Stage-specific, not module-generic
 
   The ONLY public entries are a FINITE set of stage decoders -- `decode_client_message/1`,
-  `decode_frame/1`, `decode_record/1` -- each bound to exactly one generated edge message module.
+  `decode_frame/1`, `decode_record/1`, and `decode_manifest_page/1` -- each bound to exactly one
+  generated edge message module. The manifest-page stage EXTENDS this set rather than standing up a
+  separate raw-bytes ingress, so recovery pages get the same bound-before-decode discipline and the
+  same typed outcomes as the transport stages.
   There is no public "decode any module" entry (that was a bypass: a caller-defined struct decoder
   could return `{:ok, fake_struct}`). A decode result is additionally accepted only when it is
   genuinely a struct of the target module (`is_struct(decoded, mod)`).
