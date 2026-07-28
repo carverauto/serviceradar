@@ -36,17 +36,20 @@ use dgraph_client::{DgraphClient, Mutation};
 /// `dgraph-standalone-9080`.
 const CONTAINER_NAME: &str = "dgraph-standalone";
 const IMAGE: &str = "dgraph/standalone";
-const TAG: &str = "latest";
-const BIND_URL: &str =  "127.0.0.1";
+const TAG: &str = "v25.3.8";
+const BIND_URL: &str = "0.0.0.0";
 
 /// gRPC port. This is the one the client talks to.
 const GRPC_PORT: u16 = 9080;
 /// HTTP admin/health port, published as well so the readiness probe can use it.
 const HTTP_PORT: u16 = 8080;
 
-/// Seconds to wait for the container to report healthy. Standalone runs zero and alpha in
-/// one container, so a first start is slower than a bare alpha.
-const HEALTH_TIMEOUT_SECS: u64 = 60;
+/// Fixed settle time after `docker run`, before the readiness loop starts probing.
+///
+/// A cold `dgraph/standalone` answers `/health` in ~7s and peaks around 52 MiB, so 15s is
+/// comfortably past first-ready without being a meaningful share of the test budget.
+/// This is deliberately a dumb sleep rather than a health check -- see [`wait_strategy`].
+const STARTUP_WAIT_SECS: u64 = 15;
 
 /// Attempts to make when the alpha answers but reports itself not ready.
 ///
@@ -55,26 +58,31 @@ const HEALTH_TIMEOUT_SECS: u64 = 60;
 const READY_ATTEMPTS: u32 = 30;
 const READY_RETRY_DELAY: Duration = Duration::from_secs(2);
 
-/// Settle time after the container reports healthy, before the first client call.
+/// Extra settle time after [`STARTUP_WAIT_SECS`], before the first client call.
 ///
-/// `WaitStrategy::WaitForHttpHealthCheck` returns as soon as `/health` answers, which
-/// happens while alpha is still bringing up its gRPC surface. Connecting immediately after
-/// it goes green produced a genuine cold-start flake: the version probe succeeded and a
+/// Alpha accepting a connection does not mean its gRPC surface is fully up. Connecting
+/// immediately produced a genuine cold-start flake: the version probe succeeded and a
 /// later query died with `transport error`.
 const POST_HEALTH_SETTLE: Duration = Duration::from_secs(5);
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
 
-/// Readiness is checked over HTTP, not gRPC.
+/// Wait a fixed interval rather than probing a health endpoint.
 ///
-/// Dgraph does not implement the standard `grpc.health.v1` service, so
-/// `WaitStrategy::WaitForGrpcHealthCheck` would never succeed against it. Alpha's
-/// `/health` endpoint on the HTTP port is the documented signal.
+/// Two strategies are unusable here:
+///
+/// * `WaitForGrpcHealthCheck` -- Dgraph does not implement `grpc.health.v1`, so it can
+///   never succeed.
+/// * `WaitForHttpHealthCheck` -- on timeout `docker_utils` calls `.expect()` internally
+///   (`docker/start.rs:293`) instead of returning an error, so the process aborts inside
+///   `setup_container` and the test can never report what actually went wrong. That is
+///   exactly how a CI failure here surfaced as a bare 60s timeout with no container logs.
+///
+/// `WaitForDuration` cannot fail, which keeps control in the test. Actual readiness is
+/// still enforced -- by [`connect_when_ready`], which retries the real gRPC surface and
+/// is the signal that matters to a client.
 fn wait_strategy() -> WaitStrategy {
-    WaitStrategy::WaitForHttpHealthCheck(
-        format!("http://{BIND_URL}:{HTTP_PORT}/health"),
-        HEALTH_TIMEOUT_SECS,
-    )
+    WaitStrategy::WaitForDuration(STARTUP_WAIT_SECS)
 }
 
 fn dgraph_container_config() -> ContainerConfig<'static> {
