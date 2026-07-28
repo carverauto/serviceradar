@@ -108,12 +108,12 @@ rust_library(
         "//third_party/crates/cfg-if-1.0.4:cfg_if",
         "//third_party/crates/fnv-1.0.7:fnv",
         "//third_party/crates/lazy_static-1.5.0:lazy_static",
-        "//third_party/crates/libc-0.2.186:libc",
-        "//third_party/crates/memchr-2.8.1:memchr",
+        "//third_party/crates/libc-0.2.189:libc",
+        "//third_party/crates/memchr-2.8.3:memchr",
         "//third_party/crates/parking_lot-0.12.5:parking_lot",
         "//third_party/crates/prometheus-0.14.0:build_script_build",
         "//third_party/crates/protobuf-3.7.2:protobuf",
-        "//third_party/crates/thiserror-2.0.18:thiserror",
+        "//third_party/crates/thiserror-2.0.19:thiserror",
     ] + select({
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # aarch64-unknown-linux-gnu

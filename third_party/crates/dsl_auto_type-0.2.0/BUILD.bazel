@@ -95,10 +95,10 @@ rust_library(
     version = "0.2.0",
     deps = [
         "//third_party/crates/darling-0.21.3:darling",
-        "//third_party/crates/either-1.15.0:either",
+        "//third_party/crates/either-1.17.0:either",
         "//third_party/crates/heck-0.5.0:heck",
-        "//third_party/crates/proc-macro2-1.0.106:proc_macro2",
-        "//third_party/crates/quote-1.0.45:quote",
-        "//third_party/crates/syn-2.0.117:syn",
+        "//third_party/crates/proc-macro2-1.0.107:proc_macro2",
+        "//third_party/crates/quote-1.0.47:quote",
+        "//third_party/crates/syn-2.0.119:syn",
     ],
 )

@@ -40,7 +40,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     proc_macro_deps = [
-        "//third_party/crates/displaydoc-0.2.5:displaydoc",
+        "//third_party/crates/displaydoc-0.2.6:displaydoc",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",
@@ -102,7 +102,7 @@ rust_library(
     deps = [
         "//third_party/crates/icu_locale_core-2.2.0:icu_locale_core",
         "//third_party/crates/writeable-0.6.3:writeable",
-        "//third_party/crates/yoke-0.8.2:yoke",
+        "//third_party/crates/yoke-0.8.3:yoke",
         "//third_party/crates/zerofrom-0.1.8:zerofrom",
         "//third_party/crates/zerotrie-0.2.4:zerotrie",
         "//third_party/crates/zerovec-0.11.6:zerovec",

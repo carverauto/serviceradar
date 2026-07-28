@@ -95,6 +95,6 @@ rust_library(
     version = "0.10.0",
     deps = [
         "//third_party/crates/phf_shared-0.10.0:phf_shared",
-        "//third_party/crates/rand-0.8.6:rand",
+        "//third_party/crates/rand-0.8.7:rand",
     ],
 )

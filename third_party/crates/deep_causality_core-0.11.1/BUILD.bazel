@@ -99,6 +99,6 @@ rust_library(
     }),
     version = "0.11.1",
     deps = [
-        "//third_party/crates/deep_causality_haft-0.4.1:deep_causality_haft",
+        "//third_party/crates/deep_causality_haft-0.4.2:deep_causality_haft",
     ],
 )

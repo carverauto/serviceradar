@@ -104,7 +104,7 @@ rust_library(
     }),
     version = "0.1.44",
     deps = [
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
         "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",
         "//third_party/crates/tracing-core-0.1.36:tracing_core",
     ],

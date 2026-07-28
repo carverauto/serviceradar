@@ -174,103 +174,103 @@ rust_library(
     deps = [
         "//third_party/crates/heck-0.5.0:heck",
         "//third_party/crates/itertools-0.14.0:itertools",
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
         "//third_party/crates/multimap-0.10.1:multimap",
         "//third_party/crates/petgraph-0.8.3:petgraph",
         "//third_party/crates/prost-0.14.4:prost",
         "//third_party/crates/prost-types-0.14.4:prost_types",
-        "//third_party/crates/regex-1.12.3:regex",
+        "//third_party/crates/regex-1.13.1:regex",
         "//third_party/crates/tempfile-3.27.0:tempfile",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # aarch64-apple-darwin
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # aarch64-apple-darwin
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # aarch64-apple-darwin
-            "//third_party/crates/syn-2.0.117:syn",  # aarch64-apple-darwin
+            "//third_party/crates/syn-2.0.119:syn",  # aarch64-apple-darwin
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # aarch64-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # aarch64-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # aarch64-pc-windows-msvc
-            "//third_party/crates/syn-2.0.117:syn",  # aarch64-pc-windows-msvc
+            "//third_party/crates/syn-2.0.119:syn",  # aarch64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # aarch64-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # aarch64-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # aarch64-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # aarch64-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # aarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # arm-unknown-linux-gnueabi
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # arm-unknown-linux-gnueabi
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # arm-unknown-linux-gnueabi
-            "//third_party/crates/syn-2.0.117:syn",  # arm-unknown-linux-gnueabi
+            "//third_party/crates/syn-2.0.119:syn",  # arm-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # i686-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # i686-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # i686-pc-windows-msvc
-            "//third_party/crates/syn-2.0.117:syn",  # i686-pc-windows-msvc
+            "//third_party/crates/syn-2.0.119:syn",  # i686-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # i686-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # i686-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # i686-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # i686-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # i686-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # powerpc-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # powerpc-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # powerpc-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # powerpc-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # powerpc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # riscv64gc-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # riscv64gc-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # riscv64gc-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # riscv64gc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # s390x-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # s390x-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # s390x-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # s390x-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # s390x-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # x86_64-apple-darwin
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # x86_64-apple-darwin
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # x86_64-apple-darwin
-            "//third_party/crates/syn-2.0.117:syn",  # x86_64-apple-darwin
+            "//third_party/crates/syn-2.0.119:syn",  # x86_64-apple-darwin
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # x86_64-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # x86_64-pc-windows-msvc
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # x86_64-pc-windows-msvc
-            "//third_party/crates/syn-2.0.117:syn",  # x86_64-pc-windows-msvc
+            "//third_party/crates/syn-2.0.119:syn",  # x86_64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # x86_64-unknown-freebsd
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # x86_64-unknown-freebsd
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # x86_64-unknown-freebsd
-            "//third_party/crates/syn-2.0.117:syn",  # x86_64-unknown-freebsd
+            "//third_party/crates/syn-2.0.119:syn",  # x86_64-unknown-freebsd
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # x86_64-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # x86_64-unknown-linux-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # x86_64-unknown-linux-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # x86_64-unknown-linux-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # x86_64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
             "//third_party/crates/prettyplease-0.2.37:prettyplease",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/pulldown-cmark-0.13.4:pulldown_cmark",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
             "//third_party/crates/pulldown-cmark-to-cmark-22.0.0:pulldown_cmark_to_cmark",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
-            "//third_party/crates/syn-2.0.117:syn",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "//third_party/crates/syn-2.0.119:syn",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
         ],
         "//conditions:default": [],
     }),

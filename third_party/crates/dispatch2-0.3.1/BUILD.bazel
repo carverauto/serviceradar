@@ -102,9 +102,9 @@ rust_library(
     }),
     version = "0.3.1",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
         "//third_party/crates/block2-0.6.2:block2",
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
         "//third_party/crates/objc2-0.6.4:objc2",
     ],
 )

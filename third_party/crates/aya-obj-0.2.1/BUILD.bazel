@@ -97,10 +97,10 @@ rust_library(
     }),
     version = "0.2.1",
     deps = [
-        "//third_party/crates/bytes-1.11.1:bytes",
+        "//third_party/crates/bytes-1.12.1:bytes",
         "//third_party/crates/core-error-0.0.0:core_error",
         "//third_party/crates/hashbrown-0.15.5:hashbrown",
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
         "//third_party/crates/object-0.36.7:object",
         "//third_party/crates/thiserror-1.0.69:thiserror",
     ],

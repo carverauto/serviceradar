@@ -101,7 +101,7 @@ rust_library(
     }),
     version = "0.11.6",
     deps = [
-        "//third_party/crates/yoke-0.8.2:yoke",
+        "//third_party/crates/yoke-0.8.3:yoke",
         "//third_party/crates/zerofrom-0.1.8:zerofrom",
     ],
 )

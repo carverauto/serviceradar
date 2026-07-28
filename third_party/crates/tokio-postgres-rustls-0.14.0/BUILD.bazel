@@ -97,10 +97,10 @@ rust_library(
     }),
     version = "0.14.0",
     deps = [
-        "//third_party/crates/rustls-0.23.40:rustls",
+        "//third_party/crates/rustls-0.23.42:rustls",
         "//third_party/crates/sha2-0.11.0:sha2",
-        "//third_party/crates/tokio-1.52.3:tokio",
-        "//third_party/crates/tokio-postgres-0.7.17:tokio_postgres",
+        "//third_party/crates/tokio-1.53.1:tokio",
+        "//third_party/crates/tokio-postgres-0.7.18:tokio_postgres",
         "//third_party/crates/tokio-rustls-0.26.4:tokio_rustls",
         "//third_party/crates/x509-cert-0.2.5:x509_cert",
     ],

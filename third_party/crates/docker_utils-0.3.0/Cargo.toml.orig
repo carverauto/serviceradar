@@ -1,0 +1,27 @@
+[package]
+name = "docker_utils"
+version = "0.3.0"
+description = "Utilities for integration testsing with Docker"
+readme = "README.md"
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories.workspace = true
+authors.workspace = true
+license.workspace = true
+# Exclude all bazel files as these conflict with Bazel workspace when vencored.
+exclude = ["*.bazel", "*/*.bazel",  "*.bazel.*", "BUILD", "BUILD.bazel", "MODULE.bazel", ".bazelignore",".bazelrc", "tests/**/*"]
+
+
+[lints]
+workspace = true
+
+
+[dependencies]
+# Internal crates
+wait_utils = {workspace = true}
+# External crates
+bon = { workspace = true }
+tokio = {workspace = true}
+

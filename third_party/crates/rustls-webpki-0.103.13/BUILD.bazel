@@ -23,7 +23,7 @@ rust_library(
         allow_empty = False,
     ),
     aliases = {
-        "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types": "pki_types",
+        "//third_party/crates/rustls-pki-types-1.15.1:rustls_pki_types": "pki_types",
     },
     compile_data = glob(
         include = ["**"],
@@ -103,9 +103,9 @@ rust_library(
     }),
     version = "0.103.13",
     deps = [
-        "//third_party/crates/aws-lc-rs-1.17.0:aws_lc_rs",
+        "//third_party/crates/aws-lc-rs-1.17.3:aws_lc_rs",
         "//third_party/crates/ring-0.17.14:ring",
-        "//third_party/crates/rustls-pki-types-1.14.1:rustls_pki_types",
+        "//third_party/crates/rustls-pki-types-1.15.1:rustls_pki_types",
         "//third_party/crates/untrusted-0.9.0:untrusted",
     ],
 )

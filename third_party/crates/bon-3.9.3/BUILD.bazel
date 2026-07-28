@@ -38,7 +38,7 @@ rust_library(
     edition = "2021",
     proc_macro_deps = [
         "//third_party/crates/bon-macros-3.9.3:bon_macros",
-        "//third_party/crates/rustversion-1.0.22:rustversion",
+        "//third_party/crates/rustversion-1.0.23:rustversion",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",

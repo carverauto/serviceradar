@@ -40,7 +40,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     proc_macro_deps = [
-        "//third_party/crates/displaydoc-0.2.5:displaydoc",
+        "//third_party/crates/displaydoc-0.2.6:displaydoc",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",

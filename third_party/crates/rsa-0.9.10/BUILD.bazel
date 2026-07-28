@@ -117,6 +117,6 @@ rust_library(
         "//third_party/crates/signature-2.2.0:signature",
         "//third_party/crates/spki-0.7.3:spki",
         "//third_party/crates/subtle-2.6.1:subtle",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
+        "//third_party/crates/zeroize-1.9.0:zeroize",
     ],
 )

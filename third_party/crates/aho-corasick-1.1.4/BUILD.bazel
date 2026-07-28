@@ -98,6 +98,6 @@ rust_library(
     }),
     version = "1.1.4",
     deps = [
-        "//third_party/crates/memchr-2.8.1:memchr",
+        "//third_party/crates/memchr-2.8.3:memchr",
     ],
 )

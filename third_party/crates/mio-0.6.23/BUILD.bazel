@@ -100,21 +100,21 @@ rust_library(
     deps = [
         "//third_party/crates/cfg-if-0.1.10:cfg_if",
         "//third_party/crates/iovec-0.1.4:iovec",
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
         "//third_party/crates/net2-0.2.39:net2",
         "//third_party/crates/slab-0.4.12:slab",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(windows)
@@ -124,31 +124,31 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
             "//third_party/crates/fuchsia-zircon-0.3.3:fuchsia_zircon",  # cfg(target_os = "fuchsia")
             "//third_party/crates/fuchsia-zircon-sys-0.3.3:fuchsia_zircon_sys",  # cfg(target_os = "fuchsia")
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:i686-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:i686-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(windows)
@@ -156,31 +156,31 @@ rust_library(
             "//third_party/crates/winapi-0.2.8:winapi",  # cfg(windows)
         ],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-apple-ios": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(windows)
@@ -188,18 +188,18 @@ rust_library(
             "//third_party/crates/winapi-0.2.8:winapi",  # cfg(windows)
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
             "//third_party/crates/fuchsia-zircon-0.3.3:fuchsia_zircon",  # cfg(target_os = "fuchsia")
             "//third_party/crates/fuchsia-zircon-sys-0.3.3:fuchsia_zircon_sys",  # cfg(target_os = "fuchsia")
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(unix)
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(unix)
         ],
         "//conditions:default": [],
     }),

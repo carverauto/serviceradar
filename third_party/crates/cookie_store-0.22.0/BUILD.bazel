@@ -99,7 +99,7 @@ rust_library(
     deps = [
         "//third_party/crates/cookie-0.18.1:cookie",
         "//third_party/crates/idna-1.1.0:idna",
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
         "//third_party/crates/time-0.3.46:time",
         "//third_party/crates/url-2.5.8:url",
     ],

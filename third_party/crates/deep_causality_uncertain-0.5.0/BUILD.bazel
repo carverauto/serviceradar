@@ -95,7 +95,7 @@ rust_library(
     version = "0.5.0",
     deps = [
         "//third_party/crates/deep_causality_algebra-0.2.0:deep_causality_algebra",
-        "//third_party/crates/deep_causality_ast-0.1.7:deep_causality_ast",
+        "//third_party/crates/deep_causality_ast-0.1.9:deep_causality_ast",
         "//third_party/crates/deep_causality_num-0.4.1:deep_causality_num",
         "//third_party/crates/deep_causality_rand-0.2.1:deep_causality_rand",
     ],

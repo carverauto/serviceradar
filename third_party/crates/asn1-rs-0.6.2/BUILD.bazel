@@ -43,7 +43,7 @@ rust_library(
     proc_macro_deps = [
         "//third_party/crates/asn1-rs-derive-0.5.1:asn1_rs_derive",
         "//third_party/crates/asn1-rs-impl-0.2.0:asn1_rs_impl",
-        "//third_party/crates/displaydoc-0.2.5:displaydoc",
+        "//third_party/crates/displaydoc-0.2.6:displaydoc",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",

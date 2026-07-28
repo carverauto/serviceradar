@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "0.4.13",
     deps = [
-        "//third_party/crates/typenum-1.20.0:typenum",
+        "//third_party/crates/typenum-1.20.1:typenum",
     ],
 )

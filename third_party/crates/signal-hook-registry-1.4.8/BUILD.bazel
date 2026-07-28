@@ -95,6 +95,6 @@ rust_library(
     version = "1.4.8",
     deps = [
         "//third_party/crates/errno-0.3.14:errno",
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
     ],
 )
