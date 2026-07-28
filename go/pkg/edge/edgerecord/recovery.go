@@ -652,3 +652,45 @@ func validateSingleManifestPage(p *edgev1.EdgeLossManifestPageV1) error {
 	}
 	return nil
 }
+
+// AppliedThroughSequence computes the frozen meaning of
+// RecoveryResolvedV1.applied_through_sequence: the consumer's DURABLY APPLIED
+// CONTIGUOUS PREFIX over the ALLOCATED sequence space.
+//
+// It is the highest S such that EVERY allocated sequence at or below S is either
+// durably applied by the consumer transaction, or ABSENT from a VALIDATED COMPLETE
+// span union. The union is the LOST set, so only ABSENCE from a complete union
+// establishes not-lost -- the inverse reading releases a journal over sequences the
+// consumer never processed.
+//
+// It is NOT the maximum span end and NOT the allocated high-water. For lost spans
+// [1,1] and [100,100] over an allocated space of 1..100 with only sequence 1 applied,
+// all three candidates differ: max span end and high-water are both 100, while the
+// correct value is 99 -- sequence 100 is lost and unapplied, so the prefix stops
+// short of it. This value GATES durable local journal release, so picking the wrong
+// candidate discards data the consumer still owes.
+//
+// prior is the previously published watermark; the result never retreats below it.
+func AppliedThroughSequence(prior, allocatedHighWater uint64, appliedDurably map[uint64]bool, lost []*edgev1.EdgeClassificationSpanV1) uint64 {
+	s := prior
+	for seq := prior + 1; seq <= allocatedHighWater; seq++ {
+		if appliedDurably[seq] || !inSpanUnion(seq, lost) {
+			s = seq
+			continue
+		}
+		break
+	}
+	return s
+}
+
+// inSpanUnion reports whether seq falls inside any span. The caller MUST pass a
+// VALIDATED COMPLETE union: absence from a partial union proves nothing, and treating
+// it as not-lost is how a gap becomes an unnoticed data loss.
+func inSpanUnion(seq uint64, lost []*edgev1.EdgeClassificationSpanV1) bool {
+	for _, sp := range lost {
+		if seq >= sp.GetFromSequence() && seq <= sp.GetThroughSequence() {
+			return true
+		}
+	}
+	return false
+}

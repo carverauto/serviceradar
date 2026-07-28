@@ -89,6 +89,9 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
 
   defp d32(b), do: :binary.copy(<<b>>, 32)
 
+  defp parse_csv(""), do: []
+  defp parse_csv(s), do: String.split(s, ",", trim: true)
+
   defp identity(overrides \\ []) do
     base = %EdgeAttributedSpanIdentityV1{
       producer_assignment_id: uuid(0x11),
@@ -651,6 +654,110 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
 
       assert {:error, :unknown_fields} =
                RecoveryValidate.manifest_chain([with_spans(page, [passive(1, 1, dirty_id)])], nil)
+    end
+  end
+
+  describe "applied-prefix parity with Go" do
+    test "computes the SAME value from the SAME complete inputs" do
+      # Read the GO-AUTHORED vectors. The rule needs all four inputs -- prior
+      # watermark, allocated high-water, per-sequence durable state, and the validated
+      # union -- because the same union yields different answers depending on what was
+      # allocated and applied. A bare span pair pins nothing.
+      @fixtures
+      |> Path.join("applied_prefix_vectors.txt")
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.each(fn line ->
+        [name, prior, high, applied, lost, expected] = String.split(line, "\t")
+
+        applied_set =
+          applied |> parse_csv() |> MapSet.new(&String.to_integer/1)
+
+        lost_spans =
+          lost
+          |> parse_csv()
+          |> Enum.map(fn r ->
+            [f, t] = String.split(r, "-")
+            {String.to_integer(f), String.to_integer(t)}
+          end)
+
+        got =
+          RecoveryValidate.applied_through_sequence(
+            String.to_integer(prior),
+            String.to_integer(high),
+            applied_set,
+            lost_spans
+          )
+
+        assert got == String.to_integer(expected), "#{name}: got #{got}, want #{expected}"
+      end)
+    end
+
+    test "the gapped case rejects both wrong candidate meanings" do
+      # Lost [1,1] + [100,100], allocated 1..100, only sequence 1 applied.
+      lost = [{1, 1}, {100, 100}]
+      applied = MapSet.new([1])
+      got = RecoveryValidate.applied_through_sequence(0, 100, applied, lost)
+
+      assert got == 99
+      refute got == 100, "100 is the max span end AND the high-water -- both wrong here"
+    end
+  end
+
+  describe "retired tags" do
+    test "each retired tag is refused INDEPENDENTLY, on the Go-authored bytes" do
+      # SIX separate vectors, deliberately not bundled: a decoder that refuses the
+      # retired REPEATED fields while silently accepting a stale BOOLEAN would pass a
+      # combined fixture and still admit a page whose digest cannot be reproduced.
+      #
+      # Tag reservation prevents SOURCE reuse; it does not prove old bytes are refused
+      # at RUNTIME, and the grammar deliberately keeps version 1 -- so a same-version
+      # atomic rewrite could otherwise admit stale candidate bytes.
+      pages = [
+        {"retired_page_tag7_coarsened.bin", 7, "coarsened"},
+        {"retired_page_tag9_lost_ranges.bin", 9, "lost_ranges"},
+        {"retired_page_tag10_affected.bin", 10, "affected"}
+      ]
+
+      for {file, tag, field} <- pages do
+        raw = load(file)
+
+        assert {:error, _} = RecoveryValidate.manifest_chain_from_raw([raw], nil),
+               "page carrying retired tag #{tag} (#{field}) was ACCEPTED"
+      end
+
+      tombstones = [
+        {"retired_tombstone_tag3_lost_from.bin", 3, "lost_from_sequence"},
+        {"retired_tombstone_tag4_lost_through.bin", 4, "lost_through_sequence"},
+        {"retired_tombstone_tag8_coarsened.bin", 8, "coarsened"}
+      ]
+
+      page = go_page()
+
+      for {file, tag, field} <- tombstones do
+        t = SpoolLossTombstoneV1.decode(load(file))
+
+        assert {:error, :unknown_fields} = RecoveryValidate.tombstone(t, [page]),
+               "tombstone carrying retired tag #{tag} (#{field}) was ACCEPTED"
+      end
+    end
+
+    test "the retired bytes really do carry their tag" do
+      # Guard the guard: if a vector decoded cleanly with nothing retained, the
+      # rejections above would prove nothing about retired tags.
+      for file <- [
+            "retired_page_tag7_coarsened.bin",
+            "retired_tombstone_tag3_lost_from.bin"
+          ] do
+        decoded =
+          case file do
+            "retired_page_tag7_coarsened.bin" -> EdgeLossManifestPageV1.decode(load(file))
+            _ -> SpoolLossTombstoneV1.decode(load(file))
+          end
+
+        refute decoded.__unknown_fields__ in [nil, []],
+               "#{file} retained no unknown field; the vector is inert"
+      end
     end
   end
 
