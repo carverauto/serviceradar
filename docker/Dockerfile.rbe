@@ -179,6 +179,10 @@ RUN update-alternatives --set iptables /usr/sbin/iptables-legacy \
 RUN iptables --version | grep -q '(legacy)' \
     && ip6tables --version | grep -q '(legacy)'
 
+# Assert that docker works.
+RUN docker --version && dockerd --version \
+    && test -x /usr/bin/docker && test -x /usr/bin/dockerd
+
 # Set up work directory
 RUN mkdir -p /workspace
 
