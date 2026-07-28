@@ -135,7 +135,7 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # bytes together with `fn _ -> {:ok, valid_page} end` and be admitted, skipping
   # WireDecode and WireValidate entirely -- exactly the caller-defined-decoder bypass
   # the finite-stage boundary exists to forbid. Propagation is proven instead through
-  # `propagate_decode/1`, which cannot authorize anything.
+  # `propagate_decode_error/1`, which cannot authorize anything.
   defp decode_all(raw) do
     raw
     |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
@@ -331,11 +331,6 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  # CANONICAL UUID, mirroring Go's ValidateCanonicalUUID exactly: 16 bytes, RFC
-  # version 1..8 in the high nibble of byte 6, RFC variant 10xx in byte 8, and not
-  # all-zero. A bare byte_size check accepts the nil UUID and every non-RFC blob --
-  # Elixir would admit an identity Go rejects, which is the parity this validator
-  # exists to hold.
   @doc false
   # ERROR-ONLY propagation. It takes an error and returns an error: it cannot decode,
   # cannot construct a page, and has no success clause to pass one through -- so
@@ -350,6 +345,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec propagate_decode_error({:error, decode_error()}) :: {:error, decode_error()}
   def propagate_decode_error({:error, reason}), do: {:error, reason}
 
+  # CANONICAL UUID, mirroring Go's ValidateCanonicalUUID exactly: 16 bytes, RFC
+  # version 1..8 in the high nibble of byte 6, RFC variant 10xx in byte 8, and not
+  # all-zero. A bare byte_size check accepts the nil UUID and every non-RFC blob --
+  # Elixir would admit an identity Go rejects, which is the parity this validator
+  # exists to hold.
   defp uuid?(<<_::binary-size(6), v, _, var, _::binary-size(7)>> = b)
        when byte_size(b) == @uuid_len do
     version = Bitwise.bsr(v, 4)
