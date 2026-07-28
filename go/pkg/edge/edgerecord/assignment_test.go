@@ -223,7 +223,7 @@ func TestMtrExpectationIsRequiredAndSelfConsistent(t *testing.T) {
 	// count == 0 <=> commitment == 32 zero bytes, in BOTH directions.
 	countNoCommit := validAssignment(t)
 	countNoCommit.MtrExpectation = &edgev1.SweepMtrExpectationV1{
-		OrdinalCount: 0, OrdinalRangeCommitment: d32domain(0x30),
+		OrdinalCount: 0, OrdinalRangeCommitment: d32domain(0x30), PlanOrdinalOffset: proto.Uint64(0),
 	}
 	if err := ValidateSweepAssignmentRecord(countNoCommit); !errors.Is(err, ErrAssignmentExpectation) {
 		t.Fatalf("zero count with a non-empty commitment = %v, want ErrAssignmentExpectation", err)
@@ -240,6 +240,7 @@ func TestMtrExpectationIsRequiredAndSelfConsistent(t *testing.T) {
 	zeroMtr := validAssignment(t)
 	zeroMtr.MtrExpectation = &edgev1.SweepMtrExpectationV1{
 		OrdinalCount: 0, OrdinalRangeCommitment: make([]byte, 32),
+		PlanOrdinalOffset: proto.Uint64(0),
 	}
 	if err := ValidateSweepAssignmentRecord(zeroMtr); err != nil {
 		t.Fatalf("zero-MTR expectation must be valid: %v", err)
@@ -257,7 +258,7 @@ func TestMtrExpectationIsRequiredAndSelfConsistent(t *testing.T) {
 	// The count is bounded by the same ceiling the accumulator enforces.
 	over := validAssignment(t)
 	over.MtrExpectation = &edgev1.SweepMtrExpectationV1{
-		OrdinalCount: MaxMtrCompletionOrdinals + 1, OrdinalRangeCommitment: d32domain(0x30),
+		OrdinalCount: MaxMtrCompletionOrdinals + 1, OrdinalRangeCommitment: d32domain(0x30), PlanOrdinalOffset: proto.Uint64(0),
 	}
 	if err := ValidateSweepAssignmentRecord(over); !errors.Is(err, ErrAssignmentExpectation) {
 		t.Fatalf("count over the ceiling = %v, want ErrAssignmentExpectation", err)
@@ -391,10 +392,29 @@ func TestExpectationIsRecomputedNotTrusted(t *testing.T) {
 	}
 
 	// REQUIRED PRESENCE: an absent offset must not pass as the legal offset 0.
+	// The OWNING validator rejects an absent offset, so it never reaches the relation:
+	// offset 0 is the first range's legal window and an unset field must not pass as it.
 	absent := assignmentFor(t, h, pages, 0)
 	absent.MtrExpectation.PlanOrdinalOffset = nil
-	if err := ValidateAssignmentAgainstPlan(absent, h, pages); !errors.Is(err, ErrAssignmentPlanRelation) {
-		t.Fatalf("absent offset = %v, want ErrAssignmentPlanRelation", err)
+	if err := ValidateSweepAssignmentRecord(absent); !errors.Is(err, ErrAssignmentExpectation) {
+		t.Fatalf("absent offset (standalone) = %v, want ErrAssignmentExpectation", err)
+	}
+	if err := ValidateAssignmentAgainstPlan(absent, h, pages); !errors.Is(err, ErrAssignmentExpectation) {
+		t.Fatalf("absent offset = %v, want ErrAssignmentExpectation", err)
+	}
+	// ABSENT vs PRESENT-ZERO: the same bytes on the wire, different verdicts.
+	presentZero := assignmentFor(t, h, pages, 0)
+	if presentZero.GetMtrExpectation().GetPlanOrdinalOffset() != 0 {
+		t.Fatal("first range's offset should be 0; the absent-vs-zero control is vacuous")
+	}
+	if err := ValidateSweepAssignmentRecord(presentZero); err != nil {
+		t.Fatalf("explicit offset 0 must be accepted: %v", err)
+	}
+	// Same distinction for the plan's admitted count.
+	absentCount := proto.Clone(pages[0]).(*edgev1.ScheduledPlanPageV1)
+	absentCount.Ranges[0].MtrOrdinalCount = nil
+	if _, _, err := PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{absentCount}); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("absent range count = %v, want ErrPlanMtrWindow", err)
 	}
 	wrongOff := assignmentFor(t, h, pages, 1)
 	wrongOff.MtrExpectation.PlanOrdinalOffset = proto.Uint64(0)
@@ -426,5 +446,52 @@ func TestPlanMtrWindowBounds(t *testing.T) {
 	bad.ExecutionPlanSha256 = PlanHeaderDigest(bad)
 	if err := ValidatePlanPages(bad, pages); !errors.Is(err, ErrPlanMtrCommitment) {
 		t.Fatalf("unrecomputable header commitment = %v, want ErrPlanMtrCommitment", err)
+	}
+}
+
+// TestNonPrefixCompletionProof is the end-to-end case the split model exists for and
+// that the first version of it could NOT satisfy: the assignment commitment hashed
+// PLAN-GLOBAL ordinals while the completion verifier folded LOCAL ones, so any window
+// with a non-zero offset failed its ordinal->range membership check.
+func TestNonPrefixCompletionProof(t *testing.T) {
+	h, pages := splitPlan(t)
+	second := assignmentFor(t, h, pages, 1)
+	exp := second.GetMtrExpectation()
+
+	// Offset 2, count 3: the second range owns plan-global ordinals 3..5 while its
+	// completion leaves stay LOCAL at {1..3}.
+	if exp.GetPlanOrdinalOffset() != 2 || exp.GetOrdinalCount() != 3 {
+		t.Fatalf("fixture drift: offset=%d count=%d, want 2/3",
+			exp.GetPlanOrdinalOffset(), exp.GetOrdinalCount())
+	}
+
+	rangeSha := second.GetTargetRangeSha256()
+	leaves := make([]MtrCompletionLeaf, 0, exp.GetOrdinalCount())
+	for i := uint64(1); i <= exp.GetOrdinalCount(); i++ {
+		leaves = append(leaves, MtrCompletionLeaf{
+			Ordinal: i, Disposition: MtrDispositionNotAdmitted, RangeSha256: rangeSha,
+		})
+	}
+
+	root, err := MtrCompletionRoot(leaves, exp.GetPlanOrdinalOffset(), exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment())
+	if err != nil {
+		t.Fatalf("a valid non-prefix completion must prove: %v", err)
+	}
+	if len(root) != sha256Len {
+		t.Fatalf("root is %d bytes, want %d", len(root), sha256Len)
+	}
+
+	// Dropping the offset reproduces the original defect: the same leaves against the
+	// same commitment no longer prove membership.
+	if _, err := MtrCompletionRoot(leaves, 0, exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment()); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatal("without the offset the non-prefix proof must FAIL; the test is vacuous otherwise")
+	}
+
+	// A wrong offset is rejected too -- the window is bound, not merely shifted.
+	if _, err := MtrCompletionRoot(leaves, exp.GetPlanOrdinalOffset()+1, exp.GetOrdinalCount(),
+		h.GetPlanRootSha256(), exp.GetOrdinalRangeCommitment()); !errors.Is(err, ErrMtrCompletion) {
+		t.Fatal("a shifted offset must not prove the committed window")
 	}
 }

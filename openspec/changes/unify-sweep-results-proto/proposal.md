@@ -148,7 +148,11 @@ class.
   `SweepExecutionEventV1` start/progress/terminal evidence so core
   can reconcile batches, ranges, counts, and expected MTR traces without a
   whole-execution transaction. The scheduler terminalizes an orphaned attempt
-  as lost/expired/superseded before assigning its remaining coverage.
+  as lost/expired/superseded before REASSIGNING ITS COVERAGE. In v1 that reassignment
+  replays the SAME COMPLETE range window, not a sparse remainder: the frozen ABI
+  represents an assignment's MTR expectation as one CONTIGUOUS plan-global window, so
+  "remaining coverage" as a partial subset is NOT representable and is deferred to the
+  bounded-subset representation.
 
 ### Bounded streaming instead of whole-scan materialization
 
