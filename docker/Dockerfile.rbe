@@ -66,6 +66,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # Container Tools
         skopeo \
         iptables \
+        # Docker CE. Required by BuildBuddy's Firecracker guest init when an action
+        # sets test.init-dockerd: it LookPath's BOTH `docker` and `dockerd` and returns
+        # an error if either is missing, which exits init(1) and panics the guest kernel
+        # ("Attempted to kill init!"). Do not drop these.
+        docker-ce \
+        docker-ce-cli \
+        containerd.io \
+        docker-buildx-plugin \
+        docker-compose-plugin \
         # Database / Libs
         postgresql-server-dev-18 \
         libpq-dev \
