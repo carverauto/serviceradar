@@ -731,6 +731,30 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       end
     end
 
+    test "the shared OVER-BUDGET pair is rejected on the aggregate bound" do
+      # The same bytes the Go suite reads. Each runtime already built its own padded
+      # pages, which proves self-consistency but not that the two agree on WHERE the
+      # ceiling falls -- and the bloat vector above is only 455 bytes, far under it.
+      a = load("manifest_page_overbudget_a.bin")
+      b = load("manifest_page_overbudget_b.bin")
+      limit = RecoveryValidate.limits().max_manifest_bytes
+
+      assert byte_size(a) <= limit and byte_size(b) <= limit,
+             "each page must be individually UNDER the cap, or the pair does not isolate the aggregate"
+
+      assert byte_size(a) + byte_size(b) == limit + 1
+
+      assert {:error, :manifest_bounds} = RecoveryValidate.manifest_chain_from_raw([a, b], nil)
+
+      # Each alone is in budget, so the rejection is attributable to the AGGREGATE.
+      for one <- [a, b] do
+        refute match?(
+                 {:error, :manifest_bounds},
+                 RecoveryValidate.manifest_chain_from_raw([one], nil)
+               )
+      end
+    end
+
     test "the shared non-canonical bloat vector decodes identically but is larger" do
       # Previously each runtime built its OWN padded bytes, so neither proved the two
       # agree on what "the received bytes" are. Same Go-authored bytes now.
@@ -797,25 +821,29 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
       # Guard the guard, for ALL SIX and by TAG NUMBER. Checking two files for "some
       # unknown field" would pass if a vector carried the WRONG retired tag, or none --
       # in which case the rejections above prove nothing about the tag they name.
+      # TAG AND WIRE TYPE. Proving the number alone would accept a tag-9 VARINT even
+      # though lost_ranges was length-delimited -- bytes that retired field could never
+      # have produced, advertised as if it had. Wire 0 = varint (bool/uint64),
+      # 2 = length-delimited (the two repeated message fields).
       vectors = [
-        {"retired_page_tag7_coarsened.bin", EdgeLossManifestPageV1, 7},
-        {"retired_page_tag9_lost_ranges.bin", EdgeLossManifestPageV1, 9},
-        {"retired_page_tag10_affected.bin", EdgeLossManifestPageV1, 10},
-        {"retired_tombstone_tag3_lost_from.bin", SpoolLossTombstoneV1, 3},
-        {"retired_tombstone_tag4_lost_through.bin", SpoolLossTombstoneV1, 4},
-        {"retired_tombstone_tag8_coarsened.bin", SpoolLossTombstoneV1, 8}
+        {"retired_page_tag7_coarsened.bin", EdgeLossManifestPageV1, 7, 0},
+        {"retired_page_tag9_lost_ranges.bin", EdgeLossManifestPageV1, 9, 2},
+        {"retired_page_tag10_affected.bin", EdgeLossManifestPageV1, 10, 2},
+        {"retired_tombstone_tag3_lost_from.bin", SpoolLossTombstoneV1, 3, 0},
+        {"retired_tombstone_tag4_lost_through.bin", SpoolLossTombstoneV1, 4, 0},
+        {"retired_tombstone_tag8_coarsened.bin", SpoolLossTombstoneV1, 8, 0}
       ]
 
-      for {file, mod, tag} <- vectors do
+      for {file, mod, tag, wire} <- vectors do
         decoded = mod.decode(load(file))
         unknown = decoded.__unknown_fields__
 
         refute unknown in [nil, []], "#{file} retained no unknown field; the vector is inert"
 
-        tags = Enum.map(unknown, fn {t, _wire, _bytes} -> t end)
+        retained = Enum.map(unknown, fn {t, w, _bytes} -> {t, w} end)
 
-        assert tag in tags,
-               "#{file} advertises tag #{tag} but retained #{inspect(tags)}"
+        assert {tag, wire} in retained,
+               "#{file} advertises tag #{tag} wire #{wire} but retained #{inspect(retained)}"
       end
     end
   end
