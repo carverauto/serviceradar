@@ -15,8 +15,8 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
   the UUID negative vectors construct byte patterns no valid producer emits, the
   raw-byte cases build padded or malformed pages the fixture cannot express, the
   two-page chains are constructed because the corpus has a single page, and the
-  decode-outcome test injects a decoder because fixed bytes only ever yield one
-  outcome. Where a case is synthetic, its accept-side counterpart is still anchored to
+  decode-outcome test drives a pure error-only helper because fixed bytes only ever
+  yield one outcome. Where a case is synthetic, its accept-side counterpart is still anchored to
   the fixture wherever one exists.
   """
   use ExUnit.Case, async: true
@@ -469,30 +469,33 @@ defmodule ServiceRadar.Edge.RecoveryValidateTest do
     end
 
     test "EVERY decode outcome propagates, including the transient ones" do
-      # Proven through the PURE normalization helper, not an injected decoder.
+      # Proven through the PURE, ERROR-ONLY helper, not an injected decoder.
       #
       # An injectable decoder would prove the same property while handing callers a
       # bypass: malformed raw bytes plus `fn _ -> {:ok, valid_page} end` would be
-      # admitted, skipping WireDecode and WireValidate entirely. `propagate_decode/1`
-      # cannot do that -- it decodes nothing and produces no page.
+      # admitted, skipping WireDecode and WireValidate entirely.
+      # `propagate_decode_error/1` cannot do that -- it takes an error and returns an
+      # error, with no success clause to hand a page back through.
       #
       # Fixed malformed bytes only ever yield :poison, so without this the transient
       # outcomes are unreachable in a test, and :not_ready/:systemic are exactly the
       # ones whose loss is destructive: they mean PAUSE AND REPLAY, not quarantine.
       for outcome <- [:not_ready, :systemic, :poison, :too_large] do
-        assert {:error, ^outcome} = RecoveryValidate.propagate_decode({:error, outcome}),
+        assert {:error, ^outcome} = RecoveryValidate.propagate_decode_error({:error, outcome}),
                "#{outcome} must propagate verbatim, not collapse"
       end
-
-      # The success side passes the page through untouched.
-      page = go_page()
-      assert {:ok, ^page} = RecoveryValidate.propagate_decode({:ok, page})
     end
 
-    test "the real API routes decode failures through that helper" do
-      # End-to-end: the hard-wired WireDecode path surfaces its own outcome rather than
-      # a generic chain error. Together with the helper test above, this pins both the
-      # mapping and the fact that the API uses it.
+    test "a real decode failure surfaces its own outcome end to end" do
+      # End-to-end complement: the hard-wired WireDecode path surfaces its own outcome
+      # rather than a generic chain error.
+      #
+      # SCOPE, stated because the obvious reading overstates it: this does NOT pin that
+      # the API calls `propagate_decode_error/1`. Bypassing the helper with a
+      # behaviour-identical passthrough is unobservable and cannot be mutation-killed.
+      # What the two tests together pin is that the MAPPING is total and
+      # non-collapsing, and that a real decode failure is not flattened into a
+      # relational error -- which is what a caller actually depends on.
       malformed = <<0xFF, 0xFF, 0xFF>>
       assert byte_size(malformed) < RecoveryValidate.limits().max_manifest_bytes
 
