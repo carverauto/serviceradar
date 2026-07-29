@@ -248,9 +248,9 @@ defmodule ServiceRadar.Edge.WireDecode do
   def decode_manifest_page(bytes), do: run(EdgeLossManifestPageV1, @max_manifest_bytes, bytes)
 
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
-  # module bypass: only the CURATED message modules can be decoded (the record-plane trio plus the
-  # assignment record and the two plan objects), and only their own struct is
-  # accepted (is_struct/2).
+  # module bypass: only the CURATED message modules can be decoded -- the record-plane trio, the
+  # recovery manifest page, the assignment record, and the two plan objects -- and only their own
+  # struct is accepted (is_struct/2).
   defp run(mod, max_bytes, bytes) when is_binary(bytes) do
     cond do
       # Oversize is refused BEFORE protobuf is invoked -> permanent rejection, not an unbounded decode.

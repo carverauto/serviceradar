@@ -157,6 +157,14 @@ defmodule ServiceRadar.Edge.PlanValidate do
             not uint32?(Map.get(p, :page_count)) ->
           {:halt, {:error, :page_bounds}}
 
+        # NESTED RANGE integers, preflighted here because plan_page_digest/1 hashes
+        # every range INLINE -- so `target_count: nil` raised in HashGrammar.u64/1
+        # before validate_range/3 ever ran, and an absent mtr_ordinal_count was hashed
+        # as 0 before its later rejection. A digest helper is not a validator and must
+        # never receive an unvalidated term.
+        not Enum.all?(ranges, &range_integers_ok?/1) ->
+          {:halt, {:error, :plan_range}}
+
         Map.get(p, :digest_version) != @plan_digest_version ->
           {:halt, {:error, :digest_version}}
 
@@ -221,6 +229,15 @@ defmodule ServiceRadar.Edge.PlanValidate do
           {:halt, err}
       end
     end)
+  end
+
+  # The three integers BOTH grammars hash. Required presence is part of the domain:
+  # `mtr_ordinal_count` absent is not zero, and hashing it as zero before rejecting it
+  # would mean the digest saw a value the contract forbids.
+  defp range_integers_ok?(r) do
+    uint64?(Map.get(r, :target_count)) and
+      uint64?(Map.get(r, :mtr_admission_budget)) and
+      uint64?(Map.get(r, :mtr_ordinal_count))
   end
 
   defp validate_range(r, page_check_set, header_policy) do

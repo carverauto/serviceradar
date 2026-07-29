@@ -55,6 +55,10 @@ decompression:
 | `MaxDeliveryEnvelopeBytes` | 16 KiB | the delivery-frame envelope around the record |
 | `MaxFrameBytes` | `MaxRecordBytes + MaxDeliveryEnvelopeBytes` = 528 KiB | one raw `EdgeDeliveryFrameV1` |
 | `MaxClientMessageBytes` | `MaxFrameBytes + 8` | one raw `EdgeRecordClientMessage`: the oneof tag (1 byte) plus a length prefix (<= 5 bytes) |
+| `MaxPlanPageBytes` | 128 KiB | one raw `ScheduledPlanPageV1` |
+| `MaxManifestPages` | 1024 | pages in one plan or recovery manifest |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page |
+| `MaxPlanMtrOrdinals` | 2^20 = 1048576 | TOTAL admitted MTR ordinals across one plan (a WORK ceiling, distinct from `MaxMtrCompletionOrdinals` = 2^31, which bounds what the ordinal space can REPRESENT) |
 
 The `+ 8` is CONSERVATIVE HEADROOM, not an exact derivation. The oneof framing at
 the maximum frame size is 1 tag byte plus a 3-byte varint length (528 KiB <
