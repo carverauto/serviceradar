@@ -334,6 +334,31 @@ func mustValidateLifecycleBytes(t *testing.T, name string, b []byte) {
 	}
 }
 
+// padWithDuplicateKnownField grows a marshalled page to an exact size by repeating a
+// KNOWN field whose value is unchanged by last-one-wins -- `page_index = 0` on page 0.
+// Padding with unknown fields would be rejected as retained unknowns and would prove
+// nothing about the SIZE boundary; duplicates of a known field are exactly the shape
+// that collapses on a re-marshal, which is why the received-bytes rule exists.
+func padWithDuplicateKnownField(t *testing.T, b []byte, target int) []byte {
+	t.Helper()
+	out := append([]byte(nil), b...)
+	// tag 2 (page_index), varint wire type: 0x10 0x00 is the minimal encoding of 0.
+	minimal := []byte{0x10, 0x00}
+	// A NON-MINIMAL encoding of the same 0, one byte longer, for odd remainders.
+	nonMinimal := []byte{0x10, 0x80, 0x00}
+	for target-len(out) >= 2 {
+		if (target-len(out))%2 == 1 {
+			out = append(out, nonMinimal...)
+			continue
+		}
+		out = append(out, minimal...)
+	}
+	if len(out) != target {
+		t.Fatalf("could not pad to %d, reached %d", target, len(out))
+	}
+	return out
+}
+
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", name)
@@ -1374,6 +1399,31 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if _, err := edgerecord.MtrCompletionRoot(secondLeaves, 0, rangeB.GetMtrOrdinalCount(),
 		splitHeader.GetPlanRootSha256(), commitB); err == nil {
 		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
+	}
+
+	// SHARED BLOAT VECTORS on the RAW plan boundary. A page padded with DUPLICATE known
+	// fields collapses on a re-marshal, so measuring the round trip is not the physical
+	// ceiling: Go's struct path accepted 131,074 received bytes that Elixir refused.
+	// These pin the boundary to RECEIVED bytes on both sides, at the limit and one over.
+	basePage := splitPage
+	atLimit := padWithDuplicateKnownField(t, mustMarshal(basePage), edgerecord.MaxPlanPageBytes)
+	overLimit := padWithDuplicateKnownField(t, mustMarshal(basePage), edgerecord.MaxPlanPageBytes+1)
+	goldenBytes(t, "plan_page_bytes_at_limit.bin", atLimit)
+	goldenBytes(t, "plan_page_bytes_over_limit.bin", overLimit)
+
+	// Both decode to the SAME page, which is what makes the pair non-vacuous: only the
+	// received SIZE differs.
+	for _, raw := range [][]byte{atLimit, overLimit} {
+		var probe edgev1.ScheduledPlanPageV1
+		if err := proto.Unmarshal(raw, &probe); err != nil {
+			t.Fatalf("bloat vector must still decode: %v", err)
+		}
+	}
+	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{atLimit}); err != nil {
+		t.Fatalf("a page at exactly MaxPlanPageBytes must be accepted: %v", err)
+	}
+	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{overLimit}); !errors.Is(err, edgerecord.ErrPlanBounds) {
+		t.Fatalf("a page one byte over = %v, want ErrPlanBounds", err)
 	}
 
 	// SHARED REJECT VECTORS, authored by Go and consumed by BOTH runtimes. In-memory
