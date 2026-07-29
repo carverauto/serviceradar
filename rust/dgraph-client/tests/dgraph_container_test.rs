@@ -2,7 +2,7 @@
  * Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
  */
 
-//! Acceptance tests against a real Dgraph.
+//! Acceptance tests against a Dgraph Docker instance.
 //!
 //! Starts a `dgraph/standalone` container with `docker_utils` and tests the client.
 //!
