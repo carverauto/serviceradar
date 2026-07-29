@@ -1,0 +1,23 @@
+rust/dgraph-client/tests/BUILD.bazel
+  s_8f6823274fc459::t_363f87819e930d 71,73-82
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_8f6823274fc459::t_8513b2a7a58be3 187
+  s_8f6823274fc459::t_fdf825af854b78 232-233,235-236
+  s_8f6823274fc459::t_1989c7254ec7ce 93-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7331f264226b084ba7de14ad7e7f44e5b70a01cb",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
