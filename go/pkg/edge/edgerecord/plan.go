@@ -482,8 +482,12 @@ func MtrWindowCommitment(offset, count uint64, rangeSha256 []byte) ([]byte, erro
 	// The WORK ceiling applies here too, not only in PlanMtrWindows: this function is
 	// exported and folds one hash per ordinal, so bounding only the caller would leave
 	// the expensive loop reachable directly.
+	//
+	// The bound is on where the window ENDS, not merely on its WIDTH. Capping width
+	// alone admits (offset = MaxPlanMtrOrdinals, count = 1): a one-ordinal window that
+	// begins past the plan ceiling and therefore names an ordinal no plan can contain.
 	if len(rangeSha256) != sha256Len || count > MaxPlanMtrOrdinals ||
-		offset > MaxMtrCompletionOrdinals-count {
+		offset > MaxPlanMtrOrdinals-count {
 		return nil, ErrPlanMtrWindow
 	}
 	var acc [32]byte

@@ -721,7 +721,8 @@ The scanner specialization changes from whole-run snapshot delivery:
    shard/range has closed, including terminal batch sequence, cumulative counts,
    and expected/emitted MTR trace reconciliation data. If that is impossible,
    scheduler lease/fence recovery terminalizes the attempt as lost/superseded and
-   preserves missing coverage for retry.
+   REASSIGNS THE WHOLE RANGE WINDOW for retry. v1 has no partial-remainder input: the
+   window is contiguous and is replayed complete.
 
 The data plane is continuously pipelined: scanning, encoding, spooling, gRPC
 transmission, JetStream persistence, consumption, and database projection may
@@ -1419,7 +1420,8 @@ Stable keys and fencing rules include:
   (committing `payload_sha256`), host/mode counts, and projected rows;
 - agent terminal slot: network scope + execution ID + execution shard + assignment
   epoch, immutably bound to terminal kind, event ID, closed batch interval,
-  counts, outcomes, and versioned MTR range roots.
+  counts, outcomes, and the versioned MTR COMPLETION digest. (There is no MTR range
+  root: `range_root_sha256` is RETIRED, tag 20 reserved.)
 
 Governed cluster-local publishers that reach the same authoritative
 record/projector contract through a direct JetStream publisher use a
@@ -1581,8 +1583,9 @@ fields; reusing an existing network-scope trace ID for another target/context is
 Reachability projection may complete first, but the execution exposes MTR
 `pending`, `projected`, `failed`, `missing`, or `quarantined` counts and is not
 fully reconciled until its authoritative plan/attempt state and terminal
-evidence's expected binding count/digest are satisfied, the WHOLE uncovered window
-is retried, or every missing trace has an explicit terminal disposition.
+evidence's expected binding count/digest are satisfied, the affected range's WHOLE
+window is reassigned and replayed, or every missing trace has an explicit terminal
+disposition. There is no partial-remainder retry input in v1.
 
 The source MTR transaction also inserts an idempotent graph-outbox row keyed by
 `(network_scope_id, trace_id, graph_schema_version)` before the JetStream delivery is

@@ -350,16 +350,23 @@ defmodule ServiceRadar.Edge.HashGrammar do
   exactly, so accepting whatever an assignment carried would leave the per-attempt MTR
   authority self-asserted.
   """
-  @spec mtr_window_commitment(non_neg_integer(), non_neg_integer(), binary()) :: binary()
+  @spec mtr_window_commitment(non_neg_integer(), non_neg_integer(), binary()) :: binary() | :error
   def mtr_window_commitment(offset, count, range_sha256)
       when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
-             count <= @max_plan_mtr_ordinals and is_binary(range_sha256) do
+             count <= @max_plan_mtr_ordinals and
+             offset <= @max_plan_mtr_ordinals - count and
+             is_binary(range_sha256) do
     # `1..count//1` for the same reason the completion fold uses it: an unstepped
     # `1..0` is a DESCENDING range that iterates [1, 0].
     Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
       add256(acc, member_hash(offset + i, range_sha256))
     end)
   end
+
+  # A window that ends past the plan work ceiling (or is otherwise out of bounds) is
+  # REJECTED rather than folded. Go bounds the window END the same way, so a
+  # `(offset = ceiling, count = 1)` window is refused by both runtimes.
+  def mtr_window_commitment(_offset, _count, _range_sha256), do: :error
 
   @doc """
   The PLAN-WIDE commitment: the additive sum of every range's window commitment, in

@@ -119,7 +119,8 @@ processing durable data.
 #### Scenario: Terminal evidence conflicts with an attempt slot
 - **GIVEN** one network-scope/execution/shard/assignment-epoch agent-terminal slot
   already binds an authenticated terminal event, closed batch interval, counts,
-  outcomes, and versioned MTR range roots
+  outcomes, and the versioned MTR COMPLETION digest (there is no MTR range root:
+  `range_root_sha256` is RETIRED, tag 20 reserved)
 - **WHEN** different terminal evidence or a batch outside that closed interval
   arrives in any order
 - **THEN** the first authenticated terminal-slot binding SHALL remain immutable
