@@ -282,7 +282,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
   # leaf is `{ordinal, disposition, trace_id, range_sha256}`, the disposition
   # being a `Serviceradar.Edge.V1.MtrCompletionDisposition` value.
   #
-  # PRIVATE on purpose, and reached ONLY from `mtr_completion_verify/4` once every
+  # PRIVATE on purpose, and reached ONLY from `mtr_completion_verify/5` once every
   # leaf has been validated. Go exports no unvalidated hasher --
   # `edgerecord.MtrCompletionRoot` folds through the accumulator, whose `Add`
   # rejects a bad disposition BEFORE it is widened to u64 and hashed. A public raw

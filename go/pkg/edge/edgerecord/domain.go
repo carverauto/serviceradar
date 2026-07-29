@@ -934,8 +934,10 @@ func MtrCompletionRoot(leaves []MtrCompletionLeaf, planOrdinalOffset, expected u
 // frozen value, not an absence -- a producer that cannot name it will be tempted
 // to omit the proof instead.
 //
-// ordinalRangeCommitment MUST be the plan header's field, which for such a plan is
-// 32 zero bytes (the empty-set multiset hash). Passing empty bytes is rejected.
+// ordinalRangeCommitment MUST be the ASSIGNMENT's expectation commitment -- NOT the
+// plan header's plan-wide field, which is only equal when one assignment covers the
+// whole plan. For a zero-MTR window it is 32 zero bytes (the empty-set multiset hash);
+// passing empty bytes is rejected.
 func ZeroMtrCompletionRoot(planOrdinalOffset uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
 	return MtrCompletionRoot(nil, planOrdinalOffset, 0, planRootSha256, ordinalRangeCommitment)
 }

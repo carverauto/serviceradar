@@ -1376,6 +1376,45 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
 	}
 
+	// SHARED REJECT VECTORS, authored by Go and consumed by BOTH runtimes. In-memory
+	// mutations inside one runtime's test prove only that runtime's opinion; a reject
+	// vector has to be BYTES on disk, or the two implementations can disagree about
+	// what is refused and nothing notices.
+	rejectCases := []struct {
+		name   string
+		mutate func(*edgev1.SweepAssignmentRecordV1)
+	}{
+		{"assignment_reject_lease.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+			r.LeaseId = nil
+			r.FenceToken = 0
+		}},
+		{"assignment_reject_expectation.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+			// count and commitment disagree: count 0 with a non-empty commitment.
+			r.MtrExpectation.OrdinalCount = 0
+		}},
+		{"assignment_reject_sequence.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+			r.RecordSequence = 0
+		}},
+		{"assignment_reject_zero_uuid.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+			r.ProducerAssignmentId = make([]byte, 16)
+		}},
+		{"assignment_reject_offset_absent.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+			r.MtrExpectation.PlanOrdinalOffset = nil
+		}},
+	}
+	for _, tc := range rejectCases {
+		bad := proto.Clone(secondAssignment).(*edgev1.SweepAssignmentRecordV1)
+		tc.mutate(bad)
+		badBytes := golden(t, tc.name, bad)
+		var decoded edgev1.SweepAssignmentRecordV1
+		if err := proto.Unmarshal(badBytes, &decoded); err != nil {
+			t.Fatalf("%s: decode: %v", tc.name, err)
+		}
+		if err := edgerecord.ValidateSweepAssignmentRecord(&decoded); err == nil {
+			t.Fatalf("%s: committed reject vector must be REJECTED by Go", tc.name)
+		}
+	}
+
 	// SHARED WORK-CEILING BOUNDARY. The ceiling is an ABI fact, not a Go
 	// implementation detail: a plan Go rejects and Elixir accepts is a divergence, so
 	// both runtimes consume these two pages and must agree on the verdict. Bounds are

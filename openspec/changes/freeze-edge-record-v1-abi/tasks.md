@@ -80,7 +80,7 @@ here.
   states, lease/fence, a RESOLVABLE range binding (`target_range_id` +
   `target_range_sha256`, NOT an opaque set commitment), and configuration/authorization
   identity, validated by `ValidateSweepAssignmentRecord` and related to the committed
-  plan by `ValidateAssignmentAgainstPlan` (plan id/hash, epoch, check set, policy,
+  plan by `ValidateAssignmentAgainstPlan` (plan id/hash, check set, policy,
   scope, and RANGE MEMBERSHIP). The count is CARRIED, never derived from the producer's
   counters, from the non-invertible commitment, or from `mtr_admission_budget` (a
   ceiling).
