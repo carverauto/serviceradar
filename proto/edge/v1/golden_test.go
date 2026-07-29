@@ -1380,25 +1380,29 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// mutations inside one runtime's test prove only that runtime's opinion; a reject
 	// vector has to be BYTES on disk, or the two implementations can disagree about
 	// what is refused and nothing notices.
+	//
+	// Each asserts its EXACT sentinel, not merely "some error": reason parity across the
+	// two runtimes is the thing being proven, and any-error assertions cannot show it.
 	rejectCases := []struct {
 		name   string
+		want   error
 		mutate func(*edgev1.SweepAssignmentRecordV1)
 	}{
-		{"assignment_reject_lease.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+		{"assignment_reject_lease.bin", edgerecord.ErrAssignmentLease, func(r *edgev1.SweepAssignmentRecordV1) {
 			r.LeaseId = nil
 			r.FenceToken = 0
 		}},
-		{"assignment_reject_expectation.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+		{"assignment_reject_expectation.bin", edgerecord.ErrAssignmentExpectation, func(r *edgev1.SweepAssignmentRecordV1) {
 			// count and commitment disagree: count 0 with a non-empty commitment.
 			r.MtrExpectation.OrdinalCount = 0
 		}},
-		{"assignment_reject_sequence.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+		{"assignment_reject_sequence.bin", edgerecord.ErrAssignmentIdentity, func(r *edgev1.SweepAssignmentRecordV1) {
 			r.RecordSequence = 0
 		}},
-		{"assignment_reject_zero_uuid.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+		{"assignment_reject_zero_uuid.bin", edgerecord.ErrAssignmentIdentity, func(r *edgev1.SweepAssignmentRecordV1) {
 			r.ProducerAssignmentId = make([]byte, 16)
 		}},
-		{"assignment_reject_offset_absent.bin", func(r *edgev1.SweepAssignmentRecordV1) {
+		{"assignment_reject_offset_absent.bin", edgerecord.ErrAssignmentExpectation, func(r *edgev1.SweepAssignmentRecordV1) {
 			r.MtrExpectation.PlanOrdinalOffset = nil
 		}},
 	}
@@ -1410,8 +1414,8 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		if err := proto.Unmarshal(badBytes, &decoded); err != nil {
 			t.Fatalf("%s: decode: %v", tc.name, err)
 		}
-		if err := edgerecord.ValidateSweepAssignmentRecord(&decoded); err == nil {
-			t.Fatalf("%s: committed reject vector must be REJECTED by Go", tc.name)
+		if err := edgerecord.ValidateSweepAssignmentRecord(&decoded); !errors.Is(err, tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.name, err, tc.want)
 		}
 	}
 

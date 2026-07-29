@@ -414,10 +414,12 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    attributes, so this framing now DOES describe the code and it supersedes #4713's
    local declarations. STILL CANDIDATE for reasons that are NOT the enum and NOT
    zero-MTR (decided: candidate B, implemented in both runtimes): task 1.15 owes the
-   shared per-value leaf vectors, and the plan-derived relations are unverifiable
-   until the shared per-value leaf vectors land. The assignment carrier itself now
-   EXISTS (`SweepAssignmentRecordV1`, with `ValidateAssignmentAgainstPlan` and its
-   Elixir peer deriving the expectation from committed plan data). Framing below
+   shared per-value leaf vectors. That is the ONLY remaining reason. The plan-derived
+   relations are NOT unverifiable -- an earlier revision said so and was wrong: the
+   assignment carrier EXISTS (`SweepAssignmentRecordV1`), and
+   `ValidateAssignmentAgainstPlan` plus its Elixir peer VERIFY them today by
+   recomputing the expectation from committed plan data, over a plan each runtime
+   validates first. Framing below
    (domain.go:706-847):
    - leaf element (`mtrLeafHash`): `version` (u64 = 2), `ordinal` (u64), `disposition`
      (u64, the generated enum's int32 widened to u64 -- zero, negative and
