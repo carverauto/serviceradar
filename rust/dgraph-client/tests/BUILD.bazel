@@ -79,7 +79,10 @@ rust_test_suite(
         "test.workload-isolation-type": "firecracker",
         # Ensure the Docker daemon is started inside that microVM.
         "test.init-dockerd": "true",
-        # Preserve microVM state across runs so the dgraph image stays in the local cache.
+        # Preserve microVM state across runs. The suite leaves its container running, so a
+        # recycled runner reuses the container itself, not merely the cached image: the
+        # readiness probe is `drop_all`, which resets a reused cluster before the first
+        # scenario, so a warm run starts from the same state as a cold one.
         "test.recycle-runner": "true",
         # Send every test in this suite to the same recycled runner.
         "test.runner-recycling-key": "dgraph_client_test_runner",

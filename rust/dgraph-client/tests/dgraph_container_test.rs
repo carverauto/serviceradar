@@ -24,50 +24,48 @@
 //! Because there is exactly one test, it is a plain `#[test]` that drives the async client
 //! through one explicit runtime, rather than `#[tokio::test]`. `docker_utils` is itself
 //! synchronous, so only the client interaction needs a runtime at all.
+//!
+//! # The container is left running
+//!
+//! Teardown deliberately does not stop the container. With `reuse_container(true)` the next
+//! run finds it already up and skips the cold start, and `docker_utils` applies the wait
+//! strategy on the reuse path as well -- so the readiness gate still holds, and because that
+//! gate *is* `drop_all`, a reused cluster is empty before the first scenario runs. The suite
+//! therefore starts from the same state whether the container is fresh or warm.
+//!
+//! Stopping it would preserve nothing in any case: the container carries `--rm`, so
+//! `docker stop` removes it exactly as `docker rm -f` does. The real choice is between a warm
+//! container and a cold start, not between stopping and deleting.
+//!
+//! Remove it by hand when it is no longer wanted:
+//!
+//! ```bash
+//! docker rm -f dgraph-standalone-9080
+//! ```
 
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use tokio::runtime::{Builder, Runtime};
 
-// `Probe` and `wait_until_ready_async` belong to `wait_utils`, but are reached through
+// `Probe`, `ProbeContext` and `WaitStrategy` belong to `wait_utils`, but are reached through
 // `docker_utils`' re-export on purpose: `wait_utils` is only a transitive dependency here,
 // so it has no entry in `//third_party/crates:defs.bzl` and `all_crate_deps()` cannot
 // resolve it. `use wait_utils::...` compiles under cargo and fails under Bazel.
-use docker_utils::{ContainerConfig, DockerUtil, Probe, WaitStrategy, wait_until_ready_async};
+use docker_utils::{ContainerConfig, DockerUtil, Probe, ProbeContext, WaitStrategy};
 
-use dgraph_client::{DgraphClient, Mutation};
-
-/// Wall clock for the whole run, so every log line carries an elapsed time.
-static START: OnceLock<Instant> = OnceLock::new();
-
-fn elapsed_secs() -> f64 {
-    START.get_or_init(Instant::now).elapsed().as_secs_f64()
-}
-
-/// Log a step with its elapsed time.
-///
-/// This suite runs on a remote executor inside a microVM. When it fails there, this output
-/// is the only evidence available -- there is no shell to poke at the container afterwards,
-/// because the runner is gone. Logging every step is therefore not noise, it is the whole
-/// debugging surface.
-macro_rules! step {
-    ($($arg:tt)*) => {
-        println!("[dgraph-acceptance] [{:>6.1}s] {}", elapsed_secs(), format_args!($($arg)*))
-    };
-}
+use dgraph_client::{DgraphClient, DgraphError, Mutation};
 
 /// Container name. `docker_utils` appends the connection port, so the running container is
 /// `dgraph-standalone-9080`.
 const CONTAINER_NAME: &str = "dgraph-standalone";
 const IMAGE: &str = "dgraph/standalone";
 const TAG: &str = "v25.3.8";
-/// Address the container binds. `0.0.0.0` means "every interface".
-const BIND_URL: &str = "0.0.0.0";
 
-/// Address the test connects to.
+/// Address the test connects to, and the address `docker_utils` hands the readiness probe as
+/// [`ProbeContext::host`].
 ///
-/// Deliberately separate from [`BIND_URL`]: a wildcard bind address is not a meaningful
-/// connection target. Under host networking Dgraph binds directly in this network
-/// namespace, so loopback reaches it without any published port.
+/// This is a connection target, not a bind address. `ContainerConfig::url` never reaches
+/// `docker run` -- it is forwarded to the probe and nowhere else -- so a wildcard `0.0.0.0`
+/// here would only produce a probe that cannot connect. Under host networking Dgraph binds
+/// directly in this network namespace, so loopback reaches it without any published port.
 const CONNECT_HOST: &str = "127.0.0.1";
 
 /// gRPC port. This is the one the client talks to.
@@ -81,8 +79,8 @@ const HTTP_PORT: u16 = 8080;
 /// A deadline rather than an attempt count: attempts times delay silently shrinks the real
 /// wait whenever an attempt itself is slow, which is exactly what happens on a loaded
 /// executor -- the case the budget exists for.
-const READY_TIMEOUT: Duration = Duration::from_secs(120);
-const READY_RETRY_DELAY: Duration = Duration::from_millis(500);
+const READY_TIMEOUT_SECS: u64 = 120;
+const READY_RETRY_DELAY_MS: u64 = 500;
 
 /// Lines of container log to capture when a scenario fails.
 ///
@@ -92,7 +90,73 @@ const DIAGNOSTIC_LOG_LINES: usize = 200;
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
 
+/// Ready means the alpha accepts an `Alter`.
+///
+/// Each signal goes green at a different moment, and the earlier ones do not imply the later
+/// ones: `connect()`'s `CheckVersion` probe answers first, a read query some seconds later,
+/// and an `Alter` later still. The suite's first operation is `drop_all`, an `Alter`, so
+/// gating on anything weaker leaves a window in which the suite starts, runs its first
+/// scenario, and dies on `drop_all failed: RPC Error: Unknown: transport error`.
+///
+/// Running the real operation as the gate removes the guesswork entirely -- there is no proxy
+/// signal left to be wrong about -- and it costs nothing, because the first scenario begins by
+/// dropping everything anyway. Dgraph does not implement `grpc.health.v1`, so
+/// `WaitForGrpcHealthCheck` is not an option here regardless of which driver applies it.
+///
+/// Destructive by construction. Safe here because a reused container is one this suite
+/// created and is about to wipe anyway.
+fn dgraph_ready(ctx: &ProbeContext) -> Probe<(), String> {
+    // A `ProbeFn` is synchronous by contract, so the async client is flattened here rather
+    // than in the crate: only the caller knows whether a runtime exists. Building one is safe
+    // because `docker_utils` runs the probe on a thread of its own precisely so that there is
+    // never an ambient runtime, even when `setup_container` is called from `#[tokio::test]`.
+    let runtime = match Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(err) => return Probe::Fatal(format!("could not build a probe runtime: {err}")),
+    };
+
+    let connection_string = connection_string(ctx.host(), ctx.port());
+
+    runtime.block_on(async {
+        let client = match DgraphClient::connect(&connection_string).await {
+            Ok(client) => client,
+            Err(err) => return classify("connect", &err),
+        };
+
+        match client.drop_all().await {
+            Ok(()) => Probe::Ready(()),
+            Err(err) => classify("drop_all", &err),
+        }
+    })
+}
+
+/// Decide whether a failed readiness attempt is worth another one.
+///
+/// Retries are confined to readiness-shaped failures -- "cluster not ready" and transport
+/// failures, the latter being how tonic reports a connection that the alpha closed while
+/// still starting. Every other error is reported at once rather than retried into a timeout
+/// that buries the real cause.
+///
+/// The typed `kind` accompanies the message because `Display` alone does not say which
+/// variant produced it, and the variant is what decides whether it is retried. Branching on
+/// the typed variant rather than on message text is the point of the crate's error surface.
+fn classify(probe: &str, err: &DgraphError) -> Probe<(), String> {
+    let detail = format!("{probe} -> {err} (kind={:?})", err.kind());
+
+    if err.is_cluster_not_ready() || err.is_transport() {
+        Probe::Retry(detail)
+    } else {
+        Probe::Fatal(format!("{detail} NOT RETRYABLE"))
+    }
+}
+
+/// Plaintext: the standalone image serves gRPC without TLS.
+fn connection_string(host: &str, port: u16) -> String {
+    format!("dgraph://{host}:{port}")
+}
+
 /// Run on the host network instead of publishing ports.
+///
 /// Host networking removes NAT from the picture: Dgraph binds 9080/8080 directly in the
 /// VM's network namespace, so no iptables rule has to exist for the test to reach it.
 fn dgraph_container_config() -> ContainerConfig<'static> {
@@ -100,126 +164,74 @@ fn dgraph_container_config() -> ContainerConfig<'static> {
         .name(CONTAINER_NAME)
         .image(IMAGE)
         .tag(TAG)
-        .url(BIND_URL)
-        // The gRPC port is the primary connection; HTTP provides health check.
+        .url(CONNECT_HOST)
+        // The gRPC port is the primary connection; HTTP is exposed but not gated on.
         .connection_port(GRPC_PORT)
         .additional_ports(&[HTTP_PORT])
         .reuse_container(true)
         .keep_configuration(true)
         .host_network(true)
-        // No container-side wait: readiness is decided by the `wait_until_ready_async` loop
-        // in `run_scenarios`, which gates on the suite's first real operation.
-        //
-        // Not a workaround. As of `docker_utils` 0.3.2 the built-in strategies are sound,
-        // they just answer a different question than this suite has to ask:
-        //
-        // - `WaitForHttpHealthCheck` gates on `/health` returning 200, which is a real
-        //   signal -- but the alpha serves reads seconds before it accepts an `Alter`, and
-        //   `Alter` is what the first scenario does.
-        // - `WaitUntilConsoleOutputContains("Server is ready: OK", n)` would work and would
-        //   cut most of the retry spinning. It still does not prove an `Alter` is accepted,
-        //   and it cannot notice the container being OOM-killed afterwards.
-        // - `WaitForGrpcHealthCheck` needs `grpc.health.v1`, which Dgraph does not
-        //   implement.
-        //
-        // `wait_until_ready_async` cannot be a `WaitStrategy` variant, which is why this is
-        // `NoWait` rather than a strategy naming the probe: the probe captures state, and a
-        // `Box<dyn Fn>` would strip `Eq`/`Ord`/`Hash`/`Debug` from `WaitStrategy` and hence
-        // from `ContainerConfig`, which merely holds one. It is also async, while the
-        // strategy is applied on a sync path, and it returns the connected client, which an
-        // enum variant has nowhere to put.
-        .wait_strategy(WaitStrategy::NoWait)
+        // Readiness is part of the configuration, so it holds on every path
+        // `setup_container` can take -- including handing back a reused container, which is
+        // where a stale one from a killed run would otherwise slip through on a recycled
+        // runner.
+        .wait_strategy(WaitStrategy::WaitUntilReady {
+            probe: dgraph_ready,
+            timeout_secs: READY_TIMEOUT_SECS,
+            retry_delay_ms: READY_RETRY_DELAY_MS,
+        })
         .build()
 }
 
 /// The single acceptance test.
 ///
-/// Starts the container once, runs every scenario in order, and stops the container even
-/// when a scenario fails.
+/// Starts or reuses the container, then runs every scenario in order. The container is left
+/// running afterwards, pass or fail -- see the module docs.
 #[test]
 #[ignore = "requires Docker"]
 fn dgraph_client_acceptance() {
-    START.get_or_init(Instant::now);
-    step!("start: image {IMAGE}:{TAG}, host networking, gRPC {GRPC_PORT}, HTTP {HTTP_PORT}");
-
     let docker = DockerUtil::with_debug().expect("failed to construct DockerUtil");
 
-    let config = dgraph_container_config();
-    step!("setup_container: pulling if absent and starting");
-    let (container_id, port) = match docker.setup_container(&config) {
-        Ok(started) => started,
-        Err(err) => {
-            // A container that failed to start still has logs, and they are the only
-            // explanation available on a remote runner. Print them before unwinding.
-            step!("setup_container failed: {err}");
-            dump_diagnostics(docker, &format!("{CONTAINER_NAME}-{GRPC_PORT}"));
-            panic!("failed to start dgraph/standalone container: {err}");
-        }
-    };
-
-    step!("container '{container_id}' up, connection port {port}");
+    // Blocks until the alpha accepts an `Alter`. If it never does, the error already carries
+    // the container's exit state and log tail, including an OOM kill -- which is otherwise
+    // indistinguishable from a network fault, because the server never got to explain itself.
+    let started = docker.setup_container(&dgraph_container_config());
+    assert!(started.is_ok(), "{started:?}");
+    let (container_id, port) = started.unwrap();
+    println!("✅ container '{container_id}' ready on {CONNECT_HOST}:{port}");
 
     // One runtime for the whole run. The client is async because tonic is; docker_utils is
     // not, so nothing outside these scenarios needs a runtime.
-    let runtime = tokio::runtime::Runtime::new().expect("failed to build a tokio runtime");
-    // `DockerUtil` is `Copy`, so the readiness loop can hold one without borrowing.
-    let outcome = runtime.block_on(run_scenarios(docker, &container_id, port));
+    let runtime = Runtime::new().expect("failed to build a tokio runtime");
+    let outcome = runtime.block_on(run_scenarios(port));
 
-    // Dump the container's own account of events *before* tearing it down. Once
-    // `stop_container` deletes it the logs are unrecoverable, and on a remote executor
-    // there is no second chance to look.
+    // A container that dies *mid-run* is the one failure `docker_utils` cannot explain for
+    // us, because nothing calls into it while the scenarios run. `--rm` reaps the container
+    // within seconds of the exit that explains it, so ask while there is still something to
+    // ask -- a container that died is gone, whether or not this test would have stopped it.
     if let Err(err) = &outcome {
-        step!("FAILED: {err}");
-        dump_diagnostics(docker, &container_id);
+        eprintln!("FAILED: {err}");
+        match docker.container_diagnostics(&container_id, DIAGNOSTIC_LOG_LINES) {
+            Ok(diagnostics) if diagnostics.looks_oom_killed() => eprintln!(
+                "container was OOM-killed -- raise test.EstimatedMemory in BUILD.bazel\n{diagnostics}"
+            ),
+            Ok(diagnostics) => eprintln!("container diagnostics:\n{diagnostics}"),
+            Err(err) => eprintln!("diagnostics unavailable: {err}"),
+        }
     }
 
-    // Stop before asserting, so a failing scenario still tears the container down.
-    let delete_container = true;
-    let stopped = docker.stop_container(&container_id, delete_container);
-
-    if let Err(err) = outcome {
-        panic!("acceptance scenario failed: {err}");
-    }
-    step!("all scenarios passed");
-    stopped.expect("failed to stop dgraph container");
-}
-
-/// Print the container's own account of a failure.
-///
-/// Deliberately best effort: diagnostics must never mask the failure being diagnosed, so a
-/// broken `docker` here is reported and stepped over rather than propagated.
-fn dump_diagnostics(docker: DockerUtil, container_id: &str) {
-    match docker.container_diagnostics(container_id, DIAGNOSTIC_LOG_LINES) {
-        // Called out separately because it is the failure this suite actually hit, and the
-        // raw dump reads like a network fault without it: an OOM-killed alpha reaches the
-        // client as a bare transport error, since the server never got to explain itself.
-        Ok(diagnostics) if diagnostics.looks_oom_killed() => step!(
-            "container was OOM-killed -- raise test.EstimatedMemory in BUILD.bazel\n{diagnostics}"
-        ),
-        Ok(diagnostics) => step!("container diagnostics:\n{diagnostics}"),
-        Err(err) => step!("diagnostics unavailable: {err}"),
-    }
+    // No teardown by design: the container stays up so the next run reuses it. See the module
+    // docs for why leaving it running is what makes the second run both faster and clean.
+    outcome.expect("acceptance scenario failed");
+    println!("✅ all scenarios passed; container '{container_id}' left running for reuse");
 }
 
 /// Every scenario, in order. Ordering matters: several call `drop_all`.
-async fn run_scenarios(docker: DockerUtil, container_id: &str, port: u16) -> Result<(), String> {
-    // Plaintext: the standalone image serves gRPC without TLS.
-    let connection_string = format!("dgraph://{CONNECT_HOST}:{port}");
-
-    // Wait until the cluster serves the suite's *first real operation*, then keep the client
-    // the successful attempt built.
-    //
-    // `dbg = true`: the retry log is the whole debugging surface on a remote executor, and
-    // `wait_until_ready_async` collapses consecutive identical refusals, so a starting alpha
-    // does not bury the one line that differs.
-    let client = wait_until_ready_async(true, READY_TIMEOUT, READY_RETRY_DELAY, || async {
-        match probe_once(&connection_string).await {
-            Ok(client) => Probe::Ready(client),
-            Err((probe, err)) => classify(docker, container_id, probe, &err),
-        }
-    })
-    .await
-    .map_err(|err| err.to_string())?;
+async fn run_scenarios(port: u16) -> Result<(), String> {
+    // No retry loop: `setup_container` returned, so the cluster has already served an `Alter`.
+    let client = DgraphClient::connect(&connection_string(CONNECT_HOST, port))
+        .await
+        .map_err(|err| format!("connect failed: {err}"))?;
 
     // Named so a failure names the scenario, not just a line number.
     scenario("connects_and_probes", || connects_and_probes(&client))?;
@@ -254,7 +266,7 @@ async fn run_scenarios(docker: DockerUtil, container_id: &str, port: u16) -> Res
 }
 
 fn scenario(name: &str, body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
-    step!("scenario {name}");
+    println!("scenario {name}");
     body().map_err(|err| format!("{name}: {err}"))
 }
 
@@ -262,85 +274,8 @@ async fn scenario_async(
     name: &str,
     body: impl Future<Output = Result<(), String>>,
 ) -> Result<(), String> {
-    step!("scenario {name}");
+    println!("scenario {name}");
     body.await.map_err(|err| format!("{name}: {err}"))
-}
-
-/// Decide whether a failed readiness probe is worth another attempt.
-///
-/// Retries are confined to readiness-shaped failures -- "cluster not ready" and transport
-/// failures, the latter being how tonic reports a connection that the alpha closed while
-/// still starting. Every other error is reported at once rather than retried into a timeout
-/// that buries the real cause.
-fn classify(
-    docker: DockerUtil,
-    container_id: &str,
-    probe: &str,
-    err: &dgraph_client::DgraphError,
-) -> Probe<DgraphClient, String> {
-    // The typed `kind` accompanies the message because `Display` alone does not say which
-    // variant produced it, and the variant is what decides whether it is retried.
-    let detail = format!("{probe} -> {err} (kind={:?})", err.kind());
-
-    if !(err.is_cluster_not_ready() || err.is_transport()) {
-        return Probe::Fatal(format!("{detail} NOT RETRYABLE"));
-    }
-
-    // A dead container produces exactly the same "tcp connect error" as one that has not
-    // finished booting. Without this check the loop would retry a corpse for the full budget
-    // and report a timeout, when what happened was an OOM kill seconds in. Check promptly,
-    // too: `docker run --rm` reaps the container, and once it is gone so is the exit code
-    // that explains it.
-    //
-    // Only `Ok(false)` aborts. An `Err` means docker itself did not answer, which is no
-    // evidence the container died -- treating it as death would let a transient docker
-    // hiccup fail an otherwise healthy run.
-    if matches!(
-        docker.check_if_container_is_running(container_id),
-        Ok(false)
-    ) {
-        return Probe::Fatal(format!("container '{container_id}' stopped ({detail})"));
-    }
-
-    Probe::Retry(detail)
-}
-
-/// Which probe failed, and how. The name is carried because the three probes go green at
-/// different moments, so knowing which one refused says how far along the alpha is.
-type ProbeFailure = (&'static str, dgraph_client::DgraphError);
-
-/// One readiness attempt: prove the cluster serves the suite's *first real operation*, and
-/// return the client that proved it.
-///
-/// Three probes, because each goes green at a different moment and the earlier ones do not
-/// imply the later ones:
-///
-/// 1. `connect()` -- its readiness probe is `CheckVersion`. While the alpha is starting this
-///    returns "server is not ready", which the client classifies as
-///    [`DgraphError::is_cluster_not_ready`]. Branching on the typed variant rather than on
-///    message text is the point of the crate's error surface.
-/// 2. a read query -- an alpha answers `CheckVersion` before it can serve queries.
-/// 3. an `Alter` (`drop_all`) -- and it serves queries before it accepts an `Alter`.
-///
-/// Probe 3 is the one that matters and the one that was missing. Gating on anything weaker
-/// leaves a window in which the suite starts, runs its first scenario, and dies on
-/// `drop_all failed: RPC Error: Unknown: transport error`. Running the real operation as the
-/// gate removes the guesswork entirely: there is no proxy signal left to be wrong about. It
-/// costs nothing, because the first scenario begins by dropping everything anyway.
-async fn probe_once(connection_string: &str) -> Result<DgraphClient, ProbeFailure> {
-    let client = DgraphClient::connect(connection_string)
-        .await
-        .map_err(|err| ("connect", err))?;
-
-    let mut txn = client.new_read_only_txn();
-    txn.query("{ warmup(func: has(_predicate_)) { uid } }")
-        .await
-        .map_err(|err| ("read query", err))?;
-
-    // The suite's first operation, used as its own readiness signal.
-    client.drop_all().await.map_err(|err| ("drop_all", err))?;
-
-    Ok(client)
 }
 
 /// Reset the cluster and install the test schema.
