@@ -2923,16 +2923,20 @@ func (x *ScheduledPlanPageV1) GetRanges() []*TargetRangeV1 {
 // execution_plan_sha256 is the canonical digest over every header field except
 // execution_plan_sha256 itself.
 type ScheduledPlanHeaderV1 struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionPlanId      []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
-	ExecutionPlanSha256  []byte                 `protobuf:"bytes,2,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // canonical digest over the header (excl. this field)
-	PageCount            uint32                 `protobuf:"varint,3,opt,name=page_count,json=pageCount,proto3" json:"page_count,omitempty"`
-	TotalTargetCount     uint64                 `protobuf:"varint,4,opt,name=total_target_count,json=totalTargetCount,proto3" json:"total_target_count,omitempty"`            // advisory sum across pages
-	PlanRootSha256       []byte                 `protobuf:"bytes,5,opt,name=plan_root_sha256,json=planRootSha256,proto3" json:"plan_root_sha256,omitempty"`                   // ordered root over the chained plan pages
-	DigestVersion        uint32                 `protobuf:"varint,6,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`                       // canonical page/root digest algorithm version
-	CheckSetSha256       []byte                 `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact planned check/config identity
-	AvailabilityPolicyId []byte                 `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // versioned availability policy
-	NetworkScopeId       []byte                 `protobuf:"bytes,10,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionPlanId     []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
+	ExecutionPlanSha256 []byte                 `protobuf:"bytes,2,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // canonical digest over the header (excl. this field)
+	PageCount           uint32                 `protobuf:"varint,3,opt,name=page_count,json=pageCount,proto3" json:"page_count,omitempty"`
+	// The EXACT overflow-checked sum of every page range's `target_count`, not an
+	// advisory hint: both validators require equality, so a header claiming coverage its
+	// pages do not have is rejected. Calling it advisory while enforcing equality left
+	// the contract and the implementations disagreeing.
+	TotalTargetCount     uint64 `protobuf:"varint,4,opt,name=total_target_count,json=totalTargetCount,proto3" json:"total_target_count,omitempty"`
+	PlanRootSha256       []byte `protobuf:"bytes,5,opt,name=plan_root_sha256,json=planRootSha256,proto3" json:"plan_root_sha256,omitempty"`                   // ordered root over the chained plan pages
+	DigestVersion        uint32 `protobuf:"varint,6,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`                       // canonical page/root digest algorithm version
+	CheckSetSha256       []byte `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact planned check/config identity
+	AvailabilityPolicyId []byte `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // versioned availability policy
+	NetworkScopeId       []byte `protobuf:"bytes,10,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
 	// Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
 	// additive multiset hash the MTR completion proof compares its leaves against,
 	// so a completion leaf cannot claim an ordinal belongs to a range the plan never

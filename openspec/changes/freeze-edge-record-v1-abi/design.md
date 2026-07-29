@@ -149,9 +149,11 @@ Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
 RESOLVED-scope entries now describe the IMPLEMENTED CANDIDATE transcript -- landed
 is not shipped, and task 1.7 is still what accepts it), and task 1.4's disposition
 sub-target is DECLARED. What still holds those entries and the
-MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the items
-it carries: task 1.15's shared per-value vectors and the 1.3-dependent plan-derived
-relations. The zero-MTR decision is CLOSED (candidate B). "TombstoneScopeDigest
+MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the ONE item
+it still carries: task 1.15's shared per-value vectors. The zero-MTR decision is
+CLOSED (candidate B), and the plan-derived relations are RESOLVED and verified by
+`ValidateAssignmentAgainstPlan` and its Elixir peer -- listing them as a blocker here
+was stale. "TombstoneScopeDigest
 retired" means the OLD TRANSCRIPT is replaced -- the scope OBJECT itself remains,
 and stays in task 1.6's proof inventory; task 1.7 is the freeze gate and
 carries those prerequisites explicitly. Reading the appendix title as "everything

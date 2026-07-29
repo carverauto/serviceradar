@@ -264,10 +264,19 @@ defmodule ServiceRadar.Edge.PlanValidate do
   defp span_size("", first, last) do
     with {:ok, f} <- parse_addr(first),
          {:ok, l} <- parse_addr(last),
-         true <- tuple_size(f) == tuple_size(l) do
+         # Family mismatch is not a span.
+         true <- tuple_size(f) == tuple_size(l),
+         # CANONICAL SPELLING: one address must not have two textual forms, or one
+         # network gets two content digests. Mirrors Go's `first.String() != input`.
+         true <- canonical_addr?(f, first) and canonical_addr?(l, last) do
       fi = addr_to_int(f)
       li = addr_to_int(l)
-      if li < fi, do: :error, else: {:ok, li - fi + 1}
+
+      cond do
+        li < fi -> :error
+        li - fi + 1 > 0xFFFFFFFFFFFFFFFF -> :error
+        true -> {:ok, li - fi + 1}
+      end
     else
       _ -> :error
     end
@@ -276,7 +285,8 @@ defmodule ServiceRadar.Edge.PlanValidate do
   defp span_size(cidr, _first, _last) do
     with [addr, bits] <- String.split(cidr, "/", parts: 2),
          {bits_int, ""} <- Integer.parse(bits),
-         {:ok, a} <- parse_addr(addr) do
+         {:ok, a} <- parse_addr(addr),
+         true <- canonical_addr?(a, addr) do
       bit_len = if tuple_size(a) == 4, do: 32, else: 128
       host_bits = bit_len - bits_int
 
@@ -284,11 +294,15 @@ defmodule ServiceRadar.Edge.PlanValidate do
         bits_int < 0 or bits_int > bit_len ->
           :error
 
-        # Host bits set means a non-canonical prefix.
-        rem(addr_to_int(a), trunc(:math.pow(2, min(host_bits, 62)))) != 0 and host_bits < 63 ->
+        # HOST BITS SET means a non-canonical prefix. INTEGER masking across every
+        # allowed width: an earlier revision used float `:math.pow`, capped the mask at
+        # 62 bits and skipped `host_bits == 63` entirely, so `2001:db8::1/65` was
+        # accepted while Go rejected it.
+        host_bits > 0 and Bitwise.band(addr_to_int(a), Bitwise.bsl(1, host_bits) - 1) != 0 ->
           :error
 
-        # A span wider than 2^63 has no exact uint64 count; Go requires a split.
+        # A span whose exact host count exceeds uint64 must be split; saturation is not
+        # an exact count.
         host_bits >= 64 ->
           :error
 
@@ -300,19 +314,29 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
+  # Re-render the parsed address and compare: `2001:0DB8::/126` and `2001:db8::/126`
+  # are the same network but different bytes, so only one spelling may be committed.
+  defp canonical_addr?(tuple, text) do
+    List.to_string(:inet.ntoa(tuple)) == text
+  rescue
+    _ -> false
+  end
+
   defp parse_addr(s) do
     case :inet.parse_strict_address(String.to_charlist(s)) do
       {:ok, tuple} -> {:ok, tuple}
       _ -> :error
     end
+  rescue
+    _ -> :error
   end
 
+  # Pack an address tuple into an integer: 8 bits per octet for IPv4, 16 per group for
+  # IPv6, so masking works uniformly across both widths.
   defp addr_to_int(t) do
-    t |> Tuple.to_list() |> Enum.reduce(0, fn part, acc -> Bitwise.bsl(acc, shift(t)) + part end)
+    shift = if tuple_size(t) == 4, do: 8, else: 16
+    t |> Tuple.to_list() |> Enum.reduce(0, fn part, acc -> Bitwise.bsl(acc, shift) + part end)
   end
-
-  defp shift(t) when tuple_size(t) == 4, do: 8
-  defp shift(_), do: 16
 
   defp encode_page(p) do
     Serviceradar.Edge.V1.ScheduledPlanPageV1.encode(p)

@@ -579,7 +579,11 @@ message ScheduledPlanHeaderV1 {
   bytes execution_plan_id = 1;       // UUIDv7
   bytes execution_plan_sha256 = 2;   // canonical digest over the header (excl. this field)
   uint32 page_count = 3;
-  uint64 total_target_count = 4;     // advisory sum across pages
+  // The EXACT overflow-checked sum of every page range's `target_count`, not an
+  // advisory hint: both validators require equality, so a header claiming coverage its
+  // pages do not have is rejected. Calling it advisory while enforcing equality left
+  // the contract and the implementations disagreeing.
+  uint64 total_target_count = 4;
   bytes plan_root_sha256 = 5;        // ordered root over the chained plan pages
   uint32 digest_version = 6;         // canonical page/root digest algorithm version
   bytes check_set_sha256 = 7;        // exact planned check/config identity
