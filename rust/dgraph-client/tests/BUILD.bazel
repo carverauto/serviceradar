@@ -68,12 +68,18 @@ rust_test_suite(
     exec_properties = {
         # Size the microVM for what actually runs inside it. The executor's
         # default_task_size is 2 GiB, and that one budget has to cover the guest kernel,
-        # dockerd, containerd, the test binary AND dgraph. Measured peak RSS of
-        # dgraph/standalone:v25.3.8 while this suite drives it is ~826 MiB -- roughly 40%
-        # of the whole VM for a single process, which is what got the alpha OOM-killed
-        # mid-run (`oom=true exit=137`, surfacing to the client as
-        # `drop_all failed: RPC Error: Unknown: transport error`).
+        # dockerd, containerd, the test binary AND dgraph.
         #
+        # Raising this is the SECOND lever, not the first. An uncapped alpha grows into
+        # whatever memory it can see -- it defaults to a 1 GiB cache and peaked at ~895 MiB
+        # here -- so sizing the VM to absorb it is a race the VM cannot win: 4 GiB was
+        # already not enough on a contended executor (`oom=true exit=137`, reaching the
+        # client as `drop_all failed: RPC Error: Unknown: transport error`). The suite now
+        # caps the cache instead (ALPHA_CACHE_ENV in dgraph_container_test.rs), which puts
+        # the measured peak at ~277 MiB and makes it a property of the configuration rather
+        # than of the runner.
+        #
+        # 4 GiB is therefore margin for everything else in the VM, not headroom for dgraph.
         "test.EstimatedMemory": "4Gi",
         # Run this test inside a Firecracker microVM.
         "test.workload-isolation-type": "firecracker",

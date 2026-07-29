@@ -90,6 +90,22 @@ const DIAGNOSTIC_LOG_LINES: usize = 200;
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
 
+/// Cap the alpha's cache so its peak is a property of the configuration rather than of how
+/// much memory the runner happens to have.
+///
+/// Dgraph defaults to `size-mb=1024`, and badger derives its block and index caches from that
+/// (`CachePercentage:40,40,20`), so the default alone reserves about a gigabyte before any
+/// data is stored. This suite writes a handful of nodes; it has no use for it.
+///
+/// Left uncapped, the alpha simply grows into whatever is available, which is why the same
+/// suite peaks at ~895 MiB on a workstation and was OOM-killed inside a 4 GiB microVM whose
+/// budget also has to cover the guest kernel, dockerd, containerd and the test binary. Capping
+/// bounds the container instead of guessing an executor size large enough to absorb it.
+///
+/// Dgraph binds flags from `DGRAPH_<COMMAND>_<FLAG>`, and the setting is visible in the
+/// alpha's startup log as `CacheMb:256`, so a rejected value would not pass unnoticed.
+const ALPHA_CACHE_ENV: &str = "DGRAPH_ALPHA_CACHE=size-mb=256";
+
 /// Ready means the alpha accepts an `Alter`.
 ///
 /// Each signal goes green at a different moment, and the earlier ones do not imply the later
@@ -168,6 +184,7 @@ fn dgraph_container_config() -> ContainerConfig<'static> {
         // The gRPC port is the primary connection; HTTP is exposed but not gated on.
         .connection_port(GRPC_PORT)
         .additional_ports(&[HTTP_PORT])
+        .additional_env_vars(&[ALPHA_CACHE_ENV])
         .reuse_container(true)
         .keep_configuration(true)
         .host_network(true)
@@ -212,8 +229,11 @@ fn dgraph_client_acceptance() {
     if let Err(err) = &outcome {
         eprintln!("FAILED: {err}");
         match docker.container_diagnostics(&container_id, DIAGNOSTIC_LOG_LINES) {
+            // Lower the alpha's cache before raising the VM: an uncapped alpha grows into
+            // whatever it can see, so a bigger VM is a race it cannot win.
             Ok(diagnostics) if diagnostics.looks_oom_killed() => eprintln!(
-                "container was OOM-killed -- raise test.EstimatedMemory in BUILD.bazel\n{diagnostics}"
+                "container was OOM-killed -- tighten ALPHA_CACHE_ENV, or raise \
+                 test.EstimatedMemory in BUILD.bazel\n{diagnostics}"
             ),
             Ok(diagnostics) => eprintln!("container diagnostics:\n{diagnostics}"),
             Err(err) => eprintln!("diagnostics unavailable: {err}"),
