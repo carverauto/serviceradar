@@ -101,7 +101,13 @@ defmodule ServiceRadar.Edge.PlanValidate do
          digest?(Map.get(h, :check_set_sha256)) and
          canonical_uuid?(Map.get(h, :network_scope_id)) and
          bounded_bytes?(policy, 1, @max_policy_id_bytes) and
-         is_integer(Map.get(h, :page_count)) and Map.get(h, :page_count) > 0 and
+         uint32?(Map.get(h, :page_count)) and Map.get(h, :page_count) > 0 and
+         # PROTOBUF DOMAINS, checked BEFORE anything is hashed. `total_target_count:
+         # :bad` (or nil) reached plan_header_digest/1 and raised FunctionClauseError,
+         # which is neither total nor typed -- the digest helper is not a validator and
+         # must never be handed an unvalidated term.
+         uint64?(Map.get(h, :total_target_count)) and
+         uint32?(Map.get(h, :digest_version)) and
          digest?(Map.get(h, :mtr_ordinal_range_commitment)) do
       :ok
     else
@@ -144,6 +150,11 @@ defmodule ServiceRadar.Edge.PlanValidate do
         # :bad` and `ranges: [7]` previously crashed a validator whose contract promises
         # {:error, reason}.
         not is_map(p) or not is_list(ranges) or not Enum.all?(ranges, &is_map/1) ->
+          {:halt, {:error, :page_bounds}}
+
+        # Integer DOMAINS before the page digest hashes them.
+        not uint32?(Map.get(p, :digest_version)) or not uint32?(Map.get(p, :page_index)) or
+            not uint32?(Map.get(p, :page_count)) ->
           {:halt, {:error, :page_bounds}}
 
         Map.get(p, :digest_version) != @plan_digest_version ->
@@ -243,7 +254,10 @@ defmodule ServiceRadar.Edge.PlanValidate do
       has_cidr == has_span ->
         {:error, :plan_range}
 
-      not is_integer(Map.get(r, :target_count)) ->
+      not uint64?(Map.get(r, :target_count)) ->
+        {:error, :plan_range}
+
+      not uint64?(Map.get(r, :mtr_admission_budget)) ->
         {:error, :plan_range}
 
       Map.get(r, :target_count) == 0 ->
@@ -414,6 +428,12 @@ defmodule ServiceRadar.Edge.PlanValidate do
   def uuidv7?(_), do: false
 
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
+
+  # Protobuf scalar DOMAINS. Sign checks alone let 2^32 into a uint32 field and 2^64
+  # into a uint64 one -- values the wire cannot represent, so a validator that accepts
+  # them is describing a message that cannot exist.
+  defp uint32?(v), do: is_integer(v) and v >= 0 and v <= 0xFFFFFFFF
+  defp uint64?(v), do: is_integer(v) and v >= 0 and v <= 0xFFFFFFFFFFFFFFFF
 
   defp bounded_bytes?(v, min, max),
     do: is_binary(v) and byte_size(v) >= min and byte_size(v) <= max

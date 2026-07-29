@@ -19,7 +19,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
        internally is the only construction that actually holds. An unvalidated plan is
        not a weaker check: whoever supplies it chooses the range digests and windows the
        expectation is compared against.
-    2. Raw bytes go through `validate_bytes/1` / `validate_bytes_against_plan/3`, which
+    2. Raw bytes go through `validate_bytes/1` / `validate_bytes_against_plan_bytes/3`, which
        delegate decoding to `WireDecode` so the deliberate `:poison` / `:not_ready` /
        `:systemic` classification is preserved, then run enum admission, then these
        relations. A caller holding only a decoded struct has already skipped the wire
@@ -272,12 +272,13 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
          uuid?(Map.get(r, :authenticated_agent_id)) and
          uuid?(Map.get(r, :production_scope_id)) and
          digest?(Map.get(r, :execution_plan_sha256)) and
-         pos_int?(Map.get(r, :record_sequence)) and
-         pos_int?(Map.get(r, :authored_at_unix_nano)) and
-         # Malformed SCALARS returned :ok before: a validator that only checks the
-         # fields it happens to compare leaves the rest unconstrained.
-         non_neg_int?(Map.get(r, :execution_shard)) and
-         non_neg_int?(Map.get(r, :assignment_epoch)) do
+         uint64?(Map.get(r, :record_sequence)) and Map.get(r, :record_sequence) > 0 and
+         pos_int64?(Map.get(r, :authored_at_unix_nano)) and
+         # PROTOBUF DOMAINS, not merely signs: 2^32 in a uint32 field and 2^64 in a
+         # uint64 one are values the wire cannot represent, so accepting them describes
+         # a message that cannot exist.
+         uint32?(Map.get(r, :execution_shard)) and
+         uint64?(Map.get(r, :assignment_epoch)) do
       :ok
     else
       {:error, :identity}
@@ -297,8 +298,8 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
 
   defp validate_lease(r) do
     if bounded_bytes?(Map.get(r, :lease_id), 1, :infinity) and
-         pos_int?(Map.get(r, :fence_token)) and
-         pos_int?(Map.get(r, :lease_expires_at_unix_nano)) do
+         uint64?(Map.get(r, :fence_token)) and Map.get(r, :fence_token) > 0 and
+         pos_int64?(Map.get(r, :lease_expires_at_unix_nano)) do
       :ok
     else
       {:error, :lease}
@@ -330,7 +331,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       not superseded and link not in [nil, <<>>] ->
         {:error, :state}
 
-      not non_neg_int?(Map.get(r, :terminal_batch_sequence)) ->
+      not uint64?(Map.get(r, :terminal_batch_sequence)) ->
         {:error, :state}
 
       # An OPEN attempt has closed no evidence interval yet.
@@ -356,8 +357,8 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       # REQUIRED PRESENCE and a valid value: `plan_ordinal_offset: :bad` passed the
       # nil check and then compared unequal to any real offset, which is fail-open in a
       # standalone validation that never reaches the relation.
-      not non_neg_int?(Map.get(e, :plan_ordinal_offset)) -> {:error, :expectation}
-      not is_integer(count) or count < 0 or count > @max_mtr_ordinals -> {:error, :expectation}
+      not uint64?(Map.get(e, :plan_ordinal_offset)) -> {:error, :expectation}
+      not uint64?(count) or count > @max_mtr_ordinals -> {:error, :expectation}
       # count == 0 <=> the 32-zero empty-set hash, in BOTH directions. This is what
       # makes the zero-MTR rule checkable: the commitment is an additive multiset hash
       # and cannot be inverted to a count.
@@ -370,8 +371,9 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
 
   defp uuid?(v), do: PlanValidate.canonical_uuid?(v)
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
-  defp pos_int?(v), do: is_integer(v) and v > 0
-  defp non_neg_int?(v), do: is_integer(v) and v >= 0
+  defp uint32?(v), do: is_integer(v) and v >= 0 and v <= 0xFFFFFFFF
+  defp uint64?(v), do: is_integer(v) and v >= 0 and v <= 0xFFFFFFFFFFFFFFFF
+  defp pos_int64?(v), do: is_integer(v) and v > 0 and v <= 0x7FFFFFFFFFFFFFFF
   defp bounded_bytes?(v, min, :infinity), do: is_binary(v) and byte_size(v) >= min
 
   defp bounded_bytes?(v, min, max),
