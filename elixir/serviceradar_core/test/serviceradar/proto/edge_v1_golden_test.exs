@@ -1400,11 +1400,37 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                [grouped_page]
              )
 
+    # SHARED BLOAT VECTORS: both runtimes bound the page on RECEIVED bytes. Go's struct
+    # path measured a RE-MARSHAL, which collapses duplicate known fields, so it accepted
+    # 131,074 received bytes that Elixir refused -- the two now agree at the boundary.
+    at_limit = load("plan_page_bytes_at_limit.bin")
+    over_limit = load("plan_page_bytes_over_limit.bin")
+    assert byte_size(at_limit) == 128 * 1024
+    assert byte_size(over_limit) == 128 * 1024 + 1
+
+    # Both decode to the SAME page: only the received SIZE differs, so the pair cannot
+    # pass for some other reason.
+    assert ScheduledPlanPageV1.decode(at_limit).page_sha256 ==
+             ScheduledPlanPageV1.decode(over_limit).page_sha256
+
+    assert {:ok, _} = WireDecode.decode_plan_page(at_limit)
+    assert {:error, :too_large} = WireDecode.decode_plan_page(over_limit)
+
     # CIDR parity: canonical spelling and host-bit masking across every width. Both of
     # these were accepted before -- a resealed 2001:0DB8::/126 and a host-bit-set
     # 2001:db8::1/65 -- while Go rejected them.
-    for bad_cidr <- ["2001:0DB8::/126", "2001:db8::1/65", "10.0.0.1/24"] do
-      bad_r = %{r0 | cidr: bad_cidr, first_address: "", last_address: ""}
+    # Each pairs its CIDR with the target_count that CIDR would legitimately require, so
+    # only the canonicality/masking guard can reject it. An earlier revision left
+    # target_count at 256 for all three, which made two of them fail on count mismatch
+    # even with the guards removed -- vacuous.
+    for {bad_cidr, count} <- [
+          {"2001:0DB8::/126", 4},
+          {"2001:db8::1/65", Bitwise.bsl(1, 63)},
+          {"10.20.0.0/024", 256},
+          {"10.20.0.0/+24", 256},
+          {"10.0.0.1/24", 256}
+        ] do
+      bad_r = %{r0 | cidr: bad_cidr, first_address: "", last_address: "", target_count: count}
       bad_r = %{bad_r | range_sha256: HashGrammar.range_digest(bad_r)}
       bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
       bad_p = %{bad_p | page_sha256: HashGrammar.plan_page_digest(bad_p)}
@@ -1430,6 +1456,66 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       bytes = SweepAssignmentRecordV1.encode(%{assignment | state: bad_state})
       assert {:error, {:unsupported_enum, [:state]}} = AssignmentValidate.validate_bytes(bytes)
       assert {:error, :state} = AssignmentValidate.validate(%{assignment | state: bad_state})
+    end
+
+    # OVERFLOW of the reconciled total. Two ranges whose INDIVIDUALLY VALID counts sum
+    # to 2^64: Go catches the carry via bits.Add64, and Elixir -- whose integers are
+    # arbitrary precision -- must detect it explicitly or the two disagree.
+    huge = Bitwise.bsl(1, 63)
+
+    mk_huge = fn id_tag, cidr ->
+      r = %{r0 | range_id: uuidv7(id_tag), cidr: cidr, first_address: "", last_address: "", target_count: huge}
+      %{r | range_sha256: HashGrammar.range_digest(r)}
+    end
+
+    over_ranges = [mk_huge.(0x60, "2001:db8::/65"), mk_huge.(0x61, "2001:db9::/65")]
+    over_page = %{page | ranges: over_ranges}
+    over_page = %{over_page | page_sha256: HashGrammar.plan_page_digest(over_page)}
+
+    over_header = %{
+      header
+      | total_target_count: 0,
+        plan_root_sha256: HashGrammar.plan_root([over_page]),
+        mtr_ordinal_range_commitment:
+          elem(HashGrammar.plan_mtr_ordinal_range_commitment([over_page]), 1)
+    }
+
+    over_header = %{over_header | execution_plan_sha256: HashGrammar.plan_header_digest(over_header)}
+    assert {:error, :plan_totals} = PlanValidate.validate(over_header, [over_page])
+
+    # MALFORMED page/range SHAPES are typed rejections, not raises.
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [%{page | ranges: :bad}])
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [%{page | ranges: [7]}])
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [:bad])
+
+    # MALFORMED SCALARS on the assignment previously returned :ok.
+    for {field, value} <- [
+          {:execution_shard, :bad},
+          {:assignment_epoch, :bad},
+          {:terminal_batch_sequence, :bad}
+        ] do
+      assert match?({:error, _}, AssignmentValidate.validate(Map.put(assignment, field, value))),
+             "malformed #{field} must be rejected"
+    end
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: :bad}
+             })
+
+    # Every UUID-bearing field is checked, not just execution_id: removing any one of
+    # these call-site checks must be observable.
+    for field <- [
+          :producer_assignment_id,
+          :execution_id,
+          :network_scope_id,
+          :authenticated_agent_id,
+          :production_scope_id
+        ] do
+      assert {:error, :identity} =
+               AssignmentValidate.validate(Map.put(assignment, field, <<0::128>>)),
+             "#{field} must reject the all-zero uuid"
     end
 
     # TOTAL and FAIL-CLOSED for malformed shapes, not merely for absent ones.

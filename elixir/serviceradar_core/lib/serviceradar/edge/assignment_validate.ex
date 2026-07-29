@@ -25,8 +25,12 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
        relations. A caller holding only a decoded struct has already skipped the wire
        layer, where retained unknown fields and wire-hygiene violations live.
 
-  Every reason is TYPED and mirrors the Go error it corresponds to, because a shared
-  reject vector has to assert WHY a record was refused, not merely that it was.
+  Reasons are TYPED so a shared reject vector can assert WHY a record was refused, not
+  merely that it was. They correspond to the Go errors for the RECORD relations -- with
+  one deliberate difference: through `validate_bytes/1`, ENUM ADMISSION runs before
+  these checks, so an unsupported state surfaces as `{:unsupported_enum, [:state]}`
+  rather than `:state`. Both refuse the record; only the layer that speaks first
+  differs, and the vectors assert the layered reason rather than pretending otherwise.
   """
 
   alias ServiceRadar.Edge.HashGrammar
@@ -39,6 +43,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   @max_policy_id_bytes 128
   # Mirrors Go's MaxMtrCompletionOrdinals (2^31): the ordinal SPACE bound.
   @max_mtr_ordinals 2_147_483_648
+  @max_manifest_pages 1024
 
   # The accepted states come from the SHARED policy table, not a second local list: a
   # duplicate would drift from `SemanticValidate` silently, which is the same
@@ -99,6 +104,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   def validate_bytes_against_plan_bytes(record_bytes, header_bytes, page_bytes)
       when is_list(page_bytes) do
     with {:ok, header} <- WireDecode.decode_plan_header(header_bytes),
+         # BOUND FIRST. Decoding an unbounded supplied list before the page limit is
+         # checked is attacker-controlled work, and the accumulator was `acc ++ [page]`,
+         # making it QUADRATIC as well. The header states how many pages the plan has,
+         # so a list that cannot match it is refused without decoding any of it.
+         :ok <- bound_page_count(header, page_bytes),
          {:ok, pages} <- decode_pages(page_bytes) do
       validate_bytes_against_plan(record_bytes, header, pages)
     end
@@ -106,13 +116,28 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
 
   def validate_bytes_against_plan_bytes(_r, _h, _p), do: {:error, :systemic}
 
+  defp bound_page_count(header, page_bytes) do
+    declared = Map.get(header, :page_count)
+
+    if is_integer(declared) and declared > 0 and declared <= @max_manifest_pages and
+         length(page_bytes) == declared,
+       do: :ok,
+       else: {:error, :page_bounds}
+  end
+
   defp decode_pages(page_bytes) do
-    Enum.reduce_while(page_bytes, {:ok, []}, fn b, {:ok, acc} ->
+    # Prepend + reverse: linear, not quadratic.
+    page_bytes
+    |> Enum.reduce_while({:ok, []}, fn b, {:ok, acc} ->
       case WireDecode.decode_plan_page(b) do
-        {:ok, page} -> {:cont, {:ok, acc ++ [page]}}
+        {:ok, page} -> {:cont, {:ok, [page | acc]}}
         err -> {:halt, err}
       end
     end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      err -> err
+    end
   end
 
   @doc """
@@ -136,8 +161,8 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   def validate(_), do: {:error, :identity}
 
   @doc """
-  Fail-close the assignment/plan RELATION against an ALREADY-VALIDATED plan,
-  recomputing the expectation from committed plan data.
+  Fail-close the assignment/plan RELATION, VALIDATING THE PLAN HERE and recomputing the
+  expectation from committed plan data.
   """
   @spec validate_against_plan(term(), term(), term()) :: :ok | {:error, term()}
   def validate_against_plan(r, header, pages) do
@@ -248,7 +273,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
          uuid?(Map.get(r, :production_scope_id)) and
          digest?(Map.get(r, :execution_plan_sha256)) and
          pos_int?(Map.get(r, :record_sequence)) and
-         pos_int?(Map.get(r, :authored_at_unix_nano)) do
+         pos_int?(Map.get(r, :authored_at_unix_nano)) and
+         # Malformed SCALARS returned :ok before: a validator that only checks the
+         # fields it happens to compare leaves the rest unconstrained.
+         non_neg_int?(Map.get(r, :execution_shard)) and
+         non_neg_int?(Map.get(r, :assignment_epoch)) do
       :ok
     else
       {:error, :identity}
@@ -301,8 +330,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       not superseded and link not in [nil, <<>>] ->
         {:error, :state}
 
+      not non_neg_int?(Map.get(r, :terminal_batch_sequence)) ->
+        {:error, :state}
+
       # An OPEN attempt has closed no evidence interval yet.
-      state == :SWEEP_ASSIGNMENT_STATE_OPEN and (Map.get(r, :terminal_batch_sequence) || 0) != 0 ->
+      state == :SWEEP_ASSIGNMENT_STATE_OPEN and Map.get(r, :terminal_batch_sequence) != 0 ->
         {:error, :state}
 
       true ->
@@ -321,7 +353,10 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
 
     cond do
       not digest?(commitment) -> {:error, :expectation}
-      is_nil(Map.get(e, :plan_ordinal_offset)) -> {:error, :expectation}
+      # REQUIRED PRESENCE and a valid value: `plan_ordinal_offset: :bad` passed the
+      # nil check and then compared unequal to any real offset, which is fail-open in a
+      # standalone validation that never reaches the relation.
+      not non_neg_int?(Map.get(e, :plan_ordinal_offset)) -> {:error, :expectation}
       not is_integer(count) or count < 0 or count > @max_mtr_ordinals -> {:error, :expectation}
       # count == 0 <=> the 32-zero empty-set hash, in BOTH directions. This is what
       # makes the zero-MTR rule checkable: the commitment is an additive multiset hash
@@ -336,6 +371,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp uuid?(v), do: PlanValidate.canonical_uuid?(v)
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
   defp pos_int?(v), do: is_integer(v) and v > 0
+  defp non_neg_int?(v), do: is_integer(v) and v >= 0
   defp bounded_bytes?(v, min, :infinity), do: is_binary(v) and byte_size(v) >= min
 
   defp bounded_bytes?(v, min, max),
