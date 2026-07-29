@@ -87,6 +87,35 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   end
 
   @doc """
+  Composed boundary from RAW bytes on BOTH sides -- the assignment and the plan.
+
+  This is the only entry point that can claim wire-hygiene parity for the plan.
+  protobuf-elixir ERASES an unknown GROUP rather than retaining it, so a decoded page
+  cannot be asked whether it carried one, while Go retains and rejects it. Only the raw
+  structural walk in `WireDecode` sees those bytes.
+  """
+  @spec validate_bytes_against_plan_bytes(binary(), binary(), [binary()]) ::
+          {:ok, struct()} | {:error, term()}
+  def validate_bytes_against_plan_bytes(record_bytes, header_bytes, page_bytes)
+      when is_list(page_bytes) do
+    with {:ok, header} <- WireDecode.decode_plan_header(header_bytes),
+         {:ok, pages} <- decode_pages(page_bytes) do
+      validate_bytes_against_plan(record_bytes, header, pages)
+    end
+  end
+
+  def validate_bytes_against_plan_bytes(_r, _h, _p), do: {:error, :systemic}
+
+  defp decode_pages(page_bytes) do
+    Enum.reduce_while(page_bytes, {:ok, []}, fn b, {:ok, acc} ->
+      case WireDecode.decode_plan_page(b) do
+        {:ok, page} -> {:cont, {:ok, acc ++ [page]}}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  @doc """
   Fail-close one append-only assignment record on its own terms.
 
   TOTAL: any term is accepted and answered with a typed reason -- a validator whose
@@ -112,6 +141,10 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   """
   @spec validate_against_plan(term(), term(), term()) :: :ok | {:error, term()}
   def validate_against_plan(r, header, pages) do
+    # NOTE: taking DECODED pages, this cannot establish the plan's WIRE hygiene --
+    # protobuf-elixir erases an unknown group before this sees it. Callers holding raw
+    # bytes should use validate_bytes_against_plan_bytes/3.
+    #
     # The plan is validated HERE. An earlier revision took an "opaque" carrier and
     # claimed a caller could not supply an unvalidated plan -- but `@opaque` is
     # Dialyzer metadata, so the tuple was forgeable around a rejected plan and this
@@ -146,7 +179,15 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   # readers treat as settled.
   defp no_unknown_fields(r) do
     unknown = Map.get(r, :__unknown_fields__, [])
-    nested = Map.get(Map.get(r, :mtr_expectation) || %{}, :__unknown_fields__, [])
+
+    # The nested lookup is GUARDED: `mtr_expectation: 7` raised BadMapError here, which
+    # is neither total nor fail-closed. A non-map expectation is a malformed shape and
+    # is rejected outright by validate_expectation/1.
+    nested =
+      case Map.get(r, :mtr_expectation) do
+        e when is_map(e) -> Map.get(e, :__unknown_fields__, [])
+        _ -> []
+      end
 
     if unknown == [] and nested == [], do: :ok, else: {:error, :unknown_fields}
   end
@@ -238,7 +279,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp validate_state(r) do
     state = Map.get(r, :state)
     superseded = state == :SWEEP_ASSIGNMENT_STATE_SUPERSEDED
-    link = binary_or_empty(Map.get(r, :superseded_by_assignment_id))
+    link = Map.get(r, :superseded_by_assignment_id)
 
     cond do
       state not in @known_states ->
@@ -252,7 +293,12 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       superseded and link == Map.get(r, :producer_assignment_id) ->
         {:error, :state}
 
-      not superseded and link != <<>> ->
+      # A non-binary successor is MALFORMED, not absent: normalizing it to <<>> made a
+      # bad shape pass, which is fail-open.
+      not is_nil(link) and not is_binary(link) ->
+        {:error, :state}
+
+      not superseded and link not in [nil, <<>>] ->
         {:error, :state}
 
       # An OPEN attempt has closed no evidence interval yet.
@@ -290,9 +336,6 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp uuid?(v), do: PlanValidate.canonical_uuid?(v)
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
   defp pos_int?(v), do: is_integer(v) and v > 0
-  defp binary_or_empty(v) when is_binary(v), do: v
-  defp binary_or_empty(_), do: <<>>
-
   defp bounded_bytes?(v, min, :infinity), do: is_binary(v) and byte_size(v) >= min
 
   defp bounded_bytes?(v, min, max),

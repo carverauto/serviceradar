@@ -110,6 +110,7 @@ defmodule ServiceRadar.Edge.WireDecode do
   # / MaxFrameBytes / MaxClientMessageBytes). Checked BEFORE protobuf decode so an oversize input is a
   # permanent rejection rather than an unbounded decode.
   @max_record_bytes 512 * 1024
+  @max_plan_page_bytes 128 * 1024
   @max_delivery_envelope_bytes 16 * 1024
   @max_frame_bytes @max_record_bytes + @max_delivery_envelope_bytes
   @max_client_message_bytes @max_frame_bytes + 8
@@ -209,6 +210,24 @@ defmodule ServiceRadar.Edge.WireDecode do
     do: run(Serviceradar.Edge.V1.SweepAssignmentRecordV1, @max_record_bytes, bytes)
 
   @doc """
+  Decode an immutable scheduler plan HEADER from raw bytes.
+
+  Curated because the plan is CONTENT-ADDRESSED: protobuf-elixir ERASES an unknown
+  GROUP (wire types 3/4) rather than retaining it, so a decoded header cannot be asked
+  whether it carried one. Go retains and rejects it. Only the raw structural walk sees
+  those bytes, which is why plan validation from a decoded struct alone cannot claim
+  wire-hygiene parity.
+  """
+  @spec decode_plan_header(binary()) :: outcome()
+  def decode_plan_header(bytes),
+    do: run(Serviceradar.Edge.V1.ScheduledPlanHeaderV1, @max_record_bytes, bytes)
+
+  @doc "Decode one immutable scheduler plan PAGE from raw bytes. See decode_plan_header/1."
+  @spec decode_plan_page(binary()) :: outcome()
+  def decode_plan_page(bytes),
+    do: run(Serviceradar.Edge.V1.ScheduledPlanPageV1, @max_plan_page_bytes, bytes)
+
+  @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
 
   This EXTENDS the finite stage API rather than superseding it, and deliberately so:
@@ -227,7 +246,8 @@ defmodule ServiceRadar.Edge.WireDecode do
   def decode_manifest_page(bytes), do: run(EdgeLossManifestPageV1, @max_manifest_bytes, bytes)
 
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
-  # module bypass: only the four curated message modules can be decoded, and only their own struct is
+  # module bypass: only the CURATED message modules can be decoded (the record-plane trio plus the
+  # assignment record and the two plan objects), and only their own struct is
   # accepted (is_struct/2).
   defp run(mod, max_bytes, bytes) when is_binary(bytes) do
     cond do
