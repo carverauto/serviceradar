@@ -69,19 +69,20 @@ and those constants is a freeze failure, not a documentation nit.
 
 WHO enforces each bound, and at which hop, is runtime.
 
-### Post-decode count and work ceilings (frozen, DIFFERENT enforcement stage)
+### Non-byte structural, count and work ceilings (frozen, THREE enforcement stages)
 
-These are NOT byte ceilings and CANNOT be checked before unmarshal: a count of pages
-or ranges, or a sum over declared fields, does not exist until the message is decoded.
-Listing them in the raw-byte table above made a normatively impossible claim -- an
-implementation cannot honour "checked before any protobuf unmarshal" for a value it
-must decode to compute.
+None of these is a byte ceiling, and they are NOT all checkable at the same point.
+Listing them in the raw-byte table above made a normatively impossible claim, but
+calling them all "post-decode" is equally wrong: `MaxManifestPages` bounds how many
+page BLOBS were supplied, which is countable without decoding any of them, while a
+range count needs its page decoded and an ordinal total needs every page decoded.
+Each row below names the EARLIEST stage at which its value exists.
 
-| Bound | Value | Applies to | Enforced |
+| Bound | Value | Applies to | Stage |
 | --- | --- | --- | --- |
-| `MaxManifestPages` | 1024 | pages in one plan or recovery manifest | on the supplied page LIST, before per-page work |
-| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | after that page decodes, before its ranges are walked |
-| `MaxPlanMtrOrdinals` | 2^20 = 1048576 | TOTAL admitted MTR ordinals across one plan | after the pages decode, BEFORE any commitment is folded |
+| `MaxManifestPages` | 1024 | pages in one plan or recovery manifest | STRUCTURAL -- on the supplied page LIST, BEFORE any page is decoded |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | POST-DECODE (per page) -- after that page decodes, before its ranges are walked |
+| `MaxPlanMtrOrdinals` | 2^20 = 1048576 | TOTAL admitted MTR ordinals across one plan | POST-DECODE (whole plan) -- after every page decodes, BEFORE any commitment is folded |
 
 `MaxPlanMtrOrdinals` is a WORK ceiling and is deliberately far below
 `MaxMtrCompletionOrdinals` = 2^31: that constant bounds what the ordinal space can
@@ -89,9 +90,10 @@ REPRESENT, this one bounds what a validator will COMPUTE, since recomputing a
 commitment costs one hash per ordinal. Both are frozen; they answer different
 questions.
 
-The COUNT ceilings must still be applied before the work they bound -- a page list is
-bounded before its pages are decoded, and the ordinal total before any hashing -- so
-"post-decode" describes what they can observe, not permission to check them late.
+Every row must be applied before the work it bounds -- the page list before its pages
+are decoded, a page's range count before its ranges are walked, and the ordinal total
+before any hashing. The stage column says when each value first EXISTS, never how long
+enforcement may be deferred.
 
 ## 3. Identity semantics, grammars, and version inventory
 
@@ -174,11 +176,11 @@ Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
 RESOLVED-scope entries now describe the IMPLEMENTED CANDIDATE transcript -- landed
 is not shipped, and task 1.7 is still what accepts it), and task 1.4's disposition
 sub-target is DECLARED. What still holds those entries and the
-MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the local
-tasks it carries that remain OPEN: 1.3 (the assignment/mapping ABI's remaining half
-and the correlation matrix), 1.5's residual clauses, 1.6's version vectors, and 1.15's
-shared per-value leaf vectors. An earlier revision named only 1.15, which understated
-the gate. The zero-MTR decision is
+MTR-completion entry short of frozen is task 1.7, the freeze gate, which carries EVERY
+UNCHECKED LOCAL TASK -- currently 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 and 1.15. Earlier
+revisions named first only 1.15 and then only 1.3/1.5/1.6/1.15; both understated the
+gate, which is why this now states the RULE (all unchecked local tasks) rather than a
+list that goes stale as tasks close. The zero-MTR decision is
 CLOSED (candidate B), and the plan-derived relations are RESOLVED and verified by
 `ValidateAssignmentAgainstPlan` and its Elixir peer -- listing them as a blocker here
 was stale. "TombstoneScopeDigest
