@@ -17,6 +17,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SemanticDigest
+  alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
   alias ServiceRadar.Edge.WireValidate
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
@@ -1353,14 +1354,44 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   test "Elixir validates the assignment record and its plan relation" do
     header = ScheduledPlanHeaderV1.decode(load("plan_header_split.bin"))
     page = ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
-    assignment = SweepAssignmentRecordV1.decode(load("assignment_split_second.bin"))
+    raw = load("assignment_split_second.bin")
+    assignment = SweepAssignmentRecordV1.decode(raw)
 
+    # The plan must be VALIDATED before it can confer authority. The carrier is opaque,
+    # so passing an unvalidated plan is not expressible at the call site.
+    assert {:ok, plan} = PlanValidate.validate(header, [page])
     assert :ok = AssignmentValidate.validate(assignment)
-    assert :ok = AssignmentValidate.validate_against_plan(assignment, header, [page])
+    assert :ok = AssignmentValidate.validate_against_plan(assignment, plan)
 
-    # THE REPRO from review: this record violates the lease/fence AND expectation
-    # relations that Go rejects, and every Elixir entry point used to return :ok
-    # because only enum admission was implemented.
+    # COMPOSED boundary from raw bytes: structural wire check, decode, enum admission,
+    # then these relations. A caller holding only a decoded struct has already skipped
+    # the wire layer.
+    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes(raw)
+    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes_against_plan(raw, plan)
+
+    # A TAMPERED PLAN must not confer authority. Each of these returned :ok before the
+    # plan was validated at all.
+    assert {:error, :page_digest} =
+             PlanValidate.validate(header, [%{page | page_sha256: :binary.copy(<<3>>, 32)}])
+
+    assert {:error, :page_chain} = PlanValidate.validate(header, [%{page | page_index: 5}])
+
+    tampered_hash = :binary.copy(<<4>>, 32)
+
+    assert {:error, :header_digest} =
+             PlanValidate.validate(%{header | execution_plan_sha256: tampered_hash}, [page])
+
+    assert {:error, :plan_root} =
+             PlanValidate.validate(%{header | plan_root_sha256: tampered_hash}, [page])
+
+    assert {:error, :mtr_commitment} =
+             PlanValidate.validate(
+               %{header | mtr_ordinal_range_commitment: :binary.copy(<<5>>, 32)},
+               [page]
+             )
+
+    # THE REPRO from review: lease/fence and expectation relations Go rejects, which
+    # every Elixir entry point used to accept because only enum admission existed.
     bad = %{
       assignment
       | lease_id: <<>>,
@@ -1374,11 +1405,53 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     assert {:error, :lease} = AssignmentValidate.validate(bad)
 
-    # Reject vectors, each pinned to its REASON -- a shared vector must assert WHY a
-    # record was refused, not merely that it was.
-    assert {:error, :identity} =
-             AssignmentValidate.validate(%{assignment | record_sequence: 0})
+    # The API is TOTAL: a contract promising {:error, reason} must not raise.
+    assert {:error, :identity} = AssignmentValidate.validate(%{})
+    assert {:error, :identity} = AssignmentValidate.validate(nil)
+    assert {:error, :plan_relation} = AssignmentValidate.validate_against_plan(assignment, :nope)
 
+    # Retained unknown fields are rejected, on the record AND its nested expectation.
+    assert {:error, :unknown_fields} =
+             AssignmentValidate.validate(%{assignment | __unknown_fields__: [{99, 2, <<1>>}]})
+
+    assert {:error, :unknown_fields} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | __unknown_fields__: [{99, 2, <<1>>}]}
+             })
+
+    # SHARED REJECT VECTORS: bytes authored by Go and refused by BOTH runtimes. An
+    # in-memory mutation inside one runtime's test proves only that runtime's opinion.
+    for {file, reason} <- [
+          {"assignment_reject_lease.bin", :lease},
+          {"assignment_reject_expectation.bin", :expectation},
+          {"assignment_reject_sequence.bin", :identity},
+          {"assignment_reject_zero_uuid.bin", :identity},
+          {"assignment_reject_offset_absent.bin", :expectation}
+        ] do
+      assert {:error, ^reason} = AssignmentValidate.validate_bytes(load(file)),
+             "shared reject vector #{file} must be refused with reason #{reason}"
+    end
+
+    # STANDALONE PARITY with Go, each previously accepted by Elixir alone.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | producer_assignment_id: <<0::128>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_plan_id: <<1::128>>})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | ordinal_count: 2_147_483_649,
+                     ordinal_range_commitment: :binary.copy(<<1>>, 32)
+                 }
+             })
+
+    # Reason-pinned rejects, mirroring the Go errors.
+    assert {:error, :identity} = AssignmentValidate.validate(%{assignment | record_sequence: 0})
     assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})
 
     assert {:error, :state} =
@@ -1387,7 +1460,6 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :scope} =
              AssignmentValidate.validate(%{assignment | target_range_sha256: <<7>>})
 
-    # ABSENT is not ZERO, on both required-presence fields.
     assert {:error, :expectation} =
              AssignmentValidate.validate(%{assignment | mtr_expectation: nil})
 
@@ -1397,7 +1469,6 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: nil}
              })
 
-    # count == 0 <=> the 32-zero commitment, in BOTH directions.
     assert {:error, :expectation} =
              AssignmentValidate.validate(%{
                assignment
@@ -1414,27 +1485,22 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                      | ordinal_range_commitment: :binary.copy(<<2>>, 32)
                    }
                },
-               header,
-               [page]
+               plan
              )
 
-    # A wrong offset for the selected range.
     assert {:error, :plan_relation} =
              AssignmentValidate.validate_against_plan(
                %{
                  assignment
                  | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: 0}
                },
-               header,
-               [page]
+               plan
              )
 
-    # A range the plan never committed.
     assert {:error, :plan_relation} =
              AssignmentValidate.validate_against_plan(
                %{assignment | target_range_id: <<9::128>>},
-               header,
-               [page]
+               plan
              )
   end
 
