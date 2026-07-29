@@ -255,6 +255,12 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		if !bytes.Equal(p.GetCheckSetSha256(), h.GetCheckSetSha256()) {
 			return ErrPlanCheckSet
 		}
+		// NOTE: this measures a RE-MARSHAL of the decoded page, which is NOT the
+		// physical ceiling the ABI defines. Duplicate known fields collapse on the round
+		// trip, so a received page far over the limit can pass here. The authoritative
+		// bound is on RECEIVED bytes -- see ValidatePlanPagesFromRaw, which is what a
+		// caller holding wire bytes must use. This check remains only as a coarse guard
+		// for callers that legitimately hold decoded structs.
 		pb, err := proto.MarshalOptions{Deterministic: true}.Marshal(p)
 		if err != nil || len(pb) > MaxPlanPageBytes {
 			return ErrPlanBounds
@@ -521,4 +527,32 @@ func PlanMtrOrdinalRangeCommitment(pages []*edgev1.ScheduledPlanPageV1) ([]byte,
 		}
 	}
 	return acc[:], nil
+}
+
+// ValidatePlanPagesFromRaw is the RAW plan boundary: it bounds each page against
+// MaxPlanPageBytes on the EXACT RECEIVED BYTES before decoding, then validates the
+// decoded chain.
+//
+// This exists because ValidatePlanPages measures a RE-MARSHAL, and the two are not the
+// same number: a page padded with duplicate known fields to 131,074 received bytes
+// collapses to a few hundred on the round trip, so the struct path accepted what the
+// physical ceiling forbids -- and what the Elixir peer, which bounds received bytes,
+// rejected. The ceiling exists to bound what a receiver must hold and forward, which
+// is the received size.
+func ValidatePlanPagesFromRaw(h *edgev1.ScheduledPlanHeaderV1, rawPages [][]byte) error {
+	if len(rawPages) == 0 || len(rawPages) > MaxManifestPages {
+		return ErrPlanBounds
+	}
+	pages := make([]*edgev1.ScheduledPlanPageV1, 0, len(rawPages))
+	for _, raw := range rawPages {
+		if len(raw) > MaxPlanPageBytes {
+			return ErrPlanBounds
+		}
+		var p edgev1.ScheduledPlanPageV1
+		if err := proto.Unmarshal(raw, &p); err != nil {
+			return ErrPlanBounds
+		}
+		pages = append(pages, &p)
+	}
+	return ValidatePlanPages(h, pages)
 }

@@ -77,14 +77,20 @@ defmodule ServiceRadar.Edge.PlanValidate do
     # field-framed digests walk declared fields only, so retained bytes are invisible
     # to the digest while still riding on the wire. That is load-bearing for immutable
     # CONTENT ADDRESSING.
-    nested = Enum.any?(Map.get(m, :ranges) || [], &(Map.get(&1, :__unknown_fields__, []) != []))
+    ranges = Map.get(m, :ranges)
+
+    nested =
+      is_list(ranges) and
+        Enum.any?(ranges, fn r -> is_map(r) and Map.get(r, :__unknown_fields__, []) != [] end)
 
     if Map.get(m, :__unknown_fields__, []) == [] and not nested,
       do: :ok,
       else: {:error, :unknown_fields}
   end
 
-  defp no_unknown(_), do: {:error, :unknown_fields}
+  # A non-map page/header is a SHAPE failure, not an unknown-field one: naming it
+  # :unknown_fields would misreport why it was refused.
+  defp no_unknown(_), do: {:error, :page_bounds}
 
   defp header_identity(h) do
     policy = Map.get(h, :availability_policy_id)
@@ -130,10 +136,16 @@ defmodule ServiceRadar.Edge.PlanValidate do
     pages
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, 0, MapSet.new()}, fn {p, i}, {:ok, total, seen} ->
-      ranges = Map.get(p, :ranges) || []
+      ranges = Map.get(p, :ranges)
       prev = if i == 0, do: <<>>, else: Enum.at(pages, i - 1).page_sha256
 
       cond do
+        # A malformed page or range LIST is a typed rejection, not a raise: `ranges:
+        # :bad` and `ranges: [7]` previously crashed a validator whose contract promises
+        # {:error, reason}.
+        not is_map(p) or not is_list(ranges) or not Enum.all?(ranges, &is_map/1) ->
+          {:halt, {:error, :page_bounds}}
+
         Map.get(p, :digest_version) != @plan_digest_version ->
           {:halt, {:error, :digest_version}}
 
@@ -167,9 +179,15 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end)
     |> case do
       {:ok, total, _seen} ->
-        # Reconcile the declared total: a resealed wrong total_target_count was
-        # accepted before, so the header could claim coverage the pages do not have.
-        if total == Map.get(h, :total_target_count), do: :ok, else: {:error, :plan_totals}
+        # Reconcile the declared total, and detect uint64 OVERFLOW explicitly. Elixir
+        # integers are arbitrary-precision, so a sum that wraps in Go simply grows here
+        # -- without this the two runtimes would disagree about a plan whose range
+        # counts sum past 2^64, which Go rejects via bits.Add64's carry.
+        cond do
+          total > 0xFFFFFFFFFFFFFFFF -> {:error, :plan_totals}
+          total != Map.get(h, :total_target_count) -> {:error, :plan_totals}
+          true -> :ok
+        end
 
       err ->
         err
@@ -286,7 +304,11 @@ defmodule ServiceRadar.Edge.PlanValidate do
     with [addr, bits] <- String.split(cidr, "/", parts: 2),
          {bits_int, ""} <- Integer.parse(bits),
          {:ok, a} <- parse_addr(addr),
-         true <- canonical_addr?(a, addr) do
+         # The WHOLE cidr must round-trip, PREFIX SUFFIX INCLUDED. Canonicalizing only
+         # the address let `10.20.0.0/024` and `10.20.0.0/+24` through, because
+         # Integer.parse accepts both -- two spellings of one network, so two content
+         # digests.
+         true <- canonical_cidr?(a, bits_int, cidr) do
       bit_len = if tuple_size(a) == 4, do: 32, else: 128
       host_bits = bit_len - bits_int
 
@@ -318,6 +340,12 @@ defmodule ServiceRadar.Edge.PlanValidate do
   # are the same network but different bytes, so only one spelling may be committed.
   defp canonical_addr?(tuple, text) do
     List.to_string(:inet.ntoa(tuple)) == text
+  rescue
+    _ -> false
+  end
+
+  defp canonical_cidr?(tuple, bits, text) do
+    (List.to_string(:inet.ntoa(tuple)) <> "/" <> Integer.to_string(bits)) == text
   rescue
     _ -> false
   end
