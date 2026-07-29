@@ -1,4 +1,4 @@
-FILE:@@//Cargo.lock 3a62ebb226e8f8d2d1374d051c861c37c217ee2ff1e41b9c5bf50235f4ba2d43
+FILE:@@//Cargo.lock 9ed59a07260619c9dfd91249fc314dcee2470ff9de4561ee9722a29ba9232086
 FILE:@@//Cargo.toml 3234036c49fc9a58b7ecab7930840af8057a8095fae5bdd7f08b8911a68dd521
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//proto/dgraph/Cargo.toml 122c820729402b715ddba34da04e1deb85a450b50b8fb0f05c5080f1ac0bf535
