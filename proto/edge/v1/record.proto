@@ -208,6 +208,140 @@ enum EdgeCapabilityPurpose {
   EDGE_CAPABILITY_PURPOSE_PRODUCTION = 1;
   EDGE_CAPABILITY_PURPOSE_SOURCE = 2;
   EDGE_CAPABILITY_PURPOSE_DELIVERY = 3;
+  // COLLECTION is the SCHEDULER's attestation of a compiled assignment's contents: it binds
+  // the config generation, typed result format, check-set identity, traffic class and validity
+  // window it compiled, which no pre-existing claim signs.
+  //
+  // It does NOT authorize anyone to RUN that assignment. Permission to execute is
+  // ASSIGNMENT_EXECUTION below, issued by an authority over the executing host -- two
+  // decisions by two principals. An earlier revision of this comment said COLLECTION
+  // authorized execution, which contradicted that split and would have let the scheduler
+  // grant itself host permission.
+  EDGE_CAPABILITY_PURPOSE_COLLECTION = 4;
+  // ASSIGNMENT_EXECUTION is PERMISSION FOR A HOST TO EXECUTE ONE COMPILED ASSIGNMENT.
+  //
+  // ONE MODEL, CHOSEN DELIBERATELY. An earlier revision mixed two incompatible contracts
+  // under one purpose: a scheduler ATTESTATION over reusable mapping facts, and a
+  // producer/host PERMISSION to execute compiled work. They differ in signer, in lifetime,
+  // and in whether they may be reused across carrier revisions, so no single claim can be
+  // both.
+  //
+  // This is the PERMISSION. It is signed by an authority over the executing HOST, never by
+  // the scheduler key family that signs carriers, and it binds ONE EXACT CARRIER by id and
+  // artifact digest. It is therefore NOT reusable across carrier revisions -- deliberately,
+  // because a grant that floated free would authorize a recompiled carrier's config
+  // generation, result format and check set, which is precisely what the carrier exists to
+  // pin. Recompiling requires a new grant.
+  //
+  // The alternative model -- a scheduler attestation over reusable mapping facts -- was
+  // rejected: the facts it would cover (run_id, the source identity) are producer-chosen,
+  // and if the scheduler could sign them they would belong in the carrier itself, leaving
+  // no work for a separate attestation.
+  //
+  // It is not PRODUCTION or SOURCE because those are record-plane contracts whose full
+  // semantics (contract id/version, registry epoch, package digest, cost model, projected
+  // row/write bounds, origin and instance identity) can only be interpreted against an
+  // EdgeRecordV1. A SweepAssignmentRecordV1 carries no such context, so a grant reusing
+  // them could only interpret a SUBSET -- leaving every unchecked member free, which is how
+  // a capability issued for one traffic class came to authorize another.
+  EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION = 5;
+}
+
+// EdgeCollectionClaimsV1 is the scheduler's ATTESTATION of a COMPILED SWEEP ASSIGNMENT. It
+// ATTESTS the agent and scope the assignment was COMPILED FOR, the plan/range it covers,
+// the shard/epoch it belongs to, the SPECIFIC attempt, and -- through
+// `compiled_assignment_body_sha256` -- every compiled fact the carrier states.
+//
+// The BODY digest is what makes this tractable: signing it signs the carrier's config
+// generation, typed result format, check-set identity, traffic class and validity window
+// TRANSITIVELY, so the claim does not have to restate them and cannot drift from them.
+// It is deliberately the BODY digest and not the artifact address: the artifact address
+// covers this capability, so signing it would require the signature to cover itself.
+message EdgeCollectionClaimsV1 {
+  EdgeCapabilityPurpose purpose = 1;        // MUST be COLLECTION
+  // The scope and agent the assignment is COMPILED FOR -- an attested intent, NOT permission to
+  // run. Execution permission is a HOST's EdgeAssignmentExecutionClaimsV1; a reader that treated
+  // this as authorization would let the scheduler grant itself host rights.
+  bytes network_scope_id = 2;
+  bytes authenticated_agent_id = 3;
+  bytes execution_plan_id = 4;
+  bytes target_range_id = 5;
+  uint32 execution_shard = 6;
+  uint64 assignment_epoch = 7;
+  // Commits every compiled fact in the carrier BODY. A capability that signed those
+  // facts individually could disagree with the carrier it attests; this cannot.
+  bytes compiled_assignment_body_sha256 = 8;
+  // Restated because it is IMMUTABLE and routing-relevant: a verifier that has the
+  // claim but not yet the carrier still knows the class it attests.
+  EdgeRecordTrafficClass traffic_class = 9;
+  // SCHEDULER-KNOWN ASSIGNMENT IDENTITY. Without these the attestation covers a
+  // (plan, range, shard, epoch) tuple rather than a specific attempt, so a capability
+  // issued for one assignment would verify against another sharing that tuple.
+  //
+  // `run_id` and the SOURCE IDENTITY are deliberately absent: they are PRODUCER-chosen
+  // and later-bound, so a scheduler cannot sign them. They are bound instead by the HOST's
+  // EdgeAssignmentExecutionClaimsV1 grant.
+  bytes producer_assignment_id = 10;
+  bytes execution_id = 11;
+}
+
+// EdgeAssignmentExecutionClaimsV1 is a HOST's permission to execute ONE compiled
+// assignment. Each member is checkable against the assignment record and its compiled
+// carrier, so the claim is validated IN FULL -- the property a partially-interpreted claim
+// contract cannot offer.
+//
+// Signed by an authority over the executing host, NOT by the scheduler: the scheduler's
+// authority is the carrier's own collection capability, and a grant to run that carrier is a
+// separate decision by a separate principal.
+message EdgeAssignmentExecutionClaimsV1 {
+  EdgeCapabilityPurpose purpose = 1;        // MUST be ASSIGNMENT_EXECUTION
+
+  // --- producer key ------------------------------------------------------------------
+  bytes network_scope_id = 2;
+  bytes authenticated_agent_id = 3;
+  bytes producer_assignment_id = 4;
+  bytes execution_id = 5;
+  bytes run_id = 6;
+  // run_shard / authority_epoch are the producer-key NAMES for the record's
+  // execution_shard / assignment_epoch, which are their SOLE wire representation.
+  uint32 run_shard = 7;
+  uint64 authority_epoch = 8;
+
+  // --- production facts no scheduler carrier covers ----------------------------------
+  bytes production_scope_id = 9;
+  bytes scope_sha256 = 10;
+  bytes contract_bundle_sha256 = 11;
+
+  // --- plan / range binding ----------------------------------------------------------
+  // REQUIRED, not "empty if N/A": a sweep assignment always covers exactly one plan and
+  // one range, and treating absence as "no constraint" would let a claim opt out.
+  bytes execution_plan_sha256 = 12;
+  bytes target_range_sha256 = 13;
+
+  // --- immutable class + freshness ---------------------------------------------------
+  // MUST equal the carrier's class. Without it a grant for one traffic class authorizes
+  // work in another.
+  EdgeRecordTrafficClass traffic_class = 14;
+  // The COLLECTION window. It MUST BE CONTAINED IN the envelope's window -- a grant cannot
+  // be wider than the capability carrying it, and "tighter" is enforced rather than assumed:
+  // an inner window reaching outside the envelope would otherwise authorize instants the
+  // envelope never covered. Both bounds are REQUIRED and positive: 0 is the proto default, so
+  // accepting it would let an unset field pose as an open-ended grant.
+  int64 collection_not_before_unix_nano = 15;
+  int64 collection_expires_unix_nano = 16;
+
+  // --- optional source identity ------------------------------------------------------
+  // Present EXACTLY WHEN the record carries a source identity, so present/absent
+  // asymmetry is a structural error rather than a skipped comparison.
+  EdgeSourceSpanIdentityV1 source_identity = 17;
+
+  // --- the EXACT carrier this grant permits ------------------------------------------
+  // Both REQUIRED. The id alone names a carrier without pinning which revision, and the
+  // artifact digest (body + attached authority) is what makes the grant non-reusable across
+  // recompilations. This is the field pair that distinguishes a permission from a floating
+  // attestation.
+  bytes compiled_assignment_id = 18;
+  bytes compiled_assignment_sha256 = 19;
 }
 
 // EdgeSignedCapabilityV1 is the shared wire format for every load-bearing signed
@@ -216,9 +350,14 @@ enum EdgeCapabilityPurpose {
 // expires || a u64 claims-oneof discriminant (the set member's field number) ||
 // that claim framed field-by-field. Every field is length-prefixed or fixed-width
 // in a frozen order; NO protobuf serialization appears in the preimage at any depth
-// (protobuf has no canonical wire form). The typed claims oneof both carries the
-// authorized values AND fixes the capability's role, so a production grant can never
-// be presented in a source or delivery position.
+// (protobuf has no canonical wire form). The typed claims oneof both carries the CLAIMED
+// VALUES AND fixes the capability's role, so a CLAIM can never be presented in a position it
+// was not issued for.
+//
+// "Claimed", not "authorized", and "claim", not "grant": the oneof spans BOTH kinds. PRODUCTION,
+// SOURCE, DELIVERY and ASSIGNMENT_EXECUTION grant permission; COLLECTION only ATTESTS what the
+// scheduler compiled. Calling every member a grant, or its contents authorized values, would
+// reintroduce in the normative schema exactly the conflation the two-principal split removes.
 message EdgeSignedCapabilityV1 {
   uint32 capability_version = 1;       // MUST be a known version (>= 1)
   bytes issuer_id = 2;                 // issuer identity (distinct from key id)
@@ -230,6 +369,8 @@ message EdgeSignedCapabilityV1 {
     EdgeProductionClaimsV1 production = 7;
     EdgeSourceClaimsV1 source = 8;
     EdgeDeliveryClaimsV1 delivery = 9;
+    EdgeCollectionClaimsV1 collection = 11;
+    EdgeAssignmentExecutionClaimsV1 assignment_execution = 12;
   }
   bytes signature = 10;               // over the canonical signing bytes
 }

@@ -49,6 +49,7 @@ defmodule PatchEdgeEnumNegatives do
     Serviceradar.Edge.V1.SweepMode
     Serviceradar.Edge.V1.SweepModeBit
     Serviceradar.Edge.V1.SweepModeOutcome
+    Serviceradar.Edge.V1.SweepResultFormat
     Serviceradar.Edge.V1.TransportProtocol
   )
 
