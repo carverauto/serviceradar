@@ -319,11 +319,13 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      (bytes), `mtr_admission_budget` (u64), `mtr_ordinal_count` (u64).
      PRESENCE-MARKER EXCEPTION, stated because Appendix A's general rule gives every
      `optional` field a 1-byte marker: `mtr_ordinal_count` is hashed as a BARE u64 with
-     NO marker. The marker rule exists so an absent value cannot hash identically to an
-     explicit zero -- but here absence is REJECTED BEFORE HASHING by both owning
-     validators, so the digest never sees an absent value and a marker would encode a
-     state that cannot reach it. The proto keeps `optional` solely so the validator can
-     tell absent from zero.
+     NO marker, so an absent count hashes identically to an explicit zero. That
+     collision is tolerable ONLY because absence is REJECTED BEFORE ADMISSION -- note
+     the ordering: `RangeDigest` will happily hash an absent count as 0, and it is
+     `PlanMtrWindows` that refuses the range afterwards, so no absent-count plan is ever
+     admitted even though one can be hashed. The proto keeps `optional` solely so the
+     validator can tell absent from zero. An implementation that hashes without
+     validating would NOT be protected by the digest here.
    - PlanPageDigest (plan.go, excl `page_sha256`): `str "serviceradar.edge.plan.page.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_index` (u64), `page_count`
      (u64), `prev_page_sha256` (bytes), `check_set_sha256` (bytes), `len(ranges)` (u64), then
