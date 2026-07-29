@@ -1318,14 +1318,29 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     at_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_at_max.bin"))
     over_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_over_max.bin"))
 
-    [at_max_range] = at_max.ranges
-    [over_max_range] = over_max.ranges
-    assert at_max_range.mtr_ordinal_count == 1_048_576
-    assert over_max_range.mtr_ordinal_count == 1_048_577
+    # The counts SUM to the boundary across SEVERAL ranges. A single-range fixture
+    # would be satisfied by an implementation that bounds each range alone and never
+    # accumulates -- exactly the bug the ceiling exists to stop.
+    assert length(at_max.ranges) > 1
+    assert Enum.sum(Enum.map(at_max.ranges, & &1.mtr_ordinal_count)) == 1_048_576
+    assert Enum.sum(Enum.map(over_max.ranges, & &1.mtr_ordinal_count)) == 1_048_577
+    assert Enum.all?(at_max.ranges, &(&1.mtr_ordinal_count < 1_048_576))
 
     # Bounds are decided WITHOUT hashing, so the max case is cheap to accept.
     assert {:ok, _windows, 1_048_576} = HashGrammar.plan_mtr_windows([at_max])
     assert :error = HashGrammar.plan_mtr_windows([over_max])
+
+    # Drive the ACTUAL commitment function too: with the pre-hash guard removed this
+    # would fold 2^20+1 hashes and return a value instead of raising.
+    assert_raise MatchError, fn -> HashGrammar.plan_mtr_ordinal_range_commitment([over_max]) end
+
+    # The exported per-window helper bounds where a window ENDS, not just its WIDTH:
+    # a one-ordinal window starting AT the ceiling names an ordinal no plan contains.
+    assert :error = HashGrammar.mtr_window_commitment(1_048_576, 1, :binary.copy(<<7>>, 32))
+    assert is_binary(HashGrammar.mtr_window_commitment(1_048_575, 1, :binary.copy(<<7>>, 32)))
+
+    # Go rejects offset 2^31 too; Elixir must not be laxer.
+    assert :error = HashGrammar.mtr_window_commitment(2_147_483_648, 1, :binary.copy(<<7>>, 32))
   end
 
   test "MTR completion disposition symbols are pinned to their exact numbers" do

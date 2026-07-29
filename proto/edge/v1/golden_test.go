@@ -1380,31 +1380,60 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// implementation detail: a plan Go rejects and Elixir accepts is a divergence, so
 	// both runtimes consume these two pages and must agree on the verdict. Bounds are
 	// checked BEFORE any hashing, so a max-sized page costs a walk here, not a fold.
-	mkCeilingPage := func(tag byte, total uint64) *edgev1.ScheduledPlanPageV1 {
-		r := &edgev1.TargetRangeV1{
-			RangeId: uuidv7(tag), Cidr: "10.30.0.0/24", TargetCount: 256,
-			CheckSetSha256: digest32(0x7C), AvailabilityPolicyId: []byte("policy-1"),
-			MtrAdmissionBudget: total, MtrOrdinalCount: proto.Uint64(total),
+	//
+	// The page carries MULTIPLE ranges whose counts SUM to the boundary. A single-range
+	// fixture would be satisfied by an implementation that bounds each range on its own
+	// and never accumulates, which is precisely the bug the ceiling exists to stop.
+	mkCeilingPage := func(tag byte, counts ...uint64) *edgev1.ScheduledPlanPageV1 {
+		ranges := make([]*edgev1.TargetRangeV1, 0, len(counts))
+		for i, c := range counts {
+			r := &edgev1.TargetRangeV1{
+				RangeId: uuidv7(tag + byte(i)), Cidr: "10.30.0.0/24", TargetCount: 256,
+				CheckSetSha256: digest32(0x7C), AvailabilityPolicyId: []byte("policy-1"),
+				MtrAdmissionBudget: c, MtrOrdinalCount: proto.Uint64(c),
+			}
+			r.RangeSha256 = edgerecord.RangeDigest(r)
+			ranges = append(ranges, r)
 		}
-		r.RangeSha256 = edgerecord.RangeDigest(r)
 		p := &edgev1.ScheduledPlanPageV1{
 			ExecutionPlanId: uuidv7(0x2D), PageIndex: 0, PageCount: 1,
 			CheckSetSha256: digest32(0x7C), DigestVersion: edgerecord.PlanDigestVersion,
-			Ranges: []*edgev1.TargetRangeV1{r},
+			Ranges: ranges,
 		}
 		p.PageSha256 = edgerecord.PlanPageDigest(p)
 		return p
 	}
-	atMax := mkCeilingPage(0x2E, edgerecord.MaxPlanMtrOrdinals)
-	overMax := mkCeilingPage(0x2F, edgerecord.MaxPlanMtrOrdinals+1)
+	const halfCeiling = edgerecord.MaxPlanMtrOrdinals / 2
+	// Three ranges, each far under the ceiling, summing to exactly N and N+1.
+	atMax := mkCeilingPage(0x2E, halfCeiling, halfCeiling-1, 1)
+	overMax := mkCeilingPage(0x40, halfCeiling, halfCeiling-1, 2)
 	golden(t, "plan_page_ordinals_at_max.bin", atMax)
 	golden(t, "plan_page_ordinals_over_max.bin", overMax)
 
+	for _, r := range atMax.GetRanges() {
+		if r.GetMtrOrdinalCount() > edgerecord.MaxPlanMtrOrdinals/2 {
+			t.Fatal("a single range reaches the ceiling; the multi-range control is vacuous")
+		}
+	}
 	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{atMax}); err != nil {
 		t.Fatalf("exactly MaxPlanMtrOrdinals must be ACCEPTED: %v", err)
 	}
 	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{overMax}); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
 		t.Fatalf("MaxPlanMtrOrdinals+1 = %v, want ErrPlanMtrWindow", err)
+	}
+	// Drive the ACTUAL commitment function, not only the bounds walk: if the pre-hash
+	// guard were removed this would fold 2^20+1 hashes and RETURN a value instead of an
+	// error, so the assertion is what keeps the guard load-bearing.
+	if _, err := edgerecord.PlanMtrOrdinalRangeCommitment([]*edgev1.ScheduledPlanPageV1{overMax}); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("over-ceiling commitment = %v, want ErrPlanMtrWindow", err)
+	}
+	// And the EXPORTED per-window helper, which was the bypass: a window that ENDS past
+	// the ceiling is refused even though its WIDTH is 1.
+	if _, err := edgerecord.MtrWindowCommitment(edgerecord.MaxPlanMtrOrdinals, 1, digest32(0x7C)); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("window ending past the ceiling = %v, want ErrPlanMtrWindow", err)
+	}
+	if _, err := edgerecord.MtrWindowCommitment(edgerecord.MaxPlanMtrOrdinals-1, 1, digest32(0x7C)); err != nil {
+		t.Fatalf("a window ending exactly AT the ceiling must be accepted: %v", err)
 	}
 
 	// STALE-WIRE PROOF for the retired tag 20. Reserving a tag prevents source reuse; it

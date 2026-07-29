@@ -119,7 +119,8 @@ partitions.
 #### Scenario: Two terminal events claim one agent terminal slot
 - **GIVEN** an agent terminal slot keyed by network scope, execution, shard,
   and assignment epoch already binds one terminal kind, event, closed batch
-  interval, counts, outcomes, and versioned MTR range roots
+  interval, counts, outcomes, and the versioned MTR COMPLETION digest (there is no
+  MTR range root: `range_root_sha256` is RETIRED, tag 20 reserved)
 - **WHEN** a conflicting terminal binding or a data batch outside that closed
   interval is projected in any arrival order
 - **THEN** the first authenticated terminal binding SHALL remain immutable

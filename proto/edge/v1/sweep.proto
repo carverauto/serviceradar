@@ -366,8 +366,11 @@ message SweepExecutionEventV1 {
   // SELF-REPORTED LIFECYCLE FIELD: the producer emits this event, so a range root it
   // asserts about itself proves nothing. Per-range binding is already proven by the
   // completion proof's member accumulator against an authoritative commitment. If
-  // multi-range assignments arrive, their range-set commitment is defined on the
-  // AUTHORITATIVE ASSIGNMENT RECORD, which the scheduler writes.
+  // multi-range assignments arrive, the assignment record names the covered ranges
+  // RESOLVABLY -- a bounded member/subset representation with cardinality, or an
+  // immutable subset reference. NOT an opaque set commitment: that shape was proposed
+  // and REJECTED for the same reason this tag is retired, since a non-invertible
+  // digest cannot say WHICH ranges were assigned.
   reserved 20;
   reserved "range_root_sha256";
   string abort_reason = 21;
