@@ -1300,15 +1300,19 @@ must hold and forward, which is the received size.
 This applies to every paged contract that declares a ceiling, including the
 recovery manifest page and the scheduler plan page.
 
-A validator that accepts DECODED messages cannot enforce this: the received bytes
-are already gone by the time it runs. Every such contract SHALL therefore expose a
-RAW-BYTES entry point that bounds the received size before decoding, and that entry
-point SHALL be the authoritative one. A size check retained on a decoded-struct API
-is a DELIBERATELY COARSE guard for callers that legitimately hold structs, and SHALL
-NOT be described as enforcing the physical ceiling. For the scheduler plan the
-authoritative boundary is `ValidatePlanPagesFromRaw` in Go and
-`WireDecode.decode_plan_page/1` in Elixir; `ValidatePlanPages` is the coarse
-decoded-struct guard.
+The scheduler plan page's ceiling is `MaxPlanPageBytes` = 128 KiB, frozen in the
+bounds table alongside the record/frame bounds.
+
+A validator that accepts DECODED messages cannot enforce this: the received bytes are
+already gone by the time it runs. Every such contract SHALL therefore be enforced at a
+boundary that sees the RECEIVED BYTES and bounds them BEFORE decoding, and that
+boundary SHALL be the authoritative one. A size check computed from a decoded message
+SHALL NOT be presented as enforcing the physical ceiling; it is at best a coarse guard
+for callers that legitimately hold decoded structs.
+
+WHICH function each runtime exposes for that boundary, and at which hop it runs, is
+RUNTIME -- this requirement freezes the VALUE and the RULE, not API names. (The
+current implementations are noted in the task list, not here.)
 
 #### Scenario: Bloated page is refused
 - **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
