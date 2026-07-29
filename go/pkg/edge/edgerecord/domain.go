@@ -160,6 +160,13 @@ func ValidateSweepExecutionEvent(ev *edgev1.SweepExecutionEventV1) error {
 	if ev == nil {
 		return ErrNilRecord
 	}
+	// Retained unknown fields are rejected HERE, not only on the outer unmarshal path.
+	// This validator is PUBLIC and is what a consumer holding a decoded event calls, so
+	// without this a stale sender's RETIRED tag 20 rides through: reserving a tag stops
+	// source reuse, it does not stop bytes already on the wire.
+	if hasUnknownFields(ev) {
+		return ErrUnknownFields
+	}
 	if ValidateCanonicalUUID(ev.GetExecutionId()) != nil || ValidateCanonicalUUID(ev.GetExecutionPlanId()) != nil ||
 		ValidateCanonicalUUID(ev.GetTargetRangeId()) != nil {
 		return fmt.Errorf("%w: identity", ErrLifecycle)
@@ -179,9 +186,13 @@ func ValidateSweepExecutionEvent(ev *edgev1.SweepExecutionEventV1) error {
 			ev.GetEmittedMtrTraces() > ev.GetExpectedMtrTraces() {
 			return fmt.Errorf("%w: mtr counts", ErrLifecycle)
 		}
+		// range_root_sha256 (tag 20) is RETIRED: a range binding the producer asserts
+		// about its own attempt proves nothing. The authoritative binding is the
+		// assignment record's RESOLVABLE target_range_id + target_range_sha256 -- not a
+		// range-set commitment, which was proposed and REJECTED for the same reason.
 		if ev.GetMtrCompletionDigestVersion() != MtrCompletionDigestVersion ||
 			len(ev.GetMtrCompletionDigest()) != sha256Len ||
-			len(ev.GetPlanRootSha256()) != sha256Len || len(ev.GetRangeRootSha256()) != sha256Len {
+			len(ev.GetPlanRootSha256()) != sha256Len {
 			return fmt.Errorf("%w: completion proof", ErrLifecycle)
 		}
 	} else if len(ev.GetMtrCompletionDigest()) != 0 {
@@ -591,7 +602,7 @@ func isSweepExecutionSource(s edgev1.SweepExecutionSource) bool {
 		s == edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE
 }
 
-// validateMtrHop fail-closes one hop: a nonzero hop number, a 0/4/16-byte address
+// validateMtrHop fail-closes one hop: a nonzero hop number, an absent/4-byte/16-byte address
 // and ECMP addresses, received <= sent, and a real loss percentage in [0,100].
 func validateMtrHop(hop *edgev1.MtrTraceHopV1) error {
 	if hop.GetHopNumber() == 0 {
@@ -719,7 +730,13 @@ type MtrCompletionAccumulator struct {
 	memberAcc  [32]byte
 	count      uint64
 	expected   uint64
-	err        error
+	// planOrdinalOffset shifts LOCAL leaf ordinals to the PLAN-GLOBAL ordinals the
+	// assignment's commitment was built over. Leaf hashes and the coverage
+	// accumulator stay LOCAL (the leaf grammar and the exact-set check are frozen);
+	// only membership is global, because that is the only accumulator compared
+	// against a plan-derived value.
+	planOrdinalOffset uint64
+	err               error
 }
 
 // NewMtrCompletionAccumulator starts an accumulator for a known expected ordinal
@@ -732,10 +749,10 @@ type MtrCompletionAccumulator struct {
 // masquerade as empty work -- the alternative (waive the proof when a producer
 // says it did no MTR) would admit both an absent and a present proof for one
 // state and would trust a self-reported counter to decide which.
-func NewMtrCompletionAccumulator(expected uint64) *MtrCompletionAccumulator {
-	a := &MtrCompletionAccumulator{expected: expected}
-	if expected > MaxMtrCompletionOrdinals {
-		a.err = fmt.Errorf("%w: expected out of range", ErrMtrCompletion)
+func NewMtrCompletionAccumulator(planOrdinalOffset, expected uint64) *MtrCompletionAccumulator {
+	a := &MtrCompletionAccumulator{expected: expected, planOrdinalOffset: planOrdinalOffset}
+	if expected > MaxMtrCompletionOrdinals || planOrdinalOffset > MaxMtrCompletionOrdinals-expected {
+		a.err = fmt.Errorf("%w: expected/offset out of range", ErrMtrCompletion)
 	}
 	return a
 }
@@ -778,6 +795,10 @@ func mtrMemberHash(ordinal uint64, rangeSha256 []byte) [32]byte {
 	return out
 }
 
+// MtrOrdinalRangeCommitment folds an additive multiset commitment over the supplied
+// (ordinal, range_sha256) pairs. The ordinals are PLAN-GLOBAL: callers building an
+// assignment's window use MtrWindowCommitment, which applies the offset.
+//
 // MtrOrdinalRangeCommitment computes the plan's authenticated commitment over its
 // (ordinal, range_sha256) assignments (an additive multiset hash). The scheduler
 // stores it in ScheduledPlanHeaderV1.mtr_ordinal_range_commitment; completion is
@@ -849,7 +870,7 @@ func (a *MtrCompletionAccumulator) Add(l MtrCompletionLeaf) error {
 	lh := mtrLeafHash(l)
 	add256(&a.acc, lh)
 	add256(&a.ordinalAcc, mtrOrdinalHash(l.Ordinal))
-	add256(&a.memberAcc, mtrMemberHash(l.Ordinal, l.RangeSha256))
+	add256(&a.memberAcc, mtrMemberHash(a.planOrdinalOffset+l.Ordinal, l.RangeSha256))
 	a.count++
 	return nil
 }
@@ -896,8 +917,8 @@ func bytesEq32(a [32]byte, b []byte) bool { return len(b) == 32 && bytes.Equal(a
 // MtrCompletionRoot is a convenience wrapper folding a slice of leaves for a known
 // expected count, plan root, and plan ordinal->range commitment. Order-independent;
 // O(N) time; O(1) extra memory.
-func MtrCompletionRoot(leaves []MtrCompletionLeaf, expected uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
-	a := NewMtrCompletionAccumulator(expected)
+func MtrCompletionRoot(leaves []MtrCompletionLeaf, planOrdinalOffset, expected uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
+	a := NewMtrCompletionAccumulator(planOrdinalOffset, expected)
 	for _, l := range leaves {
 		if err := a.Add(l); err != nil {
 			return nil, err
@@ -913,10 +934,12 @@ func MtrCompletionRoot(leaves []MtrCompletionLeaf, expected uint64, planRootSha2
 // frozen value, not an absence -- a producer that cannot name it will be tempted
 // to omit the proof instead.
 //
-// ordinalRangeCommitment MUST be the plan header's field, which for such a plan is
-// 32 zero bytes (the empty-set multiset hash). Passing empty bytes is rejected.
-func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
-	return MtrCompletionRoot(nil, 0, planRootSha256, ordinalRangeCommitment)
+// ordinalRangeCommitment MUST be the ASSIGNMENT's expectation commitment -- NOT the
+// plan header's plan-wide field, which is only equal when one assignment covers the
+// whole plan. For a zero-MTR window it is 32 zero bytes (the empty-set multiset hash);
+// passing empty bytes is rejected.
+func ZeroMtrCompletionRoot(planOrdinalOffset uint64, planRootSha256, ordinalRangeCommitment []byte) ([]byte, error) {
+	return MtrCompletionRoot(nil, planOrdinalOffset, 0, planRootSha256, ordinalRangeCommitment)
 }
 
 // VerifyCompletionAgainstPlanState compares a COMPLETED lifecycle event's proof
@@ -930,17 +953,18 @@ func ZeroMtrCompletionRoot(planRootSha256, ordinalRangeCommitment []byte) ([]byt
 // that the event's completion matches reality; that requires the caller to hold
 // state it obtained from a validated, authenticated plan/assignment carrier.
 //
-// NO SUCH CARRIER EXISTS YET. The authoritative assignment record is task 1.3 and is
-// not in `proto/edge/v1`, so there is deliberately NO production caller: the
-// comparison is frozen here, and genuine consumer verification is downstream work
-// gated on 1.3. Do not read the existence of this function as consumer verification
-// being implemented.
+// The carrier now EXISTS -- `SweepAssignmentRecordV1` -- and
+// `ValidateAssignmentAgainstPlan` is what derives trustworthy values from it by
+// recomputing the expectation from committed plan data. Callers should obtain the
+// count and commitment THAT way and pass them here. There is still deliberately no
+// production caller in this repository: wiring one is downstream runtime work. Do not
+// read the existence of this function as consumer verification being implemented.
 //
 // planExpectedMtr == 0 is the zero-MTR case and requires the canonical zero-leaf
 // proof; it is NOT a licence to omit one.
 func VerifyCompletionAgainstPlanState(
 	ev *edgev1.SweepExecutionEventV1,
-	planExpectedMtr uint64,
+	planOrdinalOffset, planExpectedMtr uint64,
 	planRootSha256, planOrdinalRangeCommitment []byte,
 	leaves []MtrCompletionLeaf,
 ) error {
@@ -960,7 +984,7 @@ func VerifyCompletionAgainstPlanState(
 	if !bytes.Equal(ev.GetPlanRootSha256(), planRootSha256) {
 		return fmt.Errorf("%w: event plan root is not the plan's", ErrMtrCompletion)
 	}
-	want, err := MtrCompletionRoot(leaves, planExpectedMtr, planRootSha256, planOrdinalRangeCommitment)
+	want, err := MtrCompletionRoot(leaves, planOrdinalOffset, planExpectedMtr, planRootSha256, planOrdinalRangeCommitment)
 	if err != nil {
 		return err
 	}

@@ -273,10 +273,20 @@
 - [ ] 2.3 Emit stable execution start, bounded progress/watermark, completion,
   and aborted evidence, with each data frame independently decodable and useful;
   integrate scheduler lease recovery so an agent crash produces authoritative
-  lost/expired/superseded attempt state and retriable remaining coverage.
+  lost/expired/superseded attempt state and a retriable WHOLE range window (v1 has no
+  sparse-remainder representation -- see task 2.3c).
 - [ ] 2.3a Fetch/validate/cache only bounded immutable target-plan pages per
   assignment. Keep CIDR/range inputs compact and forbid an execution-wide target
   array in config, command, agent memory, or terminal evidence.
+- [ ] 2.3c **v1 retry/supersession replays the WHOLE range window.** The frozen ABI
+  gives each plan range ONE CONTIGUOUS plan-global ordinal window and gives an
+  assignment ONE window, so a SPARSE REMAINDER is not representable: a retry that
+  covered "only what is left" would have to renumber or omit ordinals, and its
+  completion proof requires exactly `{1..ordinal_count}`. Reassignment therefore
+  replays the complete window under a new authority epoch. Anything narrower needs the
+  deferred bounded-subset representation and its own frozen grammar -- do NOT
+  approximate it by shrinking `ordinal_count`, which the plan relation rejects.
+
 - [ ] 2.3b **Produce the MTR completion proof in `go/pkg/edge/execstate`, and
   verify it against real plan state.** DEPENDS ON 2.3a, which fetches, validates and caches the
   bounded immutable plan pages -- that IS the validated plan state this task folds
@@ -298,9 +308,11 @@
   the ABI change. GATED ON 1.3; do not claim consumer verification before it lands.
   Elixir has no completion verifier at all beyond the `HashGrammar` primitive, so
   the consumer side must name which runtime performs the check.
-  ALSO: `range_root_sha256` is only length-validated today, and nothing can prove a
-  zero-MTR plan carries 32 ZERO bytes rather than some other 32-byte commitment.
-  Both are plan-derived relations with no authoritative source until 1.3.
+  ALSO: both plan-derived relations are now RESOLVED upstream -- `range_root_sha256`
+  is RETIRED (tag 20 reserved) in favour of the assignment record's resolvable
+  `target_range_id` + `target_range_sha256`, and the assignment's required MTR
+  expectation states the admitted ordinal count. Verify against the ASSIGNMENT's
+  expectation, never the plan-wide commitment.
 
 - [ ] 2.4 Implement an fsynced segmented agent spool that persists encoded bytes,
   event IDs, sequence state, checksums, retry/quarantine state, and survives
@@ -489,11 +501,20 @@
   durable requirement, which is why it lives here and not in the spec. Promotion of
   the edge feature branch to `staging` is BLOCKED until each correction is
   demonstrated against the specification rather than against compilation success.
+- [ ] 2.20a **OWN the assignment mapping's tagged VALUE shape.** The ABI change froze
+  the KEY only; it explicitly does NOT freeze the value, because no message there
+  represents a POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason. Define
+  the tagged body here -- POSITIVE (execution/plan/range identities and digests, shard,
+  epoch, contract-specific correlation operand) or EXPLICIT NEGATIVE (durable negative
+  evidence and reason, no positive-only fields). A single untagged schema cannot
+  express both, because a durable negative means there is no execution.
+
 - [ ] 2.20 **Implement the durable assignment mapping (runtime half of the split
-  1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY --
-  `(trust_namespace, span_identity)` -- and the tagged POSITIVE / EXPLICIT-NEGATIVE
-  value shape. This task implements everything over it, which that change
-  deliberately does not own: durable storage; idempotent replay of both value
+  1.3).** The `freeze-edge-record-v1-abi` change freezes the KEY ONLY --
+  `(trust_namespace, span_identity)`. It does NOT freeze the tagged POSITIVE /
+  EXPLICIT-NEGATIVE value shape: no message there represents one, so the earlier
+  claim described prose rather than a contract. Task 2.20a above OWNS that shape, and
+  this task implements everything over it: durable storage; idempotent replay of both value
   forms; a DIFFERING second candidate as an integrity conflict; an APPEND-ONLY
   conflict-resolution record that SELECTS one candidate as the projection while
   RETAINING the rejected one, with its own replay semantics and resolver fencing

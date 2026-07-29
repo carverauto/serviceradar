@@ -212,6 +212,34 @@ defmodule Serviceradar.Edge.V1.SweepExecutionEventKind do
   field :SWEEP_EXECUTION_EVENT_KIND_ABORTED, 4
 end
 
+defmodule Serviceradar.Edge.V1.SweepAssignmentState do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.SweepAssignmentState",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :SWEEP_ASSIGNMENT_STATE_UNSPECIFIED, 0
+  field :SWEEP_ASSIGNMENT_STATE_OPEN, 1
+  field :SWEEP_ASSIGNMENT_STATE_COMPLETED, 2
+  field :SWEEP_ASSIGNMENT_STATE_ABORTED, 3
+  field :SWEEP_ASSIGNMENT_STATE_LOST, 4
+  field :SWEEP_ASSIGNMENT_STATE_EXPIRED, 5
+  field :SWEEP_ASSIGNMENT_STATE_SUPERSEDED, 6
+end
+
 defmodule Serviceradar.Edge.V1.SweepTestV1 do
   @moduledoc false
 
@@ -557,8 +585,62 @@ defmodule Serviceradar.Edge.V1.SweepExecutionEventV1 do
   field :mtr_completion_digest_version, 17, type: :uint32, json_name: "mtrCompletionDigestVersion"
   field :mtr_completion_digest, 18, type: :bytes, json_name: "mtrCompletionDigest"
   field :plan_root_sha256, 19, type: :bytes, json_name: "planRootSha256"
-  field :range_root_sha256, 20, type: :bytes, json_name: "rangeRootSha256"
   field :abort_reason, 21, type: :string, json_name: "abortReason"
+end
+
+defmodule Serviceradar.Edge.V1.SweepMtrExpectationV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.SweepMtrExpectationV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :ordinal_count, 1, type: :uint64, json_name: "ordinalCount"
+  field :ordinal_range_commitment, 2, type: :bytes, json_name: "ordinalRangeCommitment"
+
+  field :plan_ordinal_offset, 3,
+    proto3_optional: true,
+    type: :uint64,
+    json_name: "planOrdinalOffset"
+end
+
+defmodule Serviceradar.Edge.V1.SweepAssignmentRecordV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.SweepAssignmentRecordV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :producer_assignment_id, 1, type: :bytes, json_name: "producerAssignmentId"
+  field :execution_id, 2, type: :bytes, json_name: "executionId"
+  field :execution_plan_id, 3, type: :bytes, json_name: "executionPlanId"
+  field :execution_plan_sha256, 4, type: :bytes, json_name: "executionPlanSha256"
+  field :execution_shard, 5, type: :uint32, json_name: "executionShard"
+  field :assignment_epoch, 6, type: :uint64, json_name: "assignmentEpoch"
+  field :record_sequence, 7, type: :uint64, json_name: "recordSequence"
+  field :authored_at_unix_nano, 8, type: :int64, json_name: "authoredAtUnixNano"
+  field :target_range_id, 9, type: :bytes, json_name: "targetRangeId"
+  field :target_range_sha256, 10, type: :bytes, json_name: "targetRangeSha256"
+  field :lease_id, 11, type: :bytes, json_name: "leaseId"
+  field :fence_token, 12, type: :uint64, json_name: "fenceToken"
+  field :lease_expires_at_unix_nano, 13, type: :int64, json_name: "leaseExpiresAtUnixNano"
+  field :state, 14, type: Serviceradar.Edge.V1.SweepAssignmentState, enum: true
+  field :superseded_by_assignment_id, 15, type: :bytes, json_name: "supersededByAssignmentId"
+  field :terminal_batch_sequence, 16, type: :uint64, json_name: "terminalBatchSequence"
+
+  field :mtr_expectation, 17,
+    type: Serviceradar.Edge.V1.SweepMtrExpectationV1,
+    json_name: "mtrExpectation"
+
+  field :check_set_sha256, 18, type: :bytes, json_name: "checkSetSha256"
+  field :availability_policy_id, 19, type: :bytes, json_name: "availabilityPolicyId"
+  field :network_scope_id, 20, type: :bytes, json_name: "networkScopeId"
+  field :authenticated_agent_id, 21, type: :bytes, json_name: "authenticatedAgentId"
+  field :production_scope_id, 22, type: :bytes, json_name: "productionScopeId"
+  field :scope_sha256, 23, type: :bytes, json_name: "scopeSha256"
+  field :contract_bundle_sha256, 24, type: :bytes, json_name: "contractBundleSha256"
 end
 
 defmodule Serviceradar.Edge.V1.TargetRangeV1 do
@@ -578,6 +660,7 @@ defmodule Serviceradar.Edge.V1.TargetRangeV1 do
   field :check_set_sha256, 7, type: :bytes, json_name: "checkSetSha256"
   field :availability_policy_id, 8, type: :bytes, json_name: "availabilityPolicyId"
   field :mtr_admission_budget, 9, type: :uint64, json_name: "mtrAdmissionBudget"
+  field :mtr_ordinal_count, 10, proto3_optional: true, type: :uint64, json_name: "mtrOrdinalCount"
 end
 
 defmodule Serviceradar.Edge.V1.ScheduledPlanPageV1 do
@@ -614,7 +697,6 @@ defmodule Serviceradar.Edge.V1.ScheduledPlanHeaderV1 do
   field :digest_version, 6, type: :uint32, json_name: "digestVersion"
   field :check_set_sha256, 7, type: :bytes, json_name: "checkSetSha256"
   field :availability_policy_id, 8, type: :bytes, json_name: "availabilityPolicyId"
-  field :assignment_epoch, 9, type: :uint64, json_name: "assignmentEpoch"
   field :network_scope_id, 10, type: :bytes, json_name: "networkScopeId"
   field :mtr_ordinal_range_commitment, 11, type: :bytes, json_name: "mtrOrdinalRangeCommitment"
 end

@@ -55,6 +55,7 @@ decompression:
 | `MaxDeliveryEnvelopeBytes` | 16 KiB | the delivery-frame envelope around the record |
 | `MaxFrameBytes` | `MaxRecordBytes + MaxDeliveryEnvelopeBytes` = 528 KiB | one raw `EdgeDeliveryFrameV1` |
 | `MaxClientMessageBytes` | `MaxFrameBytes + 8` | one raw `EdgeRecordClientMessage`: the oneof tag (1 byte) plus a length prefix (<= 5 bytes) |
+| `MaxPlanPageBytes` | 128 KiB | one raw `ScheduledPlanPageV1` |
 
 The `+ 8` is CONSERVATIVE HEADROOM, not an exact derivation. The oneof framing at
 the maximum frame size is 1 tag byte plus a 3-byte varint length (528 KiB <
@@ -67,6 +68,32 @@ not the enclosing message has an unbounded outer envelope. Values match
 and those constants is a freeze failure, not a documentation nit.
 
 WHO enforces each bound, and at which hop, is runtime.
+
+### Non-byte structural, count and work ceilings (frozen, THREE enforcement stages)
+
+None of these is a byte ceiling, and they are NOT all checkable at the same point.
+Listing them in the raw-byte table above made a normatively impossible claim, but
+calling them all "post-decode" is equally wrong: `MaxManifestPages` bounds how many
+page BLOBS were supplied, which is countable without decoding any of them, while a
+range count needs its page decoded and an ordinal total needs every page decoded.
+Each row below names the EARLIEST stage at which its value exists.
+
+| Bound | Value | Applies to | Stage |
+| --- | --- | --- | --- |
+| `MaxManifestPages` | 1024 | pages in one plan or recovery manifest | STRUCTURAL -- on the supplied page LIST, BEFORE any page is decoded |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | POST-DECODE (per page) -- after that page decodes, before its ranges are walked |
+| `MaxPlanMtrOrdinals` | 2^20 = 1048576 | TOTAL admitted MTR ordinals across one plan | POST-DECODE (whole plan) -- after every page decodes, BEFORE any commitment is folded |
+
+`MaxPlanMtrOrdinals` is a WORK ceiling and is deliberately far below
+`MaxMtrCompletionOrdinals` = 2^31: that constant bounds what the ordinal space can
+REPRESENT, this one bounds what a validator will COMPUTE, since recomputing a
+commitment costs one hash per ordinal. Both are frozen; they answer different
+questions.
+
+Every row must be applied before the work it bounds -- the page list before its pages
+are decoded, a page's range count before its ranges are walked, and the ordinal total
+before any hashing. The stage column says when each value first EXISTS, never how long
+enforcement may be deferred.
 
 ## 3. Identity semantics, grammars, and version inventory
 
@@ -123,8 +150,8 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | --- | --- | --- |
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
-| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | plan: frozen. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a IMPLEMENTED CANDIDATE. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
-| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, and the zero-MTR behaviour is DECIDED (candidate B, the mandatory canonical zero-leaf proof). What still holds this entry short of frozen: task 1.15's shared per-value leaf vectors, and two plan-derived relations the ABI does not yet DEFINE -- `range_root_sha256` does not say what it is a root OF, and no field states whether a plan admits MTR, so "32 zero bytes means none admitted" is unwritten rather than merely unchecked. Both are normative meanings owed by task 1.3; implementing a consumer that verifies them is downstream and does NOT gate this entry. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | PLAN: the range/page/header preimages CHANGED in this change (`mtr_ordinal_count` added, retired `assignment_epoch` removed), so they are an IMPLEMENTED CANDIDATE, not frozen -- `PlanDigestVersion` stays 1 only because nothing has shipped against them. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a IMPLEMENTED CANDIDATE. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, and the zero-MTR behaviour is DECIDED (candidate B, the mandatory canonical zero-leaf proof). What still holds this entry short of frozen: ONLY task 1.15's shared per-value leaf vectors. Both previously-undefined plan-derived relations are RESOLVED -- `range_root_sha256` is RETIRED (tag 20, reserved by number and name) in favour of the assignment record's resolvable `target_range_id` + `target_range_sha256`, and the required `SweepMtrExpectationV1` STATES the admitted ordinal count, so "32 zero bytes means none admitted" is written down and checkable in both directions. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
 authorization, merge, or logical-content grammar, and there is no decode ->
@@ -149,9 +176,14 @@ Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
 RESOLVED-scope entries now describe the IMPLEMENTED CANDIDATE transcript -- landed
 is not shipped, and task 1.7 is still what accepts it), and task 1.4's disposition
 sub-target is DECLARED. What still holds those entries and the
-MTR-completion entry short of frozen is task 1.7, the freeze gate, plus the items
-it carries: task 1.15's shared per-value vectors and the 1.3-dependent plan-derived
-relations. The zero-MTR decision is CLOSED (candidate B). "TombstoneScopeDigest
+MTR-completion entry short of frozen is task 1.7, the freeze gate, which carries EVERY
+UNCHECKED LOCAL TASK -- currently 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 and 1.15. Earlier
+revisions named first only 1.15 and then only 1.3/1.5/1.6/1.15; both understated the
+gate, which is why this now states the RULE (all unchecked local tasks) rather than a
+list that goes stale as tasks close. The zero-MTR decision is
+CLOSED (candidate B), and the plan-derived relations are RESOLVED and verified by
+`ValidateAssignmentAgainstPlan` and its Elixir peer -- listing them as a blocker here
+was stale. "TombstoneScopeDigest
 retired" means the OLD TRANSCRIPT is replaced -- the scope OBJECT itself remains,
 and stays in task 1.6's proof inventory; task 1.7 is the freeze gate and
 carries those prerequisites explicitly. Reading the appendix title as "everything
@@ -316,21 +348,46 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    - RangeDigest (plan.go, excl `range_sha256`): `str "serviceradar.edge.plan.range.v1"`,
      `version` (u64), `range_id` (bytes), `cidr` (str), `first_address` (str), `last_address`
      (str), `target_count` (u64), `check_set_sha256` (bytes), `availability_policy_id`
-     (bytes), `mtr_admission_budget` (u64).
+     (bytes), `mtr_admission_budget` (u64), `mtr_ordinal_count` (u64).
+     PRESENCE-MARKER EXCEPTION, stated because Appendix A's general rule gives every
+     `optional` field a 1-byte marker: `mtr_ordinal_count` is hashed as a BARE u64 with
+     NO marker, so an absent count hashes identically to an explicit zero. That
+     collision is tolerable ONLY because absence is REJECTED BEFORE ADMISSION -- note
+     the ordering: `RangeDigest` will happily hash an absent count as 0, and it is
+     `PlanMtrWindows` that refuses the range afterwards, so no absent-count plan is ever
+     admitted even though one can be hashed. The proto keeps `optional` solely so the
+     validator can tell absent from zero. An implementation that hashes without
+     validating would NOT be protected by the digest here.
    - PlanPageDigest (plan.go, excl `page_sha256`): `str "serviceradar.edge.plan.page.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_index` (u64), `page_count`
      (u64), `prev_page_sha256` (bytes), `check_set_sha256` (bytes), `len(ranges)` (u64), then
      EACH range inlined in order (`range_id`, `range_sha256`, `cidr`, `first_address`,
      `last_address`, `target_count`, `check_set_sha256`, `availability_policy_id`,
-     `mtr_admission_budget` -- the page commits each range's `range_sha256`, unlike
-     RangeDigest itself).
+     `mtr_admission_budget`, `mtr_ordinal_count` -- the page commits each range's
+     `range_sha256`, unlike RangeDigest itself).
    - PlanRoot (excl `plan_root_sha256`): `str "serviceradar.edge.plan.root.v1"`, `version`
      (u64), `len(pages)` (u64), then each `page_sha256` (bytes) in order.
    - PlanHeaderDigest (excl `execution_plan_sha256`): `str "serviceradar.edge.plan.header.v1"`,
      `digest_version` (u64), `execution_plan_id` (bytes), `page_count` (u64),
      `total_target_count` (u64), `plan_root_sha256` (bytes), `check_set_sha256` (bytes),
-     `availability_policy_id` (bytes), `assignment_epoch` (u64), `network_scope_id` (bytes),
-     `mtr_ordinal_range_commitment` (bytes).
+     `availability_policy_id` (bytes), `network_scope_id` (bytes),
+     `mtr_ordinal_range_commitment` (bytes). NOTE: `assignment_epoch` (tag 9) is RETIRED
+     and is NOT hashed -- an immutable plan must not commit a value that reassignment
+     advances without changing the plan.
+   - MTR ORDINAL WINDOWS (frozen derivation, not a digest). Each plan range owns one
+     CONTIGUOUS plan-global window. The offset is the PREFIX SUM of `mtr_ordinal_count`
+     over the ranges that PRECEDE it in plan order -- pages by ascending `page_index`,
+     ranges in their committed order within a page. The first range's offset is 0.
+     A range's window commitment is the additive multiset fold of
+     `mtrMemberHash(offset + i, range_sha256)` for i in 1..`mtr_ordinal_count`, and the
+     plan-wide `mtr_ordinal_range_commitment` is the additive SUM of every range's
+     window commitment. Completion-leaf ordinals remain LOCAL (`{1..count}`); ONLY the
+     membership accumulator is shifted by the offset. Without this derivation frozen, a
+     clean-room implementation would produce different windows from the same plan.
+
+     GRAMMAR VERSION: these entries change the v1 preimages. `PlanDigestVersion` stays 1
+     because the plan grammar is an UNSHIPPED CANDIDATE -- no producer emits it and no
+     fixture predates this change. Any later edit, once shipped, is a version bump.
    - **RETIRED — replaced atomically by task 1.6a, which has LANDED.** The
      ManifestPageDigest entry below hashes the `lost_ranges` + `affected` pair,
      which 1.6a replaced with ONE ordered `classification_spans` list. Nothing had
@@ -389,8 +446,12 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    attributes, so this framing now DOES describe the code and it supersedes #4713's
    local declarations. STILL CANDIDATE for reasons that are NOT the enum and NOT
    zero-MTR (decided: candidate B, implemented in both runtimes): task 1.15 owes the
-   shared per-value leaf vectors, and the plan-derived relations are unverifiable
-   until 1.3 lands an authoritative assignment carrier. Framing below
+   shared per-value leaf vectors. That is the ONLY remaining reason. The plan-derived
+   relations are NOT unverifiable -- an earlier revision said so and was wrong: the
+   assignment carrier EXISTS (`SweepAssignmentRecordV1`), and
+   `ValidateAssignmentAgainstPlan` plus its Elixir peer VERIFY them today by
+   recomputing the expectation from committed plan data, over a plan each runtime
+   validates first. Framing below
    (domain.go:706-847):
    - leaf element (`mtrLeafHash`): `version` (u64 = 2), `ordinal` (u64), `disposition`
      (u64, the generated enum's int32 widened to u64 -- zero, negative and

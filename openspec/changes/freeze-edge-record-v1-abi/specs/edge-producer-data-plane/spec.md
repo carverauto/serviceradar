@@ -1013,10 +1013,151 @@ not an implementation-time choice between alternatives.
 - **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
   the Appendix A transcript SHALL already be frozen
 
+### Requirement: The authoritative assignment record owns the MTR expectation
+An append-only, SCHEDULER-authored `SweepAssignmentRecordV1` SHALL be the authority
+for what an assignment attempt was authorized to cover. Every record SHALL carry a
+REQUIRED `SweepMtrExpectationV1` submessage holding BOTH `ordinal_count` AND
+`ordinal_range_commitment`.
+
+An ABSENT expectation SHALL be rejected and SHALL NOT be read as zero. Zero is an
+assignment that admits no MTR and still owes the canonical zero-leaf completion
+proof; absent is a record that never stated what it expected, and treating the two
+alike turns a missing authority into an implicit waiver.
+
+`ordinal_count == 0` and a 32-ZERO-byte `ordinal_range_commitment` SHALL be required
+to agree in BOTH directions. This biconditional is what makes the zero-MTR rule
+CHECKABLE: the commitment is an additive multiset hash and cannot be inverted to a
+count, so without a carried count "32 zero bytes means no MTR admitted" is
+unfalsifiable.
+
+The count SHALL be CARRIED, never DERIVED. It SHALL NOT be taken from the producer's
+`SweepExecutionEventV1` counters (producer-self-reported, the hole the mandatory
+completion proof closes), from `ordinal_range_commitment` (not invertible), or from
+`TargetRangeV1.mtr_admission_budget` (a CEILING, not an exact count).
+
+A completion proof for an assignment attempt SHALL verify against THAT ASSIGNMENT's
+expectation. `ScheduledPlanHeaderV1.mtr_ordinal_range_commitment` remains the
+PLAN-WIDE commitment and SHALL NOT be used as the per-attempt authority: a plan may
+be divided across assignments, so the two are equal only when one assignment covers
+the whole plan.
+
+An assignment SHALL cover EXACTLY ONE plan range in v1 and SHALL name it directly as
+`target_range_id` + `target_range_sha256`, both REQUIRED. It SHALL NOT be a
+self-reported field of the producer's lifecycle event, and it SHALL NOT be an opaque
+set commitment: a non-invertible digest cannot say WHICH ranges were assigned, so it
+would be verifiable only for length. The retired `range_root_sha256` (tag 20,
+reserved by number and name) was exactly that defect on the lifecycle event.
+
+FROZEN v1 ORDINAL MODEL. Each plan range SHALL own ONE CONTIGUOUS plan-global ordinal
+window. `TargetRangeV1` SHALL carry the EXACT admitted MTR count with REQUIRED
+PRESENCE (0 legal and distinct from absent); `mtr_admission_budget` remains a CEILING
+only and the count SHALL NOT exceed it, nor SHALL the count ever be DERIVED from it.
+`SweepMtrExpectationV1` SHALL carry `plan_ordinal_offset` with REQUIRED PRESENCE,
+because offset 0 is the first range's legal window and MUST be distinguishable from
+an unset field. Completion-leaf ordinals SHALL remain LOCAL `{1..ordinal_count}`; the
+plan-global ordinal is `plan_ordinal_offset + local_ordinal`, and membership SHALL be
+hashed as `(plan_ordinal_offset + local_ordinal, target_range_sha256)`. In v1 a retry
+or supersession SHALL replay the SAME COMPLETE range window; sparse remainders and
+fan-out splitting are NOT v1 and require a bounded subset representation with its own
+frozen grammar.
+
+BOTH the assignment's `ordinal_range_commitment` AND the plan header's plan-wide
+`mtr_ordinal_range_commitment` SHALL be RECOMPUTED from committed plan data and
+compared, never accepted as carried bytes. The count and the range digest DETERMINE
+the assignment value, and the plan-wide value is the ADDITIVE SUM of every range's
+window -- which is what makes a split plan verifiable without renumbering any
+attempt. A carried value nothing derives is self-asserted authority.
+
+The TOTAL admitted MTR ordinals across ONE plan SHALL NOT exceed
+`MaxPlanMtrOrdinals = 1048576` (2^20), and every implementation SHALL enforce it.
+This is a WORK ceiling distinct from `MaxMtrCompletionOrdinals` (2^31), which bounds
+what the ordinal space can REPRESENT: recomputing a commitment costs one hash per
+ordinal, so without this bound a compact plan could demand billions of SHA-256
+operations inside a validator. The bound SHALL be decided BEFORE any hashing, so an
+over-budget plan costs a walk rather than a fold. A ceiling enforced in only one
+runtime is a DIVERGENCE, not a safeguard, so shared vectors SHALL cover exactly the
+limit (accepted) and the limit plus one (rejected).
+
+The relation SHALL reject: ordinal-space overflow; a plan total over
+`MaxPlanMtrOrdinals`; an `ordinal_count` that is not the
+selected range's admitted count; a count exceeding the range's admission budget; an
+absent or wrong `plan_ordinal_offset`; a commitment that is not the recomputed window;
+and a range identity whose digest is not the plan's.
+
+The plan header SHALL NOT commit an assignment epoch. `assignment_epoch` (tag 9) is
+RETIRED and reserved by number and name: the plan is IMMUTABLE while reassignment
+ADVANCES the epoch without changing the plan, so committing it inside the plan's
+content-addressed header made the two contradict each other. The monotonic authority
+epoch lives on assignment records and capabilities.
+
+#### Scenario: A second, non-prefix assignment is representable
+- **WHEN** a plan's ranges are assigned separately and a later range's window does not
+  start at ordinal 1
+- **THEN** its assignment SHALL carry that window's `plan_ordinal_offset`
+- **AND** its completion-leaf ordinals SHALL still be exactly `{1..ordinal_count}`
+
+#### Scenario: The expectation is recomputed, not trusted
+- **WHEN** an assignment carries an `ordinal_range_commitment` that is not the window
+  recomputed from the selected plan range
+- **THEN** the relation SHALL be rejected
+
+#### Scenario: The plan work ceiling is enforced by every runtime
+- **WHEN** a plan's total admitted MTR ordinals exceed `MaxPlanMtrOrdinals`
+- **THEN** EVERY runtime SHALL reject it
+- **AND** the verdict SHALL be reached without computing the commitment
+
+#### Scenario: The budget is a ceiling, never a count
+- **WHEN** a range's admitted MTR count exceeds its `mtr_admission_budget`
+- **THEN** the plan SHALL be rejected
+- **AND** the count SHALL NOT be derived from the budget
+
+#### Scenario: An absent ordinal offset is not offset zero
+- **WHEN** an expectation omits `plan_ordinal_offset`
+- **THEN** it SHALL be rejected rather than read as the first range's window
+
+#### Scenario: The plan header commits no assignment epoch
+- **WHEN** reassignment advances the authority epoch
+- **THEN** the immutable plan's identity SHALL NOT change
+
+`record_sequence` SHALL start at 1 and strictly increase per
+`producer_assignment_id`; a state change SHALL be a NEW record, never an edit.
+`superseded_by_assignment_id` SHALL be present EXACTLY when the state is
+`SUPERSEDED`, and SHALL NOT name the record itself.
+
+#### Scenario: An absent expectation is not zero
+- **WHEN** an assignment record carries no `mtr_expectation`
+- **THEN** it SHALL be rejected
+- **AND** it SHALL NOT be treated as admitting zero MTR ordinals
+
+#### Scenario: Count and commitment agree in both directions
+- **WHEN** `ordinal_count` is 0 and the commitment is not 32 zero bytes, or the
+  commitment is 32 zero bytes and `ordinal_count` is not 0
+- **THEN** the record SHALL be rejected
+
+#### Scenario: The per-attempt authority is the assignment, not the plan
+- **WHEN** a completion proof is verified for an assignment attempt
+- **THEN** the expected count and commitment SHALL come from that assignment's
+  expectation
+- **AND** the plan header's commitment SHALL NOT be substituted for it
+
+#### Scenario: An append-only record is never edited
+- **WHEN** an assignment changes state
+- **THEN** a NEW record with a higher `record_sequence` SHALL be appended
+- **AND** `record_sequence` 0 SHALL be rejected
+
+#### Scenario: A supersede link is exact
+- **WHEN** a record's state is not `SUPERSEDED` but it names a successor, or its
+  state is `SUPERSEDED` and it names none or names itself
+- **THEN** it SHALL be rejected
+
 ### Requirement: A zero-MTR completion is a mandatory canonical proof, not an absence
 Every `SWEEP_EXECUTION_EVENT_KIND_COMPLETED` event SHALL carry a completion proof --
-`mtr_completion_digest_version`, `mtr_completion_digest`, `plan_root_sha256`, and
-`range_root_sha256` -- INCLUDING when the plan admits no MTR targets. A plan admitting
+`mtr_completion_digest_version`, `mtr_completion_digest`, and `plan_root_sha256` --
+INCLUDING when the plan admits no MTR targets. It SHALL NOT carry a range root:
+`range_root_sha256` (tag 20) is RETIRED and reserved by number and name, because a
+range binding the PRODUCER asserts about its own attempt is not evidence. The
+authoritative range binding is the assignment record's `target_range_id` +
+`target_range_sha256`, which resolve against the committed plan. A plan admitting
 no MTR targets SHALL carry the CANONICAL ZERO-LEAF proof: `MtrCompletionDigestVersion
 = 2`, `expected = 0`, no leaves, all three accumulators the 32-byte zero value, and the
 ordinary root framing `SHA-256(version || expected || plan_root_sha256 ||
@@ -1028,9 +1169,10 @@ bytes -- and SHALL NOT carry empty bytes. Empty bytes would be a second spelling
 "no MTR" that no comparison can distinguish from an omitted commitment, and the
 zero-leaf proof verifies its (zero) member accumulator against exactly this field.
 
-The expected ordinal count and the commitment SHALL be taken from VALIDATED PLAN AND
-ASSIGNMENT STATE, never from the event's own `expected_mtr_*` / `emitted_mtr_*`
-counters. Those counters are producer-reported: allowing them to establish "expected
+The expected ordinal count and the commitment SHALL be taken from the ASSIGNMENT
+RECORD's required `SweepMtrExpectationV1` (see "The authoritative assignment record
+owns the MTR expectation"), never from the event's own `expected_mtr_*` /
+`emitted_mtr_*` counters. Those counters are producer-reported: allowing them to establish "expected
 0" would let a producer waive its own evidence, which is precisely what this
 requirement exists to prevent. Field-shape validation alone SHALL NOT be treated as
 verification -- it cannot distinguish a correct proof from a well-formed wrong one.
@@ -1158,9 +1300,28 @@ must hold and forward, which is the received size.
 This applies to every paged contract that declares a ceiling, including the
 recovery manifest page and the scheduler plan page.
 
+The scheduler plan page's ceiling is `MaxPlanPageBytes` = 128 KiB, frozen in the
+bounds table alongside the record/frame bounds.
+
+A validator that accepts DECODED messages cannot enforce this: the received bytes are
+already gone by the time it runs. Every such contract SHALL therefore be enforced at a
+boundary that sees the RECEIVED BYTES and bounds them BEFORE decoding, and that
+boundary SHALL be the authoritative one. A size check computed from a decoded message
+SHALL NOT be presented as enforcing the physical ceiling; it is at best a coarse guard
+for callers that legitimately hold decoded structs.
+
+WHICH function each runtime exposes for that boundary, and at which hop it runs, is
+RUNTIME -- this requirement freezes the VALUE and the RULE, not API names. (The
+current implementations are noted in the task list, not here.)
+
 #### Scenario: Bloated page is refused
 - **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
 - **THEN** the page SHALL be rejected
+
+#### Scenario: The authoritative boundary takes raw bytes
+- **WHEN** a runtime enforces a paged contract's physical ceiling
+- **THEN** it SHALL do so on the received bytes, before decoding
+- **AND** a decoded-struct size check SHALL NOT be presented as that enforcement
 
 ### Requirement: An attributed span carries one frozen assignment identity
 An `ATTRIBUTED_ACTIVE` or `ATTRIBUTED_PASSIVE` span SHALL carry exactly ONE
@@ -1315,10 +1476,18 @@ sequence intervals are adjacent and their classification matches.
 ### Requirement: The assignment mapping's key is the frozen span identity
 The durable assignment mapping's KEY SHALL be the ordered pair `(trust_namespace, span_identity)`, frozen here because the attributed span omits execution and plan identity on the strength of it.
 
-This ABI change freezes the KEY and the tagged VALUE shape only. Whether such a
-mapping EXISTS, and everything it then does, is downstream runtime work with its
-own task -- this requirement SHALL NOT be read as asserting the mapping's
-existence, which would make an ABI change depend on runtime it does not own.
+This ABI change freezes the KEY ONLY. Whether such a mapping EXISTS, and everything
+it then does, is downstream runtime work with its own task -- this requirement SHALL
+NOT be read as asserting the mapping's existence, which would make an ABI change
+depend on runtime it does not own.
+
+The tagged VALUE is explicitly NOT frozen here, and ownership of it moves DOWNSTREAM.
+An earlier revision claimed both, which contradicted the proposal and task list and,
+more importantly, was not backed by anything: no message in this change represents a
+POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason, so "frozen" described
+prose rather than a contract. The paragraph below therefore states what such a value
+must eventually distinguish, as GUIDANCE for the downstream task that owns it, not as
+a frozen shape.
 
 The key SHALL be the ordered pair `(trust_namespace, span_identity)`:
 
@@ -1346,11 +1515,11 @@ identity as defined does NOT include the trust namespace, while the key must, so
 that phrasing permits two incompatible implementations. The pair is explicit for
 that reason.
 
-The VALUE SHALL be a TAGGED body: POSITIVE (execution, plan, and range identities
-and digests, shard, epoch, and the contract-specific correlation operand) or
-EXPLICIT NEGATIVE (durable negative evidence and reason, no positive-only fields).
-A single untagged schema cannot express both, because a durable negative means
-there is no execution.
+GUIDANCE FOR THE DOWNSTREAM OWNER (not frozen here): the value will need to be a
+TAGGED body -- POSITIVE (execution, plan, and range identities and digests, shard,
+epoch, and the contract-specific correlation operand) or EXPLICIT NEGATIVE (durable
+negative evidence and reason, no positive-only fields). A single untagged schema
+cannot express both, because a durable negative means there is no execution.
 
 Its DURABLE STORAGE, replay and repair state machine, conflict resolution,
 retention, garbage collection, and lookup-outcome transitions are DOWNSTREAM and
@@ -1367,7 +1536,7 @@ them alongside the wire ABI is what made the predecessor change unreviewable.
 - **AND** a key built from the span identity ALONE SHALL be rejected: the span
   identity does not include the trust namespace
 
-#### Scenario: A durable negative is representable
-- **WHEN** an assignment has no scheduler execution
-- **THEN** the mapping SHALL be able to record an explicit negative
-- **AND** SHALL NOT require fabricating positive-only fields
+#### Scenario: The value shape is not frozen by this change
+- **WHEN** a reader asks what this ABI change froze about the mapping
+- **THEN** it SHALL be the KEY only
+- **AND** the tagged value's shape SHALL be owned downstream

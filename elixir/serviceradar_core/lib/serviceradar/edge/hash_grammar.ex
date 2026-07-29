@@ -156,7 +156,12 @@ defmodule ServiceRadar.Edge.HashGrammar do
       u64(r.target_count),
       bytes(r.check_set_sha256),
       bytes(r.availability_policy_id),
-      u64(r.mtr_admission_budget)
+      u64(r.mtr_admission_budget),
+      # The EXACT admitted MTR count is part of the range's CONTENT: an assignment
+      # binds to `range_sha256`, so leaving the window width outside the digest would
+      # let two ranges share an identity while admitting different ordinal counts.
+      # Absent presence hashes as 0, matching Go's zero-value getter.
+      u64(r.mtr_ordinal_count || 0)
     ]
 
     :crypto.hash(:sha256, io)
@@ -183,7 +188,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
           u64(r.target_count),
           bytes(r.check_set_sha256),
           bytes(r.availability_policy_id),
-          u64(r.mtr_admission_budget)
+          u64(r.mtr_admission_budget),
+          u64(r.mtr_ordinal_count || 0)
         ]
       end)
     ]
@@ -214,7 +220,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
       bytes(h.plan_root_sha256),
       bytes(h.check_set_sha256),
       bytes(h.availability_policy_id),
-      u64(h.assignment_epoch),
+      # tag 9 (assignment_epoch) RETIRED: an immutable plan must not commit a value
+      # that reassignment advances without changing the plan.
       bytes(h.network_scope_id),
       bytes(h.mtr_ordinal_range_commitment)
     ]
@@ -275,7 +282,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
   # leaf is `{ordinal, disposition, trace_id, range_sha256}`, the disposition
   # being a `Serviceradar.Edge.V1.MtrCompletionDisposition` value.
   #
-  # PRIVATE on purpose, and reached ONLY from `mtr_completion_verify/4` once every
+  # PRIVATE on purpose, and reached ONLY from `mtr_completion_verify/5` once every
   # leaf has been validated. Go exports no unvalidated hasher --
   # `edgerecord.MtrCompletionRoot` folds through the accumulator, whose `Add`
   # rejects a bad disposition BEFORE it is widened to u64 and hashed. A public raw
@@ -300,6 +307,102 @@ defmodule ServiceRadar.Edge.HashGrammar do
       bytes(commitment),
       bytes(acc)
     ])
+  end
+
+  # MaxPlanMtrOrdinals peer (Go: edgerecord.MaxPlanMtrOrdinals). Bounds the TOTAL
+  # admitted MTR ordinals across ONE plan so that recomputing a commitment is bounded
+  # WORK. Distinct from @max_mtr_ordinals, which bounds what the ordinal space can
+  # REPRESENT. A Go-only ceiling would mean a plan Go rejects and Elixir accepts.
+  @max_plan_mtr_ordinals 1_048_576
+
+  @doc """
+  Plan-global ordinal WINDOWS: each range's contiguous window offset, as the PREFIX
+  SUM of `mtr_ordinal_count` over the ranges preceding it in plan order (pages by
+  index, ranges as committed).
+
+  Peer of Go's `edgerecord.PlanMtrWindows`. Returns `:error` without hashing anything
+  when a range omits its REQUIRED count, a count exceeds its admission-budget CEILING,
+  a range id repeats, or the plan's total exceeds the work ceiling.
+  """
+  @spec plan_mtr_windows([map()]) :: {:ok, %{binary() => non_neg_integer()}, non_neg_integer()} | :error
+  def plan_mtr_windows(pages) do
+    pages
+    |> Enum.flat_map(& &1.ranges)
+    |> Enum.reduce_while({:ok, %{}, 0}, fn r, {:ok, windows, next} ->
+      cond do
+        # REQUIRED PRESENCE: an absent count is not zero, it is a plan that never
+        # stated its window.
+        is_nil(r.mtr_ordinal_count) -> {:halt, :error}
+        r.mtr_ordinal_count > (r.mtr_admission_budget || 0) -> {:halt, :error}
+        Map.has_key?(windows, r.range_id) -> {:halt, :error}
+        next + r.mtr_ordinal_count > @max_plan_mtr_ordinals -> {:halt, :error}
+        true -> {:cont, {:ok, Map.put(windows, r.range_id, next), next + r.mtr_ordinal_count}}
+      end
+    end)
+  end
+
+  @doc """
+  The additive multiset commitment for ONE plan range's ordinal window: the members
+  `(offset + i, range_sha256)` for i in 1..count.
+
+  Peer of Go's `edgerecord.MtrWindowCommitment`. It is RECOMPUTED from committed plan
+  data, never trusted as carried bytes -- the count and the range digest determine it
+  exactly, so accepting whatever an assignment carried would leave the per-attempt MTR
+  authority self-asserted.
+  """
+  @spec mtr_window_commitment(non_neg_integer(), non_neg_integer(), binary()) :: binary() | :error
+  def mtr_window_commitment(offset, count, range_sha256)
+      when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
+             count <= @max_plan_mtr_ordinals and
+             offset <= @max_plan_mtr_ordinals - count and
+             is_binary(range_sha256) and byte_size(range_sha256) == 32 do
+    # `1..count//1` for the same reason the completion fold uses it: an unstepped
+    # `1..0` is a DESCENDING range that iterates [1, 0].
+    Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
+      add256(acc, member_hash(offset + i, range_sha256))
+    end)
+  end
+
+  # A window that ends past the plan work ceiling (or is otherwise out of bounds) is
+  # REJECTED rather than folded. Go bounds the window END the same way, so a
+  # `(offset = ceiling, count = 1)` window is refused by both runtimes.
+  def mtr_window_commitment(_offset, _count, _range_sha256), do: :error
+
+  @doc """
+  The PLAN-WIDE commitment: the additive sum of every range's window commitment, in
+  plan order (pages by index, ranges as committed).
+
+  Peer of Go's `edgerecord.PlanMtrOrdinalRangeCommitment`. Because the multiset hash is
+  additive, the plan-wide value is exactly the sum of the per-assignment window values
+  -- which is what makes a SPLIT plan verifiable while each attempt keeps its
+  completion-leaf ordinals local to `{1..ordinal_count}`.
+  """
+  @spec plan_mtr_ordinal_range_commitment([map()]) :: {:ok, binary()} | :error
+  def plan_mtr_ordinal_range_commitment(pages) do
+    # Bounds are checked for the WHOLE plan BEFORE a single hash: an over-budget plan
+    # must cost a walk, not a fold. A bound failure is a TYPED rejection, not a raised
+    # MatchError -- a caller cannot pattern-match on a crash, and Go returns an error
+    # here, so raising would make the two runtimes disagree about what "rejected" is.
+    case plan_mtr_windows(pages) do
+      :error ->
+        :error
+
+      {:ok, _windows, _total} ->
+        pages
+        |> Enum.flat_map(& &1.ranges)
+        |> Enum.reduce_while({<<0::256>>, 0}, fn r, {acc, offset} ->
+          count = r.mtr_ordinal_count || 0
+
+          case mtr_window_commitment(offset, count, r.range_sha256) do
+            :error -> {:halt, :error}
+            window -> {:cont, {add256(acc, window), offset + count}}
+          end
+        end)
+        |> case do
+          :error -> :error
+          {acc, _offset} -> {:ok, acc}
+        end
+    end
   end
 
   @doc "The plan's authenticated (ordinal, range_sha256) commitment (additive multiset hash)."
@@ -335,24 +438,27 @@ defmodule ServiceRadar.Edge.HashGrammar do
   @spec mtr_completion_verify(
           [{non_neg_integer(), integer(), binary() | nil, binary()}],
           non_neg_integer(),
+          non_neg_integer(),
           binary(),
           binary()
         ) ::
           {:ok, binary()} | :error
-  def mtr_completion_verify(leaves, expected, plan_root, commitment) do
+  def mtr_completion_verify(leaves, plan_ordinal_offset, expected, plan_root, commitment) do
     # Count-first bounds (mirrors Go) BEFORE the O(expected) canonical pass, then
     # per-leaf validation, then exact-set coverage + ordinal->range membership.
     cond do
       not (is_integer(expected) and expected >= 0 and expected <= @max_mtr_ordinals) -> :error
+      not (is_integer(plan_ordinal_offset) and plan_ordinal_offset >= 0) -> :error
+      plan_ordinal_offset > @max_mtr_ordinals - expected -> :error
       not (is_binary(plan_root) and byte_size(plan_root) == 32) -> :error
       not (is_binary(commitment) and byte_size(commitment) == 32) -> :error
       length(leaves) != expected -> :error
       not Enum.all?(leaves, &valid_completion_leaf?(&1, expected)) -> :error
-      true -> verify_coverage(leaves, expected, plan_root, commitment)
+      true -> verify_coverage(leaves, plan_ordinal_offset, expected, plan_root, commitment)
     end
   end
 
-  defp verify_coverage(leaves, expected, plan_root, commitment) do
+  defp verify_coverage(leaves, plan_ordinal_offset, expected, plan_root, commitment) do
     ordinal_acc =
       Enum.reduce(leaves, <<0::256>>, fn {ord, _, _, _}, acc -> add256(acc, ordinal_hash(ord)) end)
 
@@ -365,7 +471,15 @@ defmodule ServiceRadar.Edge.HashGrammar do
     canonical =
       Enum.reduce(1..expected//1, <<0::256>>, fn i, acc -> add256(acc, ordinal_hash(i)) end)
 
-    member_acc = mtr_ordinal_range_commitment(leaves)
+    # MEMBERSHIP is folded over PLAN-GLOBAL ordinals, because that is what the
+    # assignment's commitment was built over. Leaf hashes and the coverage
+    # accumulator stay LOCAL: the leaf grammar and the exact-set `{1..expected}` check
+    # are frozen. Only this accumulator is compared against a plan-derived value, so
+    # only this one shifts.
+    member_acc =
+      Enum.reduce(leaves, <<0::256>>, fn {ord, _, _, range}, acc ->
+        add256(acc, member_hash(plan_ordinal_offset + ord, range))
+      end)
 
     if ordinal_acc == canonical and member_acc == commitment do
       {:ok, mtr_completion_root(leaves, expected, plan_root, commitment)}

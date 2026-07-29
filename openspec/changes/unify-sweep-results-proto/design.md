@@ -607,8 +607,9 @@ bounded pages and a plan root, never one database value, config blob, or command
 containing every target. Page fetch, validation, caching, and assignment are
 byte/count bounded. Assignment attempts are not part of that immutable plan: the
 scheduler appends separate authoritative attempt records with agent, page/range,
-epoch, lease/fence generation, remaining coverage, and state. This permits
-retries that did not exist when the plan was created.
+epoch, lease/fence generation, the covered range window, and state. This permits
+retries that did not exist when the plan was created. A retry covers the WHOLE
+window, never a partial remainder -- see the whole-window rule below.
 
 Each assignment attempt has exactly one sweep-data batch sequence space,
 starting at one and allocated contiguously when batches become durable even when
@@ -629,8 +630,11 @@ carry plan identity, assignment epoch, terminal batch sequence, cumulative
 counts, scanner/banner summary, and expected/emitted MTR-summary and trace
 counts/digests. If the agent disappears or cannot durably write its terminal,
 the scheduler fences the attempt and atomically records an authoritative
-`expired`, `superseded`, `lost`, or `aborted` terminal state before assigning
-remaining coverage. Overall execution state is reconciled from the immutable
+`expired`, `superseded`, `lost`, or `aborted` terminal state before REASSIGNING THE
+WHOLE RANGE WINDOW. v1 cannot express a sparse remainder: an assignment holds one
+CONTIGUOUS plan-global ordinal window and its completion proof requires exactly
+`{1..ordinal_count}`, so "what is left" has no representation. Narrowing coverage
+needs the deferred bounded-subset grammar, not a smaller `ordinal_count`. Overall execution state is reconciled from the immutable
 plan, append-only authoritative attempt records, and agent evidence; no
 distributed agent authors a global completion record.
 
@@ -717,7 +721,8 @@ The scanner specialization changes from whole-run snapshot delivery:
    shard/range has closed, including terminal batch sequence, cumulative counts,
    and expected/emitted MTR trace reconciliation data. If that is impossible,
    scheduler lease/fence recovery terminalizes the attempt as lost/superseded and
-   preserves missing coverage for retry.
+   REASSIGNS THE WHOLE RANGE WINDOW for retry. v1 has no partial-remainder input: the
+   window is contiguous and is replayed complete.
 
 The data plane is continuously pipelined: scanning, encoding, spooling, gRPC
 transmission, JetStream persistence, consumption, and database projection may
@@ -913,7 +918,8 @@ fencing, per-segment copy, recovery publication, and physical deletion, and
 startup resumes any phase idempotently. A dedicated recovery consumer atomically
 stores the loss audit, marks affected attempts/ranges partial or lost, fences
 unsafe authority, and invokes the contract-specific partialization/retry action
-(for example, remaining sweep coverage) before ACKing the completed recovery
+(for sweep, REASSIGNING THE WHOLE AFFECTED RANGE WINDOW -- v1 has no
+partial-remainder retry) before ACKing the completed recovery
 state. Recovery state and lag are operator-visible
 and retained beyond the recovery stream's replay window. This is explicit
 acknowledged data-loss handling, not a success disposition for the missing
@@ -1415,7 +1421,8 @@ Stable keys and fencing rules include:
   (committing `payload_sha256`), host/mode counts, and projected rows;
 - agent terminal slot: network scope + execution ID + execution shard + assignment
   epoch, immutably bound to terminal kind, event ID, closed batch interval,
-  counts, outcomes, and versioned MTR range roots.
+  counts, outcomes, and the versioned MTR COMPLETION digest. (There is no MTR range
+  root: `range_root_sha256` is RETIRED, tag 20 reserved.)
 
 Governed cluster-local publishers that reach the same authoritative
 record/projector contract through a direct JetStream publisher use a
@@ -1577,8 +1584,9 @@ fields; reusing an existing network-scope trace ID for another target/context is
 Reachability projection may complete first, but the execution exposes MTR
 `pending`, `projected`, `failed`, `missing`, or `quarantined` counts and is not
 fully reconciled until its authoritative plan/attempt state and terminal
-evidence's expected binding count/digest are satisfied, remaining coverage is
-retried, or every missing trace has an explicit terminal disposition.
+evidence's expected binding count/digest are satisfied, the affected range's WHOLE
+window is reassigned and replayed, or every missing trace has an explicit terminal
+disposition. There is no partial-remainder retry input in v1.
 
 The source MTR transaction also inserts an idempotent graph-outbox row keyed by
 `(network_scope_id, trace_id, graph_schema_version)` before the JetStream delivery is
@@ -1951,7 +1959,7 @@ them — puts the decision somewhere that cannot see what it is deciding about.
 
 | Failure | Required behavior |
 |---|---|
-| Agent crash | Replay the fsynced spool with original IDs/sequences; if terminal evidence never arrives, the scheduler terminalizes/fences the attempt and retries remaining coverage. |
+| Agent crash | Replay the fsynced spool with original IDs/sequences; if terminal evidence never arrives, the scheduler terminalizes/fences the attempt and REASSIGNS THE WHOLE RANGE WINDOW. v1 cannot represent a sparse remainder -- an assignment's MTR expectation is one contiguous plan-global window -- so a retry replays the complete window. |
 | Gateway/link failure before PubAck | Do not ACK; reconnect and replay. |
 | PubAck succeeds but edge ACK is lost | Replay same event ID; broker/DB deduplicate. |
 | JetStream unavailable or full | Stop ACK progress; retain at agent and apply backpressure. |

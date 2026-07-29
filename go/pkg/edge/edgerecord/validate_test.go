@@ -1085,6 +1085,8 @@ func enumPolicyContexts() []enumPolicyContext {
 	protocolEnum := edgev1.TransportProtocol(0).Descriptor()
 	mtrEnum := edgev1.MtrOutcome(0).Descriptor()
 	modeOutcomeEnum := edgev1.SweepModeOutcome(0).Descriptor()
+	assignmentStateEnum := edgev1.SweepAssignmentState(0).Descriptor()
+	assignmentState := func(v int32) bool { return knownAssignmentState(edgev1.SweepAssignmentState(v)) }
 
 	return []enumPolicyContext{
 		// --- record plane ---
@@ -1106,6 +1108,7 @@ func enumPolicyContexts() []enumPolicyContext {
 
 			return false
 		}},
+		{"SweepAssignmentRecordV1.state", assignmentStateEnum, assignmentState},
 		{"EdgeRecordLaneOpen.route_profile", routeEnum, route},
 		{"EdgeRecordLaneOpen.traffic_class", trafficEnum, traffic},
 		{"EdgeRecordLaneOpenAck.route_profile", routeEnum, route},

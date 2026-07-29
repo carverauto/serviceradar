@@ -538,6 +538,73 @@ func (SweepExecutionEventKind) EnumDescriptor() ([]byte, []int) {
 	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{7}
 }
 
+// SweepAssignmentState is the scheduler's view of one assignment attempt. The
+// non-OPEN members are TERMINAL. LOST, EXPIRED, and SUPERSEDED are the three the
+// producer can never author for itself -- a crashed agent emits nothing, an expired
+// lease is a clock fact the holder cannot attest, and being superseded is a
+// statement about a DIFFERENT attempt -- which is why this record is authored by
+// the scheduler and is the authority a producer's own lifecycle event is not.
+type SweepAssignmentState int32
+
+const (
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_UNSPECIFIED SweepAssignmentState = 0
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_OPEN        SweepAssignmentState = 1
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED   SweepAssignmentState = 2
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_ABORTED     SweepAssignmentState = 3
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_LOST        SweepAssignmentState = 4
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_EXPIRED     SweepAssignmentState = 5
+	SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_SUPERSEDED  SweepAssignmentState = 6
+)
+
+// Enum value maps for SweepAssignmentState.
+var (
+	SweepAssignmentState_name = map[int32]string{
+		0: "SWEEP_ASSIGNMENT_STATE_UNSPECIFIED",
+		1: "SWEEP_ASSIGNMENT_STATE_OPEN",
+		2: "SWEEP_ASSIGNMENT_STATE_COMPLETED",
+		3: "SWEEP_ASSIGNMENT_STATE_ABORTED",
+		4: "SWEEP_ASSIGNMENT_STATE_LOST",
+		5: "SWEEP_ASSIGNMENT_STATE_EXPIRED",
+		6: "SWEEP_ASSIGNMENT_STATE_SUPERSEDED",
+	}
+	SweepAssignmentState_value = map[string]int32{
+		"SWEEP_ASSIGNMENT_STATE_UNSPECIFIED": 0,
+		"SWEEP_ASSIGNMENT_STATE_OPEN":        1,
+		"SWEEP_ASSIGNMENT_STATE_COMPLETED":   2,
+		"SWEEP_ASSIGNMENT_STATE_ABORTED":     3,
+		"SWEEP_ASSIGNMENT_STATE_LOST":        4,
+		"SWEEP_ASSIGNMENT_STATE_EXPIRED":     5,
+		"SWEEP_ASSIGNMENT_STATE_SUPERSEDED":  6,
+	}
+)
+
+func (x SweepAssignmentState) Enum() *SweepAssignmentState {
+	p := new(SweepAssignmentState)
+	*p = x
+	return p
+}
+
+func (x SweepAssignmentState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SweepAssignmentState) Descriptor() protoreflect.EnumDescriptor {
+	return file_edge_v1_sweep_proto_enumTypes[8].Descriptor()
+}
+
+func (SweepAssignmentState) Type() protoreflect.EnumType {
+	return &file_edge_v1_sweep_proto_enumTypes[8]
+}
+
+func (x SweepAssignmentState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SweepAssignmentState.Descriptor instead.
+func (SweepAssignmentState) EnumDescriptor() ([]byte, []int) {
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{8}
+}
+
 type SweepTestV1 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Mode          SweepMode              `protobuf:"varint,1,opt,name=mode,proto3,enum=serviceradar.edge.v1.SweepMode" json:"mode,omitempty"`
@@ -2037,7 +2104,8 @@ func (*MtrTraceBatchV1_Command) isMtrTraceBatchV1_Correlation() {}
 // SweepExecutionEventV1 is per-assignment-attempt evidence. Terminal evidence
 // closes `[1, terminal_batch_sequence]` and carries cumulative counts plus the
 // expected/emitted MTR summary AND trace counts, a versioned completion digest,
-// and the plan/range roots the canonical ordinal proof composes over.
+// and the PLAN ROOT the canonical ordinal proof composes over. There is no range
+// root: see the retired tag 20.
 type SweepExecutionEventV1 struct {
 	state                 protoimpl.MessageState  `protogen:"open.v1"`
 	ExecutionId           []byte                  `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
@@ -2063,7 +2131,6 @@ type SweepExecutionEventV1 struct {
 	MtrCompletionDigestVersion  uint32 `protobuf:"varint,17,opt,name=mtr_completion_digest_version,json=mtrCompletionDigestVersion,proto3" json:"mtr_completion_digest_version,omitempty"` // algorithm/version of the proof
 	MtrCompletionDigest         []byte `protobuf:"bytes,18,opt,name=mtr_completion_digest,json=mtrCompletionDigest,proto3" json:"mtr_completion_digest,omitempty"`                         // order-independent plan-order proof
 	PlanRootSha256              []byte `protobuf:"bytes,19,opt,name=plan_root_sha256,json=planRootSha256,proto3" json:"plan_root_sha256,omitempty"`                                        // plan root the proof composes over
-	RangeRootSha256             []byte `protobuf:"bytes,20,opt,name=range_root_sha256,json=rangeRootSha256,proto3" json:"range_root_sha256,omitempty"`                                     // range root the proof composes over
 	AbortReason                 string `protobuf:"bytes,21,opt,name=abort_reason,json=abortReason,proto3" json:"abort_reason,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
@@ -2232,18 +2299,386 @@ func (x *SweepExecutionEventV1) GetPlanRootSha256() []byte {
 	return nil
 }
 
-func (x *SweepExecutionEventV1) GetRangeRootSha256() []byte {
-	if x != nil {
-		return x.RangeRootSha256
-	}
-	return nil
-}
-
 func (x *SweepExecutionEventV1) GetAbortReason() string {
 	if x != nil {
 		return x.AbortReason
 	}
 	return ""
+}
+
+// SweepMtrExpectationV1 is the AUTHORITATIVE MTR expectation for one assignment
+// attempt: how many MTR ordinals were admitted, and the commitment their
+// (ordinal, range_sha256) assignment folds to. It is ONE required submessage on
+// purpose -- a count without its commitment, or a commitment without its count, is
+// half a check, and the completion proof needs both.
+//
+// The count is CARRIED, never DERIVED. Each tempting derivation fails for its own
+// reason, and all three have been rejected:
+//   - from the lifecycle event -- producer-SELF-REPORTED, which is the hole the
+//     mandatory-completion-proof rule exists to close;
+//   - from `ordinal_range_commitment` -- an additive multiset hash is NOT
+//     INVERTIBLE; no count can be recovered from it;
+//   - from `TargetRangeV1.mtr_admission_budget` -- a CEILING, not an exact count.
+type SweepMtrExpectationV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Admitted MTR ordinals for this assignment. 0 is LEGAL and means the assignment
+	// admits no MTR targets; it then requires the canonical zero-leaf completion
+	// proof, never an omitted one. In v1 this MUST equal the selected plan range's
+	// `mtr_ordinal_count`: a retry or supersession replays the SAME COMPLETE window.
+	OrdinalCount uint64 `protobuf:"varint,1,opt,name=ordinal_count,json=ordinalCount,proto3" json:"ordinal_count,omitempty"`
+	// The additive multiset commitment over
+	// `(plan_ordinal_offset + local_ordinal, target_range_sha256)` for
+	// local_ordinal in 1..ordinal_count. ALWAYS exactly 32 bytes; 32 ZERO bytes --
+	// the empty-set hash -- when ordinal_count is 0, never empty bytes.
+	//
+	// It is RECOMPUTED from committed plan data, never trusted as carried bytes:
+	// count and range digest determine it exactly, so accepting any 32 bytes would
+	// make the per-attempt authority self-asserted.
+	OrdinalRangeCommitment []byte `protobuf:"bytes,2,opt,name=ordinal_range_commitment,json=ordinalRangeCommitment,proto3" json:"ordinal_range_commitment,omitempty"`
+	// REQUIRED PRESENCE (proto3 `optional`), because offset 0 is the FIRST range's
+	// legal window and must be distinguishable from an unset field.
+	//
+	// Each plan range owns ONE CONTIGUOUS plan-global ordinal window. This is the
+	// start of the selected range's window: plan-global ordinal =
+	// `plan_ordinal_offset + local_ordinal`. Completion-leaf ordinals stay LOCAL
+	// (`{1..ordinal_count}`), because the exact-set coverage check is frozen; the
+	// offset is what lets a SECOND, non-prefix assignment describe the plan-wide
+	// members it covers without renumbering them.
+	//
+	// SPARSE remainders and FAN-OUT splitting are NOT v1: a window is contiguous and
+	// is replayed whole. Representing a non-contiguous subset needs a bounded
+	// subset/member representation and its own frozen grammar.
+	PlanOrdinalOffset *uint64 `protobuf:"varint,3,opt,name=plan_ordinal_offset,json=planOrdinalOffset,proto3,oneof" json:"plan_ordinal_offset,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SweepMtrExpectationV1) Reset() {
+	*x = SweepMtrExpectationV1{}
+	mi := &file_edge_v1_sweep_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SweepMtrExpectationV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SweepMtrExpectationV1) ProtoMessage() {}
+
+func (x *SweepMtrExpectationV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_sweep_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SweepMtrExpectationV1.ProtoReflect.Descriptor instead.
+func (*SweepMtrExpectationV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SweepMtrExpectationV1) GetOrdinalCount() uint64 {
+	if x != nil {
+		return x.OrdinalCount
+	}
+	return 0
+}
+
+func (x *SweepMtrExpectationV1) GetOrdinalRangeCommitment() []byte {
+	if x != nil {
+		return x.OrdinalRangeCommitment
+	}
+	return nil
+}
+
+func (x *SweepMtrExpectationV1) GetPlanOrdinalOffset() uint64 {
+	if x != nil && x.PlanOrdinalOffset != nil {
+		return *x.PlanOrdinalOffset
+	}
+	return 0
+}
+
+// SweepAssignmentRecordV1 is the APPEND-ONLY authoritative record of one
+// assignment attempt, authored by the scheduler. It is the counterpart to
+// `SweepExecutionEventV1`: the event is what the PRODUCER says it did, this is what
+// the SCHEDULER authorized and observed. Every field a consumer must not take on
+// the producer's word lives here.
+//
+// Append-only means a state change is a NEW record with a higher
+// `record_sequence`, never an edit: an authority that can be rewritten cannot
+// settle a dispute about what was authorized.
+type SweepAssignmentRecordV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// --- identity -----------------------------------------------------------
+	// producer_assignment_id is the SAME identifier an attributed span carries, and
+	// is NOT assumed globally unique -- it is unique within the trust namespace
+	// (network_scope_id, authenticated_agent_id) below, which is exactly why the
+	// assignment mapping's key names that namespace explicitly.
+	ProducerAssignmentId []byte `protobuf:"bytes,1,opt,name=producer_assignment_id,json=producerAssignmentId,proto3" json:"producer_assignment_id,omitempty"`
+	ExecutionId          []byte `protobuf:"bytes,2,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	ExecutionPlanId      []byte `protobuf:"bytes,3,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
+	ExecutionPlanSha256  []byte `protobuf:"bytes,4,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // the header self-hash this attempt was cut from
+	ExecutionShard       uint32 `protobuf:"varint,5,opt,name=execution_shard,json=executionShard,proto3" json:"execution_shard,omitempty"`
+	AssignmentEpoch      uint64 `protobuf:"varint,6,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
+	// record_sequence orders the append-only series for ONE producer_assignment_id,
+	// starting at 1 and strictly increasing. It is not a batch sequence.
+	RecordSequence     uint64 `protobuf:"varint,7,opt,name=record_sequence,json=recordSequence,proto3" json:"record_sequence,omitempty"`
+	AuthoredAtUnixNano int64  `protobuf:"varint,8,opt,name=authored_at_unix_nano,json=authoredAtUnixNano,proto3" json:"authored_at_unix_nano,omitempty"`
+	// --- covered range ------------------------------------------------------
+	// An assignment covers EXACTLY ONE plan range in v1, and names it DIRECTLY. Both
+	// fields are REQUIRED, and `target_range_sha256` MUST equal that range's
+	// `range_sha256` in the plan pages, so a consumer can resolve the assignment to a
+	// committed plan range and CHECK it.
+	//
+	// Deliberately NOT an opaque set commitment. A non-invertible digest cannot tell a
+	// consumer WHICH ranges were assigned, so it would be an authoritative-looking
+	// 32-byte field verifiable only for length -- exactly the defect that retired
+	// `range_root_sha256` (tag 20). Moving that defect from the lifecycle event to
+	// this record would not have fixed it.
+	//
+	// MULTI-RANGE IS NOT IN v1. Supporting it means a bounded member/subset
+	// representation (or an immutable subset reference) WITH cardinality and its own
+	// frozen commitment grammar and shared non-empty vectors -- not reinterpreting
+	// these two fields or emptying one of them.
+	TargetRangeId     []byte `protobuf:"bytes,9,opt,name=target_range_id,json=targetRangeId,proto3" json:"target_range_id,omitempty"`
+	TargetRangeSha256 []byte `protobuf:"bytes,10,opt,name=target_range_sha256,json=targetRangeSha256,proto3" json:"target_range_sha256,omitempty"`
+	// --- lease / fence ------------------------------------------------------
+	// The fence token is monotonic per assignment identity: a holder presenting a
+	// lower token than the recorded one has been fenced and its writes are stale.
+	LeaseId                []byte `protobuf:"bytes,11,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	FenceToken             uint64 `protobuf:"varint,12,opt,name=fence_token,json=fenceToken,proto3" json:"fence_token,omitempty"`
+	LeaseExpiresAtUnixNano int64  `protobuf:"varint,13,opt,name=lease_expires_at_unix_nano,json=leaseExpiresAtUnixNano,proto3" json:"lease_expires_at_unix_nano,omitempty"`
+	// --- state --------------------------------------------------------------
+	State SweepAssignmentState `protobuf:"varint,14,opt,name=state,proto3,enum=serviceradar.edge.v1.SweepAssignmentState" json:"state,omitempty"`
+	// Set ONLY when state is SUPERSEDED, and names the attempt that replaced this
+	// one, so a reader can follow the chain without scanning.
+	SupersededByAssignmentId []byte `protobuf:"bytes,15,opt,name=superseded_by_assignment_id,json=supersededByAssignmentId,proto3" json:"superseded_by_assignment_id,omitempty"`
+	// Terminal evidence interval this attempt closed. 0 means an empty interval.
+	TerminalBatchSequence uint64 `protobuf:"varint,16,opt,name=terminal_batch_sequence,json=terminalBatchSequence,proto3" json:"terminal_batch_sequence,omitempty"`
+	// --- authoritative expectation -----------------------------------------
+	// REQUIRED on every record. This is the authority a completion proof verifies
+	// against; the producer's own `expected_mtr_*` counters are corroboration, never
+	// the source. Absent is NOT the same as zero: zero is an assignment that admits
+	// no MTR and still owes the canonical zero-leaf proof, while absent is a record
+	// that failed to state its expectation at all and SHALL be rejected.
+	MtrExpectation *SweepMtrExpectationV1 `protobuf:"bytes,17,opt,name=mtr_expectation,json=mtrExpectation,proto3" json:"mtr_expectation,omitempty"`
+	// --- configuration identity --------------------------------------------
+	CheckSetSha256       []byte `protobuf:"bytes,18,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`
+	AvailabilityPolicyId []byte `protobuf:"bytes,19,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"`
+	// --- authorization ------------------------------------------------------
+	// (network_scope_id, authenticated_agent_id) is the trust namespace the
+	// assignment mapping's key names.
+	NetworkScopeId       []byte `protobuf:"bytes,20,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
+	AuthenticatedAgentId []byte `protobuf:"bytes,21,opt,name=authenticated_agent_id,json=authenticatedAgentId,proto3" json:"authenticated_agent_id,omitempty"`
+	ProductionScopeId    []byte `protobuf:"bytes,22,opt,name=production_scope_id,json=productionScopeId,proto3" json:"production_scope_id,omitempty"`
+	ScopeSha256          []byte `protobuf:"bytes,23,opt,name=scope_sha256,json=scopeSha256,proto3" json:"scope_sha256,omitempty"`
+	ContractBundleSha256 []byte `protobuf:"bytes,24,opt,name=contract_bundle_sha256,json=contractBundleSha256,proto3" json:"contract_bundle_sha256,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *SweepAssignmentRecordV1) Reset() {
+	*x = SweepAssignmentRecordV1{}
+	mi := &file_edge_v1_sweep_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SweepAssignmentRecordV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SweepAssignmentRecordV1) ProtoMessage() {}
+
+func (x *SweepAssignmentRecordV1) ProtoReflect() protoreflect.Message {
+	mi := &file_edge_v1_sweep_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SweepAssignmentRecordV1.ProtoReflect.Descriptor instead.
+func (*SweepAssignmentRecordV1) Descriptor() ([]byte, []int) {
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SweepAssignmentRecordV1) GetProducerAssignmentId() []byte {
+	if x != nil {
+		return x.ProducerAssignmentId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetExecutionId() []byte {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetExecutionPlanId() []byte {
+	if x != nil {
+		return x.ExecutionPlanId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetExecutionPlanSha256() []byte {
+	if x != nil {
+		return x.ExecutionPlanSha256
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetExecutionShard() uint32 {
+	if x != nil {
+		return x.ExecutionShard
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetAssignmentEpoch() uint64 {
+	if x != nil {
+		return x.AssignmentEpoch
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetRecordSequence() uint64 {
+	if x != nil {
+		return x.RecordSequence
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetAuthoredAtUnixNano() int64 {
+	if x != nil {
+		return x.AuthoredAtUnixNano
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetTargetRangeId() []byte {
+	if x != nil {
+		return x.TargetRangeId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetTargetRangeSha256() []byte {
+	if x != nil {
+		return x.TargetRangeSha256
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetLeaseId() []byte {
+	if x != nil {
+		return x.LeaseId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetFenceToken() uint64 {
+	if x != nil {
+		return x.FenceToken
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetLeaseExpiresAtUnixNano() int64 {
+	if x != nil {
+		return x.LeaseExpiresAtUnixNano
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetState() SweepAssignmentState {
+	if x != nil {
+		return x.State
+	}
+	return SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_UNSPECIFIED
+}
+
+func (x *SweepAssignmentRecordV1) GetSupersededByAssignmentId() []byte {
+	if x != nil {
+		return x.SupersededByAssignmentId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetTerminalBatchSequence() uint64 {
+	if x != nil {
+		return x.TerminalBatchSequence
+	}
+	return 0
+}
+
+func (x *SweepAssignmentRecordV1) GetMtrExpectation() *SweepMtrExpectationV1 {
+	if x != nil {
+		return x.MtrExpectation
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetCheckSetSha256() []byte {
+	if x != nil {
+		return x.CheckSetSha256
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetAvailabilityPolicyId() []byte {
+	if x != nil {
+		return x.AvailabilityPolicyId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetNetworkScopeId() []byte {
+	if x != nil {
+		return x.NetworkScopeId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetAuthenticatedAgentId() []byte {
+	if x != nil {
+		return x.AuthenticatedAgentId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetProductionScopeId() []byte {
+	if x != nil {
+		return x.ProductionScopeId
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetScopeSha256() []byte {
+	if x != nil {
+		return x.ScopeSha256
+	}
+	return nil
+}
+
+func (x *SweepAssignmentRecordV1) GetContractBundleSha256() []byte {
+	if x != nil {
+		return x.ContractBundleSha256
+	}
+	return nil
 }
 
 // TargetRangeV1 is one compact CIDR/range entry in a plan page. It is never an
@@ -2263,14 +2698,21 @@ type TargetRangeV1 struct {
 	TargetCount          uint64                 `protobuf:"varint,6,opt,name=target_count,json=targetCount,proto3" json:"target_count,omitempty"`                             // hosts this range expands to (MUST be >= 1)
 	CheckSetSha256       []byte                 `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact per-range check/config identity
 	AvailabilityPolicyId []byte                 `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // per-range availability policy
-	MtrAdmissionBudget   uint64                 `protobuf:"varint,9,opt,name=mtr_admission_budget,json=mtrAdmissionBudget,proto3" json:"mtr_admission_budget,omitempty"`      // per-range MTR probe budget
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	MtrAdmissionBudget   uint64                 `protobuf:"varint,9,opt,name=mtr_admission_budget,json=mtrAdmissionBudget,proto3" json:"mtr_admission_budget,omitempty"`      // per-range MTR probe CEILING (never a count)
+	// REQUIRED PRESENCE: the EXACT number of MTR ordinals this range admits, and the
+	// width of its plan-global ordinal window. 0 is legal and distinct from absent.
+	//
+	// `mtr_admission_budget` is a CEILING and MUST NOT be read as this count -- that
+	// is precisely the derivation the expectation rules forbid. The count MUST NOT
+	// exceed the budget.
+	MtrOrdinalCount *uint64 `protobuf:"varint,10,opt,name=mtr_ordinal_count,json=mtrOrdinalCount,proto3,oneof" json:"mtr_ordinal_count,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *TargetRangeV1) Reset() {
 	*x = TargetRangeV1{}
-	mi := &file_edge_v1_sweep_proto_msgTypes[17]
+	mi := &file_edge_v1_sweep_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2282,7 +2724,7 @@ func (x *TargetRangeV1) String() string {
 func (*TargetRangeV1) ProtoMessage() {}
 
 func (x *TargetRangeV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_sweep_proto_msgTypes[17]
+	mi := &file_edge_v1_sweep_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2295,7 +2737,7 @@ func (x *TargetRangeV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TargetRangeV1.ProtoReflect.Descriptor instead.
 func (*TargetRangeV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{17}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *TargetRangeV1) GetRangeId() []byte {
@@ -2361,6 +2803,13 @@ func (x *TargetRangeV1) GetMtrAdmissionBudget() uint64 {
 	return 0
 }
 
+func (x *TargetRangeV1) GetMtrOrdinalCount() uint64 {
+	if x != nil && x.MtrOrdinalCount != nil {
+		return *x.MtrOrdinalCount
+	}
+	return 0
+}
+
 // ScheduledPlanPageV1 is one content-addressed, chained page of target ranges.
 // page_sha256 is the canonical digest over every field except page_sha256; pages
 // chain via prev_page_sha256 (empty on page 0) and compose into the plan root, so
@@ -2383,7 +2832,7 @@ type ScheduledPlanPageV1 struct {
 
 func (x *ScheduledPlanPageV1) Reset() {
 	*x = ScheduledPlanPageV1{}
-	mi := &file_edge_v1_sweep_proto_msgTypes[18]
+	mi := &file_edge_v1_sweep_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2395,7 +2844,7 @@ func (x *ScheduledPlanPageV1) String() string {
 func (*ScheduledPlanPageV1) ProtoMessage() {}
 
 func (x *ScheduledPlanPageV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_sweep_proto_msgTypes[18]
+	mi := &file_edge_v1_sweep_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2408,7 +2857,7 @@ func (x *ScheduledPlanPageV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledPlanPageV1.ProtoReflect.Descriptor instead.
 func (*ScheduledPlanPageV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{18}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ScheduledPlanPageV1) GetExecutionPlanId() []byte {
@@ -2474,17 +2923,20 @@ func (x *ScheduledPlanPageV1) GetRanges() []*TargetRangeV1 {
 // execution_plan_sha256 is the canonical digest over every header field except
 // execution_plan_sha256 itself.
 type ScheduledPlanHeaderV1 struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ExecutionPlanId      []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
-	ExecutionPlanSha256  []byte                 `protobuf:"bytes,2,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // canonical digest over the header (excl. this field)
-	PageCount            uint32                 `protobuf:"varint,3,opt,name=page_count,json=pageCount,proto3" json:"page_count,omitempty"`
-	TotalTargetCount     uint64                 `protobuf:"varint,4,opt,name=total_target_count,json=totalTargetCount,proto3" json:"total_target_count,omitempty"`            // advisory sum across pages
-	PlanRootSha256       []byte                 `protobuf:"bytes,5,opt,name=plan_root_sha256,json=planRootSha256,proto3" json:"plan_root_sha256,omitempty"`                   // ordered root over the chained plan pages
-	DigestVersion        uint32                 `protobuf:"varint,6,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`                       // canonical page/root digest algorithm version
-	CheckSetSha256       []byte                 `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact planned check/config identity
-	AvailabilityPolicyId []byte                 `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // versioned availability policy
-	AssignmentEpoch      uint64                 `protobuf:"varint,9,opt,name=assignment_epoch,json=assignmentEpoch,proto3" json:"assignment_epoch,omitempty"`
-	NetworkScopeId       []byte                 `protobuf:"bytes,10,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionPlanId     []byte                 `protobuf:"bytes,1,opt,name=execution_plan_id,json=executionPlanId,proto3" json:"execution_plan_id,omitempty"`             // UUIDv7
+	ExecutionPlanSha256 []byte                 `protobuf:"bytes,2,opt,name=execution_plan_sha256,json=executionPlanSha256,proto3" json:"execution_plan_sha256,omitempty"` // canonical digest over the header (excl. this field)
+	PageCount           uint32                 `protobuf:"varint,3,opt,name=page_count,json=pageCount,proto3" json:"page_count,omitempty"`
+	// The EXACT overflow-checked sum of every page range's `target_count`, not an
+	// advisory hint: both validators require equality, so a header claiming coverage its
+	// pages do not have is rejected. Calling it advisory while enforcing equality left
+	// the contract and the implementations disagreeing.
+	TotalTargetCount     uint64 `protobuf:"varint,4,opt,name=total_target_count,json=totalTargetCount,proto3" json:"total_target_count,omitempty"`
+	PlanRootSha256       []byte `protobuf:"bytes,5,opt,name=plan_root_sha256,json=planRootSha256,proto3" json:"plan_root_sha256,omitempty"`                   // ordered root over the chained plan pages
+	DigestVersion        uint32 `protobuf:"varint,6,opt,name=digest_version,json=digestVersion,proto3" json:"digest_version,omitempty"`                       // canonical page/root digest algorithm version
+	CheckSetSha256       []byte `protobuf:"bytes,7,opt,name=check_set_sha256,json=checkSetSha256,proto3" json:"check_set_sha256,omitempty"`                   // exact planned check/config identity
+	AvailabilityPolicyId []byte `protobuf:"bytes,8,opt,name=availability_policy_id,json=availabilityPolicyId,proto3" json:"availability_policy_id,omitempty"` // versioned availability policy
+	NetworkScopeId       []byte `protobuf:"bytes,10,opt,name=network_scope_id,json=networkScopeId,proto3" json:"network_scope_id,omitempty"`
 	// Authenticated commitment over the plan's (mtr_ordinal, range_sha256) set: an
 	// additive multiset hash the MTR completion proof compares its leaves against,
 	// so a completion leaf cannot claim an ordinal belongs to a range the plan never
@@ -2499,7 +2951,7 @@ type ScheduledPlanHeaderV1 struct {
 
 func (x *ScheduledPlanHeaderV1) Reset() {
 	*x = ScheduledPlanHeaderV1{}
-	mi := &file_edge_v1_sweep_proto_msgTypes[19]
+	mi := &file_edge_v1_sweep_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2511,7 +2963,7 @@ func (x *ScheduledPlanHeaderV1) String() string {
 func (*ScheduledPlanHeaderV1) ProtoMessage() {}
 
 func (x *ScheduledPlanHeaderV1) ProtoReflect() protoreflect.Message {
-	mi := &file_edge_v1_sweep_proto_msgTypes[19]
+	mi := &file_edge_v1_sweep_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2524,7 +2976,7 @@ func (x *ScheduledPlanHeaderV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledPlanHeaderV1.ProtoReflect.Descriptor instead.
 func (*ScheduledPlanHeaderV1) Descriptor() ([]byte, []int) {
-	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{19}
+	return file_edge_v1_sweep_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ScheduledPlanHeaderV1) GetExecutionPlanId() []byte {
@@ -2581,13 +3033,6 @@ func (x *ScheduledPlanHeaderV1) GetAvailabilityPolicyId() []byte {
 		return x.AvailabilityPolicyId
 	}
 	return nil
-}
-
-func (x *ScheduledPlanHeaderV1) GetAssignmentEpoch() uint64 {
-	if x != nil {
-		return x.AssignmentEpoch
-	}
-	return 0
 }
 
 func (x *ScheduledPlanHeaderV1) GetNetworkScopeId() []byte {
@@ -2771,7 +3216,7 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x0fscheduled_check\x18\a \x01(\v20.serviceradar.edge.v1.MtrScheduledCheckContextV1H\x00R\x0escheduledCheck\x12@\n" +
 	"\x06ad_hoc\x18\b \x01(\v2'.serviceradar.edge.v1.MtrAdHocContextV1H\x00R\x05adHoc\x12E\n" +
 	"\acommand\x18\t \x01(\v2).serviceradar.edge.v1.MtrCommandContextV1H\x00R\acommandB\r\n" +
-	"\vcorrelation\"\x8f\b\n" +
+	"\vcorrelation\"\xfc\a\n" +
 	"\x15SweepExecutionEventV1\x12!\n" +
 	"\fexecution_id\x18\x01 \x01(\fR\vexecutionId\x12'\n" +
 	"\x0fexecution_shard\x18\x02 \x01(\rR\x0eexecutionShard\x12)\n" +
@@ -2792,9 +3237,40 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x12emitted_mtr_traces\x18\x10 \x01(\x04R\x10emittedMtrTraces\x12A\n" +
 	"\x1dmtr_completion_digest_version\x18\x11 \x01(\rR\x1amtrCompletionDigestVersion\x122\n" +
 	"\x15mtr_completion_digest\x18\x12 \x01(\fR\x13mtrCompletionDigest\x12(\n" +
-	"\x10plan_root_sha256\x18\x13 \x01(\fR\x0eplanRootSha256\x12*\n" +
-	"\x11range_root_sha256\x18\x14 \x01(\fR\x0frangeRootSha256\x12!\n" +
-	"\fabort_reason\x18\x15 \x01(\tR\vabortReason\"\xde\x02\n" +
+	"\x10plan_root_sha256\x18\x13 \x01(\fR\x0eplanRootSha256\x12!\n" +
+	"\fabort_reason\x18\x15 \x01(\tR\vabortReasonJ\x04\b\x14\x10\x15R\x11range_root_sha256\"\xc3\x01\n" +
+	"\x15SweepMtrExpectationV1\x12#\n" +
+	"\rordinal_count\x18\x01 \x01(\x04R\fordinalCount\x128\n" +
+	"\x18ordinal_range_commitment\x18\x02 \x01(\fR\x16ordinalRangeCommitment\x123\n" +
+	"\x13plan_ordinal_offset\x18\x03 \x01(\x04H\x00R\x11planOrdinalOffset\x88\x01\x01B\x16\n" +
+	"\x14_plan_ordinal_offset\"\xaa\t\n" +
+	"\x17SweepAssignmentRecordV1\x124\n" +
+	"\x16producer_assignment_id\x18\x01 \x01(\fR\x14producerAssignmentId\x12!\n" +
+	"\fexecution_id\x18\x02 \x01(\fR\vexecutionId\x12*\n" +
+	"\x11execution_plan_id\x18\x03 \x01(\fR\x0fexecutionPlanId\x122\n" +
+	"\x15execution_plan_sha256\x18\x04 \x01(\fR\x13executionPlanSha256\x12'\n" +
+	"\x0fexecution_shard\x18\x05 \x01(\rR\x0eexecutionShard\x12)\n" +
+	"\x10assignment_epoch\x18\x06 \x01(\x04R\x0fassignmentEpoch\x12'\n" +
+	"\x0frecord_sequence\x18\a \x01(\x04R\x0erecordSequence\x121\n" +
+	"\x15authored_at_unix_nano\x18\b \x01(\x03R\x12authoredAtUnixNano\x12&\n" +
+	"\x0ftarget_range_id\x18\t \x01(\fR\rtargetRangeId\x12.\n" +
+	"\x13target_range_sha256\x18\n" +
+	" \x01(\fR\x11targetRangeSha256\x12\x19\n" +
+	"\blease_id\x18\v \x01(\fR\aleaseId\x12\x1f\n" +
+	"\vfence_token\x18\f \x01(\x04R\n" +
+	"fenceToken\x12:\n" +
+	"\x1alease_expires_at_unix_nano\x18\r \x01(\x03R\x16leaseExpiresAtUnixNano\x12@\n" +
+	"\x05state\x18\x0e \x01(\x0e2*.serviceradar.edge.v1.SweepAssignmentStateR\x05state\x12=\n" +
+	"\x1bsuperseded_by_assignment_id\x18\x0f \x01(\fR\x18supersededByAssignmentId\x126\n" +
+	"\x17terminal_batch_sequence\x18\x10 \x01(\x04R\x15terminalBatchSequence\x12T\n" +
+	"\x0fmtr_expectation\x18\x11 \x01(\v2+.serviceradar.edge.v1.SweepMtrExpectationV1R\x0emtrExpectation\x12(\n" +
+	"\x10check_set_sha256\x18\x12 \x01(\fR\x0echeckSetSha256\x124\n" +
+	"\x16availability_policy_id\x18\x13 \x01(\fR\x14availabilityPolicyId\x12(\n" +
+	"\x10network_scope_id\x18\x14 \x01(\fR\x0enetworkScopeId\x124\n" +
+	"\x16authenticated_agent_id\x18\x15 \x01(\fR\x14authenticatedAgentId\x12.\n" +
+	"\x13production_scope_id\x18\x16 \x01(\fR\x11productionScopeId\x12!\n" +
+	"\fscope_sha256\x18\x17 \x01(\fR\vscopeSha256\x124\n" +
+	"\x16contract_bundle_sha256\x18\x18 \x01(\fR\x14contractBundleSha256\"\xa5\x03\n" +
 	"\rTargetRangeV1\x12\x19\n" +
 	"\brange_id\x18\x01 \x01(\fR\arangeId\x12!\n" +
 	"\frange_sha256\x18\x02 \x01(\fR\vrangeSha256\x12\x12\n" +
@@ -2804,7 +3280,10 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\ftarget_count\x18\x06 \x01(\x04R\vtargetCount\x12(\n" +
 	"\x10check_set_sha256\x18\a \x01(\fR\x0echeckSetSha256\x124\n" +
 	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x120\n" +
-	"\x14mtr_admission_budget\x18\t \x01(\x04R\x12mtrAdmissionBudget\"\xd8\x02\n" +
+	"\x14mtr_admission_budget\x18\t \x01(\x04R\x12mtrAdmissionBudget\x12/\n" +
+	"\x11mtr_ordinal_count\x18\n" +
+	" \x01(\x04H\x00R\x0fmtrOrdinalCount\x88\x01\x01B\x14\n" +
+	"\x12_mtr_ordinal_count\"\xd8\x02\n" +
 	"\x13ScheduledPlanPageV1\x12*\n" +
 	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x12\x1d\n" +
 	"\n" +
@@ -2816,7 +3295,7 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"pageSha256\x12(\n" +
 	"\x10check_set_sha256\x18\x06 \x01(\fR\x0echeckSetSha256\x12%\n" +
 	"\x0edigest_version\x18\a \x01(\rR\rdigestVersion\x12;\n" +
-	"\x06ranges\x18\b \x03(\v2#.serviceradar.edge.v1.TargetRangeV1R\x06ranges\"\x8b\x04\n" +
+	"\x06ranges\x18\b \x03(\v2#.serviceradar.edge.v1.TargetRangeV1R\x06ranges\"\xf8\x03\n" +
 	"\x15ScheduledPlanHeaderV1\x12*\n" +
 	"\x11execution_plan_id\x18\x01 \x01(\fR\x0fexecutionPlanId\x122\n" +
 	"\x15execution_plan_sha256\x18\x02 \x01(\fR\x13executionPlanSha256\x12\x1d\n" +
@@ -2826,11 +3305,11 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	"\x10plan_root_sha256\x18\x05 \x01(\fR\x0eplanRootSha256\x12%\n" +
 	"\x0edigest_version\x18\x06 \x01(\rR\rdigestVersion\x12(\n" +
 	"\x10check_set_sha256\x18\a \x01(\fR\x0echeckSetSha256\x124\n" +
-	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x12)\n" +
-	"\x10assignment_epoch\x18\t \x01(\x04R\x0fassignmentEpoch\x12(\n" +
+	"\x16availability_policy_id\x18\b \x01(\fR\x14availabilityPolicyId\x12(\n" +
 	"\x10network_scope_id\x18\n" +
 	" \x01(\fR\x0enetworkScopeId\x12?\n" +
-	"\x1cmtr_ordinal_range_commitment\x18\v \x01(\fR\x19mtrOrdinalRangeCommitment*\x84\x01\n" +
+	"\x1cmtr_ordinal_range_commitment\x18\v \x01(\fR\x19mtrOrdinalRangeCommitmentJ\x04\b\t\x10\n" +
+	"R\x10assignment_epoch*\x84\x01\n" +
 	"\tSweepMode\x12\x1a\n" +
 	"\x16SWEEP_MODE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fSWEEP_MODE_ICMP\x10\x01\x12\x16\n" +
@@ -2885,7 +3364,15 @@ const file_edge_v1_sweep_proto_rawDesc = "" +
 	" SWEEP_EXECUTION_EVENT_KIND_START\x10\x01\x12'\n" +
 	"#SWEEP_EXECUTION_EVENT_KIND_PROGRESS\x10\x02\x12(\n" +
 	"$SWEEP_EXECUTION_EVENT_KIND_COMPLETED\x10\x03\x12&\n" +
-	"\"SWEEP_EXECUTION_EVENT_KIND_ABORTED\x10\x04B9Z7github.com/carverauto/serviceradar/proto/edge/v1;edgev1b\x06proto3"
+	"\"SWEEP_EXECUTION_EVENT_KIND_ABORTED\x10\x04*\x95\x02\n" +
+	"\x14SweepAssignmentState\x12&\n" +
+	"\"SWEEP_ASSIGNMENT_STATE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bSWEEP_ASSIGNMENT_STATE_OPEN\x10\x01\x12$\n" +
+	" SWEEP_ASSIGNMENT_STATE_COMPLETED\x10\x02\x12\"\n" +
+	"\x1eSWEEP_ASSIGNMENT_STATE_ABORTED\x10\x03\x12\x1f\n" +
+	"\x1bSWEEP_ASSIGNMENT_STATE_LOST\x10\x04\x12\"\n" +
+	"\x1eSWEEP_ASSIGNMENT_STATE_EXPIRED\x10\x05\x12%\n" +
+	"!SWEEP_ASSIGNMENT_STATE_SUPERSEDED\x10\x06B9Z7github.com/carverauto/serviceradar/proto/edge/v1;edgev1b\x06proto3"
 
 var (
 	file_edge_v1_sweep_proto_rawDescOnce sync.Once
@@ -2899,8 +3386,8 @@ func file_edge_v1_sweep_proto_rawDescGZIP() []byte {
 	return file_edge_v1_sweep_proto_rawDescData
 }
 
-var file_edge_v1_sweep_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_edge_v1_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_edge_v1_sweep_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_edge_v1_sweep_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_edge_v1_sweep_proto_goTypes = []any{
 	(SweepMode)(0),                     // 0: serviceradar.edge.v1.SweepMode
 	(SweepModeBit)(0),                  // 1: serviceradar.edge.v1.SweepModeBit
@@ -2910,58 +3397,63 @@ var file_edge_v1_sweep_proto_goTypes = []any{
 	(MtrCompletionDisposition)(0),      // 5: serviceradar.edge.v1.MtrCompletionDisposition
 	(SweepExecutionSource)(0),          // 6: serviceradar.edge.v1.SweepExecutionSource
 	(SweepExecutionEventKind)(0),       // 7: serviceradar.edge.v1.SweepExecutionEventKind
-	(*SweepTestV1)(nil),                // 8: serviceradar.edge.v1.SweepTestV1
-	(*SweepObservationBatchV1)(nil),    // 9: serviceradar.edge.v1.SweepObservationBatchV1
-	(*SweepHostObservationV1)(nil),     // 10: serviceradar.edge.v1.SweepHostObservationV1
-	(*SweepIcmpSummaryV1)(nil),         // 11: serviceradar.edge.v1.SweepIcmpSummaryV1
-	(*SweepTcpSummaryV1)(nil),          // 12: serviceradar.edge.v1.SweepTcpSummaryV1
-	(*SweepOpenPortV1)(nil),            // 13: serviceradar.edge.v1.SweepOpenPortV1
-	(*SweepPortErrorV1)(nil),           // 14: serviceradar.edge.v1.SweepPortErrorV1
-	(*SweepMtrSummaryV1)(nil),          // 15: serviceradar.edge.v1.SweepMtrSummaryV1
-	(*MtrMplsLabelV1)(nil),             // 16: serviceradar.edge.v1.MtrMplsLabelV1
-	(*MtrTraceHopV1)(nil),              // 17: serviceradar.edge.v1.MtrTraceHopV1
-	(*MtrTraceEventV1)(nil),            // 18: serviceradar.edge.v1.MtrTraceEventV1
-	(*MtrSweepContextV1)(nil),          // 19: serviceradar.edge.v1.MtrSweepContextV1
-	(*MtrScheduledCheckContextV1)(nil), // 20: serviceradar.edge.v1.MtrScheduledCheckContextV1
-	(*MtrAdHocContextV1)(nil),          // 21: serviceradar.edge.v1.MtrAdHocContextV1
-	(*MtrCommandContextV1)(nil),        // 22: serviceradar.edge.v1.MtrCommandContextV1
-	(*MtrTraceBatchV1)(nil),            // 23: serviceradar.edge.v1.MtrTraceBatchV1
-	(*SweepExecutionEventV1)(nil),      // 24: serviceradar.edge.v1.SweepExecutionEventV1
-	(*TargetRangeV1)(nil),              // 25: serviceradar.edge.v1.TargetRangeV1
-	(*ScheduledPlanPageV1)(nil),        // 26: serviceradar.edge.v1.ScheduledPlanPageV1
-	(*ScheduledPlanHeaderV1)(nil),      // 27: serviceradar.edge.v1.ScheduledPlanHeaderV1
+	(SweepAssignmentState)(0),          // 8: serviceradar.edge.v1.SweepAssignmentState
+	(*SweepTestV1)(nil),                // 9: serviceradar.edge.v1.SweepTestV1
+	(*SweepObservationBatchV1)(nil),    // 10: serviceradar.edge.v1.SweepObservationBatchV1
+	(*SweepHostObservationV1)(nil),     // 11: serviceradar.edge.v1.SweepHostObservationV1
+	(*SweepIcmpSummaryV1)(nil),         // 12: serviceradar.edge.v1.SweepIcmpSummaryV1
+	(*SweepTcpSummaryV1)(nil),          // 13: serviceradar.edge.v1.SweepTcpSummaryV1
+	(*SweepOpenPortV1)(nil),            // 14: serviceradar.edge.v1.SweepOpenPortV1
+	(*SweepPortErrorV1)(nil),           // 15: serviceradar.edge.v1.SweepPortErrorV1
+	(*SweepMtrSummaryV1)(nil),          // 16: serviceradar.edge.v1.SweepMtrSummaryV1
+	(*MtrMplsLabelV1)(nil),             // 17: serviceradar.edge.v1.MtrMplsLabelV1
+	(*MtrTraceHopV1)(nil),              // 18: serviceradar.edge.v1.MtrTraceHopV1
+	(*MtrTraceEventV1)(nil),            // 19: serviceradar.edge.v1.MtrTraceEventV1
+	(*MtrSweepContextV1)(nil),          // 20: serviceradar.edge.v1.MtrSweepContextV1
+	(*MtrScheduledCheckContextV1)(nil), // 21: serviceradar.edge.v1.MtrScheduledCheckContextV1
+	(*MtrAdHocContextV1)(nil),          // 22: serviceradar.edge.v1.MtrAdHocContextV1
+	(*MtrCommandContextV1)(nil),        // 23: serviceradar.edge.v1.MtrCommandContextV1
+	(*MtrTraceBatchV1)(nil),            // 24: serviceradar.edge.v1.MtrTraceBatchV1
+	(*SweepExecutionEventV1)(nil),      // 25: serviceradar.edge.v1.SweepExecutionEventV1
+	(*SweepMtrExpectationV1)(nil),      // 26: serviceradar.edge.v1.SweepMtrExpectationV1
+	(*SweepAssignmentRecordV1)(nil),    // 27: serviceradar.edge.v1.SweepAssignmentRecordV1
+	(*TargetRangeV1)(nil),              // 28: serviceradar.edge.v1.TargetRangeV1
+	(*ScheduledPlanPageV1)(nil),        // 29: serviceradar.edge.v1.ScheduledPlanPageV1
+	(*ScheduledPlanHeaderV1)(nil),      // 30: serviceradar.edge.v1.ScheduledPlanHeaderV1
 }
 var file_edge_v1_sweep_proto_depIdxs = []int32{
 	0,  // 0: serviceradar.edge.v1.SweepTestV1.mode:type_name -> serviceradar.edge.v1.SweepMode
 	2,  // 1: serviceradar.edge.v1.SweepTestV1.protocol:type_name -> serviceradar.edge.v1.TransportProtocol
-	8,  // 2: serviceradar.edge.v1.SweepObservationBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
+	9,  // 2: serviceradar.edge.v1.SweepObservationBatchV1.tested_checks:type_name -> serviceradar.edge.v1.SweepTestV1
 	6,  // 3: serviceradar.edge.v1.SweepObservationBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	10, // 4: serviceradar.edge.v1.SweepObservationBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
-	11, // 5: serviceradar.edge.v1.SweepHostObservationV1.icmp:type_name -> serviceradar.edge.v1.SweepIcmpSummaryV1
-	12, // 6: serviceradar.edge.v1.SweepHostObservationV1.tcp:type_name -> serviceradar.edge.v1.SweepTcpSummaryV1
-	13, // 7: serviceradar.edge.v1.SweepHostObservationV1.open_ports:type_name -> serviceradar.edge.v1.SweepOpenPortV1
-	14, // 8: serviceradar.edge.v1.SweepHostObservationV1.port_errors:type_name -> serviceradar.edge.v1.SweepPortErrorV1
-	15, // 9: serviceradar.edge.v1.SweepHostObservationV1.mtr:type_name -> serviceradar.edge.v1.SweepMtrSummaryV1
+	11, // 4: serviceradar.edge.v1.SweepObservationBatchV1.hosts:type_name -> serviceradar.edge.v1.SweepHostObservationV1
+	12, // 5: serviceradar.edge.v1.SweepHostObservationV1.icmp:type_name -> serviceradar.edge.v1.SweepIcmpSummaryV1
+	13, // 6: serviceradar.edge.v1.SweepHostObservationV1.tcp:type_name -> serviceradar.edge.v1.SweepTcpSummaryV1
+	14, // 7: serviceradar.edge.v1.SweepHostObservationV1.open_ports:type_name -> serviceradar.edge.v1.SweepOpenPortV1
+	15, // 8: serviceradar.edge.v1.SweepHostObservationV1.port_errors:type_name -> serviceradar.edge.v1.SweepPortErrorV1
+	16, // 9: serviceradar.edge.v1.SweepHostObservationV1.mtr:type_name -> serviceradar.edge.v1.SweepMtrSummaryV1
 	3,  // 10: serviceradar.edge.v1.SweepIcmpSummaryV1.outcome:type_name -> serviceradar.edge.v1.SweepModeOutcome
 	3,  // 11: serviceradar.edge.v1.SweepTcpSummaryV1.outcome:type_name -> serviceradar.edge.v1.SweepModeOutcome
 	4,  // 12: serviceradar.edge.v1.SweepMtrSummaryV1.outcome:type_name -> serviceradar.edge.v1.MtrOutcome
-	16, // 13: serviceradar.edge.v1.MtrTraceHopV1.mpls_labels:type_name -> serviceradar.edge.v1.MtrMplsLabelV1
+	17, // 13: serviceradar.edge.v1.MtrTraceHopV1.mpls_labels:type_name -> serviceradar.edge.v1.MtrMplsLabelV1
 	4,  // 14: serviceradar.edge.v1.MtrTraceEventV1.outcome:type_name -> serviceradar.edge.v1.MtrOutcome
 	2,  // 15: serviceradar.edge.v1.MtrTraceEventV1.protocol:type_name -> serviceradar.edge.v1.TransportProtocol
-	17, // 16: serviceradar.edge.v1.MtrTraceEventV1.hops:type_name -> serviceradar.edge.v1.MtrTraceHopV1
+	18, // 16: serviceradar.edge.v1.MtrTraceEventV1.hops:type_name -> serviceradar.edge.v1.MtrTraceHopV1
 	6,  // 17: serviceradar.edge.v1.MtrTraceBatchV1.source:type_name -> serviceradar.edge.v1.SweepExecutionSource
-	18, // 18: serviceradar.edge.v1.MtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.MtrTraceEventV1
-	19, // 19: serviceradar.edge.v1.MtrTraceBatchV1.sweep:type_name -> serviceradar.edge.v1.MtrSweepContextV1
-	20, // 20: serviceradar.edge.v1.MtrTraceBatchV1.scheduled_check:type_name -> serviceradar.edge.v1.MtrScheduledCheckContextV1
-	21, // 21: serviceradar.edge.v1.MtrTraceBatchV1.ad_hoc:type_name -> serviceradar.edge.v1.MtrAdHocContextV1
-	22, // 22: serviceradar.edge.v1.MtrTraceBatchV1.command:type_name -> serviceradar.edge.v1.MtrCommandContextV1
+	19, // 18: serviceradar.edge.v1.MtrTraceBatchV1.traces:type_name -> serviceradar.edge.v1.MtrTraceEventV1
+	20, // 19: serviceradar.edge.v1.MtrTraceBatchV1.sweep:type_name -> serviceradar.edge.v1.MtrSweepContextV1
+	21, // 20: serviceradar.edge.v1.MtrTraceBatchV1.scheduled_check:type_name -> serviceradar.edge.v1.MtrScheduledCheckContextV1
+	22, // 21: serviceradar.edge.v1.MtrTraceBatchV1.ad_hoc:type_name -> serviceradar.edge.v1.MtrAdHocContextV1
+	23, // 22: serviceradar.edge.v1.MtrTraceBatchV1.command:type_name -> serviceradar.edge.v1.MtrCommandContextV1
 	7,  // 23: serviceradar.edge.v1.SweepExecutionEventV1.kind:type_name -> serviceradar.edge.v1.SweepExecutionEventKind
-	25, // 24: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	8,  // 24: serviceradar.edge.v1.SweepAssignmentRecordV1.state:type_name -> serviceradar.edge.v1.SweepAssignmentState
+	26, // 25: serviceradar.edge.v1.SweepAssignmentRecordV1.mtr_expectation:type_name -> serviceradar.edge.v1.SweepMtrExpectationV1
+	28, // 26: serviceradar.edge.v1.ScheduledPlanPageV1.ranges:type_name -> serviceradar.edge.v1.TargetRangeV1
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_edge_v1_sweep_proto_init() }
@@ -2980,13 +3472,15 @@ func file_edge_v1_sweep_proto_init() {
 		(*MtrTraceBatchV1_AdHoc)(nil),
 		(*MtrTraceBatchV1_Command)(nil),
 	}
+	file_edge_v1_sweep_proto_msgTypes[17].OneofWrappers = []any{}
+	file_edge_v1_sweep_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_edge_v1_sweep_proto_rawDesc), len(file_edge_v1_sweep_proto_rawDesc)),
-			NumEnums:      8,
-			NumMessages:   20,
+			NumEnums:      9,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

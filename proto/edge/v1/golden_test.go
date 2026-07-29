@@ -35,6 +35,7 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -331,6 +332,31 @@ func mustValidateLifecycleBytes(t *testing.T, name string, b []byte) {
 	if err := edgerecord.ValidateSweepExecutionEvent(&ev); err != nil {
 		t.Fatalf("%s: committed bytes must be a VALID event: %v", name, err)
 	}
+}
+
+// padWithDuplicateKnownField grows a marshalled page to an exact size by repeating a
+// KNOWN field whose value is unchanged by last-one-wins -- `page_index = 0` on page 0.
+// Padding with unknown fields would be rejected as retained unknowns and would prove
+// nothing about the SIZE boundary; duplicates of a known field are exactly the shape
+// that collapses on a re-marshal, which is why the received-bytes rule exists.
+func padWithDuplicateKnownField(t *testing.T, b []byte, target int) []byte {
+	t.Helper()
+	out := append([]byte(nil), b...)
+	// tag 2 (page_index), varint wire type: 0x10 0x00 is the minimal encoding of 0.
+	minimal := []byte{0x10, 0x00}
+	// A NON-MINIMAL encoding of the same 0, one byte longer, for odd remainders.
+	nonMinimal := []byte{0x10, 0x80, 0x00}
+	for target-len(out) >= 2 {
+		if (target-len(out))%2 == 1 {
+			out = append(out, nonMinimal...)
+			continue
+		}
+		out = append(out, minimal...)
+	}
+	if len(out) != target {
+		t.Fatalf("could not pad to %d, reached %d", target, len(out))
+	}
+	return out
 }
 
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
@@ -1083,7 +1109,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// The plan commits the (ordinal, range) assignment; completion proves membership
 	// against it.
 	commitment := edgerecord.MtrOrdinalRangeCommitment(leaves)
-	completion, err := edgerecord.MtrCompletionRoot(leaves, 2, planRoot, commitment)
+	completion, err := edgerecord.MtrCompletionRoot(leaves, 0, 2, planRoot, commitment)
 	if err != nil {
 		t.Fatalf("completion root: %v", err)
 	}
@@ -1099,7 +1125,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		ExpectedMtrSummaries: 2, EmittedMtrSummaries: 2, ExpectedMtrTraces: 2, EmittedMtrTraces: 1,
 		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
 		MtrCompletionDigest:        completion,
-		PlanRootSha256:             planRoot, RangeRootSha256: digest32(0x93),
+		PlanRootSha256:             planRoot,
 	})
 	mustValidateLifecycleBytes(t, "lifecycle.bin", lifecycleBytes)
 
@@ -1110,11 +1136,14 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	// The event is paired with a REAL zero-MTR plan header carrying that same 32-zero
 	// commitment, so the fixture shows both halves of the relation rather than an
 	// event asserting a plan nobody wrote.
-	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil)
+	zeroCommitment := edgerecord.MtrOrdinalRangeCommitment(nil) // 32 zero bytes
 	zeroPlanID := uuidv7(0x24)
 	zeroRange := &edgev1.TargetRangeV1{
 		RangeId: uuidv7(0x25), Cidr: "10.9.0.0/24", TargetCount: 256,
 		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
+		// Explicit presence: this range admits NO MTR, which is distinct from a plan
+		// that never stated a count.
+		MtrOrdinalCount: proto.Uint64(0),
 	}
 	zeroRange.RangeSha256 = edgerecord.RangeDigest(zeroRange)
 	zeroPage := &edgev1.ScheduledPlanPageV1{
@@ -1131,10 +1160,11 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	}
 	zeroHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(zeroHeader)
 	golden(t, "plan_header_zero_mtr.bin", zeroHeader)
+	golden(t, "plan_page_zero_mtr.bin", zeroPage)
 	if err := edgerecord.ValidatePlanHeader(zeroHeader); err != nil {
 		t.Fatalf("zero-MTR plan header must validate: %v", err)
 	}
-	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(zeroPlanRoot, zeroCommitment)
+	zeroCompletion, err := edgerecord.ZeroMtrCompletionRoot(0, zeroPlanRoot, zeroCommitment)
 	if err != nil {
 		t.Fatalf("zero-MTR completion root: %v", err)
 	}
@@ -1148,7 +1178,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		// present, which is the whole point of the decision.
 		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
 		MtrCompletionDigest:        zeroCompletion,
-		PlanRootSha256:             zeroPlanRoot, RangeRootSha256: digest32(0x95),
+		PlanRootSha256:             zeroPlanRoot,
 	})
 	mustValidateLifecycleBytes(t, "lifecycle_zero_mtr.bin", zeroBytes)
 	goldenBytes(t, "zero_mtr_commitment.bin", zeroCommitment)
@@ -1161,9 +1191,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	if err := proto.Unmarshal(zeroBytes, &zeroEv); err != nil {
 		t.Fatalf("decode lifecycle_zero_mtr.bin: %v", err)
 	}
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		&zeroEv, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
-	); err != nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(&zeroEv, 0, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil); err != nil {
 		t.Fatalf("committed zero-MTR event must verify against its paired plan: %v", err)
 	}
 
@@ -1172,10 +1200,418 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	perturbed := proto.Clone(&zeroEv).(*edgev1.SweepExecutionEventV1)
 	perturbed.MtrCompletionDigest = append([]byte(nil), zeroEv.GetMtrCompletionDigest()...)
 	perturbed.MtrCompletionDigest[0] ^= 0xFF
-	if err := edgerecord.VerifyCompletionAgainstPlanState(
-		perturbed, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil,
-	); err == nil {
+	if err := edgerecord.VerifyCompletionAgainstPlanState(perturbed, 0, 0, zeroHeader.GetPlanRootSha256(), zeroHeader.GetMtrOrdinalRangeCommitment(), nil); err == nil {
 		t.Fatal("a perturbed completion digest must not verify")
+	}
+
+	// The AUTHORITATIVE assignment record for the zero-MTR attempt. Its required
+	// expectation is what a completion proof verifies against; the plan header's
+	// commitment is the plan-wide fact, not the per-attempt authority.
+	zeroAssignment := &edgev1.SweepAssignmentRecordV1{
+		ProducerAssignmentId: uuidv7(0x26), ExecutionId: uuidv7(0x21),
+		ExecutionPlanId: zeroPlanID, ExecutionPlanSha256: zeroHeader.GetExecutionPlanSha256(),
+		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
+		TargetRangeId: zeroRange.GetRangeId(), TargetRangeSha256: zeroRange.GetRangeSha256(),
+		LeaseId: []byte("lease-zero"), FenceToken: 7, LeaseExpiresAtUnixNano: fixedNanos + 1,
+		State:                 edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED,
+		TerminalBatchSequence: 4,
+		MtrExpectation: &edgev1.SweepMtrExpectationV1{
+			OrdinalCount: 0, OrdinalRangeCommitment: zeroCommitment,
+			PlanOrdinalOffset: proto.Uint64(0),
+		},
+		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
+		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
+		ContractBundleSha256: digest32(0x7A),
+	}
+	assignmentBytes := golden(t, "assignment_zero_mtr.bin", zeroAssignment)
+	var decodedAssignment edgev1.SweepAssignmentRecordV1
+	if err := proto.Unmarshal(assignmentBytes, &decodedAssignment); err != nil {
+		t.Fatalf("decode assignment_zero_mtr.bin: %v", err)
+	}
+	if err := edgerecord.ValidateSweepAssignmentRecord(&decodedAssignment); err != nil {
+		t.Fatalf("committed assignment record must be VALID: %v", err)
+	}
+	// The RELATION, on committed bytes: the assignment names THIS plan, agrees with it
+	// on every shared fact, and its range is a member of the committed plan. The first
+	// version of this fixture passed independent validation while naming a real range
+	// with an empty-set commitment and an epoch the header did not share.
+	if err := edgerecord.ValidateAssignmentAgainstPlan(
+		&decodedAssignment, zeroHeader, []*edgev1.ScheduledPlanPageV1{zeroPage},
+	); err != nil {
+		t.Fatalf("committed assignment must relate to its paired plan: %v", err)
+	}
+	// The completion proof verifies against the ASSIGNMENT's expectation.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(
+		&zeroEv,
+		decodedAssignment.GetMtrExpectation().GetPlanOrdinalOffset(),
+		decodedAssignment.GetMtrExpectation().GetOrdinalCount(),
+		zeroHeader.GetPlanRootSha256(),
+		decodedAssignment.GetMtrExpectation().GetOrdinalRangeCommitment(),
+		nil,
+	); err != nil {
+		t.Fatalf("completion must verify against the assignment expectation: %v", err)
+	}
+
+	// SPLIT-PLAN, NONZERO vector. The zero-MTR pair above cannot distinguish the
+	// assignment expectation from the plan-wide commitment, because both are zero32 --
+	// a regression substituting the forbidden plan value stays green. Here the plan
+	// admits TWO ordinals while the assignment covers ONE, so the two commitments
+	// DIFFER and the substitution is observable.
+	splitRange := digest32(0x93)
+	planWideLeaves := []edgerecord.MtrCompletionLeaf{
+		{Ordinal: 1, Disposition: edgerecord.MtrDispositionTraceAllocated, TraceID: uuidv7(0x30), RangeSha256: splitRange},
+		{Ordinal: 2, Disposition: edgerecord.MtrDispositionNotAdmitted, RangeSha256: splitRange},
+	}
+	planWideCommitment := edgerecord.MtrOrdinalRangeCommitment(planWideLeaves)
+	attemptLeaves := planWideLeaves[:1]
+	attemptCommitment := edgerecord.MtrOrdinalRangeCommitment(attemptLeaves)
+	if bytes.Equal(planWideCommitment, attemptCommitment) {
+		t.Fatal("split vector is vacuous: plan-wide and per-attempt commitments are equal")
+	}
+	splitRoot, err := edgerecord.MtrCompletionRoot(attemptLeaves, 0, 1, planRoot, attemptCommitment)
+	if err != nil {
+		t.Fatalf("split completion root: %v", err)
+	}
+	splitEv := &edgev1.SweepExecutionEventV1{
+		ExecutionId: uuidv7(0x27), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: uuidv7(0x22), ExecutionPlanSha256: digest32(0x96), TargetRangeId: uuidv7(0x23),
+		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 4, DurableThroughBatchSequence: 4,
+		ExpectedMtrTraces: 1, EmittedMtrTraces: 1,
+		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
+		MtrCompletionDigest:        splitRoot,
+		PlanRootSha256:             planRoot,
+	}
+	splitBytes := golden(t, "lifecycle_split_attempt.bin", splitEv)
+	mustValidateLifecycleBytes(t, "lifecycle_split_attempt.bin", splitBytes)
+	goldenBytes(t, "split_attempt_commitment.bin", attemptCommitment)
+	goldenBytes(t, "split_plan_wide_commitment.bin", planWideCommitment)
+
+	// The ASSIGNMENT's expectation verifies.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(splitEv, 0, 1, planRoot, attemptCommitment, attemptLeaves); err != nil {
+		t.Fatalf("split completion must verify against the ASSIGNMENT expectation: %v", err)
+	}
+	// Substituting the PLAN-WIDE commitment -- the forbidden shortcut -- fails.
+	if err := edgerecord.VerifyCompletionAgainstPlanState(splitEv, 0, 2, planRoot, planWideCommitment, planWideLeaves); err == nil {
+		t.Fatal("substituting the plan-wide commitment for the per-attempt one must FAIL")
+	}
+
+	// SHARED SECOND-ASSIGNMENT VECTOR. A two-range plan split across two assignments:
+	// range A owns plan-global ordinals 1..2, range B owns 3..5. B is the NON-PREFIX
+	// case -- its completion leaves stay LOCAL at {1..3} while its membership is folded
+	// over global 3..5. Both runtimes consume these bytes.
+	splitCheck := digest32(0x7B)
+	mkSplitRange := func(tag byte, cidr string, count, budget uint64) *edgev1.TargetRangeV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: uuidv7(tag), Cidr: cidr, TargetCount: 256, CheckSetSha256: splitCheck,
+			AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget:   budget, MtrOrdinalCount: proto.Uint64(count),
+		}
+		r.RangeSha256 = edgerecord.RangeDigest(r)
+		return r
+	}
+	splitPlanID := uuidv7(0x28)
+	rangeA := mkSplitRange(0x29, "10.20.0.0/24", 2, 4)
+	rangeB := mkSplitRange(0x2A, "10.20.1.0/24", 3, 3)
+	splitPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: splitPlanID, PageIndex: 0, PageCount: 1, CheckSetSha256: splitCheck,
+		DigestVersion: edgerecord.PlanDigestVersion,
+		Ranges:        []*edgev1.TargetRangeV1{rangeA, rangeB},
+	}
+	splitPage.PageSha256 = edgerecord.PlanPageDigest(splitPage)
+	splitPages := []*edgev1.ScheduledPlanPageV1{splitPage}
+	splitPlanCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(splitPages)
+	if err != nil {
+		t.Fatalf("split plan commitment: %v", err)
+	}
+	splitHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: splitPlanID, PageCount: 1, TotalTargetCount: 512,
+		PlanRootSha256: edgerecord.PlanRoot(splitPages), DigestVersion: edgerecord.PlanDigestVersion,
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), MtrOrdinalRangeCommitment: splitPlanCommitment,
+	}
+	splitHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(splitHeader)
+	golden(t, "plan_header_split.bin", splitHeader)
+	golden(t, "plan_page_split.bin", splitPage)
+
+	splitWindows, _, err := edgerecord.PlanMtrWindows(splitPages)
+	if err != nil {
+		t.Fatalf("split windows: %v", err)
+	}
+	offsetB := splitWindows[string(rangeB.GetRangeId())]
+	commitB, err := edgerecord.MtrWindowCommitment(offsetB, rangeB.GetMtrOrdinalCount(), rangeB.GetRangeSha256())
+	if err != nil {
+		t.Fatalf("window B commitment: %v", err)
+	}
+	secondAssignment := &edgev1.SweepAssignmentRecordV1{
+		ProducerAssignmentId: uuidv7(0x2B), ExecutionId: uuidv7(0x2C),
+		ExecutionPlanId: splitPlanID, ExecutionPlanSha256: splitHeader.GetExecutionPlanSha256(),
+		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
+		TargetRangeId: rangeB.GetRangeId(), TargetRangeSha256: rangeB.GetRangeSha256(),
+		LeaseId: []byte("lease-split-b"), FenceToken: 9, LeaseExpiresAtUnixNano: fixedNanos + 1,
+		State: edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_COMPLETED, TerminalBatchSequence: 7,
+		MtrExpectation: &edgev1.SweepMtrExpectationV1{
+			OrdinalCount: rangeB.GetMtrOrdinalCount(), OrdinalRangeCommitment: commitB,
+			PlanOrdinalOffset: proto.Uint64(offsetB),
+		},
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
+		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
+		ContractBundleSha256: digest32(0x7A),
+	}
+	secondBytes := golden(t, "assignment_split_second.bin", secondAssignment)
+	var decodedSecond edgev1.SweepAssignmentRecordV1
+	if err := proto.Unmarshal(secondBytes, &decodedSecond); err != nil {
+		t.Fatalf("decode assignment_split_second.bin: %v", err)
+	}
+	if err := edgerecord.ValidateAssignmentAgainstPlan(&decodedSecond, splitHeader, splitPages); err != nil {
+		t.Fatalf("second assignment must relate to the split plan: %v", err)
+	}
+
+	secondLeaves := make([]edgerecord.MtrCompletionLeaf, 0, rangeB.GetMtrOrdinalCount())
+	for i := uint64(1); i <= rangeB.GetMtrOrdinalCount(); i++ {
+		secondLeaves = append(secondLeaves, edgerecord.MtrCompletionLeaf{
+			Ordinal: i, Disposition: edgerecord.MtrDispositionNotAdmitted, RangeSha256: rangeB.GetRangeSha256(),
+		})
+	}
+	secondRoot, err := edgerecord.MtrCompletionRoot(secondLeaves, offsetB, rangeB.GetMtrOrdinalCount(),
+		splitHeader.GetPlanRootSha256(), commitB)
+	if err != nil {
+		t.Fatalf("non-prefix completion must prove: %v", err)
+	}
+	splitSecondEv := &edgev1.SweepExecutionEventV1{
+		ExecutionId: uuidv7(0x2C), ExecutionShard: 3, AssignmentEpoch: 5,
+		ExecutionPlanId: splitPlanID, ExecutionPlanSha256: splitHeader.GetExecutionPlanSha256(),
+		TargetRangeId:     rangeB.GetRangeId(),
+		Kind:              edgev1.SweepExecutionEventKind_SWEEP_EXECUTION_EVENT_KIND_COMPLETED,
+		EmittedAtUnixNano: fixedNanos, TerminalBatchSequence: 7, DurableThroughBatchSequence: 7,
+		ExpectedMtrTraces: 3, EmittedMtrTraces: 3,
+		MtrCompletionDigestVersion: edgerecord.MtrCompletionDigestVersion,
+		MtrCompletionDigest:        secondRoot,
+		PlanRootSha256:             splitHeader.GetPlanRootSha256(),
+	}
+	splitSecondBytes := golden(t, "lifecycle_split_second.bin", splitSecondEv)
+	mustValidateLifecycleBytes(t, "lifecycle_split_second.bin", splitSecondBytes)
+
+	// Without the offset the SAME leaves against the SAME commitment must fail, so the
+	// shared vector cannot pass by coincidence.
+	if _, err := edgerecord.MtrCompletionRoot(secondLeaves, 0, rangeB.GetMtrOrdinalCount(),
+		splitHeader.GetPlanRootSha256(), commitB); err == nil {
+		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
+	}
+
+	// SHARED TARGET-COUNT OVERFLOW vector. Two INDIVIDUALLY VALID /65 ranges, each
+	// spanning exactly 2^63 addresses, sum to 2^64 -- which wraps to 0 in a uint64
+	// accumulator. Go catches the carry via bits.Add64; Elixir's arbitrary-precision
+	// integers simply grow, so it needs an explicit ceiling. Without a SHARED fixture,
+	// removing Go's carry rejection left its suite green.
+	mkHugeRange := func(tag byte, cidr string) *edgev1.TargetRangeV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: uuidv7(tag), Cidr: cidr, TargetCount: 1 << 63,
+			CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget: 0, MtrOrdinalCount: proto.Uint64(0),
+		}
+		r.RangeSha256 = edgerecord.RangeDigest(r)
+		return r
+	}
+	overflowPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: splitPlanID, PageIndex: 0, PageCount: 1, CheckSetSha256: splitCheck,
+		DigestVersion: edgerecord.PlanDigestVersion,
+		Ranges: []*edgev1.TargetRangeV1{
+			mkHugeRange(0x62, "2001:db8::/65"), mkHugeRange(0x63, "2001:db9::/65"),
+		},
+	}
+	overflowPage.PageSha256 = edgerecord.PlanPageDigest(overflowPage)
+	overflowPages := []*edgev1.ScheduledPlanPageV1{overflowPage}
+	overflowCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(overflowPages)
+	if err != nil {
+		t.Fatalf("overflow plan commitment: %v", err)
+	}
+	overflowHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: splitPlanID, PageCount: 1, TotalTargetCount: 0,
+		PlanRootSha256: edgerecord.PlanRoot(overflowPages), DigestVersion: edgerecord.PlanDigestVersion,
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), MtrOrdinalRangeCommitment: overflowCommitment,
+	}
+	overflowHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(overflowHeader)
+	golden(t, "plan_header_total_overflow.bin", overflowHeader)
+	golden(t, "plan_page_total_overflow.bin", overflowPage)
+
+	// Each range on its own is legal; only their SUM overflows.
+	for _, r := range overflowPage.GetRanges() {
+		if r.GetTargetCount() != 1<<63 {
+			t.Fatalf("overflow fixture drift: range count %d", r.GetTargetCount())
+		}
+	}
+	if err := edgerecord.ValidatePlanPages(overflowHeader, overflowPages); !errors.Is(err, edgerecord.ErrPlanTotals) {
+		t.Fatalf("target-count overflow = %v, want ErrPlanTotals", err)
+	}
+
+	// SHARED BLOAT VECTORS on the RAW plan boundary. A page padded with DUPLICATE known
+	// fields collapses on a re-marshal, so measuring the round trip is not the physical
+	// ceiling: Go's struct path accepted 131,074 received bytes that Elixir refused.
+	// These pin the boundary to RECEIVED bytes on both sides, at the limit and one over.
+	basePage := splitPage
+	atLimit := padWithDuplicateKnownField(t, mustMarshal(basePage), edgerecord.MaxPlanPageBytes)
+	overLimit := padWithDuplicateKnownField(t, mustMarshal(basePage), edgerecord.MaxPlanPageBytes+1)
+	goldenBytes(t, "plan_page_bytes_at_limit.bin", atLimit)
+	goldenBytes(t, "plan_page_bytes_over_limit.bin", overLimit)
+
+	// Both decode to the SAME page -- asserted by FULL message equality, not merely
+	// "both unmarshal" -- and both collapse well under the ceiling on a re-marshal.
+	// That is what makes the pair non-vacuous: only the RECEIVED size differs.
+	var decodedAt, decodedOver edgev1.ScheduledPlanPageV1
+	if err := proto.Unmarshal(atLimit, &decodedAt); err != nil {
+		t.Fatalf("at-limit vector must decode: %v", err)
+	}
+	if err := proto.Unmarshal(overLimit, &decodedOver); err != nil {
+		t.Fatalf("over-limit vector must decode: %v", err)
+	}
+	if !proto.Equal(&decodedAt, &decodedOver) {
+		t.Fatal("bloat vectors must decode to the SAME page; only received size may differ")
+	}
+	if !proto.Equal(&decodedAt, basePage) {
+		t.Fatal("bloat vectors must decode to the base page")
+	}
+	if n := len(mustMarshal(&decodedAt)); n >= edgerecord.MaxPlanPageBytes {
+		t.Fatalf("re-marshal is %d bytes, expected far below the %d ceiling -- the pair "+
+			"only demonstrates the received-bytes rule if the round trip collapses",
+			n, edgerecord.MaxPlanPageBytes)
+	}
+	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{atLimit}); err != nil {
+		t.Fatalf("a page at exactly MaxPlanPageBytes must be accepted: %v", err)
+	}
+	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{overLimit}); !errors.Is(err, edgerecord.ErrPlanBounds) {
+		t.Fatalf("a page one byte over = %v, want ErrPlanBounds", err)
+	}
+
+	// SHARED REJECT VECTORS, authored by Go and consumed by BOTH runtimes. In-memory
+	// mutations inside one runtime's test prove only that runtime's opinion; a reject
+	// vector has to be BYTES on disk, or the two implementations can disagree about
+	// what is refused and nothing notices.
+	//
+	// Each asserts its EXACT sentinel, not merely "some error": reason parity across the
+	// two runtimes is the thing being proven, and any-error assertions cannot show it.
+	rejectCases := []struct {
+		name   string
+		want   error
+		mutate func(*edgev1.SweepAssignmentRecordV1)
+	}{
+		{"assignment_reject_lease.bin", edgerecord.ErrAssignmentLease, func(r *edgev1.SweepAssignmentRecordV1) {
+			r.LeaseId = nil
+			r.FenceToken = 0
+		}},
+		{"assignment_reject_expectation.bin", edgerecord.ErrAssignmentExpectation, func(r *edgev1.SweepAssignmentRecordV1) {
+			// count and commitment disagree: count 0 with a non-empty commitment.
+			r.MtrExpectation.OrdinalCount = 0
+		}},
+		{"assignment_reject_sequence.bin", edgerecord.ErrAssignmentIdentity, func(r *edgev1.SweepAssignmentRecordV1) {
+			r.RecordSequence = 0
+		}},
+		{"assignment_reject_zero_uuid.bin", edgerecord.ErrAssignmentIdentity, func(r *edgev1.SweepAssignmentRecordV1) {
+			r.ProducerAssignmentId = make([]byte, 16)
+		}},
+		{"assignment_reject_offset_absent.bin", edgerecord.ErrAssignmentExpectation, func(r *edgev1.SweepAssignmentRecordV1) {
+			r.MtrExpectation.PlanOrdinalOffset = nil
+		}},
+	}
+	for _, tc := range rejectCases {
+		bad := proto.Clone(secondAssignment).(*edgev1.SweepAssignmentRecordV1)
+		tc.mutate(bad)
+		badBytes := golden(t, tc.name, bad)
+		var decoded edgev1.SweepAssignmentRecordV1
+		if err := proto.Unmarshal(badBytes, &decoded); err != nil {
+			t.Fatalf("%s: decode: %v", tc.name, err)
+		}
+		if err := edgerecord.ValidateSweepAssignmentRecord(&decoded); !errors.Is(err, tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.name, err, tc.want)
+		}
+	}
+
+	// SHARED WORK-CEILING BOUNDARY. The ceiling is an ABI fact, not a Go
+	// implementation detail: a plan Go rejects and Elixir accepts is a divergence, so
+	// both runtimes consume these two pages and must agree on the verdict. Bounds are
+	// checked BEFORE any hashing, so a max-sized page costs a walk here, not a fold.
+	//
+	// The page carries MULTIPLE ranges whose counts SUM to the boundary. A single-range
+	// fixture would be satisfied by an implementation that bounds each range on its own
+	// and never accumulates, which is precisely the bug the ceiling exists to stop.
+	mkCeilingPage := func(tag byte, counts ...uint64) *edgev1.ScheduledPlanPageV1 {
+		ranges := make([]*edgev1.TargetRangeV1, 0, len(counts))
+		for i, c := range counts {
+			r := &edgev1.TargetRangeV1{
+				RangeId: uuidv7(tag + byte(i)), Cidr: "10.30.0.0/24", TargetCount: 256,
+				CheckSetSha256: digest32(0x7C), AvailabilityPolicyId: []byte("policy-1"),
+				MtrAdmissionBudget: c, MtrOrdinalCount: proto.Uint64(c),
+			}
+			r.RangeSha256 = edgerecord.RangeDigest(r)
+			ranges = append(ranges, r)
+		}
+		p := &edgev1.ScheduledPlanPageV1{
+			ExecutionPlanId: uuidv7(0x2D), PageIndex: 0, PageCount: 1,
+			CheckSetSha256: digest32(0x7C), DigestVersion: edgerecord.PlanDigestVersion,
+			Ranges: ranges,
+		}
+		p.PageSha256 = edgerecord.PlanPageDigest(p)
+		return p
+	}
+	const halfCeiling = edgerecord.MaxPlanMtrOrdinals / 2
+	// Three ranges, each far under the ceiling, summing to exactly N and N+1.
+	atMax := mkCeilingPage(0x2E, halfCeiling, halfCeiling-1, 1)
+	overMax := mkCeilingPage(0x40, halfCeiling, halfCeiling-1, 2)
+	golden(t, "plan_page_ordinals_at_max.bin", atMax)
+	golden(t, "plan_page_ordinals_over_max.bin", overMax)
+
+	for _, r := range atMax.GetRanges() {
+		if r.GetMtrOrdinalCount() > edgerecord.MaxPlanMtrOrdinals/2 {
+			t.Fatal("a single range reaches the ceiling; the multi-range control is vacuous")
+		}
+	}
+	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{atMax}); err != nil {
+		t.Fatalf("exactly MaxPlanMtrOrdinals must be ACCEPTED: %v", err)
+	}
+	if _, _, err := edgerecord.PlanMtrWindows([]*edgev1.ScheduledPlanPageV1{overMax}); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("MaxPlanMtrOrdinals+1 = %v, want ErrPlanMtrWindow", err)
+	}
+	// Drive the ACTUAL commitment function, not only the bounds walk: if the pre-hash
+	// guard were removed this would fold 2^20+1 hashes and RETURN a value instead of an
+	// error, so the assertion is what keeps the guard load-bearing.
+	if _, err := edgerecord.PlanMtrOrdinalRangeCommitment([]*edgev1.ScheduledPlanPageV1{overMax}); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("over-ceiling commitment = %v, want ErrPlanMtrWindow", err)
+	}
+	// And the EXPORTED per-window helper, which was the bypass: a window that ENDS past
+	// the ceiling is refused even though its WIDTH is 1.
+	if _, err := edgerecord.MtrWindowCommitment(edgerecord.MaxPlanMtrOrdinals, 1, digest32(0x7C)); !errors.Is(err, edgerecord.ErrPlanMtrWindow) {
+		t.Fatalf("window ending past the ceiling = %v, want ErrPlanMtrWindow", err)
+	}
+	if _, err := edgerecord.MtrWindowCommitment(edgerecord.MaxPlanMtrOrdinals-1, 1, digest32(0x7C)); err != nil {
+		t.Fatalf("a window ending exactly AT the ceiling must be accepted: %v", err)
+	}
+
+	// STALE-WIRE PROOF for the retired tag 20. Reserving a tag prevents source reuse; it
+	// does not prove a sender that still emits the field is rejected. This vector is the
+	// valid zero-MTR event with a length-delimited field 20 appended, exactly as a
+	// pre-retirement sender would encode range_root_sha256.
+	staleTag20 := append(append([]byte(nil), zeroBytes...), 0xA2, 0x01, 0x20)
+	staleTag20 = append(staleTag20, digest32(0x95)...)
+	staleBytes := goldenBytes(t, "lifecycle_stale_tag20.bin", staleTag20)
+
+	var stale edgev1.SweepExecutionEventV1
+	if err := proto.Unmarshal(staleBytes, &stale); err != nil {
+		t.Fatalf("stale tag-20 vector must still DECODE (that is why it is dangerous): %v", err)
+	}
+	// Assert the retained bytes really are tag 20, wire type 2 -- otherwise the
+	// rejection below could be firing on something else entirely.
+	unknown := stale.ProtoReflect().GetUnknown()
+	if len(unknown) == 0 {
+		t.Fatal("stale vector retained no unknown field; the fixture is vacuous")
+	}
+	if num, typ, n := protowire.ConsumeTag(unknown); n < 0 || num != 20 || typ != protowire.BytesType {
+		t.Fatalf("retained tag = %v/%v, want field 20 wire type 2", num, typ)
+	}
+	if err := edgerecord.ValidateSweepExecutionEvent(&stale); !errors.Is(err, edgerecord.ErrUnknownFields) {
+		t.Fatalf("stale tag-20 event = %v, want ErrUnknownFields", err)
 	}
 
 	rid := uuidv7(0x80)
@@ -1371,7 +1807,7 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 func TestGoldenPlan(t *testing.T) {
 	planID := uuidv7(0xA0)
 	checkSet := digest32(0x77)
-	r := &edgev1.TargetRangeV1{RangeId: uuidv7(0xA1), Cidr: "10.0.0.0/24", TargetCount: 256, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), MtrAdmissionBudget: 8}
+	r := &edgev1.TargetRangeV1{RangeId: uuidv7(0xA1), Cidr: "10.0.0.0/24", TargetCount: 256, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), MtrAdmissionBudget: 8, MtrOrdinalCount: proto.Uint64(2)}
 	r.RangeSha256 = edgerecord.RangeDigest(r)
 	page := &edgev1.ScheduledPlanPageV1{ExecutionPlanId: planID, PageIndex: 0, PageCount: 1, CheckSetSha256: checkSet, DigestVersion: edgerecord.PlanDigestVersion, Ranges: []*edgev1.TargetRangeV1{r}}
 	page.PageSha256 = edgerecord.PlanPageDigest(page)
@@ -1380,10 +1816,10 @@ func TestGoldenPlan(t *testing.T) {
 	// (ordinal, range) assignment the completion proof proves membership against. A
 	// plan admitting NO MTR carries 32 ZERO bytes here -- never empty bytes; see
 	// lifecycle_zero_mtr.bin. The field is ALWAYS 32 bytes either way.
-	mtrCommitment := edgerecord.MtrOrdinalRangeCommitment([]edgerecord.MtrCompletionLeaf{
-		{Ordinal: 1, RangeSha256: r.RangeSha256},
-		{Ordinal: 2, RangeSha256: r.RangeSha256},
-	})
+	mtrCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(pages)
+	if err != nil {
+		t.Fatalf("plan mtr commitment: %v", err)
+	}
 	h := &edgev1.ScheduledPlanHeaderV1{
 		ExecutionPlanId: planID, PageCount: 1, TotalTargetCount: 256, PlanRootSha256: edgerecord.PlanRoot(pages),
 		DigestVersion: edgerecord.PlanDigestVersion, CheckSetSha256: checkSet, AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: uuidv7(0x11),

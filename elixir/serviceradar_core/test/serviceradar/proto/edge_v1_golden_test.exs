@@ -12,11 +12,14 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
   import Bitwise
 
+  alias ServiceRadar.Edge.AssignmentValidate
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SemanticDigest
+  alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.WireValidate
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -31,6 +34,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SpoolLossTombstoneV1
+  alias Serviceradar.Edge.V1.SweepAssignmentRecordV1
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
@@ -1116,6 +1120,101 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert ev.execution_plan_sha256 == header.execution_plan_sha256
     assert ev.plan_root_sha256 == header.plan_root_sha256
 
+    # The AUTHORITATIVE expectation lives on the assignment record, not on the event
+    # and not on the plan header. `ordinal_count` is CARRIED: the commitment is an
+    # additive multiset hash and cannot be inverted, so a count is not recoverable
+    # from it, and the producer's own counters are not the authority.
+    assignment = SweepAssignmentRecordV1.decode(load("assignment_zero_mtr.bin"))
+    assert assignment.mtr_expectation
+    assert assignment.mtr_expectation.ordinal_count == 0
+    assert assignment.mtr_expectation.ordinal_range_commitment == <<0::256>>
+    assert assignment.record_sequence >= 1
+    assert assignment.state == :SWEEP_ASSIGNMENT_STATE_COMPLETED
+
+    # The RELATION to the paired plan, not two artifacts validated in isolation. The
+    # range binding is RESOLVABLE -- an id a consumer can look up plus the digest it
+    # must match -- rather than an opaque commitment checkable only for length.
+    assert assignment.execution_plan_id == header.execution_plan_id
+    assert assignment.execution_plan_sha256 == header.execution_plan_sha256
+    # The plan header no longer carries an assignment epoch (tag 9 RETIRED): an
+    # immutable plan must not commit a value that reassignment advances without
+    # changing the plan. The monotonic epoch lives on the assignment record alone.
+    refute Map.has_key?(header, :assignment_epoch)
+    assert assignment.assignment_epoch > 0
+    assert assignment.check_set_sha256 == header.check_set_sha256
+    assert assignment.availability_policy_id == header.availability_policy_id
+    assert assignment.network_scope_id == header.network_scope_id
+    assert byte_size(assignment.target_range_id) == 16
+    assert byte_size(assignment.target_range_sha256) == 32
+
+    page = ScheduledPlanPageV1.decode(load("plan_page_zero_mtr.bin"))
+    [plan_range] = page.ranges
+    assert assignment.target_range_id == plan_range.range_id
+    assert assignment.target_range_sha256 == plan_range.range_sha256
+    assert HashGrammar.range_digest(plan_range) == plan_range.range_sha256
+
+    # The expectation is RECOMPUTED from committed plan data, not trusted. Each plan
+    # range owns one CONTIGUOUS plan-global ordinal window; this range is the first, so
+    # its offset is 0 -- and REQUIRED PRESENCE means that 0 must be carried explicitly,
+    # not inferred from an absent field.
+    assert assignment.mtr_expectation.plan_ordinal_offset == 0
+    assert assignment.mtr_expectation.ordinal_count == plan_range.mtr_ordinal_count
+
+    assert assignment.mtr_expectation.ordinal_range_commitment ==
+             HashGrammar.mtr_window_commitment(
+               assignment.mtr_expectation.plan_ordinal_offset,
+               plan_range.mtr_ordinal_count,
+               plan_range.range_sha256
+             )
+
+    # The plan-wide commitment is the ADDITIVE SUM of every range's window, so a split
+    # plan is verifiable without renumbering any attempt's local ordinals.
+    assert {:ok, header.mtr_ordinal_range_commitment} ==
+             HashGrammar.plan_mtr_ordinal_range_commitment([page])
+
+    # `mtr_admission_budget` is a CEILING, never the count.
+    assert plan_range.mtr_ordinal_count <= plan_range.mtr_admission_budget
+
+    # The state enum is POLICED, not merely decodable. Registering it in the negative
+    # transform only makes the decoder total; admission is a separate table, and its
+    # absence made this exact fixture fail with {:unpoliced_enum_field, [:state]}.
+    assert :ok = SemanticValidate.validate_message(assignment)
+
+    assert {:error, {:unsupported_enum, [:state]}} =
+             SemanticValidate.validate_message(%{
+               assignment
+               | state: :SWEEP_ASSIGNMENT_STATE_UNSPECIFIED
+             })
+
+    assert {:error, {:unsupported_enum, [:state]}} =
+             SemanticValidate.validate_message(%{assignment | state: 99})
+
+    # STALE-WIRE PROOF for the RETIRED tag 20. Reserving a tag stops source reuse; it
+    # does not stop a sender that still emits the field. The shared vector is the valid
+    # event plus a length-delimited field 20, and Elixir must reject it at the same
+    # boundary Go does -- the retained bytes are visible, so admitting them would let a
+    # pre-retirement producer's range root ride through unvalidated.
+    stale = load("lifecycle_stale_tag20.bin")
+    decoded_stale = SweepExecutionEventV1.decode(stale)
+    assert decoded_stale.__unknown_fields__ != []
+    assert [{20, 2, _}] = decoded_stale.__unknown_fields__
+
+    # PIN THE DISPOSITION, not merely "some error". A regression returning :systemic or
+    # :not_ready for every lifecycle message would still satisfy {:error, _}, silently
+    # turning stale retired data from permanent poison into pause-and-replay.
+    assert :ok = WireValidate.validate(load("lifecycle_zero_mtr.bin"), SweepExecutionEventV1)
+    assert {:error, :poison} = WireValidate.validate(stale, SweepExecutionEventV1)
+
+    # And the completion proof verifies against THAT expectation.
+    assert {:ok, ev.mtr_completion_digest} ==
+             HashGrammar.mtr_completion_verify(
+               [],
+               assignment.mtr_expectation.plan_ordinal_offset,
+               assignment.mtr_expectation.ordinal_count,
+               ev.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
+
     # The plan admitted NO MTR targets, so every MTR counter is zero -- and the
     # proof is STILL present. That is the decision: missing evidence must never be
     # able to masquerade as empty work.
@@ -1133,21 +1232,22 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # Byte parity on the zero-leaf root, through the validating entry point.
     assert {:ok, ev.mtr_completion_digest} ==
-             HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32)
+             HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, zero32)
 
     # EMPTY commitment bytes are not the zero-MTR commitment.
-    assert :error = HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, <<>>)
+    assert :error = HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, <<>>)
 
     # A leaf at expected 0 is work the plan never admitted.
     rng = digest32(0x93)
 
     assert :error =
-             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, ev.plan_root_sha256, zero32)
+             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, 0, ev.plan_root_sha256, zero32)
 
     # Zero leaves against a non-empty commitment fails the membership proof.
     assert :error =
              HashGrammar.mtr_completion_verify(
                [],
+               0,
                0,
                ev.plan_root_sha256,
                HashGrammar.mtr_ordinal_range_commitment([{1, 2, nil, rng}])
@@ -1157,8 +1257,512 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # iterates [1, 0] descending, so it would fold two ordinal hashes for a
     # completion with none and reject every valid zero-MTR proof. If this assertion
     # and the byte-parity one above both hold, the fold really was empty.
-    assert HashGrammar.mtr_completion_verify([], 0, ev.plan_root_sha256, zero32) !=
-             HashGrammar.mtr_completion_verify([], 1, ev.plan_root_sha256, zero32)
+    assert HashGrammar.mtr_completion_verify([], 0, 0, ev.plan_root_sha256, zero32) !=
+             HashGrammar.mtr_completion_verify([], 0, 1, ev.plan_root_sha256, zero32)
+  end
+
+  test "a second, non-prefix assignment proves its completion in Elixir too" do
+    # The shared split vector: range A owns plan-global ordinals 1..2, range B owns
+    # 3..5. B is the case the first version of this model could not express -- its
+    # membership is folded over GLOBAL ordinals while its completion leaves stay LOCAL
+    # at {1..3}.
+    header = ScheduledPlanHeaderV1.decode(load("plan_header_split.bin"))
+    page = ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    assignment = SweepAssignmentRecordV1.decode(load("assignment_split_second.bin"))
+    ev = SweepExecutionEventV1.decode(load("lifecycle_split_second.bin"))
+
+    assert HashGrammar.plan_page_digest(page) == page.page_sha256
+    assert HashGrammar.plan_header_digest(header) == header.execution_plan_sha256
+
+    # Windows are the PREFIX SUM over ranges in page order: A starts at 0, B at 2.
+    [range_a, range_b] = page.ranges
+    assert range_a.mtr_ordinal_count == 2
+    assert range_b.mtr_ordinal_count == 3
+    offset_b = range_a.mtr_ordinal_count
+    assert assignment.mtr_expectation.plan_ordinal_offset == offset_b
+    assert offset_b > 0, "the second window must not be a prefix, or this test is vacuous"
+
+    # The expectation is RECOMPUTED, not trusted.
+    assert assignment.mtr_expectation.ordinal_range_commitment ==
+             HashGrammar.mtr_window_commitment(offset_b, range_b.mtr_ordinal_count, range_b.range_sha256)
+
+    # Plan-wide is the additive SUM of both windows.
+    assert {:ok, header.mtr_ordinal_range_commitment} ==
+             HashGrammar.plan_mtr_ordinal_range_commitment([page])
+
+    # And the non-prefix completion proves: LOCAL leaves {1..3}, GLOBAL membership.
+    leaves = for i <- 1..3, do: {i, 2, nil, range_b.range_sha256}
+
+    assert {:ok, ev.mtr_completion_digest} ==
+             HashGrammar.mtr_completion_verify(
+               leaves,
+               offset_b,
+               range_b.mtr_ordinal_count,
+               header.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
+
+    # Dropping the offset must FAIL, or the vector proves nothing about threading it.
+    assert :error =
+             HashGrammar.mtr_completion_verify(
+               leaves,
+               0,
+               range_b.mtr_ordinal_count,
+               header.plan_root_sha256,
+               assignment.mtr_expectation.ordinal_range_commitment
+             )
+  end
+
+  test "the plan MTR work ceiling is an ABI fact both runtimes agree on" do
+    # A ceiling enforced in only one runtime is a divergence, not a safeguard: a plan
+    # Go rejects and Elixir accepts would pass the written ABI. Both consume the SAME
+    # two pages and must return the same verdict at exactly the boundary.
+    at_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_at_max.bin"))
+    over_max = ScheduledPlanPageV1.decode(load("plan_page_ordinals_over_max.bin"))
+
+    # The counts SUM to the boundary across SEVERAL ranges. A single-range fixture
+    # would be satisfied by an implementation that bounds each range alone and never
+    # accumulates -- exactly the bug the ceiling exists to stop.
+    assert length(at_max.ranges) > 1
+    assert Enum.sum(Enum.map(at_max.ranges, & &1.mtr_ordinal_count)) == 1_048_576
+    assert Enum.sum(Enum.map(over_max.ranges, & &1.mtr_ordinal_count)) == 1_048_577
+    assert Enum.all?(at_max.ranges, &(&1.mtr_ordinal_count < 1_048_576))
+
+    # Bounds are decided WITHOUT hashing, so the max case is cheap to accept.
+    assert {:ok, _windows, 1_048_576} = HashGrammar.plan_mtr_windows([at_max])
+    assert :error = HashGrammar.plan_mtr_windows([over_max])
+
+    # Drive the ACTUAL commitment function too: with the pre-hash guard removed this
+    # would fold 2^20+1 hashes and return a value instead of raising.
+    # A TYPED rejection, not a raised MatchError: Go returns an error here, and a
+    # caller cannot pattern-match on a crash.
+    assert :error = HashGrammar.plan_mtr_ordinal_range_commitment([over_max])
+    assert {:ok, _} = HashGrammar.plan_mtr_ordinal_range_commitment([at_max])
+
+    # Go rejects a non-32-byte range digest; Elixir must not be laxer.
+    assert :error = HashGrammar.mtr_window_commitment(0, 1, <<7>>)
+
+    # The exported per-window helper bounds where a window ENDS, not just its WIDTH:
+    # a one-ordinal window starting AT the ceiling names an ordinal no plan contains.
+    assert :error = HashGrammar.mtr_window_commitment(1_048_576, 1, :binary.copy(<<7>>, 32))
+    assert is_binary(HashGrammar.mtr_window_commitment(1_048_575, 1, :binary.copy(<<7>>, 32)))
+
+    # Go rejects offset 2^31 too; Elixir must not be laxer.
+    assert :error = HashGrammar.mtr_window_commitment(2_147_483_648, 1, :binary.copy(<<7>>, 32))
+  end
+
+  test "Elixir validates the assignment record and its plan relation" do
+    header = ScheduledPlanHeaderV1.decode(load("plan_header_split.bin"))
+    page = ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    raw = load("assignment_split_second.bin")
+    assignment = SweepAssignmentRecordV1.decode(raw)
+
+    # The relation VALIDATES THE PLAN ITSELF, so no caller can substitute one.
+    assert {:ok, _windows} = PlanValidate.validate(header, [page])
+    assert :ok = AssignmentValidate.validate(assignment)
+    assert :ok = AssignmentValidate.validate_against_plan(assignment, header, [page])
+
+    # COMPOSED boundary from raw bytes: WireDecode's structural gate and its
+    # :poison/:not_ready/:systemic classification, then enum admission, then relations.
+    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes(raw)
+    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes_against_plan(raw, header, [page])
+
+    # A TAMPERED PLAN cannot confer authority THROUGH THE RELATION, which is where it
+    # matters: previously a forged carrier around a rejected plan returned :ok.
+    assert {:error, :page_digest} =
+             AssignmentValidate.validate_against_plan(
+               assignment,
+               header,
+               [%{page | page_sha256: :binary.copy(<<3>>, 32)}]
+             )
+
+    [r0 | _] = page.ranges
+
+    # RAW plan boundary. protobuf-elixir ERASES an unknown GROUP, so the decoded page
+    # carries no unknown fields and the struct-based relation cannot see it; Go retains
+    # and rejects it. Only the raw walk does.
+    raw_page = load("plan_page_split.bin")
+    grouped_page = raw_page <> <<251, 1, 252, 1>>
+    erased = ScheduledPlanPageV1.decode(grouped_page)
+    assert erased.__unknown_fields__ == [], "fixture assumption: the group is erased on decode"
+
+    assert {:ok, _} =
+             AssignmentValidate.validate_bytes_against_plan_bytes(
+               raw,
+               load("plan_header_split.bin"),
+               [raw_page]
+             )
+
+    assert {:error, :poison} =
+             AssignmentValidate.validate_bytes_against_plan_bytes(
+               raw,
+               load("plan_header_split.bin"),
+               [grouped_page]
+             )
+
+    # SHARED BLOAT VECTORS: both runtimes bound the page on RECEIVED bytes. Go's struct
+    # path measured a RE-MARSHAL, which collapses duplicate known fields, so it accepted
+    # 131,074 received bytes that Elixir refused -- the two now agree at the boundary.
+    at_limit = load("plan_page_bytes_at_limit.bin")
+    over_limit = load("plan_page_bytes_over_limit.bin")
+    assert byte_size(at_limit) == 128 * 1024
+    assert byte_size(over_limit) == 128 * 1024 + 1
+
+    # Both decode to the SAME page: only the received SIZE differs, so the pair cannot
+    # pass for some other reason.
+    decoded_at = ScheduledPlanPageV1.decode(at_limit)
+    decoded_over = ScheduledPlanPageV1.decode(over_limit)
+    assert decoded_at == decoded_over
+    assert decoded_at == ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    # And the re-marshal collapses far below the ceiling, which is the whole point.
+    assert byte_size(ScheduledPlanPageV1.encode(decoded_at)) < 128 * 1024
+
+    assert {:ok, _} = WireDecode.decode_plan_page(at_limit)
+    assert {:error, :too_large} = WireDecode.decode_plan_page(over_limit)
+
+    # CIDR parity: canonical spelling and host-bit masking across every width. Both of
+    # these were accepted before -- a resealed 2001:0DB8::/126 and a host-bit-set
+    # 2001:db8::1/65 -- while Go rejected them.
+    # Each pairs its CIDR with the target_count that CIDR would legitimately require, so
+    # only the canonicality/masking guard can reject it. An earlier revision left
+    # target_count at 256 for all three, which made two of them fail on count mismatch
+    # even with the guards removed -- vacuous.
+    for {bad_cidr, count} <- [
+          {"2001:0DB8::/126", 4},
+          {"2001:db8::1/65", Bitwise.bsl(1, 63)},
+          {"10.20.0.0/024", 256},
+          {"10.20.0.0/+24", 256},
+          {"10.0.0.1/24", 256}
+        ] do
+      bad_r = %{r0 | cidr: bad_cidr, first_address: "", last_address: "", target_count: count}
+      bad_r = %{bad_r | range_sha256: HashGrammar.range_digest(bad_r)}
+      bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
+      bad_p = %{bad_p | page_sha256: HashGrammar.plan_page_digest(bad_p)}
+
+      # The header total is RECOMPUTED from the mutated ranges. Leaving it at 512 while
+      # the ranges summed to 260 or 2^63 + 256 meant a totals mismatch could reject the
+      # plan even with the canonicality guard removed -- a false positive control.
+      recomputed_total = Enum.sum(Enum.map(bad_p.ranges, & &1.target_count))
+
+      bad_h = %{
+        header
+        | total_target_count: recomputed_total,
+          plan_root_sha256: HashGrammar.plan_root([bad_p]),
+          mtr_ordinal_range_commitment:
+            elem(HashGrammar.plan_mtr_ordinal_range_commitment([bad_p]), 1)
+      }
+
+      bad_h = %{bad_h | execution_plan_sha256: HashGrammar.plan_header_digest(bad_h)}
+
+      assert {:error, :plan_range} = PlanValidate.validate(bad_h, [bad_p]),
+             "non-canonical or host-bit-set CIDR #{bad_cidr} must be rejected"
+    end
+
+    # LAYERING, asserted rather than assumed: through the composed boundary an
+    # unsupported state is caught by ENUM ADMISSION first, so the reason is
+    # {:unsupported_enum, [:state]} -- NOT the assignment-state reason. Both refuse the
+    # record; only the layer that speaks first differs, and the claim should say so.
+    for bad_state <- [:SWEEP_ASSIGNMENT_STATE_UNSPECIFIED, 99] do
+      bytes = SweepAssignmentRecordV1.encode(%{assignment | state: bad_state})
+      assert {:error, {:unsupported_enum, [:state]}} = AssignmentValidate.validate_bytes(bytes)
+      assert {:error, :state} = AssignmentValidate.validate(%{assignment | state: bad_state})
+    end
+
+    # OVERFLOW of the reconciled total, from a GO-AUTHORED shared pair. Two
+    # individually valid /65 ranges, each spanning 2^63, sum to 2^64 -- which wraps in a
+    # uint64 accumulator. Building this only in Elixir left Go's carry rejection
+    # unproven.
+    over_header = ScheduledPlanHeaderV1.decode(load("plan_header_total_overflow.bin"))
+    over_page = ScheduledPlanPageV1.decode(load("plan_page_total_overflow.bin"))
+    assert Enum.map(over_page.ranges, & &1.target_count) == [Bitwise.bsl(1, 63), Bitwise.bsl(1, 63)]
+    assert {:error, :plan_totals} = PlanValidate.validate(over_header, [over_page])
+
+    # PROTOBUF DOMAINS on the plan header: a term outside uint64 must be a typed
+    # rejection, not a FunctionClauseError from the digest helper.
+    for bad_total <- [:bad, nil, -1, Bitwise.bsl(1, 64)] do
+      assert {:error, :header_identity} =
+               PlanValidate.validate(%{header | total_target_count: bad_total}, [page]),
+             "total_target_count #{inspect(bad_total)} must be a typed rejection"
+    end
+
+    # MALFORMED page/range SHAPES are typed rejections, not raises.
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [%{page | ranges: :bad}])
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [%{page | ranges: [7]}])
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [:bad])
+
+    # MALFORMED SCALARS on the assignment previously returned :ok.
+    for {field, value} <- [
+          {:execution_shard, :bad},
+          {:assignment_epoch, :bad},
+          {:terminal_batch_sequence, :bad}
+        ] do
+      assert match?({:error, _}, AssignmentValidate.validate(Map.put(assignment, field, value))),
+             "malformed #{field} must be rejected"
+    end
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: :bad}
+             })
+
+    # Every UUID-bearing field is checked, not just execution_id: removing any one of
+    # these call-site checks must be observable.
+    for field <- [
+          :producer_assignment_id,
+          :execution_id,
+          :network_scope_id,
+          :authenticated_agent_id,
+          :production_scope_id
+        ] do
+      assert {:error, :identity} =
+               AssignmentValidate.validate(Map.put(assignment, field, <<0::128>>)),
+             "#{field} must reject the all-zero uuid"
+    end
+
+    # target_range_id lives on the SCOPE path, and superseded_by is CONDITIONAL, so
+    # neither is covered by the identity loop above.
+    assert {:error, :scope} =
+             AssignmentValidate.validate(%{assignment | target_range_id: <<0::128>>})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{
+               assignment
+               | state: :SWEEP_ASSIGNMENT_STATE_SUPERSEDED,
+                 superseded_by_assignment_id: <<0::128>>
+             })
+
+    # NESTED RANGE integers are preflighted BEFORE the page digest hashes them: these
+    # raised FunctionClauseError inside HashGrammar.u64/1, and an absent
+    # mtr_ordinal_count was hashed as 0 before its later rejection.
+    for field <- [:target_count, :mtr_admission_budget, :mtr_ordinal_count] do
+      bad_r = Map.put(r0, field, nil)
+      bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
+
+      assert {:error, :plan_range} = PlanValidate.validate(header, [bad_p]),
+             "nil #{field} must be a typed rejection, not a raise"
+    end
+
+    # UPPER BOUNDS on every uint64/int64 call site, so replacing any one of these with
+    # a sign-only predicate is observable.
+    for {field, bad} <- [
+          {:record_sequence, Bitwise.bsl(1, 64)},
+          {:fence_token, Bitwise.bsl(1, 64)},
+          {:terminal_batch_sequence, Bitwise.bsl(1, 64)},
+          {:lease_expires_at_unix_nano, Bitwise.bsl(1, 63)}
+        ] do
+      assert match?({:error, _}, AssignmentValidate.validate(Map.put(assignment, field, bad))),
+             "#{field} must reject a value outside its protobuf domain"
+    end
+
+    # PROTOBUF DOMAINS on the assignment: 2^32 in a uint32 field, 2^64 in a uint64 one.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_shard: Bitwise.bsl(1, 32)})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | assignment_epoch: Bitwise.bsl(1, 64)})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | plan_ordinal_offset: Bitwise.bsl(1, 64)
+                 }
+             })
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{
+               assignment
+               | authored_at_unix_nano: Bitwise.bsl(1, 63)
+             })
+
+    # TOTAL and FAIL-CLOSED for malformed shapes, not merely for absent ones.
+    assert {:error, :expectation} = AssignmentValidate.validate(%{assignment | mtr_expectation: 7})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: 7})
+
+    # Generic UUID rejection, pinned here rather than inferred from another module's
+    # tests: version 0, version 9 and a non-RFC variant are all refused.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 0::4, 0::12, 2::2, 0::62>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 9::4, 1::12, 2::2, 1::62>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 4::4, 1::12, 0::2, 1::62>>})
+
+    # Go-parity gaps that PlanValidate previously accepted outright. Each one RESEALS
+    # the outer digests, so only the check being tested can reject it.
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [])
+
+    wrong_total = %{header | total_target_count: 999_999}
+    wrong_total = %{wrong_total | execution_plan_sha256: HashGrammar.plan_header_digest(wrong_total)}
+    assert {:error, :plan_totals} = PlanValidate.validate(wrong_total, [page])
+
+    # A changed CIDR under a STALE range_sha256, with page/root/header all resealed:
+    # only the range's own content digest can catch it.
+    stale_range = %{r0 | cidr: "10.99.0.0/24"}
+    rest = tl(page.ranges)
+    stale_page = %{page | ranges: [stale_range | rest]}
+    stale_page = %{stale_page | page_sha256: HashGrammar.plan_page_digest(stale_page)}
+
+    stale_header = %{
+      header
+      | plan_root_sha256: HashGrammar.plan_root([stale_page]),
+        mtr_ordinal_range_commitment:
+          elem(HashGrammar.plan_mtr_ordinal_range_commitment([stale_page]), 1)
+    }
+
+    stale_header = %{
+      stale_header
+      | execution_plan_sha256: HashGrammar.plan_header_digest(stale_header)
+    }
+
+    assert {:error, :plan_range} = PlanValidate.validate(stale_header, [stale_page])
+
+    assert {:error, :unknown_fields} =
+             PlanValidate.validate(%{header | __unknown_fields__: [{99, 2, <<1>>}]}, [page])
+
+    assert {:error, :unknown_fields} =
+             PlanValidate.validate(header, [%{page | __unknown_fields__: [{99, 2, <<1>>}]}])
+
+    assert {:error, :page_chain} = PlanValidate.validate(header, [%{page | page_index: 5}])
+
+    tampered_hash = :binary.copy(<<4>>, 32)
+
+    assert {:error, :header_digest} =
+             PlanValidate.validate(%{header | execution_plan_sha256: tampered_hash}, [page])
+
+    # RESEALED, so the header self-hash cannot mask it: plan_root is checked on its own.
+    bad_root = %{header | plan_root_sha256: tampered_hash}
+    bad_root = %{bad_root | execution_plan_sha256: HashGrammar.plan_header_digest(bad_root)}
+    assert {:error, :plan_root} = PlanValidate.validate(bad_root, [page])
+
+    bad_commit = %{header | mtr_ordinal_range_commitment: :binary.copy(<<5>>, 32)}
+    bad_commit = %{bad_commit | execution_plan_sha256: HashGrammar.plan_header_digest(bad_commit)}
+    assert {:error, :mtr_commitment} = PlanValidate.validate(bad_commit, [page])
+
+    # THE REPRO from review: lease/fence and expectation relations Go rejects, which
+    # every Elixir entry point used to accept because only enum admission existed.
+    bad = %{
+      assignment
+      | lease_id: <<>>,
+        fence_token: 0,
+        mtr_expectation: %{
+          assignment.mtr_expectation
+          | ordinal_count: 2,
+            ordinal_range_commitment: :binary.copy(<<1>>, 32)
+        }
+    }
+
+    assert {:error, :lease} = AssignmentValidate.validate(bad)
+
+    # The API is TOTAL: a contract promising {:error, reason} must not raise.
+    assert {:error, :identity} = AssignmentValidate.validate(%{})
+    assert {:error, :identity} = AssignmentValidate.validate(nil)
+    assert {:error, :header_identity} =
+             AssignmentValidate.validate_against_plan(assignment, :nope, :nope)
+
+    # Retained unknown fields are rejected, on the record AND its nested expectation.
+    assert {:error, :unknown_fields} =
+             AssignmentValidate.validate(%{assignment | __unknown_fields__: [{99, 2, <<1>>}]})
+
+    assert {:error, :unknown_fields} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | __unknown_fields__: [{99, 2, <<1>>}]}
+             })
+
+    # SHARED REJECT VECTORS: bytes authored by Go and refused by BOTH runtimes. An
+    # in-memory mutation inside one runtime's test proves only that runtime's opinion.
+    for {file, reason} <- [
+          {"assignment_reject_lease.bin", :lease},
+          {"assignment_reject_expectation.bin", :expectation},
+          {"assignment_reject_sequence.bin", :identity},
+          {"assignment_reject_zero_uuid.bin", :identity},
+          {"assignment_reject_offset_absent.bin", :expectation}
+        ] do
+      assert {:error, ^reason} = AssignmentValidate.validate_bytes(load(file)),
+             "shared reject vector #{file} must be refused with reason #{reason}"
+    end
+
+    # STANDALONE PARITY with Go, each previously accepted by Elixir alone.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | producer_assignment_id: <<0::128>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_plan_id: uuidv4_like()})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | ordinal_count: 2_147_483_649,
+                     ordinal_range_commitment: :binary.copy(<<1>>, 32)
+                 }
+             })
+
+    # Reason-pinned rejects, mirroring the Go errors.
+    assert {:error, :identity} = AssignmentValidate.validate(%{assignment | record_sequence: 0})
+    assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: uuidv7(0x5B)})
+
+    assert {:error, :scope} =
+             AssignmentValidate.validate(%{assignment | target_range_sha256: <<7>>})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{assignment | mtr_expectation: nil})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: nil}
+             })
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | ordinal_count: 0}
+             })
+
+    # The RELATION: recomputed from the plan, never trusted as carried bytes.
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               %{
+                 assignment
+                 | mtr_expectation: %{
+                     assignment.mtr_expectation
+                     | ordinal_range_commitment: :binary.copy(<<2>>, 32)
+                   }
+               },
+               header,
+               [page]
+             )
+
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               %{
+                 assignment
+                 | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: 0}
+               },
+               header,
+               [page]
+             )
+
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               # A CANONICAL uuid the plan never committed -- not malformed bytes, which
+               # the stricter identity check would reject before the relation ran.
+               %{assignment | target_range_id: uuidv7(0x5A)},
+               header,
+               [page]
+             )
   end
 
   test "MTR completion disposition symbols are pinned to their exact numbers" do
@@ -1207,7 +1811,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # in one call: there is no unvalidated Elixir hasher to check the bytes with,
     # exactly as Go exports no unvalidated `MtrCompletionRoot`.
     assert {:ok, ev.mtr_completion_digest} ==
-             HashGrammar.mtr_completion_verify(leaves, 2, ev.plan_root_sha256, commitment)
+             HashGrammar.mtr_completion_verify(leaves, 0, 2, ev.plan_root_sha256, commitment)
 
     rng = digest32(0x93)
     root = ev.plan_root_sha256
@@ -1216,6 +1820,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error =
              HashGrammar.mtr_completion_verify(
                [{2, 2, nil, rng}, {2, 2, nil, rng}, {2, 2, nil, rng}],
+               0,
                3,
                root,
                commitment
@@ -1225,6 +1830,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert :error =
              HashGrammar.mtr_completion_verify(
                [{1, 1, uuidv7(0x30), digest32(0xFE)}, {2, 2, nil, digest32(0xFE)}],
+               0,
                2,
                root,
                commitment
@@ -1232,10 +1838,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # r5-08: leaf-level invalid vectors Go rejects.
     c1 = HashGrammar.mtr_ordinal_range_commitment([{1, 2, nil, rng}])
-    assert :error = HashGrammar.mtr_completion_verify([{1, 999, <<1>>, <<2>>}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 1, root, c1)
-    assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 1, <<0>>, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 999, <<1>>, <<2>>}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 0, nil, <<>>}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 2, uuidv7(0x30), rng}], 0, 1, root, c1)
+    assert :error = HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, 1, <<0>>, c1)
 
     # The disposition is a CLOSED set: 0, -1, 6 (the next unallocated number, i.e.
     # one a LATER proto revision could declare) and 999 are all rejected BEFORE the
@@ -1243,7 +1849,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # closure is proven against the generated enum rather than against a literal.
     for disp <- [0, -1, 6, 999] do
       assert :error =
-               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 1, root, c1),
+               HashGrammar.mtr_completion_verify([{1, disp, nil, rng}], 0, 1, root, c1),
              "disposition #{disp} must be rejected by the frozen leaf grammar"
     end
 
@@ -1251,6 +1857,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       assert {:ok, _} =
                HashGrammar.mtr_completion_verify(
                  [{1, disp, trace, rng}],
+                 0,
                  1,
                  root,
                  HashGrammar.mtr_ordinal_range_commitment([{1, disp, trace, rng}])
@@ -1339,4 +1946,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert [hop] = trace.hops
     assert hop.jitter_worst_micro == 180
   end
+
+  # A CANONICAL uuid whose version is 4, not 7: accepted by a length/nonzero check,
+  # rejected by Go's UUIDv7 requirement on the plan id.
+  defp uuidv4_like, do: <<1, 2, 3, 4, 5, 6, 0x41, 8, 0x80, 10, 11, 12, 13, 14, 15, 16>>
 end

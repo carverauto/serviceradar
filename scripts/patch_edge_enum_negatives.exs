@@ -43,6 +43,7 @@ defmodule PatchEdgeEnumNegatives do
     Serviceradar.Edge.V1.EdgeUnattributableReason
     Serviceradar.Edge.V1.MtrCompletionDisposition
     Serviceradar.Edge.V1.MtrOutcome
+    Serviceradar.Edge.V1.SweepAssignmentState
     Serviceradar.Edge.V1.SweepExecutionEventKind
     Serviceradar.Edge.V1.SweepExecutionSource
     Serviceradar.Edge.V1.SweepMode
