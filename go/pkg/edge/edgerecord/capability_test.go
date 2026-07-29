@@ -77,9 +77,9 @@ func trustKey(issuerID, keyID []byte) string { return string(issuerID) + "|" + s
 
 func (m mapTrust) ResolveKey(issuerID, keyID []byte, ev KeyEvidence) KeyResolution {
 	if pub, ok := m[trustKey(issuerID, keyID)]; ok {
-		return KeyResolution{Status: KeyValid, Public: pub, TrustPolicyEpoch: ev.TrustPolicyEpoch}
+		return KeyResolution{Status: KeyValid, Public: pub, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
 	}
-	return KeyResolution{Status: KeyInvalid, TrustPolicyEpoch: ev.TrustPolicyEpoch}
+	return KeyResolution{Status: KeyInvalid, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
 }
 
 // statusTrust returns a fixed KeyResolution for the single known key, so tests can exercise the
@@ -91,7 +91,7 @@ type statusTrust struct {
 }
 
 func (s statusTrust) ResolveKey(_, _ []byte, ev KeyEvidence) KeyResolution {
-	return KeyResolution{Status: s.status, Public: s.public, TrustPolicyEpoch: ev.TrustPolicyEpoch}
+	return KeyResolution{Status: s.status, Public: s.public, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
 }
 
 // nowFor returns the identity time (ns) embedded in a UUIDv7, used as a trusted
@@ -159,8 +159,8 @@ type fixedEpochTrust struct {
 	public ed25519.PublicKey
 }
 
-func (f fixedEpochTrust) ResolveKey(_, _ []byte, _ KeyEvidence) KeyResolution {
-	return KeyResolution{Status: KeyValid, Public: f.public, TrustPolicyEpoch: f.epoch}
+func (f fixedEpochTrust) ResolveKey(_, _ []byte, ev KeyEvidence) KeyResolution {
+	return KeyResolution{Status: KeyValid, Public: f.public, TrustPolicyEpoch: f.epoch, Purpose: ev.Purpose}
 }
 
 // The trust-policy epoch is both REQUEST-pinned and RESPONSE-bound: a zero REQUEST epoch fails closed
@@ -209,7 +209,7 @@ func TestValidateSignedRequiresPinnedTrustEpoch(t *testing.T) {
 // resolver.
 type panicTrust struct{}
 
-func (panicTrust) ResolveKey(_, _ []byte, _ KeyEvidence) KeyResolution {
+func (panicTrust) ResolveKey(_, _ []byte, ev KeyEvidence) KeyResolution {
 	panic("ResolveKey must not be reached")
 }
 
@@ -235,8 +235,8 @@ func TestVerifyCapabilityWithTrustRejectsZeroEpoch(t *testing.T) {
 // `trust == nil` does NOT catch this typed nil (the interface is non-nil); isNilTrust must.
 type nilDerefTrust struct{ epoch uint64 }
 
-func (tr *nilDerefTrust) ResolveKey(_, _ []byte, _ KeyEvidence) KeyResolution {
-	return KeyResolution{Status: KeyValid, TrustPolicyEpoch: tr.epoch}
+func (tr *nilDerefTrust) ResolveKey(_, _ []byte, ev KeyEvidence) KeyResolution {
+	return KeyResolution{Status: KeyValid, TrustPolicyEpoch: tr.epoch, Purpose: ev.Purpose}
 }
 
 // A typed-nil resolver (a non-nil interface boxing a nil pointer) must fail closed with
@@ -333,14 +333,14 @@ func TestCapabilityKeyRotationSameIssuer(t *testing.T) {
 
 	// NORMAL rotation: key A rotated OUT of active issuance but retained -> recA STILL validates via
 	// retained history (KeyValid), NOT rejected as unknown.
-	rotated := funcTrust(func(_, keyID []byte, _ KeyEvidence) KeyResolution {
+	rotated := funcTrust(func(_, keyID []byte, ev KeyEvidence) KeyResolution {
 		switch {
 		case bytes.Equal(keyID, keyIDA):
-			return KeyResolution{Status: KeyValid, Public: pubA} // retained history keeps it valid
+			return KeyResolution{Status: KeyValid, Public: pubA, Purpose: ev.Purpose} // retained history keeps it valid
 		case bytes.Equal(keyID, keyIDB):
-			return KeyResolution{Status: KeyValid, Public: pubB}
+			return KeyResolution{Status: KeyValid, Public: pubB, Purpose: ev.Purpose}
 		default:
-			return KeyResolution{Status: KeyInvalid}
+			return KeyResolution{Status: KeyInvalid, Purpose: ev.Purpose}
 		}
 	})
 	if err := ValidateRecordSigned(recA, policyForTrust(recA, rotated)); err != nil {
@@ -349,11 +349,11 @@ func TestCapabilityKeyRotationSameIssuer(t *testing.T) {
 
 	// COMPROMISE revocation of key A: historical trust is deliberately invalidated -> recA is REACHABLE
 	// as audit/ledger_only (ErrKeyHistoricallyRevoked), never a permanent reject and never a silent apply.
-	compromised := funcTrust(func(_, keyID []byte, _ KeyEvidence) KeyResolution {
+	compromised := funcTrust(func(_, keyID []byte, ev KeyEvidence) KeyResolution {
 		if bytes.Equal(keyID, keyIDA) {
-			return KeyResolution{Status: KeyHistoricallyRevoked, Public: pubA}
+			return KeyResolution{Status: KeyHistoricallyRevoked, Public: pubA, Purpose: ev.Purpose}
 		}
-		return KeyResolution{Status: KeyInvalid}
+		return KeyResolution{Status: KeyInvalid, Purpose: ev.Purpose}
 	})
 	if err := ValidateRecordSigned(recA, policyForTrust(recA, compromised)); !errors.Is(err, ErrKeyHistoricallyRevoked) {
 		t.Fatalf("compromise-revoked key A = %v, want ErrKeyHistoricallyRevoked (reachable audit)", err)
@@ -512,14 +512,14 @@ func TestValidateFrameSignedLateFenced(t *testing.T) {
 	// the security downgrade), never Audit/Renewal.
 	prodPub := policy.Trust.(mapTrust)[trustKey(r.GetProductionCapability().GetIssuerId(), r.GetProductionCapability().GetIssuerKeyId())]
 	revoked := policy
-	revoked.Trust = funcTrust(func(issuerID, _ []byte, _ KeyEvidence) KeyResolution {
+	revoked.Trust = funcTrust(func(issuerID, _ []byte, ev KeyEvidence) KeyResolution {
 		switch {
 		case bytes.Equal(issuerID, r.GetProductionCapability().GetIssuerId()):
-			return KeyResolution{Status: KeyHistoricallyRevoked, Public: prodPub}
+			return KeyResolution{Status: KeyHistoricallyRevoked, Public: prodPub, Purpose: ev.Purpose}
 		case bytes.Equal(issuerID, dIssuer):
-			return KeyResolution{Status: KeyValid, Public: dpub}
+			return KeyResolution{Status: KeyValid, Public: dpub, Purpose: ev.Purpose}
 		default:
-			return KeyResolution{Status: KeyInvalid}
+			return KeyResolution{Status: KeyInvalid, Purpose: ev.Purpose}
 		}
 	})
 	if d, err := ValidateFrameSigned(frameFor(grant(now, renewalClaims(now))), revoked); err != nil ||
@@ -529,8 +529,8 @@ func TestValidateFrameSignedLateFenced(t *testing.T) {
 	// (9) Revoked production key with NO grant -> STILL durably captured (SecurityQuarantine), NOT
 	// refused: the compromise capture is a reachable terminal path that needs no delivery grant.
 	revokedNoGrant := policy
-	revokedNoGrant.Trust = funcTrust(func(_, _ []byte, _ KeyEvidence) KeyResolution {
-		return KeyResolution{Status: KeyHistoricallyRevoked, Public: prodPub}
+	revokedNoGrant.Trust = funcTrust(func(_, _ []byte, ev KeyEvidence) KeyResolution {
+		return KeyResolution{Status: KeyHistoricallyRevoked, Public: prodPub, Purpose: ev.Purpose}
 	})
 	if d, err := ValidateFrameSigned(frameFor(nil), revokedNoGrant); err != nil ||
 		d.Publication != FramePublicationSecurityQuarantine || d.DeliveryMode != FrameDeliveryModeFresh {
@@ -628,14 +628,14 @@ func TestAggregateWorstTrustAcrossProductionAndSource(t *testing.T) {
 			ActiveFence: ResolvedFence(r.GetProducerContext().GetAuthorityEpoch()), TrustPolicyEpoch: 1}
 	}
 	trustWith := func(prodStatus, srcStatus KeyStatus) funcTrust {
-		return funcTrust(func(issuerID, _ []byte, _ KeyEvidence) KeyResolution {
+		return funcTrust(func(issuerID, _ []byte, ev KeyEvidence) KeyResolution {
 			switch {
 			case bytes.Equal(issuerID, prodIssuer):
-				return KeyResolution{Status: prodStatus, Public: pubP}
+				return KeyResolution{Status: prodStatus, Public: pubP, Purpose: ev.Purpose}
 			case bytes.Equal(issuerID, srcIssuer):
-				return KeyResolution{Status: srcStatus, Public: pubS}
+				return KeyResolution{Status: srcStatus, Public: pubS, Purpose: ev.Purpose}
 			default:
-				return KeyResolution{Status: KeyInvalid}
+				return KeyResolution{Status: KeyInvalid, Purpose: ev.Purpose}
 			}
 		})
 	}

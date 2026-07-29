@@ -27,6 +27,11 @@ package serviceradar.edge.v1;
 
 option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
 
+// The compiled assignment carrier reuses the record plane's SIGNED CAPABILITY and its
+// immutable traffic class rather than inventing a parallel signing path. record.proto
+// imports nothing, so this introduces no cycle.
+import "edge/v1/record.proto";
+
 // ---------------------------------------------------------------------------
 // Shared sweep/MTR enums
 // ---------------------------------------------------------------------------
@@ -114,6 +119,15 @@ enum MtrCompletionDisposition {
   MTR_COMPLETION_DISPOSITION_PROBE_FAILED = 3;
   MTR_COMPLETION_DISPOSITION_QUARANTINED = 4;
   MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST = 5;
+}
+
+// SweepResultFormat is the TYPED result contract a compiled assignment selects. It is
+// an enum, not a string, because the compiled config's format decides how every
+// downstream projector reads the run -- and because the migration explicitly forbids
+// selecting a legacy format, which a free-form string could express by accident.
+enum SweepResultFormat {
+  SWEEP_RESULT_FORMAT_UNSPECIFIED = 0;
+  SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1 = 1;
 }
 
 // SweepExecutionSource names what produced an observation. It covers sweep
@@ -443,12 +457,12 @@ enum SweepAssignmentState {
 // SweepAssignmentRecordV1 is the APPEND-ONLY authoritative record of one
 // assignment attempt, authored by the scheduler. It is the counterpart to
 // `SweepExecutionEventV1`: the event is what the PRODUCER says it did, this is what
-// the SCHEDULER authorized and observed. Every field a consumer must not take on
+// the SCHEDULER ASSIGNED and observed. Every field a consumer must not take on
 // the producer's word lives here.
 //
 // Append-only means a state change is a NEW record with a higher
 // `record_sequence`, never an edit: an authority that can be rewritten cannot
-// settle a dispute about what was authorized.
+// settle a dispute about what was assigned.
 message SweepAssignmentRecordV1 {
   // --- identity -----------------------------------------------------------
   // producer_assignment_id is the SAME identifier an attributed span carries, and
@@ -512,14 +526,109 @@ message SweepAssignmentRecordV1 {
   bytes check_set_sha256 = 18;
   bytes availability_policy_id = 19;
 
-  // --- authorization ------------------------------------------------------
+  // --- identity scope -----------------------------------------------------
   // (network_scope_id, authenticated_agent_id) is the trust namespace the
-  // assignment mapping's key names.
+  // assignment mapping's key names. It SCOPES the assignment; permission to execute
+  // it is a HOST's EdgeAssignmentExecutionClaimsV1 grant.
   bytes network_scope_id = 20;
   bytes authenticated_agent_id = 21;
   bytes production_scope_id = 22;
   bytes scope_sha256 = 23;
   bytes contract_bundle_sha256 = 24;
+
+  // --- remaining mapping-key members --------------------------------------
+  // run_id is the PRODUCER's run identity and is INDEPENDENT of execution_id: it is
+  // never required to equal one, because resolving a span to an execution is exactly
+  // what the mapping lookup does. The scheduler records it because the key needs it,
+  // not because the scheduler chose it.
+  //
+  // NOTE on run_shard / authority_epoch: this record does NOT carry producer copies of
+  // them. `execution_shard` (tag 5) and `assignment_epoch` (tag 6) ARE the sole wire
+  // representation of those key facts. Two names for one value would create
+  // disagreement states with no rule for which wins; a payload variant that cannot
+  // express the correspondence merely lacks SECONDARY CORROBORATION, and the mapping
+  // still compares the full key against `EdgeProducerContext`.
+  bytes run_id = 25;
+
+  // The span's SOURCE IDENTITY, or its joint absence -- both are legal key shapes, so
+  // presence is meaningful and an unset submessage is not an error.
+  serviceradar.edge.v1.EdgeSourceSpanIdentityV1 source_identity = 26;
+
+  // --- compiled assignment reference --------------------------------------
+  // The carrier is referenced, never restated. Both are REQUIRED: an id without its
+  // digest names a carrier without pinning which revision of it was attested.
+  bytes compiled_assignment_id = 27;
+  // The ARTIFACT content address (body + capability), not the body digest: the
+  // reference must pin which AUTHORITY was attached, not merely which facts.
+  bytes compiled_assignment_sha256 = 28;
+}
+
+// CompiledSweepAssignmentV1 is the IMMUTABLE compiled assignment an agent is
+// delivered. The append-only `SweepAssignmentRecordV1` REFERENCES it by id and digest
+// rather than restating its facts, so each fact has exactly ONE home: repeating
+// config generation, result format, check set and capability bytes on every state
+// record would need a reconciliation rule for each, which is the defect pattern this
+// change has removed elsewhere.
+//
+// TWO digests, under `CompiledAssignmentDigestVersion`, answering different questions:
+//
+//   `compiled_assignment_body_sha256` -- the canonical digest over every BODY field,
+//   excluding both digests and the capability. This is what the capability SIGNS, so the
+//   signature covers every compiled fact transitively. A signature cannot cover itself.
+//
+//   `compiled_assignment_sha256` -- the ARTIFACT content address: the body digest PLUS
+//   the capability. Referencing records pin THIS one. A body digest is not a content
+//   address for an artifact that also carries an authority, because two artifacts with
+//   the same body and different capabilities share it.
+//
+// The two use SEPARATE domain tags, so neither can be presented where the other is
+// required.
+message CompiledSweepAssignmentV1 {
+  bytes compiled_assignment_id = 1;      // UUIDv7
+  // TWO digests, because they answer different questions.
+  //
+  // `compiled_assignment_body_sha256` is what the capability SIGNS: the canonical
+  // digest over every BODY field, excluding both digests and the capability. A
+  // signature cannot cover itself.
+  //
+  // `compiled_assignment_sha256` is the ARTIFACT content address: the digest over the
+  // body digest PLUS the capability. The referencing record pins THIS one, because a
+  // body digest is not a content address for an artifact that also carries an
+  // authority -- two artifacts with the same body and different capabilities would
+  // otherwise be indistinguishable to a reference that claims immutability.
+  bytes compiled_assignment_body_sha256 = 2;
+  bytes compiled_assignment_sha256 = 19;
+  uint32 digest_version = 3;
+
+  // --- binding to the authority record's world ---------------------------
+  // Every one of these MUST equal the referencing assignment record's value. A
+  // carrier that describes a different plan, range, scope, agent, shard or epoch
+  // than the record it is attached to is a substitution, not a detail.
+  bytes execution_plan_id = 4;
+  bytes execution_plan_sha256 = 5;
+  bytes target_range_id = 6;
+  bytes target_range_sha256 = 7;
+  bytes network_scope_id = 8;
+  bytes authenticated_agent_id = 9;
+  uint32 execution_shard = 10;
+  uint64 assignment_epoch = 11;
+  // The SPECIFIC attempt this carrier describes. A (plan, range, shard, epoch) tuple
+  // is not an assignment identity: several attempts can share it.
+  bytes producer_assignment_id = 20;
+  bytes execution_id = 21;
+
+  // --- compiled facts ----------------------------------------------------
+  uint64 config_generation = 12;
+  SweepResultFormat result_format = 13;
+  bytes check_set_sha256 = 14;                      // exact (mode, protocol, port) set identity
+  serviceradar.edge.v1.EdgeRecordTrafficClass traffic_class = 15;  // IMMUTABLE
+  int64 not_before_unix_nano = 16;                  // validity window; <= expires
+  int64 expires_at_unix_nano = 17;
+
+  // --- scheduler authentication ------------------------------------------
+  // Purpose COLLECTION, claims bound to this carrier's digest. REQUIRED: an
+  // unauthenticated carrier is a set of facts nobody stands behind.
+  serviceradar.edge.v1.EdgeSignedCapabilityV1 collection_capability = 18;
 }
 
 // ---------------------------------------------------------------------------

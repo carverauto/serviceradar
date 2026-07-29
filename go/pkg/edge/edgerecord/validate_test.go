@@ -1086,6 +1086,10 @@ func enumPolicyContexts() []enumPolicyContext {
 	mtrEnum := edgev1.MtrOutcome(0).Descriptor()
 	modeOutcomeEnum := edgev1.SweepModeOutcome(0).Descriptor()
 	assignmentStateEnum := edgev1.SweepAssignmentState(0).Descriptor()
+	resultFormatEnum := edgev1.SweepResultFormat(0).Descriptor()
+	resultFormat := func(v int32) bool { return knownResultFormat(edgev1.SweepResultFormat(v)) }
+	purposeEnum := edgev1.EdgeCapabilityPurpose(0).Descriptor()
+	capabilityPurpose := func(v int32) bool { return knownCapabilityPurpose(edgev1.EdgeCapabilityPurpose(v)) }
 	assignmentState := func(v int32) bool { return knownAssignmentState(edgev1.SweepAssignmentState(v)) }
 
 	return []enumPolicyContext{
@@ -1109,6 +1113,12 @@ func enumPolicyContexts() []enumPolicyContext {
 			return false
 		}},
 		{"SweepAssignmentRecordV1.state", assignmentStateEnum, assignmentState},
+		{"CompiledSweepAssignmentV1.result_format", resultFormatEnum, resultFormat},
+		{"CompiledSweepAssignmentV1.traffic_class", trafficEnum, traffic},
+		{"EdgeCollectionClaimsV1.purpose", purposeEnum, capabilityPurpose},
+		{"EdgeCollectionClaimsV1.traffic_class", trafficEnum, traffic},
+		{"EdgeAssignmentExecutionClaimsV1.purpose", purposeEnum, capabilityPurpose},
+		{"EdgeAssignmentExecutionClaimsV1.traffic_class", trafficEnum, traffic},
 		{"EdgeRecordLaneOpen.route_profile", routeEnum, route},
 		{"EdgeRecordLaneOpen.traffic_class", trafficEnum, traffic},
 		{"EdgeRecordLaneOpenAck.route_profile", routeEnum, route},

@@ -120,6 +120,27 @@ func ValidateSweepAssignmentRecord(r *edgev1.SweepAssignmentRecordV1) error {
 	if ValidateUUIDv7(r.GetExecutionPlanId()) != nil {
 		return ErrAssignmentIdentity
 	}
+	// run_id is the PRODUCER's run identity and a REQUIRED mapping-key member. It is
+	// deliberately NOT compared to execution_id: the spec makes them independent,
+	// because resolving a span to an execution is what the mapping lookup does.
+	if ValidateCanonicalUUID(r.GetRunId()) != nil {
+		return ErrAssignmentIdentity
+	}
+	// The carrier reference: id AND digest, both required.
+	if ValidateUUIDv7(r.GetCompiledAssignmentId()) != nil ||
+		len(r.GetCompiledAssignmentSha256()) != sha256Len {
+		return ErrAssignmentIdentity
+	}
+	// The source identity is OPTIONAL -- its joint absence is a legal key shape -- but
+	// when present every member must be valid, or the key it builds is malformed.
+	if si := r.GetSourceIdentity(); si != nil {
+		if !knownSourceAuthKind(si.GetKind()) ||
+			ValidateCanonicalUUID(si.GetContextId()) != nil ||
+			ValidateCanonicalUUID(si.GetSourceScopeId()) != nil ||
+			len(si.GetSourceScopeSha256()) != sha256Len {
+			return ErrAssignmentIdentity
+		}
+	}
 	if len(r.GetExecutionPlanSha256()) != sha256Len {
 		return ErrAssignmentIdentity
 	}

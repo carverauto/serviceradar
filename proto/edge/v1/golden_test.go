@@ -62,10 +62,17 @@ func sweepRangeSha() []byte { return digest32(0x9B) }
 type goldenTrust map[string]ed25519.PublicKey
 
 func (m goldenTrust) ResolveKey(issuerID, keyID []byte, ev edgerecord.KeyEvidence) edgerecord.KeyResolution {
-	if pub, ok := m[string(issuerID)+"|"+string(keyID)]; ok {
-		return edgerecord.KeyResolution{Status: edgerecord.KeyValid, Public: pub, TrustPolicyEpoch: ev.TrustPolicyEpoch}
+	// PURPOSE-SCOPED: an entry may name the role it is authorized for as "issuer|key|purpose".
+	// A bare "issuer|key" entry stays role-agnostic for the record-plane fixtures that predate
+	// role separation; the assignment fixtures use the scoped form so a scheduler key cannot
+	// mint a host execution grant.
+	if pub, ok := m[string(issuerID)+"|"+string(keyID)+"|"+ev.Purpose.String()]; ok {
+		return edgerecord.KeyResolution{Status: edgerecord.KeyValid, Public: pub, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
 	}
-	return edgerecord.KeyResolution{Status: edgerecord.KeyInvalid, TrustPolicyEpoch: ev.TrustPolicyEpoch}
+	if pub, ok := m[string(issuerID)+"|"+string(keyID)]; ok {
+		return edgerecord.KeyResolution{Status: edgerecord.KeyValid, Public: pub, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
+	}
+	return edgerecord.KeyResolution{Status: edgerecord.KeyInvalid, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
 }
 
 // goldenPolicy accepts the golden record at its fixed event time under the active
@@ -1222,7 +1229,10 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		CheckSetSha256: digest32(0x78), AvailabilityPolicyId: []byte("policy-1"),
 		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
 		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
-		ContractBundleSha256: digest32(0x7A),
+		ContractBundleSha256:     digest32(0x7A),
+		RunId:                    uuidv7(0x64),
+		CompiledAssignmentId:     uuidv7(0x65),
+		CompiledAssignmentSha256: digest32(0x7D),
 	}
 	assignmentBytes := golden(t, "assignment_zero_mtr.bin", zeroAssignment)
 	var decodedAssignment edgev1.SweepAssignmentRecordV1
@@ -1358,7 +1368,10 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
 		NetworkScopeId: uuidv7(0x11), AuthenticatedAgentId: uuidv7(0x12),
 		ProductionScopeId: uuidv7(0x13), ScopeSha256: digest32(0x79),
-		ContractBundleSha256: digest32(0x7A),
+		ContractBundleSha256:     digest32(0x7A),
+		RunId:                    uuidv7(0x66),
+		CompiledAssignmentId:     uuidv7(0x67),
+		CompiledAssignmentSha256: digest32(0x7E),
 	}
 	secondBytes := golden(t, "assignment_split_second.bin", secondAssignment)
 	var decodedSecond edgev1.SweepAssignmentRecordV1
@@ -1479,10 +1492,14 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 			"only demonstrates the received-bytes rule if the round trip collapses",
 			n, edgerecord.MaxPlanPageBytes)
 	}
-	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{atLimit}); err != nil {
+	rawSplitHeader, err := proto.Marshal(splitHeader)
+	if err != nil {
+		t.Fatalf("marshal split header: %v", err)
+	}
+	if _, _, err := edgerecord.ValidatePlanFromRaw(rawSplitHeader, [][]byte{atLimit}); err != nil {
 		t.Fatalf("a page at exactly MaxPlanPageBytes must be accepted: %v", err)
 	}
-	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{overLimit}); !errors.Is(err, edgerecord.ErrPlanBounds) {
+	if _, _, err := edgerecord.ValidatePlanFromRaw(rawSplitHeader, [][]byte{overLimit}); !errors.Is(err, edgerecord.ErrPlanBounds) {
 		t.Fatalf("a page one byte over = %v, want ErrPlanBounds", err)
 	}
 
@@ -1869,4 +1886,435 @@ func TestPresenceZeroVersusAbsent(t *testing.T) {
 	if ga.FirstSeenDeltaNano != nil {
 		t.Fatal("absent first_seen_delta_nano must remain absent")
 	}
+}
+
+// TestGoldenCompiledAssignment freezes the compiled-assignment carrier as SHARED BYTES
+// so Elixir implements against committed vectors rather than a second reading of the
+// prose. It emits the carrier, both digests, the capability signing preimage, the issuer
+// public key, and reject vectors whose EXACT reason is pinned for both runtimes.
+func TestGoldenCompiledAssignment(t *testing.T) {
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub, ok := priv.Public().(ed25519.PublicKey)
+	if !ok {
+		t.Fatal("ed25519 public key type assertion failed")
+	}
+	goldenBytes(t, "compiled_assignment_issuer.pub", pub)
+
+	// A REAL COMMITTED PLAN. The boundary validates the record against its plan, so a
+	// record whose range exists in no plan would make that check unreachable.
+	planID, scopeID, agentID := uuidv7(0x31), uuidv7(0x33), uuidv7(0x34)
+	carrierRange := &edgev1.TargetRangeV1{
+		RangeId: uuidv7(0x32), Cidr: "10.11.0.0/24", TargetCount: 256,
+		CheckSetSha256: digest32(0x83), AvailabilityPolicyId: []byte("policy-1"),
+		MtrOrdinalCount: proto.Uint64(0),
+	}
+	carrierRange.RangeSha256 = edgerecord.RangeDigest(carrierRange)
+	carrierPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: planID, PageIndex: 0, PageCount: 1, CheckSetSha256: digest32(0x83),
+		DigestVersion: edgerecord.PlanDigestVersion, Ranges: []*edgev1.TargetRangeV1{carrierRange},
+	}
+	carrierPage.PageSha256 = edgerecord.PlanPageDigest(carrierPage)
+	carrierPlanHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: planID, PageCount: 1, TotalTargetCount: 256,
+		PlanRootSha256: edgerecord.PlanRoot([]*edgev1.ScheduledPlanPageV1{carrierPage}),
+		DigestVersion:  edgerecord.PlanDigestVersion, CheckSetSha256: digest32(0x83),
+		AvailabilityPolicyId: []byte("policy-1"), NetworkScopeId: scopeID,
+		MtrOrdinalRangeCommitment: edgerecord.MtrOrdinalRangeCommitment(nil),
+	}
+	carrierPlanHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(carrierPlanHeader)
+	carrierPlanPages := []*edgev1.ScheduledPlanPageV1{carrierPage}
+	golden(t, "compiled_assignment_plan_header.bin", carrierPlanHeader)
+	golden(t, "compiled_assignment_plan_page.bin", carrierPage)
+
+	rangeID := carrierRange.GetRangeId()
+	prodAssignID, execID := uuidv7(0x35), uuidv7(0x36)
+	// The window closes AT the lease: collection is constrained to the lease, so a
+	// carrier outliving it is not a representable valid fixture.
+	notBefore, expires := fixedNanos, fixedNanos+1
+
+	c := &edgev1.CompiledSweepAssignmentV1{
+		CompiledAssignmentId: uuidv7(0x37),
+		DigestVersion:        edgerecord.CompiledAssignmentDigestVersion,
+		ProducerAssignmentId: prodAssignID,
+		ExecutionId:          execID,
+		ExecutionPlanId:      planID,
+		ExecutionPlanSha256:  carrierPlanHeader.GetExecutionPlanSha256(),
+		TargetRangeId:        rangeID,
+		TargetRangeSha256:    carrierRange.GetRangeSha256(),
+		NetworkScopeId:       scopeID,
+		AuthenticatedAgentId: agentID,
+		ExecutionShard:       3,
+		AssignmentEpoch:      5,
+		ConfigGeneration:     7,
+		ResultFormat:         edgev1.SweepResultFormat_SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1,
+		CheckSetSha256:       carrierPlanHeader.GetCheckSetSha256(),
+		TrafficClass:         edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		NotBeforeUnixNano:    notBefore,
+		ExpiresAtUnixNano:    expires,
+	}
+	c.CompiledAssignmentBodySha256 = edgerecord.CompiledAssignmentBodyDigest(c)
+	c.CollectionCapability = &edgev1.EdgeSignedCapabilityV1{
+		CapabilityVersion: 1, IssuerId: []byte("sched"), IssuerKeyId: []byte("k1"),
+		Algorithm: "ed25519", NotBeforeUnixNano: notBefore, ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_Collection{
+			Collection: &edgev1.EdgeCollectionClaimsV1{
+				Purpose:                      edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_COLLECTION,
+				NetworkScopeId:               scopeID,
+				AuthenticatedAgentId:         agentID,
+				ExecutionPlanId:              planID,
+				TargetRangeId:                rangeID,
+				ExecutionShard:               3,
+				AssignmentEpoch:              5,
+				CompiledAssignmentBodySha256: c.GetCompiledAssignmentBodySha256(),
+				TrafficClass:                 c.GetTrafficClass(),
+				ProducerAssignmentId:         prodAssignID,
+				ExecutionId:                  execID,
+			},
+		},
+	}
+	// The SIGNING PREIMAGE is a vector in its own right: it is the one artifact that
+	// proves Elixir frames the collection claims identically, independent of whether it
+	// can reproduce an Ed25519 signature.
+	goldenBytes(t, "compiled_assignment_capability_signing_bytes.bin",
+		edgerecord.CapabilitySigningBytes(c.GetCollectionCapability()))
+	edgerecord.SignCapability(c.GetCollectionCapability(), priv)
+	c.CompiledAssignmentSha256 = edgerecord.CompiledAssignmentArtifactDigest(c)
+
+	goldenBytes(t, "compiled_assignment_body_digest.bin", c.GetCompiledAssignmentBodySha256())
+	goldenBytes(t, "compiled_assignment_artifact_digest.bin", c.GetCompiledAssignmentSha256())
+	carrierBytes := golden(t, "compiled_assignment.bin", c)
+
+	if len(carrierBytes) > edgerecord.MaxCompiledAssignmentBytes {
+		t.Fatalf("golden carrier exceeds the frozen ceiling: %d", len(carrierBytes))
+	}
+	decoded, err := edgerecord.ValidateCompiledSweepAssignmentBytes(carrierBytes)
+	if err != nil {
+		t.Fatalf("golden carrier must validate from committed bytes: %v", err)
+	}
+	if !proto.Equal(decoded, c) {
+		t.Fatal("golden carrier did not round-trip to an equal message")
+	}
+
+	// Authentication against the committed public key -- the vectors prove a REAL
+	// signature, not merely a present one.
+	// A SEPARATE host key, and PURPOSE-SCOPED entries. Sharing one key or ignoring purpose
+	// would make the host/scheduler separation untestable: a scheduler-signed execution grant
+	// would still verify.
+	hostSeed := make([]byte, ed25519.SeedSize)
+	for i := range hostSeed {
+		hostSeed[i] = byte(0x80 + i)
+	}
+	hostPriv := ed25519.NewKeyFromSeed(hostSeed)
+	hostPub, okHost := hostPriv.Public().(ed25519.PublicKey)
+	if !okHost {
+		t.Fatal("host ed25519 public key type assertion failed")
+	}
+	goldenBytes(t, "compiled_assignment_host_issuer.pub", hostPub)
+	trust := goldenTrust{
+		"sched|k1|EDGE_CAPABILITY_PURPOSE_COLLECTION":                   pub,
+		"host|host-exec-1|EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION": hostPub,
+	}
+	status, err := edgerecord.VerifyCompiledAssignmentWithTrust(decoded, trust, notBefore, 1)
+	if err != nil || status != edgerecord.KeyValid {
+		t.Fatalf("golden carrier authentication: status=%v err=%v", status, err)
+	}
+
+	// The referencing record, and the full relation.
+	r := &edgev1.SweepAssignmentRecordV1{
+		ProducerAssignmentId: prodAssignID, ExecutionId: execID,
+		ExecutionPlanId: planID, ExecutionPlanSha256: c.GetExecutionPlanSha256(),
+		ExecutionShard: 3, AssignmentEpoch: 5, RecordSequence: 1, AuthoredAtUnixNano: fixedNanos,
+		TargetRangeId: rangeID, TargetRangeSha256: c.GetTargetRangeSha256(),
+		LeaseId: []byte("lease-compiled"), FenceToken: 7, LeaseExpiresAtUnixNano: expires,
+		State: edgev1.SweepAssignmentState_SWEEP_ASSIGNMENT_STATE_OPEN,
+		// DERIVED from the plan, exactly as the relation recomputes it. A hand-picked
+		// commitment would be the self-authoritative hole again.
+		MtrExpectation: &edgev1.SweepMtrExpectationV1{
+			OrdinalCount:           carrierRange.GetMtrOrdinalCount(),
+			OrdinalRangeCommitment: edgerecord.MtrOrdinalRangeCommitment(nil),
+			PlanOrdinalOffset:      proto.Uint64(0),
+		},
+		CheckSetSha256:       c.GetCheckSetSha256(),
+		AvailabilityPolicyId: carrierPlanHeader.GetAvailabilityPolicyId(),
+		NetworkScopeId:       scopeID, AuthenticatedAgentId: agentID,
+		ProductionScopeId: uuidv7(0x38), ScopeSha256: digest32(0x84),
+		ContractBundleSha256:     digest32(0x85),
+		RunId:                    uuidv7(0x39),
+		CompiledAssignmentId:     c.GetCompiledAssignmentId(),
+		CompiledAssignmentSha256: c.GetCompiledAssignmentSha256(),
+		SourceIdentity: &edgev1.EdgeSourceSpanIdentityV1{
+			Kind:              edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
+			ContextId:         uuidv7(0x3A),
+			SourceScopeId:     uuidv7(0x3B),
+			SourceScopeSha256: digest32(0x86),
+		},
+	}
+	recordBytes := golden(t, "compiled_assignment_record.bin", r)
+	var decodedRecord edgev1.SweepAssignmentRecordV1
+	if err := proto.Unmarshal(recordBytes, &decodedRecord); err != nil {
+		t.Fatalf("decode compiled_assignment_record.bin: %v", err)
+	}
+	if err := edgerecord.ValidateAssignmentAgainstCompiled(&decodedRecord, decoded); err != nil {
+		t.Fatalf("golden relation: %v", err)
+	}
+	// The HOST's execution grant, from a committed CAPABILITY. It is a dedicated
+	// ASSIGNMENT_EXECUTION grant validated COMPLETELY -- PRODUCTION/SOURCE are record-plane
+	// contracts whose full semantics need an EdgeRecordV1, so a grant consuming them could
+	// only interpret a subset.
+	grantCap := &edgev1.EdgeSignedCapabilityV1{
+		// The HOST key family, deliberately not the scheduler's: the grant is a separate
+		// principal's decision to run the carrier the scheduler compiled.
+		CapabilityVersion: 1, IssuerId: []byte("host"), IssuerKeyId: []byte("host-exec-1"),
+		Algorithm: "ed25519", NotBeforeUnixNano: notBefore, ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_AssignmentExecution{
+			AssignmentExecution: &edgev1.EdgeAssignmentExecutionClaimsV1{
+				Purpose:              edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION,
+				NetworkScopeId:       scopeID,
+				AuthenticatedAgentId: agentID,
+				ProducerAssignmentId: prodAssignID,
+				ExecutionId:          execID,
+				RunId:                r.GetRunId(),
+				RunShard:             3,
+				AuthorityEpoch:       5,
+				ProductionScopeId:    r.GetProductionScopeId(),
+				ScopeSha256:          r.GetScopeSha256(),
+				ContractBundleSha256: r.GetContractBundleSha256(),
+				ExecutionPlanSha256:  r.GetExecutionPlanSha256(),
+				TargetRangeSha256:    r.GetTargetRangeSha256(),
+				TrafficClass:         c.GetTrafficClass(),
+				// A REAL collection window; an unset one is refused, not read as unconstrained.
+				CollectionNotBeforeUnixNano: notBefore,
+				CollectionExpiresUnixNano:   expires,
+				SourceIdentity:              r.GetSourceIdentity(),
+				// THE EXACT CARRIER this grant permits.
+				CompiledAssignmentId:     c.GetCompiledAssignmentId(),
+				CompiledAssignmentSha256: c.GetCompiledAssignmentSha256(),
+			},
+		},
+	}
+	// THE SIGNING PREIMAGE as a shared vector: the one artifact that proves the Elixir peer
+	// frames the execution-grant claims identically, independent of reproducing a signature.
+	goldenBytes(t, "compiled_assignment_execution_grant_signing_bytes.bin",
+		edgerecord.CapabilitySigningBytes(grantCap))
+	edgerecord.SignCapability(grantCap, hostPriv)
+	golden(t, "compiled_assignment_execution_grant.bin", grantCap)
+	rawGrant, err := proto.Marshal(grantCap)
+	if err != nil {
+		t.Fatalf("marshal grant: %v", err)
+	}
+	if status, err := edgerecord.VerifyAssignmentExecutionGrant(&decodedRecord, carrierBytes, rawGrant, trust, notBefore, 1); err != nil || status != edgerecord.KeyValid {
+		t.Fatalf("golden execution grant: status=%v err=%v", status, err)
+	}
+
+	// THE FULL CURRENT-AUTHORITY BOUNDARY, from committed bytes.
+	rawCarrierHeader, err := proto.Marshal(carrierPlanHeader)
+	if err != nil {
+		t.Fatalf("marshal plan header: %v", err)
+	}
+	rawCarrierPages := make([][]byte, 0, len(carrierPlanPages))
+	for _, pg := range carrierPlanPages {
+		pb, err := proto.Marshal(pg)
+		if err != nil {
+			t.Fatalf("marshal plan page: %v", err)
+		}
+		rawCarrierPages = append(rawCarrierPages, pb)
+	}
+	authority := edgerecord.CollectionAuthority{
+		Trust: trust,
+		Assignments: goldenAssignmentAuthority{
+			want: edgerecord.AssignmentKey{
+				NetworkScopeID:       decodedRecord.GetNetworkScopeId(),
+				AuthenticatedAgentID: decodedRecord.GetAuthenticatedAgentId(),
+				ProducerAssignmentID: decodedRecord.GetProducerAssignmentId(),
+			},
+			rec: edgerecord.AuthoritativeAssignment{
+				Status:        edgerecord.AssignmentAuthorityResolved,
+				Record:        &decodedRecord,
+				PlanHeaderRaw: rawCarrierHeader,
+				// RAW page bytes: the physical page ceiling only exists on received bytes.
+				PlanPagesRaw: rawCarrierPages,
+			},
+		},
+		// The SESSION answers as the transport, holding its own attested identity rather than
+		// one restated from the bytes under test.
+		Session:           goldenSession{networkScopeID: scopeID, agentID: agentID},
+		NowUnixNano:       notBefore,
+		TrustEpoch:        1,
+		ExecutionGrantRaw: rawGrant,
+	}
+	if err := edgerecord.AuthorizeCollectionNow(&decodedRecord, carrierBytes, authority); err != nil {
+		t.Fatalf("golden authorization inside the window: %v", err)
+	}
+	lapsed := authority
+	lapsed.NowUnixNano = expires
+	if err := edgerecord.AuthorizeCollectionNow(&decodedRecord, carrierBytes, lapsed); err == nil {
+		t.Fatal("collection past the lease must not be authorized")
+	}
+	revoked := authority
+	revoked.Trust = goldenRevokedTrust{pub: pub}
+	if err := edgerecord.AuthorizeCollectionNow(&decodedRecord, carrierBytes, revoked); err == nil {
+		t.Fatal("a compromise-revoked key must not authorize collection")
+	}
+	anonymous := authority
+	anonymous.Session = goldenSession{}
+	if err := edgerecord.AuthorizeCollectionNow(&decodedRecord, carrierBytes, anonymous); err == nil {
+		t.Fatal("an unattested caller must not authorize collection")
+	}
+
+	// THE EXACT CEILING as shared vectors: 65536 accepted, 65537 rejected. They differ by
+	// one byte, decode to the same carrier, and collapse far below the ceiling on
+	// re-encode -- which is why a decoded-struct check cannot enforce this bound.
+	atLimit := padToExact(t, carrierBytes, c.GetCheckSetSha256(), edgerecord.MaxCompiledAssignmentBytes)
+	oneOver := padToExact(t, carrierBytes, c.GetCheckSetSha256(), edgerecord.MaxCompiledAssignmentBytes+1)
+	goldenBytes(t, "compiled_assignment_at_ceiling.bin", atLimit)
+	goldenBytes(t, "compiled_assignment_over_ceiling.bin", oneOver)
+	if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(atLimit); err != nil {
+		t.Fatalf("exactly %d bytes must be accepted: %v", edgerecord.MaxCompiledAssignmentBytes, err)
+	}
+	if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(oneOver); !errors.Is(err, edgerecord.ErrCompiledAssignmentTooLarge) {
+		t.Fatalf("one over the ceiling = %v, want ErrCompiledAssignmentTooLarge", err)
+	}
+	for name, padded := range map[string][]byte{"at": atLimit, "over": oneOver} {
+		var round edgev1.CompiledSweepAssignmentV1
+		if err := proto.Unmarshal(padded, &round); err != nil {
+			t.Fatalf("%s-ceiling vector must decode: %v", name, err)
+		}
+		if !proto.Equal(&round, c) {
+			t.Fatalf("%s-ceiling vector must decode to the same carrier", name)
+		}
+		if proto.Size(&round) > edgerecord.MaxCompiledAssignmentBytes {
+			t.Fatalf("%s-ceiling vector did not collapse on re-encode", name)
+		}
+	}
+
+	// REJECT VECTORS as shared bytes with the EXACT reason pinned. A vector that only
+	// proved "some error" would prove no reason parity between the runtimes.
+	rejects := []struct {
+		name   string
+		reason error
+		mutate func(*edgev1.CompiledSweepAssignmentV1)
+	}{
+		{"compiled_reject_body_digest.bin", edgerecord.ErrCompiledAssignmentDigest, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.ConfigGeneration = 8 // body changed, body digest not recomputed
+		}},
+		{"compiled_reject_artifact_digest.bin", edgerecord.ErrCompiledAssignmentDigest, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.CompiledAssignmentSha256 = digest32(0x8F)
+		}},
+		{"compiled_reject_no_capability.bin", edgerecord.ErrCompiledAssignmentCapability, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.CollectionCapability = nil
+		}},
+		{"compiled_reject_wrong_purpose.bin", edgerecord.ErrCapabilityPurpose, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.CollectionCapability.Claims = &edgev1.EdgeSignedCapabilityV1_Production{
+				Production: &edgev1.EdgeProductionClaimsV1{},
+			}
+		}},
+		{"compiled_reject_claim_cross_bound.bin", edgerecord.ErrCompiledAssignmentCapability, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.CollectionCapability.GetCollection().ProducerAssignmentId = uuidv7(0x3F)
+		}},
+		{"compiled_reject_zero_config_generation.bin", edgerecord.ErrCompiledAssignment, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.ConfigGeneration = 0
+			x.CompiledAssignmentBodySha256 = nil // recomputed below
+		}},
+		{"compiled_reject_unknown_result_format.bin", edgerecord.ErrCompiledAssignment, func(x *edgev1.CompiledSweepAssignmentV1) {
+			x.ResultFormat = edgev1.SweepResultFormat(99)
+			x.CompiledAssignmentBodySha256 = nil
+		}},
+	}
+	var manifest bytes.Buffer
+	for _, rc := range rejects {
+		bad, okClone := proto.Clone(c).(*edgev1.CompiledSweepAssignmentV1)
+		if !okClone {
+			t.Fatalf("%s: clone type assertion failed", rc.name)
+		}
+		rc.mutate(bad)
+		// A vector whose body digest was blanked is re-sealed, so the ONLY defect left is
+		// the semantic one under test -- not a digest mismatch standing in for it.
+		if bad.GetCompiledAssignmentBodySha256() == nil {
+			bad.CompiledAssignmentBodySha256 = edgerecord.CompiledAssignmentBodyDigest(bad)
+			if cl := bad.GetCollectionCapability().GetCollection(); cl != nil {
+				cl.CompiledAssignmentBodySha256 = bad.GetCompiledAssignmentBodySha256()
+			}
+			if capb := bad.GetCollectionCapability(); capb != nil {
+				edgerecord.SignCapability(capb, priv)
+			}
+			bad.CompiledAssignmentSha256 = edgerecord.CompiledAssignmentArtifactDigest(bad)
+		}
+		raw := golden(t, rc.name, bad)
+		if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(raw); !errors.Is(err, rc.reason) {
+			t.Fatalf("%s = %v, want %v", rc.name, err, rc.reason)
+		}
+		manifest.WriteString(rc.name + " " + rc.reason.Error() + "\n")
+	}
+	goldenBytes(t, "compiled_assignment_reject_manifest.txt", manifest.Bytes())
+}
+
+// goldenRevokedTrust resolves the golden key as COMPROMISE-REVOKED: the signature still
+// verifies, but it must never authorize new work.
+type goldenRevokedTrust struct{ pub ed25519.PublicKey }
+
+func (g goldenRevokedTrust) ResolveKey(_, _ []byte, ev edgerecord.KeyEvidence) edgerecord.KeyResolution {
+	return edgerecord.KeyResolution{
+		Status: edgerecord.KeyHistoricallyRevoked, Public: g.pub, TrustPolicyEpoch: ev.TrustPolicyEpoch, Purpose: ev.Purpose}
+}
+
+// padToExact inflates a carrier encoding to EXACTLY `target` bytes by repeating
+// check_set_sha256 -- a known non-repeated field, so the decoder keeps the LAST occurrence
+// and the padded bytes decode identically to the original.
+func padToExact(t *testing.T, raw, checkSet []byte, target int) []byte {
+	t.Helper()
+	num := protowire.Number((&edgev1.CompiledSweepAssignmentV1{}).ProtoReflect().
+		Descriptor().Fields().ByName("check_set_sha256").Number())
+	trueField := protowire.AppendBytes(protowire.AppendTag(nil, num, protowire.BytesType), checkSet)
+	fillerTotal := target - len(raw) - len(trueField)
+	payloadLen := fillerTotal - 1 - protowire.SizeVarint(uint64(fillerTotal))
+	if payloadLen < 0 {
+		t.Fatalf("target %d is too small to pad to", target)
+	}
+	filler := protowire.AppendBytes(protowire.AppendTag(nil, num, protowire.BytesType), make([]byte, payloadLen))
+	out := make([]byte, 0, target)
+	out = append(out, raw...)
+	out = append(out, filler...)
+	out = append(out, trueField...)
+	if len(out) != target {
+		t.Fatalf("padded to %d, want exactly %d", len(out), target)
+	}
+	return out
+}
+
+// goldenAssignmentAuthority answers ONLY for the key it expects. It does not echo an
+// arbitrary request: a mirror would make the echo assertion self-fulfilling.
+type goldenAssignmentAuthority struct {
+	want edgerecord.AssignmentKey
+	rec  edgerecord.AuthoritativeAssignment
+}
+
+func (g goldenAssignmentAuthority) ResolveAssignment(key edgerecord.AssignmentKey) edgerecord.AuthoritativeAssignment {
+	if !bytes.Equal(key.NetworkScopeID, g.want.NetworkScopeID) ||
+		!bytes.Equal(key.AuthenticatedAgentID, g.want.AuthenticatedAgentID) ||
+		!bytes.Equal(key.ProducerAssignmentID, g.want.ProducerAssignmentID) {
+		return edgerecord.AuthoritativeAssignment{Status: edgerecord.AssignmentAuthorityUnknown, Key: key}
+	}
+	out := g.rec
+	out.Key = key
+	return out
+}
+
+// goldenSession stands in for the transport. Its zero value is UNATTESTED.
+type goldenSession struct {
+	networkScopeID []byte
+	agentID        []byte
+}
+
+func (s goldenSession) AuthorizeAgent(networkScopeID, agentID []byte) edgerecord.CallerVerdict {
+	if s.networkScopeID == nil && s.agentID == nil {
+		return edgerecord.CallerUnattested
+	}
+	if bytes.Equal(s.networkScopeID, networkScopeID) && bytes.Equal(s.agentID, agentID) {
+		return edgerecord.CallerMatches
+	}
+	return edgerecord.CallerMismatch
 }

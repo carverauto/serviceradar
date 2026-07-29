@@ -47,6 +47,9 @@ defmodule ServiceRadar.Edge.SemanticValidate do
       admitted WIRE poison.
   """
 
+  alias Serviceradar.Edge.V1.CompiledSweepAssignmentV1
+  alias Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1
+  alias Serviceradar.Edge.V1.EdgeCollectionClaimsV1
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpen
   alias Serviceradar.Edge.V1.EdgeRecordLaneOpenAck
@@ -129,6 +132,18 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     :SWEEP_ASSIGNMENT_STATE_EXPIRED,
     :SWEEP_ASSIGNMENT_STATE_SUPERSEDED
   ]
+  # ENUM ADMISSION only: is this a declared purpose? That COLLECTION claims REQUIRE the
+  # COLLECTION purpose is a SEMANTIC rule enforced where those claims are validated, not
+  # a field policy -- a policy admitting exactly one member could never notice the enum
+  # growing, which is what the evolution guard exists to catch.
+  @capability_purpose [
+    :EDGE_CAPABILITY_PURPOSE_PRODUCTION,
+    :EDGE_CAPABILITY_PURPOSE_SOURCE,
+    :EDGE_CAPABILITY_PURPOSE_DELIVERY,
+    :EDGE_CAPABILITY_PURPOSE_COLLECTION,
+    :EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION
+  ]
+  @result_format [:SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1]
   @transport_protocol [
     :TRANSPORT_PROTOCOL_ICMP,
     :TRANSPORT_PROTOCOL_TCP,
@@ -191,6 +206,12 @@ defmodule ServiceRadar.Edge.SemanticValidate do
     {Serviceradar.Edge.V1.MtrTraceBatchV1, :source} => @sweep_source,
     {MtrTraceEventV1, :outcome} => @mtr_outcome,
     {MtrTraceEventV1, :protocol} => @transport_protocol,
+    {CompiledSweepAssignmentV1, :result_format} => @result_format,
+    {CompiledSweepAssignmentV1, :traffic_class} => @traffic_class,
+    {EdgeCollectionClaimsV1, :purpose} => @capability_purpose,
+    {EdgeCollectionClaimsV1, :traffic_class} => @traffic_class,
+    {EdgeAssignmentExecutionClaimsV1, :purpose} => @capability_purpose,
+    {EdgeAssignmentExecutionClaimsV1, :traffic_class} => @traffic_class,
     {Serviceradar.Edge.V1.SweepAssignmentRecordV1, :state} => @assignment_state,
     {Serviceradar.Edge.V1.SweepExecutionEventV1, :kind} => @lifecycle_kind,
     {Serviceradar.Edge.V1.SweepIcmpSummaryV1, :outcome} => @mode_outcome,
