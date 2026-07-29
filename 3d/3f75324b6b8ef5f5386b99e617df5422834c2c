@@ -1,0 +1,25 @@
+rust/dgraph-client/tests/BUILD.bazel
+  s_8f6823274fc459::t_2d3de25b4f3820 82-85
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_8f6823274fc459::t_a1dbd7db24f695 27-44
+  s_8f6823274fc459::t_365af963173473 223-224,226
+  s_8f6823274fc459::t_0757fbeaa8a6fa 188-189
+  s_8f6823274fc459::t_220c73441af292 210-211
+  s_8f6823274fc459::t_56ed0738fe3390 46,48,52,54,62-63,65-68,82-83,93-157,159,167-168,174-182,195-201,205-206,208-209,213-220,225,230-234,269,277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "3d3f75324b6b8ef5f5386b99e617df5422834c2c",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
