@@ -1,17 +1,18 @@
 defmodule ServiceRadar.Edge.PlanValidate do
   @moduledoc """
-  Elixir peer of Go's `edgerecord.ValidatePlanHeader` / `ValidatePlanPages`.
+  Elixir peer of Go's `edgerecord.ValidatePlanHeader` / `ValidatePlanPages` /
+  `validateTargetRange`.
 
   It exists because deriving assignment authority from an UNVALIDATED plan is not a
-  weaker check, it is no check: an attacker who supplies the plan chooses the range
-  digests, the windows, and therefore the expectation the assignment is compared
-  against. Before this module, mutating `page_sha256`, `page_index`, or both the
-  header and assignment plan hashes still yielded `:ok` from the relational
-  validator, because only the MTR window walk ran.
+  weaker check, it is no check: whoever supplies the plan chooses the range digests,
+  the windows, and therefore the expectation an assignment is compared against.
 
-  `validate/2` returns an opaque `{:ok, validated}` carrier. `AssignmentValidate`
-  accepts ONLY that carrier, so "I forgot to validate the plan" is not expressible at
-  the call site rather than merely discouraged.
+  NO CARRIER TOKEN. An earlier revision returned an "opaque" tuple and claimed the
+  relation could not be called without it -- but `@opaque` is DIALYZER METADATA, not a
+  runtime guarantee, so a caller could construct the tuple around a rejected plan and
+  the relation accepted it. The only construction that actually holds is for the
+  relation to run this validation ITSELF, which is what
+  `AssignmentValidate.validate_against_plan/3` now does.
   """
 
   alias ServiceRadar.Edge.HashGrammar
@@ -19,60 +20,82 @@ defmodule ServiceRadar.Edge.PlanValidate do
   @sha256_len 32
   @uuid_len 16
   @max_policy_id_bytes 128
-
-  @opaque validated :: {__MODULE__, map(), [map()], %{binary() => non_neg_integer()}}
+  @max_range_str_bytes 64
+  @max_plan_page_bytes 128 * 1024
+  @max_manifest_pages 1024
+  @max_ranges_per_page 256
+  @plan_digest_version 1
 
   @type reason ::
           :header_identity
           | :header_digest
           | :page_digest
           | :page_chain
+          | :page_bounds
           | :plan_root
+          | :plan_totals
+          | :plan_range
+          | :check_set
+          | :digest_version
+          | :unknown_fields
           | :mtr_commitment
           | :mtr_window
 
   @doc """
-  Fail-close a plan header and its page chain, returning the opaque validated carrier
-  plus each range's plan-global ordinal window.
+  Fail-close a plan header and its page chain, returning each range's plan-global
+  ordinal window offset.
   """
-  @spec validate(map(), [map()]) :: {:ok, validated()} | {:error, reason()}
+  @spec validate(term(), term()) ::
+          {:ok, %{binary() => non_neg_integer()}} | {:error, reason()}
   def validate(header, pages) when is_map(header) and is_list(pages) do
-    with :ok <- header_identity(header),
-         :ok <- page_chain(header, pages),
+    with :ok <- no_unknown(header),
+         :ok <- Enum.reduce_while(pages, :ok, &halt_on_error(no_unknown(&1), &2)),
+         :ok <- header_identity(header),
+         :ok <- header_digest(header),
+         :ok <- page_bounds(header, pages),
+         :ok <- pages_and_ranges(header, pages),
          :ok <- plan_root(header, pages),
          {:ok, windows, _total} <- compute_windows(pages),
-         :ok <- mtr_commitment(header, pages),
-         # The header self-hash is checked LAST so a mismatch is reported as a digest
-         # failure only when every field it covers is otherwise coherent.
-         :ok <- header_digest(header) do
-      {:ok, {__MODULE__, header, pages, windows}}
+         :ok <- mtr_commitment(header, pages) do
+      {:ok, windows}
     end
   end
 
-  @doc "The validated header."
-  @spec header(validated()) :: map()
-  def header({__MODULE__, h, _pages, _windows}), do: h
+  def validate(_header, _pages), do: {:error, :header_identity}
 
-  @doc "Each range's plan-global ordinal window offset, keyed by range id."
-  @spec windows(validated()) :: %{binary() => non_neg_integer()}
-  def windows({__MODULE__, _h, _pages, w}), do: w
-
-  @doc "Find a committed range by id, or nil."
-  @spec find_range(validated(), binary()) :: map() | nil
-  def find_range({__MODULE__, _h, pages, _w}, range_id) do
-    pages |> Enum.flat_map(& &1.ranges) |> Enum.find(&(&1.range_id == range_id))
+  @doc "Find a committed range by id within already-validated pages."
+  @spec find_range([map()], binary()) :: map() | nil
+  def find_range(pages, range_id) do
+    pages |> Enum.flat_map(&(Map.get(&1, :ranges) || [])) |> Enum.find(&(&1.range_id == range_id))
   end
 
+  defp halt_on_error(:ok, acc), do: {:cont, acc}
+  defp halt_on_error(err, _acc), do: {:halt, err}
+
+  defp no_unknown(m) when is_map(m) do
+    # Retained unknown fields are rejected BEFORE any declared field is trusted: the
+    # field-framed digests walk declared fields only, so retained bytes are invisible
+    # to the digest while still riding on the wire. That is load-bearing for immutable
+    # CONTENT ADDRESSING.
+    nested = Enum.any?(Map.get(m, :ranges) || [], &(Map.get(&1, :__unknown_fields__, []) != []))
+
+    if Map.get(m, :__unknown_fields__, []) == [] and not nested,
+      do: :ok,
+      else: {:error, :unknown_fields}
+  end
+
+  defp no_unknown(_), do: {:error, :unknown_fields}
+
   defp header_identity(h) do
-    policy_len = byte_size(Map.get(h, :availability_policy_id) || <<>>)
+    policy = Map.get(h, :availability_policy_id)
 
     if uuidv7?(Map.get(h, :execution_plan_id)) and
-         Map.get(h, :digest_version) == 1 and
+         Map.get(h, :digest_version) == @plan_digest_version and
          digest?(Map.get(h, :plan_root_sha256)) and
          digest?(Map.get(h, :check_set_sha256)) and
          canonical_uuid?(Map.get(h, :network_scope_id)) and
-         policy_len > 0 and policy_len <= @max_policy_id_bytes and
-         (Map.get(h, :page_count) || 0) > 0 and
+         bounded_bytes?(policy, 1, @max_policy_id_bytes) and
+         is_integer(Map.get(h, :page_count)) and Map.get(h, :page_count) > 0 and
          digest?(Map.get(h, :mtr_ordinal_range_commitment)) do
       :ok
     else
@@ -81,30 +104,220 @@ defmodule ServiceRadar.Edge.PlanValidate do
   end
 
   defp header_digest(h) do
-    if HashGrammar.plan_header_digest(h) == Map.get(h, :execution_plan_sha256),
-      do: :ok,
-      else: {:error, :header_digest}
+    if digest?(Map.get(h, :execution_plan_sha256)) and
+         HashGrammar.plan_header_digest(h) == Map.get(h, :execution_plan_sha256),
+       do: :ok,
+       else: {:error, :header_digest}
   end
 
-  defp page_chain(h, pages) do
+  defp page_bounds(h, pages) do
+    cond do
+      # A header declaring pages while supplying none is the case that made every
+      # downstream check vacuous: with no pages, nothing is walked and nothing fails.
+      pages == [] -> {:error, :page_bounds}
+      length(pages) > @max_manifest_pages -> {:error, :page_bounds}
+      Map.get(h, :page_count) != length(pages) -> {:error, :page_chain}
+      true -> :ok
+    end
+  end
+
+  defp pages_and_ranges(h, pages) do
     plan_id = Map.get(h, :execution_plan_id)
-    count = Map.get(h, :page_count)
+    header_check_set = Map.get(h, :check_set_sha256)
+    header_policy = Map.get(h, :availability_policy_id)
+    n = length(pages)
 
     pages
     |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {p, i}, :ok ->
+    |> Enum.reduce_while({:ok, 0, MapSet.new()}, fn {p, i}, {:ok, total, seen} ->
+      ranges = Map.get(p, :ranges) || []
       prev = if i == 0, do: <<>>, else: Enum.at(pages, i - 1).page_sha256
 
       cond do
-        p.execution_plan_id != plan_id -> {:halt, {:error, :page_chain}}
-        p.page_index != i -> {:halt, {:error, :page_chain}}
-        p.page_count != count -> {:halt, {:error, :page_chain}}
-        p.check_set_sha256 != Map.get(h, :check_set_sha256) -> {:halt, {:error, :page_chain}}
-        (p.prev_page_sha256 || <<>>) != prev -> {:halt, {:error, :page_chain}}
-        HashGrammar.plan_page_digest(p) != p.page_sha256 -> {:halt, {:error, :page_digest}}
-        true -> {:cont, :ok}
+        Map.get(p, :digest_version) != @plan_digest_version ->
+          {:halt, {:error, :digest_version}}
+
+        Map.get(p, :execution_plan_id) != plan_id ->
+          {:halt, {:error, :page_chain}}
+
+        Map.get(p, :page_index) != i or Map.get(p, :page_count) != n ->
+          {:halt, {:error, :page_chain}}
+
+        (Map.get(p, :prev_page_sha256) || <<>>) != prev ->
+          {:halt, {:error, :page_chain}}
+
+        ranges == [] or length(ranges) > @max_ranges_per_page ->
+          {:halt, {:error, :page_bounds}}
+
+        Map.get(p, :check_set_sha256) != header_check_set ->
+          {:halt, {:error, :check_set}}
+
+        byte_size(encode_page(p)) > @max_plan_page_bytes ->
+          {:halt, {:error, :page_bounds}}
+
+        HashGrammar.plan_page_digest(p) != Map.get(p, :page_sha256) ->
+          {:halt, {:error, :page_digest}}
+
+        true ->
+          case validate_ranges(ranges, header_check_set, header_policy, total, seen) do
+            {:ok, total, seen} -> {:cont, {:ok, total, seen}}
+            err -> {:halt, err}
+          end
       end
     end)
+    |> case do
+      {:ok, total, _seen} ->
+        # Reconcile the declared total: a resealed wrong total_target_count was
+        # accepted before, so the header could claim coverage the pages do not have.
+        if total == Map.get(h, :total_target_count), do: :ok, else: {:error, :plan_totals}
+
+      err ->
+        err
+    end
+  end
+
+  defp validate_ranges(ranges, check_set, policy, total, seen) do
+    Enum.reduce_while(ranges, {:ok, total, seen}, fn r, {:ok, acc, ids} ->
+      case validate_range(r, check_set, policy) do
+        :ok ->
+          id = Map.get(r, :range_id)
+
+          if MapSet.member?(ids, id) do
+            {:halt, {:error, :plan_range}}
+          else
+            {:cont, {:ok, acc + Map.get(r, :target_count), MapSet.put(ids, id)}}
+          end
+
+        err ->
+          {:halt, err}
+      end
+    end)
+  end
+
+  defp validate_range(r, page_check_set, header_policy) do
+    cidr = Map.get(r, :cidr) || ""
+    first = Map.get(r, :first_address) || ""
+    last = Map.get(r, :last_address) || ""
+    has_cidr = cidr != ""
+    has_span = first != "" or last != ""
+
+    cond do
+      not canonical_uuid?(Map.get(r, :range_id)) ->
+        {:error, :plan_range}
+
+      # The range's OWN content digest must reproduce: a changed CIDR under a stale
+      # range_sha256 was accepted once the outer digests were resealed.
+      not digest?(Map.get(r, :range_sha256)) ->
+        {:error, :plan_range}
+
+      HashGrammar.range_digest(r) != Map.get(r, :range_sha256) ->
+        {:error, :plan_range}
+
+      byte_size(cidr) > @max_range_str_bytes ->
+        {:error, :plan_range}
+
+      byte_size(first) > @max_range_str_bytes ->
+        {:error, :plan_range}
+
+      byte_size(last) > @max_range_str_bytes ->
+        {:error, :plan_range}
+
+      has_cidr == has_span ->
+        {:error, :plan_range}
+
+      not is_integer(Map.get(r, :target_count)) ->
+        {:error, :plan_range}
+
+      Map.get(r, :target_count) == 0 ->
+        {:error, :plan_range}
+
+      not digest?(Map.get(r, :check_set_sha256)) ->
+        {:error, :plan_range}
+
+      Map.get(r, :check_set_sha256) != page_check_set ->
+        {:error, :check_set}
+
+      not bounded_bytes?(Map.get(r, :availability_policy_id), 0, @max_policy_id_bytes) ->
+        {:error, :plan_range}
+
+      Map.get(r, :availability_policy_id) != header_policy ->
+        {:error, :plan_range}
+
+      true ->
+        span_matches(r, cidr, first, last)
+    end
+  end
+
+  # The range expands to EXACTLY its address span, so the covered work set is
+  # deterministic. Mirrors Go's rangeSpanSize, including the CANONICAL-SPELLING rule:
+  # one network must not have two content digests.
+  defp span_matches(r, cidr, first, last) do
+    case span_size(cidr, first, last) do
+      {:ok, size} ->
+        if Map.get(r, :target_count) == size, do: :ok, else: {:error, :plan_range}
+
+      :error ->
+        {:error, :plan_range}
+    end
+  end
+
+  defp span_size("", first, last) do
+    with {:ok, f} <- parse_addr(first),
+         {:ok, l} <- parse_addr(last),
+         true <- tuple_size(f) == tuple_size(l) do
+      fi = addr_to_int(f)
+      li = addr_to_int(l)
+      if li < fi, do: :error, else: {:ok, li - fi + 1}
+    else
+      _ -> :error
+    end
+  end
+
+  defp span_size(cidr, _first, _last) do
+    with [addr, bits] <- String.split(cidr, "/", parts: 2),
+         {bits_int, ""} <- Integer.parse(bits),
+         {:ok, a} <- parse_addr(addr) do
+      bit_len = if tuple_size(a) == 4, do: 32, else: 128
+      host_bits = bit_len - bits_int
+
+      cond do
+        bits_int < 0 or bits_int > bit_len ->
+          :error
+
+        # Host bits set means a non-canonical prefix.
+        rem(addr_to_int(a), trunc(:math.pow(2, min(host_bits, 62)))) != 0 and host_bits < 63 ->
+          :error
+
+        # A span wider than 2^63 has no exact uint64 count; Go requires a split.
+        host_bits >= 64 ->
+          :error
+
+        true ->
+          {:ok, Bitwise.bsl(1, host_bits)}
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_addr(s) do
+    case :inet.parse_strict_address(String.to_charlist(s)) do
+      {:ok, tuple} -> {:ok, tuple}
+      _ -> :error
+    end
+  end
+
+  defp addr_to_int(t) do
+    t |> Tuple.to_list() |> Enum.reduce(0, fn part, acc -> Bitwise.bsl(acc, shift(t)) + part end)
+  end
+
+  defp shift(t) when tuple_size(t) == 4, do: 8
+  defp shift(_), do: 16
+
+  defp encode_page(p) do
+    Serviceradar.Edge.V1.ScheduledPlanPageV1.encode(p)
+  rescue
+    _ -> :binary.copy(<<0>>, @max_plan_page_bytes + 1)
   end
 
   defp plan_root(h, pages) do
@@ -132,10 +345,15 @@ defmodule ServiceRadar.Edge.PlanValidate do
     end
   end
 
-  # Mirrors Go's ValidateCanonicalUUID: 16 bytes AND not the all-zero value, which is
-  # "unset" wearing an identifier's shape.
+  # Mirrors Go's ValidateCanonicalUUID exactly: 16 bytes, VERSION 1..8, RFC 4122
+  # VARIANT (0b10xx), and not the all-zero value. Length-and-nonzero alone accepted
+  # version-0, version-9 and non-RFC-variant identifiers that Go refuses.
   @doc false
-  def canonical_uuid?(v), do: is_binary(v) and byte_size(v) == @uuid_len and v != <<0::128>>
+  def canonical_uuid?(<<_::48, ver::4, _::12, var::2, _::62>> = v)
+      when ver >= 1 and ver <= 8 and var == 2,
+      do: byte_size(v) == @uuid_len and v != <<0::128>>
+
+  def canonical_uuid?(_), do: false
 
   @doc false
   def uuidv7?(<<_::48, ver::4, _::12, var::2, _::62>> = v) when ver == 7 and var == 2,
@@ -144,4 +362,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
   def uuidv7?(_), do: false
 
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
+
+  defp bounded_bytes?(v, min, max),
+    do: is_binary(v) and byte_size(v) >= min and byte_size(v) <= max
 end

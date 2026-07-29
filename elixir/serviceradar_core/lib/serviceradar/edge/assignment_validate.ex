@@ -10,18 +10,20 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   expectation whose count and commitment disagree -- returned `:ok` from every Elixir
   entry point.
 
-  ## Two structural rules this module enforces by SHAPE, not by discipline
+  ## Two structural rules
 
-    1. The plan must already be VALIDATED. `validate_against_plan/2` accepts only the
-       opaque carrier `ServiceRadar.Edge.PlanValidate.validate/2` returns, so deriving
-       assignment authority from an attacker-supplied plan is not expressible. An
-       unvalidated plan is not a weaker check: whoever supplies it chooses the range
-       digests and windows the expectation is compared against.
-    2. Raw bytes go through `validate_bytes/1` / `validate_bytes_against_plan/2`,
-       which run the STRUCTURAL wire check, then the decoder, then enum admission,
-       then these relations. A caller holding only a decoded struct has already
-       skipped the wire layer, which is where retained unknown fields and wire-hygiene
-       violations live.
+    1. `validate_against_plan/3` VALIDATES THE PLAN ITSELF, from the header and pages.
+       An earlier revision took an "opaque" carrier and claimed an unvalidated plan was
+       not expressible -- but `@opaque` is Dialyzer metadata, so the tuple was forgeable
+       around a rejected plan and the relation accepted it. Running the validation
+       internally is the only construction that actually holds. An unvalidated plan is
+       not a weaker check: whoever supplies it chooses the range digests and windows the
+       expectation is compared against.
+    2. Raw bytes go through `validate_bytes/1` / `validate_bytes_against_plan/3`, which
+       delegate decoding to `WireDecode` so the deliberate `:poison` / `:not_ready` /
+       `:systemic` classification is preserved, then run enum admission, then these
+       relations. A caller holding only a decoded struct has already skipped the wire
+       layer, where retained unknown fields and wire-hygiene violations live.
 
   Every reason is TYPED and mirrors the Go error it corresponds to, because a shared
   reject vector has to assert WHY a record was refused, not merely that it was.
@@ -31,7 +33,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.SweepAssignmentRecordV1
-  alias ServiceRadar.Edge.WireValidate
+  alias ServiceRadar.Edge.WireDecode
 
   @sha256_len 32
   @max_policy_id_bytes 128
@@ -60,31 +62,28 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   record relations. This is the entry point a consumer should hold.
   """
   @spec validate_bytes(binary()) :: {:ok, struct()} | {:error, term()}
-  def validate_bytes(bytes) when is_binary(bytes) do
-    with :ok <- WireValidate.validate(bytes, SweepAssignmentRecordV1),
-         {:ok, record} <- decode(bytes),
+  def validate_bytes(bytes) do
+    # WireDecode owns the structural gate AND the classification: a local rescue that
+    # maps everything to :poison would turn a codegen or not-yet-deployed-module fault
+    # into permanent quarantine instead of a pause.
+    with {:ok, record} <- WireDecode.decode_assignment_record(bytes),
          :ok <- SemanticValidate.validate_message(record),
          :ok <- validate(record) do
       {:ok, record}
     end
   end
 
-  def validate_bytes(_), do: {:error, :systemic}
-
-  @doc "Composed boundary, then the plan relation against a VALIDATED plan."
-  @spec validate_bytes_against_plan(binary(), PlanValidate.validated()) ::
+  @doc """
+  Composed boundary, then the plan relation. The PLAN IS VALIDATED HERE, from the
+  header and pages, so no caller can substitute an unvalidated one.
+  """
+  @spec validate_bytes_against_plan(binary(), term(), term()) ::
           {:ok, struct()} | {:error, term()}
-  def validate_bytes_against_plan(bytes, plan) do
+  def validate_bytes_against_plan(bytes, header, pages) do
     with {:ok, record} <- validate_bytes(bytes),
-         :ok <- validate_against_plan(record, plan) do
+         :ok <- validate_against_plan(record, header, pages) do
       {:ok, record}
     end
-  end
-
-  defp decode(bytes) do
-    {:ok, SweepAssignmentRecordV1.decode(bytes)}
-  rescue
-    _ -> {:error, :poison}
   end
 
   @doc """
@@ -111,11 +110,17 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   Fail-close the assignment/plan RELATION against an ALREADY-VALIDATED plan,
   recomputing the expectation from committed plan data.
   """
-  @spec validate_against_plan(term(), PlanValidate.validated()) :: :ok | {:error, reason()}
-  def validate_against_plan(r, {PlanValidate, _h, _pages, _w} = plan) do
+  @spec validate_against_plan(term(), term(), term()) :: :ok | {:error, term()}
+  def validate_against_plan(r, header, pages) do
+    # The plan is validated HERE. An earlier revision took an "opaque" carrier and
+    # claimed a caller could not supply an unvalidated plan -- but `@opaque` is
+    # Dialyzer metadata, so the tuple was forgeable around a rejected plan and this
+    # function accepted it. Running the validation internally is the only construction
+    # that actually holds.
     with :ok <- validate(r),
-         :ok <- same_plan(r, PlanValidate.header(plan)) do
-      case PlanValidate.find_range(plan, Map.get(r, :target_range_id)) do
+         {:ok, windows} <- PlanValidate.validate(header, pages),
+         :ok <- same_plan(r, header) do
+      case PlanValidate.find_range(pages, Map.get(r, :target_range_id)) do
         nil ->
           {:error, :plan_relation}
 
@@ -124,7 +129,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
             expectation_matches_range(
               Map.get(r, :mtr_expectation),
               range,
-              Map.fetch!(PlanValidate.windows(plan), range.range_id)
+              Map.fetch!(windows, range.range_id)
             )
           else
             # Right identity, wrong content: a claimed range whose digest is not the
@@ -134,8 +139,6 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       end
     end
   end
-
-  def validate_against_plan(_r, _plan), do: {:error, :plan_relation}
 
   # Retained unknown fields are rejected on the record AND its nested expectation. A
   # struct that decoded cleanly can still carry bytes no validator walked, and this
@@ -212,12 +215,10 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   end
 
   defp validate_scope(r) do
-    policy_len = byte_size(Map.get(r, :availability_policy_id) || <<>>)
-
     if uuid?(Map.get(r, :target_range_id)) and digest?(Map.get(r, :target_range_sha256)) and
          digest?(Map.get(r, :check_set_sha256)) and digest?(Map.get(r, :scope_sha256)) and
          digest?(Map.get(r, :contract_bundle_sha256)) and
-         policy_len > 0 and policy_len <= @max_policy_id_bytes do
+         bounded_bytes?(Map.get(r, :availability_policy_id), 1, @max_policy_id_bytes) do
       :ok
     else
       {:error, :scope}
@@ -225,7 +226,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   end
 
   defp validate_lease(r) do
-    if byte_size(Map.get(r, :lease_id) || <<>>) > 0 and
+    if bounded_bytes?(Map.get(r, :lease_id), 1, :infinity) and
          pos_int?(Map.get(r, :fence_token)) and
          pos_int?(Map.get(r, :lease_expires_at_unix_nano)) do
       :ok
@@ -237,7 +238,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp validate_state(r) do
     state = Map.get(r, :state)
     superseded = state == :SWEEP_ASSIGNMENT_STATE_SUPERSEDED
-    link = Map.get(r, :superseded_by_assignment_id) || <<>>
+    link = binary_or_empty(Map.get(r, :superseded_by_assignment_id))
 
     cond do
       state not in @known_states ->
@@ -251,7 +252,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
       superseded and link == Map.get(r, :producer_assignment_id) ->
         {:error, :state}
 
-      not superseded and byte_size(link) > 0 ->
+      not superseded and link != <<>> ->
         {:error, :state}
 
       # An OPEN attempt has closed no evidence interval yet.
@@ -289,4 +290,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp uuid?(v), do: PlanValidate.canonical_uuid?(v)
   defp digest?(v), do: is_binary(v) and byte_size(v) == @sha256_len
   defp pos_int?(v), do: is_integer(v) and v > 0
+  defp binary_or_empty(v) when is_binary(v), do: v
+  defp binary_or_empty(_), do: <<>>
+
+  defp bounded_bytes?(v, min, :infinity), do: is_binary(v) and byte_size(v) >= min
+
+  defp bounded_bytes?(v, min, max),
+    do: is_binary(v) and byte_size(v) >= min and byte_size(v) <= max
 end
