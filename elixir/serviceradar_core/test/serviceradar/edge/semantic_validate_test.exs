@@ -948,7 +948,13 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
         MtrTraceBatchV1,
         SweepExecutionEventV1,
         Serviceradar.Edge.V1.EdgeRecoveryControlPayloadV1,
-        Serviceradar.Edge.V1.EdgeLossManifestPageV1
+        Serviceradar.Edge.V1.EdgeLossManifestPageV1,
+        # The SCHEDULER-authored assignment graph is a root for the same reason the
+        # recovery graph is: `SweepAssignmentState` was added to the Go table and the
+        # Elixir policy BY HAND. Without walking this root, a future nested enum field
+        # omitted from BOTH tables would leave their key sets equally incomplete and the
+        # bidirectional equality assertion would still pass -- symmetric ignorance.
+        Serviceradar.Edge.V1.SweepAssignmentRecordV1
       ]
 
       policy = SemanticValidate.enum_field_policy()

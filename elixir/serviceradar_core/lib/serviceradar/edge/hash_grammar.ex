@@ -355,7 +355,7 @@ defmodule ServiceRadar.Edge.HashGrammar do
       when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
              count <= @max_plan_mtr_ordinals and
              offset <= @max_plan_mtr_ordinals - count and
-             is_binary(range_sha256) do
+             is_binary(range_sha256) and byte_size(range_sha256) == 32 do
     # `1..count//1` for the same reason the completion fold uses it: an unstepped
     # `1..0` is a DESCENDING range that iterates [1, 0].
     Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
@@ -377,19 +377,32 @@ defmodule ServiceRadar.Edge.HashGrammar do
   -- which is what makes a SPLIT plan verifiable while each attempt keeps its
   completion-leaf ordinals local to `{1..ordinal_count}`.
   """
-  @spec plan_mtr_ordinal_range_commitment([map()]) :: binary()
+  @spec plan_mtr_ordinal_range_commitment([map()]) :: {:ok, binary()} | :error
   def plan_mtr_ordinal_range_commitment(pages) do
     # Bounds are checked for the WHOLE plan BEFORE a single hash: an over-budget plan
-    # must cost a walk, not a fold.
-    {:ok, _windows, _total} = plan_mtr_windows(pages)
+    # must cost a walk, not a fold. A bound failure is a TYPED rejection, not a raised
+    # MatchError -- a caller cannot pattern-match on a crash, and Go returns an error
+    # here, so raising would make the two runtimes disagree about what "rejected" is.
+    case plan_mtr_windows(pages) do
+      :error ->
+        :error
 
-    pages
-    |> Enum.flat_map(& &1.ranges)
-    |> Enum.reduce({<<0::256>>, 0}, fn r, {acc, offset} ->
-      count = r.mtr_ordinal_count || 0
-      {add256(acc, mtr_window_commitment(offset, count, r.range_sha256)), offset + count}
-    end)
-    |> elem(0)
+      {:ok, _windows, _total} ->
+        pages
+        |> Enum.flat_map(& &1.ranges)
+        |> Enum.reduce_while({<<0::256>>, 0}, fn r, {acc, offset} ->
+          count = r.mtr_ordinal_count || 0
+
+          case mtr_window_commitment(offset, count, r.range_sha256) do
+            :error -> {:halt, :error}
+            window -> {:cont, {add256(acc, window), offset + count}}
+          end
+        end)
+        |> case do
+          :error -> :error
+          {acc, _offset} -> {:ok, acc}
+        end
+    end
   end
 
   @doc "The plan's authenticated (ordinal, range_sha256) commitment (additive multiset hash)."

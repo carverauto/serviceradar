@@ -674,7 +674,7 @@ here.
   RESOLVED (was the blocker on 1.4/1.15 and the 1.7 freeze): the contradiction is
   gone. `NewMtrCompletionAccumulator` now accepts `expected == 0`; the Elixir
   verifier accepts it; the Go lifecycle validator's unconditional demand for a
-  32-byte digest, matching version, and 32-byte plan/range roots on EVERY COMPLETED
+  32-byte digest, matching version, and a 32-byte PLAN ROOT on EVERY COMPLETED
   event is now CORRECT rather than contradictory, because the zero-MTR case has a
   proof to carry. `ValidatePlanHeader` additionally requires
   `mtr_ordinal_range_commitment` to be exactly 32 bytes (32 ZERO bytes when no MTR

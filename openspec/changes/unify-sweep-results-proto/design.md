@@ -918,7 +918,8 @@ fencing, per-segment copy, recovery publication, and physical deletion, and
 startup resumes any phase idempotently. A dedicated recovery consumer atomically
 stores the loss audit, marks affected attempts/ranges partial or lost, fences
 unsafe authority, and invokes the contract-specific partialization/retry action
-(for example, remaining sweep coverage) before ACKing the completed recovery
+(for sweep, REASSIGNING THE WHOLE AFFECTED RANGE WINDOW -- v1 has no
+partial-remainder retry) before ACKing the completed recovery
 state. Recovery state and lag are operator-visible
 and retained beyond the recovery stream's replay window. This is explicit
 acknowledged data-loss handling, not a success disposition for the missing

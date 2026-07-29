@@ -187,8 +187,9 @@ func ValidateSweepExecutionEvent(ev *edgev1.SweepExecutionEventV1) error {
 			return fmt.Errorf("%w: mtr counts", ErrLifecycle)
 		}
 		// range_root_sha256 (tag 20) is RETIRED: a range binding the producer asserts
-		// about its own attempt proves nothing, and the authoritative range-set
-		// commitment now lives on SweepAssignmentRecordV1.
+		// about its own attempt proves nothing. The authoritative binding is the
+		// assignment record's RESOLVABLE target_range_id + target_range_sha256 -- not a
+		// range-set commitment, which was proposed and REJECTED for the same reason.
 		if ev.GetMtrCompletionDigestVersion() != MtrCompletionDigestVersion ||
 			len(ev.GetMtrCompletionDigest()) != sha256Len ||
 			len(ev.GetPlanRootSha256()) != sha256Len {
@@ -601,7 +602,7 @@ func isSweepExecutionSource(s edgev1.SweepExecutionSource) bool {
 		s == edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE
 }
 
-// validateMtrHop fail-closes one hop: a nonzero hop number, a 0/4/16-byte address
+// validateMtrHop fail-closes one hop: a nonzero hop number, an absent/4-byte/16-byte address
 // and ECMP addresses, received <= sent, and a real loss percentage in [0,100].
 func validateMtrHop(hop *edgev1.MtrTraceHopV1) error {
 	if hop.GetHopNumber() == 0 {

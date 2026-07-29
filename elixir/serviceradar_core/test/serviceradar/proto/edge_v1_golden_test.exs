@@ -12,6 +12,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
   import Bitwise
 
+  alias ServiceRadar.Edge.AssignmentValidate
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PublicationIdentity
@@ -1167,7 +1168,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # The plan-wide commitment is the ADDITIVE SUM of every range's window, so a split
     # plan is verifiable without renumbering any attempt's local ordinals.
-    assert header.mtr_ordinal_range_commitment ==
+    assert {:ok, header.mtr_ordinal_range_commitment} ==
              HashGrammar.plan_mtr_ordinal_range_commitment([page])
 
     # `mtr_admission_budget` is a CEILING, never the count.
@@ -1285,7 +1286,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
              HashGrammar.mtr_window_commitment(offset_b, range_b.mtr_ordinal_count, range_b.range_sha256)
 
     # Plan-wide is the additive SUM of both windows.
-    assert header.mtr_ordinal_range_commitment ==
+    assert {:ok, header.mtr_ordinal_range_commitment} ==
              HashGrammar.plan_mtr_ordinal_range_commitment([page])
 
     # And the non-prefix completion proves: LOCAL leaves {1..3}, GLOBAL membership.
@@ -1332,7 +1333,13 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # Drive the ACTUAL commitment function too: with the pre-hash guard removed this
     # would fold 2^20+1 hashes and return a value instead of raising.
-    assert_raise MatchError, fn -> HashGrammar.plan_mtr_ordinal_range_commitment([over_max]) end
+    # A TYPED rejection, not a raised MatchError: Go returns an error here, and a
+    # caller cannot pattern-match on a crash.
+    assert :error = HashGrammar.plan_mtr_ordinal_range_commitment([over_max])
+    assert {:ok, _} = HashGrammar.plan_mtr_ordinal_range_commitment([at_max])
+
+    # Go rejects a non-32-byte range digest; Elixir must not be laxer.
+    assert :error = HashGrammar.mtr_window_commitment(0, 1, <<7>>)
 
     # The exported per-window helper bounds where a window ENDS, not just its WIDTH:
     # a one-ordinal window starting AT the ceiling names an ordinal no plan contains.
@@ -1341,6 +1348,94 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # Go rejects offset 2^31 too; Elixir must not be laxer.
     assert :error = HashGrammar.mtr_window_commitment(2_147_483_648, 1, :binary.copy(<<7>>, 32))
+  end
+
+  test "Elixir validates the assignment record and its plan relation" do
+    header = ScheduledPlanHeaderV1.decode(load("plan_header_split.bin"))
+    page = ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    assignment = SweepAssignmentRecordV1.decode(load("assignment_split_second.bin"))
+
+    assert :ok = AssignmentValidate.validate(assignment)
+    assert :ok = AssignmentValidate.validate_against_plan(assignment, header, [page])
+
+    # THE REPRO from review: this record violates the lease/fence AND expectation
+    # relations that Go rejects, and every Elixir entry point used to return :ok
+    # because only enum admission was implemented.
+    bad = %{
+      assignment
+      | lease_id: <<>>,
+        fence_token: 0,
+        mtr_expectation: %{
+          assignment.mtr_expectation
+          | ordinal_count: 2,
+            ordinal_range_commitment: :binary.copy(<<1>>, 32)
+        }
+    }
+
+    assert {:error, :lease} = AssignmentValidate.validate(bad)
+
+    # Reject vectors, each pinned to its REASON -- a shared vector must assert WHY a
+    # record was refused, not merely that it was.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | record_sequence: 0})
+
+    assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: <<1::128>>})
+
+    assert {:error, :scope} =
+             AssignmentValidate.validate(%{assignment | target_range_sha256: <<7>>})
+
+    # ABSENT is not ZERO, on both required-presence fields.
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{assignment | mtr_expectation: nil})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: nil}
+             })
+
+    # count == 0 <=> the 32-zero commitment, in BOTH directions.
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{assignment.mtr_expectation | ordinal_count: 0}
+             })
+
+    # The RELATION: recomputed from the plan, never trusted as carried bytes.
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               %{
+                 assignment
+                 | mtr_expectation: %{
+                     assignment.mtr_expectation
+                     | ordinal_range_commitment: :binary.copy(<<2>>, 32)
+                   }
+               },
+               header,
+               [page]
+             )
+
+    # A wrong offset for the selected range.
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               %{
+                 assignment
+                 | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: 0}
+               },
+               header,
+               [page]
+             )
+
+    # A range the plan never committed.
+    assert {:error, :plan_relation} =
+             AssignmentValidate.validate_against_plan(
+               %{assignment | target_range_id: <<9::128>>},
+               header,
+               [page]
+             )
   end
 
   test "MTR completion disposition symbols are pinned to their exact numbers" do

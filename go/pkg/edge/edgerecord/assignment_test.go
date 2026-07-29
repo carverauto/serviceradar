@@ -439,6 +439,25 @@ func TestPlanMtrWindowBounds(t *testing.T) {
 	if _, err := MtrWindowCommitment(MaxMtrCompletionOrdinals, 1, d32(0x20)); !errors.Is(err, ErrPlanMtrWindow) {
 		t.Fatalf("window overflow = %v, want ErrPlanMtrWindow", err)
 	}
+	// A WIDTH over the ceiling, tested DIRECTLY. Without this the `count >
+	// MaxPlanMtrOrdinals` guard can be deleted and the suite stays green -- and worse,
+	// deleting it exposes UNSIGNED UNDERFLOW: `MaxPlanMtrOrdinals - count` wraps to a
+	// huge value, so the window-end check then passes and the fold runs unbounded.
+	if _, err := MtrWindowCommitment(0, MaxPlanMtrOrdinals+1, d32(0x20)); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("width over the ceiling = %v, want ErrPlanMtrWindow", err)
+	}
+	// The window END is bounded, not merely the width: a one-ordinal window starting
+	// AT the ceiling names an ordinal no plan can contain.
+	if _, err := MtrWindowCommitment(MaxPlanMtrOrdinals, 1, d32(0x20)); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("window ending past the ceiling = %v, want ErrPlanMtrWindow", err)
+	}
+	if _, err := MtrWindowCommitment(MaxPlanMtrOrdinals-1, 1, d32(0x20)); err != nil {
+		t.Fatalf("a window ending exactly AT the ceiling must be accepted: %v", err)
+	}
+	// Go rejects a non-32-byte range digest; the Elixir peer must not be laxer.
+	if _, err := MtrWindowCommitment(0, 1, []byte{7}); !errors.Is(err, ErrPlanMtrWindow) {
+		t.Fatalf("short range digest = %v, want ErrPlanMtrWindow", err)
+	}
 
 	// A header whose commitment is not the recomputed sum is rejected.
 	bad := proto.Clone(h).(*edgev1.ScheduledPlanHeaderV1)
