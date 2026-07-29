@@ -258,7 +258,7 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		// NOTE: this measures a RE-MARSHAL of the decoded page, which is NOT the
 		// physical ceiling the ABI defines. Duplicate known fields collapse on the round
 		// trip, so a received page far over the limit can pass here. The authoritative
-		// bound is on RECEIVED bytes -- see ValidatePlanPagesFromRaw, which is what a
+		// bound is on RECEIVED bytes -- see ValidatePlanFromRaw, which is what a
 		// caller holding wire bytes must use. This check remains only as a coarse guard
 		// for callers that legitimately hold decoded structs.
 		pb, err := proto.MarshalOptions{Deterministic: true}.Marshal(p)
@@ -529,30 +529,72 @@ func PlanMtrOrdinalRangeCommitment(pages []*edgev1.ScheduledPlanPageV1) ([]byte,
 	return acc[:], nil
 }
 
-// ValidatePlanPagesFromRaw is the RAW plan boundary: it bounds each page against
-// MaxPlanPageBytes on the EXACT RECEIVED BYTES before decoding, then validates the
-// decoded chain.
+// MaxPlanHeaderBytes bounds ONE encoded ScheduledPlanHeaderV1 on RECEIVED BYTES. It lives here,
+// beside the page bound it partners, because it governs the general plan boundary below rather
+// than any single consumer of it.
+const MaxPlanHeaderBytes = 512 * 1024
+
+// ErrPlanHeaderTooLarge is a PERMANENT rejection for an oversize raw plan header.
+var ErrPlanHeaderTooLarge = errors.New("edgerecord: encoded plan header exceeds 512 KiB bound")
+
+// ErrPlanPageTooLarge is a PERMANENT rejection for an oversize raw plan page. It WRAPS
+// ErrPlanBounds so existing callers matching the general bound still match, while being
+// distinguishable -- which is what makes the preflight ORDER observable: a malformed early page
+// plus an oversize later one yields THIS error only if every size was checked before any decode.
+var ErrPlanPageTooLarge = fmt.Errorf("edgerecord: encoded plan page exceeds 128 KiB bound: %w", ErrPlanBounds)
+
+// ValidatePlanFromRaw is THE raw plan boundary, and the only exported one: it bounds the header
+// AND every page on EXACT RECEIVED BYTES, then validates and returns the decoded plan.
 //
-// This exists because ValidatePlanPages measures a RE-MARSHAL, and the two are not the
-// same number: a page padded with duplicate known fields to 131,074 received bytes
-// collapses to a few hundred on the round trip, so the struct path accepted what the
-// physical ceiling forbids -- and what the Elixir peer, which bounds received bytes,
-// rejected. The ceiling exists to bound what a receiver must hold and forward, which
-// is the received size.
-func ValidatePlanPagesFromRaw(h *edgev1.ScheduledPlanHeaderV1, rawPages [][]byte) error {
+// The page-only path is deliberately unexported. While it was public it was a header-ceiling
+// BYPASS -- it takes an already-decoded header, so a duplicate-field header over the bound
+// collapses on decode and passes. A bound that one caller remembers to apply is not a bound.
+//
+// PREFLIGHT ORDER MATTERS: every raw size is checked BEFORE anything is decoded, so oversize
+// input is rejected without ever being parsed. Decoding first and bounding afterwards would do
+// the work the bound exists to prevent.
+//
+// It returns the DECODED header AND pages so a caller uses exactly what was validated. Returning
+// the header alone left callers re-decoding the raw slices, which is a check/use gap: the bytes
+// validated and the bytes used were two separate decodes of storage the caller does not own.
+func ValidatePlanFromRaw(
+	rawHeader []byte,
+	rawPages [][]byte,
+) (*edgev1.ScheduledPlanHeaderV1, []*edgev1.ScheduledPlanPageV1, error) {
+	if len(rawHeader) > MaxPlanHeaderBytes {
+		return nil, nil, ErrPlanHeaderTooLarge
+	}
+	// STRUCTURAL and PHYSICAL bounds first, across the WHOLE input.
 	if len(rawPages) == 0 || len(rawPages) > MaxManifestPages {
-		return ErrPlanBounds
+		return nil, nil, ErrPlanBounds
+	}
+	for _, raw := range rawPages {
+		if len(raw) > MaxPlanPageBytes {
+			return nil, nil, ErrPlanPageTooLarge
+		}
+	}
+	var h edgev1.ScheduledPlanHeaderV1
+	if err := proto.Unmarshal(rawHeader, &h); err != nil {
+		return nil, nil, ErrPlanBounds
+	}
+	// THE HEADER IS VALIDATED IMMEDIATELY. Decoding every page first meant an unsupported header
+	// version reported a page's malformedness instead: the cheaper, more authoritative failure was
+	// masked by whichever page happened to break first. ValidatePlanPages re-checks the header
+	// below; that is idempotent and cheap, and having the authoritative reason surface first is
+	// worth it.
+	if err := ValidatePlanHeader(&h); err != nil {
+		return nil, nil, err
 	}
 	pages := make([]*edgev1.ScheduledPlanPageV1, 0, len(rawPages))
 	for _, raw := range rawPages {
-		if len(raw) > MaxPlanPageBytes {
-			return ErrPlanBounds
+		var page edgev1.ScheduledPlanPageV1
+		if err := proto.Unmarshal(raw, &page); err != nil {
+			return nil, nil, ErrPlanBounds
 		}
-		var p edgev1.ScheduledPlanPageV1
-		if err := proto.Unmarshal(raw, &p); err != nil {
-			return ErrPlanBounds
-		}
-		pages = append(pages, &p)
+		pages = append(pages, &page)
 	}
-	return ValidatePlanPages(h, pages)
+	if err := ValidatePlanPages(&h, pages); err != nil {
+		return nil, nil, err
+	}
+	return &h, pages, nil
 }

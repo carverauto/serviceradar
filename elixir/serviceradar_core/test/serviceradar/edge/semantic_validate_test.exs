@@ -959,7 +959,11 @@ defmodule Serviceradar.Edge.SemanticValidateTest do
         # enum field added under a plan header or page is exactly as reachable -- and
         # exactly as invisible to a walk that omits its root.
         Serviceradar.Edge.V1.ScheduledPlanHeaderV1,
-        Serviceradar.Edge.V1.ScheduledPlanPageV1
+        Serviceradar.Edge.V1.ScheduledPlanPageV1,
+        # The compiled assignment carrier: its result format and traffic class are
+        # signed facts, so an unpoliced enum there would be authenticated nonsense.
+        Serviceradar.Edge.V1.CompiledSweepAssignmentV1,
+        Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1
       ]
 
       policy = SemanticValidate.enum_field_policy()

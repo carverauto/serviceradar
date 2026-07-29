@@ -22,6 +22,7 @@ import (
 	"reflect"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // isNilTrust reports whether a CapabilityTrust is unusable -- either a nil interface
@@ -94,6 +95,10 @@ func CapabilityPurpose(c *edgev1.EdgeSignedCapabilityV1) edgev1.EdgeCapabilityPu
 		return edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_SOURCE
 	case *edgev1.EdgeSignedCapabilityV1_Delivery:
 		return edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_DELIVERY
+	case *edgev1.EdgeSignedCapabilityV1_Collection:
+		return edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_COLLECTION
+	case *edgev1.EdgeSignedCapabilityV1_AssignmentExecution:
+		return edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION
 	default:
 		return edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_UNSPECIFIED
 	}
@@ -209,22 +214,43 @@ const (
 // nil otherwise. TrustPolicyEpoch MUST ECHO the requested KeyEvidence.TrustPolicyEpoch -- it binds the
 // RESPONSE to the request snapshot, so a stale or cross-snapshot resolver reply (a revocation race) is
 // detected and rejected rather than trusted. A zero or mismatched echo is treated as UNAVAILABLE.
+//
+// Purpose MUST ECHO the requested KeyEvidence.Purpose. The echo is RESPONSE CORRELATION ONLY --
+// it proves the answer belongs to the question that was asked, exactly as the epoch echo does,
+// and an UNSPECIFIED or mismatched echo is UNAVAILABLE. It does NOT and cannot establish that
+// the key is authorized for that role: an echoing resolver that ignores roles still returns
+// KeyValid, and the committed tests state that plainly.
+//
+// AUTHORIZING (issuer, key, purpose) is therefore a CONTRACT OBLIGATION on the implementation:
+// ResolveKey MUST return KeyInvalid when the named key is not authorized to issue the requested
+// role, because only the resolver holds that knowledge. A resolver that skips this check lets
+// one role's key validate another -- a scheduler key minting a host execution grant.
 type KeyResolution struct {
 	Status           KeyStatus
 	Public           ed25519.PublicKey
 	TrustPolicyEpoch uint64
+	Purpose          edgev1.EdgeCapabilityPurpose
 }
 
 // KeyEvidence is the interval + trust-policy context ResolveKey needs to judge historical key validity
 // rather than only "valid right now". NotBeforeUnixNano/ExpiresUnixNano are the capability's signed
 // validity window -- the evidence interval the historical signature covers -- so a resolver can confirm
 // the key was validly issued and non-compromised OVER that window (rejecting BACKDATED authority whose
-// window predates the key) using retained history; EvalNowUnixNano is the trusted evaluation time whose
-// trust-policy epoch decides current rotation/compromise state.
+// window predates the key) using retained history.
+//
+// EvalNowUnixNano is the CURRENT trusted instant, and it decides CURRENT rotation/compromise
+// state -- not "was this key trusted back then". A key validly used inside its window and
+// compromise-revoked afterwards MUST resolve KeyHistoricallyRevoked when asked at a later
+// EvalNowUnixNano, which is what makes a revocation discovered after the fact actionable.
 type KeyEvidence struct {
 	NotBeforeUnixNano int64
 	ExpiresUnixNano   int64
 	EvalNowUnixNano   int64
+	// Purpose is the ROLE the capability is being resolved for. A key trusted to issue one
+	// role must not silently validate another, and only the resolver knows which roles a key
+	// is authorized for -- so the request states the role rather than leaving the resolver to
+	// guess it from the issuer name.
+	Purpose edgev1.EdgeCapabilityPurpose
 	// TrustPolicyEpoch pins the single, immutable trust-policy snapshot for the WHOLE authorization
 	// decision. Every capability (production, source, delivery) in one frame/record decision resolves at
 	// the SAME nonzero epoch, so a mid-decision revocation cannot mix snapshots across the keys of one
@@ -238,8 +264,15 @@ type KeyEvidence struct {
 // KeyResolution. It is injected so the crypto boundary is explicit and testable,
 // and never hardcoded in this package.
 type CapabilityTrust interface {
-	// ResolveKey returns the typed lifecycle resolution of (issuerID, issuerKeyID) over the evidence
-	// interval. It MUST distinguish NORMAL rotation/expiry (KeyValid via retained history) from
+	// ResolveKey returns the typed lifecycle resolution of (issuerID, issuerKeyID, evidence.Purpose)
+	// over the evidence interval.
+	//
+	// It MUST authorize the ROLE: a key that exists but is not authorized to issue
+	// evidence.Purpose MUST resolve KeyInvalid. The verifier cannot check this -- only the
+	// resolver knows which roles a key may issue -- and the purpose echo proves only that this
+	// response answers this request.
+	//
+	// It MUST distinguish NORMAL rotation/expiry (KeyValid via retained history) from
 	// COMPROMISE revocation (KeyHistoricallyRevoked), from an unknown/unauthorized key (KeyInvalid), and
 	// from an unresolvable lookup (KeyUnavailable) -- never collapsing retryable into permanent, nor
 	// compromise into a silent valid, nor a normally-rotated key into unknown.
@@ -248,12 +281,18 @@ type CapabilityTrust interface {
 
 // capabilityEvidence builds the KeyEvidence for a capability: its signed validity window is the
 // evidence interval, evaluated at evalNow under the pinned trust-policy epoch.
-func capabilityEvidence(c *edgev1.EdgeSignedCapabilityV1, evalNow int64, trustEpoch uint64) KeyEvidence {
+func capabilityEvidence(
+	c *edgev1.EdgeSignedCapabilityV1,
+	purpose edgev1.EdgeCapabilityPurpose,
+	evalNow int64,
+	trustEpoch uint64,
+) KeyEvidence {
 	return KeyEvidence{
 		NotBeforeUnixNano: c.GetNotBeforeUnixNano(),
 		ExpiresUnixNano:   c.GetExpiresAtUnixNano(),
 		EvalNowUnixNano:   evalNow,
 		TrustPolicyEpoch:  trustEpoch,
+		Purpose:           purpose,
 	}
 }
 
@@ -305,19 +344,38 @@ func VerifyCapabilityWithTrust(c *edgev1.EdgeSignedCapabilityV1, expectedPurpose
 	if trustEpoch == 0 {
 		return KeyUnavailable, ErrTrustEpochUnset
 	}
-	if err := ValidateCapability(c, expectedPurpose); err != nil {
+	// An IMMUTABLE SNAPSHOT. The resolver below is someone else's code, and a protobuf bytes
+	// field aliases its backing storage -- so passing the caller's message meant a resolver
+	// could rewrite issuer_id / issuer_key_id AFTER any digest that pinned them and BEFORE
+	// the signature was computed over them. An artifact pinned as one issuer then verified
+	// as another. Everything from here on reads the snapshot, and the resolver receives
+	// COPIES of the identifiers it is asked about.
+	snap, ok := proto.Clone(c).(*edgev1.EdgeSignedCapabilityV1)
+	if !ok {
+		return KeyUnavailable, ErrCapabilityMissing
+	}
+	if err := ValidateCapability(snap, expectedPurpose); err != nil {
 		return KeyUnavailable, err
 	}
-	res := trust.ResolveKey(c.GetIssuerId(), c.GetIssuerKeyId(), capabilityEvidence(c, evalNowUnixNano, trustEpoch))
+	res := trust.ResolveKey(
+		cloneBytes(snap.GetIssuerId()), cloneBytes(snap.GetIssuerKeyId()),
+		capabilityEvidence(snap, expectedPurpose, evalNowUnixNano, trustEpoch),
+	)
 	// Response-bind the resolution to the request snapshot: the resolver MUST echo the requested
 	// trust-policy epoch. A ZERO echo (unset) or a MISMATCH (a stale/cross-snapshot reply from a
 	// revocation race) is not authoritative -- treat it as UNAVAILABLE (retryable), never authorize.
 	if res.TrustPolicyEpoch == 0 || res.TrustPolicyEpoch != trustEpoch {
 		return KeyUnavailable, ErrKeyUnavailable
 	}
+	// PURPOSE is response-bound exactly as the epoch is. A resolver that does not echo the
+	// requested role has not answered the question that was asked, so its verdict cannot be
+	// spent on this role.
+	if res.Purpose != expectedPurpose {
+		return KeyUnavailable, ErrKeyUnavailable
+	}
 	switch res.Status {
 	case KeyValid, KeyHistoricallyRevoked:
-		if err := VerifyCapabilitySignature(c, expectedPurpose, res.Public); err != nil {
+		if err := VerifyCapabilitySignature(snap, expectedPurpose, res.Public); err != nil {
 			return res.Status, err
 		}
 		return res.Status, nil

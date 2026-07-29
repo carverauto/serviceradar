@@ -159,6 +159,29 @@ defmodule Serviceradar.Edge.V1.MtrCompletionDisposition do
   field :MTR_COMPLETION_DISPOSITION_SCHEDULER_LOST, 5
 end
 
+defmodule Serviceradar.Edge.V1.SweepResultFormat do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.edge.v1.SweepResultFormat",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  # SERVICERADAR EDGE ENUM PARITY (task 1.5) -- injected by scripts/patch_edge_enum_negatives.exs.
+  # Go RETAINS an unknown/negative int32 enum as its integer and rejects it in the explicit
+  # semantic validator; the generated `key/1`/`value/1` catchalls are guarded `tag >= 0` and
+  # would RAISE, making Elixir reject a message Go accepts (last-one-wins: `-1` followed by a
+  # valid value has the VALID effective value). Declared in the module BODY on purpose: the
+  # Protobuf DSL appends its clauses at `@before_compile`, so these win for negatives while
+  # every other tag falls through to the generated clauses unchanged.
+  def key(tag) when is_integer(tag) and tag < 0, do: tag
+  def value(tag) when is_integer(tag) and tag < 0, do: tag
+
+  field :SWEEP_RESULT_FORMAT_UNSPECIFIED, 0
+  field :SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1, 1
+end
+
 defmodule Serviceradar.Edge.V1.SweepExecutionSource do
   @moduledoc false
 
@@ -641,6 +664,62 @@ defmodule Serviceradar.Edge.V1.SweepAssignmentRecordV1 do
   field :production_scope_id, 22, type: :bytes, json_name: "productionScopeId"
   field :scope_sha256, 23, type: :bytes, json_name: "scopeSha256"
   field :contract_bundle_sha256, 24, type: :bytes, json_name: "contractBundleSha256"
+  field :run_id, 25, type: :bytes, json_name: "runId"
+
+  field :source_identity, 26,
+    type: Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1,
+    json_name: "sourceIdentity"
+
+  field :compiled_assignment_id, 27, type: :bytes, json_name: "compiledAssignmentId"
+  field :compiled_assignment_sha256, 28, type: :bytes, json_name: "compiledAssignmentSha256"
+end
+
+defmodule Serviceradar.Edge.V1.CompiledSweepAssignmentV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.CompiledSweepAssignmentV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :compiled_assignment_id, 1, type: :bytes, json_name: "compiledAssignmentId"
+
+  field :compiled_assignment_body_sha256, 2,
+    type: :bytes,
+    json_name: "compiledAssignmentBodySha256"
+
+  field :compiled_assignment_sha256, 19, type: :bytes, json_name: "compiledAssignmentSha256"
+  field :digest_version, 3, type: :uint32, json_name: "digestVersion"
+  field :execution_plan_id, 4, type: :bytes, json_name: "executionPlanId"
+  field :execution_plan_sha256, 5, type: :bytes, json_name: "executionPlanSha256"
+  field :target_range_id, 6, type: :bytes, json_name: "targetRangeId"
+  field :target_range_sha256, 7, type: :bytes, json_name: "targetRangeSha256"
+  field :network_scope_id, 8, type: :bytes, json_name: "networkScopeId"
+  field :authenticated_agent_id, 9, type: :bytes, json_name: "authenticatedAgentId"
+  field :execution_shard, 10, type: :uint32, json_name: "executionShard"
+  field :assignment_epoch, 11, type: :uint64, json_name: "assignmentEpoch"
+  field :producer_assignment_id, 20, type: :bytes, json_name: "producerAssignmentId"
+  field :execution_id, 21, type: :bytes, json_name: "executionId"
+  field :config_generation, 12, type: :uint64, json_name: "configGeneration"
+
+  field :result_format, 13,
+    type: Serviceradar.Edge.V1.SweepResultFormat,
+    json_name: "resultFormat",
+    enum: true
+
+  field :check_set_sha256, 14, type: :bytes, json_name: "checkSetSha256"
+
+  field :traffic_class, 15,
+    type: Serviceradar.Edge.V1.EdgeRecordTrafficClass,
+    json_name: "trafficClass",
+    enum: true
+
+  field :not_before_unix_nano, 16, type: :int64, json_name: "notBeforeUnixNano"
+  field :expires_at_unix_nano, 17, type: :int64, json_name: "expiresAtUnixNano"
+
+  field :collection_capability, 18,
+    type: Serviceradar.Edge.V1.EdgeSignedCapabilityV1,
+    json_name: "collectionCapability"
 end
 
 defmodule Serviceradar.Edge.V1.TargetRangeV1 do
