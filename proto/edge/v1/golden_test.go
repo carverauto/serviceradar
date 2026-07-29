@@ -1401,6 +1401,53 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 		t.Fatal("non-prefix vector is vacuous: it proves without the offset")
 	}
 
+	// SHARED TARGET-COUNT OVERFLOW vector. Two INDIVIDUALLY VALID /65 ranges, each
+	// spanning exactly 2^63 addresses, sum to 2^64 -- which wraps to 0 in a uint64
+	// accumulator. Go catches the carry via bits.Add64; Elixir's arbitrary-precision
+	// integers simply grow, so it needs an explicit ceiling. Without a SHARED fixture,
+	// removing Go's carry rejection left its suite green.
+	mkHugeRange := func(tag byte, cidr string) *edgev1.TargetRangeV1 {
+		r := &edgev1.TargetRangeV1{
+			RangeId: uuidv7(tag), Cidr: cidr, TargetCount: 1 << 63,
+			CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+			MtrAdmissionBudget: 0, MtrOrdinalCount: proto.Uint64(0),
+		}
+		r.RangeSha256 = edgerecord.RangeDigest(r)
+		return r
+	}
+	overflowPage := &edgev1.ScheduledPlanPageV1{
+		ExecutionPlanId: splitPlanID, PageIndex: 0, PageCount: 1, CheckSetSha256: splitCheck,
+		DigestVersion: edgerecord.PlanDigestVersion,
+		Ranges: []*edgev1.TargetRangeV1{
+			mkHugeRange(0x62, "2001:db8::/65"), mkHugeRange(0x63, "2001:db9::/65"),
+		},
+	}
+	overflowPage.PageSha256 = edgerecord.PlanPageDigest(overflowPage)
+	overflowPages := []*edgev1.ScheduledPlanPageV1{overflowPage}
+	overflowCommitment, err := edgerecord.PlanMtrOrdinalRangeCommitment(overflowPages)
+	if err != nil {
+		t.Fatalf("overflow plan commitment: %v", err)
+	}
+	overflowHeader := &edgev1.ScheduledPlanHeaderV1{
+		ExecutionPlanId: splitPlanID, PageCount: 1, TotalTargetCount: 0,
+		PlanRootSha256: edgerecord.PlanRoot(overflowPages), DigestVersion: edgerecord.PlanDigestVersion,
+		CheckSetSha256: splitCheck, AvailabilityPolicyId: []byte("policy-1"),
+		NetworkScopeId: uuidv7(0x11), MtrOrdinalRangeCommitment: overflowCommitment,
+	}
+	overflowHeader.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(overflowHeader)
+	golden(t, "plan_header_total_overflow.bin", overflowHeader)
+	golden(t, "plan_page_total_overflow.bin", overflowPage)
+
+	// Each range on its own is legal; only their SUM overflows.
+	for _, r := range overflowPage.GetRanges() {
+		if r.GetTargetCount() != 1<<63 {
+			t.Fatalf("overflow fixture drift: range count %d", r.GetTargetCount())
+		}
+	}
+	if err := edgerecord.ValidatePlanPages(overflowHeader, overflowPages); !errors.Is(err, edgerecord.ErrPlanTotals) {
+		t.Fatalf("target-count overflow = %v, want ErrPlanTotals", err)
+	}
+
 	// SHARED BLOAT VECTORS on the RAW plan boundary. A page padded with DUPLICATE known
 	// fields collapses on a re-marshal, so measuring the round trip is not the physical
 	// ceiling: Go's struct path accepted 131,074 received bytes that Elixir refused.
@@ -1411,13 +1458,26 @@ func TestGoldenLifecycleAndRecovery(t *testing.T) {
 	goldenBytes(t, "plan_page_bytes_at_limit.bin", atLimit)
 	goldenBytes(t, "plan_page_bytes_over_limit.bin", overLimit)
 
-	// Both decode to the SAME page, which is what makes the pair non-vacuous: only the
-	// received SIZE differs.
-	for _, raw := range [][]byte{atLimit, overLimit} {
-		var probe edgev1.ScheduledPlanPageV1
-		if err := proto.Unmarshal(raw, &probe); err != nil {
-			t.Fatalf("bloat vector must still decode: %v", err)
-		}
+	// Both decode to the SAME page -- asserted by FULL message equality, not merely
+	// "both unmarshal" -- and both collapse well under the ceiling on a re-marshal.
+	// That is what makes the pair non-vacuous: only the RECEIVED size differs.
+	var decodedAt, decodedOver edgev1.ScheduledPlanPageV1
+	if err := proto.Unmarshal(atLimit, &decodedAt); err != nil {
+		t.Fatalf("at-limit vector must decode: %v", err)
+	}
+	if err := proto.Unmarshal(overLimit, &decodedOver); err != nil {
+		t.Fatalf("over-limit vector must decode: %v", err)
+	}
+	if !proto.Equal(&decodedAt, &decodedOver) {
+		t.Fatal("bloat vectors must decode to the SAME page; only received size may differ")
+	}
+	if !proto.Equal(&decodedAt, basePage) {
+		t.Fatal("bloat vectors must decode to the base page")
+	}
+	if n := len(mustMarshal(&decodedAt)); n >= edgerecord.MaxPlanPageBytes {
+		t.Fatalf("re-marshal is %d bytes, expected far below the %d ceiling -- the pair "+
+			"only demonstrates the received-bytes rule if the round trip collapses",
+			n, edgerecord.MaxPlanPageBytes)
 	}
 	if err := edgerecord.ValidatePlanPagesFromRaw(splitHeader, [][]byte{atLimit}); err != nil {
 		t.Fatalf("a page at exactly MaxPlanPageBytes must be accepted: %v", err)

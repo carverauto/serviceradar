@@ -1300,9 +1300,24 @@ must hold and forward, which is the received size.
 This applies to every paged contract that declares a ceiling, including the
 recovery manifest page and the scheduler plan page.
 
+A validator that accepts DECODED messages cannot enforce this: the received bytes
+are already gone by the time it runs. Every such contract SHALL therefore expose a
+RAW-BYTES entry point that bounds the received size before decoding, and that entry
+point SHALL be the authoritative one. A size check retained on a decoded-struct API
+is a DELIBERATELY COARSE guard for callers that legitimately hold structs, and SHALL
+NOT be described as enforcing the physical ceiling. For the scheduler plan the
+authoritative boundary is `ValidatePlanPagesFromRaw` in Go and
+`WireDecode.decode_plan_page/1` in Elixir; `ValidatePlanPages` is the coarse
+decoded-struct guard.
+
 #### Scenario: Bloated page is refused
 - **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
 - **THEN** the page SHALL be rejected
+
+#### Scenario: The authoritative boundary takes raw bytes
+- **WHEN** a runtime enforces a paged contract's physical ceiling
+- **THEN** it SHALL do so on the received bytes, before decoding
+- **AND** a decoded-struct size check SHALL NOT be presented as that enforcement
 
 ### Requirement: An attributed span carries one frozen assignment identity
 An `ATTRIBUTED_ACTIVE` or `ATTRIBUTED_PASSIVE` span SHALL carry exactly ONE

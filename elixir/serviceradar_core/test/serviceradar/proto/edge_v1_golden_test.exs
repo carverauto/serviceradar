@@ -1410,8 +1410,12 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # Both decode to the SAME page: only the received SIZE differs, so the pair cannot
     # pass for some other reason.
-    assert ScheduledPlanPageV1.decode(at_limit).page_sha256 ==
-             ScheduledPlanPageV1.decode(over_limit).page_sha256
+    decoded_at = ScheduledPlanPageV1.decode(at_limit)
+    decoded_over = ScheduledPlanPageV1.decode(over_limit)
+    assert decoded_at == decoded_over
+    assert decoded_at == ScheduledPlanPageV1.decode(load("plan_page_split.bin"))
+    # And the re-marshal collapses far below the ceiling, which is the whole point.
+    assert byte_size(ScheduledPlanPageV1.encode(decoded_at)) < 128 * 1024
 
     assert {:ok, _} = WireDecode.decode_plan_page(at_limit)
     assert {:error, :too_large} = WireDecode.decode_plan_page(over_limit)
@@ -1435,9 +1439,15 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
       bad_p = %{bad_p | page_sha256: HashGrammar.plan_page_digest(bad_p)}
 
+      # The header total is RECOMPUTED from the mutated ranges. Leaving it at 512 while
+      # the ranges summed to 260 or 2^63 + 256 meant a totals mismatch could reject the
+      # plan even with the canonicality guard removed -- a false positive control.
+      recomputed_total = Enum.sum(Enum.map(bad_p.ranges, & &1.target_count))
+
       bad_h = %{
         header
-        | plan_root_sha256: HashGrammar.plan_root([bad_p]),
+        | total_target_count: recomputed_total,
+          plan_root_sha256: HashGrammar.plan_root([bad_p]),
           mtr_ordinal_range_commitment:
             elem(HashGrammar.plan_mtr_ordinal_range_commitment([bad_p]), 1)
       }
@@ -1458,30 +1468,22 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       assert {:error, :state} = AssignmentValidate.validate(%{assignment | state: bad_state})
     end
 
-    # OVERFLOW of the reconciled total. Two ranges whose INDIVIDUALLY VALID counts sum
-    # to 2^64: Go catches the carry via bits.Add64, and Elixir -- whose integers are
-    # arbitrary precision -- must detect it explicitly or the two disagree.
-    huge = Bitwise.bsl(1, 63)
-
-    mk_huge = fn id_tag, cidr ->
-      r = %{r0 | range_id: uuidv7(id_tag), cidr: cidr, first_address: "", last_address: "", target_count: huge}
-      %{r | range_sha256: HashGrammar.range_digest(r)}
-    end
-
-    over_ranges = [mk_huge.(0x60, "2001:db8::/65"), mk_huge.(0x61, "2001:db9::/65")]
-    over_page = %{page | ranges: over_ranges}
-    over_page = %{over_page | page_sha256: HashGrammar.plan_page_digest(over_page)}
-
-    over_header = %{
-      header
-      | total_target_count: 0,
-        plan_root_sha256: HashGrammar.plan_root([over_page]),
-        mtr_ordinal_range_commitment:
-          elem(HashGrammar.plan_mtr_ordinal_range_commitment([over_page]), 1)
-    }
-
-    over_header = %{over_header | execution_plan_sha256: HashGrammar.plan_header_digest(over_header)}
+    # OVERFLOW of the reconciled total, from a GO-AUTHORED shared pair. Two
+    # individually valid /65 ranges, each spanning 2^63, sum to 2^64 -- which wraps in a
+    # uint64 accumulator. Building this only in Elixir left Go's carry rejection
+    # unproven.
+    over_header = ScheduledPlanHeaderV1.decode(load("plan_header_total_overflow.bin"))
+    over_page = ScheduledPlanPageV1.decode(load("plan_page_total_overflow.bin"))
+    assert Enum.map(over_page.ranges, & &1.target_count) == [Bitwise.bsl(1, 63), Bitwise.bsl(1, 63)]
     assert {:error, :plan_totals} = PlanValidate.validate(over_header, [over_page])
+
+    # PROTOBUF DOMAINS on the plan header: a term outside uint64 must be a typed
+    # rejection, not a FunctionClauseError from the digest helper.
+    for bad_total <- [:bad, nil, -1, Bitwise.bsl(1, 64)] do
+      assert {:error, :header_identity} =
+               PlanValidate.validate(%{header | total_target_count: bad_total}, [page]),
+             "total_target_count #{inspect(bad_total)} must be a typed rejection"
+    end
 
     # MALFORMED page/range SHAPES are typed rejections, not raises.
     assert {:error, :page_bounds} = PlanValidate.validate(header, [%{page | ranges: :bad}])
@@ -1517,6 +1519,40 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                AssignmentValidate.validate(Map.put(assignment, field, <<0::128>>)),
              "#{field} must reject the all-zero uuid"
     end
+
+    # target_range_id lives on the SCOPE path, and superseded_by is CONDITIONAL, so
+    # neither is covered by the identity loop above.
+    assert {:error, :scope} =
+             AssignmentValidate.validate(%{assignment | target_range_id: <<0::128>>})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{
+               assignment
+               | state: :SWEEP_ASSIGNMENT_STATE_SUPERSEDED,
+                 superseded_by_assignment_id: <<0::128>>
+             })
+
+    # PROTOBUF DOMAINS on the assignment: 2^32 in a uint32 field, 2^64 in a uint64 one.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_shard: Bitwise.bsl(1, 32)})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | assignment_epoch: Bitwise.bsl(1, 64)})
+
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{
+               assignment
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | plan_ordinal_offset: Bitwise.bsl(1, 64)
+                 }
+             })
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{
+               assignment
+               | authored_at_unix_nano: Bitwise.bsl(1, 63)
+             })
 
     # TOTAL and FAIL-CLOSED for malformed shapes, not merely for absent ones.
     assert {:error, :expectation} = AssignmentValidate.validate(%{assignment | mtr_expectation: 7})
