@@ -84,6 +84,14 @@ here.
   scope, and RANGE MEMBERSHIP). The count is CARRIED, never derived from the producer's
   counters, from the non-invertible commitment, or from `mtr_admission_budget` (a
   ceiling).
+  IMPLEMENTATION NOTE (non-normative): the received-bytes boundary for the scheduler
+  plan page is `edgerecord.ValidatePlanPagesFromRaw` in Go and
+  `ServiceRadar.Edge.WireDecode.decode_plan_page/1` in Elixir. These are NOT peers and
+  are not claimed to be: the Go entry bounds and validates a whole raw page CHAIN
+  against its header, while the Elixir entry bounds and decodes ONE page, with the
+  chain relation run afterwards by `PlanValidate`. `edgerecord.ValidatePlanPages`
+  measures a RE-MARSHAL and is a deliberately coarse guard for callers holding decoded
+  structs -- it is NOT the physical ceiling.
   STILL OPEN in 1.3 -- MORE THAN THE CORRELATION MATRIX. An earlier revision of this
   entry claimed the matrix was the only remaining half; that was FALSE:
   (1) the ASSIGNMENT/MAPPING ABI is incomplete. The frozen mapping key is
@@ -303,8 +311,11 @@ here.
   SHARED fixture `lane_open_negative_then_valid.bin` referenced from both
   runtimes. The residual clauses (timestamp units, optional zero-valued
   measurements, ASN range, unsupported-version handling) were NOT verified
-  clause-by-clause and remain open. The exact-received-bytes rule also applies
-  here: `ScheduledPlanPageV1` still measures its ceiling on a re-marshal.
+  clause-by-clause and remain open. The exact-received-bytes rule also applies here,
+  and for `ScheduledPlanPageV1` it is now SATISFIED: `ValidatePlanPagesFromRaw` (Go)
+  and `WireDecode.decode_plan_page/1` (Elixir) bound the RECEIVED bytes before
+  decoding, with shared at-limit / one-over vectors. `ValidatePlanPages` still
+  measures a re-marshal and is retained only as a coarse decoded-struct guard.
 
 - [ ] 1.6 Generate Go and Elixir modules, update Bazel targets, and add
   cross-language golden fixtures proving equivalence across Go and Elixir for the

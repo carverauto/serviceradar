@@ -1532,6 +1532,29 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                  superseded_by_assignment_id: <<0::128>>
              })
 
+    # NESTED RANGE integers are preflighted BEFORE the page digest hashes them: these
+    # raised FunctionClauseError inside HashGrammar.u64/1, and an absent
+    # mtr_ordinal_count was hashed as 0 before its later rejection.
+    for field <- [:target_count, :mtr_admission_budget, :mtr_ordinal_count] do
+      bad_r = Map.put(r0, field, nil)
+      bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
+
+      assert {:error, :plan_range} = PlanValidate.validate(header, [bad_p]),
+             "nil #{field} must be a typed rejection, not a raise"
+    end
+
+    # UPPER BOUNDS on every uint64/int64 call site, so replacing any one of these with
+    # a sign-only predicate is observable.
+    for {field, bad} <- [
+          {:record_sequence, Bitwise.bsl(1, 64)},
+          {:fence_token, Bitwise.bsl(1, 64)},
+          {:terminal_batch_sequence, Bitwise.bsl(1, 64)},
+          {:lease_expires_at_unix_nano, Bitwise.bsl(1, 63)}
+        ] do
+      assert match?({:error, _}, AssignmentValidate.validate(Map.put(assignment, field, bad))),
+             "#{field} must reject a value outside its protobuf domain"
+    end
+
     # PROTOBUF DOMAINS on the assignment: 2^32 in a uint32 field, 2^64 in a uint64 one.
     assert {:error, :identity} =
              AssignmentValidate.validate(%{assignment | execution_shard: Bitwise.bsl(1, 32)})
