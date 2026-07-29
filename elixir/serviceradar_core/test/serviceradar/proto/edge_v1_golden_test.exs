@@ -1357,22 +1357,59 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     raw = load("assignment_split_second.bin")
     assignment = SweepAssignmentRecordV1.decode(raw)
 
-    # The plan must be VALIDATED before it can confer authority. The carrier is opaque,
-    # so passing an unvalidated plan is not expressible at the call site.
-    assert {:ok, plan} = PlanValidate.validate(header, [page])
+    # The relation VALIDATES THE PLAN ITSELF, so no caller can substitute one.
+    assert {:ok, _windows} = PlanValidate.validate(header, [page])
     assert :ok = AssignmentValidate.validate(assignment)
-    assert :ok = AssignmentValidate.validate_against_plan(assignment, plan)
+    assert :ok = AssignmentValidate.validate_against_plan(assignment, header, [page])
 
-    # COMPOSED boundary from raw bytes: structural wire check, decode, enum admission,
-    # then these relations. A caller holding only a decoded struct has already skipped
-    # the wire layer.
+    # COMPOSED boundary from raw bytes: WireDecode's structural gate and its
+    # :poison/:not_ready/:systemic classification, then enum admission, then relations.
     assert {:ok, ^assignment} = AssignmentValidate.validate_bytes(raw)
-    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes_against_plan(raw, plan)
+    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes_against_plan(raw, header, [page])
 
-    # A TAMPERED PLAN must not confer authority. Each of these returned :ok before the
-    # plan was validated at all.
+    # A TAMPERED PLAN cannot confer authority THROUGH THE RELATION, which is where it
+    # matters: previously a forged carrier around a rejected plan returned :ok.
     assert {:error, :page_digest} =
-             PlanValidate.validate(header, [%{page | page_sha256: :binary.copy(<<3>>, 32)}])
+             AssignmentValidate.validate_against_plan(
+               assignment,
+               header,
+               [%{page | page_sha256: :binary.copy(<<3>>, 32)}]
+             )
+
+    # Go-parity gaps that PlanValidate previously accepted outright. Each one RESEALS
+    # the outer digests, so only the check being tested can reject it.
+    assert {:error, :page_bounds} = PlanValidate.validate(header, [])
+
+    wrong_total = %{header | total_target_count: 999_999}
+    wrong_total = %{wrong_total | execution_plan_sha256: HashGrammar.plan_header_digest(wrong_total)}
+    assert {:error, :plan_totals} = PlanValidate.validate(wrong_total, [page])
+
+    # A changed CIDR under a STALE range_sha256, with page/root/header all resealed:
+    # only the range's own content digest can catch it.
+    [r0 | rest] = page.ranges
+    stale_range = %{r0 | cidr: "10.99.0.0/24"}
+    stale_page = %{page | ranges: [stale_range | rest]}
+    stale_page = %{stale_page | page_sha256: HashGrammar.plan_page_digest(stale_page)}
+
+    stale_header = %{
+      header
+      | plan_root_sha256: HashGrammar.plan_root([stale_page]),
+        mtr_ordinal_range_commitment:
+          elem(HashGrammar.plan_mtr_ordinal_range_commitment([stale_page]), 1)
+    }
+
+    stale_header = %{
+      stale_header
+      | execution_plan_sha256: HashGrammar.plan_header_digest(stale_header)
+    }
+
+    assert {:error, :plan_range} = PlanValidate.validate(stale_header, [stale_page])
+
+    assert {:error, :unknown_fields} =
+             PlanValidate.validate(%{header | __unknown_fields__: [{99, 2, <<1>>}]}, [page])
+
+    assert {:error, :unknown_fields} =
+             PlanValidate.validate(header, [%{page | __unknown_fields__: [{99, 2, <<1>>}]}])
 
     assert {:error, :page_chain} = PlanValidate.validate(header, [%{page | page_index: 5}])
 
@@ -1381,14 +1418,14 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :header_digest} =
              PlanValidate.validate(%{header | execution_plan_sha256: tampered_hash}, [page])
 
-    assert {:error, :plan_root} =
-             PlanValidate.validate(%{header | plan_root_sha256: tampered_hash}, [page])
+    # RESEALED, so the header self-hash cannot mask it: plan_root is checked on its own.
+    bad_root = %{header | plan_root_sha256: tampered_hash}
+    bad_root = %{bad_root | execution_plan_sha256: HashGrammar.plan_header_digest(bad_root)}
+    assert {:error, :plan_root} = PlanValidate.validate(bad_root, [page])
 
-    assert {:error, :mtr_commitment} =
-             PlanValidate.validate(
-               %{header | mtr_ordinal_range_commitment: :binary.copy(<<5>>, 32)},
-               [page]
-             )
+    bad_commit = %{header | mtr_ordinal_range_commitment: :binary.copy(<<5>>, 32)}
+    bad_commit = %{bad_commit | execution_plan_sha256: HashGrammar.plan_header_digest(bad_commit)}
+    assert {:error, :mtr_commitment} = PlanValidate.validate(bad_commit, [page])
 
     # THE REPRO from review: lease/fence and expectation relations Go rejects, which
     # every Elixir entry point used to accept because only enum admission existed.
@@ -1408,7 +1445,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # The API is TOTAL: a contract promising {:error, reason} must not raise.
     assert {:error, :identity} = AssignmentValidate.validate(%{})
     assert {:error, :identity} = AssignmentValidate.validate(nil)
-    assert {:error, :plan_relation} = AssignmentValidate.validate_against_plan(assignment, :nope)
+    assert {:error, :header_identity} =
+             AssignmentValidate.validate_against_plan(assignment, :nope, :nope)
 
     # Retained unknown fields are rejected, on the record AND its nested expectation.
     assert {:error, :unknown_fields} =
@@ -1438,7 +1476,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
              AssignmentValidate.validate(%{assignment | producer_assignment_id: <<0::128>>})
 
     assert {:error, :identity} =
-             AssignmentValidate.validate(%{assignment | execution_plan_id: <<1::128>>})
+             AssignmentValidate.validate(%{assignment | execution_plan_id: uuidv4_like()})
 
     assert {:error, :expectation} =
              AssignmentValidate.validate(%{
@@ -1455,7 +1493,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})
 
     assert {:error, :state} =
-             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: <<1::128>>})
+             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: uuidv7(0x5B)})
 
     assert {:error, :scope} =
              AssignmentValidate.validate(%{assignment | target_range_sha256: <<7>>})
@@ -1485,7 +1523,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                      | ordinal_range_commitment: :binary.copy(<<2>>, 32)
                    }
                },
-               plan
+               header,
+               [page]
              )
 
     assert {:error, :plan_relation} =
@@ -1494,13 +1533,17 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                  assignment
                  | mtr_expectation: %{assignment.mtr_expectation | plan_ordinal_offset: 0}
                },
-               plan
+               header,
+               [page]
              )
 
     assert {:error, :plan_relation} =
              AssignmentValidate.validate_against_plan(
-               %{assignment | target_range_id: <<9::128>>},
-               plan
+               # A CANONICAL uuid the plan never committed -- not malformed bytes, which
+               # the stricter identity check would reject before the relation ran.
+               %{assignment | target_range_id: uuidv7(0x5A)},
+               header,
+               [page]
              )
   end
 
@@ -1685,4 +1728,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert [hop] = trace.hops
     assert hop.jitter_worst_micro == 180
   end
+
+  # A CANONICAL uuid whose version is 4, not 7: accepted by a length/nonzero check,
+  # rejected by Go's UUIDv7 requirement on the plan id.
+  defp uuidv4_like, do: <<1, 2, 3, 4, 5, 6, 0x41, 8, 0x80, 10, 11, 12, 13, 14, 15, 16>>
 end

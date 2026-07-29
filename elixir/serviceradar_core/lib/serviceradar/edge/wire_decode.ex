@@ -196,6 +196,19 @@ defmodule ServiceRadar.Edge.WireDecode do
   def decode_record(bytes), do: run(EdgeRecordV1, @max_record_bytes, bytes)
 
   @doc """
+  Decode a scheduler-authored `SweepAssignmentRecordV1`.
+
+  It goes through the SAME classifier as every other edge decode rather than a local
+  `rescue`: the deliberate `:not_ready` / `:systemic` / `:poison` distinction, the
+  throw/exit handling, and the nesting bound all live here. A caller that decodes
+  directly and maps every exception to `:poison` turns a codegen or
+  not-yet-deployed-module fault into permanent quarantine.
+  """
+  @spec decode_assignment_record(binary()) :: outcome()
+  def decode_assignment_record(bytes),
+    do: run(Serviceradar.Edge.V1.SweepAssignmentRecordV1, @max_record_bytes, bytes)
+
+  @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
 
   This EXTENDS the finite stage API rather than superseding it, and deliberately so:
