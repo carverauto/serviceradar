@@ -74,8 +74,6 @@ rust_test_suite(
         # mid-run (`oom=true exit=137`, surfacing to the client as
         # `drop_all failed: RPC Error: Unknown: transport error`).
         #
-        # Do not size this from an idle container: idle dgraph sits near 50 MiB, which is
-        # 16x below what it needs once mutations and badger compaction start.
         "test.EstimatedMemory": "4Gi",
         # Run this test inside a Firecracker microVM.
         "test.workload-isolation-type": "firecracker",

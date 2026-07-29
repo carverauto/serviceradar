@@ -1650,9 +1650,9 @@ dependencies = [
 
 [[package]]
 name = "docker_utils"
-version = "0.3.1"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11a26c4fe803b36b9e5afaba9fec518da872b3a64b4665e09a883840db21fa2b"
+checksum = "071c01eef4f185d5be8c55b7837c27cad66f83df67ac1ce4cbb5c6fb1f6a4165"
 dependencies = [
  "bon",
  "tokio",
@@ -5659,13 +5659,13 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.7.1"
+version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6328af13490e73a9b4694030fafd93f8c8c6a9dede33e821c3fc63eddf8042ba"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -5779,9 +5779,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.3+spec-1.1.0"
+version = "1.1.4+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53c96ecdfa941c8fc4fcaed14f99ada8ebed502eef533015095a07e3301d4c3c"
+checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -6243,9 +6243,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wait_utils"
-version = "0.1.6"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de6ec729e5be48624a79cb13cf6df1e310a1fc0da5b6b5a926c8aee363d720be"
+checksum = "43ab2cdaf40b3a2e23e730c9944e49e95c3641b00dd7505b7be5b50d0d6a8624"
 dependencies = [
  "tokio",
  "tonic",
