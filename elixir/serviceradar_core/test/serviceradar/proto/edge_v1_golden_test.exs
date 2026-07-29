@@ -1376,6 +1376,79 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
                [%{page | page_sha256: :binary.copy(<<3>>, 32)}]
              )
 
+    [r0 | _] = page.ranges
+
+    # RAW plan boundary. protobuf-elixir ERASES an unknown GROUP, so the decoded page
+    # carries no unknown fields and the struct-based relation cannot see it; Go retains
+    # and rejects it. Only the raw walk does.
+    raw_page = load("plan_page_split.bin")
+    grouped_page = raw_page <> <<251, 1, 252, 1>>
+    erased = ScheduledPlanPageV1.decode(grouped_page)
+    assert erased.__unknown_fields__ == [], "fixture assumption: the group is erased on decode"
+
+    assert {:ok, _} =
+             AssignmentValidate.validate_bytes_against_plan_bytes(
+               raw,
+               load("plan_header_split.bin"),
+               [raw_page]
+             )
+
+    assert {:error, :poison} =
+             AssignmentValidate.validate_bytes_against_plan_bytes(
+               raw,
+               load("plan_header_split.bin"),
+               [grouped_page]
+             )
+
+    # CIDR parity: canonical spelling and host-bit masking across every width. Both of
+    # these were accepted before -- a resealed 2001:0DB8::/126 and a host-bit-set
+    # 2001:db8::1/65 -- while Go rejected them.
+    for bad_cidr <- ["2001:0DB8::/126", "2001:db8::1/65", "10.0.0.1/24"] do
+      bad_r = %{r0 | cidr: bad_cidr, first_address: "", last_address: ""}
+      bad_r = %{bad_r | range_sha256: HashGrammar.range_digest(bad_r)}
+      bad_p = %{page | ranges: [bad_r | tl(page.ranges)]}
+      bad_p = %{bad_p | page_sha256: HashGrammar.plan_page_digest(bad_p)}
+
+      bad_h = %{
+        header
+        | plan_root_sha256: HashGrammar.plan_root([bad_p]),
+          mtr_ordinal_range_commitment:
+            elem(HashGrammar.plan_mtr_ordinal_range_commitment([bad_p]), 1)
+      }
+
+      bad_h = %{bad_h | execution_plan_sha256: HashGrammar.plan_header_digest(bad_h)}
+
+      assert {:error, :plan_range} = PlanValidate.validate(bad_h, [bad_p]),
+             "non-canonical or host-bit-set CIDR #{bad_cidr} must be rejected"
+    end
+
+    # LAYERING, asserted rather than assumed: through the composed boundary an
+    # unsupported state is caught by ENUM ADMISSION first, so the reason is
+    # {:unsupported_enum, [:state]} -- NOT the assignment-state reason. Both refuse the
+    # record; only the layer that speaks first differs, and the claim should say so.
+    for bad_state <- [:SWEEP_ASSIGNMENT_STATE_UNSPECIFIED, 99] do
+      bytes = SweepAssignmentRecordV1.encode(%{assignment | state: bad_state})
+      assert {:error, {:unsupported_enum, [:state]}} = AssignmentValidate.validate_bytes(bytes)
+      assert {:error, :state} = AssignmentValidate.validate(%{assignment | state: bad_state})
+    end
+
+    # TOTAL and FAIL-CLOSED for malformed shapes, not merely for absent ones.
+    assert {:error, :expectation} = AssignmentValidate.validate(%{assignment | mtr_expectation: 7})
+
+    assert {:error, :state} =
+             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: 7})
+
+    # Generic UUID rejection, pinned here rather than inferred from another module's
+    # tests: version 0, version 9 and a non-RFC variant are all refused.
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 0::4, 0::12, 2::2, 0::62>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 9::4, 1::12, 2::2, 1::62>>})
+
+    assert {:error, :identity} =
+             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 4::4, 1::12, 0::2, 1::62>>})
+
     # Go-parity gaps that PlanValidate previously accepted outright. Each one RESEALS
     # the outer digests, so only the check being tested can reject it.
     assert {:error, :page_bounds} = PlanValidate.validate(header, [])
@@ -1386,8 +1459,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # A changed CIDR under a STALE range_sha256, with page/root/header all resealed:
     # only the range's own content digest can catch it.
-    [r0 | rest] = page.ranges
     stale_range = %{r0 | cidr: "10.99.0.0/24"}
+    rest = tl(page.ranges)
     stale_page = %{page | ranges: [stale_range | rest]}
     stale_page = %{stale_page | page_sha256: HashGrammar.plan_page_digest(stale_page)}
 
