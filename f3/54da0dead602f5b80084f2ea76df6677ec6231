@@ -1,0 +1,35 @@
+.forgejo/workflows/tests-rust.yml
+  s_8f6823274fc459::t_a05434d7c8fe95 307-311,315,320,325
+.forgejo/workflows/main.yml
+  s_8f6823274fc459::t_8b1c76350b42cd 250-255
+.forgejo/workflows/tests-integration-rust.yml
+  s_8f6823274fc459::t_f3e833065acedc 95-116
+  s_8f6823274fc459::t_f8f4232e98715f 2-94,117,121-128,130-151
+  s_8f6823274fc459::t_5fc73f7602e7b4 118-120,129
+  s_8f6823274fc459::t_4bfc0c488c3f77 1
+.bazelrc
+  s_8f6823274fc459::t_d0dbfb2ab9b8bd 134-143
+  s_8f6823274fc459::t_7208b1f4cefbef 186-190
+build/rbe/BUILD
+  s_8f6823274fc459::t_a6eb356534fb3a 16-29
+rust/dgraph-client/tests/BUILD.bazel
+  s_8f6823274fc459::t_ca0c1a39404ceb 94
+rust/dgraph-client/tests/dgraph_container_test.rs
+  s_8f6823274fc459::t_7f5347a8dce170 72,85,88-89,226-230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "f354da0dead602f5b80084f2ea76df6677ec6231",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
