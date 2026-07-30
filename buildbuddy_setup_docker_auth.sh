@@ -74,6 +74,12 @@ EOF_ERR
   exit 1
 fi
 
+# Registry NAMES only, never the credentials. Without this the only way to tell whether a
+# registry ended up authenticated was to infer it from a downstream 403, which is exactly how
+# the ghcr.io gap stayed invisible: the step ran, reported success, and wrote a config that
+# simply had no ghcr entry.
+printf 'Configured docker auth for: %s\n' "${!auths[*]}" >&2
+
 {
   printf '{ "auths": {'
   first=1
