@@ -1,5 +1,6 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//build:mix_precommit.bzl", "mix_precommit")
 load("//build:mix_release.bzl", "mix_release")
-load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -28,59 +29,80 @@ filegroup(
     ] + glob(["config/**"]),
 )
 
-genrule(
-    name = "precommit_runner",
-    srcs = ["scripts/bazel_precommit.sh"],
-    outs = ["precommit_runner.sh"],
-    cmd = "/bin/cp $(location scripts/bazel_precommit.sh) $@ && /bin/chmod +x $@",
-    local = True,
-)
+# scripts/bazel_precommit.sh and scripts/bazel_precommit_test.sh are kept on disk for
+# reference but are no longer wired into any target. They were the host-toolchain
+# implementation of :precommit, replaced by the mix_precommit action below, which takes
+# Elixir and Rust from Bazel toolchains instead of looking for mix and cargo on $PATH.
+#
+# Note neither script is directly runnable as-is: both derive their root from TEST_SRCDIR /
+# TEST_WORKSPACE, and bazel_precommit_test.sh execs precommit_runner.sh, which was a genrule
+# output that no longer exists.
 
-genrule(
-    name = "precommit_test_runner",
-    srcs = ["scripts/bazel_precommit_test.sh"],
-    outs = ["precommit_test_runner.sh"],
-    cmd = "/bin/cp $(location scripts/bazel_precommit_test.sh) $@ && /bin/chmod +x $@",
-    local = True,
-)
-
-sh_test(
-    name = "precommit",
-    srcs = [":precommit_test_runner"],
-    data = [
-        ":precommit_runner",
-        "//build:mix_release_patches.py",
-        ":srcs",
-        "//:Cargo.toml",
-        "//:Cargo.lock",
-        "//:.tool-versions",
-        "//:elixir/.credo.base.exs",
-        "//:elixir/.credo.ex_dna.exs",
-        "//:elixir/.credo.jump_checks.exs",
-        "//:elixir/.credo.ex_slop.exs",
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
+# The precommit work, as a cacheable build action.
+#
+# This replaces an sh_test that was local/no-remote/no-sandbox because its script began by
+# looking for `mix` and `cargo` on $PATH. The RBE image has neither -- on purpose, since
+# Bazel provides those toolchains -- so the target could never leave the runner. mix_precommit
+# takes OTP/Elixir from @rules_elixir and cargo/rustc from @rules_rust instead, exactly as
+# mix_release already does for the production release.
+#
+# Being an action rather than a test is what makes it fast: an unchanged tree is a remote
+# cache hit instead of a full Elixir + NIF rebuild.
+mix_precommit(
+    name = "precommit_check",
+    srcs = [":srcs"],
+    out = "precommit.log",
+    src_dir = "elixir/web-ng",
+    patches = "//build:mix_release_patches.py",
+    # Path dependencies in mix.exs, plus the Rust crates behind the Rustler NIFs. These are
+    # staged into the action's work directory, not built by Bazel -- mix and cargo build them
+    # from source the same way they did before.
+    extra_dirs = [
+        "elixir/connection",
+        "elixir/datasvc",
+        "elixir/elixir_uuid",
+        "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
+        "elixir/vendor/opentelemetry_oban",
+        "proto",
+        "rust/anomaly-core",
+        "rust/anomaly-disposition",
+        "rust/kvutil",
+        "rust/srql",
+    ],
+    extra_dir_srcs = [
+        "//elixir/connection:srcs",
+        "//elixir/datasvc:srcs",
+        "//elixir/elixir_uuid:srcs",
+        "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
         "//proto:kv_proto_src",
         "//rust/anomaly-core:srcs",
         "//rust/anomaly-disposition:srcs",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
-        "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/datasvc:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
     ],
-    local = True,
-    tags = [
-        "no-remote",
-        "no-sandbox",
+    data = [
+        "//:.tool-versions",
+        "//:Cargo.lock",
+        "//:elixir/.credo.base.exs",
+        "//:elixir/.credo.ex_dna.exs",
+        "//:elixir/.credo.ex_slop.exs",
+        "//:elixir/.credo.jump_checks.exs",
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
+        "//addons/otel-collector:otel_collector_manifest",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
     ],
-    timeout = "eternal",
+)
+
+# Keeps `bazel test //elixir/web-ng:precommit` working. build_test succeeds iff the action
+# above builds, so the gate is unchanged while the work itself is now remote and cached.
+build_test(
+    name = "precommit",
+    targets = [":precommit_check"],
 )
 
 mix_release(
