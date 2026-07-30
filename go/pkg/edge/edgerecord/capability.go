@@ -139,7 +139,7 @@ func ValidateCapability(c *edgev1.EdgeSignedCapabilityV1, expectedPurpose edgev1
 		return ErrCapabilityMissing
 	}
 	// Retained unknown fields on the capability or its nested claims are outside the
-	// field-framed signature, so a later reader could reinterpret an authorized grant;
+	// field-framed signature, so a later reader could reinterpret a signed claim;
 	// reject them recursively before trusting any field.
 	if hasUnknownFields(c) {
 		return ErrUnknownFields

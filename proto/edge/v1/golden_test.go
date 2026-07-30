@@ -2285,6 +2285,116 @@ func padToExact(t *testing.T, raw, checkSet []byte, target int) []byte {
 	return out
 }
 
+// TestGoldenCompiledAssignmentSourceAbsent is the SECOND carrier/grant vector, and it exists
+// to break two ways the first one is degenerate.
+//
+// (1) The first vector's grant carries a SOURCE IDENTITY, so the legal ABSENT case -- and the
+// presence marker that distinguishes it -- is never exercised from committed bytes.
+// (2) In the first vector `digest_version`, `result_format` and `traffic_class` are ALL
+// numerically 1, so an implementation that framed them in the wrong slots produces the same
+// preimage. Here `traffic_class` is INTERACTIVE (2), which separates it from the other two.
+func TestGoldenCompiledAssignmentSourceAbsent(t *testing.T) {
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	hostSeed := make([]byte, ed25519.SeedSize)
+	for i := range hostSeed {
+		hostSeed[i] = byte(0x80 + i)
+	}
+	hostPriv := ed25519.NewKeyFromSeed(hostSeed)
+
+	planID, scopeID, agentID := uuidv7(0x41), uuidv7(0x43), uuidv7(0x44)
+	rangeID, prodAssignID, execID := uuidv7(0x42), uuidv7(0x45), uuidv7(0x46)
+	notBefore, expires := fixedNanos, fixedNanos+1
+
+	c := &edgev1.CompiledSweepAssignmentV1{
+		CompiledAssignmentId: uuidv7(0x47),
+		DigestVersion:        edgerecord.CompiledAssignmentDigestVersion,
+		ProducerAssignmentId: prodAssignID,
+		ExecutionId:          execID,
+		ExecutionPlanId:      planID,
+		ExecutionPlanSha256:  digest32(0x91),
+		TargetRangeId:        rangeID,
+		TargetRangeSha256:    digest32(0x92),
+		NetworkScopeId:       scopeID,
+		AuthenticatedAgentId: agentID,
+		ExecutionShard:       3,
+		AssignmentEpoch:      5,
+		ConfigGeneration:     7,
+		ResultFormat:         edgev1.SweepResultFormat_SWEEP_RESULT_FORMAT_EDGE_RECORDS_V1,
+		CheckSetSha256:       digest32(0x93),
+		// INTERACTIVE (2), deliberately NOT the same number as digest_version/result_format.
+		TrafficClass:      edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE,
+		NotBeforeUnixNano: notBefore,
+		ExpiresAtUnixNano: expires,
+	}
+	c.CompiledAssignmentBodySha256 = edgerecord.CompiledAssignmentBodyDigest(c)
+	c.CollectionCapability = &edgev1.EdgeSignedCapabilityV1{
+		CapabilityVersion: 1, IssuerId: []byte("sched"), IssuerKeyId: []byte("k1"),
+		Algorithm: "ed25519", NotBeforeUnixNano: notBefore, ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_Collection{
+			Collection: &edgev1.EdgeCollectionClaimsV1{
+				Purpose:                      edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_COLLECTION,
+				NetworkScopeId:               scopeID,
+				AuthenticatedAgentId:         agentID,
+				ExecutionPlanId:              planID,
+				TargetRangeId:                rangeID,
+				ExecutionShard:               3,
+				AssignmentEpoch:              5,
+				CompiledAssignmentBodySha256: c.GetCompiledAssignmentBodySha256(),
+				TrafficClass:                 c.GetTrafficClass(),
+				ProducerAssignmentId:         prodAssignID,
+				ExecutionId:                  execID,
+			},
+		},
+	}
+	edgerecord.SignCapability(c.GetCollectionCapability(), priv)
+	c.CompiledAssignmentSha256 = edgerecord.CompiledAssignmentArtifactDigest(c)
+
+	goldenBytes(t, "compiled_assignment_interactive_body_digest.bin", c.GetCompiledAssignmentBodySha256())
+	goldenBytes(t, "compiled_assignment_interactive_artifact_digest.bin", c.GetCompiledAssignmentSha256())
+	golden(t, "compiled_assignment_interactive.bin", c)
+
+	// The grant with NO source identity -- the legal absent case.
+	grant := &edgev1.EdgeSignedCapabilityV1{
+		CapabilityVersion: 1, IssuerId: []byte("host"), IssuerKeyId: []byte("host-exec-1"),
+		Algorithm: "ed25519", NotBeforeUnixNano: notBefore, ExpiresAtUnixNano: expires,
+		Claims: &edgev1.EdgeSignedCapabilityV1_AssignmentExecution{
+			AssignmentExecution: &edgev1.EdgeAssignmentExecutionClaimsV1{
+				Purpose:                     edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION,
+				NetworkScopeId:              scopeID,
+				AuthenticatedAgentId:        agentID,
+				ProducerAssignmentId:        prodAssignID,
+				ExecutionId:                 execID,
+				RunId:                       uuidv7(0x48),
+				RunShard:                    3,
+				AuthorityEpoch:              5,
+				ProductionScopeId:           uuidv7(0x49),
+				ScopeSha256:                 digest32(0x94),
+				ContractBundleSha256:        digest32(0x95),
+				ExecutionPlanSha256:         c.GetExecutionPlanSha256(),
+				TargetRangeSha256:           c.GetTargetRangeSha256(),
+				TrafficClass:                c.GetTrafficClass(),
+				CollectionNotBeforeUnixNano: notBefore,
+				CollectionExpiresUnixNano:   expires,
+				// SourceIdentity deliberately ABSENT.
+				CompiledAssignmentId:     c.GetCompiledAssignmentId(),
+				CompiledAssignmentSha256: c.GetCompiledAssignmentSha256(),
+			},
+		},
+	}
+	goldenBytes(t, "compiled_assignment_interactive_grant_signing_bytes.bin",
+		edgerecord.CapabilitySigningBytes(grant))
+	edgerecord.SignCapability(grant, hostPriv)
+	golden(t, "compiled_assignment_interactive_grant.bin", grant)
+
+	if grant.GetAssignmentExecution().GetSourceIdentity() != nil {
+		t.Fatal("this vector must carry NO source identity, or the absent marker stays unpinned")
+	}
+}
+
 // goldenAssignmentAuthority answers ONLY for the key it expects. It does not echo an
 // arbitrary request: a mirror would make the echo assertion self-fulfilling.
 type goldenAssignmentAuthority struct {

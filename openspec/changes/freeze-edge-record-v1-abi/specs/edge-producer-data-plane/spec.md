@@ -1510,6 +1510,18 @@ that owns this mapping; until then the tuple is the key.
 `producer_assignment_id` SHALL NOT be assumed globally unique -- which is why the
 trust namespace is a named member of the key rather than assumed context.
 
+`run_shard` and `authority_epoch` have exactly ONE wire representation on the
+scheduler-authored assignment record: `execution_shard` and `assignment_epoch`. A
+comparison against those key members SHALL cross that naming rather than expect
+duplicate producer-named copies on the record.
+
+The AUTHORITY-RESOLVED scheduler record is the positive authority -- PRESENTED bytes are
+not self-authenticating and carry no authority until they match it -- so restating the same
+two facts under producer names would create disagreement states with no adjudication
+rule -- a record could carry `execution_shard` = 3 and a producer copy = 4, and nothing
+would say which the mapping used. A payload variant that lacks these members lacks only
+SECONDARY CORROBORATION; the mapping still compares the FULL key.
+
 Stating the key as "exactly the span identity" would be AMBIGUOUS: the span
 identity as defined does NOT include the trust namespace, while the key must, so
 that phrasing permits two incompatible implementations. The pair is explicit for
@@ -1536,7 +1548,324 @@ them alongside the wire ABI is what made the predecessor change unreviewable.
 - **AND** a key built from the span identity ALONE SHALL be rejected: the span
   identity does not include the trust namespace
 
+#### Scenario: Shard and epoch are compared across their two names
+- **WHEN** a record's assignment identity is compared against the key's `run_shard`
+  and `authority_epoch`
+- **THEN** the comparison SHALL use `execution_shard` and `assignment_epoch`
+- **AND** a duplicate producer-named copy on the record SHALL NOT be required
+
 #### Scenario: The value shape is not frozen by this change
 - **WHEN** a reader asks what this ABI change froze about the mapping
 - **THEN** it SHALL be the KEY only
 - **AND** the tagged value's shape SHALL be owned downstream
+
+### Requirement: A compiled sweep assignment is an immutable carrier with two digests
+A compiled sweep assignment SHALL be ONE immutable carrier, `CompiledSweepAssignmentV1`,
+which the append-only assignment record REFERENCES rather than restates. It SHALL hold the
+facts a scheduler decides when it COMPILES an assignment: config generation, typed result
+format, check-set identity, traffic class, and validity window.
+
+Restating them on every state record would need a reconciliation rule per fact. The
+carrier gives each fact exactly one home.
+
+The carrier SHALL carry TWO digests under `CompiledAssignmentDigestVersion`, with
+SEPARATE frozen domain tags so neither can be presented where the other is required:
+
+- `compiled_assignment_body_sha256` -- the canonical digest over every BODY field,
+  excluding BOTH digests and the capability. This is what the capability SIGNS. A
+  signature cannot cover itself.
+- `compiled_assignment_sha256` -- the ARTIFACT CONTENT ADDRESS, over the body digest
+  PLUS the attached capability.
+
+A referencing record SHALL pin the ARTIFACT digest, not the body digest. A body digest
+is not a content address for an artifact that also carries an authority: two carriers
+with identical bodies and different capabilities -- one valid, one signed by a revoked
+key -- share a body digest, so a reference pinning only the body would not say WHICH
+authority it accepted.
+
+The carrier SHALL declare a physical received-byte ceiling of 64 KiB. It is reachable
+as a STANDALONE artifact, fetched by digest, so it does not inherit a containing
+message's bound.
+
+#### Scenario: The reference pins the artifact, not the body
+- **WHEN** an assignment record references a carrier
+- **THEN** it SHALL carry the carrier id AND the ARTIFACT digest
+- **AND** two carriers differing only in their attached capability SHALL NOT satisfy
+  the same reference
+
+#### Scenario: The signed digest excludes the signature over it
+- **WHEN** the body digest is computed
+- **THEN** it SHALL exclude both digest fields and the capability
+
+### Requirement: Scheduler attestation and host execution permission are separate
+Scheduler attestation and host execution permission SHALL be two different capability
+purposes, and neither SHALL be inferable from the other: they are two DIFFERENT decisions
+by two DIFFERENT principals.
+
+- `EDGE_CAPABILITY_PURPOSE_COLLECTION` is the SCHEDULER's ATTESTATION of what it
+  compiled. It ATTESTS the scope and agent an assignment was COMPILED FOR. It SHALL
+  NOT be read as permission for anyone to run that assignment.
+- `EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION` is a HOST authority's PERMISSION to
+  execute one compiled assignment. It SHALL be signed by an authority over the
+  executing host, NEVER by the scheduler key family that signs carriers.
+
+Collapsing them would let the scheduler grant itself host permission.
+
+The execution grant SHALL bind ONE EXACT CARRIER, by id AND artifact digest, and is
+therefore NOT reusable across carrier revisions. A grant that floated free would
+authorize a recompiled carrier's config generation, result format and check set --
+precisely the facts the carrier exists to pin. Recompiling requires a new grant.
+
+The execution grant's claim SHALL be interpretable IN FULL against the assignment
+record and its carrier. It SHALL NOT reuse the record-plane PRODUCTION or SOURCE
+claim contracts: their full semantics -- contract id and version, registry epoch,
+package digest, cost model, projected row and write bounds, origin and instance
+identity -- can only be interpreted against an `EdgeRecordV1`, which an assignment
+record is not. A grant reusing them could interpret only a SUBSET, leaving every
+unchecked member free.
+
+The grant's inner collection window SHALL be CONTAINED IN the envelope window that
+carries it. A grant cannot be wider than the capability carrying it, and an inner
+window reaching outside would authorize instants the envelope never covered. Both
+bounds SHALL be positive; zero is the proto default and SHALL NOT pose as an
+open-ended grant.
+
+The grant SHALL declare a physical received-byte ceiling of 16 KiB; it travels
+standalone.
+
+#### Scenario: A scheduler key cannot mint execution permission
+- **WHEN** an execution grant is presented that was issued by the scheduler key family
+- **THEN** it SHALL be refused as unauthorized, a permanent rejection
+
+#### Scenario: A grant does not carry over to a recompiled carrier
+- **WHEN** a carrier is recompiled and its artifact digest changes
+- **THEN** a grant naming the previous artifact digest SHALL be refused
+
+#### Scenario: The inner window cannot exceed the envelope
+- **WHEN** a grant's collection window starts before, or ends after, its envelope
+- **THEN** the grant SHALL be refused, not silently intersected
+
+### Requirement: Permitting collection now is one composed decision
+Permitting an agent to collect for an assignment AT AN INSTANT SHALL require ALL of the
+following to hold together, and a runtime SHALL expose it as ONE decision. It SHALL NOT
+expose a constituent check in a form a caller could mistake for the whole.
+
+1. The record/carrier relation, and the carrier's own validity, from the carrier's
+   RECEIVED BYTES.
+2. The scheduler's attestation over the carrier, verified against a resolved issuer
+   key, with status EXACTLY valid. A compromise-revoked key verifies -- the signature
+   WAS valid when made -- but SHALL NOT permit new work.
+3. The host execution grant, validated in full and FRESH at the instant, against BOTH
+   its envelope window and its inner collection window.
+4. The CALLER's identity, obtained from the authority that performed the transport
+   authentication, which SHALL affirm that the authenticated peer is EXACTLY the
+   record's (`network_scope_id`, `authenticated_agent_id`) pair. An answer that is
+   merely "some peer is authenticated" SHALL NOT satisfy this. Every identity on the
+   record or in a capability is one the scheduler NAMED; none is evidence about who
+   presented the bytes.
+5. The AUTHORITATIVE record's state SHALL be exactly OPEN. Every other state --
+   COMPLETED, ABORTED, LOST, EXPIRED, SUPERSEDED -- describes work that must not
+   continue, and the lease and window fields say nothing about that.
+6. The AUTHORITATIVE record and its COMMITTED PLAN, resolved by a key DERIVED from
+   the record, not supplied by the caller.
+7. The COMMITTED PLAN SHALL validate from its RAW bytes AND the authoritative record
+   SHALL satisfy the assignment/plan relation against it. Without this the record, the
+   carrier and the grant can all agree on a range that no committed plan contains.
+8. The carrier, capability and lease windows containing the instant.
+
+Each of these has been observed to be insufficient alone. In particular a check of
+structure and time only -- with no signature verification, no state, no authoritative
+position -- admits a forged signature behind a resealed digest, a compromise-revoked
+key, a terminal assignment, and a superseded record that is still nominally open.
+
+The authoritative-record lookup key SHALL be the structured tuple
+(`network_scope_id`, `authenticated_agent_id`, `producer_assignment_id`), DERIVED
+from the record inside the decision. An opaque caller-chosen namespace is not
+checkable, so a caller could name any namespace whose authority answered
+conveniently.
+
+The resolved authority SHALL carry the COMPLETE authoritative record and the
+committed plan, and the presented record SHALL equal the authoritative one IN FULL.
+A projection of selected fields leaves every field it omits unconstrained --
+including fields added later -- so a record differing only in an unlisted field
+would pass.
+
+The resolver SHALL ECHO the requested key, and the echo SHALL be checked BEFORE the
+resolution's status is interpreted. A response carrying a different key is no
+evidence about the assignment that was asked for; reading its status first would let
+an answer to another question become a permanent "this assignment does not exist".
+A cross-key response is unauthoritative and therefore RETRYABLE.
+
+An unresolvable lookup (retryable) and a genuinely unknown assignment (permanent)
+SHALL remain distinct outcomes.
+
+Values a decision depends on SHALL NOT be supplied by its caller where they can be
+derived or resolved instead, and every callback SHALL receive COPIES: a protobuf
+bytes field aliases its backing storage, so a callback handed a slice from the
+message under evaluation can rewrite fields whose signatures were already checked.
+
+#### Scenario: A revoked key does not permit new work
+- **WHEN** the attestation or the grant resolves to a compromise-revoked key
+- **THEN** collection SHALL NOT be permitted
+- **AND** the signature SHALL still be verifiable for audit
+
+#### Scenario: A superseded record does not permit collection
+- **WHEN** the presented record differs from the authoritative record in ANY field
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A terminal assignment does not permit collection
+- **WHEN** the authoritative record's state is anything other than OPEN
+- **THEN** collection SHALL NOT be permitted
+- **AND** this SHALL hold even when the presented record is IDENTICAL to the
+  authoritative one, since agreement about a terminal state is still terminal
+
+#### Scenario: The transport must affirm the exact identity
+- **WHEN** the authenticated peer is not exactly the record's network scope and agent
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A range absent from the committed plan does not permit collection
+- **WHEN** the authoritative record does not satisfy the assignment/plan relation
+  against the committed plan
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A cross-key resolver response is retryable
+- **WHEN** the authority's response does not echo the requested key
+- **THEN** the outcome SHALL be retryable, never a permanent "unknown assignment"
+
+### Requirement: Current permission and historical verification are separate questions
+A runtime SHALL distinguish "was this signature validly issued" from "may this work happen
+now", and SHALL provide both.
+
+A signature remains checkable over the bytes it covers FOR AS LONG AS THE ISSUING KEY'S
+EVIDENCE IS RETAINED, which is what lets an ARCHIVED record be re-verified. Permission to
+act expires on its own schedule. Conflating them yields either an archive that cannot be
+re-checked once a window closes, or a lapsed grant that still permits work.
+
+("Forever" appeared here in an earlier revision and is WITHDRAWN: it contradicted the
+retention condition stated below, and a spec that carries both readings lets an
+implementer pick either.)
+
+The instant supplied to trust resolution SHALL be the CURRENT instant, and it decides
+CURRENT rotation and compromise state -- NOT "was this key trusted back then". A key
+used validly inside its window and compromise-revoked afterwards SHALL resolve as
+historically revoked when asked at a later instant. That is what makes a revocation
+discovered after the fact actionable. The SIGNED EVIDENCE INTERVAL is a separate
+input and comes from the capability itself.
+
+An API whose contract is "permission" SHALL return an error for EVERY non-valid key
+status, so a caller inspecting only the error cannot fail open. An API whose contract is
+VERIFICATION returns a non-valid status without an error ONLY for the statuses the frozen
+matrix below permits -- HISTORICALLY_REVOKED -- and SHALL error on the rest. An earlier
+revision said such an API "MAY return a non-valid status without an error" generically,
+which is WITHDRAWN: it admitted INVALID and UNAVAILABLE as silent successes, contradicting
+the matrix.
+
+Historical verification remains possible ONLY while the KEY EVIDENCE is retained. A
+runtime SHALL NOT claim a signature is re-verifiable after its issuing key's history has
+been discarded; retention of that history is what makes the claim true, and it is a
+deployment property, not a wire one.
+
+The status matrix is FROZEN. Exactly TWO resolutions may return a VERIFIED SIGNATURE
+without an error:
+
+- VALID -- the key was validly issued and is not compromised.
+- HISTORICALLY_REVOKED -- the signature verifies (it was valid when made) but trust is
+  deliberately withdrawn. Reachable as audit/quarantine evidence; NEVER a permanent
+  reject, and NEVER permission for new work.
+
+The other two SHALL remain errors, and SHALL NOT be merged:
+
+- INVALID -- unknown, never-issued, or not authorized for the requested role. PERMANENT.
+- UNAVAILABLE -- the lookup could not answer. RETRYABLE.
+
+Collapsing INVALID into UNAVAILABLE turns a rejection into a retry loop; the reverse
+turns an outage into a permanent refusal.
+
+The TRUST-POLICY EPOCH pins one immutable policy snapshot for a whole decision. The
+request's epoch SHALL be NONZERO -- a zero epoch is a configuration error and SHALL fail
+closed BEFORE the resolver is consulted, never as a retryable lookup failure. The
+response SHALL echo it EXACTLY, and that echo SHALL be checked BEFORE the resolution's
+status is interpreted: a zero or mismatched echo is a stale or cross-snapshot reply from
+a revocation race, so it is UNAVAILABLE regardless of what status it carries.
+
+#### Scenario: Only two resolutions verify without error
+- **WHEN** a resolution is INVALID or UNAVAILABLE
+- **THEN** it SHALL be an error, permanent and retryable respectively
+- **AND** VALID and HISTORICALLY_REVOKED SHALL both return a verified signature
+
+#### Scenario: The epoch echo is checked before the status
+- **WHEN** a resolution's epoch echo is zero or does not match the request
+- **THEN** the outcome SHALL be unavailable, whatever status it carried
+
+#### Scenario: A compromise after expiry is visible
+- **WHEN** a grant has expired and its key is compromise-revoked afterwards
+- **THEN** historical verification at the current instant SHALL report the revocation
+
+### Requirement: Capability trust resolution is purpose-scoped and response-bound
+A trust resolver SHALL be told the ROLE a capability is being resolved for, and SHALL ECHO
+it in its response. The echo is RESPONSE CORRELATION: it proves the answer belongs to the
+question asked, exactly as the trust-policy epoch echo does. An unset or mismatched
+echo SHALL be treated as unavailable.
+
+The echo SHALL NOT be read as establishing that a key is authorized for that role.
+AUTHORIZING (issuer, key, purpose) is a CONTRACT OBLIGATION on the resolver: it SHALL
+resolve a key that is not authorized to issue the requested role as invalid, a
+permanent rejection. Only the resolver holds that knowledge, so no verifier can check
+it, and an implementation that skips it lets one role's key validate another.
+
+#### Scenario: An unechoed purpose is not an answer
+- **WHEN** a resolution does not echo the requested purpose
+- **THEN** it SHALL be treated as unavailable, never as authorizing
+
+### Requirement: Only a raw-byte plan boundary may claim physical enforcement
+A plan's PHYSICAL ceilings and wire hygiene SHALL be claimed ONLY by a boundary that sees
+the RECEIVED BYTES and bounds them BEFORE decoding. The plan header's ceiling SHALL be
+512 KiB, alongside the page ceiling of 128 KiB, both on received bytes.
+
+This freezes a BEHAVIOURAL rule, not API topology. Decoded relational helpers -- validators
+that take an already-decoded header and pages and check the plan's internal relations --
+MAY exist and are useful; both current runtimes expose them. What such a helper SHALL NOT
+do is CLAIM to enforce a physical ceiling or wire hygiene, because it cannot: a
+duplicate-field header over the bound collapses on decode and reaches it looking compliant.
+An earlier revision of this requirement demanded exactly one entry point and forbade
+decoded-header APIs outright, which froze a shape neither signed-off runtime has.
+
+A caller that needs the physical guarantee SHALL obtain it from the raw boundary. A
+runtime SHALL make clear, at each such helper, which guarantee it does NOT provide.
+
+WHAT IS FROZEN IS PER-ARTIFACT: each artifact's raw size SHALL be checked BEFORE THAT
+ARTIFACT is decoded. Decoding an artifact and bounding it afterwards performs exactly the
+work its bound exists to prevent.
+
+WHAT IS NOT FROZEN is the cross-artifact ORCHESTRATION: whether every size in a plan is
+preflighted before any decode, whether the header's failure takes precedence over a page's,
+and what a raw entry point returns. Those are RUNTIME choices, and the two runtimes make
+them differently today -- Go preflights the whole plan and validates the header before
+decoding pages; Elixir decodes the header, then the pages, and validates the plan relation
+afterwards, so an unsupported header with a malformed page reports the page. Both satisfy
+the byte rule.
+
+An earlier revision froze the Go orchestration as normative, which made the signed-off
+Elixir non-conforming for a difference that changes no wire artifact and no accept/reject
+outcome -- only which of two rejections is reported first. Freezing an implementation's
+call order because it is the one that happened to be written first is the failure this
+requirement now avoids.
+
+Preferring the header's failure IS better diagnostics, and Go's tests pin it; it is stated
+here as GUIDANCE, not a SHALL.
+
+#### Scenario: A decoded helper does not claim the physical ceiling
+- **WHEN** a decoded-input plan validator accepts a header whose RECEIVED bytes exceeded
+  the ceiling but whose decode collapsed below it
+- **THEN** that is NOT a defect in the helper
+- **AND** the helper SHALL NOT be presented as enforcing the physical ceiling
+
+#### Scenario: An artifact is bounded before it is decoded
+- **WHEN** an artifact's received bytes exceed its ceiling
+- **THEN** it SHALL be rejected without being decoded
+
+#### Scenario: Report-order differences are conformant
+- **WHEN** two runtimes reject the same plan for different reasons because one preflights
+  the whole plan and the other decodes page-by-page
+- **THEN** both SHALL be conformant, provided each bounded every artifact before decoding it
+- **AND** the plan SHALL be rejected by both
