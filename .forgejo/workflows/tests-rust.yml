@@ -10,10 +10,12 @@ name: Rust Tests
 # rust/README_RUST.md), and three of the four Bazel legs passed no --config at all, which
 # meant they never reached the remote cache or the executors.
 #
-# Clippy and the RustSec audit live in lint-rust.yml and audit-rust.yml. They stay on cargo
-# because this repo wires up no clippy aspect and RustSec has no Bazel equivalent, and they
-# stay out of this file because they fail for unrelated reasons: a lint regression, or an
-# advisory published upstream against code nobody touched.
+# Everything that fails for its own reasons lives in its own workflow, so a red X names the
+# problem without anyone opening a log:
+#
+#   lint-rust.yml   clippy          -- a lint regression
+#   audit-rust.yml  cargo-audit     -- an advisory published upstream against untouched code
+#   musl-rust.yml   netprobe static -- a cross-compile or linkage break
 on:
   push:
     branches: [staging]
@@ -29,7 +31,6 @@ on:
       - 'MODULE.bazel'
       - 'MODULE.bazel.lock'
       - '.forgejo/workflows/tests-rust.yml'
-      - 'scripts/ci/assert-netprobe-libpcap-free.sh'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
   pull_request:
@@ -153,62 +154,6 @@ jobs:
 
           mapfile -t targets < "${RUNNER_TEMP}/rust-test-targets.txt"
           bazel test --config=ci --test_output=errors "${targets[@]}"
-
-      # netprobe ships as a static musl binary, and "it compiled" does not prove that. These
-      # assertions are the actual contract: no interpreter, no NEEDED entries, no libpcap.
-      # --remote_download_outputs=all overrides remote_base's --remote_download_minimal,
-      # because the checks below need the artifact on this machine rather than in the CAS.
-      - name: Build and verify static musl binaries
-        run: |
-          set -euo pipefail
-
-          for platform in //build/platforms:linux_x86_64_musl //build/platforms:linux_aarch64_musl; do
-            echo "::group::netprobe ${platform}"
-
-            bazel build \
-              --config=ci \
-              --platforms="${platform}" \
-              --remote_download_outputs=all \
-              //rust/netprobe:netprobe
-
-            output="$(
-              bazel cquery \
-                --config=ci \
-                --platforms="${platform}" \
-                //rust/netprobe:netprobe \
-                --output=files | tail -n 1
-            )"
-            if [ "${output#/}" = "${output}" ]; then
-              output="$(bazel info execution_root)/${output}"
-            fi
-
-            file "${output}"
-            if ! file "${output}" | grep -q 'statically linked'; then
-              echo "expected static ELF output for ${platform}" >&2
-              exit 1
-            fi
-
-            if readelf -l "${output}" | grep -q 'INTERP'; then
-              echo "static netprobe output must not request a dynamic interpreter" >&2
-              exit 1
-            fi
-
-            if readelf -d "${output}" 2>/dev/null | grep -q 'NEEDED'; then
-              echo "static netprobe output must not declare shared-library dependencies" >&2
-              exit 1
-            fi
-
-            scripts/ci/assert-netprobe-libpcap-free.sh "${output}"
-
-            # Only the host architecture can actually be executed here.
-            case "${platform}" in
-              *linux_x86_64_musl)
-                "${output}" --help >/dev/null
-                ;;
-            esac
-
-            echo "::endgroup::"
-          done
 
       - name: Dump test logs
         if: ${{ failure() }}
