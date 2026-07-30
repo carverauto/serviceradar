@@ -2,9 +2,7 @@ name: Core Integration
 
 # The serviceradar_core integration suite, against the shared SRQL/CNPG fixture.
 #
-# Split out of main.yml, where it ran as the last step of the `build` job -- serially, after
-# the whole Bazel sweep had finished, for no reason other than sharing a job. Nothing in that
-# sweep produces an input to this suite: scripts/test-integration.sh contains no Bazel at all.
+# Split out of main.yml
 # It runs `mix deps.get`, `mix ash.migrate` and `mix test --include integration` directly
 # against the host toolchains, so the only steps it ever needed were Setup Beam, Setup Rust
 # (the Rustler NIFs compile during `mix test`) and psql for the database helpers.
@@ -14,7 +12,7 @@ name: Core Integration
 # from a compile failure. This is the same reasoning already written into main.yml for the
 # Rust integration tests.
 #
-# Concurrency with main.yml is safe by existing design, not by luck. The three consumers of
+# Concurrency with main.yml is safe. The three consumers of
 # the fixture use disjoint databases:
 #   * //rust/srql tests take pg_advisory_lock on the shared fixture and reset it
 #     (integration_tests/srql/tests/support/harness.rs)
@@ -108,6 +106,44 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
+
+      # This job had no caching at all, which is most of its ~10 minute runtime. Every run
+      # re-fetched and recompiled 137 Hex packages and recompiled 1199 Ash-heavy Elixir files
+      # before a single test could run. Keyed on lockfiles rather than sources, so an ordinary
+      # source change is a cache HIT and mix recompiles only what actually changed; the
+      # restore-keys prefix means even a dependency bump starts from the previous tree instead
+      # of from nothing. Same projects and same pattern as elixir-quality.yml.
+      - name: Cache Elixir dependencies and build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            elixir/serviceradar_core/deps
+            elixir/serviceradar_core/_build
+            elixir/serviceradar_srql/deps
+            elixir/serviceradar_srql/_build
+          key: ${{ runner.os }}-core-integration-mix-${{ hashFiles('elixir/serviceradar_core/mix.lock', 'elixir/serviceradar_core/mix.exs', 'elixir/serviceradar_srql/mix.lock', 'elixir/serviceradar_srql/mix.exs', 'elixir/connection/mix.exs', 'elixir/datasvc/mix.exs', 'elixir/elixir_uuid/mix.exs', 'elixir/vendor/opentelemetry_oban/mix.exs', '.tool-versions') }}
+          restore-keys: |
+            ${{ runner.os }}-core-integration-mix-
+
+      # The three Rustler NIFs build through cargo in Rustler's default :release mode during
+      # `mix test`, against a cold ~/.cargo on every run. They are standalone crates, each with
+      # its own Cargo.lock -- not members of the root workspace -- so the key hashes those and
+      # not //Cargo.lock. A stale hit is safe: cargo fingerprints the path-dependency sources
+      # under rust/ itself and rebuilds whatever actually changed.
+      - name: Cache Rustler NIF builds
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            elixir/serviceradar_core/native/anomaly_disposition_nif/target
+            elixir/serviceradar_core/native/zen_nif/target
+            elixir/serviceradar_srql/native/srql_nif/target
+          key: ${{ runner.os }}-core-integration-nif-${{ hashFiles('elixir/serviceradar_core/native/anomaly_disposition_nif/Cargo.lock', 'elixir/serviceradar_core/native/zen_nif/Cargo.lock', 'elixir/serviceradar_srql/native/srql_nif/Cargo.lock', 'elixir/serviceradar_core/native/*/Cargo.toml', 'elixir/serviceradar_srql/native/*/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-core-integration-nif-
 
       - name: Report unavailable SRQL fixture secrets
         if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
