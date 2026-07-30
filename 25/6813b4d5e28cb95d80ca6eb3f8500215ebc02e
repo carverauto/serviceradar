@@ -1,0 +1,42 @@
+build/mix_precommit.bzl
+  s_8f6823274fc459::t_0988b502f271ac 1-278
+.forgejo/workflows/precommit-web-ng.yml
+  s_8f6823274fc459::t_62cc05e8fb5277 91-93,109-111,116-121,124,126
+  s_8f6823274fc459::t_b2c66c338cea03 5-8,10-12,14-16
+  s_8f6823274fc459::t_8eea96e5614743 1-4,9,13,17-90,94-108,112-115,122-123,125,127-129
+rust/netprobe/src/main.rs
+  s_721239bc8e9d27::t_aade2c2e7ec7c7 136
+  s_721239bc8e9d27::t_036770cf962b75 210
+.forgejo/workflows/main.yml
+  s_8f6823274fc459::t_3d80d20a712b19 311-315
+elixir/web-ng/BUILD.bazel
+  s_8f6823274fc459::t_95bbb504759573 37-38,41-85,88,92,99-105
+  s_8f6823274fc459::t_62080e2af5fe30 1-2
+  s_8f6823274fc459::t_7c73b754ccdab0 34-36
+  s_8f6823274fc459::t_f371becf524532 39
+  s_8f6823274fc459::t_bd3283227dfb5b 32-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "256813b4d5e28cb95d80ca6eb3f8500215ebc02e",
+  "prompts": {},
+  "sessions": {
+    "s_721239bc8e9d27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b1f80c4-211f-4aa5-96c1-6ad25274bf36",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
