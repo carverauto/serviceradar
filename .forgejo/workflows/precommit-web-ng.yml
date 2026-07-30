@@ -11,9 +11,8 @@ name: web-ng Precommit
 # unchanged tree is a remote cache hit instead of a full Elixir + NIF rebuild. `precommit` is
 # a skylib build_test over it, so `bazel test //elixir/web-ng:precommit` still gates.
 #
-# Its own workflow because it fails for its own reasons -- an Elixir compile error, a credo
-# finding, or a NIF build break -- and because it should not sit in series behind the Rust
-# test sweep in main.yml, which it does not depend on in any way.
+# Its own workflow because it fails for its own reasons: an Elixir compile error, a credo
+# finding, or a NIF build break
 on:
   push:
     branches: [staging]

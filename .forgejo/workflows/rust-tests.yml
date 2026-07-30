@@ -30,7 +30,7 @@ on:
       - '.bazelrc'
       - 'MODULE.bazel'
       - 'MODULE.bazel.lock'
-      - '.forgejo/workflows/tests-rust.yml'
+      - '.forgejo/workflows/rust-tests.yml'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
   pull_request:
@@ -46,7 +46,7 @@ permissions:
 
 jobs:
   bazel:
-    name: Bazel (RBE)
+    name: Rust Integration Tests
     runs-on: ubuntu24
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}

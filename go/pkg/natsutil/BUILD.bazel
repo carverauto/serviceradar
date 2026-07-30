@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "natsutil",
@@ -16,5 +16,15 @@ go_library(
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",
         "@com_github_rs_zerolog//:zerolog",
+    ],
+)
+
+go_test(
+    name = "natsutil_test",
+    srcs = ["events_test.go"],
+    embed = [":natsutil"],
+    deps = [
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_go//jetstream",
     ],
 )

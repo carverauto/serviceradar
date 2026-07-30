@@ -1,0 +1,178 @@
+name: Golang Tests
+
+# Bazel-native, and tests only. Every Go package in the root module declares its own go_test
+# target, so the tests run once, through the build graph that ships, on the org's BuildBuddy:
+# remote cache, remote execution, BES reporting.
+#
+# Previously this job installed a Go toolchain with actions/setup-go and ran `go test ./...`
+# twice. That resolved dependencies through GOPROXY into a runner-local module cache rather
+# than through MODULE.bazel.lock, so a green run proved nothing about the binaries the images
+# actually ship, and nothing it compiled was reachable by the next run -- every push paid for
+# the whole module tree again while the Bazel cache that already holds those objects sat idle.
+# It also emitted two coverage profiles that no step ever read.
+#
+# Everything that fails for its own reasons lives in its own workflow, so a red X names the
+# problem without anyone opening a log:
+#
+#   golangci-lint.yml      golangci-lint, buf lint, go mod tidy -- a lint or hygiene break
+#   banner-grab-large.yml  1M-host synthetic engine test        -- too slow to gate a PR
+on:
+  push:
+    branches: [staging]
+    paths: &go_paths
+      - 'go/**'
+      - 'proto/**'
+      - 'build/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.forgejo/workflows/golang-tests.yml'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths: *go_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bazel:
+    name: Golang Tests
+    runs-on: ubuntu24
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # Required. --config=ci points the remote cache, BES and executor at the
+      # org's BuildBuddy, which rejects anonymous access, so without this header the first
+      # bazel call dies with `PERMISSION_DENIED: Anonymous access disabled` -- a failure that
+      # reads nothing like the missing credential it actually is.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      # Resolve up front so an empty match fails loudly. `bazel test` exits 4 for "no tests
+      # found", which surfaces as a red job that reads like broken infrastructure rather than
+      # a suite that quietly stopped existing.
+      #
+      # //build/... is in scope because build/release, build/wasm_plugins and
+      # build/native_addons hold Go release tooling that lives in the root module, so
+      # `go test ./...` covered it and dropping it here would be a silent regression.
+      #
+      # manual-tagged targets are excluded at query time rather than left to
+      # --test_tag_filters: naming a manual target explicitly still builds it, and the one
+      # that matters (//go/pkg/scan/banner_grab:banner_grab_integration_test) is owned by
+      # banner-grab-large.yml, which runs it nightly because it is too slow to gate a PR.
+      - name: Resolve test targets
+        run: |
+          set -euo pipefail
+
+          mapfile -t targets < <(
+            bazel query 'let t = kind(go_test, //go/... + //build/...) in $t except attr("tags", "manual", $t)'
+          )
+
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "No Go test targets found under //go/... or //build/..., which cannot be right." >&2
+            exit 1
+          fi
+
+          printf 'Resolved %d test target(s)\n' "${#targets[@]}"
+          printf '%s\n' "${targets[@]}" > "${RUNNER_TEMP}/go-test-targets.txt"
+
+      # Race detection needs cgo, and .bazelrc pins every Go build to
+      # --@io_bazel_rules_go//go/config:pure, so the flag has to be cleared here or
+      # //go/config:race is silently a no-op. That fork is deliberate and it is the reason
+      # these two settings are repeated on every bazel call below: a `bazel test` that omits
+      # them reconfigures the graph and rebuilds it, which reads as a cache miss rather than
+      # the flag mismatch it is.
+      #
+      # Compiling is kept separate from running on purpose: they are different failure modes
+      # with different owners. A broken build is a code or dependency problem, a failing test
+      # is a behaviour problem. Folded into one step the job goes red either way and someone
+      # has to read the log to find out which; split, the step name says it.
+      - name: Build test targets
+        run: |
+          set -euo pipefail
+
+          mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
+          bazel build --config=ci \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            "${targets[@]}"
+
+      # The old `-count=10 -short` leg. --runs_per_test is the Bazel spelling, and
+      # --flaky_test_attempts=1 overrides the repo-wide default of 2 from .bazelrc: retrying
+      # a failure is the exact opposite of what running a test ten times is for.
+      #
+      # -failfast has no Bazel equivalent and is not emulated. --config=ci sets --keep_going,
+      # so one run reports every failing target instead of the first one, which is what you
+      # want from CI even though it costs more than stopping early.
+      - name: Run tests (short, 10 runs)
+        run: |
+          set -euo pipefail
+
+          mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
+          bazel test --config=ci \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            --runs_per_test=10 \
+            --flaky_test_attempts=1 \
+            --test_arg=-test.short \
+            --test_arg=-test.shuffle=on \
+            --test_output=errors \
+            "${targets[@]}"
+
+      # The old `-count=1` full leg. Per-test time limits come from each target's size and
+      # timeout attributes in its BUILD file rather than a blanket `-timeout=120s`, so a test
+      # that legitimately needs longer says so where it is defined.
+      - name: Run tests (full)
+        run: |
+          set -euo pipefail
+
+          mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
+          bazel test --config=ci \
+            --@io_bazel_rules_go//go/config:pure=false \
+            --@io_bazel_rules_go//go/config:race \
+            --flaky_test_attempts=1 \
+            --test_arg=-test.shuffle=on \
+            --test_output=errors \
+            "${targets[@]}"
