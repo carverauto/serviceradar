@@ -371,12 +371,7 @@ fn runtime_graph_encode_snapshot<'a>(
     )
 }
 
-#[allow(non_local_definitions)]
-fn on_load(env: Env, _info: Term) -> bool {
-    let _ = rustler::resource!(RuntimeGraphResource, env);
-    true
-}
-rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
+rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");
 
 #[cfg(test)]
 mod tests {

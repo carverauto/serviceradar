@@ -2839,34 +2839,6 @@ register_toolchains(
 # //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
 # splicing step. See openspec migrate-bazel-rust-crate-vendoring.
 
-# --- Rustler NIF crates ------------------------------------------------------
-#
-# Each NIF is a standalone cdylib with its own Cargo.lock, deliberately detached from the
-# root workspace (see rust/README_RUST.md). They therefore get their own crate_universe
-# extensions rather than resolving through //third_party/crates. All five are pinned to
-# rustler 0.38.0, which must match the Elixir-side {:rustler, "~> 0.38"}.
-zen_nif_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-zen_nif_crates.from_cargo(
-    name = "zen_nif_crates",
-    cargo_lockfile = "//elixir/serviceradar_core/native/zen_nif:Cargo.lock",
-    manifests = ["//elixir/serviceradar_core/native/zen_nif:Cargo.toml"],
-)
-use_repo(zen_nif_crates, "zen_nif_crates")
-
-god_view_nif_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
-god_view_nif_crates.from_cargo(
-    name = "god_view_nif_crates",
-    cargo_lockfile = "//elixir/web-ng/native/god_view_nif:Cargo.lock",
-    manifests = ["//elixir/web-ng/native/god_view_nif:Cargo.toml"],
-)
-use_repo(god_view_nif_crates, "god_view_nif_crates")
-
-# NOTE: the other three NIFs (serviceradar_srql/native/srql_nif, web-ng/native/srql_nif,
-# anomaly_disposition_nif) each have a `path` dependency on a ROOT-workspace crate
-# (rust/srql, rust/anomaly-disposition). crate_universe cannot splice those standalone --
-# the member manifests use `workspace = true` deps that only resolve against the root
-# Cargo.toml -- so they belong in the root workspace and //third_party/crates instead.
-
 rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
 rdp_connector_crates.from_cargo(
     name = "rdp_connector_crates",

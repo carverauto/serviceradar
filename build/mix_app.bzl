@@ -112,6 +112,24 @@ def _impl(ctx):
                 ),
             ])
 
+    # Staged into the copied source tree so `mix compile` picks them up as part of priv,
+    # and mix_app's priv output carries them downstream.
+    native_lib_commands = []
+    native_lib_files = []
+    for target, crate in ctx.attr.native_libs.items():
+        files = target[DefaultInfo].files.to_list()
+        if len(files) != 1:
+            fail("native_libs entry {} must produce exactly one file, got {}".format(
+                target.label,
+                files,
+            ))
+        native_lib_files.append(files[0])
+        native_lib_commands.append(
+            'cp "{src}" priv/native/{crate}.so'.format(src = files[0].path, crate = crate),
+        )
+    if native_lib_commands:
+        native_lib_commands = ["mkdir -p priv/native"] + native_lib_commands
+
     # Appended last so these win over anything config.exs imports for the env.
     extra_config_commands = ""
     if ctx.attr.extra_config:
@@ -177,6 +195,8 @@ fi
 
 {extra_config_commands}
 
+{native_lib_commands}
+
 {setup}
 
 "${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check
@@ -215,6 +235,10 @@ find . -type l -delete
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
         mix_env = ctx.attr.mix_env,
         extra_config_commands = extra_config_commands,
+        native_lib_commands = "\n".join([
+            c.replace('cp "', 'cp "$ORIGINAL_DIR/') if c.startswith("cp ") else c
+            for c in native_lib_commands
+        ]),
         setup = ctx.attr.setup,
         app_name = app_name,
         ebin = ebin.path,
@@ -227,6 +251,7 @@ find . -type l -delete
             erlang_runfiles.files,
             elixir_runfiles.files,
             depset(ctx.files.archives),
+            depset(native_lib_files),
             depset(erl_libs_files),
         ],
     )
@@ -280,6 +305,12 @@ mix_app = rule(
         ),
         "extra_apps": attr.string_list(),
         "setup": attr.string(),
+        # Bazel-built NIF shared libraries to stage into priv/native before compiling,
+        # keyed by target with the Rustler crate name as the value. rustler resolves a NIF
+        # as Application.app_dir(otp_app, "priv/native/<crate>") and :erlang.load_nif
+        # appends the platform extension -- which is ".so" on macOS too, not ".dylib". So
+        # the cdylib is installed as priv/native/<crate>.so, dropping cargo's "lib" prefix.
+        "native_libs": attr.label_keyed_string_dict(allow_files = True),
         # Config lines appended to config/config.exs *inside the action*, i.e. to the
         # sandbox copy -- the checked-in file is never touched. This exists so a
         # build-system concern can be expressed in the build system instead of in

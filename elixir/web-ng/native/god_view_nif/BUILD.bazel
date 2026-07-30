@@ -1,12 +1,18 @@
-load("@god_view_nif_crates//:defs.bzl", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files([
-    "Cargo.lock",
-    "Cargo.toml",
-])
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
 
 # A NIF is loaded by the BEAM, which supplies the enif_* symbols at load time, so the
 # shared object is linked with those symbols left undefined. That is the default for an
@@ -20,5 +26,6 @@ rust_shared_library(
         "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
         "//conditions:default": [],
     }),
-    deps = all_crate_deps(normal = True),
+    deps = all_crate_deps(normal = True) + [
+    ],
 )

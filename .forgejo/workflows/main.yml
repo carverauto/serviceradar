@@ -28,9 +28,7 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       # ghcr.io is a PULL registry here, not the push target above: Bazel fetches
       # ghcr.io/cloudnative-pg/postgresql, which //integration_tests/srql takes as test data.
-      # Anonymous pulls are rate limited, and a throttled fetch fails during the loading
-      # phase as "no such package", which reads like a broken build rather than a 403.
-      # Absent secrets expand to '' and simply leave ghcr.io unauthenticated as before.
+      # Anonymous pulls are rate limited, and a throttled fetch fails during the loading.
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
