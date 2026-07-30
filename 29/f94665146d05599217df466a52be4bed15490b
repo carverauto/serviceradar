@@ -1,0 +1,1180 @@
+third_party/hex/ash_sql.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/broadway.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+third_party/hex/googleapis.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/cowlib.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/hex_archives.MODULE
+  s_8f6823274fc459::t_7d4d7404d7fb9a 10-17,103-110,119-134,162-177,191-198,231-238,255-262,269-270,279-286,351-358,373-374,407-414,431-446,455-462,479-486,490-505,511-558,567-582,586-593,615-622,634-641,671-678,722-729,735-742,754-761,791-798,802-809,826-833,855-862,887-894,919-1374,1415-1438,1455-1462,1487-1494,1503-1526,1631-1662,1671-1678,1695-1702,1719-1726,1783-1790,1799-1806,1815-1822,1829-1830,1834-1841,1847-1854,1863-1878,1890-1897,1911-1918,1946-1953,1962-1969,1975-1990,2010-2017,2023-2030,2034-2049,2055-2078,2087-2094,2098-2105,2151-2158
+  s_8f6823274fc459::t_b2171ea1dee0b8 1-9,18-102,111-118,135-161,178-190,199-230,239-254,263-268,271-278,287-350,359-372,375-406,415-430,447-454,463-478,487-489,506-510,559-566,583-585,594-614,623-633,642-670,679-721,730-734,743-753,762-790,799-801,810-825,834-854,863-886,895-918,1375-1414,1439-1454,1463-1486,1495-1502,1527-1630,1663-1670,1679-1694,1703-1718,1727-1782,1791-1798,1807-1814,1823-1828,1831-1833,1842-1846,1855-1862,1879-1889,1898-1910,1919-1945,1954-1961,1970-1974,1991-2009,2018-2022,2031-2033,2050-2054,2079-2086,2095-2097,2106-2150,2159
+third_party/hex/ash_phoenix.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-28,30-36
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 29
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+elixir/web-ng/native/god_view_nif/BUILD.bazel
+  s_8f6823274fc459::t_875e99794e5fdb 2-22,24
+  s_8f6823274fc459::t_5b920a47e5fa30 1,23
+third_party/hex/mime.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_002b3d1a38f183 2-4,7-9,11-13,17-18,27-30
+third_party/patches/rules_erlang/allow_empty_globs.patch
+  s_8f6823274fc459::t_17889e1e9736b1 5-6,8,10-11,13,15-16,18,20-22,24-27,29-31,33-40,42-45,47-48,50-52,55-56,58,60-63,65,67-69
+  s_8f6823274fc459::t_feb56c4c17e2f2 2-4
+  s_8f6823274fc459::t_4c507f9cfa58ea 7
+  s_8f6823274fc459::t_fce50636f352d9 9
+  s_8f6823274fc459::t_e3fd4353bcc445 12
+  s_8f6823274fc459::t_8a19eb38b5a021 14
+  s_8f6823274fc459::t_81c65e5e3cd643 17
+  s_8f6823274fc459::t_372ea2f6dc4e5c 19
+  s_8f6823274fc459::t_8609b2db963333 23
+  s_8f6823274fc459::t_ae347e09cc9b2a 28
+  s_8f6823274fc459::t_ace1a541c719c6 32
+  s_8f6823274fc459::t_d933fc4d933127 41
+  s_8f6823274fc459::t_19b155e5f52401 46
+  s_8f6823274fc459::t_1cf6fb71d0703c 49
+  s_8f6823274fc459::t_00ccb9d3feb30b 53-54
+  s_8f6823274fc459::t_166dc828049045 57
+  s_8f6823274fc459::t_a3cae302aadb93 59
+  s_8f6823274fc459::t_ae0e6f5c2ed3f4 64
+  s_8f6823274fc459::t_26e79195f718f2 66
+  s_8f6823274fc459::t_1b356af4cf365b 1
+third_party/hex/erlex.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/opentelemetry_bandit.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-36
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_mpegaudio_format.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ueberauth.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/gettext.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/membrane_vpx_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-36
+third_party/hex/opentelemetry_api.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/gen_smtp.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-18
+third_party/hex/ssl_verify_fun.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/serviceradar_srql/BUILD.bazel
+  s_8f6823274fc459::t_90a970cfe04120 1-2,33-53
+  s_8f6823274fc459::t_d27e6dad7a557c 54
+third_party/hex/ex_ice.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30,32-33
+  s_8f6823274fc459::t_6bc35c49159331 26,31
+third_party/hex/opentelemetry_phoenix.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-38
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/heap.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/esaml.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-18
+third_party/hex/membrane_ivf_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+elixir/serviceradar_srql/native/srql_nif/Cargo.toml
+  s_8f6823274fc459::t_5eded71370acd7 18
+third_party/hex/ash_oban.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/delta_crdt.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+third_party/hex/ash_paper_trail.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/nimble_options.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/oban.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-28,30-35
+  s_8f6823274fc459::t_7d4d7404d7fb9a 29
+third_party/hex/ex_webrtc.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-37
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/image.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-37
+third_party/hex/opentelemetry_process_propagator.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_udp_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/spitfire.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_common_c.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/dialyxir.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/file_system.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/membrane_srt_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ctx.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/patches/rules_erlang/include_lib_self_reference.patch
+  s_8f6823274fc459::t_a29dd16533fe3f 1-38
+third_party/hex/thousand_island.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/json_xema.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/req.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+third_party/hex/crc.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_slop.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ash_postgres.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31,33-38
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 32
+third_party/hex/chatterbox.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-18
+third_party/hex/opentelemetry_exporter.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-21
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/oidcc.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/unifex.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-33
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+third_party/hex/BUILD.bazel
+  s_8f6823274fc459::t_39c4c733d17a9f 1-4
+third_party/hex/membrane_rtp_h265_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/opentelemetry_api_experimental.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/ecto_sql.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-35
+elixir/bazel_spike/ash/lib/spike_ash.ex
+  s_8f6823274fc459::t_9ebf080987aec7 1-25
+third_party/hex/cowboy.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-19
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/xema.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_mp3_lame_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-37
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+third_party/hex/nimble_parsec.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/postgrex.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30,32-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_7d4d7404d7fb9a 31
+third_party/hex/ex_dtls.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 28
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27,29-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/serviceradar_srql/mix.exs
+  s_8f6823274fc459::t_5eded71370acd7 35
+third_party/hex/membrane_telemetry_metrics.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/crux.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_caaefa13964367 2-4,7-9,11-13,17-18,27-32
+third_party/hex/curve25519.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/chacha20.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/grpc.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+build/mix_app.bzl
+  s_8f6823274fc459::t_e0b78f634b13bc 213
+  s_8f6823274fc459::t_d4c57a270ba05e 217
+  s_8f6823274fc459::t_4a091803fc36bd 178-179
+  s_8f6823274fc459::t_56aaacc950f64e 90-98,102-105
+  s_8f6823274fc459::t_51de8cd8eb3447 153
+  s_8f6823274fc459::t_44462ccef62bdb 273-280
+  s_8f6823274fc459::t_1dea699f043f46 1-89,99-101,106-114,126-152,154-177,180-183,196,200-212,214-216,218-272,281-282,291-296
+  s_8f6823274fc459::t_0ffeba9e5fe07e 115-125
+  s_8f6823274fc459::t_22637b5f1724a5 283-290
+  s_8f6823274fc459::t_664b4a17061baf 184-195,197-199
+third_party/hex/bundlex.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 25-27
+  s_8f6823274fc459::t_ba83b24dd5c42a 1-5,7-24,28-29
+  s_8f6823274fc459::t_c2a9140e208e02 6
+third_party/hex/simple_sat.BUILD
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_703498af76785d 2-4,7-9,11-13,17-18,27-30
+third_party/hex/ex_stun.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/bazel_spike/ash/LICENSE
+  s_8f6823274fc459::t_9ebf080987aec7 1
+third_party/hex/membrane_rtp_vp8_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/membrane_vp8_format.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/boundary.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_mp3_mad_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27,29-37
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 28
+third_party/hex/membrane_stream_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/horde.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+third_party/hex/broadway_dashboard.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/mint.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+third_party/hex/stream_split.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/cinder.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_webrtc_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-42
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/bandit.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/grpcbox.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-21
+third_party/hex/boombox.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-53
+third_party/hex/libcluster.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_mp4_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/rustler_precompiled.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/elixir_uuid.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/telemetry.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 6-7
+  s_8f6823274fc459::t_e942516b4d74fb 3-5,8-9,15
+third_party/hex/libring.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/membrane_ffmpeg_swscale_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27,29-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 28
+third_party/hex/gen_stage.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/rewrite.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/cloak.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/opentelemetry_ecto.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+third_party/hex/bimap.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/equivalex.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/opentelemetry_experimental.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-20
+third_party/hex/lazy_html.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/vix.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+elixir/serviceradar_core/native/zen_nif/BUILD.bazel
+  s_8f6823274fc459::t_d28c3b7a5819e7 13,19-20
+  s_8f6823274fc459::t_5b920a47e5fa30 2,23
+  s_8f6823274fc459::t_cd3785a288516f 1,3-12,14-18,21-22,24
+third_party/hex/membrane_rtp_h264_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/stream_data.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_c295401fefbd1d 2-4,7-9,11-13,17-18,27-30
+third_party/patches/rules_elixir/ex_unit_test_headers.patch
+  s_8f6823274fc459::t_ed043f4f005817 1-30
+third_party/hex/telemetry_registry.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+build/mix_archive_build.bzl
+  s_8f6823274fc459::t_f4f412ab8bf150 1-124,130-195
+  s_8f6823274fc459::t_8ac780ac87df56 125-129
+third_party/hex/jason.BUILD
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_2387bf2d2c7018 2-4,7-9,11-13,17-18,27-31
+third_party/hex/ymlr.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_a439bd9e0b3c42 2-4,7-9,11-13,17-18,27-30
+third_party/hex/ex_doc.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+third_party/hex/bunch_native.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 28
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27,29-31
+third_party/hex/membrane_transcoder_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-50
+third_party/hex/fine.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/ratio.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/guardian.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/geolix_adapter_mmdb2.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/permit.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/telemetry_metrics_prometheus_core.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/membrane_flv_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/bunt.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_opus_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/numbers.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/cc_precompiler.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_rtp_aac_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/membrane_opus_plugin.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-38
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/yaml_elixir.BUILD
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_1b77251091667b 2-4,7-9,11-13,17-18,27-31
+third_party/hex/gproc.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/membrane_h264_ffmpeg_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-38
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+third_party/hex/protobuf.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/table.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_realtimer_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/mockery.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/bazel_spike/ash/test/spike_ash_test.exs
+  s_8f6823274fc459::t_9ebf080987aec7 1-15
+third_party/hex/membrane_aac_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_vp9_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/coerce.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_h264_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/ueberauth_oidcc.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/phoenix.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27,29-39
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28
+third_party/patches/rules_elixir/ex_unit_test_workspace_layout.patch
+  s_8f6823274fc459::t_cdf3158c6c0d95 32,34
+  s_8f6823274fc459::t_7d64ea7867012b 1,4-10,13-15,17-18,22-31,33,35-47
+  s_8f6823274fc459::t_5ce13e46e0cde5 2-3,11-12,16,19-21
+third_party/hex/conv_case.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+build/elixir_tests.bzl
+  s_8f6823274fc459::t_596fc3dad165ed 2,8,10,28-30,37,79-85,90-91,93-98,108-110,117,119,124,126,128-132,136-139,141-143,145-146
+  s_8f6823274fc459::t_e4685ea439bc46 5-7,31,34-36,38,42,49,122,127
+  s_8f6823274fc459::t_c3bbe82799f5b2 50-78,87-88
+  s_8f6823274fc459::t_0bb73ecce28191 134
+  s_8f6823274fc459::t_971cba987c2270 1,9,11-12,14-27,32-33,39-41,43-48,86,89,92,99-101,107,116,118,123,125,133,140,144
+  s_8f6823274fc459::t_773997ae4daa10 102-106
+  s_8f6823274fc459::t_6a8bd5de545e44 3-4,13
+  s_8f6823274fc459::t_0920e3eb9dd419 111
+  s_8f6823274fc459::t_d5e1afc3935097 120-121
+  s_8f6823274fc459::t_92957858dfdaf7 112-115
+  s_8f6823274fc459::t_419ee7d26053f1 135
+third_party/hex/makeup_elixir.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/rustler.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/serviceradar_core/BUILD.bazel
+  s_8f6823274fc459::t_0588b85143f013 53-66,76,136
+  s_8f6823274fc459::t_2f335956d1197f 137-138,156-157
+  s_8f6823274fc459::t_1a56ee8847db39 1,139-142,155
+  s_8f6823274fc459::t_6401f3dd71f0b5 143-147,149-154
+  s_8f6823274fc459::t_419ee7d26053f1 148
+  s_8f6823274fc459::t_29ed2846d1c600 2-3,44-52,67-75,77-135
+third_party/hex/jose.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/idna.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/membrane_raw_video_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/text_diff.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/zarex.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_json_schema.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/shmex.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_rtp_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-41
+third_party/hex/websock.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/nkeys.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/grpc_core.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/makeup_erlang.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/tls_certificate_check.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-18
+third_party/hex/samly.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/hpax.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/patches/rules_erlang/BUILD.bazel
+  s_8f6823274fc459::t_31973c3e1dae9e 5
+third_party/hex/membrane_rtp_format.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_sdp.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26,30
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-29,31-32
+third_party/hex/plug.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-9
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_6efb4af09aa074 11-13,17-18,20,31,33
+  s_8f6823274fc459::t_2ff388bee9d533 2-4,27-30,32
+elixir/bazel_spike/ash/BUILD.bazel
+  s_8f6823274fc459::t_8ce7feb9f26c88 11
+  s_8f6823274fc459::t_9ebf080987aec7 1-10,12-18
+third_party/hex/opentelemetry_telemetry.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/ash_credo.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 29
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-28,30-32
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/gnat.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32,34-35
+  s_8f6823274fc459::t_6bc35c49159331 26,33
+third_party/hex/phoenix_template.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/yamerl.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 6-7
+  s_8f6823274fc459::t_02459510e7f0d2 3-5,8-9,15
+third_party/hex/phoenix_live_dashboard.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+third_party/hex/acceptor_pool.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/ex_rtp.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_tcp_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/mox.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/opentelemetry.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-18
+third_party/hex/ex_dna.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_libsrt.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/qex.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+elixir/serviceradar_core/mix.exs
+  s_8f6823274fc459::t_5eded71370acd7 123
+third_party/hex/mmdb2_decoder.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/membrane_ogg_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/spark.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_61103b3811a7b9 2-4,7-9,11-13,17-18,27,29-33
+third_party/hex/gun.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-18
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/telemetry_metrics.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/geolix.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/salsa20.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/membrane_rtsp_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-42
+elixir/web-ng/mix.exs
+  s_8f6823274fc459::t_2e6e7d335a4b51 84
+third_party/hex/esbuild.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/phoenix_live_reload.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/sobelow.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/bcrypt_elixir.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+third_party/hex/poly1305.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/nimble_ownership.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/open_api_spex.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+third_party/hex/castore.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/phoenix_live_view.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27,29,31-39
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28,30
+third_party/hex/corsica.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/membrane_raw_audio_format.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/unicode_util_compat.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+third_party/hex/ranch.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+third_party/hex/membrane_http_adaptive_stream_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-39
+third_party/hex/mix_audit.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/telemetry_poller.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15-18
+third_party/hex/adbc.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_rtp_opus_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/ash.BUILD
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_7d4d7404d7fb9a 32
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_912010485c7cdd 2-4,7-9,11-13,17-18,27-31,33-43
+third_party/hex/membrane_mpeg_ts_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+third_party/hex/elixir_make.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ash_json_api.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 29
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-28,30-38
+third_party/hex/earmark_parser.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/permit_phoenix.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-38
+third_party/hex/hpack.BUILD
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+third_party/hex/membrane_tee_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_rtcp.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/typed_struct.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/ex_m3u8.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/redoc_ui_plug.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/membrane_ffmpeg_swresample_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-38
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+third_party/hex/membrane_wav_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-33
+third_party/hex/jump_credo_checks.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-28,30-32
+  s_8f6823274fc459::t_7d4d7404d7fb9a 29
+third_party/hex/phoenix_react_ng.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ex_libsrtp.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+third_party/hex/styler.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/plug_crypto.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_87a3879d782f41 2-4,7-9,11-13,17-18,27-30
+scripts/gen_hex_bazel.exs
+  s_8f6823274fc459::t_7d4d7404d7fb9a 6,8-11,49-50,73-97,100-101
+  s_8f6823274fc459::t_4fb3803b22b338 35-37,43-46
+  s_8f6823274fc459::t_bc4a5aa4386ce9 151
+  s_8f6823274fc459::t_1e3a0951c5858c 39-42
+  s_8f6823274fc459::t_bc921935a082d2 129-130,133-135,141-142
+  s_8f6823274fc459::t_4cdf89ac07c964 194-195,202-207
+  s_8f6823274fc459::t_63999ec57f0a69 155,158,167,176,179-184
+  s_8f6823274fc459::t_24366b19ead03c 1-5,7,12-28,51-72,98-99,102-128,131-132,136-140,143-150,152-154,156-157,159-166,168-175,177-178,185-193,196-201,208-218,220-232
+  s_8f6823274fc459::t_d9a62f18bea7da 29-34,38,47-48
+  s_8f6823274fc459::t_9ee7e2122933d6 219
+third_party/hex/opentelemetry_semantic_conventions.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+elixir/web-ng/native/srql_nif/Cargo.toml
+  s_8f6823274fc459::t_f38703dacafa91 12
+third_party/hex/iterex.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_7ef5a0514f86d0 2-4,7-9,11-13,17-18,27-30
+third_party/hex/otel_http.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 3-9,15
+  s_8f6823274fc459::t_45e2ce2d523f4c 1-2,10-14
+third_party/hex/logger_backends.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+MODULE.bazel
+  s_8f6823274fc459::t_c8323b99007171 493,501,581,981,1541,2021,2053,2085,2157,2293,2301,2309,2949-2964,2967-2978
+  s_8f6823274fc459::t_4965eb2c989406 137-139
+  s_8f6823274fc459::t_7ba241c21e7bc2 168-175,189-268,277-284,301-327,344-356,365-396,405-420,429-434,437-444,453-492,504-516,525-535,541-572,584-596,613-615,629-644,653-655,672-676,725-732,749-751,760-780,789-799,808-836,845-887,896-900,909-919,928-956,989-991,1000-1020,1029-1052,1061-1084,1544-1580,1605-1620,1629-1652,1661-1668,1693-1796,1829-1836,1845-1860,1869-1884,1893-1948,1957-1964,1989-1994,1997-1999,2008-2012,2024-2028,2045-2047,2093-2111,2120-2127,2136-2140,2164-2175,2184-2188,2197-2199,2216-2220,2245-2252,2261-2263,2272-2292,2300
+  s_8f6823274fc459::t_8750792c4aadad 128-129
+  s_8f6823274fc459::t_bbb9f4a846dbf8 133-136
+  s_8f6823274fc459::t_6bc35c49159331 176-183,269-276,285-300,328-343,357-364,397-404,421-428,435-436,445-452,495,503,517-524,539-540,573-580,583,597-612,620-628,645-652,656-671,677-724,733-748,752-759,781-788,800-807,837-844,888-895,901-908,920-927,957-975,980,983,992-999,1021-1028,1053-1060,1085-1540,1543,1581-1604,1621-1628,1653-1660,1669-1692,1797-1828,1837-1844,1861-1868,1885-1892,1949-1956,1965-1988,1995-1996,2000-2007,2013-2020,2023,2029-2044,2055-2084,2087,2092,2112-2119,2128-2135,2141-2156,2159,2176-2183,2189-2196,2200-2215,2221-2244,2253-2260,2264-2271,2295,2303,2311,2317-2324
+  s_8f6823274fc459::t_37599399df6640 130-132
+  s_8f6823274fc459::t_ca7608964967d2 2965-2966
+  s_8f6823274fc459::t_cd3785a288516f 2842-2855,2861,2869
+  s_8f6823274fc459::t_36b01169b6b0b3 115-117
+  s_8f6823274fc459::t_39c4c733d17a9f 143,154,166-167,496-497,499-500,2325-2326
+  s_8f6823274fc459::t_31973c3e1dae9e 108-110
+  s_8f6823274fc459::t_ba83b24dd5c42a 149-153,155-165
+  s_8f6823274fc459::t_b3cc3716ce7e53 2856-2860,2862-2868
+  s_8f6823274fc459::t_a7f31a2f7e6318 111-114
+  s_8f6823274fc459::t_cd60fd49a7ee10 144-148,184-188,494,498,502,536-538,582,616-619,976-979,982,984-988,1542,2022,2048-2052,2054,2086,2088-2091,2158,2160-2163,2294,2296-2299,2302,2304-2308,2310,2312-2316
+third_party/hex/mdex_native.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/ets.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_e4b4b6fadb68d4 2-4,7-9,11-13,17-18,27-30
+third_party/patches/rules_erlang/erl_libs_priv_dir.patch
+  s_8f6823274fc459::t_0ca28be86cb406 1-40
+third_party/hex/nimble_pool.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/sweet_xml.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/grpc_server.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_mpegts_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/owl.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/patches/rules_elixir/allow_empty_license_glob.patch
+  s_8f6823274fc459::t_8750792c4aadad 1-14
+third_party/hex/membrane_precompiled_dependency_provider.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27,29-31
+  s_8f6823274fc459::t_1e3a0951c5858c 28
+third_party/hex/oban_met.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/membrane_cmaf_format.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_funnel_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/tailwind.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/ex_turn.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/finch.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/flow.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ash_admin.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-39
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/kcl.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_rtmp_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-39
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_rtsp.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+third_party/hex/swoosh.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28,31
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27,29-30,32-40
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_timestamp_queue.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+third_party/hex/decimal.BUILD
+  s_8f6823274fc459::t_39c4c733d17a9f 2-4,17,30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_39400c3389ff8a 7-9,11-13,18,27-29
+third_party/hex/membrane_aac_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-31
+third_party/hex/sourceror.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-9,27-29
+  s_8f6823274fc459::t_8631dffe5a203b 11-13,17-18,20,30
+  s_8f6823274fc459::t_09ee9ade6b38e2 2-4
+third_party/hex/ex_ast.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/multigraph.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_961346149166da 2-4,7-9,11-13,17-18,27-30
+third_party/hex/phoenix_html.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/expo.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/ash_state_machine.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/splode.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_42c5ac26a8b04c 2-4,7-9,11-13,17-18,27-30
+third_party/hex/comeonin.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/credo.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-33
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/phoenix_pubsub.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/membrane_mp4_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-40
+third_party/hex/ex_hls.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-36
+third_party/hex/membrane_h265_ffmpeg_plugin.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-37
+third_party/hex/ash_cloak.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/elixlsx.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_core.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+third_party/hex/libgraph.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/merkle_map.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/ecto.BUILD
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_5fb8ad5f6ac19f 2-4,7-9,11-13,17-18,27-33
+third_party/hex/membrane_h265_format.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_aac_fdk_plugin.BUILD
+  s_8f6823274fc459::t_1e3a0951c5858c 29
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-28,30-38
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/mdex.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/ed25519.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-30
+third_party/hex/oban_web.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-37
+third_party/hex/db_connection.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+third_party/hex/bunch.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/membrane_h26x_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/mpeg_ts.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+third_party/hex/dns_cluster.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+elixir/web-ng/native/god_view_nif/Cargo.toml
+  s_8f6823274fc459::t_f38703dacafa91 19
+third_party/hex/permit_ecto.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-35
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/igniter.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-38
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/glob_ex.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-30
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/membrane_file_plugin.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-32
+  s_8f6823274fc459::t_6bc35c49159331 26
+.forgejo/workflows/elixir-unit-tests.yml
+  s_8f6823274fc459::t_d5d23c55d63345 1-7,9-104
+  s_8f6823274fc459::t_89dcd5141e8664 8
+third_party/hex/makeup.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-31
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+third_party/hex/phoenix_view.BUILD
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27-32
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/websock_adapter.BUILD
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19,21-25
+  s_8f6823274fc459::t_b2171ea1dee0b8 2-9,11-18,20,27,29-33
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28
+third_party/hex/phoenix_ecto.BUILD
+  s_8f6823274fc459::t_7d4d7404d7fb9a 1-25,27-34
+  s_8f6823274fc459::t_6bc35c49159331 26
+third_party/hex/reactor.BUILD
+  s_8f6823274fc459::t_6bc35c49159331 26
+  s_8f6823274fc459::t_b2171ea1dee0b8 5-6
+  s_8f6823274fc459::t_690c25616ce879 14-16
+  s_8f6823274fc459::t_7d4d7404d7fb9a 28
+  s_8f6823274fc459::t_0c7a1402f4375b 1,10,19-25
+  s_8f6823274fc459::t_19ac6c54cb9bad 2-4,7-9,11-13,17-18,27,29-39
+BUILD.bazel
+  s_8f6823274fc459::t_66e546750e58de 41
+MODULE.bazel.lock
+  s_8f6823274fc459::t_31ab62c6b6a219 1843,1866-1869,1874-7886
+elixir/connection/BUILD.bazel
+  s_8f6823274fc459::t_7c5b3d483d352f 1-2,32-43
+elixir/elixir_uuid/BUILD.bazel
+  s_8f6823274fc459::t_f1cc3e7084d03c 1-2,32-43
+elixir/serviceradar_agent_gateway/mix.lock
+  s_8f6823274fc459::t_c1ee87db86c949 37,116
+elixir/serviceradar_core/mix.lock
+  s_8f6823274fc459::t_e5f58ab44741b1 26,37,117
+elixir/serviceradar_core_elx/mix.lock
+  s_8f6823274fc459::t_199dcec2c50932 19,47,51,53,57,72,78-79,91-92,212,217
+elixir/serviceradar_srql/mix.lock
+  s_8f6823274fc459::t_114c59a0f01bd4 13
+elixir/serviceradar_srql/native/srql_nif/Cargo.lock
+  s_8f6823274fc459::t_1d69c0ed633724 39,41,45,47,54,56,64,72,74,84,86,97,99,111,113,117,119,131,133,153,165,170,172,176,187,189,252,293,295,308,310,317,319,329,331,335,337,353,355,369,371,380,382,394,396,472,474,509,520,563,574,576,614,623,643,645,651,653,657,677,682,684,725,727,780,782,794,796,804,806,810,812,816,818,822,824,828,830,874,876,886,888,926,928,956,958,966,968,976,978,1001,1003,1010,1012,1203,1232,1234,1268,1270,1274,1276,1290,1292,1320,1322,1351,1353,1369,1371,1396,1398,1415,1417,1564,1566,1573,1575,1579,1606,1608,1612,1614,1630,1632,1683,1688,1690,1697,1699,1707,1709,1722,1728,1730,1736,1741,1743,1770,1772,1791,1793,1796,1817,1819,1829,1831,1846,1848,1897,1899,1902,1910,1912,1918,1923,1925,1947,1949,1967,1969,2000,2002,2010,2012,2019,2021,2025,2030,2032,2106,2108,2124,2126,2130,2132,2255-2266,2268,2289,2299,2307,2309,2316,2318,2322,2327,2329,2336,2338,2350,2352,2356,2358,2385,2387,2416,2421,2423,2437,2439,2443,2448,2450,2498,2500,2509,2511,2516,2523,2525,2547,2549,2562,2564,2599,2604,2606,2624,2697,2732,2734,2795,2797,2799,2843,2845,2847,2861,2863,2874,2876,2884,2886,2891,2897,2899,2906,2908,2948,2959,3117,3119,3134,3140,3142,3149,3151,3155,3160,3162,3175,3181,3183,3190,3192,3196,3229,3234,3236
+elixir/vendor/opentelemetry_oban/BUILD.bazel
+  s_8f6823274fc459::t_4db19365402f45 1-2,32-47
+elixir/web-ng/mix.lock
+  s_8f6823274fc459::t_49f626fe5d41d4 40,43,125,138
+elixir/web-ng/native/god_view_nif/Cargo.lock
+  s_8f6823274fc459::t_3e3952a930845a 30,32,48,50,60,62,73,75,87,89,93,95,107,109,113,115,119,121,125,127,137,139,143,145,159,161,202,204,207,211,216-222,224-227,231,233,240,242,246,248,252,254,258,260,262,271,273,277,279,286,288,296,298,307,309,322,324,347-370,408,425,427,461,463,470,472,476,478,480-481,487,489,509,511,515,517,521,523,559-565,567,571,573,580,582,601,603,620,622,625,633,635,641,646,648,652,654,658,660,667,669,676,678,682,687,689,700,702-708,712,714-725,743,745-751,755,757,773,775,782,784,795,797,805,807,812,818,820,846,857,886,888,892,894,901,903,907,912,914
+elixir/web-ng/native/srql_nif/Cargo.lock
+  s_8f6823274fc459::t_ad06bd5992c318 25,27,31,33,40,42,50,62,74,79,81,85,96,98,102,104,109,122,128,136,138,141,155,157,161,202,204,208,210-219,226,228,238,240,244,246,260,262,265-266,271,273,283,285,305-313,325-335,337,357-358,372,381,383,426,437,439,477,486-497,506,508,514,516,520,535,540,545,547,582,584,627,629,641,643,651,653,657,659,663,665,669,671,675,677,686-695,709,711,716,721,723,731,749,751,760-761,763-766,774,779,781,789,791,799,801,824,826,833,835,880,1026,1055,1057,1070,1074,1078-1080,1091,1093,1107,1109,1137,1139,1152,1154,1163,1168,1170,1186,1188,1213,1215,1223,1225,1278-1286,1289,1291,1295,1341,1343,1346-1347,1371,1373,1380,1382,1386,1413,1415,1419,1421,1427,1430-1431,1437,1439,1490,1495,1497,1504,1506,1509,1514,1516,1524-1527,1529,1535,1537,1543,1547-1548,1550,1552,1556-1557,1559,1561-1563,1567-1568,1570,1572,1577,1579,1592,1594,1597-1598,1618,1620,1630,1632,1647,1649,1689,1691,1694,1702,1704,1710,1715,1717,1739,1741,1759,1761,1786,1788,1796,1798,1805,1807,1811,1816,1818,1840,1842,1844,1860-1861,1863,1865-1867,1877-1878,1892,1894,1910,1912,1916,1918,1926,1928,1935-1937,1940,1942,1971,1975,1982-1983,1987,2035,2037-2048,2069,2079,2087,2089,2091,2096,2098,2102,2107,2109,2116,2118,2130,2132,2136,2138,2156,2158,2187,2192,2194,2201,2208,2210,2214,2219,2221,2236-2237,2245,2247,2250,2269,2271,2280,2282,2287,2294,2296,2298-2299,2302-2304,2309,2311,2313,2317-2318,2320,2326-2327,2329,2333,2335,2350,2353,2355,2363,2365,2370,2375,2377,2380-2381,2385-2386,2388,2390-2397,2408,2421,2423,2429,2468,2503-2509,2511,2566,2568,2570,2582-2587,2614,2616,2618,2632,2634,2645,2647,2655,2657,2662,2668,2670,2677,2679,2719,2730,2841,2843,2882,2888,2890,2905,2911,2913,2926,2932,2934,2941,2943,2947,2980,2985,2987
+third_party/patches/rules_elixir/compile_time_data.patch
+  s_8f6823274fc459::t_7f33328ed333a3 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "29f94665146d05599217df466a52be4bed15490b",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
