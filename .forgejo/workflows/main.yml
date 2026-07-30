@@ -154,7 +154,7 @@ jobs:
         run: |
           # attr() takes exactly three arguments, so the two excluded tags are one
           # alternation pattern rather than two arguments. Integration tests are excluded
-          # here because tests-integration-rust.yml owns them: they drive real containers on
+          # here because rust-tests-integration.yml owns them: they drive real containers on
           # remote microVMs, and folding them into this sweep makes a container failure and
           # a compile failure produce the same red X.
           target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...)) except set(//elixir/web-ng:precommit)'

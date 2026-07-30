@@ -2,7 +2,7 @@ name: Rust Clippy
 
 # Clippy stays on cargo because this repo wires up no clippy aspect for Bazel: there is no
 # rust_clippy target and no --aspects entry in .bazelrc, so `bazel build` has nothing to run.
-# It is deliberately NOT part of tests-rust.yml -- a lint failure and a test failure are
+# It is deliberately NOT part of rust-tests.yml -- a lint failure and a test failure are
 # different problems, and folding them together means a red X that says neither.
 #
 # Note this compiles from the crates.io registry rather than //third_party/crates, so it
@@ -15,7 +15,7 @@ on:
       - 'rust/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.forgejo/workflows/lint-rust.yml'
+      - '.forgejo/workflows/rust-lint.yml'
       - 'scripts/ci/install-sfw.sh'
   pull_request:
     branches: [staging]

@@ -13,9 +13,9 @@ name: Rust Tests
 # Everything that fails for its own reasons lives in its own workflow, so a red X names the
 # problem without anyone opening a log:
 #
-#   lint-rust.yml   clippy          -- a lint regression
-#   audit-rust.yml  cargo-audit     -- an advisory published upstream against untouched code
-#   musl-rust.yml   netprobe static -- a cross-compile or linkage break
+#   rust-lint.yml   clippy          -- a lint regression
+#   rust-audit.yml  cargo-audit     -- an advisory published upstream against untouched code
+#   rust-musl.yml   netprobe static -- a cross-compile or linkage break
 on:
   push:
     branches: [staging]
@@ -117,7 +117,7 @@ jobs:
       # found", which surfaces as a red job that reads like broken infrastructure rather than
       # a suite that quietly stopped existing.
       #
-      # integration_test targets are excluded because tests-integration-rust.yml owns them:
+      # integration_test targets are excluded because rust-tests-integration.yml owns them:
       # they drive real containers on remote microVMs and are far slower than everything
       # here. manual-tagged targets need no exclusion -- --config=ci already sets
       # --build_tag_filters=-manual and --test_tag_filters=-manual.

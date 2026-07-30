@@ -6,7 +6,7 @@ name: Rust Static musl
 #
 # Its own workflow because it fails for its own reasons. This is the only Rust job that
 # cross-compiles, so a break here is a toolchain or linkage problem, not a test problem, and
-# it should be attributable without reading a log. Keeping it out of tests-rust.yml also
+# it should be attributable without reading a log. Keeping it out of rust-tests.yml also
 # means a linkage regression neither blocks nor is blocked by the test sweep.
 on:
   push:
@@ -20,7 +20,7 @@ on:
       - '.bazelrc'
       - 'MODULE.bazel'
       - 'MODULE.bazel.lock'
-      - '.forgejo/workflows/musl-rust.yml'
+      - '.forgejo/workflows/rust-musl.yml'
       - 'scripts/ci/assert-netprobe-libpcap-free.sh'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'

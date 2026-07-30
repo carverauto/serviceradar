@@ -13,7 +13,7 @@ on:
       - 'go/pkg/agent/addon/**'
       - 'proto/agent/addon/v1/**'
       - 'Cargo.lock'
-      - '.forgejo/workflows/tests-rust-addon-interop.yml'
+      - '.forgejo/workflows/rust-tests-addon-interop.yml'
   pull_request:
     branches: [staging]
     paths:
@@ -21,7 +21,7 @@ on:
       - 'go/pkg/agent/addon/**'
       - 'proto/agent/addon/v1/**'
       - 'Cargo.lock'
-      - '.forgejo/workflows/tests-rust-addon-interop.yml'
+      - '.forgejo/workflows/rust-tests-addon-interop.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}

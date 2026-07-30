@@ -15,7 +15,7 @@ on:
     branches: [staging]
     paths: &audit_paths
       - 'rust/rdp-connector-probe/**'
-      - '.forgejo/workflows/audit-rust.yml'
+      - '.forgejo/workflows/rust-audit.yml'
       - 'scripts/ci/install-sfw.sh'
   pull_request:
     branches: [staging]
