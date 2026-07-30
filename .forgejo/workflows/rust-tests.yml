@@ -137,6 +137,17 @@ jobs:
           printf 'Resolved %d test target(s)\n' "${#targets[@]}"
           printf '%s\n' "${targets[@]}" > "${RUNNER_TEMP}/rust-test-targets.txt"
 
+      # Compiling is kept separate from running on purpose: they are different failure modes
+      # with different owners. A broken build is a code or dependency problem, a failing test
+      # is a behaviour problem. Folded into one step the job goes red either way and someone
+      # has to read the log to find out which; split, the step name says it.
+      - name: Build test targets
+        run: |
+          set -euo pipefail
+
+          mapfile -t targets < "${RUNNER_TEMP}/rust-test-targets.txt"
+          bazel build --config=ci "${targets[@]}"
+
       - name: Run tests
         run: |
           set -euo pipefail
