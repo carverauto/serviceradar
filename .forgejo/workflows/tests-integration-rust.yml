@@ -18,6 +18,18 @@ on:
       - '.forgejo/workflows/tests-integration-rust.yml'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'rust/**'
+      - 'proto/**'
+      - 'third_party/crates/**'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.forgejo/workflows/tests-integration-rust.yml'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
