@@ -1,0 +1,39 @@
+third_party/patches/rules_erlang/BUILD.bazel
+  s_155758d020800a::t_1c8dd47bfe5927 4
+build/wasm_plugins/tinygo_repo.bzl
+  s_155758d020800a::t_f9005a47cf3daf 10-40
+  s_155758d020800a::t_52c1e81218f154 83-97
+third_party/patches/rules_erlang/portable_tar_extract.patch
+  s_8f6823274fc459::t_8d0b55f14a37ae 1-35
+MODULE.bazel
+  s_8f6823274fc459::t_8d0b55f14a37ae 103-107
+  s_155758d020800a::t_c2983d694672db 116-117
+MODULE.bazel.lock
+  s_155758d020800a::t_10ac22d0431a12 628,1124,1472,1486,1491
+third_party/patches/rules_elixir/portable_tar_extract.patch
+  s_155758d020800a::t_70661dc124642f 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "152c4cfcadcaebbdd35057bd93b3044787d56f23",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
