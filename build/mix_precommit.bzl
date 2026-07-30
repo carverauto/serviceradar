@@ -166,6 +166,9 @@ command -v cargo
 copy_dir() {{
   local src="$1"
   local dest="$2"
+  # rsync creates only the final path component, so a nested destination such as
+  # $WORKDIR/elixir/web-ng fails with ENOENT unless the parents already exist.
+  mkdir -p "$dest"
   local -a excludes=(
     "--exclude=.git"
     "--exclude=.elixir_ls"
