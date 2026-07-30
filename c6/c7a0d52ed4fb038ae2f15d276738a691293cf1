@@ -1,0 +1,23 @@
+third_party/crates/.serviceradar-vendor-inputs
+  s_8f6823274fc459::t_c7316591818930 31
+scripts/refresh-rust-vendor-inputs.sh
+  s_8f6823274fc459::t_55d8653d9087be 162
+  s_8f6823274fc459::t_7f764669110cb5 1-114,121-123,128-161,163-165
+  s_8f6823274fc459::t_f9ed74b567f4ee 115-120,124-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c6c7a0d52ed4fb038ae2f15d276738a691293cf1",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
