@@ -135,8 +135,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   def handle_event("preview_rule", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <-
-           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, preview} <-
            NetworkCredentialRulePreview.preview_rule(rule,
              resolver: credential_preview_resolver(),
@@ -151,8 +150,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           target_limit: 50
         )
 
-      {:noreply,
-       assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
+      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Credential rule not found")}
@@ -181,8 +179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
            |> assign(:rule_consumers, consumers)}
 
         {:error, reason} ->
-          {:noreply,
-           put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
+          {:noreply, put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
       end
     end
   end
@@ -449,8 +446,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr(:form, :map, required: true)
-  attr(:descriptor, :map, default: nil)
+  attr :form, :map, required: true
+  attr :descriptor, :map, default: nil
 
   defp secret_form_modal(assigns) do
     assigns =
@@ -523,7 +520,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr(:consumers, :map, default: nil)
+  attr :consumers, :map, default: nil
 
   defp rule_consumers_panel(assigns) do
     ~H"""
@@ -577,7 +574,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr(:rule_preview, :map, required: true)
+  attr :rule_preview, :map, required: true
 
   defp rule_preview_modal(assigns) do
     ~H"""
@@ -749,12 +746,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr(:form, :map, required: true)
-  attr(:mode, :atom, required: true)
-  attr(:secrets, :list, required: true)
-  attr(:provider_options, :list, required: true)
-  attr(:integration_profiles, :map, required: true)
-  attr(:agent_options, :list, required: true)
+  attr :form, :map, required: true
+  attr :mode, :atom, required: true
+  attr :secrets, :list, required: true
+  attr :provider_options, :list, required: true
+  attr :integration_profiles, :map, required: true
+  attr :agent_options, :list, required: true
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -791,10 +788,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:show_controller_host?, Map.get(rule_controls, "controller_host", false))
       |> assign(:show_allowed_ports?, Map.get(rule_controls, "allowed_ports", false))
       |> assign(:show_target_query?, Map.get(rule_controls, "target_query", false))
-      |> assign(
-        :show_tls_policy?,
-        Map.get(rule_controls, "transport", false) and tls_policies != []
-      )
+      |> assign(:show_tls_policy?, Map.get(rule_controls, "transport", false) and tls_policies != [])
       |> assign(:provider_tls_policies, tls_policies)
       |> assign(:provider_ssh_host_key_policies, ssh_host_key_policies)
       |> assign(
@@ -1106,10 +1100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp save_rule(
-         %{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket,
-         attrs
-       ) do
+  defp save_rule(%{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket, attrs) do
     attrs = merge_rule_metadata(rule, attrs)
 
     case rule
@@ -1144,16 +1135,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> maybe_select_rule_secret(secret)}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
     end
   end
 
   defp update_enabled(socket, id, action, message) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <-
-           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, _rule} <-
            rule
            |> Ash.Changeset.for_update(action, %{}, scope: scope)
@@ -1392,8 +1381,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required credential fields are missing"}
   end
 
-  defp normalize_secret_params(_params, _integration_profiles),
-    do: {:error, "Credential descriptor is required"}
+  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required"}
 
   defp descriptor_secret_values(raw_values, fields) when is_map(raw_values) and is_list(fields) do
     values = Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)
@@ -1426,8 +1414,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp descriptor_secret_values(_raw_values, _fields),
-    do: {:error, "Required credential fields are missing"}
+  defp descriptor_secret_values(_raw_values, _fields), do: {:error, "Required credential fields are missing"}
 
   defp default_rule_params(params \\ %{}, integration_profiles \\ %{})
 
@@ -1435,8 +1422,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     requested_provider = params |> Map.get("provider", "") |> to_string() |> String.trim()
 
     profile =
-      Map.get(integration_profiles, requested_provider) ||
-        default_integration_profile(integration_profiles)
+      Map.get(integration_profiles, requested_provider) || default_integration_profile(integration_profiles)
 
     cond do
       scheduled_integration_profile?(profile) -> scheduled_rule_defaults(profile)
@@ -1542,9 +1528,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     provider = normalize_provider(Map.get(params, "provider"), integration_profiles)
     profile = Map.get(integration_profiles, provider)
     defaults = default_rule_params(%{"provider" => provider}, integration_profiles)
-
-    auth_method =
-      normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
+    auth_method = normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
 
     purposes =
       normalize_form_purposes(
@@ -1570,8 +1554,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> clear_unsupported_profile_fields(profile)
   end
 
-  defp normalize_rule_form_params(_, integration_profiles),
-    do: default_rule_params(%{}, integration_profiles)
+  defp normalize_rule_form_params(_, integration_profiles), do: default_rule_params(%{}, integration_profiles)
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
 
@@ -1727,10 +1710,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp validate_descriptor_transport(profile, auth_method, tls_policy, ssh_policy) do
     method = credential_method_descriptor(profile, auth_method)
-
-    tls_policies =
-      descriptor_values(method, "tls_policies", Enum.map(@tls_policies, &to_string/1))
-
+    tls_policies = descriptor_values(method, "tls_policies", Enum.map(@tls_policies, &to_string/1))
     ssh_policies = descriptor_values(method, "ssh_host_key_policies")
 
     cond do
@@ -1789,8 +1769,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp maybe_put_policy_selectors(policy, _key, []), do: policy
   defp maybe_put_policy_selectors(policy, key, selectors), do: Map.put(policy, key, selectors)
 
-  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy)
-       when is_map(profile) do
+  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy) when is_map(profile) do
     if scheduled_integration_profile?(profile) do
       scheduled_rule_metadata(params, purposes, profile, credential_use_policy)
     else
@@ -1822,12 +1801,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp scheduled_rule_metadata(params, purposes, profile, credential_use_policy) do
     schedule = profile["producer_schedule"]
-
-    config =
-      ConfigSchema.normalize_params(
-        profile["config_schema"] || %{},
-        params["plugin_config"] || %{}
-      )
+    config = ConfigSchema.normalize_params(profile["config_schema"] || %{}, params["plugin_config"] || %{})
 
     with :ok <- ConfigSchema.validate_params(profile["config_schema"] || %{}, config),
          {:ok, cadence_seconds} <- strict_integer(params, "cadence_seconds"),
@@ -2205,13 +2179,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp form_plugin_config(_form), do: %{}
 
-  defp secret_options_for(
-         secrets,
-         provider,
-         auth_method,
-         selected_secret_id,
-         integration_profiles
-       ) do
+  defp secret_options_for(secrets, provider, auth_method, selected_secret_id, integration_profiles) do
     descriptor = credential_method(integration_profiles, provider, auth_method)
 
     secrets
@@ -2419,9 +2387,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error({field, reason}), do: "#{field}: #{inspect(reason)}"
-
-  defp format_error(reason) when is_atom(reason),
-    do: reason |> to_string() |> String.replace("_", " ")
-
+  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
   defp format_error(reason), do: inspect(reason)
 end
