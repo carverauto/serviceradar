@@ -104,29 +104,6 @@ jobs:
           printf '  %s\n' "${targets[@]}"
           printf '%s\n' "${targets[@]}" > "${RUNNER_TEMP}/integration-targets.txt"
 
-      # Compiling the tests is kept separate from running them on purpose: they are different
-      # failure modes with different owners. A broken build is a code or dependency problem,
-      # while a failing test is a behaviour or environment problem -- frequently, for this
-      # suite, the container rather than the code. Folded into one step, the job goes red
-      # either way and someone has to read the log to find out which; split, the step name
-      # says it.
-      #
-      # The resolved targets are passed explicitly instead of being tag-filtered, because a
-      # build has no --test_tag_filters (that is --build_tag_filters). Filtering here would
-      # be silently ignored and widen the build to all of //rust/....
-      - name: Build integration test targets
-        run: |
-          set -euo pipefail
-
-          mapfile -t targets < "${RUNNER_TEMP}/integration-targets.txt"
-
-          bazel build \
-            --config=ci \
-            "${targets[@]}"
-
-      # Everything here is already built and cached by the step above, so a failure at this
-      # point is a test failure, not a compile failure.
-      #
       # This --test_tag_filters replaces the value test:ci sets in .bazelrc rather than
       # merging with it. The targets were already resolved by tag in the query above, so the
       # filter is a consistency check on that list, not the selection mechanism.
