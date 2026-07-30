@@ -1,0 +1,21 @@
+.forgejo/workflows/tests-rust.yml
+  s_8f6823274fc459::t_5f539675607342 13-18
+.forgejo/workflows/musl-rust.yml
+  s_8f6823274fc459::t_f452cb1595a1e3 1-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "34baafdcab0a6c11d2228f5343c916b7abff4dcd",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
