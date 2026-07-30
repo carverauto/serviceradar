@@ -397,6 +397,10 @@ lint-elixir-dialyzer: ## Run Dialyzer across elixir/* on demand
 		(cd "elixir/$${project}" && mix deps.get && mix deps.compile && mix compile && mix dialyzer); \
 	done
 
+.PHONY: format
+format: ## Run the CI clippy gate over the Rust workspace
+	@./scripts/lint-rust.sh
+
 .PHONY: format-elixir
 format-elixir: ## Run mix format across the Elixir projects under elixir/*
 	@set -eu; \
