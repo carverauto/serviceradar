@@ -143,7 +143,7 @@ cargo_build_script(
     edition = "2021",
     pkg_name = "aya-ebpf",
     proc_macro_deps = [
-        "//third_party/crates/rustversion-1.0.22:rustversion",
+        "//third_party/crates/rustversion-1.0.23:rustversion",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",

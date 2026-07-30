@@ -1,0 +1,25 @@
+[package]
+name = "dgraph-client"
+version = "0.1.0"
+description = "Rust client for DGraph DB"
+edition = "2024"
+license = "Apache-2.0"
+
+
+[dependencies]
+# In-repo protobuf bindings. Internal dependency only: no generated type appears in a
+# public signature of this crate, so regenerating the bindings is not a breaking change for consumers.
+proto_dgraph = { path = "../../proto/dgraph" }
+# tls-ring provides ClientTlsConfig; tls-native-roots provides the system trust store used
+# by sslmode=verify-ca. Enabled per-crate rather than in [workspace.dependencies], matching
+# rust/kvutil, rust/otel, rust/flowgger and rust/rperf-client.
+tonic = { workspace = true, features = ["tls-ring", "tls-native-roots"] }
+rustls = { workspace = true, features = ["ring"] }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+tracing = { workspace = true }
+urlencoding = { workspace = true }
+
+[dev-dependencies]
+docker_utils = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }

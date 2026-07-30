@@ -109,34 +109,34 @@ rust_library(
         "//third_party/crates/untrusted-0.9.0:untrusted",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))
         ],
         "@rules_rust//rust/platform:aarch64-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "//third_party/crates/windows-sys-0.52.0:windows_sys",  # cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_os = "windows"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))
         ],
         "//conditions:default": [],
     }),
@@ -199,7 +199,7 @@ cargo_build_script(
     version = "0.17.14",
     visibility = ["//visibility:private"],
     deps = [
-        "//third_party/crates/cc-1.2.62:cc",
+        "//third_party/crates/cc-1.4.0:cc",
     ],
 )
 

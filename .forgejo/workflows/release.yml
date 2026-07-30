@@ -89,6 +89,16 @@ jobs:
       OCI_CHART_REPOSITORY: serviceradar/charts
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      # Harbor above is where this job PUSHES. These two are where Bazel PULLS base images
+      # from: MODULE.bazel fetches 7 from docker.io and 3 from ghcr.io. Without them the
+      # release path pulls all ten anonymously, against Docker Hub's 100-per-6h-per-IP limit
+      # and ghcr's equivalent -- a throttled fetch surfaces as a Bazel "no such package"
+      # loading error, which does not look like a rate limit at all. main.yml already passes
+      # these; buildbuddy_setup_docker_auth.sh writes an entry per registry.
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}

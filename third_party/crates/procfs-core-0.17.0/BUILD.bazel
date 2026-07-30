@@ -94,7 +94,7 @@ rust_library(
     }),
     version = "0.17.0",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
         "//third_party/crates/hex-0.4.3:hex",
     ],
 )

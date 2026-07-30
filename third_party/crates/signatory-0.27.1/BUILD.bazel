@@ -101,6 +101,6 @@ rust_library(
         "//third_party/crates/pkcs8-0.10.2:pkcs8",
         "//third_party/crates/rand_core-0.6.4:rand_core",
         "//third_party/crates/signature-2.2.0:signature",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
+        "//third_party/crates/zeroize-1.9.0:zeroize",
     ],
 )

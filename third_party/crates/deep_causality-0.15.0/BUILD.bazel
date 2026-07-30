@@ -95,11 +95,11 @@ rust_library(
     version = "0.15.0",
     deps = [
         "//third_party/crates/deep_causality_algebra-0.2.0:deep_causality_algebra",
-        "//third_party/crates/deep_causality_ast-0.1.7:deep_causality_ast",
+        "//third_party/crates/deep_causality_ast-0.1.9:deep_causality_ast",
         "//third_party/crates/deep_causality_core-0.11.1:deep_causality_core",
-        "//third_party/crates/deep_causality_data_structures-0.10.14:deep_causality_data_structures",
-        "//third_party/crates/deep_causality_haft-0.4.1:deep_causality_haft",
+        "//third_party/crates/deep_causality_data_structures-0.10.16:deep_causality_data_structures",
+        "//third_party/crates/deep_causality_haft-0.4.2:deep_causality_haft",
         "//third_party/crates/deep_causality_uncertain-0.5.0:deep_causality_uncertain",
-        "//third_party/crates/ultragraph-0.9.0:ultragraph",
+        "//third_party/crates/ultragraph-0.9.3:ultragraph",
     ],
 )

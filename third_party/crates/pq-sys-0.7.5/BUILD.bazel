@@ -104,7 +104,7 @@ rust_library(
     }),
     version = "0.7.5",
     deps = [
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
         "//third_party/crates/pq-src-0.3.11-libpq-18.3:pq_src",
         "//third_party/crates/pq-sys-0.7.5:build_script_build",
     ],

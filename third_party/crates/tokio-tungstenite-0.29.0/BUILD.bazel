@@ -100,9 +100,9 @@ rust_library(
     }),
     version = "0.29.0",
     deps = [
-        "//third_party/crates/futures-util-0.3.32:futures_util",
-        "//third_party/crates/log-0.4.30:log",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/futures-util-0.3.33:futures_util",
+        "//third_party/crates/log-0.4.33:log",
+        "//third_party/crates/tokio-1.53.1:tokio",
         "//third_party/crates/tungstenite-0.29.0:tungstenite",
     ],
 )

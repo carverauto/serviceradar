@@ -41,7 +41,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     proc_macro_deps = [
-        "//third_party/crates/async-trait-0.1.89:async_trait",
+        "//third_party/crates/async-trait-0.1.91:async_trait",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",
@@ -101,8 +101,8 @@ rust_library(
     }),
     version = "0.8.6",
     deps = [
-        "//third_party/crates/futures-util-0.3.32:futures_util",
+        "//third_party/crates/futures-util-0.3.33:futures_util",
         "//third_party/crates/parking_lot-0.12.5:parking_lot",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/tokio-1.53.1:tokio",
     ],
 )

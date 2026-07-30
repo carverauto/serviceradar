@@ -94,8 +94,8 @@ rust_library(
     }),
     version = "0.5.1",
     deps = [
-        "//third_party/crates/log-0.4.30:log",
-        "//third_party/crates/serde-1.0.228:serde",
+        "//third_party/crates/log-0.4.33:log",
+        "//third_party/crates/serde-1.0.229:serde",
         "//third_party/crates/thiserror-1.0.69:thiserror",
         "//third_party/crates/xml-rs-0.8.28:xml",
     ],

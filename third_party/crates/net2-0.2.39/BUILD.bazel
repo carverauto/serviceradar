@@ -101,100 +101,100 @@ rust_library(
         "//third_party/crates/cfg-if-0.1.10:cfg_if",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "//third_party/crates/winapi-0.3.9:winapi",  # cfg(windows)
         ],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:i686-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:i686-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
             "//third_party/crates/winapi-0.3.9:winapi",  # cfg(windows)
         ],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:wasm32-wasip1": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:wasm32-wasip1-threads": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:wasm32-wasip2": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-ios": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
             "//third_party/crates/winapi-0.3.9:winapi",  # cfg(windows)
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(unix, target_os = "wasi"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(unix, target_os = "wasi"))
         ],
         "//conditions:default": [],
     }),

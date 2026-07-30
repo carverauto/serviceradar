@@ -113,7 +113,7 @@ rust_library(
         "//third_party/crates/crc32fast-1.5.0:crc32fast",
         "//third_party/crates/hashbrown-0.17.1:hashbrown",
         "//third_party/crates/indexmap-2.14.0:indexmap",
-        "//third_party/crates/memchr-2.8.1:memchr",
+        "//third_party/crates/memchr-2.8.3:memchr",
         "//third_party/crates/object-0.39.1:build_script_build",
     ],
 )

@@ -38,7 +38,8 @@ use crate::shed::{
     EmissionShedReport, EmissionShedSeries, ShedReport, emission_shed_record, shed_record,
 };
 use crate::verdict::{
-    VerdictRecordOptions, cusum_drift_record_with_policy, verdict_record_with_policy,
+    CusumDriftRecordOptions, VerdictRecordOptions, cusum_drift_record_with_policy,
+    verdict_record_with_policy,
 };
 use addon_sdk::TelemetryStream;
 
@@ -228,8 +229,10 @@ fn push_evaluated_candidates(
             ctx.series_key,
             &evaluated.verdict,
             drift,
-            ctx.engine_config.drift_escalate_after_secs,
-            ctx.severity_policy,
+            CusumDriftRecordOptions {
+                drift_escalate_after_secs: ctx.engine_config.drift_escalate_after_secs,
+                severity_policy: ctx.severity_policy,
+            },
         );
         candidates.push(EmissionCandidate::new(
             record,

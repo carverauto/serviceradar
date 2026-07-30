@@ -48,4 +48,4 @@ Deferred to preserve Flowgger upstream compatibility. Both crates retain their o
 - [x] 7.5 Remove old Helm templates (`otel.yaml`, `flowgger.yaml`) and update SPIRE IDs
 - [x] 7.6 Remove old docker-compose services (`flowgger`, `otel`) and volumes
 - [x] 7.7 Update Helm `values.yaml` — replace `flowgger.*` / `otel.*` with `logCollector.*`, update SPIRE SAs, configSync, cert generation, otelExporter endpoint
-- [x] 7.8 Update CI workflows (`tests-rust.yml`, `sbom-images.yml`) and `scripts/build-images.sh`
+- [x] 7.8 Update CI workflows (`rust-tests.yml`, `sbom-images.yml`) and `scripts/build-images.sh`
