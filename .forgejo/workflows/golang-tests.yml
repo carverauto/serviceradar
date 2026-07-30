@@ -139,14 +139,28 @@ jobs:
             --@io_bazel_rules_go//go/config:race \
             "${targets[@]}"
 
-      # The old `-count=10 -short` leg. --runs_per_test is the Bazel spelling, and
-      # --flaky_test_attempts=1 overrides the repo-wide default of 2 from .bazelrc: retrying
-      # a failure is the exact opposite of what running a test ten times is for.
+      # The old `go test -timeout=10m -count=10 -short` leg, translated flag for flag.
+      #
+      # -count=10 is `--test_arg=-test.count=10`, NOT --runs_per_test=10. They are not the
+      # same thing: -count repeats the tests inside one process, --runs_per_test launches the
+      # binary ten times. The latter turned 54 test actions into 540, fed to the executors
+      # 100 at a time (build:remote_base --jobs=100, which --config=ci inherits). cli_test --
+      # whose entire body is 0.05s of pure function calls once -short skips the embedded-NATS
+      # case -- then came back TIMEOUT in 4 of 10 at exactly 300.0s while the other 6 finished
+      # in 2.1s. A test that either takes 2s or lands exactly on the wall is waiting for a
+      # slot, not running.
+      #
+      # --test_timeout=600 restores the old `-timeout=10m`. Without it each target falls back
+      # to the timeout implied by its size attribute, which for an unsized go_test is medium /
+      # 300s -- so this leg silently held every target to half the limit it used to have.
+      #
+      # --flaky_test_attempts=1 overrides the repo-wide default of 2 from .bazelrc: retrying a
+      # failure is the exact opposite of what running a test ten times is for.
       #
       # -failfast has no Bazel equivalent and is not emulated. --config=ci sets --keep_going,
       # so one run reports every failing target instead of the first one, which is what you
       # want from CI even though it costs more than stopping early.
-      - name: Run tests (short, 10 runs)
+      - name: Run tests (short, 10 counts)
         run: |
           set -euo pipefail
 
@@ -154,8 +168,9 @@ jobs:
           bazel test --config=ci \
             --@io_bazel_rules_go//go/config:pure=false \
             --@io_bazel_rules_go//go/config:race \
-            --runs_per_test=10 \
+            --test_timeout=600 \
             --flaky_test_attempts=1 \
+            --test_arg=-test.count=10 \
             --test_arg=-test.short \
             --test_arg=-test.shuffle=on \
             --test_output=errors \

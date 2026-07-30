@@ -379,11 +379,11 @@ config :tailwind,
 # Guarded by an env var so only the Bazel lint action is affected; every other build
 # (dev, test, prod, //elixir/web-ng:release_tar) still compiles the NIFs normally.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
-  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels,
-    skip_compilation?: true
-
+  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
+
   config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true
 end
 

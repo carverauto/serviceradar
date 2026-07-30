@@ -1,9 +1,9 @@
-FILE:@@//Cargo.lock 0b8119540c3ea57b22e246cff98d9f0f6838cf5e298875b150e355a71b986b61
+FILE:@@//Cargo.lock b74b34acd19694ba1623ce31b8d04a42385e9002b39a454facd00e305835b068
 FILE:@@//Cargo.toml 3234036c49fc9a58b7ecab7930840af8057a8095fae5bdd7f08b8911a68dd521
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//proto/dgraph/Cargo.toml 122c820729402b715ddba34da04e1deb85a450b50b8fb0f05c5080f1ac0bf535
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
-FILE:@@//rust/anomaly-addon/Cargo.toml c0d08b8a7ee8873b17809bd12965225ac2188414ec90f77efcf4bdc7b69e45e4
+FILE:@@//rust/anomaly-addon/Cargo.toml 4cb458cc1fbfddb434e6ce9ab8cd2a66c391e071c6873f56f2ea87d1d461533c
 FILE:@@//rust/anomaly-core/Cargo.toml 3e9c0ec047f5a09c252dd1939053e098c555275ca512b84a1892d083ae60d458
 FILE:@@//rust/anomaly-disposition/Cargo.toml 75f74e6aca6ae4781fa47d6c57818df1975dff4840c7cfac019810612da937b5
 FILE:@@//rust/bmp-collector/Cargo.toml 73af2f4b7486999bd0fe5341ebefca7100d86dea02eddaea78bf9b766d052d16
