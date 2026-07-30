@@ -81,11 +81,7 @@ config:
     # (build:ci in //.bazelrc). Pointed at remote.buildbuddy.io -- BuildBuddy's cloud --
     # this fleet registers with a scheduler that CI never sends work to, so the executors
     # sit idle while builds run locally on the CI runner.
-    # Switch to
-    #
-    # app_target: grpcs://carverauto.buildbuddy.io:443
-    #
-    app_target: grpcs://remote.buildbuddy.io:443
+    app_target: grpcs://carverauto.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
     enable_firecracker: true
