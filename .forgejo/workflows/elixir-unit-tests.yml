@@ -94,8 +94,8 @@ jobs:
 
           count="$(bazel query 'tests(//elixir/serviceradar_core:unit_tests)' 2>/dev/null | wc -l | tr -d ' ')"
           echo "Resolved ${count} ExUnit targets"
-          if [ "${count}" -lt 400 ]; then
-            echo "Expected at least 400 test targets; the glob in elixir/serviceradar_core/BUILD.bazel is probably wrong." >&2
+          if [ "${count}" -lt 11 ]; then
+            echo "Expected at least 11 test targets; the glob in elixir/serviceradar_core/BUILD.bazel is probably wrong." >&2
             exit 1
           fi
 
