@@ -1,0 +1,23 @@
+.forgejo/workflows/release.yml
+  s_8f6823274fc459::t_453e81c717e23f 92-101
+buildbuddy_setup_docker_auth.sh
+  s_8f6823274fc459::t_4ec6bc1071f14b 77-82
+.forgejo/workflows/publish-oci.yml
+  s_8f6823274fc459::t_2197ca06c54a98 40-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "4910fdf1087f075c3b86e4ce2fd71c794fa74f1c",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
