@@ -174,6 +174,8 @@ defmodule Serviceradar.Edge.V1.EdgeCapabilityPurpose do
   field :EDGE_CAPABILITY_PURPOSE_PRODUCTION, 1
   field :EDGE_CAPABILITY_PURPOSE_SOURCE, 2
   field :EDGE_CAPABILITY_PURPOSE_DELIVERY, 3
+  field :EDGE_CAPABILITY_PURPOSE_COLLECTION, 4
+  field :EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION, 5
 end
 
 defmodule Serviceradar.Edge.V1.EdgeRecordDispositionKind do
@@ -364,6 +366,76 @@ defmodule Serviceradar.Edge.V1.EdgeDeliveryRolloverV1 do
   field :prior_sequence, 3, type: :uint64, json_name: "priorSequence"
 end
 
+defmodule Serviceradar.Edge.V1.EdgeCollectionClaimsV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeCollectionClaimsV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :purpose, 1, type: Serviceradar.Edge.V1.EdgeCapabilityPurpose, enum: true
+  field :network_scope_id, 2, type: :bytes, json_name: "networkScopeId"
+  field :authenticated_agent_id, 3, type: :bytes, json_name: "authenticatedAgentId"
+  field :execution_plan_id, 4, type: :bytes, json_name: "executionPlanId"
+  field :target_range_id, 5, type: :bytes, json_name: "targetRangeId"
+  field :execution_shard, 6, type: :uint32, json_name: "executionShard"
+  field :assignment_epoch, 7, type: :uint64, json_name: "assignmentEpoch"
+
+  field :compiled_assignment_body_sha256, 8,
+    type: :bytes,
+    json_name: "compiledAssignmentBodySha256"
+
+  field :traffic_class, 9,
+    type: Serviceradar.Edge.V1.EdgeRecordTrafficClass,
+    json_name: "trafficClass",
+    enum: true
+
+  field :producer_assignment_id, 10, type: :bytes, json_name: "producerAssignmentId"
+  field :execution_id, 11, type: :bytes, json_name: "executionId"
+end
+
+defmodule Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1 do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.edge.v1.EdgeAssignmentExecutionClaimsV1",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :purpose, 1, type: Serviceradar.Edge.V1.EdgeCapabilityPurpose, enum: true
+  field :network_scope_id, 2, type: :bytes, json_name: "networkScopeId"
+  field :authenticated_agent_id, 3, type: :bytes, json_name: "authenticatedAgentId"
+  field :producer_assignment_id, 4, type: :bytes, json_name: "producerAssignmentId"
+  field :execution_id, 5, type: :bytes, json_name: "executionId"
+  field :run_id, 6, type: :bytes, json_name: "runId"
+  field :run_shard, 7, type: :uint32, json_name: "runShard"
+  field :authority_epoch, 8, type: :uint64, json_name: "authorityEpoch"
+  field :production_scope_id, 9, type: :bytes, json_name: "productionScopeId"
+  field :scope_sha256, 10, type: :bytes, json_name: "scopeSha256"
+  field :contract_bundle_sha256, 11, type: :bytes, json_name: "contractBundleSha256"
+  field :execution_plan_sha256, 12, type: :bytes, json_name: "executionPlanSha256"
+  field :target_range_sha256, 13, type: :bytes, json_name: "targetRangeSha256"
+
+  field :traffic_class, 14,
+    type: Serviceradar.Edge.V1.EdgeRecordTrafficClass,
+    json_name: "trafficClass",
+    enum: true
+
+  field :collection_not_before_unix_nano, 15,
+    type: :int64,
+    json_name: "collectionNotBeforeUnixNano"
+
+  field :collection_expires_unix_nano, 16, type: :int64, json_name: "collectionExpiresUnixNano"
+
+  field :source_identity, 17,
+    type: Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1,
+    json_name: "sourceIdentity"
+
+  field :compiled_assignment_id, 18, type: :bytes, json_name: "compiledAssignmentId"
+  field :compiled_assignment_sha256, 19, type: :bytes, json_name: "compiledAssignmentSha256"
+end
+
 defmodule Serviceradar.Edge.V1.EdgeSignedCapabilityV1 do
   @moduledoc false
 
@@ -383,6 +455,13 @@ defmodule Serviceradar.Edge.V1.EdgeSignedCapabilityV1 do
   field :production, 7, type: Serviceradar.Edge.V1.EdgeProductionClaimsV1, oneof: 0
   field :source, 8, type: Serviceradar.Edge.V1.EdgeSourceClaimsV1, oneof: 0
   field :delivery, 9, type: Serviceradar.Edge.V1.EdgeDeliveryClaimsV1, oneof: 0
+  field :collection, 11, type: Serviceradar.Edge.V1.EdgeCollectionClaimsV1, oneof: 0
+
+  field :assignment_execution, 12,
+    type: Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1,
+    json_name: "assignmentExecution",
+    oneof: 0
+
   field :signature, 10, type: :bytes
 end
 

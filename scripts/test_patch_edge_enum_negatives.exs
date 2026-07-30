@@ -30,7 +30,7 @@ defmodule TransformFixtureTest do
     EdgeSourceAuthorizationKind EdgeUnattributableReason MtrCompletionDisposition MtrOutcome
     SweepAssignmentState SweepExecutionEventKind
     SweepExecutionSource
-    SweepMode SweepModeBit SweepModeOutcome TransportProtocol
+    SweepMode SweepModeBit SweepModeOutcome SweepResultFormat TransportProtocol
   )
 
   # Derived, never restated: adding an enum to the inventory above must not require

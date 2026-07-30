@@ -44,7 +44,8 @@ func (d *digestWriter) outputContract(c *edgev1.EdgeOutputContractRef, present b
 }
 
 // claimsFramed writes the capability's `claims` oneof: a u64 discriminant equal
-// to the set member's proto field number (7/8/9, or 0 for none), followed by the
+// to the set member's proto FIELD NUMBER -- currently 7 (production), 8 (source),
+// 9 (delivery), 11 (collection) or 12 (assignment_execution), or 0 for none -- followed by the
 // selected claim message framed field-by-field. Used by BOTH the semantic-envelope
 // capability() sub-frame AND CapabilitySigningBytes so the two bind the claims
 // identically (task 1.13 unification).
@@ -59,9 +60,39 @@ func (d *digestWriter) claimsFramed(c *edgev1.EdgeSignedCapabilityV1) {
 	case *edgev1.EdgeSignedCapabilityV1_Delivery:
 		d.u64(9)
 		d.deliveryClaims(cl.Delivery)
+	case *edgev1.EdgeSignedCapabilityV1_Collection:
+		// The discriminant is the member's PROTO FIELD NUMBER, which is 11 -- not its
+		// position in this switch. Collection was added after `signature` took 10.
+		d.u64(11)
+		d.collectionClaims(cl.Collection)
+	case *edgev1.EdgeSignedCapabilityV1_AssignmentExecution:
+		// Field number 12, again NOT the switch position.
+		d.u64(12)
+		d.executionGrantClaims(cl.AssignmentExecution)
 	default:
 		d.u64(0)
 	}
+}
+
+// collectionClaims frames EdgeCollectionClaimsV1 (fields 1-11, in field order).
+//
+// `compiled_assignment_body_sha256` is the load-bearing member: it commits every compiled
+// fact, so this claim signs config generation, result format, check set and validity
+// window TRANSITIVELY without restating any of them. It is the BODY digest, not the
+// artifact address -- the artifact address covers this capability, so signing it would
+// require the signature to cover itself.
+func (d *digestWriter) collectionClaims(c *edgev1.EdgeCollectionClaimsV1) {
+	d.u64(uint64(c.GetPurpose()))
+	d.bytes(c.GetNetworkScopeId())
+	d.bytes(c.GetAuthenticatedAgentId())
+	d.bytes(c.GetExecutionPlanId())
+	d.bytes(c.GetTargetRangeId())
+	d.u64(uint64(c.GetExecutionShard()))
+	d.u64(c.GetAssignmentEpoch())
+	d.bytes(c.GetCompiledAssignmentBodySha256())
+	d.u64(uint64(c.GetTrafficClass()))
+	d.bytes(c.GetProducerAssignmentId())
+	d.bytes(c.GetExecutionId())
 }
 
 // productionClaims frames EdgeProductionClaimsV1 (fields 1-23, in field order).
@@ -135,4 +166,42 @@ func (d *digestWriter) deliveryClaims(c *edgev1.EdgeDeliveryClaimsV1) {
 	default:
 		d.u64(0)
 	}
+}
+
+// executionGrantClaims frames EdgeAssignmentExecutionClaimsV1 (fields 1-19, in field
+// order). The nested source identity is framed with an explicit presence marker followed
+// by its members, so present-with-zeros cannot collide with absent.
+func (d *digestWriter) executionGrantClaims(c *edgev1.EdgeAssignmentExecutionClaimsV1) {
+	d.u64(uint64(c.GetPurpose()))
+	d.bytes(c.GetNetworkScopeId())
+	d.bytes(c.GetAuthenticatedAgentId())
+	d.bytes(c.GetProducerAssignmentId())
+	d.bytes(c.GetExecutionId())
+	d.bytes(c.GetRunId())
+	d.u64(uint64(c.GetRunShard()))
+	d.u64(c.GetAuthorityEpoch())
+	d.bytes(c.GetProductionScopeId())
+	d.bytes(c.GetScopeSha256())
+	d.bytes(c.GetContractBundleSha256())
+	d.bytes(c.GetExecutionPlanSha256())
+	d.bytes(c.GetTargetRangeSha256())
+	d.u64(uint64(c.GetTrafficClass()))
+	d.i64(c.GetCollectionNotBeforeUnixNano())
+	d.i64(c.GetCollectionExpiresUnixNano())
+	id := c.GetSourceIdentity()
+	// An explicit presence marker, matching every other grammar in this package. With this
+	// message's fixed member list an absent identity and a present-but-empty one already frame
+	// differently, so within THIS package the marker is not the thing that separates them.
+	// Deleting it nonetheless breaks the COMMITTED signing-preimage vector in //proto/edge/v1 --
+	// which is the ABI freeze doing its job -- so it is load-bearing for cross-runtime agreement
+	// even where it is redundant for disambiguation.
+	d.present(id != nil)
+	if id != nil {
+		d.u64(uint64(id.GetKind()))
+		d.bytes(id.GetContextId())
+		d.bytes(id.GetSourceScopeId())
+		d.bytes(id.GetSourceScopeSha256())
+	}
+	d.bytes(c.GetCompiledAssignmentId())
+	d.bytes(c.GetCompiledAssignmentSha256())
 }

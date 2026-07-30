@@ -85,7 +85,7 @@ here.
   counters, from the non-invertible commitment, or from `mtr_admission_budget` (a
   ceiling).
   IMPLEMENTATION NOTE (non-normative): the received-bytes boundary for the scheduler
-  plan page is `edgerecord.ValidatePlanPagesFromRaw` in Go and
+  plan page is `edgerecord.ValidatePlanFromRaw` in Go and
   `ServiceRadar.Edge.WireDecode.decode_plan_page/1` in Elixir. These are NOT peers and
   are not claimed to be: the Go entry bounds and validates a whole raw page CHAIN
   against its header, while the Elixir entry bounds and decodes ONE page, with the
@@ -312,7 +312,7 @@ here.
   runtimes. The residual clauses (timestamp units, optional zero-valued
   measurements, ASN range, unsupported-version handling) were NOT verified
   clause-by-clause and remain open. The exact-received-bytes rule also applies here,
-  and for `ScheduledPlanPageV1` it is now SATISFIED: `ValidatePlanPagesFromRaw` (Go)
+  and for `ScheduledPlanPageV1` it is now SATISFIED: `ValidatePlanFromRaw` (Go)
   and `WireDecode.decode_plan_page/1` (Elixir) bound the RECEIVED bytes before
   decoding, with shared at-limit / one-over vectors. `ValidatePlanPages` still
   measures a re-marshal and is retained only as a coarse decoded-struct guard.
