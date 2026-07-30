@@ -59,14 +59,3 @@
  """.format(identifier = identifier)
  
      return build_file_content
---- a/private/elixir_build.bzl
-+++ b/private/elixir_build.bzl
-@@ -140,7 +140,7 @@
-         ctx.toolchains["@rules_erlang//tools:toolchain_type"].otpinfo,
-         ElixirInfo(
-             release_dir = release_dir,
--            elixir_home = None,
-+            elixir_home = release_dir.path,
-             version_file = version_file,
-         ),
-     ]

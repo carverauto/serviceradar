@@ -57,7 +57,10 @@ def _mix_precommit_impl(ctx):
     otp_tar = getattr(otp, "release_dir_tar", None)
 
     # short_path for tree artifacts, so the sandbox symlink forest resolves the binaries.
-    elixir_home = elixir.elixir_home or elixir.release_dir.short_path
+    # release_dir.path, not short_path: these run as build ACTIONS whose cwd is the
+    # execroot, where .path resolves and ../<repo>/... does not. elixir_home is only
+    # non-None for a genuinely externally-installed Elixir.
+    elixir_home = elixir.elixir_home or elixir.release_dir.path
 
     log_out = ctx.outputs.out
 
