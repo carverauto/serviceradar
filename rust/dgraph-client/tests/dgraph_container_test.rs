@@ -10,7 +10,7 @@
 //! cargo test -p dgraph-client -- --ignored
 //! ```
 //!
-//! # Why this is one test function
+//! # How this test function
 //!
 //! Every scenario shares one container, and several call `drop_all`, which wipes the
 //! cluster. Both cargo and Bazel run test *functions* concurrently, and neither honours

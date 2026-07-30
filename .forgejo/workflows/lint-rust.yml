@@ -72,8 +72,40 @@ jobs:
 
       # One workspace-wide pass rather than one per crate: the crates share a target
       # directory, so per-crate invocations rebuild the same dependencies over and over.
+      #
+      # third_party/rust_patches/* are workspace members, so --workspace reaches them, but
+      # they are vendored upstream sources carrying our build patches -- not code this repo
+      # authors, and not code a lint gate should have an opinion about. They also fail
+      # --all-targets on a clean tree because their dev-dependencies are undeclared, so
+      # linting them would gate every PR on a pre-existing upstream defect.
+      #
+      # The exclusions are derived from the manifest path rather than listed by name, so a
+      # fourth fork landing under third_party/rust_patches/ is excluded without anyone
+      # remembering to edit this file. cargo --exclude takes package names, not paths, which
+      # is why this has to go through cargo metadata at all.
       - name: Clippy (workspace)
-        run: sfw cargo clippy --workspace --all-targets -- -D warnings
+        run: |
+          set -euo pipefail
+
+          excludes=()
+          for manifest in third_party/rust_patches/*/Cargo.toml; do
+            # An unmatched glob stays literal, so check before reading it.
+            [ -f "${manifest}" ] || continue
+
+            name="$(sed -n 's/^name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' "${manifest}" | head -n 1)"
+            if [ -z "${name}" ]; then
+              echo "could not read a package name from ${manifest}" >&2
+              exit 1
+            fi
+
+            echo "excluding ${name} (${manifest})"
+            excludes+=(--exclude "${name}")
+          done
+
+          # ${excludes[@]+...} keeps `set -u` happy if the directory is ever empty.
+          sfw cargo clippy --workspace --all-targets \
+            ${excludes[@]+"${excludes[@]}"} \
+            -- -D warnings
 
       # rdp-connector-probe is deliberately detached from the workspace -- its own
       # [workspace] table and lockfile, see rust/README_RUST.md section 1 -- so a workspace
