@@ -1,0 +1,19 @@
+elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/network_credential_rules_live.ex
+  s_8f6823274fc459::t_e1ab737933730a 138,153,182,449-450,523,577,749-754,791,1103,1138,1145,1384,1417,1425,1531,1557,1713,1772,1804,2182,2390
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "690f212f5405a6666ef4e6958ca10cfce3848950",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
