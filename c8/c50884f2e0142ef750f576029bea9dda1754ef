@@ -1,0 +1,31 @@
+rust/anomaly-addon/src/verdict.rs
+  s_155758d020800a::t_e395bcfb4e34b5 261,265
+  s_155758d020800a::t_8fc5c26f620580 437,439,447,459-460
+  s_155758d020800a::t_412df6a08db0bd 492
+  s_155758d020800a::t_9201866c0e9ed0 42-47
+  s_155758d020800a::t_f24a75bbb930ff 101
+  s_155758d020800a::t_b73b1c428068dd 240-243,254
+rust/anomaly-addon/src/frame.rs
+  s_155758d020800a::t_4e39b8868e0c36 41-42
+  s_155758d020800a::t_70e8af3c8ff681 232-235
+rust/srql/src/query/flows.rs
+  s_155758d020800a::t_27c46040e42231 124-169
+rust/netprobe/Cargo.toml
+  s_155758d020800a::t_89c8c00f15f49a 42-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c8c50884f2e0142ef750f576029bea9dda1754ef",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
