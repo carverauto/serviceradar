@@ -58,6 +58,18 @@ mix_precommit(
     # staged into the action's work directory, not built by Bazel -- mix and cargo build them
     # from source the same way they did before.
     extra_dirs = [
+        # serviceradar_core's *_addon_package_seeder modules File.read! these schemas at
+        # module-compile time via @external_resource, reaching out of the project with
+        # "../../../../../addons/<id>/config.schema.json". Declaring the manifests in `data`
+        # only stages them in the execroot; `extra_dirs` is what copies a directory into the
+        # action work directory, so without these five entries the compile dies with
+        # File.Error on the first seeder. Keep this list in sync with
+        # `grep -l addons/ elixir/serviceradar_core/lib/serviceradar/plugins/*.ex`.
+        "addons/bumblebee-scan",
+        "addons/netprobe",
+        "addons/otel-collector",
+        "addons/scalibr-endpoint-inventory",
+        "addons/workload-identity",
         "elixir/connection",
         "elixir/datasvc",
         "elixir/elixir_uuid",
@@ -71,6 +83,11 @@ mix_precommit(
         "rust/srql",
     ],
     extra_dir_srcs = [
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
+        "//addons/otel-collector:otel_collector_manifest",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
         "//elixir/connection:srcs",
         "//elixir/datasvc:srcs",
         "//elixir/elixir_uuid:srcs",
@@ -90,11 +107,6 @@ mix_precommit(
         "//:elixir/.credo.ex_dna.exs",
         "//:elixir/.credo.ex_slop.exs",
         "//:elixir/.credo.jump_checks.exs",
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
     ],
 )
 

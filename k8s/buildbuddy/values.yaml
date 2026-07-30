@@ -70,6 +70,21 @@ config:
     # trusted.overlay.opaque, so any image with an opaque dir fails to extract
     # ("failed to convert whiteout file ... operation not supported").
     enable_local_snapshot_sharing: true
+    # The org's own BuildBuddy instance, not BuildBuddy cloud.
+    #
+    # This is the executor's control AND data plane, not a reporting link: over it the
+    # executor registers with the scheduler, receives task assignments, and reads action
+    # inputs from / writes outputs to the CAS. `local_cache_directory` below is a local
+    # cache OF that remote CAS.
+    #
+    # It therefore has to name the same instance the Bazel client talks to
+    # (build:ci in //.bazelrc). Pointed at remote.buildbuddy.io -- BuildBuddy's cloud --
+    # this fleet registers with a scheduler that CI never sends work to, so the executors
+    # sit idle while builds run locally on the CI runner.
+    # Switch to
+    #
+    # app_target: grpcs://carverauto.buildbuddy.io:443
+    #
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
