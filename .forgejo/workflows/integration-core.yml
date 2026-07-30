@@ -107,14 +107,22 @@ jobs:
           rustc --version
           cargo --version
 
-      # This job had no caching at all, which is most of its ~10 minute runtime. Every run
-      # re-fetched and recompiled 137 Hex packages and recompiled 1199 Ash-heavy Elixir files
-      # before a single test could run. Keyed on lockfiles rather than sources, so an ordinary
-      # source change is a cache HIT and mix recompiles only what actually changed; the
-      # restore-keys prefix means even a dependency bump starts from the previous tree instead
-      # of from nothing. Same projects and same pattern as elixir-quality.yml.
+      # Measured on a 1002s run: 570s was `mix deps.get` plus compiling 137 Hex packages and
+      # 1199 Ash-heavy Elixir files, against only 315s of actual test execution. That compile is
+      # what these caches target.
+      #
+      # Keyed on lockfiles rather than sources, so an ordinary source change is a cache HIT and
+      # mix recompiles only what changed; the restore-keys prefix means even a dependency bump
+      # starts from the previous tree rather than nothing.
+      #
+      # restore/save split rather than the combined actions/cache, which saves in a post step
+      # gated on success(). With the suite red that meant every run missed, failed, and saved
+      # nothing -- the cache could never populate, so it looked like caching did not work at all.
+      # The save steps at the end of this job use if: always(); a compiled dependency tree does
+      # not stop being valid because a test failed.
       - name: Cache Elixir dependencies and build
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        id: cache_mix
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
             ~/.hex
@@ -133,7 +141,8 @@ jobs:
       # not //Cargo.lock. A stale hit is safe: cargo fingerprints the path-dependency sources
       # under rust/ itself and rebuilds whatever actually changed.
       - name: Cache Rustler NIF builds
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        id: cache_nif
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
             ~/.cargo/registry
@@ -342,3 +351,35 @@ jobs:
 
           ./scripts/drop-test-db.sh \
             "${SRQL_TEST_ADMIN_URL}" "${SERVICERADAR_CI_TEST_DATABASE_URL}"
+
+      # Saved with if: always() so a failing suite still populates the cache. The combined
+      # actions/cache saves in a post step gated on success(); with the suite red that meant
+      # every run missed and saved nothing, so the cache never populated and appeared useless.
+      # A compiled dependency tree does not become invalid because a test failed.
+      #
+      # Skipped on an exact-key hit (cache_hit == 'true'): the content is already stored under
+      # that key, and actions/cache/save errors on a duplicate key rather than no-opping.
+      - name: Save Elixir dependency cache
+        if: ${{ always() && steps.cache_mix.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            elixir/serviceradar_core/deps
+            elixir/serviceradar_core/_build
+            elixir/serviceradar_srql/deps
+            elixir/serviceradar_srql/_build
+          key: ${{ steps.cache_mix.outputs.cache-primary-key }}
+
+      - name: Save Rustler NIF cache
+        if: ${{ always() && steps.cache_nif.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            elixir/serviceradar_core/native/anomaly_disposition_nif/target
+            elixir/serviceradar_core/native/zen_nif/target
+            elixir/serviceradar_srql/native/srql_nif/target
+          key: ${{ steps.cache_nif.outputs.cache-primary-key }}
