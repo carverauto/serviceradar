@@ -375,14 +375,32 @@ oci_ext.pull(
         "linux/amd64",
     ],
 )
+
+# 18-bookworm, resolved to its OCI image index digest.
+#
+# This was the only tag-based pull in the file, and `reproducible = False` was rules_oci
+# saying so. A tag pull has to re-resolve tag -> digest against the registry on every refetch,
+# and that resolution is an authenticated call: it fetches a bearer token from
+# https://ghcr.io/token first. Anonymous token requests are rate limited, and a throttled one
+# fails in Bazel's loading phase as "no such package @@rules_oci++oci+cloudnativepg_...",
+# which took out //integration_tests/srql:srql_api_test and :srql_comprehensive_test -- two
+# targets with no visible connection to containers.
+#
+# A digest is content-addressed, so the fetch is cacheable in the repository cache and needs
+# no tag resolution. Every other pull in this file was already pinned this way.
+#
+# To move to a newer image, re-resolve the tag deliberately:
+#   tok=$(curl -s "https://ghcr.io/token?scope=repository:cloudnative-pg/postgresql:pull&service=ghcr.io" | jq -r .token)
+#   curl -sI -H "Authorization: Bearer $tok" \
+#     -H "Accept: application/vnd.oci.image.index.v1+json" \
+#     https://ghcr.io/v2/cloudnative-pg/postgresql/manifests/18-bookworm | grep -i docker-content-digest
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
+    digest = "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
     image = "ghcr.io/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
     ],
-    reproducible = False,
-    tag = "18-bookworm",
 )
 use_repo(
     oci_ext,
