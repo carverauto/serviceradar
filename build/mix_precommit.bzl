@@ -1,6 +1,6 @@
-"""Run the web-ng precommit checks hermetically using rules_elixir/rules_rust toolchains.
+"""Run the web-ng precommit checks hermetically using the rules_elixir toolchain.
 
-This exists to replace a host-toolchain escape hatch. The previous implementation was an
+This exists to replace a host-toolchain escape hatch. The original implementation was an
 `sh_test` tagged `local`/`no-remote`/`no-sandbox` whose script began with
 
     command -v mix   || exit 1
@@ -10,37 +10,48 @@ so it could only ever run where somebody had installed Elixir and Rust by hand. 
 it could not go to the executors: the RBE image is `FROM ubuntu:24.04` with no Erlang, no
 Elixir, and no cargo -- deliberately, because Bazel provides those toolchains.
 
-So this rule takes them from Bazel, exactly as //build:mix_release.bzl already does for the
-production release: OTP and Elixir from `@rules_elixir//:toolchain_type`, cargo and rustc
-from `@rules_rust//rust:toolchain`, all declared as action inputs. Nothing is read from
-$PATH that Bazel did not put there.
+So this rule takes OTP and Elixir from `@rules_elixir//:toolchain_type`, declared as action
+inputs. Nothing is read from $PATH that Bazel did not put there.
 
-Two consequences worth understanding:
+Scope: what this action actually has to do
+------------------------------------------
+`mix precommit_fast` is
 
-  * It is a build ACTION producing a log, not a test. That is what makes it remotely
-    cacheable -- an unchanged tree is a cache hit rather than a rebuild. //elixir/web-ng
-    wraps it in a skylib `build_test` so `bazel test //elixir/web-ng:precommit` still works.
+    ["deps.unlock --unused", "format --check-formatted", "credo"]
 
-  * There is no ${HOST_HOME}/.cache work directory. The old script kept deps/_build/cargo
-    target outside the execroot and hand-rolled its own cache, which is precisely what
-    forced `no-sandbox`. Bazel's own action cache replaces it.
+-- three source-level checks. None of them compiles the project: `mix credo` declares
+@requirements ["loadpaths"], not ["compile"]. What they do need is a compiled *dependency*
+tree, and that now arrives prebuilt from //build:mix_deps.bzl as `deps_cache`, keyed on
+lockfiles and therefore a remote cache hit on any change that does not touch dependencies.
 
-`mix deps.get` still needs network egress. That is not new -- mix_release does the same --
-and the executors run with dockerNetwork: host. The optional `hex_cache` attr pre-seeds the
-Hex cache the same way mix_release uses it.
+Two things follow, and together they are why this action stopped taking ten minutes:
+
+  * No cargo. The four Rustler NIFs are skipped via SERVICERADAR_SKIP_NIF_COMPILATION (see
+    elixir/web-ng/config/config.exs), which sets Rustler's :skip_compilation? so it never even
+    shells out to `cargo metadata`. A lint task never loads a NIF. That deletes the release
+    mode cargo build, the crates.io index update, the rules_rust toolchain, and the rust/*
+    source staging from this action's inputs.
+  * No dependency build. Only the first-party path dependencies still compile here, which is
+    the honest per-change cost.
+
+It is a build ACTION producing a log, not a test, which is what makes it remotely cacheable --
+an unchanged tree is a cache hit rather than a rebuild. //elixir/web-ng wraps it in a skylib
+`build_test` so `bazel test //elixir/web-ng:precommit` still works.
+
+There is deliberately no ${HOST_HOME}/.cache work directory and no /cache side channel of the
+kind //build:mix_release.bzl uses. Reuse comes from Bazel's remote cache, keyed on content.
+The one fixed path is WORKDIR itself, which must match the deps_cache producer's -- Elixir
+records absolute source paths in its `_build/**/.mix/compile.*` manifests, so unpacking that
+tarball anywhere else makes Mix recompile the whole tree (measured: 104s and 164 dependencies
+rebuilt at a different path, versus 14s at the same one). The directory is wiped at the start
+of every action; nothing carries over from a previous run.
 """
 
 def _mix_precommit_impl(ctx):
     toolchain = ctx.toolchains["@rules_elixir//:toolchain_type"]
-    rust_toolchain = ctx.toolchains["@rules_rust//rust:toolchain"]
 
     otp = toolchain.otpinfo
     elixir = toolchain.elixirinfo
-    cargo = rust_toolchain.cargo
-    rustc = rust_toolchain.rustc
-    workspace_cargo_toml = ctx.file.workspace_cargo_toml
-    hex_cache = ctx.file.hex_cache
-    patches = ctx.file.patches
 
     erlang_home = otp.erlang_home
     otp_tar = getattr(otp, "release_dir_tar", None)
@@ -50,40 +61,16 @@ def _mix_precommit_impl(ctx):
 
     log_out = ctx.outputs.out
 
-    toolchain_inputs = [
-        otp.version_file,
-        elixir.version_file,
-        cargo,
-        rustc,
-    ]
-    if getattr(otp, "release_dir_tar", None):
-        toolchain_inputs.append(otp.release_dir_tar)
-    if getattr(elixir, "release_dir", None):
-        toolchain_inputs.append(elixir.release_dir)
-
-    transitive_inputs = []
-    if getattr(rust_toolchain, "rustc_lib", None):
-        # rustc needs its own shared libraries (librustc_driver et al). Remote executors do
-        # not stage runfiles automatically, so these have to be declared.
-        transitive_inputs.append(rust_toolchain.rustc_lib)
-    if getattr(rust_toolchain, "rust_std", None):
-        # The Rust stdlib for the exec toolchain, so cargo can find core/std when it builds
-        # the Rustler NIFs on a remote Linux builder.
-        transitive_inputs.append(rust_toolchain.rust_std)
-
     direct_inputs = (
-        toolchain_inputs +
+        [otp.version_file, elixir.version_file, ctx.file.deps_cache] +
         ctx.files.srcs +
         ctx.files.data +
-        ctx.files.extra_dir_srcs +
-        [workspace_cargo_toml]
+        ctx.files.extra_dir_srcs
     )
-    if hex_cache:
-        direct_inputs.append(hex_cache)
-    if patches:
-        direct_inputs.append(patches)
-
-    inputs = depset(direct = direct_inputs, transitive = transitive_inputs)
+    if otp_tar:
+        direct_inputs.append(otp_tar)
+    if getattr(elixir, "release_dir", None):
+        direct_inputs.append(elixir.release_dir)
 
     extra_copy_cmds = []
     for d in ctx.attr.extra_dirs:
@@ -97,9 +84,9 @@ def _mix_precommit_impl(ctx):
 
     ctx.actions.run_shell(
         mnemonic = "MixPrecommit",
-        inputs = inputs,
+        inputs = depset(direct = direct_inputs),
         outputs = [log_out],
-        progress_message = "mix precommit ({})".format(ctx.label.name),
+        progress_message = "mix {} ({})".format(ctx.attr.mix_task, ctx.label.name),
         command = """
 set -euo pipefail
 
@@ -126,42 +113,32 @@ else
   ERLANG_HOME="{erlang_home}"
 fi
 
-WORKDIR=$(mktemp -d)
-CACHE_ROOT=$(mktemp -d)
+# Must match the deps_cache producer -- see the module docstring.
+WORKDIR="${{TMPDIR:-/tmp}}/{workdir_key}"
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
 
-export HOME="$CACHE_ROOT/home"
+export HOME="$WORKDIR/_home"
 export MIX_HOME="$HOME/.mix"
 export HEX_HOME="$HOME/.hex"
 export REBAR_BASE_DIR="$HOME/.cache/rebar3"
-export MIX_ENV=test
+export MIX_ENV={mix_env}
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export ELIXIR_ERL_OPTIONS="+fnu"
-export HEX_HTTP_CONCURRENCY="${{HEX_HTTP_CONCURRENCY:-1}}"
+export HEX_HTTP_CONCURRENCY="${{HEX_HTTP_CONCURRENCY:-8}}"
 export HEX_HTTP_TIMEOUT="${{HEX_HTTP_TIMEOUT:-120}}"
 mkdir -p "$HOME"
 
-# The toolchains, and nothing from the host. If mix or cargo is missing after this, the
-# toolchain is wrong -- which is a build error worth seeing, not a reason to fall back.
-export CARGO="$EXECROOT/{cargo_path}"
-export RUSTC="$EXECROOT/{rustc_path}"
-export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
+# Skips the four Rustler NIF builds; see elixir/web-ng/config/config.exs. Lint tasks never
+# load a NIF, and this is what keeps cargo out of the action entirely.
+export SERVICERADAR_SKIP_NIF_COMPILATION=1
 
-RUST_LIB_ROOT="$(cd "$(dirname "$RUSTC")/.." && pwd)"
-export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unknown-linux-gnu/lib:${{LD_LIBRARY_PATH:-}}"
-
-export CARGO_HOME="$CACHE_ROOT/cargo"
-export CARGO_TARGET_DIR="$CACHE_ROOT/cargo_target"
-TMPROOT="$WORKDIR/_tmp"
-mkdir -p "$TMPROOT" "$CARGO_HOME" "$CARGO_TARGET_DIR"
-export TMPDIR="$TMPROOT"
-export RUSTLER_TMPDIR="$TMPROOT"
-export RUSTLER_TEMP_DIR="$TMPROOT"
+export PATH="$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
 
 echo "ERLANG_HOME=$ERLANG_HOME"
 echo "ELIXIR_HOME=$ELIXIR_HOME"
 command -v mix
-command -v cargo
 
 copy_dir() {{
   local src="$1"
@@ -183,41 +160,31 @@ copy_dir() {{
     # Bazel stages sources as symlinks; dereference so Mix writes stay in WORKDIR.
     rsync -aL "${{excludes[@]}}" "$src" "$dest"
   else
-    mkdir -p "$dest"
     tar -C "${{src%/}}" -cf - "${{excludes[@]}}" . | tar -C "$dest" -xf -
   fi
 }}
 
-copy_dir "{src_dir}/" "$WORKDIR/{src_dir}/"
+mkdir -p "$WORKDIR/{src_parent}"
+copy_dir "$EXECROOT/{src_dir}/" "$WORKDIR/{src_dir}/"
 {extra_copy}
-if [ -f "$EXECROOT/{workspace_cargo_toml}" ]; then
-  cp "$EXECROOT/{workspace_cargo_toml}" "$WORKDIR/Cargo.toml"
-fi
+chmod -R u+w "$WORKDIR"
 
-if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
-  case "$EXECROOT/{hex_cache_tar}" in
-    *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
-    *) tar -xf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
-  esac
-fi
+# Bazel restages sources with fresh mtimes every run, and Mix recompiles a path dependency
+# whose sources look newer than its compile manifest. Without this the unpacked tree would be
+# rebuilt from scratch here and the caches upstream would buy nothing. Change detection is
+# Bazel's cache key, not mtime -- a real source change re-runs the producing action -- so this
+# is safe, and it has to happen before the tarball lands so its manifests stay newer.
+find "$WORKDIR" -exec touch -t 200001010000 {{}} + 2>/dev/null || true
+
+# Prebuilt dependency tree: deps/, _build/ and the Mix home, all at the paths they were
+# built under. copy_dir excludes deps/_build, so this cannot clobber staged sources.
+tar -xzf "$EXECROOT/{deps_cache}" -C "$WORKDIR"
 
 cd "$WORKDIR/{src_dir}"
-chmod -R u+w .
 
-if ! ls "$MIX_HOME/archives/hex-"* >/dev/null 2>&1; then
-  mix local.hex --force
-fi
-if [ ! -f "$MIX_HOME/rebar3" ]; then
-  mix local.rebar --force
-fi
-
+# Resolves the path dependencies against the unpacked tree. The Hex packages are already
+# fetched and compiled, so this does not hit the network.
 mix deps.get
-
-# The same third-party warning fixes the release build applies, so precommit does not fail
-# on known Elixir 1.19 typing warnings in deps.
-if [ -n "{patches}" ] && [ -f "$EXECROOT/{patches}" ]; then
-  python3 "$EXECROOT/{patches}" "$WORKDIR/{src_dir}"
-fi
 
 mix {mix_task}
 """.format(
@@ -225,13 +192,12 @@ mix {mix_task}
             elixir_home = elixir_home,
             erlang_home = erlang_home,
             otp_tar = otp_tar.path if otp_tar else "",
-            cargo_path = cargo.path,
-            rustc_path = rustc.path,
+            workdir_key = ctx.attr.workdir_key,
+            mix_env = ctx.attr.mix_env,
             src_dir = ctx.attr.src_dir,
+            src_parent = ctx.attr.src_dir.rpartition("/")[0] or ".",
             extra_copy = "".join(extra_copy_cmds),
-            workspace_cargo_toml = workspace_cargo_toml.short_path,
-            hex_cache_tar = hex_cache.path if hex_cache else "",
-            patches = patches.path if patches else "",
+            deps_cache = ctx.file.deps_cache.path,
             mix_task = ctx.attr.mix_task,
         ),
         use_default_shell_env = False,
@@ -255,27 +221,22 @@ mix_precommit = rule(
             allow_files = True,
             doc = "File inputs backing extra_dirs",
         ),
+        "deps_cache": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+            doc = "Tarball from //build:mix_deps.bzl holding the compiled dependency tree",
+        ),
+        "workdir_key": attr.string(
+            mandatory = True,
+            doc = "Fixed work directory name; must match the deps_cache producer so the " +
+                  "absolute paths recorded in _build manifests resolve after unpacking",
+        ),
+        "mix_env": attr.string(default = "test"),
         "mix_task": attr.string(
             default = "precommit_fast",
             doc = "Mix task to run once dependencies are in place",
         ),
-        "hex_cache": attr.label(
-            allow_single_file = True,
-            doc = "Optional tarball pre-seeding the Hex/Mix cache",
-        ),
-        "patches": attr.label(
-            allow_single_file = True,
-            doc = "Optional python script applying third-party dependency patches",
-        ),
-        "workspace_cargo_toml": attr.label(
-            allow_single_file = True,
-            default = Label("//:Cargo.toml"),
-            doc = "Root Cargo workspace manifest used by the Rustler path dependencies",
-        ),
         "out": attr.output(mandatory = True, doc = "Log file produced by the run"),
     },
-    toolchains = [
-        "@rules_elixir//:toolchain_type",
-        "@rules_rust//rust:toolchain",
-    ],
+    toolchains = ["@rules_elixir//:toolchain_type"],
 )

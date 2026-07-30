@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("//build:mix_deps.bzl", "mix_deps")
 load("//build:mix_precommit.bzl", "mix_precommit")
 load("//build:mix_release.bzl", "mix_release")
 
@@ -38,25 +39,152 @@ filegroup(
 # TEST_WORKSPACE, and bazel_precommit_test.sh execs precommit_runner.sh, which was a genrule
 # output that no longer exists.
 
+# The dependency tree, fetched and compiled once and keyed on lockfiles.
+#
+# This is the half of the old monolithic precommit action that had no business re-running on
+# every source change: `mix deps.get` for 171 Hex packages plus compiling them, ~63s of the
+# job even with a warm Hex cache. Its inputs here are mix.exs/mix.lock/config only, so an
+# ordinary PR gets a remote cache hit and pays none of it.
+#
+# The split between :srcs and :deps_srcs below is the whole trick, and it is not arbitrary:
+#   * connection, elixir_uuid and opentelemetry_oban are vendored *overrides of Hex packages*
+#     (`override: true` in mix.exs). Hex packages compile against them -- gnat does
+#     `use Connection` -- so they must be compiled here, which means full :srcs. They are ~30
+#     files of third-party code that essentially never change, so this costs no hit rate.
+#   * serviceradar_core, serviceradar_srql and datasvc are first-party and churn constantly.
+#     They contribute :deps_srcs (mix.exs/mix.lock/config) so Mix can resolve the dependency
+#     graph, and nothing else. Their compilation belongs to :path_deps_cache below.
+mix_deps(
+    name = "deps_cache",
+    srcs = [":deps_srcs"],
+    out = "deps_cache.tar.gz",
+    compile_deps = [
+        "connection",
+        "elixir_uuid",
+        "opentelemetry_oban",
+    ],
+    extra_dir_srcs = [
+        "//elixir/connection:srcs",
+        "//elixir/elixir_uuid:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
+        "//elixir/datasvc:deps_srcs",
+        "//elixir/serviceradar_core:deps_srcs",
+        "//elixir/serviceradar_srql:deps_srcs",
+    ],
+    extra_dirs = [
+        "elixir/connection",
+        "elixir/datasvc",
+        "elixir/elixir_uuid",
+        "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
+        "elixir/vendor/opentelemetry_oban",
+    ],
+    patches = "//build:mix_release_patches.py",
+    src_dir = "elixir/web-ng",
+    workdir_key = "serviceradar_web_ng_mix",
+)
+
+# Second cache layer: the first-party path dependencies, stacked on the Hex tree above.
+#
+# serviceradar_core is the single most expensive thing in this graph -- 2231 files of Ash
+# resources, minutes of compilation, with Elixir itself reporting individual modules "taking
+# more than 10s". Compiling it is unavoidable when it changes. Compiling it when it has *not*
+# changed, which is most web-ng pull requests, is pure waste.
+#
+# Keyed on these three projects' sources, so a PR that only touches elixir/web-ng gets a
+# remote cache hit here as well and :precommit_check compiles nothing at all -- it unpacks a
+# finished tree and runs format and credo. A PR that does touch serviceradar_core rebuilds
+# this layer only; the 168-package Hex tree underneath is still a hit.
+mix_deps(
+    name = "path_deps_cache",
+    srcs = [":deps_srcs"],
+    out = "path_deps_cache.tar.gz",
+    base_cache = ":deps_cache",
+    compile_deps = [
+        "datasvc",
+        "serviceradar_core",
+        "serviceradar_srql",
+    ],
+    compile_hex_deps = False,
+    extra_dir_srcs = [
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
+        "//addons/otel-collector:otel_collector_manifest",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
+        "//elixir/connection:srcs",
+        "//elixir/datasvc:srcs",
+        "//elixir/elixir_uuid:srcs",
+        "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
+        "//proto:kv_proto_src",
+    ],
+    extra_dirs = [
+        # serviceradar_core's *_addon_package_seeder modules File.read! these schemas at
+        # module-compile time via @external_resource, so they have to be present here too.
+        "addons/bumblebee-scan",
+        "addons/netprobe",
+        "addons/otel-collector",
+        "addons/scalibr-endpoint-inventory",
+        "addons/workload-identity",
+        "elixir/connection",
+        "elixir/datasvc",
+        "elixir/elixir_uuid",
+        "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
+        "elixir/vendor/opentelemetry_oban",
+        "proto",
+    ],
+    src_dir = "elixir/web-ng",
+    workdir_key = "serviceradar_web_ng_mix",
+)
+
 # The precommit work, as a cacheable build action.
 #
 # This replaces an sh_test that was local/no-remote/no-sandbox because its script began by
 # looking for `mix` and `cargo` on $PATH. The RBE image has neither -- on purpose, since
 # Bazel provides those toolchains -- so the target could never leave the runner. mix_precommit
-# takes OTP/Elixir from @rules_elixir and cargo/rustc from @rules_rust instead, exactly as
-# mix_release already does for the production release.
+# takes OTP/Elixir from @rules_elixir instead, exactly as mix_release already does for the
+# production release.
+#
+# There is no cargo here at all: `mix precommit_fast` is three source-level lint tasks that
+# never load a NIF, so the action sets SERVICERADAR_SKIP_NIF_COMPILATION and Rustler skips all
+# four crates. That is why rust/anomaly-core, rust/anomaly-disposition, rust/kvutil, rust/srql
+# and //:Cargo.lock are no longer staged -- nothing in this action reads them.
 #
 # Being an action rather than a test is what makes it fast: an unchanged tree is a remote
-# cache hit instead of a full Elixir + NIF rebuild.
+# cache hit instead of a full rebuild.
 mix_precommit(
     name = "precommit_check",
     srcs = [":srcs"],
     out = "precommit.log",
-    src_dir = "elixir/web-ng",
-    patches = "//build:mix_release_patches.py",
-    # Path dependencies in mix.exs, plus the Rust crates behind the Rustler NIFs. These are
-    # staged into the action's work directory, not built by Bazel -- mix and cargo build them
-    # from source the same way they did before.
+    data = [
+        "//:.tool-versions",
+        "//:elixir/.credo.base.exs",
+        "//:elixir/.credo.ex_dna.exs",
+        "//:elixir/.credo.ex_slop.exs",
+        "//:elixir/.credo.jump_checks.exs",
+    ],
+    deps_cache = ":path_deps_cache",
+    extra_dir_srcs = [
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
+        "//addons/otel-collector:otel_collector_manifest",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
+        "//elixir/connection:srcs",
+        "//elixir/datasvc:srcs",
+        "//elixir/elixir_uuid:srcs",
+        "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
+        "//elixir/vendor/opentelemetry_oban:srcs",
+        "//proto:kv_proto_src",
+    ],
+    # Every path dependency arrives already compiled inside :path_deps_cache. These are still
+    # staged because Mix requires a path dependency's directory to exist to resolve the graph
+    # at all -- but their mtimes are pinned to a fixed epoch before the tarball is unpacked,
+    # so Mix sees the prebuilt beams as current and recompiles none of them.
     extra_dirs = [
         # serviceradar_core's *_addon_package_seeder modules File.read! these schemas at
         # module-compile time via @external_resource, reaching out of the project with
@@ -77,37 +205,9 @@ mix_precommit(
         "elixir/serviceradar_srql",
         "elixir/vendor/opentelemetry_oban",
         "proto",
-        "rust/anomaly-core",
-        "rust/anomaly-disposition",
-        "rust/kvutil",
-        "rust/srql",
     ],
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/datasvc:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-        "//rust/anomaly-core:srcs",
-        "//rust/anomaly-disposition:srcs",
-        "//rust/kvutil:srcs",
-        "//rust/srql:srcs",
-    ],
-    data = [
-        "//:.tool-versions",
-        "//:Cargo.lock",
-        "//:elixir/.credo.base.exs",
-        "//:elixir/.credo.ex_dna.exs",
-        "//:elixir/.credo.ex_slop.exs",
-        "//:elixir/.credo.jump_checks.exs",
-    ],
+    src_dir = "elixir/web-ng",
+    workdir_key = "serviceradar_web_ng_mix",
 )
 
 # Keeps `bazel test //elixir/web-ng:precommit` working. build_test succeeds iff the action
@@ -120,33 +220,9 @@ build_test(
 mix_release(
     name = "release_tar",
     srcs = [":srcs"],
-    bootstrap_srcs = [":deps_srcs"],
     out = "serviceradar-web-ng-release.tar.gz",
-    src_dir = "elixir/web-ng",
-    extra_dirs = [
-        "addons/bumblebee-scan",
-        "addons/scalibr-endpoint-inventory",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/powerdns",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-        "rust/anomaly-core",
-        "rust/anomaly-disposition",
-        "rust/srql",
-        "rust/kvutil",
-        "elixir/datasvc",
-        "go/cmd/wasm-plugins/axis",
-        "go/pkg/trivysidecar",
-        "integrations/falco",
-        "go/cmd/wasm-plugins/proxmox",
-        "go/cmd/wasm-plugins/unifi-protect",
-    ],
+    bootstrap_srcs = [":deps_srcs"],
+    bun = "@bun_linux_amd64//:bun",
     extra_dir_srcs = [
         "//addons/bumblebee-scan:bumblebee_scan_manifest",
         "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
@@ -171,7 +247,31 @@ mix_release(
         "//go/cmd/wasm-plugins/proxmox:srcs",
         "//go/cmd/wasm-plugins/unifi-protect:srcs",
     ],
-    bun = "@bun_linux_amd64//:bun",
+    extra_dirs = [
+        "addons/bumblebee-scan",
+        "addons/scalibr-endpoint-inventory",
+        "addons/netprobe",
+        "addons/otel-collector",
+        "addons/powerdns",
+        "addons/workload-identity",
+        "elixir/connection",
+        "elixir/elixir_uuid",
+        "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
+        "elixir/vendor/opentelemetry_oban",
+        "proto",
+        "rust/anomaly-core",
+        "rust/anomaly-disposition",
+        "rust/srql",
+        "rust/kvutil",
+        "elixir/datasvc",
+        "go/cmd/wasm-plugins/axis",
+        "go/pkg/trivysidecar",
+        "integrations/falco",
+        "go/cmd/wasm-plugins/proxmox",
+        "go/cmd/wasm-plugins/unifi-protect",
+    ],
     sfw = "@sfw_free_linux_amd64//file",
+    src_dir = "elixir/web-ng",
     workdir_name = "serviceradar_web_ng",
 )

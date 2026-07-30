@@ -154,21 +154,3 @@ jobs:
 
           mapfile -t targets < "${RUNNER_TEMP}/rust-test-targets.txt"
           bazel test --config=ci --test_output=errors "${targets[@]}"
-
-      - name: Dump test logs
-        if: ${{ failure() }}
-        run: |
-          set +e
-
-          if [ ! -d bazel-testlogs ]; then
-            echo "bazel-testlogs not found"
-            exit 0
-          fi
-
-          find bazel-testlogs -type f \( -name test.log -o -name test.xml \) | sort | while read -r file; do
-            echo "===== ${file} ====="
-            sed -n '1,400p' "${file}"
-            echo
-          done
-
-          exit 0
