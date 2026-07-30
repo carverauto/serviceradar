@@ -1,0 +1,24 @@
+.forgejo/workflows/tests-rust.yml
+  s_8f6823274fc459::t_711922e0d50d2c 2,6-11,20-23,25,30-31,37,44,47-48,52,81-85,89-90,94-95,97-103,107-108,111-112,115-123,127-129,131-133,136-137,139-143,145,147-148,150,152,154-155,157-161,165-166,168,170-216,218-220,223-227,229
+  s_8f6823274fc459::t_1e598bae3a0e8f 3-5,12-16
+.forgejo/workflows/lint-rust.yml
+  s_8f6823274fc459::t_13267482d52d88 1-83
+.forgejo/workflows/audit-rust.yml
+  s_8f6823274fc459::t_5da6e360febffb 1-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "f6b2d1eb8d90a51154b8fa21fc861f13f7a5bb00",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
