@@ -75,7 +75,19 @@ build --@io_bazel_rules_go//go/config:pure
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
-test --test_strategy=standalone
+# Deliberately NOT set. --test_strategy=standalone pins every test to local, unsandboxed
+# execution, and nothing in build:ci undid it -- so under --config=ci the build went to the
+# executors while the tests stayed on the runner, and a target's exec_properties (Firecracker
+# size, init-dockerd) were inert because the test never left the runner.
+#
+# Unset, Bazel picks the strategy from the available execution platforms: remote under
+# --config=ci, local otherwise -- the `test --remote_executor=` line below clears the
+# executor for a bare `bazel test`.
+#
+# Note the second effect locally: tests now run sandboxed rather than standalone. A test that
+# needs the sandbox off must say so itself with tags = ["no-sandbox"], the way
+# //elixir/web-ng:precommit already does.
+#test --test_strategy=standalone
 test --remote_executor=
 test --action_env=SRQL_TEST_DATABASE_URL
 test --action_env=SRQL_TEST_ADMIN_URL

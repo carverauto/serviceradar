@@ -259,10 +259,14 @@ jobs:
 
           mapfile -t bazel_targets < <(bazel query "${target_query}")
 
+          # No --test_output here on purpose. Bazel documents `streamed` as forcing tests to
+          # run "locally one at a time regardless of --test_strategy", which serialised this
+          # whole sweep onto the runner and discarded both remote execution and --jobs=100.
+          # test:ci already sets --test_output=errors, and the "Dump Bazel test logs" step
+          # below prints the logs of anything that failed.
           bazel test \
             --config=ci \
             --test_tag_filters=-manual \
-            --test_output=streamed \
             --test_env=PGSSLROOTCERT \
             --test_env=PGSSLCERT \
             --test_env=PGSSLKEY \
@@ -309,7 +313,6 @@ jobs:
         run: |
           bazel test \
             --config=ci \
-            --test_output=streamed \
             //elixir/web-ng:precommit
 
       - name: Dump web-ng precommit logs
