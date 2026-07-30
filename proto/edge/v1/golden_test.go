@@ -2355,7 +2355,7 @@ func TestGoldenCompiledAssignmentSourceAbsent(t *testing.T) {
 
 	goldenBytes(t, "compiled_assignment_interactive_body_digest.bin", c.GetCompiledAssignmentBodySha256())
 	goldenBytes(t, "compiled_assignment_interactive_artifact_digest.bin", c.GetCompiledAssignmentSha256())
-	golden(t, "compiled_assignment_interactive.bin", c)
+	interactiveBytes := golden(t, "compiled_assignment_interactive.bin", c)
 
 	// The grant with NO source identity -- the legal absent case.
 	grant := &edgev1.EdgeSignedCapabilityV1{
@@ -2392,6 +2392,27 @@ func TestGoldenCompiledAssignmentSourceAbsent(t *testing.T) {
 
 	if grant.GetAssignmentExecution().GetSourceIdentity() != nil {
 		t.Fatal("this vector must carry NO source identity, or the absent marker stays unpinned")
+	}
+
+	// CROSS-RUNTIME VECTOR: the golden carrier with a well-formed unknown GROUP appended
+	// (field 6: 0x33 start / 0x34 end).
+	//
+	// This pins the DECODER COMPOSITION, which nothing else does. Go's parser RETAINS the
+	// group and ValidateCompiledSweepAssignment rejects it via hasUnknownFields.
+	// protobuf-elixir ERASES it, so a direct decode returns a carrier indistinguishable from
+	// the clean one -- an Elixir validator reading only the decoded struct CANNOT see it.
+	// Only the raw path does, which is the whole reason the Elixir entry point routes through
+	// the curated WireDecode rather than decoding locally. The Elixir peer asserts
+	// {:error, :poison} on these exact bytes.
+	carrierWithGroup := append(append([]byte{}, interactiveBytes...), 0x33, 0x34)
+	goldenBytes(t, "compiled_assignment_unknown_group.bin", carrierWithGroup)
+
+	var groupCarrier edgev1.CompiledSweepAssignmentV1
+	if err := proto.Unmarshal(carrierWithGroup, &groupCarrier); err != nil {
+		t.Fatalf("Go must PARSE and retain a well-formed unknown group, not reject it: %v", err)
+	}
+	if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(carrierWithGroup); !errors.Is(err, edgerecord.ErrUnknownFields) {
+		t.Fatalf("carrier with a retained unknown group = %v, want ErrUnknownFields", err)
 	}
 }
 

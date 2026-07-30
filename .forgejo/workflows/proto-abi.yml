@@ -161,6 +161,13 @@ jobs:
       - name: Edge recovery relational parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/recovery_validate_test.exs
+      # The compiled-assignment CARRIER validator, for the same reason: it exists to match Go
+      # on a frozen contract, and a parity suite that no required job runs proves nothing about
+      # what CI accepts. It was written and reported green locally while this job kept running
+      # 142 tests -- the suite was invisible to the gate it was supposed to be gated by.
+      - name: Edge compiled-assignment carrier parity (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
       - name: Edge enum transform fail-closed fixture
