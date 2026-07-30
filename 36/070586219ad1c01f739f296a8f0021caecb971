@@ -1,0 +1,33 @@
+.forgejo/workflows/rust-musl.yml
+  s_155758d020800a::t_115d35c3b6ddfd 23
+  s_155758d020800a::t_ed32c869798c54 9
+.forgejo/workflows/rust-audit.yml
+  s_155758d020800a::t_115d35c3b6ddfd 18
+.forgejo/workflows/main.yml
+  s_155758d020800a::t_ed32c869798c54 157
+.forgejo/workflows/rust-tests.yml
+  s_155758d020800a::t_ed32c869798c54 16-18,120
+.forgejo/workflows/rust-tests-addon-interop.yml
+  s_155758d020800a::t_115d35c3b6ddfd 16,24
+.forgejo/workflows/rust-tests-integration.yml
+  s_155758d020800a::t_115d35c3b6ddfd 18,30
+.forgejo/workflows/rust-lint.yml
+  s_155758d020800a::t_ed32c869798c54 5
+  s_155758d020800a::t_115d35c3b6ddfd 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "36070586219ad1c01f739f296a8f0021caecb971",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
