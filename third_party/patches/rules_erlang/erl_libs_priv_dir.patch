@@ -1,0 +1,40 @@
+Allow ErlangAppInfo.priv to be a tree artifact.
+
+erl_libs_contents already accepts a directory for `beam` (staged with a
+declare_directory + `cp -RL`), but `priv` is always run through `_link`, which
+calls declare_file. Handing it a tree artifact fails at analysis time with:
+
+    Error in symlink: symlink() with "target_file" directory param requires
+    that "output" be declared as a directory
+
+This matters because a rule that compiles a whole package in one action -- see
+//build:mix_app.bzl -- cannot enumerate the package's priv files in advance;
+priv is necessarily a declared directory. Without this, such a rule has to pass
+`priv = []` and silently drop priv entirely, which breaks any dependent that
+reads a priv file at runtime (mime's type database, gettext's compiled .po
+files, geolix's mmdb, phoenix's templates).
+
+The `beam` branch above is the precedent; this mirrors it.
+
+--- a/private/util.bzl
++++ b/private/util.bzl
+@@ -73,8 +73,17 @@
+                 dest = _link(ctx, src, path_join(dep_path, "ebin", src.basename))
+             erl_libs_files.append(dest)
+         for src in lib_info.priv:
+-            rp = additional_file_dest_relative_path(dep.label, src)
+-            dest = _link(ctx, src, path_join(dep_path, rp))
++            if src.is_directory:
++                dest = ctx.actions.declare_directory(path_join(dep_path, "priv"))
++                ctx.actions.run_shell(
++                    inputs = [src],
++                    outputs = [dest],
++                    command = "cp -RL \"{}\"/. \"{}\"".format(src.path, dest.path),
++                    mnemonic = "RulesErlangCopyErlLibsPrivDir",
++                )
++            else:
++                rp = additional_file_dest_relative_path(dep.label, src)
++                dest = _link(ctx, src, path_join(dep_path, rp))
+             erl_libs_files.append(dest)
+     for ez in ez_deps:
+         if expand_ezs:

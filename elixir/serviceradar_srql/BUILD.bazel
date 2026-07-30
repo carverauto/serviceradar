@@ -1,3 +1,5 @@
+load("@serviceradar//build:mix_app.bzl", "mix_app")
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -27,4 +29,26 @@ filegroup(
         ],
         allow_empty = True,
     ),
+)
+
+# Compiled by Mix inside a single hermetic Bazel action, with dependencies supplied as
+# Bazel-built ErlangAppInfo rather than fetched. See //build:mix_app.bzl.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "serviceradar_srql",
+    # Keep cargo out of the Bazel action. The srql_nif crate is not yet a Bazel target, so
+    # building it here would shell out to cargo and break hermeticity. Modules that call the
+    # NIF still compile; only calls into it fail at runtime, so the tests that exercise
+    # srql_nif are excluded from the Bazel unit-test job. Lifting the crate to a rules_rust
+    # rust_shared_library and feeding priv/native is the follow-up.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+    ],
+    deps = [
+        "@hex_boundary//:erlang_app",
+        "@hex_jason//:erlang_app",
+        "@hex_rustler//:erlang_app",
+        "@rules_elixir//elixir",
+    ],
 )

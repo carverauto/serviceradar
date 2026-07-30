@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.89"
-rustler = "0.37"
+rustler = "0.38.0"
 serde_json = "1.0.132"
 srql = { path = "../../../../rust/srql" }
 

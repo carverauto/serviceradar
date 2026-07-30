@@ -16,7 +16,7 @@ deep_causality_sparse = "0.1"
 deep_causality_tensor = "0.4"
 deep_causality_topology = "0.5"
 roaring = "0.11"
-rustler = "0.37"
+rustler = "0.38.0"
 serde_json = "1.0"
 ultragraph = "0.8"
 

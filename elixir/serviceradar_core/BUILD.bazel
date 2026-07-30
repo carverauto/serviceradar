@@ -1,3 +1,6 @@
+load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
+load("@serviceradar//build:mix_app.bzl", "mix_app")
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -37,4 +40,118 @@ filegroup(
         ],
         allow_empty = True,
     ),
+)
+
+# serviceradar_core compiled by Mix inside a single hermetic Bazel action.
+#
+# mix_env is "test", not "prod", deliberately: mix.exs sets
+# elixirc_paths(:test) => ["lib", "test/support"], and the 20 modules under test/support
+# (ServiceRadar.TestSupport and friends) are what every ExUnit target needs on the code
+# path. Compiling under :prod would silently omit them.
+mix_app(
+    name = "erlang_app",
+    srcs = [
+        ":srcs",
+        # Read at compile time, from outside this package. The *_addon_package_seeder
+        # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
+        # and bake the result in with @external_resource, so these have to be declared
+        # action inputs -- existing in the source tree is not enough. mix_app stages srcs
+        # under their own package path, which is what makes the five-levels-up path
+        # resolve here the same way it resolves to the repo root under plain mix.
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
+        "//addons/otel-collector:otel_collector_manifest",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
+    ],
+    app_name = "serviceradar_core",
+    # Keep cargo out of the Bazel action -- neither NIF crate is a Bazel target yet.
+    # `use Rustler` merges Application.compile_env(otp_app, __MODULE__) over its own
+    # options, so this disables native compilation without touching lib/ or the checked-in
+    # config, and without changing what `mix release` does. Tests that call into these two
+    # NIFs are excluded from the Bazel unit-test job.
+    extra_config = [
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    mix_env = "test",
+    deps = [
+        "//elixir/connection:erlang_app",
+        "//elixir/elixir_uuid:erlang_app",
+        "//elixir/serviceradar_srql:erlang_app",
+        "//elixir/vendor/opentelemetry_oban:erlang_app",
+        "@hex_ash//:erlang_app",
+        "@hex_ash_admin//:erlang_app",
+        "@hex_ash_cloak//:erlang_app",
+        "@hex_ash_credo//:erlang_app",
+        "@hex_ash_json_api//:erlang_app",
+        "@hex_ash_oban//:erlang_app",
+        "@hex_ash_paper_trail//:erlang_app",
+        "@hex_ash_postgres//:erlang_app",
+        "@hex_ash_state_machine//:erlang_app",
+        "@hex_bcrypt_elixir//:erlang_app",
+        "@hex_boundary//:erlang_app",
+        "@hex_broadway//:erlang_app",
+        "@hex_broadway_dashboard//:erlang_app",
+        "@hex_castore//:erlang_app",
+        "@hex_cloak//:erlang_app",
+        "@hex_credo//:erlang_app",
+        "@hex_dialyxir//:erlang_app",
+        "@hex_ecto_sql//:erlang_app",
+        "@hex_ex_dna//:erlang_app",
+        "@hex_ex_json_schema//:erlang_app",
+        "@hex_ex_slop//:erlang_app",
+        "@hex_file_system//:erlang_app",
+        "@hex_geolix_adapter_mmdb2//:erlang_app",
+        "@hex_gnat//:erlang_app",
+        "@hex_grpc//:erlang_app",
+        "@hex_gun//:erlang_app",
+        "@hex_horde//:erlang_app",
+        "@hex_jason//:erlang_app",
+        "@hex_libcluster//:erlang_app",
+        "@hex_mix_audit//:erlang_app",
+        "@hex_oban//:erlang_app",
+        "@hex_open_api_spex//:erlang_app",
+        "@hex_opentelemetry//:erlang_app",
+        "@hex_opentelemetry_api//:erlang_app",
+        "@hex_opentelemetry_api_experimental//:erlang_app",
+        "@hex_opentelemetry_bandit//:erlang_app",
+        "@hex_opentelemetry_ecto//:erlang_app",
+        "@hex_opentelemetry_experimental//:erlang_app",
+        "@hex_opentelemetry_exporter//:erlang_app",
+        "@hex_opentelemetry_phoenix//:erlang_app",
+        "@hex_opentelemetry_semantic_conventions//:erlang_app",
+        "@hex_postgrex//:erlang_app",
+        "@hex_protobuf//:erlang_app",
+        "@hex_req//:erlang_app",
+        "@hex_rustler//:erlang_app",
+        "@hex_simple_sat//:erlang_app",
+        "@hex_sourceror//:erlang_app",
+        "@hex_styler//:erlang_app",
+        "@hex_swoosh//:erlang_app",
+        "@hex_telemetry//:erlang_app",
+        "@hex_telemetry_metrics//:erlang_app",
+        "@hex_yaml_elixir//:erlang_app",
+        "@rules_elixir//elixir",
+    ],
+)
+
+# One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
+    # read from disk has to be declared: several tests load a specific migration out of
+    # priv/repo/migrations to assert on it, and test/support carries fixtures.
+    data = glob(
+        [
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = ["test/**/*_test.exs"],
+    ),
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
 )

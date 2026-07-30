@@ -1,0 +1,24 @@
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("@zen_nif_crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+# A NIF is loaded by the BEAM, which supplies the enif_* symbols at load time, so the
+# shared object is linked with those symbols left undefined. That is the default for an
+# ELF .so; Mach-O has to be told explicitly.
+rust_shared_library(
+    name = "zen_nif",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "zen_nif",
+    edition = "2021",
+    rustc_flags = select({
+        "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+    deps = all_crate_deps(normal = True),
+)
