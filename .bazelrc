@@ -102,21 +102,24 @@ test --remote_executor=
 test --test_env=SRQL_TEST_DATABASE_URL
 test --test_env=SRQL_TEST_ADMIN_URL
 test --test_env=SRQL_TEST_DATABASE_CA_CERT
-# Pinned, NOT inherited. `--test_env=PATH` with no value takes the value from the invoking
-# shell and folds it into every test action's cache key, so no test result was ever reusable
-# across CI runs: scripts/install-bazelisk.sh and scripts/ci/install-sfw.sh both prepend
-# ${RUNNER_TEMP}-scoped directories, giving a different PATH -- and therefore a different key
-# for every test in the repo -- on every run. Build actions were unaffected, which is why the
-# symptom read as "only the tests re-run".
+# PATH is deliberately absent here. `test --test_env=PATH`, with no value, took the value from
+# the invoking shell and folded it into the cache key of EVERY test action in the repo. CI
+# handed Bazel a different PATH on every run -- scripts/install-bazelisk.sh and
+# scripts/ci/install-sfw.sh both prepend ${RUNNER_TEMP}-scoped directories -- so every test
+# key changed every run and no test result was ever reusable. Build actions take no
+# --test_env, which is why the symptom read as "only the tests re-run", and why an unrelated
+# Go change appeared to invalidate the dgraph container suite.
 #
-# The inherited value was also useless: under --config=ci tests execute on the BuildBuddy
-# executor, where the runner's /workspace/.../_temp/... entries do not exist. Nothing depends
-# on it -- build/mix_precommit.bzl:14 is explicit that nothing is read from $PATH that Bazel
-# did not put there, and it prepends its own toolchain bins to whatever PATH it is handed.
+# Without the line, tests get Bazel's own action-environment PATH (/bin:/usr/bin:
+# /usr/local/bin), which is identical on every machine and every run. That is the entire
+# point: a test's result must depend on its inputs, not on who invoked it.
 #
-# A test that needs a tool not on this list should declare it as a `data` dependency rather
-# than have this line widened.
-test --test_env=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/homebrew/bin
+# The inherited value bought nothing anyway. Under --config=ci tests execute on the
+# BuildBuddy executor, where the runner's /workspace/.../_temp entries do not exist.
+#
+# A test that needs a tool beyond the default PATH declares it -- as a `data` dependency, or
+# with an `env`/`--test_env=VAR=value` entry naming a fixed path. Do NOT restore the
+# inherited form to fix one test; that trades the whole repo's test cache for it.
 test --test_env=CNPG_HOST
 test --test_env=CNPG_PORT
 test --test_env=CNPG_DATABASE
