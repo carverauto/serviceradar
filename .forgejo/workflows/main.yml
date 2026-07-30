@@ -150,11 +150,46 @@ jobs:
           umask 077
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
-      # GHCR_* is in this condition so ghcr credentials alone are enough to run the step. The
-      # script fails closed when no credentials at all are present, so guarding it matters.
-      - name: Configure Docker auth for Bazel pulls
+      # Identical to the "Authenticate Docker for OCI registry" step in publish-oci.yml and
+      # release.yml. This used to be a bare `./buildbuddy_setup_docker_auth.sh`, which skipped
+      # three things those two do: the `docker login` to Harbor, re-exporting the credentials
+      # through $GITHUB_ENV so later steps see them, and explicitly clearing OCI_DOCKER_AUTH
+      # (the script branches on it, so a value inherited from anywhere else would silently take
+      # a different path).
+      #
+      # The `if:` guard is kept, unlike those two, which hard-exit when Harbor credentials are
+      # missing. This workflow runs on every pull request, including ones without access to
+      # secrets, where skipping is correct and failing is not. GHCR_* is in the condition so
+      # ghcr credentials alone are enough to run it.
+      - name: Authenticate Docker for OCI registry
         if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.GHCR_USERNAME != '' && env.GHCR_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        run: ./buildbuddy_setup_docker_auth.sh
+        run: |
+          set -euo pipefail
+          login_registry() {
+            local user="${1:-}"
+            local token="${2:-}"
+            if [[ -z "${user}" || -z "${token}" ]]; then
+              return 1
+            fi
+            echo "${token}" | docker login "${OCI_REGISTRY}" -u "${user}" --password-stdin
+          }
+
+          if [[ -n "${OCI_USERNAME:-}" && -n "${OCI_TOKEN:-}" ]]; then
+            login_registry "${OCI_USERNAME}" "${OCI_TOKEN}"
+          else
+            echo "Harbor robot credentials absent; continuing with the remaining registries." >&2
+          fi
+
+          export OCI_DOCKER_AUTH=""
+          unset OCI_DOCKER_AUTH || true
+          {
+            echo "OCI_USERNAME=${OCI_USERNAME:-}"
+            echo "OCI_TOKEN=${OCI_TOKEN:-}"
+            echo "OCI_DOCKER_AUTH="
+          } >> "${GITHUB_ENV}"
+
+          chmod +x ./buildbuddy_setup_docker_auth.sh
+          ./buildbuddy_setup_docker_auth.sh
 
       - name: Test
         id: bazel_tests
