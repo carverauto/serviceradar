@@ -28,6 +28,7 @@ sh_test(
         "check-oci-chart-version-available.sh",
         "cosign_common.sh",
         "cut-release.sh",
+        "prune-forgejo-releases.sh",
         "sign-oci-publish.sh",
         "upload-forgejo-release-asset.sh",
         "validate-release-metadata.sh",
