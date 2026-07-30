@@ -247,7 +247,12 @@ jobs:
         env:
           SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
         run: |
-          target_query='tests(//...) except attr("tags", "manual", tests(//...)) except set(//elixir/web-ng:precommit)'
+          # attr() takes exactly three arguments, so the two excluded tags are one
+          # alternation pattern rather than two arguments. Integration tests are excluded
+          # here because tests-integration-rust.yml owns them: they drive real containers on
+          # remote microVMs, and folding them into this sweep makes a container failure and
+          # a compile failure produce the same red X.
+          target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...)) except set(//elixir/web-ng:precommit)'
           if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
             target_query="${target_query} except set(//rust/srql:srql_api_test //rust/srql:srql_comprehensive_test)"
           fi

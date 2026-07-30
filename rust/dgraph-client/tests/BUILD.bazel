@@ -91,7 +91,7 @@ rust_test_suite(
         # scenario, so a warm run starts from the same state as a cold one.
         "test.recycle-runner": "true",
         # Send every test in this suite to the same recycled runner.
-        "test.runner-recycling-key": "dgraph_client_test_runner",
+        "test.runner-recycling-key": "dgraph_client_integration_test",
     },
     tags = [
         # Selector for the integration stage. Run these on their own, after the hermetic

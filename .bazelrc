@@ -131,6 +131,16 @@ build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
 build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
+# Execution goes to the same host as the cache. remote_base points the executor at
+# remote.buildbuddy.io, which is a different frontend (34.98.106.0) from the carverauto
+# org subdomain (34.98.126.170, the same address as app.buildbuddy.io), and this line
+# overrides it because it comes after --config=remote_base above.
+#
+# Keeping one host for execution, cache and BES is what makes an action's inputs and its
+# outputs live in one CAS. When they diverge, the client uploads inputs to one store and
+# the executor fetches from another, and the resulting NOT_FOUND blob errors read like a
+# flaky network rather than the topology mistake they are.
+build:ci --remote_executor=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
@@ -173,9 +183,11 @@ build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-# Firecracker task sizing defaults (overridable per target/platform).
-build:remote_base --remote_default_exec_properties=EstimatedCPU=4
-build:remote_base --remote_default_exec_properties=EstimatedMemory=8Gi
+# Firecracker task sizing lives in //build/rbe:rbe_platform's exec_properties, not here.
+# `--remote_default_exec_properties` is ignored outright once the execution platform sets any
+# exec_properties of its own, and rbe_platform sets four, so declaring the sizing at this
+# level had no effect at all. A target still overrides the platform per key, e.g.
+# test.EstimatedMemory on //rust/dgraph-client/tests:acceptance_tests.
 test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu

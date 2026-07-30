@@ -304,20 +304,25 @@ jobs:
           cd ${{ matrix.project }}
           sfw cargo test
 
+      # --config=ci is what connects these to the org's BuildBuddy: remote cache, remote
+      # execution on the self-hosted executor fleet, and BES reporting. Without it Bazel
+      # falls back to building everything locally on this runner against nothing but the
+      # restored disk cache, which is why the "Configure remote cache" step above used to
+      # look inert.
       - name: Build Bazel target
         if: ${{ matrix.runner == 'bazel' }}
         run: |
-          bazel build ${{ matrix.bazel_target }}
+          bazel build --config=ci ${{ matrix.bazel_target }}
 
       - name: Test Bazel target
         if: ${{ matrix.runner == 'bazel-test' }}
         run: |
-          bazel test ${{ matrix.bazel_target }}
+          bazel test --config=ci ${{ matrix.bazel_target }}
 
       - name: Test isolated RDP connector Bazel targets
         if: ${{ matrix.runner == 'rdp-bazel-test' }}
         run: |
-          bazel test --lockfile_mode=error ${{ matrix.bazel_target }}
+          bazel test --config=ci --lockfile_mode=error ${{ matrix.bazel_target }}
 
       - name: Build static musl Bazel target
         if: ${{ matrix.runner == 'bazel-static' }}

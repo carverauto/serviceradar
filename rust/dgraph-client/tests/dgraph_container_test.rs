@@ -25,23 +25,6 @@
 //! through one explicit runtime, rather than `#[tokio::test]`. `docker_utils` is itself
 //! synchronous, so only the client interaction needs a runtime at all.
 //!
-//! # The container is left running
-//!
-//! Teardown deliberately does not stop the container. With `reuse_container(true)` the next
-//! run finds it already up and skips the cold start, and `docker_utils` applies the wait
-//! strategy on the reuse path as well -- so the readiness gate still holds, and because that
-//! gate *is* `drop_all`, a reused cluster is empty before the first scenario runs. The suite
-//! therefore starts from the same state whether the container is fresh or warm.
-//!
-//! Stopping it would preserve nothing in any case: the container carries `--rm`, so
-//! `docker stop` removes it exactly as `docker rm -f` does. The real choice is between a warm
-//! container and a cold start, not between stopping and deleting.
-//!
-//! Remove it by hand when it is no longer wanted:
-//!
-//! ```bash
-//! docker rm -f dgraph-standalone-9080
-//! ```
 
 use tokio::runtime::{Builder, Runtime};
 
@@ -86,7 +69,7 @@ const READY_RETRY_DELAY_MS: u64 = 500;
 ///
 /// Dgraph's startup chatter alone is long, so a short tail would cut off precisely the
 /// alpha's account of what went wrong.
-const DIAGNOSTIC_LOG_LINES: usize = 200;
+const DIAGNOSTIC_LOG_LINES: usize = 500;
 
 const TEST_SCHEMA: &str = "name: string @index(exact) .";
 
@@ -99,12 +82,11 @@ const TEST_SCHEMA: &str = "name: string @index(exact) .";
 ///
 /// Left uncapped, the alpha simply grows into whatever is available, which is why the same
 /// suite peaks at ~895 MiB on a workstation and was OOM-killed inside a 4 GiB microVM whose
-/// budget also has to cover the guest kernel, dockerd, containerd and the test binary. Capping
-/// bounds the container instead of guessing an executor size large enough to absorb it.
+/// budget also has to cover the guest kernel, dockerd, containerd and the test binary.
 ///
 /// Dgraph binds flags from `DGRAPH_<COMMAND>_<FLAG>`, and the setting is visible in the
-/// alpha's startup log as `CacheMb:256`, so a rejected value would not pass unnoticed.
-const ALPHA_CACHE_ENV: &str = "DGRAPH_ALPHA_CACHE=size-mb=256";
+/// alpha's startup log as `CacheMb:128`, so a rejected value would not pass unnoticed.
+const ALPHA_CACHE_ENV: &str = "DGRAPH_ALPHA_CACHE=size-mb=128";
 
 /// Ready means the alpha accepts an `Alter`.
 ///
@@ -240,10 +222,12 @@ fn dgraph_client_acceptance() {
         }
     }
 
-    // No teardown by design: the container stays up so the next run reuses it. See the module
-    // docs for why leaving it running is what makes the second run both faster and clean.
     outcome.expect("acceptance scenario failed");
-    println!("✅ all scenarios passed; container '{container_id}' left running for reuse");
+
+    let stopped = docker.stop_container(&container_id, false);
+    stopped.expect("failed to stop dgraph container");
+    println!("✅ all scenarios passed; container '{container_id}' stopped");
+
 }
 
 /// Every scenario, in order. Ordering matters: several call `drop_all`.
