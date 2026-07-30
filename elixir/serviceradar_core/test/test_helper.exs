@@ -34,3 +34,15 @@ end
 #
 # Wall-clock prefix-tag benchmarks are excluded by default (flake under CI load). Run with:
 # mix test --include benchmark test/serviceradar/prefix_tags/benchmark_test.exs
+#
+# NOTE on excluding environment-dependent suites: adding a tag here does NOT keep a module out
+# of the integration run. ExUnit runs a test that matches an `include` filter even when it also
+# matches an `exclude` one, so `mix test --include integration` re-includes every module tagged
+# :integration regardless of its other tags. That is why :external above does not keep
+# ServiceRadar.Scans.AdhocScanNatsE2ETest out of the CI run.
+#
+# A suite that needs environment the run may not have must gate itself with a compile-time
+# `@moduletag skip:`, which include/exclude cannot override. See
+# test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs and
+# test/serviceradar/integrations/armis_dire_e2e_test.exs for the three-state form:
+# unconfigured -> skip, partially configured -> fail loudly, fully configured -> run.

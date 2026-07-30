@@ -26,6 +26,31 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
 
   @moduletag :integration
   @moduletag :armis_dire_e2e
+
+  # This suite needs a faker endpoint and a fixture file that only
+  # scripts/test-armis-dire-e2e.sh provides; no workflow sets them for the plain
+  # `mix test --include integration` run. It previously tried to opt out by returning
+  # {:skip, reason} from setup_all, which ExUnit does not accept -- setup must return :ok, a
+  # keyword list, or a map -- so it raised RuntimeError and failed both tests on every CI run.
+  #
+  # Excluding the :armis_dire_e2e tag would not help either: ExUnit runs a test matching an
+  # `include` filter even when it also matches an `exclude` one, and this module is tagged
+  # :integration, so --include integration re-includes it whatever else is excluded. A
+  # compile-time `@moduletag skip:` is the one gate include/exclude cannot override.
+  #
+  # Three states, so a deleted secret can never masquerade as "no fixture" (same form as
+  # ServiceRadar.Scans.AdhocScanNatsE2ETest):
+  #   none configured      -> SKIP (local dev, untrusted fork, ordinary CI run)
+  #   PARTIALLY configured -> FAIL in setup_all, naming what is missing
+  #   fully configured     -> RUN
+  @armis_vars ["ARMIS_E2E_FAKER_URL", "ARMIS_E2E_FIXTURE_FILE"]
+  @armis_present Enum.filter(@armis_vars, &(System.get_env(&1) not in [nil, ""]))
+  @armis_missing @armis_vars -- @armis_present
+  @armis_configured @armis_missing == []
+  @armis_partial @armis_present != [] and @armis_missing != []
+
+  @moduletag skip: not @armis_configured and not @armis_partial
+
   @tag timeout: 1_800_000
 
   setup_all do
@@ -64,7 +89,19 @@ defmodule ServiceRadar.Integrations.ArmisDireE2ETest do
         {:ok, actor: actor, agent: agent, endpoint: endpoint, fixture: fixture, source: source}
 
       _ ->
-        {:skip, "ARMIS_E2E_FAKER_URL and ARMIS_E2E_FIXTURE_FILE are required"}
+        # Unreachable when nothing is configured -- @moduletag skip: above handles that. This
+        # is the PARTIAL case, and it must be loud: a renamed or deleted secret should not be
+        # able to quietly disable this coverage. Raising (rather than returning {:skip, ...},
+        # which ExUnit rejects from a setup callback) names exactly what is missing.
+        raise """
+        #{inspect(__MODULE__)} is partially configured: #{Enum.join(@armis_missing, ", ")} \
+        #{if length(@armis_missing) == 1, do: "is", else: "are"} missing.
+
+        Set all of #{Enum.join(@armis_vars, " and ")}, or none of them. This suite is driven by
+        scripts/test-armis-dire-e2e.sh, which sets both:
+
+            ./scripts/test-armis-dire-e2e.sh --profile fast
+        """
     end
   end
 
