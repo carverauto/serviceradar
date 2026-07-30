@@ -26,6 +26,13 @@ jobs:
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      # ghcr.io is a PULL registry here, not the push target above: Bazel fetches
+      # ghcr.io/cloudnative-pg/postgresql, which //integration_tests/srql takes as test data.
+      # Anonymous pulls are rate limited, and a throttled fetch fails during the loading
+      # phase as "no such package", which reads like a broken build rather than a 403.
+      # Absent secrets expand to '' and simply leave ghcr.io unauthenticated as before.
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
 
@@ -143,8 +150,10 @@ jobs:
           umask 077
           printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
 
+      # GHCR_* is in this condition so ghcr credentials alone are enough to run the step. The
+      # script fails closed when no credentials at all are present, so guarding it matters.
       - name: Configure Docker auth for Bazel pulls
-        if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.GHCR_USERNAME != '' && env.GHCR_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         run: ./buildbuddy_setup_docker_auth.sh
 
       - name: Test
@@ -158,11 +167,22 @@ jobs:
           # remote microVMs, and folding them into this sweep makes a container failure and
           # a compile failure produce the same red X.
           target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...)) except set(//elixir/web-ng:precommit)'
+          # These two live in //integration_tests/srql, not //rust/srql -- they were moved and
+          # this exclusion was left behind. A stale label here does not degrade gracefully:
+          # `set()` hard-errors with "no such target", so on the one path this branch exists to
+          # serve (fixture unreachable) the query died instead of skipping the tests.
           if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
-            target_query="${target_query} except set(//rust/srql:srql_api_test //rust/srql:srql_comprehensive_test)"
+            target_query="${target_query} except set(//integration_tests/srql:srql_api_test //integration_tests/srql:srql_comprehensive_test)"
           fi
 
-          mapfile -t bazel_targets < <(bazel query "${target_query}")
+          # Fail on a bad query rather than silently testing nothing: mapfile swallows the
+          # exit status through the process substitution, so an errored query would otherwise
+          # produce an empty target list and a green build.
+          if ! target_list="$(bazel query "${target_query}")"; then
+            echo "::error::bazel query failed; refusing to run an empty test sweep" >&2
+            exit 1
+          fi
+          mapfile -t bazel_targets <<<"${target_list}"
 
           # No --test_output here on purpose. Bazel documents `streamed` as forcing tests to
           # run "locally one at a time regardless of --test_strategy", which serialised this
