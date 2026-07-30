@@ -1,0 +1,14 @@
+[package]
+name = "nohash-hasher"
+version = "0.2.0"
+edition = "2018"
+authors = ["Parity Technologies <admin@parity.io>"]
+license = "Apache-2.0 OR MIT"
+description = "An implementation of `std::hash::Hasher` which does not hash at all."
+repository = "https://github.com/paritytech/nohash-hasher"
+readme = "README.md"
+keywords = ["hash", "hasher", "hashmap", "hashset"]
+
+[features]
+default = ["std"]
+std = []

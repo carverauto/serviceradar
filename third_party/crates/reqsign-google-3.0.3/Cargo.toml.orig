@@ -1,0 +1,51 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[package]
+name = "reqsign-google"
+version = "3.0.3"
+
+description = "Google Cloud Platform signing implementation for reqsign."
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+form_urlencoded = { workspace = true }
+http = { workspace = true }
+log = { workspace = true }
+percent-encoding = { workspace = true }
+reqsign-aws-v4 = { workspace = true }
+reqsign-core = { workspace = true }
+rsa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqsign-core = { workspace = true, features = ["jwt"] }
+
+[dev-dependencies]
+bytes = { workspace = true }
+dotenvy = { workspace = true }
+env_logger = { workspace = true }
+reqsign-file-read-tokio = { workspace = true }
+reqsign-http-send-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["default-tls"] }
+tokio = { workspace = true, features = ["full"] }

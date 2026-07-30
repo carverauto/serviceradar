@@ -1,5 +1,9 @@
-FILE:@@//Cargo.lock b74b34acd19694ba1623ce31b8d04a42385e9002b39a454facd00e305835b068
-FILE:@@//Cargo.toml 3234036c49fc9a58b7ecab7930840af8057a8095fae5bdd7f08b8911a68dd521
+FILE:@@//Cargo.lock 24d82c9bc6317f3f884ece7b3840340f7302a5f5a2054a834a895c694d282034
+FILE:@@//Cargo.toml 9af836d4ff4d47c0318927f0f4fc861e247c94acd9712158ac1901c4d00c17cb
+FILE:@@//elixir/serviceradar_core/native/anomaly_disposition_nif/Cargo.toml af22b2f909bb6ec6551effc531319048c5ae284e4138b55b2007b78cef7d9916
+FILE:@@//elixir/serviceradar_core/native/zen_nif/Cargo.toml 234168802da06802477c2b57e3969136f445a4083ab114b6cc3980ce10458bd5
+FILE:@@//elixir/serviceradar_srql/native/srql_nif/Cargo.toml 2816cc9558feba4a7089021aba0718dec230a2f3a3779ec2f2d33d3b08ce17ad
+FILE:@@//elixir/web-ng/native/god_view_nif/Cargo.toml 8a75c7cea5622c8617199a50f5d831c780debb2d9c27a3b29ed0a37ec851142d
 FILE:@@//integration_tests/srql/Cargo.toml c047a421087d35281c3161a948100f0c082c988ecd5a18a56f21abfddd707c6a
 FILE:@@//proto/dgraph/Cargo.toml 122c820729402b715ddba34da04e1deb85a450b50b8fb0f05c5080f1ac0bf535
 FILE:@@//rust/addon-sdk/Cargo.toml c672ef640c69fe506f64d9eee8d4d3bb009b18a8832253de50da5fa115e352dc
