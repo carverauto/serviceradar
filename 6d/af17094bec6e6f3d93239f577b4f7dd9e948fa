@@ -1,0 +1,22 @@
+.forgejo/workflows/integration-core.yml
+  s_8f6823274fc459::t_f9672349eac62f 124-125
+  s_8f6823274fc459::t_2a5792d1f4fe7f 354-385
+  s_8f6823274fc459::t_3b227789ee1eaa 110-122
+  s_8f6823274fc459::t_9b3be40fe2c71f 144-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "6daf17094bec6e6f3d93239f577b4f7dd9e948fa",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
