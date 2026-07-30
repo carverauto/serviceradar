@@ -1,0 +1,19 @@
+rust/fieldsurvey-sidekick/src/live_capture.rs
+  s_721239bc8e9d27::t_ea0067de6bb08d 385-388
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "79da4ac912d88f9f1ccb6624d81f9ab6abff789b",
+  "prompts": {},
+  "sessions": {
+    "s_721239bc8e9d27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b1f80c4-211f-4aa5-96c1-6ad25274bf36",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
