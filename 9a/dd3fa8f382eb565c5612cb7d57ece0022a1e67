@@ -1,0 +1,46 @@
+go/pkg/cli/BUILD.bazel
+  s_155758d020800a::t_9581195a2a1373 1,32-46
+  s_155758d020800a::t_0e04c967af031a 47
+go/pkg/config/BUILD.bazel
+  s_155758d020800a::t_9581195a2a1373 1,23-31
+  s_155758d020800a::t_66eb1258b87d1d 32
+.forgejo/workflows/golang-tests.yml
+  s_155758d020800a::t_5a794242585bb0 47
+  s_155758d020800a::t_b3922b053a15ab 2-46,49-178
+  s_155758d020800a::t_0d9864881cb54a 1,48
+.forgejo/workflows/rust-tests.yml
+  s_155758d020800a::t_78654d2a332f75 33
+  s_155758d020800a::t_3e6cb4ed60a8a2 49
+go/pkg/agent/remoteaccess/BUILD.bazel
+  s_155758d020800a::t_9752581c736df1 89-93
+go/pkg/config/bootstrap/BUILD.bazel
+  s_155758d020800a::t_9581195a2a1373 1,22-29
+  s_155758d020800a::t_d6baaffa4722be 30-31
+go/pkg/edgeonboarding/BUILD.bazel
+  s_155758d020800a::t_9581195a2a1373 1,26-40
+  s_155758d020800a::t_538c87741de33a 41
+go/pkg/natsutil/BUILD.bazel
+  s_155758d020800a::t_9581195a2a1373 1,21-28
+  s_155758d020800a::t_2d4fb974d48428 29-30
+.forgejo/workflows/golangci-lint.yml
+  s_155758d020800a::t_fe6b1b3f494b32 72-74,76-78
+  s_155758d020800a::t_3e6cb4ed60a8a2 75
+.forgejo/workflows/precommit-web-ng.yml
+  s_155758d020800a::t_2714dafcf06c7e 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "9add3fa8f382eb565c5612cb7d57ece0022a1e67",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
