@@ -1,0 +1,26 @@
+elixir/serviceradar_core/test/serviceradar/integrations/armis_dire_e2e_test.exs
+  s_8f6823274fc459::t_2ec68e217ec452 29-53
+  s_8f6823274fc459::t_d73840aff27b96 92-95,97-98,100-101
+  s_8f6823274fc459::t_fe22e72699210c 96,99,102-104
+elixir/serviceradar_core/test/test_helper.exs
+  s_8f6823274fc459::t_6d0dd3303c634f 37
+  s_8f6823274fc459::t_82bcc0728f2cac 38-48
+elixir/serviceradar_core/config/runtime.exs
+  s_8f6823274fc459::t_8b1927c1a32704 699-717
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "af40dbce33bdac0ba767b9c2bfef98c7f12744f9",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
