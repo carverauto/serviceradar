@@ -564,8 +564,9 @@ type CollectionAuthority struct {
 //
 // It answers a strictly NARROWER question than VerifyCompiledAssignmentWithTrust, which
 // stays separate: that one asks whether a signature was validly issued, which remains
-// answerable forever and is what lets an archived record be re-verified. This one asks
-// whether work may happen now, which stops being true.
+// answerable FOR AS LONG AS THE ISSUING KEY'S EVIDENCE IS RETAINED -- that is what lets an
+// archived record be re-verified, and it is a RETENTION property, not a permanent one. This
+// one asks whether work may happen now, which stops being true on its own schedule.
 func AuthorizeCollectionNow(
 	r *edgev1.SweepAssignmentRecordV1,
 	rawCarrier []byte,

@@ -15,11 +15,11 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias ServiceRadar.Edge.AssignmentValidate
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SemanticDigest
-  alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
-  alias ServiceRadar.Edge.WireValidate
+  alias Serviceradar.Edge.V1.CompiledSweepAssignmentV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
   alias Serviceradar.Edge.V1.EdgeRecordClientMessage
@@ -38,6 +38,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias Serviceradar.Edge.V1.SweepExecutionEventV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireValidate
 
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
   @fixed_millis 1_784_000_000_000
@@ -1241,7 +1242,13 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     rng = digest32(0x93)
 
     assert :error =
-             HashGrammar.mtr_completion_verify([{1, 2, nil, rng}], 0, 0, ev.plan_root_sha256, zero32)
+             HashGrammar.mtr_completion_verify(
+               [{1, 2, nil, rng}],
+               0,
+               0,
+               ev.plan_root_sha256,
+               zero32
+             )
 
     # Zero leaves against a non-empty commitment fails the membership proof.
     assert :error =
@@ -1284,7 +1291,11 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     # The expectation is RECOMPUTED, not trusted.
     assert assignment.mtr_expectation.ordinal_range_commitment ==
-             HashGrammar.mtr_window_commitment(offset_b, range_b.mtr_ordinal_count, range_b.range_sha256)
+             HashGrammar.mtr_window_commitment(
+               offset_b,
+               range_b.mtr_ordinal_count,
+               range_b.range_sha256
+             )
 
     # Plan-wide is the additive SUM of both windows.
     assert {:ok, header.mtr_ordinal_range_commitment} ==
@@ -1365,7 +1376,9 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # COMPOSED boundary from raw bytes: WireDecode's structural gate and its
     # :poison/:not_ready/:systemic classification, then enum admission, then relations.
     assert {:ok, ^assignment} = AssignmentValidate.validate_bytes(raw)
-    assert {:ok, ^assignment} = AssignmentValidate.validate_bytes_against_plan(raw, header, [page])
+
+    assert {:ok, ^assignment} =
+             AssignmentValidate.validate_bytes_against_plan(raw, header, [page])
 
     # A TAMPERED PLAN cannot confer authority THROUGH THE RELATION, which is where it
     # matters: previously a forged carrier around a rejected plan returned :ok.
@@ -1474,7 +1487,12 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # unproven.
     over_header = ScheduledPlanHeaderV1.decode(load("plan_header_total_overflow.bin"))
     over_page = ScheduledPlanPageV1.decode(load("plan_page_total_overflow.bin"))
-    assert Enum.map(over_page.ranges, & &1.target_count) == [Bitwise.bsl(1, 63), Bitwise.bsl(1, 63)]
+
+    assert Enum.map(over_page.ranges, & &1.target_count) == [
+             Bitwise.bsl(1, 63),
+             Bitwise.bsl(1, 63)
+           ]
+
     assert {:error, :plan_totals} = PlanValidate.validate(over_header, [over_page])
 
     # PROTOBUF DOMAINS on the plan header: a term outside uint64 must be a typed
@@ -1578,7 +1596,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
              })
 
     # TOTAL and FAIL-CLOSED for malformed shapes, not merely for absent ones.
-    assert {:error, :expectation} = AssignmentValidate.validate(%{assignment | mtr_expectation: 7})
+    assert {:error, :expectation} =
+             AssignmentValidate.validate(%{assignment | mtr_expectation: 7})
 
     assert {:error, :state} =
              AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: 7})
@@ -1586,20 +1605,34 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # Generic UUID rejection, pinned here rather than inferred from another module's
     # tests: version 0, version 9 and a non-RFC variant are all refused.
     assert {:error, :identity} =
-             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 0::4, 0::12, 2::2, 0::62>>})
+             AssignmentValidate.validate(%{
+               assignment
+               | execution_id: <<0::48, 0::4, 0::12, 2::2, 0::62>>
+             })
 
     assert {:error, :identity} =
-             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 9::4, 1::12, 2::2, 1::62>>})
+             AssignmentValidate.validate(%{
+               assignment
+               | execution_id: <<0::48, 9::4, 1::12, 2::2, 1::62>>
+             })
 
     assert {:error, :identity} =
-             AssignmentValidate.validate(%{assignment | execution_id: <<0::48, 4::4, 1::12, 0::2, 1::62>>})
+             AssignmentValidate.validate(%{
+               assignment
+               | execution_id: <<0::48, 4::4, 1::12, 0::2, 1::62>>
+             })
 
     # Go-parity gaps that PlanValidate previously accepted outright. Each one RESEALS
     # the outer digests, so only the check being tested can reject it.
     assert {:error, :page_bounds} = PlanValidate.validate(header, [])
 
     wrong_total = %{header | total_target_count: 999_999}
-    wrong_total = %{wrong_total | execution_plan_sha256: HashGrammar.plan_header_digest(wrong_total)}
+
+    wrong_total = %{
+      wrong_total
+      | execution_plan_sha256: HashGrammar.plan_header_digest(wrong_total)
+    }
+
     assert {:error, :plan_totals} = PlanValidate.validate(wrong_total, [page])
 
     # A changed CIDR under a STALE range_sha256, with page/root/header all resealed:
@@ -1663,6 +1696,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # The API is TOTAL: a contract promising {:error, reason} must not raise.
     assert {:error, :identity} = AssignmentValidate.validate(%{})
     assert {:error, :identity} = AssignmentValidate.validate(nil)
+
     assert {:error, :header_identity} =
              AssignmentValidate.validate_against_plan(assignment, :nope, :nope)
 
@@ -1673,7 +1707,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :unknown_fields} =
              AssignmentValidate.validate(%{
                assignment
-               | mtr_expectation: %{assignment.mtr_expectation | __unknown_fields__: [{99, 2, <<1>>}]}
+               | mtr_expectation: %{
+                   assignment.mtr_expectation
+                   | __unknown_fields__: [{99, 2, <<1>>}]
+                 }
              })
 
     # SHARED REJECT VECTORS: bytes authored by Go and refused by BOTH runtimes. An
@@ -1711,7 +1748,10 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:error, :lease} = AssignmentValidate.validate(%{assignment | fence_token: 0})
 
     assert {:error, :state} =
-             AssignmentValidate.validate(%{assignment | superseded_by_assignment_id: uuidv7(0x5B)})
+             AssignmentValidate.validate(%{
+               assignment
+               | superseded_by_assignment_id: uuidv7(0x5B)
+             })
 
     assert {:error, :scope} =
              AssignmentValidate.validate(%{assignment | target_range_sha256: <<7>>})
@@ -1950,4 +1990,236 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   # A CANONICAL uuid whose version is 4, not 7: accepted by a length/nonzero check,
   # rejected by Go's UUIDv7 requirement on the plan id.
   defp uuidv4_like, do: <<1, 2, 3, 4, 5, 6, 0x41, 8, 0x80, 10, 11, 12, 13, 14, 15, 16>>
+
+  describe "compiled assignment carrier (task 1.3)" do
+    test "both digests are reproduced from the committed carrier" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+
+      # The BODY digest is what the scheduler's attestation signs; the ARTIFACT digest is the
+      # content address the referencing record pins. Reproducing BOTH from committed bytes is
+      # what proves the two grammars agree across runtimes -- a single digest would leave the
+      # capability-covering half unproven.
+      assert HashGrammar.compiled_assignment_body_digest(carrier) ==
+               load("compiled_assignment_body_digest.bin")
+
+      assert HashGrammar.compiled_assignment_artifact_digest(carrier) ==
+               load("compiled_assignment_artifact_digest.bin")
+
+      # And the carrier's own self-describing fields agree with them, so a drifted vector
+      # cannot pass by matching a drifted expectation.
+      assert carrier.compiled_assignment_body_sha256 ==
+               load("compiled_assignment_body_digest.bin")
+
+      assert carrier.compiled_assignment_sha256 == load("compiled_assignment_artifact_digest.bin")
+    end
+
+    test "the collection attestation's signing preimage is byte-identical to Go's" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+
+      assert CapabilitySigning.signing_bytes(carrier.collection_capability) ==
+               load("compiled_assignment_capability_signing_bytes.bin")
+    end
+
+    test "the host execution grant's signing preimage is byte-identical to Go's" do
+      grant =
+        EdgeSignedCapabilityV1.decode(load("compiled_assignment_execution_grant.bin"))
+
+      # The preimage is the one artifact that proves this runtime frames the execution-grant
+      # claims identically, independent of reproducing an Ed25519 signature.
+      assert CapabilitySigning.signing_bytes(grant) ==
+               load("compiled_assignment_execution_grant_signing_bytes.bin")
+    end
+
+    test "the artifact digest covers the attached authority, and the body digest does not" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+
+      tampered = %{
+        carrier
+        | collection_capability: %{
+            carrier.collection_capability
+            | signature:
+                carrier.collection_capability.signature
+                |> :binary.bin_to_list()
+                |> List.update_at(0, fn b -> Bitwise.bxor(b, 0xFF) end)
+                |> :binary.list_to_bin()
+          }
+      }
+
+      # A signature cannot cover itself, so the BODY digest must ignore it...
+      assert HashGrammar.compiled_assignment_body_digest(tampered) ==
+               HashGrammar.compiled_assignment_body_digest(carrier)
+
+      # ...while the ARTIFACT address must not, or a reference pinning it would not pin WHICH
+      # authority was attached.
+      refute HashGrammar.compiled_assignment_artifact_digest(tampered) ==
+               HashGrammar.compiled_assignment_artifact_digest(carrier)
+    end
+  end
+
+  describe "compiled assignment: real verification and the absent branch" do
+    test "both capabilities VERIFY against the committed public keys" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+      grant = EdgeSignedCapabilityV1.decode(load("compiled_assignment_execution_grant.bin"))
+
+      # signing_bytes/1 alone proves the GRAMMAR agrees. It does not exercise purpose
+      # derivation or the official validator, so deleting a purpose_of/1 clause stayed green.
+      # verify/3 closes that: purpose is IN the preimage, so a missing clause makes the
+      # signature fail against the committed key.
+      assert CapabilitySigning.verify(
+               carrier.collection_capability,
+               :collection,
+               load("compiled_assignment_issuer.pub")
+             )
+
+      assert CapabilitySigning.verify(
+               grant,
+               :assignment_execution,
+               load("compiled_assignment_host_issuer.pub")
+             )
+    end
+
+    test "each capability is REFUSED in the other's role, and under the other's key" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+      grant = EdgeSignedCapabilityV1.decode(load("compiled_assignment_execution_grant.bin"))
+      sched_pub = load("compiled_assignment_issuer.pub")
+      host_pub = load("compiled_assignment_host_issuer.pub")
+
+      # WRONG ROLE: the scheduler's attestation is not execution permission, and a host grant
+      # is not an attestation. Two principals, two decisions.
+      assert {:error, :purpose} =
+               CapabilitySigning.validate(carrier.collection_capability, :assignment_execution)
+
+      assert {:error, :purpose} = CapabilitySigning.validate(grant, :collection)
+
+      # WRONG KEY: host and scheduler families are distinct, so neither verifies under the
+      # other's key even in its own role.
+      refute CapabilitySigning.verify(carrier.collection_capability, :collection, host_pub)
+      refute CapabilitySigning.verify(grant, :assignment_execution, sched_pub)
+    end
+
+    test "the source-absent INTERACTIVE vector round-trips digests, preimage and verification" do
+      carrier =
+        CompiledSweepAssignmentV1.decode(load("compiled_assignment_interactive.bin"))
+
+      grant =
+        EdgeSignedCapabilityV1.decode(load("compiled_assignment_interactive_grant.bin"))
+
+      # The ABSENT source identity is the branch the first vector never exercises. The presence
+      # marker is NOT the only thing separating absent from present-with-empty -- the member
+      # list already makes those frame to different lengths -- but the ABSENT BRANCH itself is
+      # unreached without a vector that takes it, and an unreached branch is unproven.
+      assert grant.claims |> elem(1) |> Map.get(:source_identity) == nil
+
+      # And traffic_class is INTERACTIVE (2) here, so it is no longer numerically identical to
+      # digest_version and result_format -- a wrong-slot framer cannot pass both vectors.
+      assert carrier.traffic_class == :EDGE_RECORD_TRAFFIC_CLASS_INTERACTIVE
+
+      assert HashGrammar.compiled_assignment_body_digest(carrier) ==
+               load("compiled_assignment_interactive_body_digest.bin")
+
+      assert HashGrammar.compiled_assignment_artifact_digest(carrier) ==
+               load("compiled_assignment_interactive_artifact_digest.bin")
+
+      assert CapabilitySigning.signing_bytes(grant) ==
+               load("compiled_assignment_interactive_grant_signing_bytes.bin")
+
+      assert CapabilitySigning.verify(
+               grant,
+               :assignment_execution,
+               load("compiled_assignment_host_issuer.pub")
+             )
+    end
+
+    test "every BODY integer call site is CHECKED against ITS OWN protobuf domain" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+
+      # A fixed-width bitstring silently TRUNCATES an out-of-range integer, so two different
+      # carriers could share one content address. But a WIDTH check is not a DOMAIN check: a
+      # uint32 field guarded against the u64 ceiling accepts 2^32, a value the wire cannot
+      # carry, and frames it happily. Each field is therefore checked against the type it
+      # actually declares, and this table asserts exactly that -- rejecting one-past ITS OWN
+      # maximum, not one-past u64.
+      u64_max = 0xFFFF_FFFF_FFFF_FFFF
+      u32_max = 0xFFFF_FFFF
+      i64_min = -0x8000_0000_0000_0000
+      i64_max = 0x7FFF_FFFF_FFFF_FFFF
+      i32_min = -0x8000_0000
+      i32_max = 0x7FFF_FFFF
+
+      # {field, max accepted, first rejected above}
+      unsigned = [
+        {:digest_version, u32_max, u32_max + 1},
+        {:execution_shard, u32_max, u32_max + 1},
+        {:assignment_epoch, u64_max, u64_max + 1},
+        {:config_generation, u64_max, u64_max + 1}
+      ]
+
+      for {field, accepted_max, first_bad} <- unsigned do
+        for bad <- [first_bad, -1] do
+          assert_raise FunctionClauseError, fn ->
+            HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, bad))
+          end
+        end
+
+        # ACCEPTED endpoints, so a guard that rejected everything could not pass this table:
+        # the field's own maximum AND zero, which is wire-valid for every one of them.
+        for ok <- [accepted_max, 0] do
+          assert is_binary(
+                   HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, ok))
+                 )
+        end
+      end
+
+      for field <- [:not_before_unix_nano, :expires_at_unix_nano] do
+        for bad <- [i64_max + 1, i64_min - 1] do
+          assert_raise FunctionClauseError, fn ->
+            HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, bad))
+          end
+        end
+
+        for ok <- [i64_max, i64_min, 0] do
+          assert is_binary(
+                   HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, ok))
+                 )
+        end
+      end
+
+      # Proto enums are INT32 on the wire, so an enum call site's domain is int32 -- checking
+      # them against u64 would accept 2^32 for a field that cannot carry it.
+      for field <- [:result_format, :traffic_class] do
+        for bad <- [i32_max + 1, i32_min - 1] do
+          assert_raise FunctionClauseError, fn ->
+            HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, bad))
+          end
+        end
+
+        for ok <- [i32_max, i32_min, 0] do
+          assert is_binary(
+                   HashGrammar.compiled_assignment_body_digest(Map.put(carrier, field, ok))
+                 )
+        end
+      end
+    end
+
+    test "the artifact version guard fires first but cannot be independently proven" do
+      carrier = CompiledSweepAssignmentV1.decode(load("compiled_assignment.bin"))
+
+      # The artifact digest frames `digest_version` through its OWN guard, which runs FIRST --
+      # the list element precedes the body-digest call. So the raise below genuinely comes from
+      # the artifact's guard (verified: it raises in cu32/1 called from
+      # compiled_assignment_artifact_digest/1).
+      #
+      # What is NOT observable is WEAKENING it: the body digest, called later in the same list,
+      # frames the same field and raises before the artifact function can return. So no test
+      # can distinguish a present artifact guard from a widened one, and this is recorded
+      # rather than dressed up as coverage -- a mutation on that guard survives, correctly.
+      assert_raise FunctionClauseError, fn ->
+        HashGrammar.compiled_assignment_artifact_digest(Map.put(carrier, :digest_version, -1))
+      end
+
+      assert_raise FunctionClauseError, fn ->
+        HashGrammar.compiled_assignment_body_digest(Map.put(carrier, :digest_version, -1))
+      end
+    end
+  end
 end

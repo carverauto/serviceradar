@@ -13,6 +13,7 @@ defmodule ServiceRadar.Edge.ClaimsFraming do
   field number.
   """
 
+  alias Serviceradar.Edge.V1.EdgeCapabilityPurpose
   alias Serviceradar.Edge.V1.EdgeOriginKind
   alias Serviceradar.Edge.V1.EdgeRecordRouteProfile
   alias Serviceradar.Edge.V1.EdgeRecordTrafficClass
@@ -35,17 +36,90 @@ defmodule ServiceRadar.Edge.ClaimsFraming do
   end
 
   @doc """
-  Frames the capability `claims` oneof: a u64 discriminant equal to the set
-  member's proto field number (7/8/9, or 0 for none) followed by the selected
-  claim framed field-by-field. Mirror of digestWriter.claimsFramed.
+  Frames the capability `claims` oneof: a u64 discriminant equal to the set member's PROTO
+  FIELD NUMBER -- 7 production, 8 source, 9 delivery, 11 collection, 12 assignment_execution,
+  or 0 for none -- followed by the selected claim framed field-by-field. Mirror of
+  digestWriter.claimsFramed.
+
+  The discriminant is the FIELD NUMBER, not the clause's position here: `collection` took 11
+  because `signature` already held 10, and `assignment_execution` took 12. A variant with no
+  clause falls through to 0 AND signs purpose 0, which no verifier accepts -- adding a
+  variant means adding BOTH its clause here and its value in `CapabilitySigning`.
   """
   @spec claims_framed(term()) :: iodata()
   def claims_framed({:production, m}), do: [u64(7), production_claims(m)]
   def claims_framed({:source, m}), do: [u64(8), source_claims(m)]
   def claims_framed({:delivery, m}), do: [u64(9), delivery_claims(m)]
+  def claims_framed({:collection, m}), do: [u64(11), collection_claims(m)]
+  def claims_framed({:assignment_execution, m}), do: [u64(12), execution_grant_claims(m)]
   def claims_framed(_), do: u64(0)
 
-  # EdgeProductionClaimsV1 (fields 1-23, in field order).
+  # EdgeCollectionClaimsV1 (fields 1-11, in field order). The scheduler's ATTESTATION of a
+  # compiled carrier. `compiled_assignment_body_sha256` is the load-bearing member: it commits
+  # every compiled fact, so this claim attests config generation, result format, check set and
+  # validity window TRANSITIVELY. It is the BODY digest and not the artifact address, because
+  # the artifact address covers this capability -- signing it would require the signature to
+  # cover itself.
+  defp collection_claims(m) do
+    [
+      u64(enum(EdgeCapabilityPurpose, m.purpose)),
+      bytes(m.network_scope_id),
+      bytes(m.authenticated_agent_id),
+      bytes(m.execution_plan_id),
+      bytes(m.target_range_id),
+      u64(m.execution_shard || 0),
+      u64(m.assignment_epoch || 0),
+      bytes(m.compiled_assignment_body_sha256),
+      u64(enum(EdgeRecordTrafficClass, m.traffic_class)),
+      bytes(m.producer_assignment_id),
+      bytes(m.execution_id)
+    ]
+  end
+
+  # EdgeAssignmentExecutionClaimsV1 (fields 1-19, in field order). A HOST's permission to
+  # execute ONE compiled carrier. The nested source identity is framed with an explicit
+  # presence marker followed by its members. The marker is NOT what separates absent from
+  # present-with-zeros -- the fixed member list already makes those frame differently. It is
+  # kept for convention and because the committed preimage vector includes it.
+  defp execution_grant_claims(m) do
+    [
+      u64(enum(EdgeCapabilityPurpose, m.purpose)),
+      bytes(m.network_scope_id),
+      bytes(m.authenticated_agent_id),
+      bytes(m.producer_assignment_id),
+      bytes(m.execution_id),
+      bytes(m.run_id),
+      u64(m.run_shard || 0),
+      u64(m.authority_epoch || 0),
+      bytes(m.production_scope_id),
+      bytes(m.scope_sha256),
+      bytes(m.contract_bundle_sha256),
+      bytes(m.execution_plan_sha256),
+      bytes(m.target_range_sha256),
+      u64(enum(EdgeRecordTrafficClass, m.traffic_class)),
+      i64(m.collection_not_before_unix_nano || 0),
+      i64(m.collection_expires_unix_nano || 0),
+      source_identity(m.source_identity),
+      # Fields 18-19: the EXACT carrier this grant permits. Framed AFTER the nested identity,
+      # matching Go's order -- the grammar is field order, and the nested member sits at 17.
+      bytes(m.compiled_assignment_id),
+      bytes(m.compiled_assignment_sha256)
+    ]
+  end
+
+  defp source_identity(nil), do: present(false)
+
+  defp source_identity(id) do
+    [
+      present(true),
+      u64(enum(EdgeSourceAuthorizationKind, id.kind)),
+      bytes(id.context_id),
+      bytes(id.source_scope_id),
+      bytes(id.source_scope_sha256)
+    ]
+  end
+
+  # EdgeProductionClaimsV1 (field number 7; fields 1-23, in field order).
   defp production_claims(m) do
     [
       bytes(m.contract_id || ""),

@@ -92,19 +92,31 @@ here.
   chain relation run afterwards by `PlanValidate`. `edgerecord.ValidatePlanPages`
   measures a RE-MARSHAL and is a deliberately coarse guard for callers holding decoded
   structs -- it is NOT the physical ceiling.
-  STILL OPEN in 1.3 -- MORE THAN THE CORRELATION MATRIX. An earlier revision of this
-  entry claimed the matrix was the only remaining half; that was FALSE:
-  (1) the ASSIGNMENT/MAPPING ABI is incomplete. The frozen mapping key is
-  `(trust_namespace, FULL span_identity)` including `run_id`, the source identity, and
-  ACTIVE `range_sha256`; `SweepAssignmentRecordV1` carries neither `run_id` nor the
-  source identity, and NO message in this change represents the tagged POSITIVE /
-  EXPLICIT_NEGATIVE mapping VALUE or a durable negative reason. The record also lacks
-  the compiled-assignment facts the downstream sweep-jobs spec requires (config
-  generation, result format, immutable traffic class, scheduler-signed capability), or
-  a reference to a carrier supplying them -- a proto comment saying
-  "scheduler-authored" plus a shape validator does NOT establish scheduler authority;
-  (2) the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
-  `SweepExecutionSource`, with a positive and a mismatch vector per variant).
+  LANDED since that note (PR #4775, spec + Elixir peers following): the record now carries
+  `run_id` and the optional source identity; `CompiledSweepAssignmentV1` supplies the
+  compiled facts (config generation, typed result format, immutable traffic class,
+  check-set identity, validity window) under a scheduler COLLECTION attestation, and the
+  record REFERENCES it by id + artifact digest; permission to EXECUTE that carrier is a
+  separate HOST `ASSIGNMENT_EXECUTION` grant. Both compiled-assignment digest grammars and
+  both claim tables are frozen in Appendix A, with shared Go-authored vectors.
+
+  STILL OPEN in 1.3 -- TWO ITEMS. Do not describe the Elixir validator as the last
+  remaining piece; that repeats the error this entry already corrected once:
+  (1) the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
+  `SweepExecutionSource`, with a positive and a mismatch vector per variant) is NOT
+  designed. This is the largest remaining item.
+  (2) the ELIXIR carrier/grant VALIDATOR at Go parity. Framing and both digests are
+  proven cross-language from committed vectors; the VALIDATION rules are Go-only.
+
+  NOT 1.3 work, recorded here only so neither is lost:
+  - the tagged POSITIVE / EXPLICIT_NEGATIVE mapping VALUE and its durable negative reason
+    belong to task 2.20a. 1.3 froze the mapping KEY only and must not be read as having
+    frozen the value.
+  - `hash_grammar.ex`'s SHARED unchecked `u64/1` helper aliases out-of-range integers
+    (0 and 2^64 frame identically) for the PLAN/RECOVERY grammars. The
+    compiled-assignment grammars were moved to CHECKED framing here; the older grammars
+    were deliberately not widened into without their own vectors. That belongs to task
+    1.6, which owns those grammars.
   Original audit text follows. It must be designed before the 1.7 freeze or
   explicitly cut from it, because it is an append-only authoritative contract on
   the frozen ABI. It is also what binds a span's `producer_assignment_id` to the
@@ -367,10 +379,16 @@ here.
   and EACH of the three recovery-operation scope transcripts SEPARATELY -- tombstone
   scope, manifest-page scope, resolved scope (`RecoveryScopeDigestVersion = 1`) --
   which are three objects, not one family.
-  `ManifestPageDigest`, `PlanHeaderDigest`, and `PlanPageDigest` belong ONLY to
-  Class A: they are the digests OVER those messages, and the version they commit is
-  the `digest_version` field the message itself carries, so the Class-A vector
-  already exercises them. Listing them in both classes double-counted one object.
+  `ManifestPageDigest`, `PlanHeaderDigest`, `PlanPageDigest` and BOTH
+  compiled-assignment digests belong ONLY to Class A: they are the digests OVER those
+  messages, and the version they commit is the `digest_version` field the message
+  itself carries, so the Class-A vector already exercises them. Listing them in both
+  classes double-counted one object.
+  `CompiledSweepAssignmentV1.digest_version` (`CompiledAssignmentDigestVersion = 1`)
+  is a Class-A member and was MISSING from this inventory when Appendix A grammars 9
+  and 10 were added -- an unsupported-version obligation with no owner. ONE version
+  field governs BOTH grammars: the body digest and the artifact address share it, so
+  it is ONE Class-A member, not two.
   An earlier revision of this task classified `Nats-Msg-Id` and
   `Sr-Edge-Delivery-Id` as Class A. That was WRONG: their received values are
   digests and their versions are compile-time constants, exactly like the semantic
@@ -608,6 +626,11 @@ here.
     discriminant (7/8/9), the signing preimage additionally commits the `purpose`
     (`EdgeCapabilityPurpose`) enum, and BOTH field-frame the claim member (no
     `proto.Marshal`).
+    (The 7/8/9 list is the statement AS COMPLETED by this task and is left standing.
+    Task 1.3 later EXTENDED the oneof with `collection` = 11 and
+    `assignment_execution` = 12; the unification rule above applies to them
+    unchanged. Appendix A carries the current full list -- this entry is history,
+    not the inventory.)
   - (5) MTR completion ROOT already commits `plan_root_sha256`
     (`SHA-256(version || expected || plan_root_sha256 ||
     mtr_ordinal_range_commitment || leaf_accumulator)`) -- keep it, no change.
@@ -724,12 +747,29 @@ here.
   in task 1.6 -- Class-B objects have NO version input and SHALL NOT be asked for
   an unsupported-input vector. Add matching field-framed grammar
   vectors proving Go/Elixir byte equality for the `EdgeOutputContractRef`
-  output-contract grammar, the `EdgeProductionClaimsV1` / `EdgeSourceClaimsV1` /
-  `EdgeDeliveryClaimsV1` claim grammars (including the field-framed `transition`
-  oneof and its framed member), the plan grammars (`RangeDigest` /
-  `PlanPageDigest` / `PlanRoot` / `PlanHeaderDigest`, `plan_grammar_version = 1`),
-  and the recovery grammars (`EdgeLossManifestPageV1` / `SpoolLossTombstoneV1` /
-  `RecoveryResolvedV1`, `recovery_grammar_version = 1`). FOR UNSUPPORTED-VERSION
+  output-contract grammar, ALL FIVE claim grammars -- `EdgeProductionClaimsV1` /
+  `EdgeSourceClaimsV1` / `EdgeDeliveryClaimsV1` (including the field-framed
+  `transition` oneof and its framed member) / `EdgeCollectionClaimsV1` /
+  `EdgeAssignmentExecutionClaimsV1` (including BOTH branches of its optional
+  `source_identity`) -- the plan grammars (`RangeDigest` / `PlanPageDigest` /
+  `PlanRoot` / `PlanHeaderDigest`, `plan_grammar_version = 1`), the recovery
+  grammars (`EdgeLossManifestPageV1` / `SpoolLossTombstoneV1` / `RecoveryResolvedV1`,
+  `recovery_grammar_version = 1`), and BOTH compiled-assignment grammars (Appendix A
+  9 and 10, `CompiledAssignmentDigestVersion = 1`).
+  The two new claim grammars and both compiled-assignment grammars ALREADY have
+  shared Go-authored vectors that Elixir consumes, including a source-present and a
+  source-absent grant.
+  CLAIM GRAMMARS TAKE NO UNSUPPORTED-VERSION VECTOR: a claim message has NO version
+  input of its own -- the version it is framed under belongs to the CAPABILITY
+  (`capability_version`), so the rejection vector is the capability's, once, not one
+  per claim type. An earlier revision of this entry assigned one to each new claim
+  grammar, which would have demanded a vector for an input that does not exist. The
+  Task 1.3 added exactly ONE Class-A MEMBER: `CompiledSweepAssignmentV1.digest_version`.
+  The capability's `capability_version` was ALREADY a Class-A member and is not new here.
+  The vectors still owed are TWO -- one capability unsupported-version vector (a
+  pre-existing obligation) and ONE compiled-assignment unsupported-version vector covering
+  BOTH compiled digests, since one `digest_version` governs them both -- but only the
+  second is an obligation task 1.3 introduced. FOR UNSUPPORTED-VERSION
   coverage do NOT restate a per-grammar list here -- use the EXHAUSTIVE Class-A /
   Class-B gate frozen in task 1.6, which assigns every Appendix A object to exactly
   one proof class -- each Appendix A object carries the rejection vector ASSIGNED BY

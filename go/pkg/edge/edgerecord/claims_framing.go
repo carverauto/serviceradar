@@ -170,7 +170,10 @@ func (d *digestWriter) deliveryClaims(c *edgev1.EdgeDeliveryClaimsV1) {
 
 // executionGrantClaims frames EdgeAssignmentExecutionClaimsV1 (fields 1-19, in field
 // order). The nested source identity is framed with an explicit presence marker followed
-// by its members, so present-with-zeros cannot collide with absent.
+// by its members. The marker is NOT what separates absent from present-with-zeros -- this
+// message has a fixed member list, so those two already frame to different lengths. It is
+// kept for CONVENTION and for cross-runtime agreement: the committed signing-preimage
+// vector includes it, so removing it is an ABI break even where it is redundant.
 func (d *digestWriter) executionGrantClaims(c *edgev1.EdgeAssignmentExecutionClaimsV1) {
 	d.u64(uint64(c.GetPurpose()))
 	d.bytes(c.GetNetworkScopeId())
@@ -191,10 +194,9 @@ func (d *digestWriter) executionGrantClaims(c *edgev1.EdgeAssignmentExecutionCla
 	id := c.GetSourceIdentity()
 	// An explicit presence marker, matching every other grammar in this package. With this
 	// message's fixed member list an absent identity and a present-but-empty one already frame
-	// differently, so within THIS package the marker is not the thing that separates them.
-	// Deleting it nonetheless breaks the COMMITTED signing-preimage vector in //proto/edge/v1 --
-	// which is the ABI freeze doing its job -- so it is load-bearing for cross-runtime agreement
-	// even where it is redundant for disambiguation.
+	// differently, so the marker is not what separates them. Deleting it nonetheless breaks the
+	// COMMITTED signing-preimage vector in //proto/edge/v1 -- the ABI freeze doing its job -- so
+	// it is load-bearing for cross-runtime agreement even where it is redundant here.
 	d.present(id != nil)
 	if id != nil {
 		d.u64(uint64(id.GetKind()))

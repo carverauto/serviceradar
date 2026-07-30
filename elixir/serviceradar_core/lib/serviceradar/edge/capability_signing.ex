@@ -23,9 +23,10 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   @doc """
   Structural validation mirroring Go `ValidateCapability`: NO retained unknown protobuf fields
   (recursively, on the capability OR any nested claim/oneof member -- they sit outside the
-  field-framed signature, so a later reader could reinterpret an authorized grant), a known
+  field-framed signature, so a later reader could reinterpret a signed claim), a known
   version, present issuer + key id, a known algorithm, a forward validity window, and a typed
-  claims variant equal to `expected_purpose` (`:production` | `:source` | `:delivery`). Returns
+  claims variant equal to `expected_purpose` (`:production` | `:source` | `:delivery` |
+  `:collection` | `:assignment_execution`). Returns
   :ok or {:error, reason}.
   """
   @spec validate(map(), atom()) :: :ok | {:error, atom()}
@@ -129,6 +130,8 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   defp purpose_of({:production, _}), do: :production
   defp purpose_of({:source, _}), do: :source
   defp purpose_of({:delivery, _}), do: :delivery
+  defp purpose_of({:collection, _}), do: :collection
+  defp purpose_of({:assignment_execution, _}), do: :assignment_execution
   defp purpose_of(_), do: nil
 
   @spec signing_bytes(map()) :: binary()
@@ -147,11 +150,18 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   end
 
   # EdgeCapabilityPurpose bound into the signing preimage: production=1, source=2,
-  # delivery=3. The field-number discriminant (7/8/9) is committed separately by
-  # ClaimsFraming.claims_framed, exactly as Go binds both.
+  # delivery=3, collection=4, assignment_execution=5. The field-number discriminant
+  # (7/8/9/11/12) is committed separately by ClaimsFraming.claims_framed, exactly as Go binds
+  # both.
+  #
+  # A MISSING CASE HERE IS A SIGNING BUG, not merely a validation gap: purpose is IN the
+  # preimage, so an unlisted variant signs purpose 0 and the official verifier then rejects it.
+  # Both new variants were added here at the same time as their framing for that reason.
   defp purpose_value({:production, _}), do: 1
   defp purpose_value({:source, _}), do: 2
   defp purpose_value({:delivery, _}), do: 3
+  defp purpose_value({:collection, _}), do: 4
+  defp purpose_value({:assignment_execution, _}), do: 5
   defp purpose_value(_), do: 0
 
   # CHECKED framing primitives: an out-of-range integer would silently truncate under a fixed-width
