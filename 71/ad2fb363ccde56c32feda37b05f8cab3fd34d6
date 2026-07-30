@@ -1,0 +1,23 @@
+.bazelrc
+  s_8f6823274fc459::t_dcb568e512fd9b 84-85
+  s_8f6823274fc459::t_b8281f4b64bbe5 78-83,86-89
+  s_8f6823274fc459::t_6d33e44d4efe85 90
+.forgejo/workflows/main.yml
+  s_8f6823274fc459::t_49b20c694230da 262-266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "71ad2fb363ccde56c32feda37b05f8cab3fd34d6",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
