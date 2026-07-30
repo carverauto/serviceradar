@@ -132,9 +132,15 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert CapabilitySigning.validate(aliased, :production) == {:error, :window}
     refute CapabilitySigning.verify(aliased, :production, key_a)
 
-    # P2: capability validate/verify are TOTAL -- malformed maps, nonbinary IDs, and nonbinary
+    # P2: capability validate/verify are TOTAL -- malformed input, nonbinary IDs, and nonbinary
     # public keys return {:error}/false, never raise.
-    assert CapabilitySigning.validate(%{foo: 1}, :production) == {:error, :version}
+    #
+    # A PLAIN MAP is now :capability, not :version. It used to be accepted as an envelope and
+    # walked field-by-field, which was a BYPASS rather than leniency: `unknown_fields_clean?/1`
+    # matches on `__unknown_fields__`, so a map without that key fell through to `true` and the
+    # recursive walk never reached the nested claim -- retained unknown bytes inside a perfectly
+    # typed claim were accepted whenever the envelope around it was hand-built.
+    assert CapabilitySigning.validate(%{foo: 1}, :production) == {:error, :capability}
     assert CapabilitySigning.validate(:nope, :production) == {:error, :capability}
 
     assert {:error, :issuer} =
