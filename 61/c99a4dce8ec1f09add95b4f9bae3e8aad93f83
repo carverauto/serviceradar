@@ -1,0 +1,21 @@
+.forgejo/workflows/lint-rust.yml
+  s_8f6823274fc459::t_7b61a0536c203e 75,87,106,108
+  s_8f6823274fc459::t_eeab4e159d02b2 76-85,88-89,94,100,104-105,107
+  s_8f6823274fc459::t_43e19cd9a2732f 90-93,95-99,101-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "61c99a4dce8ec1f09add95b4f9bae3e8aad93f83",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
