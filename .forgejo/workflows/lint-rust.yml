@@ -1,0 +1,83 @@
+name: Rust Clippy
+
+# Clippy stays on cargo because this repo wires up no clippy aspect for Bazel: there is no
+# rust_clippy target and no --aspects entry in .bazelrc, so `bazel build` has nothing to run.
+# It is deliberately NOT part of tests-rust.yml -- a lint failure and a test failure are
+# different problems, and folding them together means a red X that says neither.
+#
+# Note this compiles from the crates.io registry rather than //third_party/crates, so it
+# lints the source tree rather than the artifact that ships (see rust/README_RUST.md).
+# For lints that is the right trade; for tests it is not, which is why tests are Bazel-only.
+on:
+  push:
+    branches: [staging]
+    paths: &clippy_paths
+      - 'rust/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.forgejo/workflows/lint-rust.yml'
+      - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths: *clippy_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu24
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache Cargo registry
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+
+      # One workspace-wide pass rather than one per crate: the crates share a target
+      # directory, so per-crate invocations rebuild the same dependencies over and over.
+      - name: Clippy (workspace)
+        run: sfw cargo clippy --workspace --all-targets -- -D warnings
+
+      # rdp-connector-probe is deliberately detached from the workspace -- its own
+      # [workspace] table and lockfile, see rust/README_RUST.md section 1 -- so a workspace
+      # pass does not reach it.
+      - name: Clippy (rdp-connector-probe)
+        working-directory: rust/rdp-connector-probe
+        run: sfw cargo clippy --all-targets -- -D warnings
