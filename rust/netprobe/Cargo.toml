@@ -39,6 +39,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
+# The af_xdp_cpu bench calls getrusage unconditionally, but the only libc declaration is
+# under [target.'cfg(target_os = "linux")'.dependencies], so `cargo clippy --all-targets`
+# failed to resolve it anywhere else. AF_XDP itself is Linux-only, but af_xdp and
+# af_xdp_classifier are not cfg-gated, so the bench otherwise compiles on any host -- and a
+# workspace lint pass that cannot run off Linux is a lint pass most developers never run.
+libc = { workspace = true }
 tempfile = { workspace = true }
 
 [build-dependencies]
