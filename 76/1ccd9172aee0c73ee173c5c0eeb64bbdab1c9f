@@ -1,0 +1,29 @@
+rust/netprobe/src/attribution.rs
+  s_721239bc8e9d27::t_38d8985fac7f2d 1414-1417
+  s_721239bc8e9d27::t_1d31cf5cbe3034 1226
+  s_721239bc8e9d27::t_c5f4d92b734dae 1354-1366
+  s_721239bc8e9d27::t_ecb447d8b56380 1681
+  s_721239bc8e9d27::t_fc780dfbea0168 903-907
+rust/netprobe/src/fingerprint.rs
+  s_721239bc8e9d27::t_7ae1a614359fbb 1302-1305
+rust/netprobe/src/ebpf_runtime.rs
+  s_721239bc8e9d27::t_6fb75b5ab659fc 494-498
+  s_721239bc8e9d27::t_ae434d7feaa0c4 73
+  s_721239bc8e9d27::t_992bef773114c4 308-311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "761ccd9172aee0c73ee173c5c0eeb64bbdab1c9f",
+  "prompts": {},
+  "sessions": {
+    "s_721239bc8e9d27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b1f80c4-211f-4aa5-96c1-6ad25274bf36",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
