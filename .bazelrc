@@ -18,17 +18,24 @@ common --enable_platform_specific_config
 build --keep_going
 build --jobs=auto
 build --show_timestamps
-build --action_env=SRQL_TEST_DATABASE_URL
-build --action_env=SRQL_TEST_ADMIN_URL
-build --action_env=SRQL_TEST_DATABASE_CA_CERT
-build --action_env=NATS_URL
-build --action_env=NATS_SERVER_NAME
-build --action_env=NATS_CA_FILE
-build --action_env=NATS_CERT_FILE
-build --action_env=NATS_KEY_FILE
-build --action_env=NATS_CA_B64
-build --action_env=NATS_CERT_B64
-build --action_env=NATS_KEY_B64
+# The SRQL_* and NATS_* fixture variables are declared once, further down, as
+# `test --test_env=`, and deliberately not here as `build --action_env=`.
+#
+# They are test fixture DSNs and credentials, and nothing reads them at compile time: no
+# build.rs or env!() in //rust, no Bazel rule in //build/*.bzl, and the Elixir config that does
+# read them at compile time (elixir/serviceradar_core/config/test.exs) is reached only by
+# integration-core.yml and elixir-quality.yml, which run `mix test` directly, never through
+# Bazel. --test_env reaches test actions, which is the only place they were ever needed.
+#
+# Scope, honestly: this is hygiene, not a cache fix. It keeps credentials out of action
+# environments and off any action that uses the default shell env (genrules, shell actions),
+# where an inherited value would become part of the key. It measurably did NOT affect Go or
+# Rust compiles -- rules_go and rules_rust both declare fixed action environments, so a
+# valueless --action_env never entered those keys. Verified with `bazel aquery --output=text`
+# against GoCompilePkg and Rustc actions: the sentinel value never appears.
+#
+# The NEXT_*/TURBOPACK entries below stay: they carry explicit values, so they are the same on
+# every machine and cost nothing.
 build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
 build --action_env=NEXT_SKIP_TURBO=1
@@ -89,10 +96,27 @@ test --test_output=errors
 # //elixir/web-ng:precommit already does.
 #test --test_strategy=standalone
 test --remote_executor=
-test --action_env=SRQL_TEST_DATABASE_URL
-test --action_env=SRQL_TEST_ADMIN_URL
-test --action_env=SRQL_TEST_DATABASE_CA_CERT
-test --test_env=PATH
+# --test_env, never --action_env: these reach test actions, which is where they are read, and
+# stay out of every other action's environment. See the note above the NEXT_* block for why
+# that is hygiene rather than a cache fix.
+test --test_env=SRQL_TEST_DATABASE_URL
+test --test_env=SRQL_TEST_ADMIN_URL
+test --test_env=SRQL_TEST_DATABASE_CA_CERT
+# Pinned, NOT inherited. `--test_env=PATH` with no value takes the value from the invoking
+# shell and folds it into every test action's cache key, so no test result was ever reusable
+# across CI runs: scripts/install-bazelisk.sh and scripts/ci/install-sfw.sh both prepend
+# ${RUNNER_TEMP}-scoped directories, giving a different PATH -- and therefore a different key
+# for every test in the repo -- on every run. Build actions were unaffected, which is why the
+# symptom read as "only the tests re-run".
+#
+# The inherited value was also useless: under --config=ci tests execute on the BuildBuddy
+# executor, where the runner's /workspace/.../_temp/... entries do not exist. Nothing depends
+# on it -- build/mix_precommit.bzl:14 is explicit that nothing is read from $PATH that Bazel
+# did not put there, and it prepends its own toolchain bins to whatever PATH it is handed.
+#
+# A test that needs a tool not on this list should declare it as a `data` dependency rather
+# than have this line widened.
+test --test_env=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/homebrew/bin
 test --test_env=CNPG_HOST
 test --test_env=CNPG_PORT
 test --test_env=CNPG_DATABASE
@@ -106,14 +130,14 @@ test --test_env=TEST_CNPG_DATABASE
 test --test_env=TEST_CNPG_USERNAME
 test --test_env=TEST_CNPG_PASSWORD
 test --test_env=SRQL_TEST_DATABASE_CA_CERT
-test --action_env=NATS_URL
-test --action_env=NATS_SERVER_NAME
-test --action_env=NATS_CA_FILE
-test --action_env=NATS_CERT_FILE
-test --action_env=NATS_KEY_FILE
-test --action_env=NATS_CA_B64
-test --action_env=NATS_CERT_B64
-test --action_env=NATS_KEY_B64
+test --test_env=NATS_URL
+test --test_env=NATS_SERVER_NAME
+test --test_env=NATS_CA_FILE
+test --test_env=NATS_CERT_FILE
+test --test_env=NATS_KEY_FILE
+test --test_env=NATS_CA_B64
+test --test_env=NATS_CERT_B64
+test --test_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 

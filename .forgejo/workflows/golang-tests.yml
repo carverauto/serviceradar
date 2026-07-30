@@ -1,19 +1,24 @@
 name: Golang Tests
 
-# Bazel-native, and tests only. Every Go package in the root module declares its own go_test
-# target, so the tests run once, through the build graph that ships, on the org's BuildBuddy:
-# remote cache, remote execution, BES reporting.
+# The Go race gate. Bazel-native, on the org's BuildBuddy: remote cache, remote execution,
+# BES reporting.
+#
+# This job runs ONLY the race pass. main.yml already runs `tests(//...)` -- every go_test in
+# the repo -- on every push and PR, in the default configuration, so a second non-race sweep
+# here proved nothing main.yml had not already proven and doubled the bill. What main.yml
+# cannot give you is -race: it needs cgo, so it forces --@io_bazel_rules_go//go/config:pure
+# off, and that fork is a configuration nothing else in the repo builds. Isolating it in one
+# job keeps that island as small as it can be.
 #
 # Previously this job installed a Go toolchain with actions/setup-go and ran `go test ./...`
 # twice. That resolved dependencies through GOPROXY into a runner-local module cache rather
 # than through MODULE.bazel.lock, so a green run proved nothing about the binaries the images
-# actually ship, and nothing it compiled was reachable by the next run -- every push paid for
-# the whole module tree again while the Bazel cache that already holds those objects sat idle.
-# It also emitted two coverage profiles that no step ever read.
+# actually ship. It also emitted two coverage profiles that no step ever read.
 #
 # Everything that fails for its own reasons lives in its own workflow, so a red X names the
 # problem without anyone opening a log:
 #
+#   main.yml               tests(//...) non-race sweep          -- an ordinary test failure
 #   golangci-lint.yml      golangci-lint, buf lint, go mod tidy -- a lint or hygiene break
 #   banner-grab-large.yml  1M-host synthetic engine test        -- too slow to gate a PR
 on:
@@ -59,10 +64,16 @@ jobs:
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
+          # bazel-disk-cache is deliberately NOT here. actions/cache only writes an entry when
+          # the primary key missed, and this key is a hash of .bazelversion/.bazelrc/MODULE.*
+          # -- files that change far more rarely than the build outputs. So the entry was
+          # written once and then frozen: every later run paid to restore a disk cache that
+          # could never be updated. The remote cache on BuildBuddy already serves that role
+          # and is keyed by action, not by a file hash. --disk_cache stays set in .bazelrc, so
+          # a run still gets a local cache; it just is not carried between runs.
           path: |
             ${{ env.BAZELISK_HOME }}
             third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
             third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
@@ -94,9 +105,11 @@ jobs:
       # found", which surfaces as a red job that reads like broken infrastructure rather than
       # a suite that quietly stopped existing.
       #
-      # //build/... is in scope because build/release, build/wasm_plugins and
-      # build/native_addons hold Go release tooling that lives in the root module, so
-      # `go test ./...` covered it and dropping it here would be a silent regression.
+      # //build/... is deliberately out of scope. Its three Go tests are release tooling, and
+      # //build/release:publish_packages_test alone pulls 30,161 transitive deps -- it data-
+      # depends on the packaging archives -- against 1,459 for a typical Go test and 6,513 for
+      # the largest. Running it here meant building most of the release graph to execute one
+      # unit test. main.yml's tests(//...) sweep already covers all three.
       #
       # manual-tagged targets are excluded at query time rather than left to
       # --test_tag_filters: naming a manual target explicitly still builds it, and the one
@@ -107,11 +120,11 @@ jobs:
           set -euo pipefail
 
           mapfile -t targets < <(
-            bazel query 'let t = kind(go_test, //go/... + //build/...) in $t except attr("tags", "manual", $t)'
+            bazel query 'let t = kind(go_test, //go/...) in $t except attr("tags", "manual", $t)'
           )
 
           if [ "${#targets[@]}" -eq 0 ]; then
-            echo "No Go test targets found under //go/... or //build/..., which cannot be right." >&2
+            echo "No Go test targets found under //go/..., which cannot be right." >&2
             exit 1
           fi
 
@@ -172,22 +185,6 @@ jobs:
             --flaky_test_attempts=1 \
             --test_arg=-test.count=10 \
             --test_arg=-test.short \
-            --test_arg=-test.shuffle=on \
-            --test_output=errors \
-            "${targets[@]}"
-
-      # The old `-count=1` full leg. Per-test time limits come from each target's size and
-      # timeout attributes in its BUILD file rather than a blanket `-timeout=120s`, so a test
-      # that legitimately needs longer says so where it is defined.
-      - name: Run tests (full)
-        run: |
-          set -euo pipefail
-
-          mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
-          bazel test --config=ci \
-            --@io_bazel_rules_go//go/config:pure=false \
-            --@io_bazel_rules_go//go/config:race \
-            --flaky_test_attempts=1 \
             --test_arg=-test.shuffle=on \
             --test_output=errors \
             "${targets[@]}"
