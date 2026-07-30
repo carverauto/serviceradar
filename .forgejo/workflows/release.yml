@@ -767,6 +767,15 @@ jobs:
             -d '{"draft": false}' >/dev/null
           echo "Published release ${RELEASE_TAG}"
 
+      - name: Prune old fat Forgejo release assets
+        if: ${{ steps.finalize_release.outcome == 'success' }}
+        env:
+          PRUNE_KEEP: "10"
+          PRUNE_DELETE_DRAFTS: "true"
+        run: |
+          set -euo pipefail
+          bash scripts/prune-forgejo-releases.sh --keep "${PRUNE_KEEP}"
+
       - name: Advance demo release source branch
         if: ${{ needs.publish.outputs.prerelease != 'true' && steps.parallel_assets.outcome == 'success' && steps.finalize_release.outcome == 'success' }}
         env:

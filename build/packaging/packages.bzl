@@ -1,4 +1,28 @@
-"""Component packaging metadata."""
+"""Component packaging metadata.
+
+`PACKAGES` is the full inventory of buildable deb/rpm components. Local
+`bazel build //build/packaging/<name>:<name>_deb` still works for any entry.
+
+`RELEASE_PACKAGES` is the subset published to Forgejo on every tagged release.
+Control-plane services (core-elx, web-ng, agent-gateway, datasvc, faker, etc.)
+are container/Helm only — edge installers that still need packages are the
+agent, NATS, CLI helper, collectors, and rperf (client checker + server).
+"""
+
+# Packages uploaded by //build/release:publish_packages / the release workflow.
+# Keep this list small: each fat release historically cost ~2.7 GiB of Forgejo
+# attachment storage (deb+rpm for every component).
+RELEASE_PACKAGES = [
+    "agent",
+    "nats",
+    "cli",  # dependency of flow-collector / bmp-collector packages
+    "log-collector",
+    "flow-collector",
+    "bmp-collector",
+    "trapd",
+    "rperf",  # edge bandwidth reflector (server)
+    "rperf-checker",  # edge bandwidth client installed on monitored systems
+]
 
 PACKAGES = {
     "web-ng": {
