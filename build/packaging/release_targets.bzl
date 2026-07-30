@@ -1,6 +1,6 @@
 """Helpers to expose ServiceRadar packaging artifacts for release publishing."""
 
-load("//build/packaging:packages.bzl", "PACKAGES")
+load("//build/packaging:packages.bzl", "PACKAGES", "RELEASE_PACKAGES")
 
 def _manifest_impl(ctx):
     files = depset()
@@ -25,9 +25,17 @@ package_manifest = rule(
 )
 
 def declare_release_artifacts():
-    """Declares aggregate targets for Debian and RPM release artifacts."""
+    """Declares aggregate targets for Debian and RPM release artifacts.
 
-    component_names = sorted(PACKAGES.keys())
+    Only `RELEASE_PACKAGES` ship on the tagged Forgejo release. Full `PACKAGES`
+    entries remain buildable individually for ad-hoc packaging.
+    """
+
+    unknown = [name for name in RELEASE_PACKAGES if name not in PACKAGES]
+    if unknown:
+        fail("RELEASE_PACKAGES references unknown packages: %s" % unknown)
+
+    component_names = sorted(RELEASE_PACKAGES)
 
     deb_targets = [
         "//build/packaging/{name}:{name}_deb".format(name = name)

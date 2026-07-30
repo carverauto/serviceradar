@@ -613,4 +613,53 @@ if "&& git push origin refs/tags/$tag:refs/tags/$tag" not in ancestry_lines[0]:
     raise SystemExit("cut-release tag push is not mechanically chained to ancestry success")
 PY
 
+
+# RELEASE_PACKAGES must be the only set pulled into package_artifacts, and the
+# prune script must stay wired into the release finalize job.
+python3 - "${repo_root}" <<'PY2'
+from pathlib import Path
+import re
+import sys
+
+repo = Path(sys.argv[1])
+packages_bzl = (repo / "build/packaging/packages.bzl").read_text()
+release_targets = (repo / "build/packaging/release_targets.bzl").read_text()
+release_workflow = (repo / ".forgejo/workflows/release.yml").read_text()
+prune_script = repo / "scripts/prune-forgejo-releases.sh"
+
+if "RELEASE_PACKAGES" not in packages_bzl:
+    raise SystemExit("packages.bzl must declare RELEASE_PACKAGES")
+if "RELEASE_PACKAGES" not in release_targets:
+    raise SystemExit("release_targets.bzl must consume RELEASE_PACKAGES")
+if "sorted(PACKAGES.keys())" in release_targets:
+    raise SystemExit("release_targets.bzl still ships every PACKAGES entry")
+if not prune_script.is_file():
+    raise SystemExit("scripts/prune-forgejo-releases.sh is missing")
+if "prune-forgejo-releases.sh" not in release_workflow:
+    raise SystemExit("release workflow does not invoke prune-forgejo-releases.sh")
+
+# Parse RELEASE_PACKAGES list roughly.
+match = re.search(r"RELEASE_PACKAGES\s*=\s*\[(.*?)\]", packages_bzl, re.S)
+if not match:
+    raise SystemExit("unable to parse RELEASE_PACKAGES")
+names = re.findall(r'"([^"]+)"', match.group(1))
+required = {
+    "agent",
+    "nats",
+    "cli",
+    "log-collector",
+    "flow-collector",
+    "bmp-collector",
+    "trapd",
+    "rperf",
+    "rperf-checker",
+}
+if set(names) != required:
+    raise SystemExit(f"RELEASE_PACKAGES mismatch: got {sorted(names)}, want {sorted(required)}")
+forbidden = {"core-elx", "web-ng", "agent-gateway", "datasvc", "faker", "bumblebee-scan"}
+if forbidden & set(names):
+    raise SystemExit(f"RELEASE_PACKAGES still includes control-plane packages: {sorted(forbidden & set(names))}")
+print(f"RELEASE_PACKAGES ok: {', '.join(names)}")
+PY2
+
 echo "release publish contracts verified"
