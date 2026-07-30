@@ -100,6 +100,11 @@ single_version_override(
     patches = [
         "//third_party/patches/rules_erlang:skip_system_erlang.patch",
         "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
+        # erlang_build extracted the OTP tarball with GNU tar's --transform, which the
+        # bsdtar macOS ships does not implement. Every Elixir/Erlang target therefore failed
+        # on macOS at "tar: Option --transform is not supported" -- before compiling a line --
+        # so no one could build or iterate on //elixir/... locally.
+        "//third_party/patches/rules_erlang:portable_tar_extract.patch",
     ],
 )
 
@@ -108,6 +113,8 @@ single_version_override(
     patch_strip = 1,
     patches = [
         "//third_party/patches/rules_elixir:skip_system_elixir.patch",
+        # Same GNU-tar assumption as rules_erlang; see that patch for the rationale.
+        "//third_party/patches/rules_elixir:portable_tar_extract.patch",
     ],
 )
 

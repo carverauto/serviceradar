@@ -625,7 +625,7 @@
     },
     "@@rules_erlang+//bzlmod:extensions.bzl%erlang_config": {
       "general": {
-        "bzlTransitiveDigest": "EcDQV1GZEPQ902jYNPFkgErzSCCiQYoWL9N1/McLn/M=",
+        "bzlTransitiveDigest": "TqwJMsx/mF9wKeHdtUZh1MsHCCPPw4jwJWCoWK3xOXs=",
         "usagesDigest": "liFVPEtnvTAPYkAhUbFyq8OYGTjOzpqiPOsaSPTifHA=",
         "recordedInputs": [
           "REPO_MAPPING:rules_erlang+,bazel_skylib bazel_skylib+",
@@ -1121,7 +1121,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "TO0sjSNkDsRNtKiwgPJW4ogKM/yK77iip7GpQtVYt44=",
-        "usagesDigest": "JS2/IT1mc3fdczeTi9kyaLoEIknGJYEfe0z+LJMtt20=",
+        "usagesDigest": "3KnD5KgbaO/vyS3d7AUQQP4wvekOoTrmGlSva9NvIbQ=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1469,7 +1469,7 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "cloudnative-pg/postgresql",
-              "identifier": "18-bookworm",
+              "identifier": "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
               "platform": "linux/amd64",
               "target_name": "cloudnativepg_postgresql_18_linux_amd64",
               "bazel_tags": []
@@ -1483,12 +1483,12 @@
               "scheme": "https",
               "registry": "ghcr.io",
               "repository": "cloudnative-pg/postgresql",
-              "identifier": "18-bookworm",
+              "identifier": "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@cloudnativepg_postgresql_18_linux_amd64"
               },
               "bzlmod_repository": "cloudnativepg_postgresql_18",
-              "reproducible": false
+              "reproducible": true
             }
           },
           "oci_crane_darwin_amd64": {

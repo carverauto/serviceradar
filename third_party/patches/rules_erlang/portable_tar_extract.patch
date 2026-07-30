@@ -1,0 +1,35 @@
+--- a/private/erlang_build.bzl	2026-07-30 19:55:10
++++ b/private/erlang_build.bzl	2026-07-30 19:55:10
+@@ -85,9 +85,11 @@
+ 
+     # zipper = ctx.executable._zipper
+ 
+-    strip_prefix = ctx.attr.strip_prefix
+-    if strip_prefix != "":
+-        strip_prefix += "\\/"
++    # GNU tar's --transform is not available in the bsdtar that macOS ships, so express the
++    # same thing with --strip-components, which both implementations support. Every archive
++    # this rule handles wraps its contents in a single top-level directory (otp_src_28.1 for
++    # OTP 28.1), so stripping one component is equivalent to removing that prefix.
++    strip_components = "--strip-components=1" if ctx.attr.strip_prefix != "" else ""
+ 
+     ctx.actions.run_shell(
+         inputs = [downloaded_archive, sha256file],
+@@ -113,7 +115,7 @@
+ ABS_DEST_DIR="$(mktemp -d)"
+ 
+ tar --extract \\
+-    --transform 's/{strip_prefix}//' \\
++    {strip_components} \\
+     --file "{archive_path}" \\
+     --directory "$ABS_BUILD_DIR"
+ 
+@@ -148,7 +150,7 @@
+             sha256 = ctx.attr.sha256v,
+             sha256file = sha256file.path,
+             archive_path = downloaded_archive.path,
+-            strip_prefix = strip_prefix,
++            strip_components = strip_components,
+             build_path = build_dir_tar.path,
+             release_path = release_dir_tar.path,
+             install_path = install_path,
