@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-netprobe"
-version = "0.2.24"
+version = "0.2.25"
 description = "Host network visibility sidecar for ServiceRadar agents"
 authors = ["ServiceRadar Team"]
 edition = "2024"
