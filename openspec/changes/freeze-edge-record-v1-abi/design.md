@@ -56,6 +56,9 @@ decompression:
 | `MaxFrameBytes` | `MaxRecordBytes + MaxDeliveryEnvelopeBytes` = 528 KiB | one raw `EdgeDeliveryFrameV1` |
 | `MaxClientMessageBytes` | `MaxFrameBytes + 8` | one raw `EdgeRecordClientMessage`: the oneof tag (1 byte) plus a length prefix (<= 5 bytes) |
 | `MaxPlanPageBytes` | 128 KiB | one raw `ScheduledPlanPageV1` |
+| `MaxPlanHeaderBytes` | 512 KiB | one raw `ScheduledPlanHeaderV1` |
+| `MaxCompiledAssignmentBytes` | 64 KiB | one raw `CompiledSweepAssignmentV1` (fetched standalone by digest) |
+| `MaxExecutionGrantBytes` | 16 KiB | one raw `EdgeSignedCapabilityV1` carrying an ASSIGNMENT_EXECUTION claim (travels standalone) |
 
 The `+ 8` is CONSERVATIVE HEADROOM, not an exact derivation. The oneof framing at
 the maximum frame size is 1 tag byte plus a 3-byte varint length (528 KiB <
@@ -151,6 +154,7 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
 | plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | PLAN: the range/page/header preimages CHANGED in this change (`mtr_ordinal_count` added, retired `assignment_epoch` removed), so they are an IMPLEMENTED CANDIDATE, not frozen -- `PlanDigestVersion` stays 1 only because nothing has shipped against them. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a IMPLEMENTED CANDIDATE. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| compiled-assignment body + artifact digests | `CompiledAssignmentDigestVersion = 1` | frozen (Appendix A grammars 9 and 10): TWO grammars under ONE version, each DOMAIN-FIRST with its own `str` tag (`serviceradar.edge.assignment.compiled.body.v1` and `...compiled.artifact.v1`), THEN the `u64` version; FIXED field order (NOT proto tag order); 8-byte big-endian ints; `i64` window bounds; 8-byte big-endian length prefixes. The BODY digest excludes both digest fields AND the capability; the ARTIFACT digest covers the body digest, a 1-byte capability presence marker and, when present, the capability's grammar-2 signing preimage plus its signature. NO `proto.Marshal` |
 | MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, and the zero-MTR behaviour is DECIDED (candidate B, the mandatory canonical zero-leaf proof). What still holds this entry short of frozen: ONLY task 1.15's shared per-value leaf vectors. Both previously-undefined plan-derived relations are RESOLVED -- `range_root_sha256` is RETIRED (tag 20, reserved by number and name) in favour of the assignment record's resolvable `target_range_id` + `target_range_sha256`, and the required `SweepMtrExpectationV1` STATES the admitted ordinal count, so "32 zero bytes means none admitted" is written down and checkable in both directions. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
@@ -197,7 +201,7 @@ cross-language identity.
 
 ### Common framing rules
 
-These rules apply to every grammar (1-8) at every nesting depth and match the reference
+These rules apply to every grammar (1-10) at every nesting depth and match the reference
 `digestWriter` primitives byte-for-byte (semantic.go:41-138; uniform across
 semantic/capability/plan/recovery/MTR), so two clean-room Go/Elixir implementations
 produce IDENTICAL bytes:
@@ -241,8 +245,19 @@ with explicit exclusions, and any grammar-specific notes; the common framing rul
 apply throughout. Digest algorithm: SHA-256 for every grammar. Every nested message
 (output_contract, all claim messages, the delivery transition oneof, plan ranges/pages/
 root/header, recovery manifest-page/tombstone/resolved) is framed FIELD-BY-FIELD per its
-table below with an outer 1-byte presence marker and recursive framing; `proto.Marshal`
-appears in NO preimage at any depth (landed in task 1.13).
+table below with recursive framing; `proto.Marshal` appears in NO preimage at any depth
+(landed in task 1.13).
+
+PRESENCE MARKERS are NOT universal, and an earlier revision of this paragraph wrongly gave
+every nested message one. Two forms exist:
+ - An OPTIONAL nested message carries an explicit 1-byte presence marker (`output_contract`,
+   `producer_context`, the sourceAuth and capability sub-frames, and
+   `EdgeAssignmentExecutionClaimsV1.source_identity`, and
+   `CompiledSweepAssignmentV1.collection_capability` inside the grammar-10 artifact digest).
+ - A ONEOF member carries NO extra marker: the `u64` DISCRIMINANT IS the presence signal,
+   with 0 meaning none. This applies to the capability `claims` oneof and the delivery
+   `transition` oneof. Adding a marker beside the discriminant would be a second, redundant
+   encoding of the same fact -- and the reference implementations do not emit one.
 
 ORDERING RULE (frozen, with the exceptions the #4713 code has): a TAGGED grammar emits its
 `str` domain tag FIRST, then the `u64` version (domain-tag-first, version-second) --
@@ -257,7 +272,8 @@ Two former #4713 bugs, FIXED by task 1.13, are noted inline below: (i) EdgeDeliv
 `transition` oneof was formerly whole-message `proto.Marshal`'d and is now field-framed
 (u64 discriminant + framed member); (ii) the capability claims-oneof binding was formerly
 bound TWO different ways and is now UNIFIED (both commit the u64 field-number discriminant
-7/8/9, and the signing preimage additionally commits `purpose`).
+7/8/9 -- later extended with 11 and 12 -- and the signing preimage additionally
+commits `purpose`).
 
 1. Semantic-envelope digest -- NO string domain tag; leads with `u64
    semanticDigestVersion = 3`. Ordered fields (semantic.go:147-188): `version` (u64 = 3);
@@ -281,7 +297,8 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
      from the capability SIGNING grammar 2): presence (1B); if present: `capability_version`
      (u64), `issuer_id` (bytes), `issuer_key_id` (bytes), `algorithm` (str), `not_before`
      (i64), `expires` (i64), claims-oneof discriminant (u64 = the member's field number:
-     7 = production / 8 = source / 9 = delivery / 0 = none) + the FIELD-FRAMED claim message
+     7 = production / 8 = source / 9 = delivery / 11 = collection /
+     12 = assignment_execution / 0 = none) + the FIELD-FRAMED claim message
      (per the claim-message tables below, field-by-field, NOT `proto.Marshal`),
      `signature` (bytes). The ENVELOPE framing has NO domain tag and NO purpose field and
      DOES include the signature; the SIGNING grammar 2 is different.
@@ -306,6 +323,29 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
        `run_shard` (u64), `authority_epoch` (u64), `traffic_class` (u64), `route_profile`
        (u64), `execution_plan_sha256` (bytes), `target_range_sha256` (bytes), `origin_kind`
        (u64).
+     - EdgeCollectionClaimsV1 (field number 11; fields 1-11 in order): `purpose`
+       (u64/enum, MUST be COLLECTION), `network_scope_id` (bytes),
+       `authenticated_agent_id` (bytes), `execution_plan_id` (bytes), `target_range_id`
+       (bytes), `execution_shard` (u64), `assignment_epoch` (u64),
+       `compiled_assignment_body_sha256` (bytes), `traffic_class` (u64/enum),
+       `producer_assignment_id` (bytes), `execution_id` (bytes).
+       NOTE: field number 11, NOT 10 -- `signature` holds 10 on the envelope. The
+       committed digest is the carrier's BODY digest, never its artifact address: the
+       artifact address covers this capability, so signing it would require the
+       signature to cover itself.
+     - EdgeAssignmentExecutionClaimsV1 (field number 12; fields 1-19 in order): `purpose`
+       (u64/enum, MUST be ASSIGNMENT_EXECUTION), `network_scope_id` (bytes),
+       `authenticated_agent_id` (bytes), `producer_assignment_id` (bytes), `execution_id`
+       (bytes), `run_id` (bytes), `run_shard` (u64), `authority_epoch` (u64),
+       `production_scope_id` (bytes), `scope_sha256` (bytes), `contract_bundle_sha256`
+       (bytes), `execution_plan_sha256` (bytes), `target_range_sha256` (bytes),
+       `traffic_class` (u64/enum), `collection_not_before_unix_nano` (i64),
+       `collection_expires_unix_nano` (i64), `source_identity` (presence (1B); if present:
+       `kind` (u64/enum), `context_id` (bytes), `source_scope_id` (bytes),
+       `source_scope_sha256` (bytes)), `compiled_assignment_id` (bytes),
+       `compiled_assignment_sha256` (bytes).
+       NOTE: fields 18-19 are framed AFTER the nested `source_identity` at 17 -- the
+       grammar is FIELD ORDER, and the nested member does not move to the end.
      - EdgeDeliveryClaimsV1 (field number 9; fields 1-4 + a `transition` oneof):
        `event_id` (bytes), `record_sha256` (bytes), `spool_id` (bytes), `sequence` (u64),
        then the `transition` oneof: a u64 discriminant (5 = renewal, 6 = rollover, 0 = none)
@@ -320,8 +360,8 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
 2. Capability SIGNING bytes -- domain `str "serviceradar.edge.capability.v1"` FIRST, then
    the `u64` version (domain-tag-first, version-second). Ordered (capability.go:106-121):
    `domain` (str); `capability_version` (u64); `issuer_id` (bytes); `issuer_key_id`
-   (bytes); `algorithm` (str); `purpose` (u64/enum EdgeCapabilityPurpose = PRODUCTION /
-   SOURCE / DELIVERY); `not_before` (i64); `expires` (i64); `claims` (the set claim message
+   (bytes); `algorithm` (str); `purpose` (u64/enum EdgeCapabilityPurpose = UNSPECIFIED 0 /
+   PRODUCTION 1 / SOURCE 2 / DELIVERY 3 / COLLECTION 4 / ASSIGNMENT_EXECUTION 5); `not_before` (i64); `expires` (i64); `claims` (the set claim message
    framed FIELD-BY-FIELD per the grammar-1 claim-message tables [field-framed in #4713,
    not `proto.Marshal`]). EXCLUDES the signature. Ed25519 signs this RAW framed preimage bytes
    DIRECTLY (NOT a SHA-256 of them). A single domain tag plus a `purpose` field bind the
@@ -329,8 +369,11 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    >>> FIXED in #4713 (task 1.13): the claims-oneof variant was formerly bound TWO different
    ways -- the signing preimage via the `purpose` enum, the grammar-1 capability() sub-framing
    via the 7 / 8 / 9 field-number discriminant. UNIFIED: BOTH now commit the u64 field-number
-   discriminant (7 / 8 / 9), and the signing preimage ADDITIONALLY commits
-   `purpose`; and BOTH field-frame the claim member (no `proto.Marshal`).
+   discriminant (7 / 8 / 9, plus 11 COLLECTION and 12 ASSIGNMENT_EXECUTION), and the
+   signing preimage ADDITIONALLY commits `purpose`; and BOTH field-frame the claim member
+   (no `proto.Marshal`). A claims variant with NO framing case emits discriminant 0 AND
+   purpose 0, which signs a preimage no verifier accepts -- adding a variant therefore
+   REQUIRES adding both its framing case and its purpose value.
 3. Source authorization -- NOT a second signed object: the source CAPABILITY is signed
    via grammar 2 with `purpose = SOURCE`; the outer `EdgeSourceAuthorizationV1` (`kind` /
    `context_id` / `scope_id` / `scope_sha256`) is covered by the semantic envelope's
@@ -544,6 +587,37 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
    (proof absent). Hard byte bound <= 512 ASCII bytes. The framed envelope (NOT a digest of
    it) is base64url-encoded (no padding) into the header value.
 
+9. Compiled-assignment BODY digest -- string domain
+   `serviceradar.edge.assignment.compiled.body.v1` FIRST, then `u64
+   CompiledAssignmentDigestVersion = 1`, then the ordered BODY fields:
+   `compiled_assignment_id` (bytes), `producer_assignment_id` (bytes), `execution_id`
+   (bytes), `execution_plan_id` (bytes), `execution_plan_sha256` (bytes), `target_range_id`
+   (bytes), `target_range_sha256` (bytes), `network_scope_id` (bytes),
+   `authenticated_agent_id` (bytes), `execution_shard` (u64), `assignment_epoch` (u64),
+   `config_generation` (u64), `result_format` (u64/enum), `check_set_sha256` (bytes),
+   `traffic_class` (u64/enum), `not_before_unix_nano` (i64), `expires_at_unix_nano` (i64).
+   EXCLUDES both digest fields AND `collection_capability`. This is what the COLLECTION
+   attestation signs; a signature cannot cover itself. Note the transcript order is NOT the
+   proto field order -- `producer_assignment_id` (20) and `execution_id` (21) are framed
+   THIRD and FOURTH, immediately after the carrier id, because the grammar was frozen with
+   the identity members grouped; the ORDER HERE is authoritative, not the tag order.
+10. Compiled-assignment ARTIFACT digest (the carrier's CONTENT ADDRESS) -- string domain
+   `serviceradar.edge.assignment.compiled.artifact.v1` FIRST (a DIFFERENT domain from
+   grammar 9, so neither digest can be presented where the other is required), then `u64
+   CompiledAssignmentDigestVersion = 1`, then: the grammar-9 BODY digest (bytes, i.e. the
+   32-byte value length-prefixed like any other bytes member); a 1-byte PRESENCE marker for
+   `collection_capability`; and, ONLY when present, the capability's grammar-2 SIGNING
+   PREIMAGE (bytes) followed by its `signature` (bytes). EXCLUDES the artifact digest field
+   itself. The referencing assignment record pins THIS digest: a body digest is not a
+   content address for an artifact that also carries an authority, because two carriers with
+   identical bodies and different capabilities share a body digest.
+
+   PROOF CLASS / PARITY (both grammars): SHARED cross-language vectors, Go-authored and
+   consumed by both runtimes -- the carrier bytes, both digest values, the COLLECTION
+   attestation's grammar-2 signing preimage, the ASSIGNMENT_EXECUTION grant's grammar-2
+   signing preimage, both issuer public keys, and the referencing record. Each runtime
+   SHALL reproduce both digests and both preimages from the committed bytes.
+
    Authenticated-principal encoding (feeds `Nats-Msg-Id`, `Sr-Edge-Delivery-Id`, and
    provenance identically and MUST equal `producer_context.origin_principal_id`): the exact
    case-sensitive ASCII bytes the authenticated component-id resolver returns, charset
@@ -560,7 +634,7 @@ bound TWO different ways and is now UNIFIED (both commit the u64 field-number di
 The ARTIFACT hashes `submission_sha256`, `payload_sha256`, and `record_sha256` are
 plain SHA-256 over the exact raw bytes and are NOT preimage grammars. The "every
 cryptographic preimage begins with a committed version (and, where used, a leading domain
-tag)" rule applies to the signing/digest transcripts (1-8), not to artifact hashing. Their
+tag)" rule applies to the signing/digest transcripts (1-10), not to artifact hashing. Their
 named digests MAY
 participate in the transcripts above (for example the semantic-envelope digest
 commits `payload_sha256`, and the `Nats-Msg-Id` transcript includes
@@ -569,7 +643,7 @@ with no domain tag or version prefix.
 
 ### Parity requirement
 
-Every grammar (1-8) has independent Go and Elixir preimage fixtures and, where the
+Every grammar (1-10) has independent Go and Elixir preimage fixtures and, where the
 grammar is signed, signature parity fixtures, and a digest-algorithm line
 (SHA-256). Fail-closed version coverage is the vector ASSIGNED BY EACH OBJECT'S
 PROOF CLASS (task 1.6): Class A objects carry an unsupported-INPUT-version reject;

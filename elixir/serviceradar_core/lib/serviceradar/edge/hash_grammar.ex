@@ -1,13 +1,15 @@
 defmodule ServiceRadar.Edge.HashGrammar do
   @moduledoc """
-  Elixir peer of the plan/recovery digest grammars in
+  Elixir peer of the plan/recovery AND compiled-assignment digest grammars in
   `go/pkg/edge/edgerecord` (plan.go, recovery.go). The framing MUST match the Go
   `digestWriter` exactly: big-endian u64, length-framed bytes/strings, and 1-byte
   presence markers. These functions let the cross-language golden test prove the
-  plan and recovery hash ABIs are identical in both languages, not merely that
+  plan, recovery and compiled-assignment hash ABIs are identical in both languages,
+  not merely that
   each side decodes protobuf.
   """
 
+  alias ServiceRadar.Edge.CapabilitySigning
   alias Serviceradar.Edge.V1.MtrCompletionDisposition
 
   @recovery_digest_version 1
@@ -163,6 +165,74 @@ defmodule ServiceRadar.Edge.HashGrammar do
       # Absent presence hashes as 0, matching Go's zero-value getter.
       u64(r.mtr_ordinal_count || 0)
     ]
+
+    :crypto.hash(:sha256, io)
+  end
+
+  @compiled_assignment_body_domain "serviceradar.edge.assignment.compiled.body.v1"
+  @compiled_assignment_artifact_domain "serviceradar.edge.assignment.compiled.artifact.v1"
+
+  @doc """
+  Digest of a `CompiledSweepAssignmentV1` BODY -- what the collection capability SIGNS.
+
+  Covers every body field and EXCLUDES both digest fields and the capability: a signature
+  cannot cover itself. Peer of Go's `CompiledAssignmentBodyDigest`.
+  """
+  @spec compiled_assignment_body_digest(map()) :: binary()
+  def compiled_assignment_body_digest(c) do
+    io = [
+      str(@compiled_assignment_body_domain),
+      cu32(c.digest_version || 0),
+      bytes(c.compiled_assignment_id),
+      bytes(c.producer_assignment_id),
+      bytes(c.execution_id),
+      bytes(c.execution_plan_id),
+      bytes(c.execution_plan_sha256),
+      bytes(c.target_range_id),
+      bytes(c.target_range_sha256),
+      bytes(c.network_scope_id),
+      bytes(c.authenticated_agent_id),
+      cu32(c.execution_shard || 0),
+      cu64(c.assignment_epoch || 0),
+      cu64(c.config_generation || 0),
+      cenum(enum_value(Serviceradar.Edge.V1.SweepResultFormat, c.result_format)),
+      bytes(c.check_set_sha256),
+      cenum(enum_value(Serviceradar.Edge.V1.EdgeRecordTrafficClass, c.traffic_class)),
+      ci64(c.not_before_unix_nano || 0),
+      ci64(c.expires_at_unix_nano || 0)
+    ]
+
+    :crypto.hash(:sha256, io)
+  end
+
+  @doc """
+  CONTENT ADDRESS of a `CompiledSweepAssignmentV1`: the body digest PLUS the attached
+  capability, under a SEPARATE domain so neither digest can be presented as the other.
+
+  A body digest is not a content address for an artifact that also carries an authority:
+  two carriers with identical bodies and different capabilities share a body digest. Peer
+  of Go's `CompiledAssignmentArtifactDigest`.
+  """
+  @spec compiled_assignment_artifact_digest(map()) :: binary()
+  def compiled_assignment_artifact_digest(c) do
+    cap = Map.get(c, :collection_capability)
+
+    io =
+      [
+        str(@compiled_assignment_artifact_domain),
+        cu32(c.digest_version || 0),
+        bytes(compiled_assignment_body_digest(c)),
+        # A 1-byte presence marker, so "no capability" cannot collide with a present one.
+        present(cap != nil)
+      ] ++
+        if cap == nil do
+          []
+        else
+          [
+            bytes(CapabilitySigning.signing_bytes(cap)),
+            bytes(cap.signature)
+          ]
+        end
 
     :crypto.hash(:sha256, io)
   end
@@ -324,7 +394,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
   when a range omits its REQUIRED count, a count exceeds its admission-budget CEILING,
   a range id repeats, or the plan's total exceeds the work ceiling.
   """
-  @spec plan_mtr_windows([map()]) :: {:ok, %{binary() => non_neg_integer()}, non_neg_integer()} | :error
+  @spec plan_mtr_windows([map()]) ::
+          {:ok, %{binary() => non_neg_integer()}, non_neg_integer()} | :error
   def plan_mtr_windows(pages) do
     pages
     |> Enum.flat_map(& &1.ranges)
@@ -354,8 +425,8 @@ defmodule ServiceRadar.Edge.HashGrammar do
   def mtr_window_commitment(offset, count, range_sha256)
       when is_integer(offset) and offset >= 0 and is_integer(count) and count >= 0 and
              count <= @max_plan_mtr_ordinals and
-             offset <= @max_plan_mtr_ordinals - count and
-             is_binary(range_sha256) and byte_size(range_sha256) == 32 do
+             offset <= @max_plan_mtr_ordinals - count and is_binary(range_sha256) and
+             byte_size(range_sha256) == 32 do
     # `1..count//1` for the same reason the completion fold uses it: an unstepped
     # `1..0` is a DESCENDING range that iterates [1, 0].
     Enum.reduce(1..count//1, <<0::256>>, fn i, acc ->
@@ -550,6 +621,39 @@ defmodule ServiceRadar.Edge.HashGrammar do
   defp add256(<<a::256>>, <<b::256>>), do: <<a + b::256>>
 
   # --- framing (must match the Go digestWriter) ---
+
+  # CHECKED framing primitives for the compiled-assignment grammars.
+  #
+  # The shared `u64/1` below is UNCHECKED: a fixed-width bitstring silently
+  # TRUNCATES an out-of-range integer, so 0 and 2^64 frame identically and a signed value
+  # wraps. That is a digest ALIAS -- two different messages, one digest -- and these two
+  # grammars are the carrier's content address, so an alias here is a forgery primitive.
+  # (The older grammars' unchecked helpers are left alone: they are other tasks' frozen
+  # surfaces, and widening this fix into them without their vectors would be a change
+  # nobody has proven. Their exposure is real and is recorded in the task list.)
+  @u64_max 0xFFFF_FFFF_FFFF_FFFF
+  @i64_min -0x8000_0000_0000_0000
+  @i64_max 0x7FFF_FFFF_FFFF_FFFF
+
+  @u32_max 0xFFFF_FFFF
+  @i32_min -0x8000_0000
+  @i32_max 0x7FFF_FFFF
+
+  # Each helper guards the field's OWN protobuf domain, not merely the framing width. A
+  # uint32 field checked against the u64 ceiling accepts 2^32 -- a value the wire cannot
+  # carry -- and frames it happily, so the guard has to match the declared type or it is only
+  # a width check wearing a domain check's name.
+  defp cu64(v) when is_integer(v) and v >= 0 and v <= @u64_max, do: <<v::big-64>>
+  defp cu32(v) when is_integer(v) and v >= 0 and v <= @u32_max, do: <<v::big-64>>
+  defp ci64(v) when is_integer(v) and v >= @i64_min and v <= @i64_max, do: <<v::big-signed-64>>
+
+  # Proto enums are INT32 on the wire, so an enum call site's domain is int32 -- not u64.
+  defp cenum(v) when is_integer(v) and v >= @i32_min and v <= @i32_max, do: <<v::big-64>>
+
+  # Enum fields decode to ATOMS; the grammar hashes the wire NUMBER.
+  defp enum_value(_mod, v) when is_integer(v), do: v
+  defp enum_value(mod, v) when is_atom(v) and not is_nil(v), do: mod.value(v)
+  defp enum_value(_mod, nil), do: 0
 
   defp u64(v) when is_integer(v), do: <<v::big-64>>
   defp bytes(nil), do: <<0::big-64>>
