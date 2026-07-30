@@ -1,3 +1,16 @@
+# ServiceRadar (unreleased)
+
+## Packaging / release
+
+- Limit tagged Forgejo release deb/rpm assets to edge installers only:
+  agent, nats, cli, log-collector, flow-collector, bmp-collector, trapd,
+  rperf, rperf-checker. Control-plane services (core-elx, web-ng,
+  agent-gateway, datasvc, faker, …) remain container/Helm only; ad-hoc
+  package builds under `//build/packaging/<name>` still work.
+- Add `scripts/prune-forgejo-releases.sh` and run it from the release finalize
+  job to keep the newest 10 fat releases (prevents multi-hundred-GB Forgejo
+  attachment growth on worker nodes).
+
 # ServiceRadar v1.4.25
 
 Delivered a brand-aligned observability console, operator-facing ad-hoc network
