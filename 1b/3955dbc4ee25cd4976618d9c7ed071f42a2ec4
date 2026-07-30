@@ -1,0 +1,61 @@
+build/mix_app.bzl
+  s_8f6823274fc459::t_ae797af7383cdb 115-132,198-199,238-241,254,308-313
+elixir/web-ng/native/god_view_nif/src/types/graph.rs
+  s_8f6823274fc459::t_d3788df7f3e425 7,84-88
+  s_8f6823274fc459::t_ff4e3d1622d1d6 89
+elixir/web-ng/native/god_view_nif/src/lib.rs
+  s_8f6823274fc459::t_d3788df7f3e425 374
+elixir/serviceradar_srql/native/srql_nif/BUILD.bazel
+  s_8f6823274fc459::t_d28c3b7a5819e7 2,4-6,32-40,45
+  s_8f6823274fc459::t_07aa3e748a0a1e 3,29-31,41,43-44
+  s_8f6823274fc459::t_c19a0d8f8791b1 7-17
+  s_8f6823274fc459::t_07437d36327ac5 1,18-28,42
+elixir/serviceradar_srql/native/srql_nif/Cargo.toml
+  s_8f6823274fc459::t_357fc0219127b9 12-19,23
+elixir/serviceradar_core/native/anomaly_disposition_nif/BUILD.bazel
+  s_8f6823274fc459::t_07aa3e748a0a1e 1-5,17-29,31-32
+  s_8f6823274fc459::t_c19a0d8f8791b1 6-16
+  s_8f6823274fc459::t_07437d36327ac5 30
+.forgejo/workflows/main.yml
+  s_8f6823274fc459::t_07aa3e748a0a1e 31
+elixir/serviceradar_core/native/zen_nif/Cargo.toml
+  s_8f6823274fc459::t_357fc0219127b9 11-14
+elixir/serviceradar_core/native/anomaly_disposition_nif/Cargo.toml
+  s_8f6823274fc459::t_357fc0219127b9 14,20
+elixir/serviceradar_core/native/zen_nif/BUILD.bazel
+  s_8f6823274fc459::t_c19a0d8f8791b1 6-15
+  s_8f6823274fc459::t_07aa3e748a0a1e 2,29-30
+rust/anomaly-disposition/BUILD.bazel
+  s_8f6823274fc459::t_07437d36327ac5 16-18,27-28,33-48,51-53,59
+Cargo.toml
+  s_8f6823274fc459::t_f3bc5d10e62913 95
+  s_8f6823274fc459::t_e20fda7dd0898b 96
+  s_8f6823274fc459::t_d536894cc39171 4-7,52-55,85-86,153,189
+  s_8f6823274fc459::t_ceafff5eb149bb 51
+  s_8f6823274fc459::t_8eaa7918e231a2 97
+elixir/web-ng/native/god_view_nif/Cargo.toml
+  s_8f6823274fc459::t_357fc0219127b9 11-21
+elixir/web-ng/native/god_view_nif/BUILD.bazel
+  s_8f6823274fc459::t_c19a0d8f8791b1 6-15
+  s_8f6823274fc459::t_07aa3e748a0a1e 2,29-30
+Cargo.lock
+  s_8f6823274fc459::t_d58d5d2025108a 49-59,70,99-106,163-171,178,217,280,360-370,480,702,709-743,759-770,832-861,868-901,926-943,986-995,1041-1050,1061-1071,1200-1208,1622-1633,1643-1662,1669-1694,1705-1748,1961-1969,2082-2096,2175-2193,2200-2210,2279-2289,2332-2341,2374-2380,2387,2427-2437,2459,2499,2502,2524,2528,2537-2553,2585-2599,2611-2621,2714-2719,2751-2766,3012-3020,3045,3050,3074-3088,3110-3148,3332-3337,3591-3596,3665-3678,3705-3710,3745-3755,3843-3851,3938-3947,4002-4007,4099,4111-4119,4198-4206,4515,4536,4581-4610,4638,4652-4707,4729-4734,4811-4819,4841-4860,4886-4905,4912-4925,4961-5015,5031-5032,5036,5040-5070,5088,5094-5128,5140-5141,5148-5221,5224,5226,5265-5303,5323-5373,5395-5437,5551,5632-5637,5713-5723,6228-6238,6270-6275,6326-6331,6508-6523,6530-6542,6566-6586,6667-6672,7274,7334-7339,7441-7451,7464-7469,7542,7599-7608,8044-8052,8132-8242
+MODULE.bazel.lock
+  s_8f6823274fc459::t_0a2e025eaa2674 1843
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "1b3955dbc4ee25cd4976618d9c7ed071f42a2ec4",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
