@@ -1,0 +1,30 @@
+.bazelrc
+  s_155758d020800a::t_5eabfa1d7b03cc 21-22,24-35
+  s_155758d020800a::t_fa96216ba2619e 99-100
+  s_155758d020800a::t_c1022bfed7399b 23,36-38
+  s_155758d020800a::t_49e854392255f1 105-119
+  s_155758d020800a::t_f306ef02ac6d15 133-140
+  s_155758d020800a::t_255f30fa0cef43 102-104
+  s_155758d020800a::t_6a6a700da56060 101
+.forgejo/workflows/golang-tests.yml
+  s_155758d020800a::t_aa86ba152580aa 3-11,16,21
+  s_155758d020800a::t_e93d7c52a07271 123,127
+  s_155758d020800a::t_ad5f11c2e4eb23 108-112
+  s_155758d020800a::t_aea5434b2b31a7 67-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "18910326300ebf4dee6909bf4bac69d72562a06a",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
