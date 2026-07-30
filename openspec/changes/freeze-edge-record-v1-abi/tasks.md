@@ -105,8 +105,18 @@ here.
   (1) the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
   `SweepExecutionSource`, with a positive and a mismatch vector per variant) is NOT
   designed. This is the largest remaining item.
-  (2) the ELIXIR carrier/grant VALIDATOR at Go parity. Framing and both digests are
-  proven cross-language from committed vectors; the VALIDATION rules are Go-only.
+  (2) the ELIXIR EXECUTION-GRANT validator. The CARRIER peer has LANDED:
+  `CompiledAssignmentValidate` covers structure, both self digests, the attestation's binding
+  across every member it commits, the record relation, the lease constraint, and the 64 KiB
+  received-byte ceiling via a curated `WireDecode.decode_compiled_assignment/1` that also runs
+  the recursive wire-hygiene gate.
+  What remains is a SEPARATE validator for the ASSIGNMENT_EXECUTION grant -- Go's
+  `validateExecutionGrantClaims`, its 16 KiB received-byte ceiling and its
+  envelope-containment rule. An earlier revision of this entry said the carrier claim was
+  withheld "since Go's carrier surface includes the grant's claim validation"; that is WRONG.
+  Go's `ValidateCompiledSweepAssignment` does NOT validate a grant -- the grant is checked by
+  its own function, from the composed authorization boundary. The two are separate peers, and
+  the carrier peer is complete.
 
   NOT 1.3 work, recorded here only so neither is lost:
   - the tagged POSITIVE / EXPLICIT_NEGATIVE mapping VALUE and its durable negative reason
