@@ -180,6 +180,19 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
     _kind, _reason -> false
   end
 
+  @doc """
+  The ROLE a capability fills, derived from which typed claims variant is set, or `nil`.
+
+  PUBLIC so a caller can answer the role BEFORE anything else: deriving it only inspects which
+  oneof member is set -- no framing, no hashing, no field reads -- so a wrong-role capability
+  can be reported as exactly that rather than as whichever envelope rule happens to fail first.
+  `validate/2` checks version, issuer and algorithm before purpose, which is right for its own
+  contract but wrong for a caller whose first question is "is this even the right kind".
+  """
+  @spec purpose(term()) :: atom() | nil
+  def purpose(%EdgeSignedCapabilityV1{claims: claims}), do: purpose_of(claims)
+  def purpose(_), do: nil
+
   defp purpose_of({:production, _}), do: :production
   defp purpose_of({:source, _}), do: :source
   defp purpose_of({:delivery, _}), do: :delivery
