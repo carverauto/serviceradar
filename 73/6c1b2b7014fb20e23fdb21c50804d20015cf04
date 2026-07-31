@@ -1,0 +1,26 @@
+build/elixir_tests.bzl
+  s_8f6823274fc459::t_81e36c78231906 159-178
+  s_8f6823274fc459::t_102bbc97419a86 203
+.forgejo/workflows/elixir-integration-sr-core.yml
+  s_8f6823274fc459::t_bca6fe9e87e07b 81-95
+  s_8f6823274fc459::t_b8dca7d69f775f 131
+  s_8f6823274fc459::t_916e966e000ed0 198,207,214,221,226,234
+.forgejo/workflows/elixir-unit-tests.yml
+  s_8f6823274fc459::t_f2f94c895cd87b 96-101,103-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "736c1b2b7014fb20e23fdb21c50804d20015cf04",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
