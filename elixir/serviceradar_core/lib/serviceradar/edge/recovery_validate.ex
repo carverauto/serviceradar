@@ -293,8 +293,11 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  # An ABSENT source is legal -- and is NOT the same as PASSIVE. Source presence and
-  # attribution classification are INDEPENDENT axes; all four combinations are legal.
+  # An ABSENT source is legal HERE -- and is NOT the same as PASSIVE. Source presence and
+  # attribution classification are INDEPENDENT axes; all four combinations are
+  # representable at the record/classification layers. A PAYLOAD contract may still
+  # require source authority (SweepObservationBatchV1 does); this validator is the
+  # recovery lane and imposes no such requirement of its own.
   defp source(nil), do: :ok
 
   # All four members travel together; a partial combination is rejected.

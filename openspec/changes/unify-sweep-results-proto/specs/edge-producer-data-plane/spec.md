@@ -392,8 +392,12 @@ Classification and source-authorization presence are INDEPENDENT AXES.
 `ATTRIBUTED_PASSIVE` means "asserts no produced target range"; it does NOT mean "no
 source authorization". Recovery-control work is a live example of a
 source-authorized record with no produced target range. All four combinations of
-{ACTIVE, PASSIVE} x {source present, source absent} are permitted, and the source
-join follows PRESENCE, never classification. An earlier revision of this document
+{ACTIVE, PASSIVE} x {source present, source absent} are permitted AT THE RECORD AND
+CLASSIFICATION LAYERS, and the source join follows PRESENCE, never classification.
+That permission is about what the two axes may express together; it is SUBJECT TO
+PAYLOAD CONTRACTS, which may require source authorization for their own records --
+`SweepObservationBatchV1` does. A payload requirement narrows which combinations its
+records may use without collapsing the two axes back into one. An earlier revision of this document
 tied them together; that conflation would have made a source-authorized passive
 record either unjoinable or forced to fabricate a produced range.
 
@@ -419,30 +423,61 @@ execution identity -- because there is none. `MtrSweepContextV1` carries
 `sweep_execution_id`, but `MtrScheduledCheckContextV1` carries `check_id`,
 `MtrAdHocContextV1` carries `scan_run_id`, and `MtrCommandContextV1` carries
 `command_id`; `SweepObservationBatchV1` carries BOTH `execution_id` and
-`source_run_id`, so a source-authorization kind alone does not determine which one
--- if either -- a correlation should be proven against.
+`source_run_id`, so a source-authorization KIND alone does not determine which one a
+correlation should be proven against. The batch's `source` DOES: the frozen matrix
+selects EXACTLY ONE operand per source, always one and never neither, so the open
+question this paragraph once described -- "which one, if either" -- is settled for
+this payload and only the kind-alone shortcut remains wrong.
 
-The MTR matrix is CONCRETE: the existing per-variant dispatch is the correct shape
-and is implemented. The `SweepObservationBatchV1` matrix is NOT yet defined -- the
-current join always compares the signed context to `execution_id` and never reads
-`source_run_id` -- and task 1.3 owns freezing it. Those two states SHALL NOT be
-described as one settled rule.
+Both matrices are now DEFINED, and their implementation states still differ. The MTR
+matrix's per-variant dispatch is the correct shape and is IMPLEMENTED. The
+`SweepObservationBatchV1` matrix is FROZEN by task 1.3 in `freeze-edge-record-v1-abi`
+-- the source selects both the authorization kind and WHICH body field the signed
+context operand is compared against, and `source_run_id` is REQUIRED on exactly the
+sources that select it and FORBIDDEN otherwise -- but it is NOT YET IMPLEMENTED: the
+current join compares the signed context to `execution_id` for every source and never
+reads `source_run_id`. Task 1.3 owns that rewrite. DEFINED and IMPLEMENTED are not the
+same state and SHALL NOT be described as one.
 
 Recovery attribution therefore SHALL obtain any source/execution correlation it
-needs from the DURABLE ASSIGNMENT MAPPING (task 1.3), not by equating record
-fields. A span freezes the producer-side assignment identity; resolving that
+needs from the DURABLE ASSIGNMENT MAPPING, not by equating record fields.
+
+THE MAPPING IS NOT TASK 1.3's. 1.3 owns only the mapping's KEY, frozen as part of the
+edge record v1 wire ABI. The mapping's EXISTENCE and durable STATE belong to task
+2.20, and its VALUE SHAPE -- the tagged POSITIVE / EXPLICIT_NEGATIVE result and its
+durable negative reason -- to task 2.20a. Attributing the whole mapping to 1.3 would
+make an ABI freeze wait on a runtime store, which is the coupling the ABI change was
+extracted to break. A span freezes the producer-side assignment identity; resolving that
 identity to a scheduler execution is a lookup against an authoritative record, and
 attempting to shortcut it by field equality would encode a relationship the wire
 contract does not have.
 
-Task 1.3 SHALL own the ONE shared validated-attribution result; the
-contract-specific validators SHALL produce that result from the operands their own
-body carries, and task 2.22 SHALL consume it.
+OWNERSHIP OF THE SHARED ATTRIBUTION RESULT IS SPLIT, and an earlier revision assigning
+all of it to task 1.3 conflicted with that task's own ledger, which lists only the
+correlation matrix as remaining. The split follows what each task is:
 
-#### Scenario: A record without source authorization joins on production claims
-- **WHEN** a record carrying no source authorization is appended
+- TASK 1.3 owns the correlation RULES and the VALIDATORS that enforce them -- which
+  operand each source selects, the `source_run_id` disposition, and the per-relation
+  join. That is the ABI half and it is where the matrix lives.
+- TASK 2.22 owns the shared validated-attribution RESULT: its type, its production by
+  the contract-specific validators from the operands their own body carries, and its
+  consumption. That is runtime plumbing, and putting it in 1.3 would make an ABI
+  freeze wait on a spool binding.
+
+Neither task may treat the other's half as delivered by its own.
+
+A payload contract MAY require source authorization even though the record-level field
+is optional; `SweepObservationBatchV1` does, because without it there is no signed
+statement of what was authorized. The general rule below is about records whose payload
+PERMITS its absence, and SHALL NOT be read as licensing a sweep body to omit it.
+
+#### Scenario: A record whose payload permits absent source authorization joins on production claims
+- **WHEN** a record whose payload contract PERMITS absent source authorization carries
+  none and is appended
 - **THEN** the join SHALL prove agreement against its production claims
 - **AND** SHALL NOT require source claims to exist
+- **AND** this SHALL NOT apply to a payload whose own contract REQUIRES source
+  authorization, such as `SweepObservationBatchV1`
 
 #### Scenario: A passive record with source authorization still joins on it
 - **WHEN** an `ATTRIBUTED_PASSIVE` record carries a source authorization
