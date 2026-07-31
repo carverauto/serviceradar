@@ -62,6 +62,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RunTaskModalTest do
     )
   end
 
+  # Whether the launch button rendered disabled, asked structurally.
+  #
+  # Both gating tests used to match the literal
+  # `<button type="submit" class="btn btn-primary" disabled`, which stopped existing when the
+  # sr- design system replaced the DaisyUI button: `ui_button` now emits a long generated
+  # class list and neither `btn` nor `btn-primary` appears anywhere in web-ng/lib. That broke
+  # the positive assertion outright and, worse, left the `refute` silently passing against a
+  # string that could no longer appear for any input -- so the enabled case was asserting
+  # nothing at all.
+  #
+  # Selecting on type + the disabled attribute tests the behaviour this suite is named for
+  # and survives the next restyle. The text check pins it to the launch button rather than
+  # any disabled submit that might be added later.
+  defp launch_disabled?(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s(button[type="submit"][disabled]))
+    |> LazyHTML.text()
+    |> String.contains?("Create Invocation")
+  end
+
   describe "AWX applicability gating" do
     test "summarizes applicable count and names the skipped devices" do
       html =
@@ -78,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RunTaskModalTest do
       assert html =~ "host-a"
       assert html =~ "pve02"
       # Applicable devices exist -> Create Invocation stays enabled.
-      refute html =~ ~s(<button type="submit" class="btn btn-primary" disabled)
+      refute launch_disabled?(html)
     end
 
     test "truncates a long non-applicable list with +N more" do
@@ -104,7 +125,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.RunTaskModalTest do
 
       assert html =~ "0 of 2 selected device(s) are AWX-managed"
       assert html =~ "Only AWX-managed devices can run Ansible tasks"
-      assert html =~ ~s(<button type="submit" class="btn btn-primary" disabled)
+      assert launch_disabled?(html)
     end
 
     test "renders no gating block when applicability is nil (non-bulk usage)" do
