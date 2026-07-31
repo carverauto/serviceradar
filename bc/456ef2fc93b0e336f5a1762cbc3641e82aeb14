@@ -1,0 +1,27 @@
+go/pkg/mtr/BUILD.bazel
+  s_155758d020800a::t_e1849db2483859 13,18-69,82
+go/cmd/wasm-plugins/sample-northbound/BUILD.bazel
+  s_155758d020800a::t_a1ea76a94a7def 1-9
+go/cmd/wasm-plugins/dusk-checker/BUILD.bazel
+  s_155758d020800a::t_a1ea76a94a7def 1-9
+go/cmd/wasm-plugins/axis/BUILD.bazel
+  s_155758d020800a::t_a1ea76a94a7def 1-9
+go/cmd/wasm-plugins/unifi-protect/BUILD.bazel
+  s_155758d020800a::t_a1ea76a94a7def 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "bc456ef2fc93b0e336f5a1762cbc3641e82aeb14",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
