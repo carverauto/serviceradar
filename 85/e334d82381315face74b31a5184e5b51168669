@@ -1,0 +1,22 @@
+elixir/serviceradar_core/test/serviceradar/inventory/sync_ingestor_source_linkage_test.exs
+  s_8f6823274fc459::t_cbe665b30b0e97 165-167,169-171
+  s_8f6823274fc459::t_3df37fe3cb15f2 110-111
+  s_8f6823274fc459::t_bb347ee88962d5 74-92,98,112-117,119-146,150,162-164,168,173-174,182,185
+  s_8f6823274fc459::t_5d0e1a92561f76 118,178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "85e334d82381315face74b31a5184e5b51168669",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
