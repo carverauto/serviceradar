@@ -1,0 +1,373 @@
+helm/serviceradar/BUILD.bazel
+  s_8f6823274fc459::t_4ecbbb4c36a708 3,6-14,17-20
+  s_8f6823274fc459::t_bcd53dbdafc3cf 1-2,4-5,15-16,21
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/cert_issuer_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/release_artifact_server_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_core/test/serviceradar/prefix_tags/manual_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/event_writer/processors/falco_events_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/inventory/interface_threshold_worker.ex
+  s_8f6823274fc459::t_819d355d3f5656 126
+  s_8f6823274fc459::t_24c7c1e424e068 37
+elixir/serviceradar_core/lib/serviceradar/plugins/plugin_target_policy_reconcile_worker.ex
+  s_8f6823274fc459::t_871f3bea16725e 97
+  s_8f6823274fc459::t_a05dec1be43634 12
+elixir/serviceradar_core/lib/serviceradar/inventory/endpoint_vulnerability_match_worker.ex
+  s_8f6823274fc459::t_961cfdc77fc6ed 18
+  s_8f6823274fc459::t_4e6c9107a1bd48 86
+.forgejo/workflows/elixir-unit-tests.yml
+  s_8f6823274fc459::t_c566b8ced64c4a 3,18,45,96,98-101,107-111
+elixir/serviceradar_core/test/serviceradar/inventory/advisory_feeds/acquisition_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/identity/identity_cache_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/agent_commands/status_handler_cleanup_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/native/anomaly_disposition_nif/BUILD.bazel
+  s_8f6823274fc459::t_97d57f76fbd98d 25-31
+elixir/serviceradar_core/test/serviceradar/observability/seasonal_disposition/edge_baseline_producer_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/observability/capacity_forecasting/worker_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+rust/integration-db/src/bin/prepare_template.rs
+  s_8f6823274fc459::t_0ee37cd7b2de74 1-90
+elixir/serviceradar_core/test/serviceradar/edge/addon_config_contract_fixtures_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 19-20
+build/elixir_test_config_loader.exs
+  s_8f6823274fc459::t_8d07280e96c2b3 17-34
+  s_8f6823274fc459::t_3ca836a0c02419 46-47,56
+  s_8f6823274fc459::t_38c0f4c94d25c4 48-53
+  s_8f6823274fc459::t_c53a97cce90654 38-45
+  s_8f6823274fc459::t_b44e947aeaa060 1-16,35-37,54-55,57
+elixir/serviceradar_core/lib/serviceradar/identity/cli_auth_cleanup_worker.ex
+  s_8f6823274fc459::t_4199cad064c2a3 80
+  s_8f6823274fc459::t_8245d49f73a798 37
+elixir/serviceradar_core/test/db/migrate_db_test.exs
+  s_8f6823274fc459::t_3f768c12edc5de 30-34
+  s_8f6823274fc459::t_ae2258ac8bc535 1-2,4-6,9-10,20,23-29,35-59
+  s_8f6823274fc459::t_8a5d0c7cd1192b 3,7-8,11-19,21-22
+elixir/serviceradar_core/test/serviceradar/inventory/endpoint_inventory_ingestor_queue_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/observability/anomaly_addon_config_projector_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/schedule_evaluator_worker.ex
+  s_8f6823274fc459::t_95c0d8a9659488 257
+  s_8f6823274fc459::t_112199af788f2e 45
+elixir/serviceradar_core/lib/serviceradar/plugins/plugin_legacy_assignment_recovery_worker.ex
+  s_8f6823274fc459::t_b325f8165a64ee 15
+  s_8f6823274fc459::t_ff3534106e625e 82
+elixir/serviceradar_core/lib/serviceradar/inventory/device_cleanup_worker.ex
+  s_8f6823274fc459::t_17a29dde4eb89e 17
+  s_8f6823274fc459::t_fc8911bb66234c 120
+elixir/serviceradar_core/lib/serviceradar/credentials/plugin_credential_rule_reconcile_worker.ex
+  s_8f6823274fc459::t_2a57beaad41d6e 18
+  s_8f6823274fc459::t_081d0104ef00f4 120
+elixir/serviceradar_core/test/serviceradar/observability/helm_config_contract_test.exs
+  s_8f6823274fc459::t_f58a95eb1d0a2e 1-44
+scripts/sweep-stale-core-test-dbs.sh
+  s_8f6823274fc459::t_3e9293c4c09516 2-26,30-31,33,35,37-38,40
+scripts/BUILD.bazel
+  s_8f6823274fc459::t_df0213b62d1eea 89-93
+elixir/serviceradar_core/BUILD.bazel
+  s_8f6823274fc459::t_24b7e7764857f3 187-209,252-287
+  s_8f6823274fc459::t_5a57dec36d6661 38-48
+  s_8f6823274fc459::t_a64af97cf2984d 210,215-251,302-311
+  s_8f6823274fc459::t_22897f37248716 369-372
+  s_8f6823274fc459::t_f2fcfb4909220e 186
+  s_8f6823274fc459::t_efb813f413071e 214
+  s_8f6823274fc459::t_f96d4c181b1465 97-100,106-109
+  s_8f6823274fc459::t_0014e33f330e96 288-301,312-325
+  s_8f6823274fc459::t_ae2258ac8bc535 340,342-343,355-358,360-365,367,376,381-389
+  s_8f6823274fc459::t_57026575555175 368,373,375,377-379
+  s_8f6823274fc459::t_c6539730db5b0c 3-7,12-20
+  s_8f6823274fc459::t_8a0d15a7c2a0be 88-94
+  s_8f6823274fc459::t_afba236a568cb5 50,174,326-336,391
+  s_8f6823274fc459::t_ee42c6516fcacd 1,337,339,344,366
+  s_8f6823274fc459::t_8d3f8137aa7247 338,341,345-354,359,374,380
+  s_8f6823274fc459::t_1f36aef6f8f475 21,49,51,390
+elixir/serviceradar_core/test/serviceradar/plugins/addon_profile_action_test.exs
+  s_8f6823274fc459::t_f7fc55f4a96f0d 4-5
+elixir/serviceradar_core/native/zen_nif/BUILD.bazel
+  s_8f6823274fc459::t_97d57f76fbd98d 25-31
+elixir/serviceradar_agent_gateway/BUILD.bazel
+  s_8f6823274fc459::t_fca4ce921a7011 1-2,32,50-68,71-119
+elixir/serviceradar_srql/BUILD.bazel
+  s_8f6823274fc459::t_f96d4c181b1465 40-41,45-47
+.forgejo/workflows/elixir-integration-sr-core.yml
+  s_8f6823274fc459::t_1bd252bc917540 1-6,9-16,35-36,40-42,63-64,66-102,105,107,109-111,113,133-137,180-184,191,193,205,207,210-212,217-219
+  s_8f6823274fc459::t_c374cb93de802c 39,43-45
+  s_8f6823274fc459::t_6bef673d155e5f 17,62,131-132,143-156
+  s_8f6823274fc459::t_4b7f09b9696996 46-57
+  s_8f6823274fc459::t_edc7e29950f4ad 7-8,18-34,37-38,58-61
+  s_8f6823274fc459::t_e4360a1fca2bf5 158-177
+  s_8f6823274fc459::t_594178fe6d6e52 65
+  s_8f6823274fc459::t_988d378d3f58e0 103-104,106,108,112
+  s_8f6823274fc459::t_33d808e1465148 185-190,192,194-204,206,208,213-216
+  s_8f6823274fc459::t_b0aee8dac0bf05 178
+  s_8f6823274fc459::t_3a5a9020bc7dce 209
+elixir/serviceradar_core/test/serviceradar/observability/anomaly_config_seeder_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/credentials/plugin_integration_reconcile_worker.ex
+  s_8f6823274fc459::t_e27836964b7627 78
+  s_8f6823274fc459::t_c1c6d9b1a86220 14
+rust/integration-db/Cargo.toml
+  s_8f6823274fc459::t_0031aed47859a0 13-16
+  s_8f6823274fc459::t_9c7b76e764b4e0 1-12,17
+elixir/serviceradar_core/test/db/template_env.exs
+  s_8f6823274fc459::t_2b0ff60df7bd3a 1-40
+elixir/serviceradar_core/lib/serviceradar/integrations/armis_northbound_schedule_worker.ex
+  s_8f6823274fc459::t_e77045326bd1a4 19
+  s_8f6823274fc459::t_13ab298ef721ab 152-155
+rust/integration-db/tests/provision_db_test.rs
+  s_8f6823274fc459::t_d106141f43e0d3 107
+  s_8f6823274fc459::t_bf54a07f7e0548 5,7-9,11-14,20,86-99
+  s_8f6823274fc459::t_47fde371969ab7 42,68-69
+  s_8f6823274fc459::t_a871a70226c687 41,43-67
+  s_8f6823274fc459::t_325d5cf1ad7375 101-106,108-127
+  s_8f6823274fc459::t_9843959cb56253 1-4,6,10,15-19,21-40,70-85,100,128-143
+elixir/serviceradar_core/test/serviceradar/credentials/credential_broker_grant_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs
+  s_8f6823274fc459::t_a6fa745e7d1a7c 2-27,30
+elixir/serviceradar_core/test/serviceradar/jobs/self_scheduling_worker_uniqueness_test.exs
+  s_8f6823274fc459::t_75a409fbbf4c21 74,88-89,96
+  s_8f6823274fc459::t_f3a4479f8f5b0d 2-23,28-32,56-60,63-67,71-73,76-87,90-95,98-102,104-106
+  s_8f6823274fc459::t_9dbdf071d66abe 26
+  s_8f6823274fc459::t_1b0e6dcb14ee50 27
+  s_8f6823274fc459::t_78f6354b615f3c 75
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/run_watchdog.ex
+  s_8f6823274fc459::t_1703565e11f11a 25
+  s_8f6823274fc459::t_c8137b1022149c 158
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/process_registry_placement_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 11-12
+elixir/serviceradar_core/lib/serviceradar/edge/agent_command_cleanup_worker.ex
+  s_8f6823274fc459::t_797a8f9d23c163 47
+  s_8f6823274fc459::t_3bbeccc4b0b777 129
+scripts/test-integration.sh
+  s_8f6823274fc459::t_e7c6ca5d28944b 223-238
+  s_8f6823274fc459::t_6a648439d55e77 218,240-248,250-290
+  s_8f6823274fc459::t_531bcff2793f92 205-207,249
+  s_8f6823274fc459::t_a5f4710c3f3b06 239
+elixir/serviceradar_core/test/serviceradar/edge/remote_access_ssh_session_credentials_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/security/rate_limiter_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+rust/integration-db/src/template.rs
+  s_8f6823274fc459::t_e66b59ad1c7a30 170,172,175-182,187-224
+  s_8f6823274fc459::t_569cb2472ab3be 155-167
+  s_8f6823274fc459::t_8b154f4e029ff6 287-304,306-334
+  s_8f6823274fc459::t_2b3d8a64c15eb6 65-67
+  s_8f6823274fc459::t_8bd4c0a1437136 1-44,46-64,68,86-154,168-169,171,173-174,183-186,225-286,305,335-458
+  s_8f6823274fc459::t_cfab7d453a7e04 45
+  s_8f6823274fc459::t_63147155802e0f 69-85
+elixir/serviceradar_core/lib/serviceradar/plugins/addon_profile_reconcile_worker.ex
+  s_8f6823274fc459::t_c926a86e40774b 15
+  s_8f6823274fc459::t_f8156eafcff362 105
+elixir/serviceradar_core/test/serviceradar/data_service/client_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+rust/integration-db/tests/teardown_db_test.rs
+  s_8f6823274fc459::t_dbe30e73babff1 1-32,50
+  s_8f6823274fc459::t_7a32bf625f5976 33-49
+elixir/serviceradar_core/test/db/db_task_helper.exs
+  s_8f6823274fc459::t_a9fc8db462de0d 1-20,26,29
+  s_8f6823274fc459::t_9ac0b193248d97 21-25
+  s_8f6823274fc459::t_72c83baad1d309 27-28
+  s_8f6823274fc459::t_0225be24b45c72 30-32
+  s_8f6823274fc459::t_b34bdfb7b07090 33-39
+elixir/serviceradar_agent_gateway/test/serviceradar_poller/registration_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 16-17
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/controller_health_worker.ex
+  s_8f6823274fc459::t_2be7a82c41f71a 110-111
+  s_8f6823274fc459::t_d0a302700ff989 24
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/git_catalog_sync_worker.ex
+  s_8f6823274fc459::t_9c2d540c1a2bf8 39
+  s_8f6823274fc459::t_f8f892c42c6787 346-347
+elixir/serviceradar_core/test/serviceradar/observability/capacity_forecast_config_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/priv/repo/migrations/20260305053000_add_ui_slow_query_indexes.exs
+  s_8f6823274fc459::t_b5ca740d97a66e 6-19
+elixir/serviceradar_core/test/serviceradar/automation/ansible/awx_template_binding_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/edge/remote_access_file_transfers_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/web-ng/BUILD.bazel
+  s_8f6823274fc459::t_37e076f9e216bc 374
+  s_8f6823274fc459::t_68fa77f4ffa3af 285-297,302,366
+  s_8f6823274fc459::t_fbe84b61307813 306,382-390
+  s_8f6823274fc459::t_0515c2e7bf46a9 282-284
+  s_8f6823274fc459::t_eabf7cce60b841 298-301
+  s_8f6823274fc459::t_8577f9d35dd9ba 303-305
+  s_8f6823274fc459::t_dfe05db9072ec4 307-309,363-365
+  s_8f6823274fc459::t_d7d5cae9ff33dd 367-369,371-373
+  s_8f6823274fc459::t_1b380b6c121d85 375-377,379-381
+  s_8f6823274fc459::t_e80bb1410ceabb 391-393
+  s_8f6823274fc459::t_2f1e9ef0861a39 2-3,280-281,310-362,370,378
+elixir/serviceradar_core/test/test_helper.exs
+  s_8f6823274fc459::t_ce67d97e7f3eaa 49-61
+  s_8f6823274fc459::t_8edad06a314368 62-68,79
+  s_8f6823274fc459::t_ff99632bdb0357 5-21
+  s_155758d020800a::t_e6c7316728b2b3 37-41,44,69-78
+  s_8f6823274fc459::t_cf7acbbfb3f6cd 26-36,42-43,45-46
+elixir/serviceradar_core/test/serviceradar/event_writer/device_correlation_cache_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/credentials/credential_lifecycle_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+scripts/test-integration-database-guard.sh
+  s_8f6823274fc459::t_f20265bb248b49 2-31,35-36,38-39,41-42,44
+elixir/datasvc/BUILD.bazel
+  s_8f6823274fc459::t_215c0b5e3825db 1-2,30-48
+  s_8f6823274fc459::t_28ad639d6f13ff 49
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/control_stream_telemetry_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_data_cleanup_worker.ex
+  s_8f6823274fc459::t_54db1903e67a08 119
+  s_8f6823274fc459::t_9b8aa11344b7f4 37
+.bazelrc
+  s_8f6823274fc459::t_09d42d13cd538b 135
+elixir/serviceradar_core/test/serviceradar/observability/seasonal_disposition/verdict_emitter_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/retention_worker.ex
+  s_8f6823274fc459::t_ae93bf2a75505a 217
+  s_8f6823274fc459::t_95f37eaa645a23 33
+build/BUILD.bazel
+  s_8f6823274fc459::t_25f00c561647f3 5
+elixir/serviceradar_core/lib/serviceradar/jobs/self_scheduling.ex
+  s_8f6823274fc459::t_a722e07ea052d9 1-71
+elixir/serviceradar_core/lib/serviceradar/plugins/plugin_policy_assignment_recovery_dispatch_worker.ex
+  s_8f6823274fc459::t_7d1df766520a3f 15
+  s_8f6823274fc459::t_9f780095dc85a2 92
+elixir/serviceradar_core/test/serviceradar/edge/remote_access_ssh_certificates_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/agent_config/dependency_catalog_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/support/data_case.ex
+  s_8f6823274fc459::t_210809f9be0cd3 13-22
+elixir/serviceradar_core/lib/serviceradar/observability/ipinfo_mmdb_download_worker.ex
+  s_8f6823274fc459::t_de2fb53697d59f 150
+  s_8f6823274fc459::t_d855a55ec3f0b3 19
+rust/integration-db/tests/sweep_stale_dbs_test.rs
+  s_8f6823274fc459::t_dbe30e73babff1 1-46
+elixir/serviceradar_core/lib/serviceradar/plugins/addon_rollout_worker.ex
+  s_8f6823274fc459::t_c298cde956781d 14
+  s_8f6823274fc459::t_67c67701bfcbe4 75
+elixir/web-ng/native/god_view_nif/BUILD.bazel
+  s_8f6823274fc459::t_97d57f76fbd98d 25-31
+elixir/serviceradar_core/test/serviceradar/edge/remote_access_broker_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_agent_gateway/test/test_helper.exs
+  s_8f6823274fc459::t_4092b2579b6bcc 5-22
+elixir/serviceradar_core/lib/serviceradar/observability/stateful_alert_cleanup_worker.ex
+  s_8f6823274fc459::t_f01de2491a022b 89-90
+  s_8f6823274fc459::t_e6683c3e2f6826 26
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/metrics_router_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_core/test/serviceradar/prefix_tags/registry_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/desktop_media_close_reconciler_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_srql/native/srql_nif/BUILD.bazel
+  s_8f6823274fc459::t_97d57f76fbd98d 37-43
+Cargo.toml
+  s_8f6823274fc459::t_9c7b76e764b4e0 4
+build/integration_shards.bzl
+  s_8f6823274fc459::t_132acf77f5160b 46-70,73-74,76-77,79-82,94-97,99-103
+  s_8f6823274fc459::t_bcf27d49448145 84-89
+  s_8f6823274fc459::t_21dc7eb48d702e 1-45,71-72,75,78,83,90-93,98,104-105
+rust/integration-db/BUILD.bazel
+  s_8f6823274fc459::t_e7b8e6369e9037 75-119
+  s_8f6823274fc459::t_c1d762c31ca9bd 3-49,52-74
+  s_8f6823274fc459::t_76061e1fbc71cd 1
+  s_8f6823274fc459::t_94f1e1e01b6013 50-51
+  s_8f6823274fc459::t_6fd0bcc865d384 2
+elixir/serviceradar_core/lib/serviceradar/plugins/addon_config_contract_fixtures.ex
+  s_8f6823274fc459::t_886f538199bb0c 162-193,195,198
+  s_8f6823274fc459::t_f28293dc7eeae4 205
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/desktop_media_session_tracker_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/desktop_media_server_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_core/test/serviceradar/observability/data_retention_worker_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/test/serviceradar/integrations/armis_northbound_runner_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 6-7
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/awx_catalog_sync_worker.ex
+  s_8f6823274fc459::t_50fdf40649d36e 110-111
+  s_8f6823274fc459::t_e021cc515cfc97 28
+elixir/serviceradar_core/test/db/integration_env.exs
+  s_8f6823274fc459::t_1b368b8cd81b5f 1-24,26-29,49-66
+  s_8f6823274fc459::t_f5dd9879ee6766 25,30-48
+elixir/serviceradar_core/test/serviceradar/automation/ansible/automation_awx_launch_preflight_evidence_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/camera_media_negotiation_integration_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+rust/integration-db/src/lib.rs
+  s_8f6823274fc459::t_89f879d286de39 362-399
+  s_8f6823274fc459::t_ca84e2fc4abab3 109-133
+  s_8f6823274fc459::t_826c71ec0853c5 43-44
+  s_8f6823274fc459::t_37fb4e5d3328f3 253
+  s_8f6823274fc459::t_bdd6bf96df8a57 467,472,474-490
+  s_8f6823274fc459::t_19cf84c7c9b646 321-327,345-353
+  s_8f6823274fc459::t_c2073025c9b3ac 435
+  s_8f6823274fc459::t_63a908a933e50f 256-279
+  s_8f6823274fc459::t_fc0dba13dd6f18 510-517
+  s_8f6823274fc459::t_184e569d45744e 1-42,45-108,134-252,254-255,280-320,328-344,354-361,400-434,436-466,468-471,473,491-509,518-540
+elixir/serviceradar_core/lib/serviceradar/integrations/armis_northbound_conflict_audit_worker.ex
+  s_8f6823274fc459::t_07d29514a02ff0 69-71,74-77
+  s_8f6823274fc459::t_b44d7fc83ce08a 24
+elixir/serviceradar_core/lib/serviceradar/automation/ansible/run_pulse_worker.ex
+  s_8f6823274fc459::t_a2dfd54d22212a 173-174
+  s_8f6823274fc459::t_b9eb6592495928 33
+elixir/serviceradar_core/test/serviceradar/observability/capacity_forecasting/verdict_emitter_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/sweep_jobs/sweep_monitor_worker.ex
+  s_8f6823274fc459::t_0ae9ae9da0fadb 119
+  s_8f6823274fc459::t_888d46d12dafe6 40
+elixir/serviceradar_core/test/serviceradar/edge/remote_access_session_policy_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+elixir/serviceradar_core/lib/serviceradar/inventory/bumblebee_catalog_refresh_worker.ex
+  s_8f6823274fc459::t_5a6c69ae226768 22
+  s_8f6823274fc459::t_d1e53bf5e2050a 488-491
+  s_8f6823274fc459::t_39d89b33a14777 497-503
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/camera_media_session_tracker_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+elixir/serviceradar_core/test/serviceradar/inventory/remediation/dire_remediation_mix_task_test.exs
+  s_8f6823274fc459::t_9dbdf071d66abe 4-5
+build/elixir_tests.bzl
+  s_8f6823274fc459::t_af9512b46f9748 90,112-113,126-132,184
+  s_8f6823274fc459::t_c61b7a1fbab48f 167-172,174,189
+  s_8f6823274fc459::t_f7e7a7a6aa4975 138-157
+  s_8f6823274fc459::t_25f00c561647f3 89,109-111,123-125,133-137,158
+.gitignore
+  s_155758d020800a::t_241943c8fc207b 34-39
+elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/safe_grpc_logger_test.exs
+  s_8f6823274fc459::t_038a92beb2de10 4-5
+Cargo.lock
+  s_8f6823274fc459::t_d7e3f804c5d2d7 6038-6049
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "99ad7162875bbb31d932eb2b076276b2fb6e9789",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
