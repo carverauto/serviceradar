@@ -57,7 +57,6 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
 | `elixir/vendor/opentelemetry_oban` | `erlang_app` | Vendored fork |
 | `elixir/vendor/boombox` | `srcs` only | Source filegroup for releases |
-| `elixir/bazel_spike` | `spike_test`, `ash/spike_ash_test` | Toolchain smoke tests. The only place `elixir_app` is still used instead of `mix_app`; do not copy the pattern. |
 | `elixir/palisade` | none | No BUILD file, not wired into Bazel |
 
 Shared Starlark lives in `//build`:

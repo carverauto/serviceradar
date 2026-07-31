@@ -101,8 +101,8 @@ jobs:
           count="$(printf '%s\n' "${targets}" | grep -c . || true)"
           echo "Resolved ${count} ExUnit targets"
           # serviceradar_core 11 unit + 8 integration shards + migrate_template, agent_gateway
-          # 2, web-ng 9, bazel_spike 2 = 34 today. Guard well below that so a normal split does
-          # not trip it, but a glob that stops matching does.
+          # 2, web-ng 9 = 32 today. Guard well below that so a normal split does not trip it,
+          # but a glob that stops matching does.
           if [ "${count}" -lt 15 ]; then
             echo "Expected at least 15 ExUnit targets; a glob in an elixir/*/BUILD.bazel is probably wrong." >&2
             exit 1

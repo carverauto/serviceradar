@@ -119,6 +119,14 @@ hex_archive(
 )
 
 hex_archive(
+    name = "hex_benchfella",
+    build_file = "//third_party/hex:benchfella.BUILD",
+    package_name = "benchfella",
+    sha256 = "23f27cbc482cbac03fc8926441eb60a5e111759c17642bac005c3225f5eb809d",
+    version = "0.3.5",
+)
+
+hex_archive(
     name = "hex_bimap",
     build_file = "//third_party/hex:bimap.BUILD",
     package_name = "bimap",
@@ -274,8 +282,8 @@ hex_archive(
     name = "hex_cowlib",
     build_file = "//third_party/hex:cowlib.BUILD",
     package_name = "cowlib",
-    sha256 = "c4f89d33a61162d4cfdcb5a1af7e562d80a700b2573cc71020ce6521b152dc1a",
-    version = "2.18.0",
+    sha256 = "6dc66e3135b229193ea4dcb14294e79520c923d391315c9c962ef0b4bea72356",
+    version = "2.19.0",
 )
 
 hex_archive(

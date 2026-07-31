@@ -1,6 +1,7 @@
 # EEF-CVE-2026-43966 / cowlib HTTP response splitting and
 # GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
-# as of cowlib 2.18.0. core_elx does not call the affected structured-header or
+# as of cowlib 2.19.0 -- that release fixed only the HPACK/QPACK decoder DoS
+# (EEF-CVE-2026-59248). core_elx does not call the affected structured-header or
 # cookie encoders; its Gun 2.4.1 transport also rejects CR/LF request headers.
 # Remove both waivers as soon as cowlib publishes a patched Hex release.
 EEF-CVE-2026-43966

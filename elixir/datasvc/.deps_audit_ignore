@@ -1,6 +1,8 @@
 # EEF-CVE-2026-43966 / cowlib HTTP response splitting and
 # GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
-# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
-# release or the dependency is replaced.
+# as of cowlib 2.19.0 -- that release fixed only the HPACK/QPACK decoder DoS
+# (EEF-CVE-2026-59248), and both advisories still list every release from 2.9.0
+# as affected. Keep this waiver until cowlib publishes a patched release or the
+# dependency is replaced.
 EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56

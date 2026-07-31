@@ -325,7 +325,7 @@ func TestSNMPAgentIntegration_GetStatusWithTargets(t *testing.T) {
 	assert.True(t, status.Available)
 	assert.Equal(t, SNMPServiceName, status.ServiceName)
 	assert.Equal(t, SNMPServiceType, status.ServiceType)
-	assert.Greater(t, status.ResponseTime, int64(0))
+	assert.Positive(t, status.ResponseTime)
 
 	// Message should contain JSON with targets info
 	assert.NotEmpty(t, status.Message)
