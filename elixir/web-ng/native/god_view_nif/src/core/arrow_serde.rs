@@ -17,6 +17,7 @@ use roaring::RoaringBitmap;
 use rustler::{Binary, Env, OwnedBinary};
 
 use crate::core::layout::{build_hypergraph_from_projection, build_hypergraph_projection};
+use crate::types::snapshot::EncodeSnapshotPayload;
 use crate::types::survey::SurveySampleRow;
 
 /// Encodes an entire topology active state into an Apache Arrow IPC stream payload.
@@ -25,18 +26,22 @@ use crate::types::survey::SurveySampleRow;
 /// blast thousands of nodes/edges directly to the frontend God View visualizers.
 pub(crate) fn encode_snapshot_impl(
     env: Env,
-    schema_version: u32,
-    revision: u64,
-    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
-    edge_meta: Vec<(String, String, String)>,
-    edge_directional: Vec<(u32, u32, u64, u64)>,
-    edge_details: Vec<String>,
-    root_bitmap_bytes: u32,
-    affected_bitmap_bytes: u32,
-    healthy_bitmap_bytes: u32,
-    unknown_bitmap_bytes: u32,
+    payload: EncodeSnapshotPayload,
 ) -> Result<Binary, rustler::Error> {
+    let EncodeSnapshotPayload {
+        schema_version,
+        revision,
+        nodes,
+        edges,
+        edge_meta,
+        edge_directional,
+        edge_details,
+        root_bitmap_bytes,
+        affected_bitmap_bytes,
+        healthy_bitmap_bytes,
+        unknown_bitmap_bytes,
+    } = payload;
+
     let total_rows = nodes.len() + edges.len();
     let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
@@ -271,11 +276,11 @@ pub(crate) fn vec_into_binary<'a>(
 /// Helper method to decode a raw Arrow File byte stream directly into Rust structs.
 pub(crate) fn decode_arrow_file(data: &[u8]) -> Result<Vec<SurveySampleRow>, rustler::Error> {
     let cursor = std::io::Cursor::new(data);
-    let mut reader =
+    let reader =
         arrow_ipc::reader::FileReader::try_new(cursor, None).map_err(|_| rustler::Error::BadArg)?;
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         extract_rows(&batch, &mut rows)?;
     }
