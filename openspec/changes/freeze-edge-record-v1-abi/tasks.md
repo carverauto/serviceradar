@@ -7,7 +7,13 @@ here.
 
 - [ ] 1.1 Add a producer-neutral authoritative `EdgeRecordV1`, a separate
   `EdgeDeliveryFrameV1`, the typed disposition and resolved-watermark
-  contracts, and lane-opening/session handshake. The disposition enum on the wire
+  contracts, and lane-opening/session handshake.
+  ASSIGNED HERE BY TASK 1.3: the OUTER RECORD `event_id` UUIDv7 OVERFLOW vector.
+  `validateIdentityTime` (validate.go:860) converts the event id's 48-bit millisecond
+  timestamp with an unchecked `ms * 1_000_000`, which overflows int64 and can wrap a
+  far-future identity INTO the production/source windows it is checked against. 1.3 freezes
+  and delivers the shared CHECKED conversion helper; this call site owes its own vector,
+  because a shared helper proves nothing about a caller that does not use it. The disposition enum on the wire
   is `EdgeRecordDispositionKind`, and its GENERATED members are the only wire
   values: `EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED` plus
   `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY`, `EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE`,
@@ -100,9 +106,73 @@ here.
   separate HOST `ASSIGNMENT_EXECUTION` grant. Both compiled-assignment digest grammars and
   both claim tables are frozen in Appendix A, with shared Go-authored vectors.
 
-  STILL OPEN in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
-  `SweepExecutionSource`, with a positive and a mismatch vector per variant). It is NOT
-  designed, and it is the only remaining item.
+  STILL OPEN in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX. It is now DESIGNED
+  -- the normative delta freezes the source-to-kind mapping, the signed context operand per
+  source, and the `source_run_id` required/forbidden disposition, plus the inventory of
+  GATE-OWNED vectors, LABELLED WHERE FROZEN -- UNSPECIFIED and RECOVERY_CONTROL are
+  deliberately unlabelled, so "labelled vectors" would overstate the contract. What remains is BUILDING it, and that is a REWRITE of the
+  existing Go join, not an addition beside it:
+
+  What ALREADY EXISTS and is NOT part of the rewrite: `sourceKindForExecution`
+  (domain.go:1003) already maps source to kind, and the join already checks the signed kind
+  against it (domain.go:1097, 1162). The kind check is CORRECT today; the freeze writes down
+  a mapping that was an undocumented Go detail. What is NEW:
+
+  - OPERAND SELECTION in `joinSweepAuthority`, which compares the signed `context_id` to
+    `execution_id` for EVERY source. Under the frozen matrix three of the five sources
+    select `source_run_id` instead;
+  - DISPOSITION ENFORCEMENT in `ValidateSweepObservationBatch`. `source_run_id` is currently
+    read by NO validator -- it does not appear in domain.go at all -- so presence, absence
+    and canonical form are all unenforced. This is a BODY-validator change, not a join one:
+    `source` and `source_run_id` are fields of the same message and the rule needs no
+    authority;
+  - the SHARED CHECKED UUIDv7 millisecond-to-nanosecond helper, plus 1.3's own sweep-summary
+    `trace_id` overflow vector. The conversion is unchecked at THREE call sites; 1.3 owns the
+    helper and one vector, and the 1.1 and 1.4 call-site vectors are assigned to those tasks;
+  - the PORTABLE REJECTION LABELS both runtimes must emit;
+  - the EXACT MAPPING INVENTORIES in Go AND Elixir. NOT subsumed by the parity vectors: the
+    requirement's own argument is that vectors SAMPLE, so only an exhaustive inventory shows
+    the mapping is total, injective, and excludes the two unreachable kinds;
+  - the SHARED PARITY VECTORS, exercising the OPERAND and not only the kind, with the
+    transitive golden regeneration;
+  - the Elixir peer.
+
+  THAT IS SIX DELIVERABLES, and it is the SAME six named in this task's "remaining 1.3 work"
+  list and in the 1.7 status. Three inventories of the same work is three chances to drift;
+  earlier revisions of each dropped the helper and the mapping inventories. If one of the
+  three is edited, all three change together.
+
+  This rewrite INVALIDATES the canonical Go sweep fixture and therefore regenerates goldens
+  TRANSITIVELY. `proto/edge/v1/golden_test.go` builds its sweep batch with
+  `SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK`, NO `source_run_id`, and a signed `context_id`
+  equal to `execution_id` -- a shape the matrix makes invalid, since that source REQUIRES
+  `source_run_id` and selects it as the operand. The churn follows the NUMBERED REBUILD SEQUENCE
+  the spec freezes -- this ledger does not restate it, because an earlier paraphrase here put
+  the semantic digest BEFORE re-signing, which the sequence exists to forbid. Applied to this
+  fixture: adding `source_run_id` changes the body's LENGTH, so step 2 updates both sizes and
+  `payload_sha256`; the source capability's signing preimage changes (the signed `context_id`
+  moves to `source_run_id`), so step 3 re-signs it; and step 4 recomputes
+  `semantic_envelope_sha256` AFTER that signature exists, since the semantic preimage contains
+  it. Every downstream vector
+  derived from that batch changes regardless, because the bytes it is built from did. The
+  regeneration is `EDGE_GOLDEN_UPDATE=1` over the whole shared corpus, and the resulting diff
+  SHALL be reviewed as a wire-visible change rather than accepted as churn.
+
+  Two defects the design surfaced, to be fixed with the vectors rather than left implied:
+  Go's UUIDv7 millisecond-to-nanosecond conversion is UNCHECKED, so a valid 48-bit
+  timestamp can wrap into the signed window; and `ErrSweepJoin` carries formatted string
+  suffixes rather than portable labels, so cross-runtime exact-reason parity is currently
+  undefined rather than merely unproven.
+
+  THE OVERFLOW IS AT THREE CALL SITES OWNED BY THREE TASKS, and the spec freezes ONE checked
+  helper used by all of them. 1.3 delivers THE HELPER plus its own call-site vector:
+  - 1.3: the helper, and the SWEEP-SUMMARY MTR `trace_id` vector (domain.go:1139).
+  - 1.1: the OUTER RECORD `event_id` vector (`validateIdentityTime`, validate.go:860).
+  - 1.4: TWO vectors, for the full-MTR `trace_id` AND `event_id` (domain.go:1197). They are
+    SEPARATE because the two `uuidTimeWithin` calls on that line are INDEPENDENTLY REMOVABLE
+    -- deleting either leaves the other passing, so one vector cannot cover both.
+  A shared helper proves nothing about a caller that does not use it, which is why each site
+  owes a vector rather than inheriting the helper's.
 
   Both Elixir peers have landed. `CompiledAssignmentValidate` covers the CARRIER: structure,
   both self digests, the attestation's binding across every member it commits, the record
@@ -117,7 +187,24 @@ here.
   Neither peer VERIFIES a signature or AUTHORIZES collection: those need key material, a trust
   resolver, an attested caller and the authoritative record, and belong to the composed
   boundary Go implements as `AuthorizeCollectionNow`. No Elixir peer of that is claimed.
-  The remaining 1.3 work is therefore the correlation matrix alone.
+  The remaining 1.3 work is therefore the correlation matrix alone -- which is SIX
+  deliverables, not the two an earlier revision implied. This is the TRACKING copy: 1.3 stays
+  unchecked until all six are, but the six are checked AS THEY LAND, so the ledger stops
+  reading as if none of 1.3 had shipped.
+  - [ ] 1.3-a Go OPERAND SELECTION in `joinSweepAuthority`, consuming the pinned mapping as
+        its SOLE kind lookup
+  - [ ] 1.3-b Go DISPOSITION ENFORCEMENT in `ValidateSweepObservationBatch` (`source_run_id`
+        presence, absence, canonical form)
+  - [ ] 1.3-c the SHARED CHECKED UUIDv7 millisecond-to-nanosecond helper, plus 1.3's own
+        sweep-summary `trace_id` overflow vector (the 1.1 and 1.4 call-site vectors are
+        assigned to those tasks)
+  - [ ] 1.3-d the PORTABLE REJECTION LABELS in both runtimes
+  - [ ] 1.3-e the EXACT MAPPING INVENTORIES in Go AND Elixir. NOT subsumed by the parity
+        vectors: the requirement says vectors SAMPLE, and only an exhaustive inventory shows
+        the mapping is total, injective, and excludes the two unreachable kinds. An inventory
+        and a vector set prove different things
+  - [ ] 1.3-f the SHARED PARITY VECTORS and the Elixir peer, with the transitive golden
+        regeneration
 
   NOT 1.3 work, recorded here only so neither is lost:
   - the tagged POSITIVE / EXPLICIT_NEGATIVE mapping VALUE and its durable negative reason
@@ -137,14 +224,49 @@ here.
   the append-only authoritative assignment-record CONTRACT, the frozen
   `SweepObservationBatchV1` correlation matrix (per permitted
   `SweepExecutionSource`: which field is the signed context, whether
-  `source_run_id` is required or forbidden, which mismatch is rejected, with a
-  positive and a mismatch vector per variant), and the assignment-mapping KEY,
+  `source_run_id` is required or forbidden, which mismatch is rejected), and the
+  assignment-mapping KEY,
   which must be frozen with the span because the span omits execution and plan
-  identity on the strength of it. DOWNSTREAM (runtime change): the mapping's
+  identity on the strength of it.
+  THE MATRIX'S VECTOR SET IS NOT "a positive and a mismatch per variant" -- an earlier
+  revision said so and that understates it by roughly an order of magnitude. The frozen
+  inventory is: per source, a POSITIVE -- on the three SOURCE-RUN rows built so
+  `execution_id != source_run_id` with the signed context equal to `source_run_id`, and on the
+  two FORBIDDEN rows simply omitting `source_run_id`, since those rows forbid it and the
+  differing-ids construction is not available there -- plus a SELECTED-CONTEXT mismatch and a
+  KIND mismatch per source (15); the `source_run_id` disposition per
+  row -- two forbidden-presence, three required-absence, three malformed (8); the two
+  unreachable kinds, which are owned by DIFFERENT gates (2); UNSPECIFIED and absent source
+  authority (2); SIX REMAINING NON-TIME, SOURCE-INDEPENDENT relation negatives on a
+  representative source -- range id, scope digest, target-range digest, plan digest,
+  execution shard, assignment epoch. The SELECTED OPERAND is NOT among them: it is
+  source-DEPENDENT and already discharged by the five per-source vectors above, and counting
+  it here would ask for a sixth operand vector the normative requirement explicitly does not
+  owe. Then EIGHT time negatives -- batch two, host three, trace three. Plus the accepted endpoint controls, which
+  are not negatives. The exact obligations live in the two matrix requirements in
+  `specs/edge-producer-data-plane/spec.md`; this ledger SHALL NOT restate them in a shorter
+  form that reads as a smaller job.
+  NOT 1.3, BUT NOT OWNERLESS EITHER -- ASSIGNED TO 1.5: CONTRACT DISPATCH does not bind the
+  record's PAYLOAD FAMILY to the output contract. `dispatchContract` compares only the four
+  `EdgeOutputContractRef` members and never reads `payload_family`, so a record may present a
+  family the contract does not describe and dispatch will not object.
+  This is a SEMANTIC ADMISSION relation, which is task 1.5's residual work, and it is recorded
+  there as an obligation rather than left as a floating observation. An earlier revision of
+  this ledger called it "a real gap with no owning task", which is exactly the state that lets
+  1.7 freeze over it: 1.7 gates on its prerequisites being CLOSED, and a gap belonging to no
+  task is closed by default. A named owner is what makes it block.
+  1.3 does not freeze the relation, and the correlation requirement says so explicitly rather
+  than implying dispatch already covers it.
+  DOWNSTREAM (runtime change): the mapping's
   durable storage, replay/repair state machine, conflict resolution, retention,
-  GC, and lookup-outcome transitions. Today only `context_id == execution_id`
-  (`domain.go:210`) and shard/epoch (`domain.go:215`) are proven; nothing compares
-  `run_id`, and it MUST NOT -- see the withdrawn equality in the span requirement.
+  GC, and lookup-outcome transitions. `joinSweepAuthority` (domain.go:1096) today proves MORE
+  than an earlier revision of this note claimed -- it listed two relations at line numbers that
+  no longer exist. It currently checks: source kind; `context_id == execution_id`; range
+  identity (`scope_id` and `scope_sha256`); plan and target-range digests; execution shard
+  against the attested `run_shard`; assignment epoch against `authority_epoch`; and the batch,
+  per-host and MTR-trace collection times. What it does NOT do is select the operand per
+  source or read `source_run_id` at all -- that is the rewrite this task owns. Nothing
+  compares `run_id`, and nothing MUST -- see the withdrawn equality in the span requirement.
 
 - [ ] 1.4 Add lossless `MtrTraceBatchV1` and `MtrTraceEventV1` contracts covering
   every current trace/hop/ECMP/MPLS/ASN/DNS/timing/outcome/source/correlation
@@ -230,7 +352,11 @@ here.
   down AND checkable -- `ordinal_count == 0` and the 32-zero commitment must agree in
   both directions, which the non-invertible commitment alone could never establish;
   and
-  (ii) task 1.15's shared per-value leaf vectors -- the remaining local blocker.
+  (ii) task 1.15's shared per-value leaf vectors; and
+  (iii) the TWO full-MTR UUIDv7 overflow vectors assigned by task 1.3 -- `trace_id` and
+  `event_id` at domain.go:1197, separate because the two checks are independently removable.
+  1.15 is therefore NO LONGER 1.4's ONLY remaining blocker; an earlier revision said it was,
+  which would have let 1.4 check with a live overflow in its own validator.
   NOT A BLOCKER ON 1.4: that no consumer performs the check.
   `VerifyCompletionAgainstPlanState` is a PRIMITIVE whose caller must supply
   already-validated plan state, and wiring a real carrier is downstream task 2.3b.
@@ -238,6 +364,14 @@ here.
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN range,
+  ASSIGNED HERE BY TASK 1.3 (see its ledger): the PAYLOAD FAMILY <-> OUTPUT CONTRACT
+  admission relation. `dispatchContract` compares only the four `EdgeOutputContractRef`
+  members and never reads `payload_family`, so a record may carry a family the contract does
+  not describe and dispatch will not object. 1.5 SHALL either freeze the relation -- with
+  vectors, in both runtimes -- or record an EXPLICIT DECISION that v1 requires no such
+  relation and why. What it SHALL NOT do is leave it unstated: an unowned gap is closed by
+  default when 1.7 checks that its prerequisites are closed, which is how a real hole ships
+  inside a freeze.
   ENUM COMPATIBILITY (cross-language parity): Go retains an unknown/negative int32 enum
   as its integer and REJECTS unknown values in the explicit SEMANTIC validator
   (`knownTrafficClass`/`knownRouteProfile`/...), whereas protobuf-elixir's generated enum
@@ -585,6 +719,20 @@ here.
   `SweepObservationBatchV1` correlation matrix (task 1.3). A task that requires a
   contract is not a substitute for the contract; if that delta is not authored,
   narrow 1.3 and this gate rather than freezing over a missing schema.
+  STATUS: both deltas are now AUTHORED -- the assignment-record schema and the
+  correlation matrix each have normative requirements in
+  `specs/edge-producer-data-plane/spec.md`. This gate's condition is met; it does NOT
+  follow that 1.7 may be checked, since 1.7 carries its own prerequisites, and all REMAINING
+  implementation of the matrix is still outstanding under 1.3. That list is the SIX
+  deliverables enumerated in task 1.3's own ledger -- operand selection, disposition
+  enforcement, the shared checked UUIDv7 conversion helper plus 1.3's sweep-summary overflow
+  vector, the portable labels, the EXACT Go and Elixir mapping inventories, and the parity
+  vectors with the Elixir peer. Two of those are easy to drop from a summary and were: the
+  conversion helper, and the inventories, which vectors cannot subsume because vectors only
+  sample. Naming only the vectors and the peer would understate it as a test-authoring task
+  when it is a behaviour change in two Go validators. "REMAINING" is the
+  accurate word: `sourceKindForExecution` and the join's kind check already exist and are
+  correct, so this is not a from-nothing build.
   NOT A PREREQUISITE: the durable assignment mapping's EXISTENCE and state, which
   is runtime task 2.20 downstream. This gate SHALL NOT wait on it.
   DISPLACED: the PRODUCER-FACING sink/run API freeze is NOT part of this task and

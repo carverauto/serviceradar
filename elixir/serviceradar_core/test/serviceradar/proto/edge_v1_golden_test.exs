@@ -1939,7 +1939,9 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     # NOTE: this vector pairs ACTIVE with source-present and PASSIVE with
     # source-absent purely so ONE page exercises BOTH source framings. That pairing is
     # a property of THIS FIXTURE, not of the contract: attribution classification and
-    # source presence are INDEPENDENT axes, and all four combinations are legal.
+    # source presence are INDEPENDENT axes, and all four combinations are representable
+    # at the record/classification layers -- subject to payload contracts, which may
+    # REQUIRE source authority (SweepObservationBatchV1 does).
     assert {:attributed_active, a} = active.classification
     assert a.identity.run_shard == 3
     assert a.identity.source != nil, "this fixture's ACTIVE span carries a source identity"
