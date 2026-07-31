@@ -10,13 +10,14 @@ go_library(
         "hostfreq_darwin.go",
         "hostfreq_darwin_nocgo.go",
         "hostfreq_other.go",
-        # Both //go:build darwin, and both were missing while their siblings above were
-        # listed. Build constraints exclude them on Linux, so the images were never affected,
-        # but on macOS `go build` compiled the buffered sampler and Bazel did not.
+        # hostfreq_sampler.go and snapshot_clone.go are both //go:build darwin, and both were
+        # missing while their siblings above were listed. Build constraints exclude them on
+        # Linux, so the images were never affected, but on macOS `go build` compiled the
+        # buffered sampler and Bazel did not.
         "hostfreq_sampler.go",
-        "snapshot_clone.go",
         "perf_linux.go",
         "perf_other.go",
+        "snapshot_clone.go",
     ],
     cgo = True,
     importpath = "github.com/carverauto/serviceradar/go/pkg/cpufreq",

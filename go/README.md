@@ -43,20 +43,24 @@ published SDK. The root module does not require that SDK at all, so merging them
 and each plugin's own dependencies into the root `go.sum` for code that only ever compiles to
 `wasip1`.
 
-One thing does block unification, and it is worth fixing on its own. Eight plugins require the
-SDK as `code.carverauto.dev/carverauto/serviceradar-sdk-go` while `dusk-checker` requires
-`github.com/carverauto/serviceradar-sdk-go`, and the SDK declares the second. Those two cannot
-coexist in one module, and Gazelle fails on the mismatch:
+All nine now require the SDK under one path,
+`code.carverauto.dev/carverauto/serviceradar-sdk-go`. They did not always: `dusk-checker` sat
+on the pre-rename `github.com/carverauto/serviceradar-sdk-go` at `v0.2.0`, a version that does
+not exist under the new path, so any tool resolving the nine together died on the mismatch.
+Keep them on one path.
 
-```
-module declares its path as: github.com/carverauto/serviceradar-sdk-go
-        but was required as: code.carverauto.dev/carverauto/serviceradar-sdk-go
-```
+They still sit on five different pseudo-versions, and unifying those is blocked on the SDK. 
+`go_deps.from_file` accepts a `go_work` label, so a `go.work` listing
+all eleven modules would give one MVS resolution and let Gazelle generate `go_library` and
+`go_test` targets for the plugins. MVS picks the newest SDK, and the newest SDK dropped
+`AuthMode`, `TimestampHeader`, `SignatureHeader` and `SignatureAlgorithm` from
+`sdk.ActionCallback` with no replacement anywhere in the package. `sample-northbound` reads all
+four to report HMAC webhook-callback signing metadata, so unification currently means deleting
+request-signing plumbing. That is a decision for whoever owns the SDK contract, not a version
+bump.
 
-Getting the plugin tests under Bazel does not need the modules merged. `go_deps.from_file`
-accepts several `go.mod` files, so the order of work is: normalise the SDK path across all nine,
-add a `from_file` entry per plugin module, then let Gazelle generate `go_library` and `go_test`
-targets. Those run as host Go and leave the TinyGo build path alone.
+ A `go.work` unifies version resolution, not package patterns. `./...` still returns only the root module's
+packages, so a workspace alone does not put the plugin tests in reach of `go test ./...`.
 
 The plugins are compiled by TinyGo through `//build/wasm_plugins`, not by `rules_go`. Several
 of their `BUILD.bazel` files carry `# gazelle:ignore` for that reason.
@@ -79,24 +83,44 @@ directives that shape it live in the root `BUILD.bazel`:
 # gazelle:exclude go/pkg/agent/testdata
 ```
 
-## 4. Every package with tests needs a `go_test`
+## 4. Every test **file** needs to be in a `go_test`
 
-`go test ./...` finds test files by walking the tree. Bazel only runs targets that exist. A
+`go test ./...` finds test files by walking the tree. Bazel only runs what a target names. A
 package can therefore have a full test file and be silently untested for months, and nothing
 reports it.
 
-This has already happened once. Five packages had tests that `go test ./...` ran and Bazel did
-not: `pkg/edgeonboarding`, `pkg/cli`, `pkg/config`, `pkg/config/bootstrap` and `pkg/natsutil`,
-42 test functions between them. Adding a `_test.go` file is not enough. Add the target too.
+Check at file level, not package level. Both failure modes are real and the package-level check
+only catches the first:
 
-To check that the invariant still holds, compare the two views:
+- A package with tests and no `go_test` target at all. Five packages were in this state:
+  `pkg/edgeonboarding`, `pkg/cli`, `pkg/config`, `pkg/config/bootstrap`, `pkg/natsutil`.
+- A package whose `go_test` exists but omits files. Five more files were in this state
+  (`pkg/models/auth_test.go`, `pkg/models/sweep_deepcopy_test.go`, `pkg/mtr/socket_test.go`,
+  `pkg/sysmon/process_test.go`, `internal/fastsum/api_test.go`), and the package-level check
+  passed the whole time because each package did have a target.
+
+The same drift hits libraries. `pkg/cpufreq` shipped a `go_library` missing
+`hostfreq_sampler.go` and `snapshot_clone.go`, so on macOS `go build` compiled the buffered
+sampler and Bazel did not. Build constraints kept it off Linux, so no image was ever affected,
+but the two builds disagreed for months.
+
+The audit that catches all of it compares declared `srcs` against disk:
 
 ```bash
-go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./... | sed "s|^$PWD/||" | sort
-grep -rl "go_test(" --include=BUILD.bazel go | sed 's|/BUILD.bazel||' | sort
+# every _test.go Bazel actually names
+for t in $(bazel query 'kind(go_test, //go/...)' --output=label); do
+  bazel query "labels(srcs, $t)" --output=label
+done | sed 's|^//||;s|:|/|' | grep '_test\.go$' | sort -u > /tmp/declared.txt
+
+# every _test.go on disk in the root module
+find go -name '*_test.go' -not -path '*/testdata/*' \
+  | grep -v '^go/cmd/wasm-plugins/' | grep -v '^go/tools/wasm-plugin-harness/' | sort > /tmp/ondisk.txt
+
+comm -23 /tmp/ondisk.txt /tmp/declared.txt
 ```
 
-Every path in the first list must appear in the second.
+Anything it prints must either be added to a target or carry a build constraint that explains
+itself. Swap `go_test`/`_test.go` for `go_library`/non-test files to audit the library side.
 
 ## 5. Pure mode, cgo and the race detector
 
@@ -168,7 +192,46 @@ The three Go tests under `//build/...` are release tooling rather than product c
 `//build/release:publish_packages_test` data-depends on the packaging archives and drags in
 30,000 transitive dependencies against about 1,500 for a typical package here.
 
-## 9. Targets that need something extra
+## 9. The `integration` build tag runs nowhere
+
+Six files carry `//go:build integration`. Nothing compiles them. `GO_TEST_TAGS` in the Makefile
+is `-tags=hostfreq_embed` or empty, `make test-integration` runs the Elixir and SRQL suite
+through Bazel, and no workflow passes the tag. There is no Bazel target either, because Bazel
+cannot apply a Go build constraint per target: it would need
+`--@io_bazel_rules_go//go/config:tags=integration`, which forks the whole Go configuration the
+way the race flags do.
+
+Code nothing compiles rots, and this did. When the constraint was lifted, two files no longer
+built against the current API:
+
+| File | Drift found |
+| --- | --- |
+| `pkg/mtr/tracer_integration_test.go` | `DefaultOptions()` had gained a `string` parameter, and `ctx` was used five lines before it was created |
+| `pkg/agent/snmp/snmp_integration_test.go` | `NewSNMPService` had gained a `logger.Logger` parameter |
+
+Both are repaired, and all six now compile and skip cleanly rather than failing. What each one
+needs before it can actually run:
+
+| File | Needs |
+| --- | --- |
+| `pkg/mtr/tracer_integration_test.go` | Raw sockets. Works as root, which the RBE executor is |
+| `pkg/agent/checker_integration_test.go` | Raw sockets, same |
+| `pkg/agent/proxmox_console_ssh_integration_test.go` | `sshd` on `PATH`, found via `exec.LookPath` |
+| `pkg/agent/remoteaccess/ssh_integration_test.go` | `sshd` on `PATH`, same |
+| `pkg/remoteaccess/sshca/openssh_integration_test.go` | `sshd` on `PATH`, same |
+| `pkg/agent/snmp/snmp_integration_test.go` | An SNMP agent named by `SERVICERADAR_TEST_SNMP_TARGET` |
+
+Two practical notes for whoever wires the CI job. The three `sshd` tests want the binary in
+their own process namespace, so a sidecar container does not satisfy them; adding
+`openssh-server` to `docker/Dockerfile.rbe` is the cheaper fix. And the SNMP suite used to
+point at a hardcoded `192.168.1.1`, a private address belonging to whoever wrote it, so it is
+now env-driven and skips when unset rather than failing after a ten-second timeout.
+
+Because four of the six skip silently when their dependency is absent, a job that runs them
+must assert they actually ran. Otherwise it goes green while testing nothing, which is the
+state this section exists to describe.
+
+## 10. Targets that need something extra
 
 Most targets are plain. These five are not, and each carries a comment explaining why:
 
@@ -188,7 +251,7 @@ PATH on every run, so no test result was ever reusable. Tests now get Bazel's ow
 that, give it a fixed string on the target, the way `sysmon_test` does. Never restore the
 inherited form to fix one test.
 
-## 10. Binaries and images
+## 11. Binaries and images
 
 `cmd/` binaries are consumed by `//docker/images`, which places them at their runtime paths:
 

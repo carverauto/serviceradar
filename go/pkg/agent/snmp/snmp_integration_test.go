@@ -22,6 +22,7 @@ package snmp
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -38,15 +39,15 @@ import (
 const snmpTargetEnv = "SERVICERADAR_TEST_SNMP_TARGET"
 
 func TestSNMPIntegration(t *testing.T) {
-	target := os.Getenv(snmpTargetEnv)
-	if target == "" {
+	targetHost := os.Getenv(snmpTargetEnv)
+	if targetHost == "" {
 		t.Skipf("set %s to an SNMP agent (host only, port 161 is assumed) to run this", snmpTargetEnv)
 	}
 
 	t.Log("Starting direct SNMP connection test...")
 
 	params := &gosnmp.GoSNMP{
-		Target:    target,
+		Target:    targetHost,
 		Port:      161,
 		Community: "public",
 		Version:   gosnmp.Version2c,
@@ -73,7 +74,7 @@ func TestSNMPIntegration(t *testing.T) {
 	// Create a shorter polling interval for testing
 	target := Target{
 		Name:      "test-router",
-		Host:      "192.168.1.1",
+		Host:      targetHost,
 		Port:      161,
 		Community: "public",
 		Version:   Version2c,
