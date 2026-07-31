@@ -556,6 +556,15 @@ _NORMAL_DEPENDENCIES = {
             "tonic-prost": Label("//third_party/crates/tonic-prost-0.14.6:tonic_prost"),
         },
     },
+    "rust/integration-db": {
+        _COMMON_CONDITION: {
+            "anyhow": Label("//third_party/crates/anyhow-1.0.104:anyhow"),
+            "rustls": Label("//third_party/crates/rustls-0.23.42:rustls"),
+            "rustls-pemfile": Label("//third_party/crates/rustls-pemfile-2.2.0:rustls_pemfile"),
+            "tokio": Label("//third_party/crates/tokio-1.53.1:tokio"),
+            "tokio-postgres": Label("//third_party/crates/tokio-postgres-0.7.18:tokio_postgres"),
+        },
+    },
     "rust/kvutil": {
         _COMMON_CONDITION: {
             "anyhow": Label("//third_party/crates/anyhow-1.0.104:anyhow"),
@@ -950,6 +959,10 @@ _NORMAL_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
+    "rust/integration-db": {
+        _COMMON_CONDITION: {
+        },
+    },
     "rust/kvutil": {
         _COMMON_CONDITION: {
         },
@@ -1119,6 +1132,8 @@ _NORMAL_DEV_DEPENDENCIES = {
             "rcgen": Label("//third_party/crates/rcgen-0.12.1:rcgen"),
         },
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
     },
     "rust/log-collector": {
@@ -1251,6 +1266,8 @@ _NORMAL_DEV_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
     },
     "rust/log-collector": {
@@ -1369,6 +1386,8 @@ _PROC_MACRO_DEPENDENCIES = {
     },
     "rust/flowgger": {
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
     },
     "rust/log-collector": {
@@ -1477,6 +1496,8 @@ _PROC_MACRO_ALIASES = {
     },
     "rust/flowgger": {
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
     },
     "rust/log-collector": {
@@ -1569,6 +1590,8 @@ _PROC_MACRO_DEV_DEPENDENCIES = {
     "rust/flow-collector": {
     },
     "rust/flowgger": {
+    },
+    "rust/integration-db": {
     },
     "rust/kvutil": {
     },
@@ -1676,6 +1699,8 @@ _PROC_MACRO_DEV_ALIASES = {
     "rust/flowgger": {
         _COMMON_CONDITION: {
         },
+    },
+    "rust/integration-db": {
     },
     "rust/kvutil": {
     },
@@ -1800,6 +1825,8 @@ _BUILD_DEPENDENCIES = {
         _COMMON_CONDITION: {
             "tonic-prost-build": Label("//third_party/crates/tonic-prost-build-0.14.6:tonic_prost_build"),
         },
+    },
+    "rust/integration-db": {
     },
     "rust/kvutil": {
         _COMMON_CONDITION: {
@@ -1932,6 +1959,8 @@ _BUILD_ALIASES = {
         _COMMON_CONDITION: {
         },
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
         _COMMON_CONDITION: {
         },
@@ -2041,6 +2070,8 @@ _BUILD_PROC_MACRO_DEPENDENCIES = {
     },
     "rust/flowgger": {
     },
+    "rust/integration-db": {
+    },
     "rust/kvutil": {
     },
     "rust/log-collector": {
@@ -2133,6 +2164,8 @@ _BUILD_PROC_MACRO_ALIASES = {
     "rust/flow-collector": {
     },
     "rust/flowgger": {
+    },
+    "rust/integration-db": {
     },
     "rust/kvutil": {
     },
