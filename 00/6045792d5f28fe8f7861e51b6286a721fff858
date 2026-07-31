@@ -1,0 +1,86 @@
+third_party/hex/benchfella.BUILD
+  s_5026b378047c55::t_63fad2088c4292 1-25,27-30
+  s_5026b378047c55::t_3fb9704bcaefd1 26
+elixir/web-ng/test/phoenix/components/settings_components_test.exs
+  s_d2089df286db69::t_b97a0d0bad4f87 1-9,17
+  s_d2089df286db69::t_3960bab5072d7d 18
+elixir/serviceradar_core_elx/.deps_audit_ignore
+  s_5026b378047c55::t_146fba7cf89d04 3-4
+elixir/serviceradar_core/.deps_audit_ignore
+  s_5026b378047c55::t_146fba7cf89d04 16-19
+elixir/serviceradar_core/test/serviceradar/inventory/device_enrichment_rules_test.exs
+  s_d2089df286db69::t_6bb4e9c3c4ea83 2-11,18
+third_party/hex/hex_archives.MODULE
+  s_5026b378047c55::t_63fad2088c4292 122-128,285-286
+  s_5026b378047c55::t_a3cf0b35ba68f1 121
+MODULE.bazel
+  s_5026b378047c55::t_9d22922a93fd13 451-452
+  s_5026b378047c55::t_f404c35d34ddfb 288-294
+  s_155758d020800a::t_9072277962a141 287
+go/pkg/agent/snmp_integration_test.go
+  s_155758d020800a::t_2dee09a9537707 328
+elixir/web-ng/.deps_audit_ignore
+  s_5026b378047c55::t_146fba7cf89d04 27-30
+elixir/serviceradar_core/test/serviceradar/inventory/device_enrichment_rules_filesystem_test.exs
+  s_d2089df286db69::t_5c775a380d2a70 1-109
+.forgejo/workflows/elixir-unit-tests.yml
+  s_6040e6c6d910eb::t_b48bce98012524 104-105
+elixir/datasvc/.deps_audit_ignore
+  s_5026b378047c55::t_146fba7cf89d04 3-6
+elixir/serviceradar_agent_gateway/.deps_audit_ignore
+  s_5026b378047c55::t_146fba7cf89d04 16-19
+elixir/web-ng/test/phoenix/components/device_stats_cards_test.exs
+  s_d2089df286db69::t_006174f02da86a 11
+  s_d2089df286db69::t_b01c1759dae90b 24-31,38-39,45-76
+  s_d2089df286db69::t_8683b5239c13b4 33
+  s_d2089df286db69::t_81b4ecc091f7c0 12,15
+  s_d2089df286db69::t_874c22bd13998d 4-7,17-22
+elixir/connection/mix.lock
+  s_5026b378047c55::t_6d92390d57b246 4,6-9,12-14,16,21
+elixir/elixir_uuid/mix.lock
+  s_5026b378047c55::t_33c11cdb6720db 5,7-10,13-15,17,22
+elixir/palisade/mix.lock
+  s_5026b378047c55::t_d56d284b215098 3,12
+elixir/serviceradar_srql/mix.lock
+  s_5026b378047c55::t_d0f99f7ab3130c 4,6-7,10-11,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "006045792d5f28fe8f7861e51b6286a721fff858",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_5026b378047c55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "862419ef-6655-41a0-93cb-94f30f8d9c2e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_6040e6c6d910eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d15f679d-1965-40c8-bbd4-6e6d52e43464",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
