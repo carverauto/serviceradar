@@ -121,6 +121,52 @@ fn is_missing_prefix_tag_column_diesel(err: &FullLoadError) -> bool {
     }
 }
 
+pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    ensure_entity(plan)?;
+
+    if plan.stats.is_some() {
+        return to_sql_and_params_stats(plan);
+    }
+
+    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let sql = super::diesel_sql(&query)?;
+
+    let mut params = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
+
+    #[cfg(any(test, debug_assertions))]
+    {
+        let bind_count = super::diesel_bind_count(&query)?;
+        if bind_count != params.len() {
+            return Err(ServiceError::Internal(anyhow::anyhow!(
+                "bind count mismatch (diesel {bind_count} vs params {})",
+                params.len()
+            )));
+        }
+    }
+
+    Ok((sql, params))
+}
+
+fn ensure_entity(plan: &QueryPlan) -> Result<()> {
+    match plan.entity {
+        Entity::Flows | Entity::AttributedFlows => Ok(()),
+        _ => Err(ServiceError::InvalidRequest(
+            "entity not supported by flows query".into(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod fallback_classifier_tests {
     use super::{FullLoadError, is_missing_prefix_tag_column_diesel};
@@ -177,51 +223,5 @@ mod fallback_classifier_tests {
             }),
         ));
         assert!(!is_missing_prefix_tag_column_diesel(&err));
-    }
-}
-
-pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
-    ensure_entity(plan)?;
-
-    if plan.stats.is_some() {
-        return to_sql_and_params_stats(plan);
-    }
-
-    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
-    let sql = super::diesel_sql(&query)?;
-
-    let mut params = Vec::new();
-
-    if let Some(TimeRange { start, end }) = &plan.time_range {
-        params.push(BindParam::timestamptz(*start));
-        params.push(BindParam::timestamptz(*end));
-    }
-
-    for filter in &plan.filters {
-        collect_filter_params(&mut params, filter)?;
-    }
-
-    super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
-
-    #[cfg(any(test, debug_assertions))]
-    {
-        let bind_count = super::diesel_bind_count(&query)?;
-        if bind_count != params.len() {
-            return Err(ServiceError::Internal(anyhow::anyhow!(
-                "bind count mismatch (diesel {bind_count} vs params {})",
-                params.len()
-            )));
-        }
-    }
-
-    Ok((sql, params))
-}
-
-fn ensure_entity(plan: &QueryPlan) -> Result<()> {
-    match plan.entity {
-        Entity::Flows | Entity::AttributedFlows => Ok(()),
-        _ => Err(ServiceError::InvalidRequest(
-            "entity not supported by flows query".into(),
-        )),
     }
 }

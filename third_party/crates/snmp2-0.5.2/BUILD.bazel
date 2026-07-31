@@ -98,6 +98,6 @@ rust_library(
     version = "0.5.2",
     deps = [
         "//third_party/crates/asn1-rs-0.6.2:asn1_rs",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/tokio-1.53.1:tokio",
     ],
 )

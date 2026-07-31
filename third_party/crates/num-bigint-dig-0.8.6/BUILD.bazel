@@ -109,11 +109,11 @@ rust_library(
         "//third_party/crates/libm-0.2.16:libm",
         "//third_party/crates/num-bigint-dig-0.8.6:build_script_build",
         "//third_party/crates/num-integer-0.1.46:num_integer",
-        "//third_party/crates/num-iter-0.1.45:num_iter",
+        "//third_party/crates/num-iter-0.1.46:num_iter",
         "//third_party/crates/num-traits-0.2.19:num_traits",
-        "//third_party/crates/rand-0.8.6:rand",
-        "//third_party/crates/smallvec-1.15.1:smallvec",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
+        "//third_party/crates/rand-0.8.7:rand",
+        "//third_party/crates/smallvec-1.15.2:smallvec",
+        "//third_party/crates/zeroize-1.9.0:zeroize",
     ],
 )
 

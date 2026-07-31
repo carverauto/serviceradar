@@ -95,6 +95,6 @@ rust_library(
     version = "2.17.0",
     deps = [
         "//third_party/crates/core-foundation-sys-0.8.7:core_foundation_sys",
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
     ],
 )

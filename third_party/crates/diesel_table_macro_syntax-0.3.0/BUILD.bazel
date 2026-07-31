@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "0.3.0",
     deps = [
-        "//third_party/crates/syn-2.0.117:syn",
+        "//third_party/crates/syn-2.0.119:syn",
     ],
 )

@@ -100,8 +100,8 @@ rust_library(
     deps = [
         "//third_party/crates/prost-0.14.4:prost",
         "//third_party/crates/prost-types-0.14.4:prost_types",
-        "//third_party/crates/tokio-1.52.3:tokio",
-        "//third_party/crates/tokio-stream-0.1.18:tokio_stream",
+        "//third_party/crates/tokio-1.53.1:tokio",
+        "//third_party/crates/tokio-stream-0.1.19:tokio_stream",
         "//third_party/crates/tonic-0.14.6:tonic",
         "//third_party/crates/tonic-prost-0.14.6:tonic_prost",
     ],

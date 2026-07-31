@@ -28,6 +28,7 @@ sh_test(
         "check-oci-chart-version-available.sh",
         "cosign_common.sh",
         "cut-release.sh",
+        "prune-forgejo-releases.sh",
         "sign-oci-publish.sh",
         "upload-forgejo-release-asset.sh",
         "validate-release-metadata.sh",
@@ -40,6 +41,10 @@ sh_test(
         "//:.forgejo/workflows/wasm-plugins.yml",
         "//docker/images:image_inventory.bzl",
         "//:k8s/argocd/applications/demo-prod.yaml",
+        # Read by the RELEASE_PACKAGES assertions added in 3fd5eac58. The script resolves
+        # them through runfiles, so a test only sees them if they are declared here.
+        "//build/packaging:packages.bzl",
+        "//build/packaging:release_targets.bzl",
     ],
 )
 

@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "0.14.7+wasi-0.2.4",
     deps = [
-        "//third_party/crates/wasip2-1.0.3-wasi-0.2.9:wasip2",
+        "//third_party/crates/wasip2-1.0.4-wasi-0.2.12:wasip2",
     ],
 )

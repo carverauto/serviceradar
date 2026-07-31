@@ -71,28 +71,10 @@ ENV CC=/usr/bin/gcc \
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9"
-ARG GHCR_USERNAME=""
-
-# Fetch the CNPG test fixture image into a local docker-archive so Bazel
-# executors can load it without network access. If no secret is provided,
-# skip the pull (the image remains optional).
-RUN --mount=type=secret,id=ghcr_token <<'EOF'
-set -euo pipefail
-TOKEN_FILE="/run/secrets/ghcr_token"
-if [[ -z "${GHCR_CNPG_IMAGE:-}" ]]; then
-  echo "CNPG image not set; skipping preload"
-  exit 0
-fi
-if [[ -f "$TOKEN_FILE" && -s "$TOKEN_FILE" && -n "${GHCR_USERNAME:-}" ]]; then
-  TOKEN_VALUE=$(cat "$TOKEN_FILE")
-  skopeo copy --src-creds "$GHCR_USERNAME:$TOKEN_VALUE" "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"
-elif skopeo copy "docker://$GHCR_CNPG_IMAGE" "docker-archive:/opt/cnpg_image.tar:$GHCR_CNPG_IMAGE"; then
-  echo "Pulled CNPG image without auth"
-else
-  echo "Warning: CNPG preload skipped (missing credentials or pull failed)" >&2
-fi
-EOF
+# No test images are preloaded here. The CNPG preload this used to run never produced a
+# tarball: skopeo rejects a reference carrying both a tag and a digest, so it failed in
+# ~0.2s on every build and the fallback reported it as a credentials problem. Nothing ever
+# loaded /opt/cnpg_image.tar either. Tests pull what they need at run time.
 
 # Install Rust toolchains for native builds.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init \

@@ -98,21 +98,21 @@ rust_library(
     }),
     version = "0.9.1",
     deps = [
-        "//third_party/crates/futures-util-0.3.32:futures_util",
+        "//third_party/crates/futures-util-0.3.33:futures_util",
         "//third_party/crates/parking_lot-0.12.5:parking_lot",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/tokio-1.53.1:tokio",
     ] + select({
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/portable-atomic-1.13.1:portable_atomic",  # cfg(not(target_has_atomic = "64"))
+            "//third_party/crates/portable-atomic-1.14.0:portable_atomic",  # cfg(not(target_has_atomic = "64"))
         ],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
-            "//third_party/crates/portable-atomic-1.13.1:portable_atomic",  # cfg(not(target_has_atomic = "64"))
+            "//third_party/crates/portable-atomic-1.14.0:portable_atomic",  # cfg(not(target_has_atomic = "64"))
         ],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [
-            "//third_party/crates/portable-atomic-1.13.1:portable_atomic",  # cfg(not(target_has_atomic = "64"))
+            "//third_party/crates/portable-atomic-1.14.0:portable_atomic",  # cfg(not(target_has_atomic = "64"))
         ],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
-            "//third_party/crates/portable-atomic-1.13.1:portable_atomic",  # cfg(not(target_has_atomic = "64"))
+            "//third_party/crates/portable-atomic-1.14.0:portable_atomic",  # cfg(not(target_has_atomic = "64"))
         ],
         "//conditions:default": [],
     }),

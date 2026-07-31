@@ -94,10 +94,10 @@ rust_library(
     }),
     version = "0.5.2",
     deps = [
-        "//third_party/crates/hyper-1.9.0:hyper",
+        "//third_party/crates/hyper-1.11.0:hyper",
         "//third_party/crates/hyper-util-0.1.20:hyper_util",
         "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/tokio-1.53.1:tokio",
         "//third_party/crates/tower-service-0.3.3:tower_service",
     ],
 )

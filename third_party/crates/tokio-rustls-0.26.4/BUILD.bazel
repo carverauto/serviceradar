@@ -101,7 +101,7 @@ rust_library(
     }),
     version = "0.26.4",
     deps = [
-        "//third_party/crates/rustls-0.23.40:rustls",
-        "//third_party/crates/tokio-1.52.3:tokio",
+        "//third_party/crates/rustls-0.23.42:rustls",
+        "//third_party/crates/tokio-1.53.1:tokio",
     ],
 )

@@ -70,6 +70,7 @@ pub struct NetprobeEbpfRuntime {
 }
 
 impl NetprobeEbpfRuntime {
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         object_path: &Path,
         config: &Config,
@@ -304,10 +305,10 @@ impl AdaptiveSamplingRuntime {
 impl Drop for AdaptiveSamplingRuntime {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
-            if thread.join().is_err() {
-                log::warn!("AF_XDP adaptive sampling thread panicked during shutdown");
-            }
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            log::warn!("AF_XDP adaptive sampling thread panicked during shutdown");
         }
     }
 }
@@ -490,10 +491,11 @@ fn is_default_route_interface(interface: &str) -> bool {
     if let Ok(contents) = std::fs::read_to_string("/proc/net/route") {
         for line in contents.lines().skip(1) {
             let mut fields = line.split_whitespace();
-            if let (Some(iface), Some(dest)) = (fields.next(), fields.next()) {
-                if dest == "00000000" && iface == interface {
-                    return true;
-                }
+            if let (Some(iface), Some(dest)) = (fields.next(), fields.next())
+                && dest == "00000000"
+                && iface == interface
+            {
+                return true;
             }
         }
     }

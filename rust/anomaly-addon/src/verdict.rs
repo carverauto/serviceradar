@@ -39,6 +39,12 @@ pub(crate) struct VerdictRecordOptions {
     pub(crate) reopen_count: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CusumDriftRecordOptions {
+    pub(crate) drift_escalate_after_secs: u64,
+    pub(crate) severity_policy: SeverityPolicy,
+}
+
 /// Build an OCSF Detection Finding (class_uid 2004) shaped to match the central
 /// `VerdictEmitter` envelope, so core consumes an edge verdict identically. The
 /// canonical `series_key` is computed CENTRALLY from gateway-attested fields, so
@@ -92,16 +98,7 @@ pub(crate) fn verdict_record_with_policy(
     // when its raw z-score is large; only a CONFIRMED anomaly reaches High/Critical.
     let confirmed = verdict.anomalous && verdict.state != "pending_anomaly";
     let score = bounded_score(verdict.score);
-    let severity_id = spike_severity_id(
-        metric,
-        point,
-        verdict,
-        options.episode,
-        confirmed,
-        options.critical_min_duration_secs,
-        options.abs_effect_floor,
-        options.severity_policy,
-    );
+    let severity_id = spike_severity_id(metric, point, verdict, confirmed, &options);
     let lifecycle_state = anomaly_lifecycle_state(options.transition);
     let transition_name = anomaly_transition_name(options.transition);
     let status = anomaly_lifecycle_status(options.transition);
@@ -240,8 +237,10 @@ pub(crate) fn cusum_drift_record(
         series_key,
         verdict,
         drift,
-        crate::engine::DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
-        SeverityPolicy::default(),
+        CusumDriftRecordOptions {
+            drift_escalate_after_secs: crate::engine::DEFAULT_DRIFT_ESCALATE_AFTER_SECS,
+            severity_policy: SeverityPolicy::default(),
+        },
     )
 }
 
@@ -252,19 +251,18 @@ pub(crate) fn cusum_drift_record_with_policy(
     series_key: &str,
     verdict: &ReasonVerdict,
     drift: CusumDrift,
-    drift_escalate_after_secs: u64,
-    severity_policy: SeverityPolicy,
+    options: CusumDriftRecordOptions,
 ) -> TelemetryRecord {
     let ts_nano = verdict
         .observed_at_unix_nano
         .unwrap_or(point.observed_at_unix_nano);
     let ts_ms = (ts_nano / 1_000_000) as i64;
     let magnitude = bounded_score(drift.magnitude());
-    let severity_id = severity_policy.capped(drift_severity_id(
+    let severity_id = options.severity_policy.capped(drift_severity_id(
         drift,
         magnitude,
         ts_nano,
-        drift_escalate_after_secs,
+        options.drift_escalate_after_secs,
     ));
     let direction = drift.direction.as_str();
     let reason = format!("sustained {direction} drift");
@@ -435,12 +433,10 @@ fn spike_severity_id(
     metric: &Metric,
     point: &MetricPoint,
     verdict: &ReasonVerdict,
-    episode: Option<AnomalyEpisode>,
     confirmed: bool,
-    critical_min_duration_secs: u64,
-    abs_effect_floor: f64,
-    severity_policy: SeverityPolicy,
+    options: &VerdictRecordOptions,
 ) -> i64 {
+    let severity_policy = options.severity_policy;
     let score = bounded_score(verdict.score);
     let base = severity_id_from_score_with_policy(score, confirmed, severity_policy);
 
@@ -448,7 +444,7 @@ fn spike_severity_id(
         return severity_policy.capped(base);
     }
 
-    if !practical_significance_passes(metric, verdict, abs_effect_floor) {
+    if !practical_significance_passes(metric, verdict, options.abs_effect_floor) {
         return severity_policy.capped(2);
     }
 
@@ -460,8 +456,8 @@ fn spike_severity_id(
         return severity_policy.capped(4);
     }
 
-    let severity_id = if critical_impact_passes(metric, verdict, episode)
-        && episode_duration_at_least(episode, critical_min_duration_secs)
+    let severity_id = if critical_impact_passes(metric, verdict, options.episode)
+        && episode_duration_at_least(options.episode, options.critical_min_duration_secs)
     {
         5
     } else {
@@ -493,6 +489,7 @@ fn drift_severity_id(
 ///
 /// This base band table deliberately stops at High. Critical is not a score
 /// cutpoint: callers must additionally prove class impact and duration.
+#[cfg(test)]
 pub(crate) fn severity_id_from_score(score: f64, confirmed: bool) -> i64 {
     severity_id_from_score_with_policy(score, confirmed, SeverityPolicy::default())
 }

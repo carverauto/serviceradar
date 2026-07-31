@@ -85,14 +85,6 @@ module_lock_has_file_hash() {
   hash_index_has_file_hash "$1" "MODULE.bazel.lock" "$2" "$3"
 }
 
-vendor_inputs_have_file_hash() {
-  hash_index_has_file_hash \
-    "$1" \
-    "third_party/crates/.serviceradar-vendor-inputs" \
-    "$2" \
-    "$3"
-}
-
 addon_ids() {
   cat <<'EOF'
 netprobe
@@ -122,19 +114,24 @@ manifest_path() {
   esac
 }
 
-cargo_version_path() {
-  case "$1" in
-    rust-sample) echo "rust/addon-sdk/Cargo.toml" ;;
-    netprobe) echo "rust/netprobe/Cargo.toml" ;;
-    powerdns) echo "rust/powerdns/Cargo.toml" ;;
-    workload-identity) echo "rust/workload-identity/Cargo.toml" ;;
-    rdp) echo "rust/rdp-adapter/Cargo.toml" ;;
-    anomaly) echo "rust/anomaly-addon/Cargo.toml" ;;
-    otel-collector) echo "rust/otel-addon/Cargo.toml" ;;
-    *) return 1 ;;
-  esac
-}
-
+# NOTE: there is deliberately no cargo_version_path().
+#
+# This gate used to require each Rust add-on's crate [package] version to mirror
+# addons/<id>/addon.yaml, and to require the vendor snapshot to record the resulting
+# Cargo.lock and Cargo.toml hashes. That coupling was inert and expensive:
+#
+#   * The crate version was decoration. These crates are binaries with no `publish` key
+#     that nothing in the workspace depends on as a library; Cargo only requires the field
+#     to be present. It reaches the generated vendor tree solely as alias labels
+#     (serviceradar-netprobe-<version>) pointing at packages crates_vendor never emits.
+#   * But mirroring it into Cargo.toml edited a manifest, which changed Cargo.lock, which
+#     invalidated third_party/crates/.serviceradar-vendor-inputs, whose documented fix is
+#     scripts/vendor.sh -- rewriting 625 crate directories and discarding the Bazel cache
+#     for every Rust target, to restate a version that changed no third-party crate.
+#
+# addons/<id>/addon.yaml is now the single source of truth. bazel_version_path() below
+# still cross-checks the BUILD.bazel version constant, because that one genuinely stamps
+# the built binary and is Bazel-side, so keeping it in step costs nothing.
 bazel_version_path() {
   case "$1" in
     netprobe) echo "rust/netprobe/BUILD.bazel" ;;
@@ -296,7 +293,6 @@ version_changed() {
 changed_paths="$(git diff --name-only --no-renames "${BASE_REF}" "${HEAD_REF}")"
 required_bumps=""
 version_checks=""
-rust_vendor_input_checks=""
 rdp_connector_bazel_lock_check=false
 inventory_changed=false
 inventory_mapped=false
@@ -325,12 +321,6 @@ while IFS= read -r path; do
 
     if [[ "${path}" == "$(manifest_path "${addon}")" ]]; then
       version_checks="${version_checks}${addon}"$'\n'
-    fi
-
-    cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
-    if [[ -n "${cargo_path}" && "${path}" == "${cargo_path}" ]]; then
-      version_checks="${version_checks}${addon}"$'\n'
-      rust_vendor_input_checks="${rust_vendor_input_checks}${addon}"$'\n'
     fi
 
     bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
@@ -380,7 +370,6 @@ fi
 
 required_bumps="$(printf '%s' "${required_bumps}" | sort -u | sed '/^$/d')"
 version_checks="$(printf '%s' "${version_checks}" | sort -u | sed '/^$/d')"
-rust_vendor_input_checks="$(printf '%s' "${rust_vendor_input_checks}" | sort -u | sed '/^$/d')"
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
@@ -406,39 +395,6 @@ EOF
   fi
 done <<<"${required_bumps}"
 
-while IFS= read -r addon; do
-  [[ -n "${addon}" ]] || continue
-
-  cargo_path="$(cargo_version_path "${addon}")"
-  missing_lock_hashes=""
-
-  for lock_input_path in "Cargo.lock" "${cargo_path}"; do
-    expected_hash="$(sha256_from_ref_path "${HEAD_REF}" "${lock_input_path}")"
-
-    if ! vendor_inputs_have_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
-      missing_lock_hashes="${missing_lock_hashes}  ${lock_input_path}: ${expected_hash}"$'\n'
-    fi
-  done
-
-  if [[ -z "${missing_lock_hashes}" ]]; then
-    continue
-  fi
-
-  cat >&2 <<EOF
-error: ${addon} Rust add-on metadata changed but the vendor snapshot is stale
-${missing_lock_hashes}
-${cargo_path} changed, but the committed Rust vendor snapshot does not record
-the current Cargo input hash(es) above.
-
-Rust native add-on packages are built through the committed crate vendor tree. Run:
-  scripts/vendor.sh
-
-Then commit the refreshed third_party/crates tree and
-third_party/crates/.serviceradar-vendor-inputs so release packaging uses the
-same Cargo package metadata as the source tree.
-EOF
-  exit 1
-done <<<"${rust_vendor_input_checks}"
 
 if [[ "${rdp_connector_bazel_lock_check}" == true ]]; then
   missing_lock_hashes=""
@@ -474,30 +430,6 @@ while IFS= read -r addon; do
 
   manifest="$(manifest_path "${addon}")"
   addon_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
-
-  cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
-  if [[ -n "${cargo_path}" ]]; then
-    cargo_version="$(version_from_toml "${HEAD_REF}" "${cargo_path}" || true)"
-
-    if [[ -z "${addon_version}" || -z "${cargo_version}" ]]; then
-      echo "error: unable to read ${addon} version sources" >&2
-      echo "  ${manifest}: ${addon_version:-<missing>}" >&2
-      echo "  ${cargo_path}: ${cargo_version:-<missing>}" >&2
-      exit 1
-    fi
-
-    if [[ "${addon_version}" != "${cargo_version}" ]]; then
-      cat >&2 <<EOF
-error: ${addon} version sources are out of sync
-  ${manifest}: ${addon_version}
-  ${cargo_path}: ${cargo_version}
-
-Keep these aligned so the add-on package and binary version describe the same
-artifact.
-EOF
-      exit 1
-    fi
-  fi
 
   bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
   if [[ -n "${bazel_path}" ]]; then

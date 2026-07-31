@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "3.5.0",
     deps = [
-        "//third_party/crates/toml_edit-0.25.11-spec-1.1.0:toml_edit",
+        "//third_party/crates/toml_edit-0.25.13-spec-1.1.0:toml_edit",
     ],
 )

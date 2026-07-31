@@ -94,9 +94,9 @@ rust_library(
     }),
     version = "59.1.0",
     deps = [
-        "//third_party/crates/bytes-1.11.1:bytes",
+        "//third_party/crates/bytes-1.12.1:bytes",
         "//third_party/crates/half-2.7.1:half",
-        "//third_party/crates/num-bigint-0.4.6:num_bigint",
+        "//third_party/crates/num-bigint-0.4.8:num_bigint",
         "//third_party/crates/num-traits-0.2.19:num_traits",
     ],
 )

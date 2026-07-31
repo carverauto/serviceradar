@@ -1,0 +1,113 @@
+name: CI
+on: [push, pull_request]
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        rust: [stable, beta, nightly]
+        # Pin ubuntu-26.04 because we need GNU Make >= 4.4 (24.04 ships 4.3).
+        # 4.4 understands both `--jobserver-style=fifo` and `=pipe`, so the
+        # tests exercise both jobserver wire formats against a single make.
+        os: [ubuntu-26.04, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@master
+      - name: Install Rust (rustup)
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --no-self-update --profile minimal
+          rustup default ${{ matrix.rust }}
+        shell: bash
+
+      - uses: Swatinem/rust-cache@v2
+
+      # macOS ships BSD make as `make`; Homebrew installs GNU make as `gmake`.
+      - name: Install GNU Make (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: brew install make
+        shell: bash
+
+      - name: Print GNU Make version
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        shell: bash
+        run: "$MAKE --version"
+        env:
+          MAKE: ${{ startsWith(matrix.os, 'macos') && 'gmake' || 'make' }}
+
+      - run: cargo test --locked
+        shell: bash
+        env:
+          MAKE: ${{ startsWith(matrix.os, 'macos') && 'gmake' || 'make' }}
+
+      - name: Ensure wasm32-unknown-unknown be buildable
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --locked --target wasm32-unknown-unknown
+
+  test_musl:
+    name: Test (stable, alpine-latest)
+    container: rust:alpine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Install make dependencies
+        run: apk add musl-dev bash make
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Print GNU Make version
+        run: make --version
+        shell: bash
+
+      - run: cargo test --locked
+        shell: bash
+
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add rustfmt
+      - run: cargo fmt -- --check
+
+  publish_docs:
+    name: Publish Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+      - name: Build documentation
+        run: cargo doc --no-deps --all-features
+      - name: Publish documentation
+        run: |
+          cd target/doc
+          git init
+          git add .
+          git -c user.name='ci' -c user.email='ci' commit -m init
+          git push -f -q https://git:${{ secrets.github_token }}@github.com/${{ github.repository }} HEAD:gh-pages
+        if: github.event_name == 'push' && github.event.ref == 'refs/heads/master'
+
+  msrv:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@master
+      - name: Install Rust (rustup)
+        run: rustup toolchain install nightly --no-self-update --profile minimal
+        shell: bash
+
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo hack check --lib --rust-version --ignore-private --locked

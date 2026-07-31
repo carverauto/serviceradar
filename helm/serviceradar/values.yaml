@@ -405,6 +405,17 @@ core:
     ociRef: ""
     ociDigest: ""
     artifacts: {}
+  # Resource requests/limits for core-elx.
+  # Demo steady-state is ~1.4–1.5Gi RSS; the previous template-only default of
+  # 4Gi limit OOMKills under load (demo runs 2Gi/16Gi). 8Gi is a safer chart
+  # default for single-tenant installs; use values-demo for full demo headroom.
+  resources:
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
   # Extra environment variables for the core-elx pod.
   # Prefix-tag flow enrichment (requires migration 20260718010000 first):
   #   SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED: "true"
@@ -966,13 +977,17 @@ webNg:
     existingSecretName: serviceradar-control-plane-runtime-access
     tokenSecretKey: token
   # Resource requests/limits for web-ng.
+  # Steady-state ~1.3–1.7Gi RSS; a 2Gi *limit* still OOMKilled hosted tenants
+  # under cold-start spikes, so limit matches demo (4Gi). Keep the *request*
+  # at 1Gi so 3 replicas still schedule on modest ~8Gi worker nodes (demo
+  # overrides request to 2Gi where nodes have headroom).
   resources:
     limits:
-      cpu: "1"
-      memory: "1Gi"
+      cpu: "2"
+      memory: "4Gi"
     requests:
-      cpu: "200m"
-      memory: "512Mi"
+      cpu: "500m"
+      memory: "1Gi"
   gatewayAddress: ""
   natsUrl: ""
   natsCertName: "web"
@@ -1068,7 +1083,7 @@ agent:
   resources:
     limits:
       cpu: 500m
-      memory: 1Gi
+      memory: 2Gi
     requests:
       cpu: 200m
       memory: 512Mi
@@ -1110,13 +1125,15 @@ agentGateway:
     loadBalancerIP: ""
     externalTrafficPolicy: Cluster
     annotations: {}
+  # Steady-state demo usage is ~850–900Mi; the previous 512Mi/1Gi pair OOMKills
+  # under reconnect storms. Demo still overrides to 1Gi/3Gi for HA spikes.
   resources:
     limits:
       cpu: "1"
-      memory: "1Gi"
+      memory: "2Gi"
     requests:
       cpu: "200m"
-      memory: "512Mi"
+      memory: "1Gi"
 datasvc:
   replicaCount: 3
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).

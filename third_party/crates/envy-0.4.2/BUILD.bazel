@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "0.4.2",
     deps = [
-        "//third_party/crates/serde-1.0.228:serde",
+        "//third_party/crates/serde-1.0.229:serde",
     ],
 )

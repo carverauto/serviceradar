@@ -1,0 +1,308 @@
+name: Core Integration
+
+# The serviceradar_core integration suite, against the shared SRQL/CNPG fixture.
+#
+# Split out of main.yml, where it ran as the last step of the `build` job -- serially, after
+# the whole Bazel sweep had finished, for no reason other than sharing a job. Nothing in that
+# sweep produces an input to this suite: scripts/test-integration.sh contains no Bazel at all.
+# It runs `mix deps.get`, `mix ash.migrate` and `mix test --include integration` directly
+# against the host toolchains, so the only steps it ever needed were Setup Beam, Setup Rust
+# (the Rustler NIFs compile during `mix test`) and psql for the database helpers.
+#
+# Its own workflow because it fails for its own reasons -- a fixture outage, a migration
+# break, a flaky remote database -- and folding those into main.yml made them indistinguishable
+# from a compile failure. This is the same reasoning already written into main.yml for the
+# Rust integration tests.
+#
+# Concurrency with main.yml is safe by existing design, not by luck. The three consumers of
+# the fixture use disjoint databases:
+#   * //rust/srql tests take pg_advisory_lock on the shared fixture and reset it
+#     (integration_tests/srql/tests/support/harness.rs)
+#   * this suite creates sr_core_test_<epoch>_<run_id>_<attempt> and drops it again
+#   * scripts/test-armis-dire-e2e.sh derives a further isolated database of its own
+# That isolation already has to hold, because concurrent pull requests hit the same fixture.
+#
+# NOTE ON `paths`: if this workflow is made a required status check, confirm how Forgejo
+# treats a path-skipped run before relying on the filter -- a skipped required check can block
+# merges.
+on:
+  push:
+    branches: [staging]
+    paths: &core_integration_paths
+      - 'elixir/serviceradar_core/**'
+      - 'elixir/serviceradar_srql/**'
+      - 'elixir/connection/**'
+      - 'elixir/datasvc/**'
+      - 'elixir/elixir_uuid/**'
+      - 'elixir/vendor/**'
+      - 'proto/**'
+      - 'rust/anomaly-core/**'
+      - 'rust/anomaly-disposition/**'
+      - 'rust/kvutil/**'
+      - 'rust/srql/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.tool-versions'
+      - 'scripts/test-integration.sh'
+      - 'scripts/test-armis-dire-e2e.sh'
+      - 'scripts/drop-test-db.sh'
+      - 'scripts/reset-test-db.sh'
+      - 'scripts/reset-srql-fixture-test-db.sh'
+      - 'scripts/sweep-stale-core-test-dbs.sh'
+      - 'scripts/db/**'
+      - 'scripts/ci/configure-srql-fixture.sh'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - '.forgejo/workflows/integration-core.yml'
+  pull_request:
+    branches: [staging]
+    paths: *core_integration_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core-integration:
+    name: serviceradar_core integration
+    runs-on: ubuntu24
+    env:
+      ImageOS: ubuntu24
+      TEST_CNPG_DATABASE: serviceradar_web_ng_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      # Supplies psql, which scripts/drop-test-db.sh and
+      # scripts/sweep-stale-core-test-dbs.sh shell out to.
+      - name: Install build dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh service-build
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
+        with:
+          otp-version: "28.3"
+          elixir-version: "1.19.4"
+
+      # Required despite this being an Elixir suite: serviceradar_core and serviceradar_srql
+      # carry Rustler NIFs (anomaly_disposition_nif, zen_nif, srql_nif) that cargo builds
+      # during `mix test`.
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Report unavailable SRQL fixture secrets
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
+        run: |
+          {
+            echo "## SRQL Fixture"
+            echo
+            echo "SRQL fixture secrets are unavailable in this workflow context."
+            echo "Skipping serviceradar_core integration tests."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Configure SRQL fixture database for tests
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
+        run: ./scripts/ci/configure-srql-fixture.sh
+
+      - name: serviceradar_core integration tests
+        if: ${{ secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB: "1"
+          # sr-testing NATS JetStream fixture (namespace sr-testing, svc
+          # sr-testing-nats-ext, NodePort 31819). When these are absent the e2e
+          # test skips itself rather than failing the job.
+          NATS_TEST_HOST: ${{ secrets.NATS_TEST_HOST }}
+          NATS_TEST_PORT: ${{ secrets.NATS_TEST_PORT }}
+          NATS_TEST_SERVER_NAME: ${{ secrets.NATS_TEST_SERVER_NAME }}
+          NATS_TEST_CA_CERT: ${{ secrets.NATS_TEST_CA_CERT }}
+          NATS_TEST_CLIENT_CERT: ${{ secrets.NATS_TEST_CLIENT_CERT }}
+          NATS_TEST_CLIENT_KEY: ${{ secrets.NATS_TEST_CLIENT_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ "${SERVICERADAR_RUN_CORE_INTEGRATION:-1}" = "0" ]; then
+            echo "serviceradar_core integration database is unreachable; skipping optional integration tests" >&2
+            exit 0
+          fi
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+
+          export PGSSLROOTCERT="${ca_file}"
+          export CNPG_CA_FILE="${ca_file}"
+          export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+          export SRQL_TEST_DATABASE_CA_CERT_FILE="${ca_file}"
+
+          # NATS mTLS material -> NATS_TEST_CERT_DIR/{ca,client}.crt + client.key.
+          # Leaving NATS_TEST_CERT_DIR unset is a supported state: the e2e test
+          # skips when it (or NATS_TEST_HOST) is empty.
+          if [ -n "${NATS_TEST_HOST:-}" ] && [ -n "${NATS_TEST_CA_CERT:-}" ] &&
+            [ -n "${NATS_TEST_CLIENT_CERT:-}" ] && [ -n "${NATS_TEST_CLIENT_KEY:-}" ]; then
+            nats_cert_dir="${RUNNER_TEMP}/sr-testing-nats-certs"
+            mkdir -p "${nats_cert_dir}"
+            chmod 700 "${nats_cert_dir}"
+            printf "%s" "${NATS_TEST_CA_CERT}" > "${nats_cert_dir}/ca.crt"
+            printf "%s" "${NATS_TEST_CLIENT_CERT}" > "${nats_cert_dir}/client.crt"
+            printf "%s" "${NATS_TEST_CLIENT_KEY}" > "${nats_cert_dir}/client.key"
+            chmod 600 "${nats_cert_dir}"/*
+            export NATS_TEST_CERT_DIR="${nats_cert_dir}"
+            export NATS_TEST_PORT="${NATS_TEST_PORT:-31819}"
+            # Authenticates the fixture: the CA is only meaningful with verify_peer
+            # plus the expected server name.
+            export NATS_TEST_SERVER_NAME="${NATS_TEST_SERVER_NAME:-sr-testing-nats}"
+          elif [ -n "${NATS_TEST_HOST:-}${NATS_TEST_CA_CERT:-}${NATS_TEST_CLIENT_CERT:-}${NATS_TEST_CLIENT_KEY:-}" ]; then
+            # PARTIAL configuration: fail loudly. A silent skip here would let a
+            # renamed or deleted secret quietly disable the integration coverage
+            # this job exists to provide.
+            echo "::error::sr-testing NATS fixture is PARTIALLY configured. Set all of" \
+              "NATS_TEST_HOST, NATS_TEST_CA_CERT, NATS_TEST_CLIENT_CERT," \
+              "NATS_TEST_CLIENT_KEY (and optionally NATS_TEST_PORT," \
+              "NATS_TEST_SERVER_NAME), or none of them." >&2
+            exit 1
+          else
+            echo "sr-testing NATS fixture not configured; the NATS e2e test will skip" >&2
+          fi
+
+          ./scripts/sweep-stale-core-test-dbs.sh "${SRQL_TEST_ADMIN_URL}" 86400
+
+          if [[ ! "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ ]] ||
+            [[ ! "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ]]; then
+            echo "GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be numeric." >&2
+            exit 1
+          fi
+
+          # Rust owns the shared fixture behind an advisory lock. Give the Core
+          # reset/migration suite its own database so concurrent PRs cannot drop
+          # another run's fixture.
+          created_epoch="$(date +%s)"
+          if [[ ! "${created_epoch}" =~ ^[0-9]{10,11}$ ]]; then
+            echo "current epoch must be 10 or 11 digits" >&2
+            exit 1
+          fi
+
+          database_name="sr_core_test_${created_epoch}_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          if [ "${#database_name}" -gt 63 ]; then
+            echo "isolated integration database name exceeds PostgreSQL's 63-byte limit" >&2
+            exit 1
+          fi
+
+          parser="$(command -v python3 || command -v python || true)"
+          if [ -z "${parser}" ]; then
+            echo "python is required to derive the isolated integration database URL." >&2
+            exit 1
+          fi
+
+          SERVICERADAR_TEST_DATABASE_URL="$("${parser}" - "${SRQL_TEST_DATABASE_URL}" "${database_name}" <<'PY'
+          import sys
+          from urllib.parse import quote, urlparse, urlunparse
+
+          parsed = urlparse(sys.argv[1])
+          database_name = sys.argv[2]
+
+          if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
+              raise SystemExit("SRQL_TEST_DATABASE_URL is not a valid PostgreSQL URL")
+
+          print(
+              urlunparse(
+                  (
+                      parsed.scheme,
+                      parsed.netloc,
+                      "/" + quote(database_name, safe=""),
+                      parsed.params,
+                      parsed.query,
+                      parsed.fragment,
+                  )
+              )
+          )
+          PY
+          )"
+          export SERVICERADAR_TEST_DATABASE_URL
+          echo "::add-mask::${SERVICERADAR_TEST_DATABASE_URL}"
+
+          # shellcheck source=scripts/db/test-database-url-guard.sh
+          source ./scripts/db/test-database-url-guard.sh
+          serviceradar_assert_test_database_url "${SERVICERADAR_TEST_DATABASE_URL}"
+          printf 'SERVICERADAR_CI_TEST_DATABASE_URL=%s\n' \
+            "${SERVICERADAR_TEST_DATABASE_URL}" >> "${GITHUB_ENV}"
+
+          cleanup_done=0
+          cleanup_isolated_database() {
+            if [ "${cleanup_done}" -eq 1 ]; then
+              return 0
+            fi
+
+            cleanup_done=1
+            ./scripts/drop-test-db.sh \
+              "${SRQL_TEST_ADMIN_URL}" "${SERVICERADAR_TEST_DATABASE_URL}"
+          }
+          trap cleanup_isolated_database EXIT
+
+          test_status=0
+          ./scripts/test-integration.sh || test_status=$?
+
+          if [ "${test_status}" -eq 0 ] && [ "${SERVICERADAR_RUN_ARMIS_DIRE_E2E:-1}" != "0" ]; then
+            echo "Running hermetic Armis/DIRE fast E2E"
+            SERVICERADAR_TEST_DATABASE_URL="${SRQL_TEST_DATABASE_URL}" \
+              SERVICERADAR_TEST_ADMIN_URL="${SRQL_TEST_ADMIN_URL}" \
+              PGSSLROOTCERT="${ca_file}" \
+              ./scripts/test-armis-dire-e2e.sh --profile fast || test_status=$?
+          fi
+
+          cleanup_status=0
+          cleanup_isolated_database || cleanup_status=$?
+          trap - EXIT
+
+          if [ "${test_status}" -ne 0 ]; then
+            exit "${test_status}"
+          fi
+
+          exit "${cleanup_status}"
+
+      # Backstop for the trap above: if the job is cancelled or the runner dies mid-suite the
+      # EXIT trap never fires, and the isolated database would linger until the 24h sweep.
+      - name: Retry isolated SRQL fixture cleanup
+        if: ${{ always() && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SERVICERADAR_CI_TEST_DATABASE_URL:-}" ]; then
+            exit 0
+          fi
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+          export PGSSLROOTCERT="${ca_file}"
+
+          ./scripts/drop-test-db.sh \
+            "${SRQL_TEST_ADMIN_URL}" "${SERVICERADAR_CI_TEST_DATABASE_URL}"

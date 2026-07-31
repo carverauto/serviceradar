@@ -16,7 +16,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 1.4 Add `huginn-net`, `tokio`, `prost`, `pcap`, `nix` to `rust/netprobe/Cargo.toml` (Phase-1 dependency set only; eBPF / DPI crates land with their phases). Regenerate crate-universe via `bazel mod tidy`.
 - [x] 1.5 Verify `bazel build //rust/netprobe:netprobe` succeeds with the default platform.
 - [x] 1.6 Verify `bazel build --platforms=//build/platforms:linux_x86_64_musl //rust/netprobe:netprobe` produces a static binary (`file` reports "statically linked", `ldd` says "not a dynamic executable").
-- [x] 1.7 Add a CI matrix entry in `.forgejo/workflows/tests-rust.yml` for the musl static build (x86_64 + aarch64).
+- [x] 1.7 Add a CI matrix entry in `../../../.forgejo/workflows/rust-tests.yml` for the musl static build (x86_64 + aarch64).
 - [x] 1.8 Define Bazel platforms `//build/platforms:linux_x86_64_musl` and `:linux_aarch64_musl` if not already present.
 
 ### 2. [Phase 1] `netprobe` Rust crate — skeleton + lifecycle
