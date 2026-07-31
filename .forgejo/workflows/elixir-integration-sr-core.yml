@@ -78,6 +78,21 @@ name: Elixir Integration Tests
 #   * this suite creates sr_core_test_<run_id>_<attempt> and drops it again
 # That isolation already has to hold, because concurrent pull requests hit the same fixture.
 #
+# EVERY STEP CLEARS THE `manual` TAG FILTER, AND MUST
+# `--config=ci` carries `--test_tag_filters=-manual` (and `--build_tag_filters=-manual`), and
+# those filters apply to targets named EXPLICITLY on the command line -- not only to what a
+# `//...` pattern expands to. Every target in this job is tagged `manual` on purpose, so
+# without the override each step resolves to nothing and Bazel exits 4:
+#
+#   WARNING: All specified test targets were excluded by filters
+#   ERROR: No test targets were found, yet testing was requested
+#
+# which reads like a missing target rather than a filtered one. `bazel run` is filtered the
+# same way, exiting 2 with "No targets found to run". So the test steps pass
+# `--test_tag_filters=` and the run step passes `--build_tag_filters=`, both empty, which
+# disables filtering for that invocation only. Naming the target is the authorization here;
+# `manual` exists to keep it out of wildcards, which it still does.
+#
 # NOTE ON `paths`: if this workflow is made a required status check, confirm how Forgejo
 # treats a path-skipped run before relying on the filter -- a skipped required check can
 # block merges.
@@ -113,7 +128,7 @@ on:
       - '.forgejo/workflows/elixir-integration-sr-core.yml'
   pull_request:
     branches: [staging]
-    paths: Elixir Integration Tests
+    paths: *core_integration_paths
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -180,7 +195,7 @@ jobs:
       # 1. Collect databases leaked by cancelled runs, before this one adds to the fixture.
       - name: Sweep stale integration databases
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' }}
-        run: bazel test --config=ci --test_output=errors //rust/integration-db:sweep_stale_dbs
+        run: bazel test --config=ci --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
 
       # 2. Create sr_core_template if absent, and report whether it is behind the migrations
       # on disk. `bazel run`, not `bazel test`: it writes needs_migration to $GITHUB_OUTPUT,
@@ -189,26 +204,26 @@ jobs:
       - name: Prepare template database
         id: template
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel run --config=ci //rust/integration-db:prepare_template
+        run: bazel run --config=ci --build_tag_filters= //rust/integration-db:prepare_template
 
       # 3. Apply the Ecto migrations to the template. The one step that needs the BEAM, and
       # the reason step 2 exists: on a branch that adds no migrations this is skipped and
       # nothing in the job starts an Erlang VM until the suite itself.
       - name: Migrate template database
         if: ${{ steps.template.outputs.needs_migration == 'true' }}
-        run: bazel test --config=ci --test_output=errors //elixir/serviceradar_core:migrate_template
+        run: bazel test --config=ci --test_tag_filters= --test_output=errors //elixir/serviceradar_core:migrate_template
 
       # 4. Clone sr_core_test_<run_id>_<attempt> from the template. Re-checks the pending set
       # itself, so a wrong skip in step 3 fails here rather than silently running the suite
       # against a stale schema.
       - name: Provision integration database
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --test_output=errors //rust/integration-db:provision_db
+        run: bazel test --config=ci --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
 
       # 5. The suite.
       - name: serviceradar_core integration tests
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --test_output=errors //elixir/serviceradar_core:integration_tests
+        run: bazel test --config=ci --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
 
       # 6. Drop the per-run database. always() rather than success(): a red suite must not
       # leak its database. A cancelled job never reaches this at all, which is what the sweep
@@ -216,4 +231,4 @@ jobs:
       # sweep can drop it.
       - name: Drop integration database
         if: ${{ always() && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --test_output=errors //rust/integration-db:teardown_db
+        run: bazel test --config=ci --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db

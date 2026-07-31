@@ -156,6 +156,26 @@ def ex_unit_tests(
             allow_empty = True,
         )
 
+    # Bazel rejects a repeated label in an attribute, and everything above ADDS to whatever the
+    # caller passed as `data` without knowing what is already in it. //elixir/web-ng globs
+    # config/** for itself, so once load_config started staging config/** too, every generated
+    # target failed to load with
+    #
+    #   Label '//elixir/web-ng:config/test.exs' is duplicated in the 'data' attribute
+    #
+    # and the package error took `bazel query //elixir/...` down with it -- which is how it
+    # surfaced: as a query failure in CI, nowhere near the macro that caused it.
+    #
+    # Deduping here rather than asking callers not to glob their own config keeps load_config
+    # self-contained: a caller may list a file the macro also adds, and either order works.
+    # Done once, not per group, and via a dict because `data` can hold thousands of entries.
+    seen = {}
+    target_data = []
+    for item in [test_helper] + extra_data:
+        if item not in seen:
+            seen[item] = True
+            target_data.append(item)
+
     groups = {}
     for src in srcs:
         groups.setdefault(_group_key(src, strip_prefix, group_depth), []).append(src)
@@ -180,7 +200,7 @@ def ex_unit_tests(
             # accounts_test.exs. elixir_opts are emitted ahead of srcs, so the -r goes
             # there and the helper travels as data.
             srcs = sorted(groups[group]),
-            data = [test_helper] + extra_data,
+            data = target_data,
             elixir_opts = pre_load_opts + config_loader_opts + ["-r", test_helper],
             tags = tags,
             deps = deps,
