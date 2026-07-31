@@ -2106,6 +2106,22 @@ func TestGoldenCompiledAssignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal grant: %v", err)
 	}
+
+	// The composition proof for the standalone GRANT, built from THIS grant -- the one that
+	// matches the committed record and carrier. Building it from the source-absent vector
+	// instead would let a runtime that regressed to direct decoding still reject, as a
+	// BINDING failure against the wrong pair, and the decoder claim would go unproven.
+	grantWithGroup := append(append([]byte{}, rawGrant...), 0x33, 0x34)
+	goldenBytes(t, "compiled_assignment_grant_unknown_group.bin", grantWithGroup)
+
+	var groupGrant edgev1.EdgeSignedCapabilityV1
+	if err := proto.Unmarshal(grantWithGroup, &groupGrant); err != nil {
+		t.Fatalf("Go must PARSE and retain a well-formed unknown group, not reject it: %v", err)
+	}
+	if err := edgerecord.ValidateCapability(&groupGrant,
+		edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION); !errors.Is(err, edgerecord.ErrUnknownFields) {
+		t.Fatalf("grant with a retained unknown group = %v, want ErrUnknownFields", err)
+	}
 	if status, err := edgerecord.VerifyAssignmentExecutionGrant(&decodedRecord, carrierBytes, rawGrant, trust, notBefore, 1); err != nil || status != edgerecord.KeyValid {
 		t.Fatalf("golden execution grant: status=%v err=%v", status, err)
 	}
@@ -2414,6 +2430,7 @@ func TestGoldenCompiledAssignmentSourceAbsent(t *testing.T) {
 	if _, err := edgerecord.ValidateCompiledSweepAssignmentBytes(carrierWithGroup); !errors.Is(err, edgerecord.ErrUnknownFields) {
 		t.Fatalf("carrier with a retained unknown group = %v, want ErrUnknownFields", err)
 	}
+
 }
 
 // goldenAssignmentAuthority answers ONLY for the key it expects. It does not echo an
