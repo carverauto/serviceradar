@@ -1,5 +1,0 @@
-exec ${PAGER:-/usr/bin/less} "$0" || exit 1
-Executing tests from //go/pkg/agent:agent_test
------------------------------------------------------------------------------
-{"level":"error","path":"/var/folders/vx/21_0scg14y7dndtds2tmzhj80000gn/T/serviceradar-test3513962060/sweep/sweep.json","error":"open /var/folders/vx/21_0scg14y7dndtds2tmzhj80000gn/T/serviceradar-test3513962060/sweep/sweep.json: no such file or directory","time":"2026-06-10T15:52:54Z","message":"Failed to read configuration file"}
-PASS

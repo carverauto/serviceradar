@@ -1,4 +1,0 @@
-exec ${PAGER:-/usr/bin/less} "$0" || exit 1
-Executing tests from //go/pkg/agent/syncsources/armis:armis_test
------------------------------------------------------------------------------
-PASS

@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-l@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/minitable/libnames_internal.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:bbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/minitable/libnames_internal.a

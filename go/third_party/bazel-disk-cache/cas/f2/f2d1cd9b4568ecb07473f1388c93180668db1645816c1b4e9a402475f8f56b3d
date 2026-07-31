@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-v@bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/abseil-cpp+/absl/base/libraw_logging_internal.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:lbazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/abseil-cpp+/absl/base/libraw_logging_internal.a
