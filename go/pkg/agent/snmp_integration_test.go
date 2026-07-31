@@ -1,6 +1,3 @@
-//go:build integration
-// +build integration
-
 /*
  * Copyright 2025 Carver Automation Corporation.
  *

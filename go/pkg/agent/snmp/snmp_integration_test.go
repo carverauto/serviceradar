@@ -27,13 +27,26 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+// snmpTargetEnv names the host this suite talks to. There is no default: the address below
+// was hardcoded to 192.168.1.1, a private LAN address that belongs to whoever wrote the test
+// and resolves to nothing in CI or on anyone else's machine. Rather than fail for ten seconds
+// against an unreachable router, the suite now skips unless the target is named explicitly.
+const snmpTargetEnv = "SERVICERADAR_TEST_SNMP_TARGET"
+
 func TestSNMPIntegration(t *testing.T) {
+	target := os.Getenv(snmpTargetEnv)
+	if target == "" {
+		t.Skipf("set %s to an SNMP agent (host only, port 161 is assumed) to run this", snmpTargetEnv)
+	}
+
 	t.Log("Starting direct SNMP connection test...")
 
 	params := &gosnmp.GoSNMP{
-		Target:    "192.168.1.1",
+		Target:    target,
 		Port:      161,
 		Community: "public",
 		Version:   gosnmp.Version2c,
@@ -85,7 +98,7 @@ func TestSNMPIntegration(t *testing.T) {
 
 	t.Logf("Creating SNMP service with config: %+v", target)
 
-	service, err := NewSNMPService(config)
+	service, err := NewSNMPService(config, logger.NewTestLogger())
 	require.NoError(t, err, "Failed to create SNMP service")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

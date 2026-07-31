@@ -28,6 +28,7 @@ go_test(
         "hop_test.go",
         "mpls_test.go",
         "options_test.go",
+        "socket_test.go",
         "tracer_test.go",
     ],
     embed = [":mtr"],

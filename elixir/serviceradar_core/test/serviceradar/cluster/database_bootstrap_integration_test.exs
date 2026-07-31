@@ -39,7 +39,40 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   setup_all do
+    assert_usable_admin_password!(@admin_url)
+
     {:ok, admin_url: @admin_url, admin_opts: postgres_opts(@admin_url)}
+  end
+
+  # No admin DSN at all is "unconfigured" and skips above. A DSN without a password is
+  # "partially configured", and the established convention in this suite is to fail loudly
+  # rather than run a test that silently covers nothing (see test/test_helper.exs).
+  #
+  # StartupMigrations reaches PostgreSQL as an administrator through
+  # `admin_connection_attempts/0`, which drops every candidate whose password is empty. Hand
+  # it CNPG_ADMIN_PASSWORD="" and the superuser entry it just built is discarded, leaving only
+  # the application role -- the subprocess then runs the whole bootstrap unprivileged and dies
+  # deep inside ownership repair with
+  #
+  #   ** (Postgrex.Error) ERROR 42501 (insufficient_privilege) must be owner of schema platform
+  #
+  # which names neither the credentials nor this test. A trust-authenticated developer
+  # fixture is the usual way to end up here; CI is unaffected because its admin DSN carries a
+  # password. Any password satisfies the check -- under `trust` PostgreSQL ignores the value,
+  # and it exists only to keep the credential from being discarded.
+  defp assert_usable_admin_password!(url) do
+    if password(URI.parse(url)) in [nil, ""] do
+      flunk("""
+      The admin DSN has no password, so this test cannot run the bootstrap with administrator
+      privileges: StartupMigrations discards passwordless admin credentials and would fall
+      back to the unprivileged application role.
+
+      Put a password in SERVICERADAR_TEST_ADMIN_URL (or SRQL_TEST_ADMIN_URL). A fixture using
+      `trust` authentication ignores the value, so any non-empty password will do:
+
+        postgres://postgres:postgres@host:5432/postgres?sslmode=disable
+      """)
+    end
   end
 
   setup %{admin_opts: admin_opts} do
@@ -75,8 +108,25 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     env = subprocess_env(admin_url, database)
     code = startup_code()
 
+    # `elixir -e`, not `mix run -e`.
+    #
+    # Mix needs a project: under Bazel the test runs in a sandbox that has the compiled
+    # application on its code path but no mix.exs, and `mix run` aborts with
+    #
+    #   ** (Mix) Cannot execute "mix run" without a Mix.Project
+    #
+    # before it evaluates anything. Handing the parent's own code path to a plain `elixir`
+    # gives the child exactly the applications this test already has loaded, which is what
+    # `mix run --no-start` was being used for in the first place, and works the same under
+    # `mix test` and under Bazel.
+    code_paths = Enum.flat_map(:code.get_path(), &["-pa", List.to_string(&1)])
+
+    elixir =
+      System.find_executable("elixir") ||
+        flunk("elixir executable not found on PATH; cannot run the bootstrap subprocess")
+
     {output, status} =
-      System.cmd("mix", ["run", "--no-start", "-e", code],
+      System.cmd(elixir, code_paths ++ ["-e", code],
         env: env,
         stderr_to_stdout: true,
         cd: File.cwd!()
@@ -100,6 +150,25 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     {:ok, _} = Application.ensure_all_started(:postgrex)
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
     Logger.configure(level: :warning)
+
+    # Load the project config the way `mix run` used to.
+    #
+    # `mix run` evaluated config/config.exs and config/runtime.exs before running the given
+    # code; plain `elixir -e` evaluates neither. Without them ServiceRadar.Repo starts with no
+    # connection settings at all -- config/runtime.exs is what turns
+    # SERVICERADAR_TEST_DATABASE_URL (handed to this process in subprocess_env/2) into the
+    # Repo's url/ssl/pool options. The Repo then retries a connection it can never make and
+    # the parent blocks in System.cmd until ExUnit's timeout kills the whole test, with no
+    # error to show for it.
+    #
+    # Loaded persistently for the same reason //build:elixir_test_config_loader.exs does:
+    # Application.load/1 on an app configured earlier resets its env from its .app file.
+    for file <- ["config/config.exs", "config/runtime.exs"], File.exists?(file) do
+      file
+      |> Config.Reader.read!(env: :test, target: :host)
+      |> Application.put_all_env(persistent: true)
+    end
+
     Application.put_env(:serviceradar_core, :run_startup_migrations, true)
     Application.put_env(:serviceradar_core, :repo_enabled, true)
     {:ok, _pid} = ServiceRadar.Repo.start_link()
@@ -130,8 +199,10 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp subprocess_env(admin_url, database) do
     uri = URI.parse(admin_url)
-    query = URI.decode_query(uri.query || "")
-    sslmode = query["sslmode"] || System.get_env("CNPG_SSL_MODE") || "require"
+    # Same resolution as the parent's connection, and as ServiceRadar.Repo's. The subprocess
+    # boots the real Repo, so handing it a mode the parent did not use would have it fail the
+    # handshake against a fixture the parent just connected to.
+    sslmode = sslmode(uri)
     app_user = "serviceradar_bootstrap_test"
     app_password = "serviceradar_bootstrap_test"
 
@@ -203,8 +274,6 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
   defp postgres_opts(url) do
     uri = URI.parse(url)
-    query = URI.decode_query(uri.query || "")
-    sslmode = query["sslmode"] || System.get_env("CNPG_SSL_MODE") || "require"
 
     [
       hostname: uri.host || "localhost",
@@ -212,8 +281,44 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       username: username(uri),
       password: password(uri),
       database: database_name(uri),
-      ssl: ssl_opts(sslmode, uri.host)
+      ssl: ssl_opts(sslmode(uri), uri.host)
     ]
+  end
+
+  # Resolved exactly the way config/test.exs resolves it for ServiceRadar.Repo, which is what
+  # every other database-backed test in this suite connects through.
+  #
+  # This used to read `query["sslmode"] || CNPG_SSL_MODE || "require"`, which differed from the
+  # Repo in two ways: it ignored SERVICERADAR_TEST_DATABASE_SSLMODE and
+  # SRQL_TEST_DATABASE_SSLMODE, and it defaulted to "require" where the Repo defaults to no
+  # TLS at all. Against a plaintext fixture that made this one test demand TLS while every
+  # other test connected happily, and the failure surfaced as
+  #
+  #   ** (DBConnection.ConnectionError) connection not available and request was dropped from
+  #      queue after 4000ms
+  #
+  # which reads like pool exhaustion rather than a handshake that never completes.
+  #
+  # CI is unaffected either way -- scripts/ci/configure-srql-fixture.sh exports CNPG_SSL_MODE
+  # (defaulting to "require") along with PGSSLROOTCERT and the CA/cert/key files, so both
+  # resolutions already agreed there. The divergence only bit a fixture that sets none of them.
+  defp sslmode(%URI{} = uri) do
+    from_url =
+      uri.query
+      |> Kernel.||("")
+      |> URI.decode_query()
+      |> Map.get("sslmode")
+
+    mode =
+      from_url ||
+        System.get_env("SERVICERADAR_TEST_DATABASE_SSLMODE") ||
+        System.get_env("SRQL_TEST_DATABASE_SSLMODE") ||
+        System.get_env("CNPG_SSL_MODE")
+
+    case mode do
+      nil -> "disable"
+      value -> String.downcase(value)
+    end
   end
 
   defp username(%URI{userinfo: nil}), do: System.get_env("CNPG_USERNAME") || "postgres"

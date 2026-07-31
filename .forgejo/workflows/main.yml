@@ -278,15 +278,5 @@ jobs:
 
           exit 0
 
-      # //elixir/web-ng:precommit moved to precommit-web-ng.yml. It is tagged no-remote with
-      # timeout = "eternal", so it always ran on this runner, in series behind the sweep
-      # above, for reasons unrelated to anything else here. It depends on no Bazel library
-      # target -- its `data` is filegroups of raw sources and the script does its own
-      # mix/cargo build -- so nothing in this job has to precede it.
-
-      # serviceradar_core integration tests, and the isolated-database cleanup that belongs
-      # with them, moved to integration-core.yml. They ran here as the final step of this job,
-      # serially behind the entire Bazel sweep, purely because they shared a job:
-      # scripts/test-integration.sh invokes no Bazel target and consumes nothing this job
-      # produces. Splitting them also stops a fixture outage from rendering as the same red X
-      # as a compile failure.
+      # //elixir/web-ng:precommit moved to precommit-web-ng.yml.
+      # serviceradar_core integration tests moved to elixir-integration-sr-core.yml.
