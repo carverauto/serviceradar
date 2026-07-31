@@ -1,0 +1,42 @@
+rust/integration-db/BUILD.bazel
+  s_8f6823274fc459::t_85a01dc7bf60c3 75,110
+  s_8f6823274fc459::t_ef961267873bab 49-62
+elixir/serviceradar_core/BUILD.bazel
+  s_8f6823274fc459::t_c1ff158b74293b 367-368
+  s_8f6823274fc459::t_2ccef9af801f1b 400
+  s_8f6823274fc459::t_4b455e165ebdb6 312-316,318,321-331
+elixir/datasvc/mix.lock
+  s_5026b378047c55::t_a81f6e557cdc44 4
+elixir/serviceradar_agent_gateway/mix.lock
+  s_5026b378047c55::t_0efd1255a33c55 28
+elixir/serviceradar_core/mix.lock
+  s_5026b378047c55::t_4fdd4d79f3a1fc 27
+elixir/serviceradar_core_elx/mix.lock
+  s_5026b378047c55::t_3087324d19aa68 35
+elixir/web-ng/mix.lock
+  s_5026b378047c55::t_9087cef3fe1d03 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "171ee6efd3e3192113d2928be3e1f46c7c9a20da",
+  "prompts": {},
+  "sessions": {
+    "s_5026b378047c55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "862419ef-6655-41a0-93cb-94f30f8d9c2e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
