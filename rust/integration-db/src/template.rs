@@ -210,7 +210,10 @@ async fn schema_migrations_schema(client: &Client) -> Result<Option<String>> {
         .await
         .context("failed to locate schema_migrations")?;
 
-    let schemas: Vec<String> = rows.into_iter().map(|row| row.get::<_, String>(0)).collect();
+    let schemas: Vec<String> = rows
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect();
 
     match schemas.len() {
         0 => Ok(None),
@@ -232,7 +235,9 @@ fn versions_on_disk(migrations_dir: &Path) -> Result<BTreeSet<i64>> {
     let mut versions = BTreeSet::new();
 
     for entry in entries {
-        let path = entry.context("failed to read a migrations directory entry")?.path();
+        let path = entry
+            .context("failed to read a migrations directory entry")?
+            .path();
 
         if path.extension().and_then(|ext| ext.to_str()) != Some("exs") {
             continue;
@@ -245,9 +250,9 @@ fn versions_on_disk(migrations_dir: &Path) -> Result<BTreeSet<i64>> {
         // Ecto's own convention: everything before the first underscore is the version.
         let digits = stem.split('_').next().unwrap_or_default();
 
-        let version: i64 = digits.parse().with_context(|| {
-            format!("migration {stem} does not start with a numeric version")
-        })?;
+        let version: i64 = digits
+            .parse()
+            .with_context(|| format!("migration {stem} does not start with a numeric version"))?;
 
         if !versions.insert(version) {
             bail!("two migrations share version {version}");

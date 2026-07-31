@@ -113,7 +113,10 @@ pub fn database_name() -> Result<String> {
 /// so parallel shards against a single database deadlock. Must produce exactly the same
 /// string as `test/db/integration_env.exs` derives from `SERVICERADAR_TEST_DB_SHARD`.
 pub fn shard_database_name(shard: &str) -> Result<String> {
-    if shard.is_empty() || !shard.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    if shard.is_empty()
+        || !shard
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
     {
         bail!("shard name must be [a-z0-9_]+, got {shard:?}");
     }
@@ -166,6 +169,48 @@ pub fn assert_disposable(database: &str) -> Result<()> {
         bail!("refusing to operate on {database:?}: expected a {DISPOSABLE_PREFIX}* database");
     }
     Ok(())
+}
+
+/// The role that owns the template database and every clone taken from it.
+///
+/// Derived from `SRQL_TEST_DATABASE_URL`, because it MUST be the role the suite connects as:
+/// the tests run as the application user, and a database owned by anyone else fails on the
+/// first DDL they attempt.
+///
+/// `scripts/reset-test-db.sh` took the owner from that DSN's user and refused to run without
+/// one. Porting it to Rust replaced that with a hardcoded `"serviceradar"` -- a name the
+/// shared fixture has never had. Its roles are `srql` (the application role, from
+/// `srql-test-db-credentials`) and `srql_hydra` (admin); there is no `serviceradar`, and every
+/// database on it is owned by `srql`, which is exactly what the shell script produced.
+///
+/// So `CREATE DATABASE ... OWNER serviceradar` failed with `role "serviceradar" does not
+/// exist`, naming a role nothing in the configuration ever asked for -- which reads like a
+/// missing grant on the fixture rather than an assumption in this crate.
+///
+/// `SERVICERADAR_TEST_DATABASE_OWNER` still overrides, for a fixture that deliberately
+/// separates the owning role from the connecting one.
+pub fn database_owner() -> Result<String> {
+    match env::var("SERVICERADAR_TEST_DATABASE_OWNER") {
+        Ok(owner) if !owner.is_empty() => return Ok(owner),
+        _ => {}
+    }
+
+    let url = env::var("SRQL_TEST_DATABASE_URL")
+        .context("SRQL_TEST_DATABASE_URL is required to derive the test database owner")?;
+
+    owner_from_url(&url)
+}
+
+fn owner_from_url(url: &str) -> Result<String> {
+    let config: PgConfig = url
+        .parse()
+        .context("SRQL_TEST_DATABASE_URL is not a valid PostgreSQL connection string")?;
+
+    config.get_user().map(str::to_string).context(
+        "SRQL_TEST_DATABASE_URL must include a user: it names the role that owns the \
+         per-run test databases. Set SERVICERADAR_TEST_DATABASE_OWNER to choose a \
+         different owner explicitly.",
+    )
 }
 
 /// The admin URL, which must have rights to CREATE/DROP DATABASE and install extensions.
@@ -536,5 +581,27 @@ mod tests {
     #[test]
     fn repoint_database_rejects_a_foreign_scheme() {
         assert!(repoint_database("mysql://host/old", "new").is_err());
+    }
+
+    #[test]
+    fn owner_comes_from_the_dsn_user_not_a_hardcoded_name() {
+        // The regression this guards: a fixture whose application role is not called
+        // "serviceradar" got `CREATE DATABASE ... OWNER serviceradar` and failed with
+        // `role "serviceradar" does not exist`.
+        assert_eq!(
+            owner_from_url("postgres://srql_test:pw@host:5432/db?sslmode=require").unwrap(),
+            "srql_test"
+        );
+        assert_eq!(
+            owner_from_url("postgres://serviceradar@127.0.0.1:55433/postgres").unwrap(),
+            "serviceradar"
+        );
+    }
+
+    #[test]
+    fn owner_from_url_requires_a_user() {
+        // Silently defaulting is what produced a role name nothing had configured.
+        assert!(owner_from_url("postgres://host:5432/db").is_err());
+        assert!(owner_from_url("not a url").is_err());
     }
 }

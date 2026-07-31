@@ -34,10 +34,6 @@ use anyhow::Result;
 use serviceradar_integration_db as db;
 use tokio::runtime::Runtime;
 
-/// Owner of the created database. The suite connects as this role, so it must own the
-/// database outright -- Ash creates and drops tables during migrations.
-const DEFAULT_OWNER: &str = "serviceradar";
-
 /// Shard names, comma-separated, from the Bazel target's `env`.
 ///
 /// Deliberately NOT Bazel `args`: libtest treats a bare argv entry as a test-name FILTER, so
@@ -81,8 +77,9 @@ fn provisions_the_integration_database() {
 
 async fn run() -> anyhow::Result<()> {
     let database = db::database_name()?;
-    let owner = std::env::var("SERVICERADAR_TEST_DATABASE_OWNER")
-        .unwrap_or_else(|_| DEFAULT_OWNER.to_string());
+    // The suite connects as this role, so it must own the database outright -- Ash creates
+    // and drops tables during migrations. Derived from the DSN; see `db::database_owner`.
+    let owner = db::database_owner()?;
 
     // Fail loudly rather than cloning a template that is behind the migrations on disk: the
     // suite would then run against a schema that does not match the code under test, and the

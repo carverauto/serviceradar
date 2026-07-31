@@ -33,23 +33,18 @@ use anyhow::{Context, Result};
 use serviceradar_integration_db as db;
 use tokio::runtime::Runtime;
 
-/// Owner of the template. The suite connects as this role against every clone of it.
-const DEFAULT_OWNER: &str = "serviceradar";
-
 fn main() -> Result<()> {
     let runtime = Runtime::new().context("failed to build a tokio runtime")?;
     runtime.block_on(run())
 }
 
 async fn run() -> Result<()> {
-    let owner = std::env::var("SERVICERADAR_TEST_DATABASE_OWNER")
-        .unwrap_or_else(|_| DEFAULT_OWNER.to_string());
+    // Owner of the template; the suite connects as this role against every clone of it. See
+    // `db::database_owner` for why it is derived from the DSN rather than named here.
+    let owner = db::database_owner()?;
 
     let state = db::template::ensure_template(&owner).await?;
-    println!(
-        "template {}: {state:?}",
-        db::template::TEMPLATE_DATABASE
-    );
+    println!("template {}: {state:?}", db::template::TEMPLATE_DATABASE);
 
     let dir = db::template::migrations_dir();
     let pending = db::template::pending_versions(&dir).await?;

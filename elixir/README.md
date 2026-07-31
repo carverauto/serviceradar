@@ -664,7 +664,8 @@ On Apple Silicon the image is `linux/amd64` and runs under emulation; Docker pri
 warning, which is expected.
 
 Then create the owner role. A fresh `initdb` has only `postgres`, and
-`//rust/integration-db:provision_db` creates every database `OWNER serviceradar`:
+`//rust/integration-db:{prepare_template,provision_db}` create every database owned by the
+**user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below:
 
 ```sh
 docker exec sr-pg psql -U postgres -c "CREATE ROLE serviceradar LOGIN SUPERUSER;"
@@ -672,7 +673,13 @@ docker exec sr-pg psql -U postgres -c "CREATE ROLE serviceradar LOGIN SUPERUSER;
 
 Without it the very first step fails with `ERROR: role "serviceradar" does not exist`.
 `SUPERUSER` because the migrations create extensions and AGE graphs; a plain owner is not
-enough. Override the name with `SERVICERADAR_TEST_DATABASE_OWNER` if you need a different one.
+enough.
+
+The owner is taken from that DSN rather than fixed, because it has to be the role the suite
+*connects* as -- a database owned by anyone else fails on the first DDL the tests attempt. A
+fixture whose application role is named something else therefore needs no configuration here.
+Set `SERVICERADAR_TEST_DATABASE_OWNER` only to separate the owning role from the connecting
+one deliberately.
 
 You do **not** need to create `serviceradar_bootstrap_test` -- `StartupMigrations` creates the
 application role itself, which is part of what the bootstrap test exercises.
