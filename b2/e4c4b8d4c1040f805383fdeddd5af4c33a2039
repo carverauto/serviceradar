@@ -1,0 +1,54 @@
+rust/integration-db/src/template.rs
+  s_d2089df286db69::t_72ce214febbc51 213-216,238-240,253-255
+scripts/elixir_quality.sh
+  s_5026b378047c55::t_1a2ad9b71e9c09 215-221
+rust/integration-db/src/bin/prepare_template.rs
+  s_d2089df286db69::t_72ce214febbc51 47
+  s_d2089df286db69::t_590c43c449517f 42-44
+elixir/serviceradar_core/.deps_audit_ignore
+  s_5026b378047c55::t_f0fa4066725125 22-31
+elixir/README.md
+  s_d2089df286db69::t_6ee39328e757bf 667-668,676-682
+elixir/datasvc/.deps_audit_ignore
+  s_5026b378047c55::t_f0fa4066725125 9-18
+rust/integration-db/tests/provision_db_test.rs
+  s_d2089df286db69::t_08029b1ce82c48 80-82
+elixir/web-ng/.deps_audit_ignore
+  s_5026b378047c55::t_f0fa4066725125 33-42
+elixir/serviceradar_agent_gateway/.deps_audit_ignore
+  s_5026b378047c55::t_f0fa4066725125 22-31
+elixir/serviceradar_core_elx/.deps_audit_ignore
+  s_5026b378047c55::t_f0fa4066725125 9-18
+rust/integration-db/src/lib.rs
+  s_d2089df286db69::t_19dd3f2b4631f8 585-606
+  s_d2089df286db69::t_72ce214febbc51 116-119
+  s_d2089df286db69::t_e3f6766148d627 174-180,189-200,205-208,214-215
+  s_d2089df286db69::t_a9cecc1b381f80 181-188
+  s_d2089df286db69::t_e4cc2df3b09f7c 201-204,209-213
+elixir/web-ng/mix.lock
+  s_5026b378047c55::t_1e9bcd62e2d8a8 84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b2e4c4b8d4c1040f805383fdeddd5af4c33a2039",
+  "prompts": {},
+  "sessions": {
+    "s_5026b378047c55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "862419ef-6655-41a0-93cb-94f30f8d9c2e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
