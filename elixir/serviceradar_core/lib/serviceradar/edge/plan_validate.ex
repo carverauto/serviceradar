@@ -95,6 +95,10 @@ defmodule ServiceRadar.Edge.PlanValidate do
   defp header_identity(h) do
     policy = Map.get(h, :availability_policy_id)
 
+    # PROTOBUF DOMAINS, checked BEFORE anything is hashed. `total_target_count:
+    # :bad` (or nil) reached plan_header_digest/1 and raised FunctionClauseError,
+    # which is neither total nor typed -- the digest helper is not a validator and
+    # must never be handed an unvalidated term.
     if uuidv7?(Map.get(h, :execution_plan_id)) and
          Map.get(h, :digest_version) == @plan_digest_version and
          digest?(Map.get(h, :plan_root_sha256)) and
@@ -102,10 +106,6 @@ defmodule ServiceRadar.Edge.PlanValidate do
          canonical_uuid?(Map.get(h, :network_scope_id)) and
          bounded_bytes?(policy, 1, @max_policy_id_bytes) and
          uint32?(Map.get(h, :page_count)) and Map.get(h, :page_count) > 0 and
-         # PROTOBUF DOMAINS, checked BEFORE anything is hashed. `total_target_count:
-         # :bad` (or nil) reached plan_header_digest/1 and raised FunctionClauseError,
-         # which is neither total nor typed -- the digest helper is not a validator and
-         # must never be handed an unvalidated term.
          uint64?(Map.get(h, :total_target_count)) and
          uint32?(Map.get(h, :digest_version)) and
          digest?(Map.get(h, :mtr_ordinal_range_commitment)) do
@@ -376,7 +376,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
   end
 
   defp canonical_cidr?(tuple, bits, text) do
-    (List.to_string(:inet.ntoa(tuple)) <> "/" <> Integer.to_string(bits)) == text
+    List.to_string(:inet.ntoa(tuple)) <> "/" <> Integer.to_string(bits) == text
   rescue
     _ -> false
   end

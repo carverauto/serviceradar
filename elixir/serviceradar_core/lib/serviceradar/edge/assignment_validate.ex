@@ -266,6 +266,9 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
     # derived from it, so a v4 would silently have no time.
     # record_sequence starts at 1: 0 is the proto default, so accepting it would
     # let an unset field pose as the first record of an append-only series.
+    # PROTOBUF DOMAINS, not merely signs: 2^32 in a uint32 field and 2^64 in a
+    # uint64 one are values the wire cannot represent, so accepting them describes
+    # a message that cannot exist.
     if uuid?(Map.get(r, :producer_assignment_id)) and uuid?(Map.get(r, :execution_id)) and
          PlanValidate.uuidv7?(Map.get(r, :execution_plan_id)) and
          uuid?(Map.get(r, :network_scope_id)) and
@@ -274,9 +277,6 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
          digest?(Map.get(r, :execution_plan_sha256)) and
          uint64?(Map.get(r, :record_sequence)) and Map.get(r, :record_sequence) > 0 and
          pos_int64?(Map.get(r, :authored_at_unix_nano)) and
-         # PROTOBUF DOMAINS, not merely signs: 2^32 in a uint32 field and 2^64 in a
-         # uint64 one are values the wire cannot represent, so accepting them describes
-         # a message that cannot exist.
          uint32?(Map.get(r, :execution_shard)) and
          uint64?(Map.get(r, :assignment_epoch)) do
       :ok
