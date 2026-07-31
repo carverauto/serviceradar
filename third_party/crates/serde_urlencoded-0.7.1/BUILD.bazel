@@ -97,6 +97,6 @@ rust_library(
         "//third_party/crates/form_urlencoded-1.2.2:form_urlencoded",
         "//third_party/crates/itoa-1.0.18:itoa",
         "//third_party/crates/ryu-1.0.23:ryu",
-        "//third_party/crates/serde-1.0.228:serde",
+        "//third_party/crates/serde-1.0.229:serde",
     ],
 )

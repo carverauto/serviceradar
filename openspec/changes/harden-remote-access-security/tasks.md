@@ -1215,8 +1215,8 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
 - [x] 6.G.2 [M] No `cargo audit` (RUSTSEC) wired for `rust/rdp-connector-probe`
       Where: CI workflows (working tree); crate at `rust/rdp-connector-probe/Cargo.toml`
       Why: The connector-probe pulls exact-pinned ironrdp-connector/blocking 0.10.0 and ironrdp-session 0.11.0 (RDP state machine, CredSSP, blocking I/O) — review-only today but the lock is already on disk and updates otherwise run silently.
-      Fix: Add `cargo-audit --deny warnings` to `tests-rust.yml` against the connector-probe workspace member; surface advisory IDs as PR comments
-      Resolution: `tests-rust.yml` includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe`. The workflow lists only RUSTSEC-2023-0071 and RUSTSEC-2023-0089 as current review-only transitive exceptions; any new RustSec warning or vulnerability fails CI. It also runs the isolated probe and both adapter connector Bazel tests with an immutable module lock. The 2026-07-13 refresh removed yanked `spin 0.9.8` and obsolete RUSTSEC-2024-0436 while retaining non-yanked `spin 0.9.9` only in IronRDP connector 0.10.0's forced smart-card build subtree.
+      Fix: Add `cargo-audit --deny warnings` to `rust-tests.yml` against the connector-probe workspace member; surface advisory IDs as PR comments
+      Resolution: `rust-tests.yml` includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe`. The workflow lists only RUSTSEC-2023-0071 and RUSTSEC-2023-0089 as current review-only transitive exceptions; any new RustSec warning or vulnerability fails CI. It also runs the isolated probe and both adapter connector Bazel tests with an immutable module lock. The 2026-07-13 refresh removed yanked `spin 0.9.8` and obsolete RUSTSEC-2024-0436 while retaining non-yanked `spin 0.9.9` only in IronRDP connector 0.10.0's forced smart-card build subtree.
 
 - [x] 6.G.3 [L] `github.com/cilium/ebpf v0.21.0` maintenance window not documented
       Where: `go.mod` (working tree)

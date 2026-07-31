@@ -98,7 +98,7 @@ rust_library(
     }),
     version = "25.12.19",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
         "//third_party/crates/flatbuffers-25.12.19:build_script_build",
     ],
 )

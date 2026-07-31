@@ -94,6 +94,6 @@ rust_library(
     }),
     version = "0.2.0",
     deps = [
-        "//third_party/crates/regex-automata-0.4.14:regex_automata",
+        "//third_party/crates/regex-automata-0.4.16:regex_automata",
     ],
 )

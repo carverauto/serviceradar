@@ -103,8 +103,8 @@ rust_library(
     }),
     version = "0.18.0",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
-        "//third_party/crates/chrono-0.4.44:chrono",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
+        "//third_party/crates/chrono-0.4.45:chrono",
         "//third_party/crates/flate2-1.1.9:flate2",
         "//third_party/crates/procfs-0.18.0:build_script_build",
         "//third_party/crates/procfs-core-0.18.0:procfs_core",

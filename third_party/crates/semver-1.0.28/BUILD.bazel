@@ -23,7 +23,7 @@ rust_library(
         allow_empty = False,
     ),
     aliases = {
-        "//third_party/crates/serde_core-1.0.228:serde_core": "serde",
+        "//third_party/crates/serde_core-1.0.229:serde_core": "serde",
     },
     compile_data = glob(
         include = ["**"],
@@ -102,6 +102,6 @@ rust_library(
     }),
     version = "1.0.28",
     deps = [
-        "//third_party/crates/serde_core-1.0.228:serde_core",
+        "//third_party/crates/serde_core-1.0.229:serde_core",
     ],
 )

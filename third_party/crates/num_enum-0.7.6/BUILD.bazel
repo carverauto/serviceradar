@@ -43,7 +43,7 @@ rust_library(
     edition = "2021",
     proc_macro_deps = [
         "//third_party/crates/num_enum_derive-0.7.6:num_enum_derive",
-        "//third_party/crates/rustversion-1.0.22:rustversion",
+        "//third_party/crates/rustversion-1.0.23:rustversion",
     ],
     rustc_env_files = [
         ":cargo_toml_env_vars",

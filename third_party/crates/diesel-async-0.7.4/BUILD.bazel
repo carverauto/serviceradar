@@ -102,11 +102,11 @@ rust_library(
     version = "0.7.4",
     deps = [
         "//third_party/crates/bb8-0.9.1:bb8",
-        "//third_party/crates/diesel-2.3.9:diesel",
-        "//third_party/crates/futures-core-0.3.32:futures_core",
-        "//third_party/crates/futures-util-0.3.32:futures_util",
+        "//third_party/crates/diesel-2.3.11:diesel",
+        "//third_party/crates/futures-core-0.3.33:futures_core",
+        "//third_party/crates/futures-util-0.3.33:futures_util",
         "//third_party/crates/scoped-futures-0.1.4:scoped_futures",
-        "//third_party/crates/tokio-1.52.3:tokio",
-        "//third_party/crates/tokio-postgres-0.7.17:tokio_postgres",
+        "//third_party/crates/tokio-1.53.1:tokio",
+        "//third_party/crates/tokio-postgres-0.7.18:tokio_postgres",
     ],
 )

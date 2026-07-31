@@ -382,10 +382,10 @@ fn run_capture(
                 &request.interface_name,
                 captured_at_unix_nanos,
                 captured_at_monotonic_nanos,
-            ) {
-                if tx.blocking_send(Ok(observation)).is_err() {
-                    return Ok(false);
-                }
+            )
+                && tx.blocking_send(Ok(observation)).is_err()
+            {
+                return Ok(false);
             }
 
             if header_ref.tp_next_offset == 0 {

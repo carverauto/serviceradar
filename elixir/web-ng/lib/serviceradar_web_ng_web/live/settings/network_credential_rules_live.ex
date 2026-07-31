@@ -332,7 +332,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       <td>{format_purposes(rule)}</td>
                       <td>{format_scope(rule)}</td>
                       <td>
-                        <span class={["inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", runtime_badge_class(rule, @integration_profiles, @integration_schedules)]}>
+                        <span class={[
+                          "inline-flex rounded-full px-2 py-0.5 text-xs font-semibold",
+                          runtime_badge_class(rule, @integration_profiles, @integration_schedules)
+                        ]}>
                           {runtime_label(rule, @integration_profiles, @integration_schedules)}
                         </span>
                       </td>
@@ -468,7 +471,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       <div class="sr-ui-modal-box sr-ui-modal-box-lg rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">{@secret_title}</h2>
-          <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Close</.ui_button>
+          <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
+            Close
+          </.ui_button>
         </div>
 
         <.form for={@form} phx-submit="save_secret" class="space-y-4">
@@ -511,7 +516,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           </div>
 
           <div class="sr-ui-modal-action">
-            <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">Cancel</.ui_button>
+            <.ui_button type="button" phx-click="close_secret_form" size="sm" variant="ghost">
+              Cancel
+            </.ui_button>
             <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
           </div>
         </.form>
@@ -586,7 +593,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       <div class="sr-ui-modal-box sr-ui-modal-box-xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">Target Preview</h2>
-          <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">Close</.ui_button>
+          <.ui_button type="button" phx-click="close_preview" size="sm" variant="ghost">
+            Close
+          </.ui_button>
         </div>
 
         <div class="space-y-4">
@@ -855,7 +864,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               <button
                 id="credential-rule-new-secret"
                 type="button"
-                size="xs" variant="ghost"
+                size="xs"
+                variant="ghost"
                 phx-click="new_rule_secret"
               >
                 New secret for this rule

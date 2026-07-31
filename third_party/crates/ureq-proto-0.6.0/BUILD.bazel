@@ -98,8 +98,8 @@ rust_library(
     version = "0.6.0",
     deps = [
         "//third_party/crates/base64-0.22.1:base64",
-        "//third_party/crates/http-1.4.0:http",
+        "//third_party/crates/http-1.4.2:http",
         "//third_party/crates/httparse-1.10.1:httparse",
-        "//third_party/crates/log-0.4.30:log",
+        "//third_party/crates/log-0.4.33:log",
     ],
 )

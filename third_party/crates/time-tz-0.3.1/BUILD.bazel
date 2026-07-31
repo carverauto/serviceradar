@@ -169,7 +169,7 @@ cargo_build_script(
     deps = [
         "//third_party/crates/parse-zoneinfo-0.3.1:parse_zoneinfo",
         "//third_party/crates/phf_codegen-0.10.0:phf_codegen",
-        "//third_party/crates/serde-1.0.228:serde",
+        "//third_party/crates/serde-1.0.229:serde",
         "//third_party/crates/serde-xml-rs-0.5.1:serde_xml_rs",
     ],
 )

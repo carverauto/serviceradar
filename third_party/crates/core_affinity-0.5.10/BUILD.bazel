@@ -97,55 +97,55 @@ rust_library(
         "//third_party/crates/num_cpus-1.17.0:num_cpus",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(target_os = "windows")
             "//third_party/crates/winapi-0.2.8:winapi",  # cfg(target_os = "windows")
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:i686-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(target_os = "windows")
             "//third_party/crates/winapi-0.2.8:winapi",  # cfg(target_os = "windows")
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
             "//third_party/crates/kernel32-sys-0.2.2:kernel32",  # cfg(target_os = "windows")
             "//third_party/crates/winapi-0.2.8:winapi",  # cfg(target_os = "windows")
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
+            "//third_party/crates/libc-0.2.189:libc",  # cfg(any(target_os = "linux", target_os = "macos"))
         ],
         "//conditions:default": [],
     }),

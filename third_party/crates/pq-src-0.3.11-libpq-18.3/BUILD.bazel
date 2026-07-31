@@ -164,7 +164,7 @@ cargo_build_script(
     version = "0.3.11+libpq-18.3",
     visibility = ["//visibility:private"],
     deps = [
-        "//third_party/crates/cc-1.2.62:cc",
+        "//third_party/crates/cc-1.4.0:cc",
     ],
 )
 

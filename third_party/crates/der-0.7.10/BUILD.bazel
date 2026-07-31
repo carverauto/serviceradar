@@ -109,6 +109,6 @@ rust_library(
         "//third_party/crates/const-oid-0.9.6:const_oid",
         "//third_party/crates/flagset-0.4.7:flagset",
         "//third_party/crates/pem-rfc7468-0.7.0:pem_rfc7468",
-        "//third_party/crates/zeroize-1.8.2:zeroize",
+        "//third_party/crates/zeroize-1.9.0:zeroize",
     ],
 )

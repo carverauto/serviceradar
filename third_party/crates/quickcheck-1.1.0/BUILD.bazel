@@ -101,8 +101,8 @@ rust_library(
     }),
     version = "1.1.0",
     deps = [
-        "//third_party/crates/env_logger-0.11.10:env_logger",
-        "//third_party/crates/log-0.4.30:log",
-        "//third_party/crates/rand-0.10.1:rand",
+        "//third_party/crates/env_logger-0.11.11:env_logger",
+        "//third_party/crates/log-0.4.33:log",
+        "//third_party/crates/rand-0.10.2:rand",
     ],
 )

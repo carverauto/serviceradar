@@ -138,6 +138,15 @@ webNg:
   host: acme.serviceradar.cloud
   publicUrl: https://acme.serviceradar.cloud
   gatewayAddress: acme.grpc.serviceradar.cloud:50052
+  # Hosted UI: 512Mi/1Gi and 1Gi/2Gi both OOM under load/cold start. Limit
+  # matches demo (4Gi); request stays 1Gi so 3× replicas fit on ~8Gi nodes.
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
   extraEnv: &plan_env
     SERVICERADAR_HOSTED_RUNTIME_CONTRACT_VERSION: "1"
     SERVICERADAR_PLAN_NAME: standard_250
@@ -150,6 +159,15 @@ webNg:
 
 core:
   replicas: 3
+  # 4Gi was the old template default and OOMKills under load on demo-scale
+  # traffic; 8Gi is the new chart default. Demo still runs 16Gi.
+  resources:
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
   extraEnv: *plan_env
 
 agentGateway:
@@ -160,6 +178,13 @@ agentGateway:
   clusterCoreService: serviceradar-core-elx-headless
   clusterCoreNodeBasename: serviceradar_core
   kubernetesNodeBasename: serviceradar_agent_gateway
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
 
 datasvc:
   replicaCount: 3

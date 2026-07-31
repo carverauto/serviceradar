@@ -104,9 +104,9 @@ rust_library(
     }),
     version = "0.29.0",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
         "//third_party/crates/cfg-if-1.0.4:cfg_if",
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
         "//third_party/crates/memoffset-0.9.1:memoffset",
         "//third_party/crates/nix-0.29.0:build_script_build",
     ],
@@ -169,7 +169,7 @@ cargo_build_script(
     version = "0.29.0",
     visibility = ["//visibility:private"],
     deps = [
-        "//third_party/crates/cfg_aliases-0.2.1:cfg_aliases",
+        "//third_party/crates/cfg_aliases-0.2.2:cfg_aliases",
     ],
 )
 

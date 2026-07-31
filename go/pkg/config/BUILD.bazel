@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "config",
@@ -19,4 +19,14 @@ go_library(
         "//go/pkg/models",
         "@com_github_rs_zerolog//:zerolog",
     ],
+)
+
+go_test(
+    name = "config_test",
+    srcs = [
+        "sanitize_test.go",
+        "toml_mask_test.go",
+    ],
+    embed = [":config"],
+    deps = ["@com_github_stretchr_testify//require"],
 )

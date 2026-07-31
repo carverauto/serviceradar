@@ -1,0 +1,147 @@
+name: Rust Static musl
+
+# netprobe ships as a static musl binary, and "it compiled" does not prove that: the
+# assertions here are the actual contract -- statically linked, no interpreter, no NEEDED
+# entries, no libpcap.
+#
+# Its own workflow because it fails for its own reasons. This is the only Rust job that
+# cross-compiles, so a break here is a toolchain or linkage problem, not a test problem, and
+# it should be attributable without reading a log. Keeping it out of rust-tests.yml also
+# means a linkage regression neither blocks nor is blocked by the test sweep.
+on:
+  push:
+    branches: [staging]
+    paths: &musl_paths
+      - 'rust/netprobe/**'
+      - 'third_party/crates/**'
+      - 'build/platforms/**'
+      - 'build/rbe/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.forgejo/workflows/rust-musl.yml'
+      - 'scripts/ci/assert-netprobe-libpcap-free.sh'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths: *musl_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  musl:
+    name: Static musl (netprobe)
+    runs-on: ubuntu24
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+    strategy:
+      # fail-fast off: when one architecture regresses, knowing whether the other did too is
+      # most of the diagnosis.
+      fail-fast: false
+      matrix:
+        platform:
+          - //build/platforms:linux_x86_64_musl
+          - //build/platforms:linux_aarch64_musl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # Required. --config=ci points the remote cache, BES and executor at the org's
+      # BuildBuddy, which rejects anonymous access, so without this header the first bazel
+      # call dies with `PERMISSION_DENIED: Anonymous access disabled` -- a failure that reads
+      # nothing like the missing credential it actually is.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      # Separate from the assertions below: a cross-compile that fails to build and one that
+      # builds the wrong shape are different problems, and the step name should say which.
+      #
+      # --remote_download_outputs=all overrides remote_base's --remote_download_minimal,
+      # because the assertions need the artifact on this machine rather than in the CAS.
+      - name: Build
+        run: |
+          set -euo pipefail
+
+          bazel build \
+            --config=ci \
+            --platforms=${{ matrix.platform }} \
+            --remote_download_outputs=all \
+            //rust/netprobe:netprobe
+
+      - name: Verify static linkage
+        run: |
+          set -euo pipefail
+
+          output="$(
+            bazel cquery \
+              --config=ci \
+              --platforms=${{ matrix.platform }} \
+              //rust/netprobe:netprobe \
+              --output=files | tail -n 1
+          )"
+          if [ "${output#/}" = "${output}" ]; then
+            output="$(bazel info execution_root)/${output}"
+          fi
+
+          file "${output}"
+          if ! file "${output}" | grep -q 'statically linked'; then
+            echo "expected static ELF output for ${{ matrix.platform }}" >&2
+            exit 1
+          fi
+
+          if readelf -l "${output}" | grep -q 'INTERP'; then
+            echo "static netprobe output must not request a dynamic interpreter" >&2
+            exit 1
+          fi
+
+          if readelf -d "${output}" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "static netprobe output must not declare shared-library dependencies" >&2
+            exit 1
+          fi
+
+          scripts/ci/assert-netprobe-libpcap-free.sh "${output}"
+
+          # Only the host architecture can actually be executed here.
+          case "${{ matrix.platform }}" in
+            *linux_x86_64_musl)
+              "${output}" --help >/dev/null
+              ;;
+          esac

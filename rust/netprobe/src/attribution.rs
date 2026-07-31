@@ -900,11 +900,11 @@ impl MetadataEnricher {
         let key = ProcessDetailsCacheKey::from(record);
         let now = Instant::now();
 
-        if let Some(cached) = self.cache.get_mut(&key) {
-            if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
-                cached.last_used = now;
-                return (cached.details.clone(), key, false);
-            }
+        if let Some(cached) = self.cache.get_mut(&key)
+            && now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL
+        {
+            cached.last_used = now;
+            return (cached.details.clone(), key, false);
         }
 
         if self.read_budget.try_acquire(now) {
@@ -1223,8 +1223,7 @@ impl AyaAttributionReader {
     }
 
     fn process_pending_metadata(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
-        let updated = self.metadata.process_pending();
-        updated
+        self.metadata.process_pending()
     }
 
     fn metadata_cache_len(&self) -> usize {
@@ -1352,19 +1351,19 @@ impl FlowAttributionRuntime {
                         emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
                         last_dirty_process_snapshot = Instant::now();
                     }
-                    if let Some(resend_interval) = runtime_config.resend_interval {
-                        if last_resend.elapsed() >= resend_interval {
-                            resend_cache(
-                                tx.as_ref(),
-                                &external_flow_matcher,
-                                &metrics,
-                                &mut cache,
-                                &mut process_index,
-                                &mut expiry_queue,
-                                &mut next_expiry_sequence,
-                            );
-                            last_resend = Instant::now();
-                        }
+                    if let Some(resend_interval) = runtime_config.resend_interval
+                        && last_resend.elapsed() >= resend_interval
+                    {
+                        resend_cache(
+                            tx.as_ref(),
+                            &external_flow_matcher,
+                            &metrics,
+                            &mut cache,
+                            &mut process_index,
+                            &mut expiry_queue,
+                            &mut next_expiry_sequence,
+                        );
+                        last_resend = Instant::now();
                     }
                     if last_cache_prune.elapsed() >= FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL
                         || cache.len() > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES
@@ -1412,10 +1411,10 @@ impl FlowAttributionRuntime {
 impl Drop for FlowAttributionRuntime {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
-            if thread.join().is_err() {
-                log::warn!("flow attribution map reader thread panicked during shutdown");
-            }
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            log::warn!("flow attribution map reader thread panicked during shutdown");
         }
     }
 }
@@ -1679,6 +1678,7 @@ impl Ord for AttributionExpiry {
 // evicts the flow. Returns the number of records drained so the caller can
 // distinguish a busy ring (loop again) from an idle one (sleep).
 #[cfg(target_os = "linux")]
+#[allow(clippy::too_many_arguments)]
 fn drain_ring(
     reader: &mut AyaAttributionReader,
     tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,

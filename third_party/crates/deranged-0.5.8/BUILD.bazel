@@ -100,6 +100,6 @@ rust_library(
     version = "0.5.8",
     deps = [
         "//third_party/crates/powerfmt-0.2.0:powerfmt",
-        "//third_party/crates/serde_core-1.0.228:serde_core",
+        "//third_party/crates/serde_core-1.0.229:serde_core",
     ],
 )

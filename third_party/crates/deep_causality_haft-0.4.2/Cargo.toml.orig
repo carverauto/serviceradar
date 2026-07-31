@@ -1,0 +1,89 @@
+[package]
+name = "deep_causality_haft"
+version = "0.4.2"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
+description = "HKT traits for for the deep_causality crate."
+documentation = "https://docs.rs/deep_causality"
+categories = ["development-tools"]
+keywords = ["HKT", "traits"]
+# Exclude all bazel files as these conflict with Bazel workspace when vendored.
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+    "papers/*",
+]
+
+
+[features]
+default = ["std"]
+std = ["alloc", "deep_causality_algebra/std"]
+alloc = []
+no-std = ["alloc", "deep_causality_algebra/no-std"]
+
+[dependencies.deep_causality_algebra]
+path = "../deep_causality_algebra"
+version = "0.2"
+default-features = false
+
+[[example]]
+name = "haft_applicative"
+path = "examples/applicative.rs"
+
+[[example]]
+name = "haft_foldable"
+path = "examples/foldable.rs"
+
+[[example]]
+name = "haft_monad"
+path = "examples/monad.rs"
+
+[[example]]
+name = "haft_functor"
+path = "examples/functor.rs"
+
+[[example]]
+name = "haft_comonad"
+path = "examples/comonad.rs"
+
+[[example]]
+name = "haft_traversable"
+path = "examples/traversable.rs"
+
+[[example]]
+name = "haft_adjunction"
+path = "examples/adjunction.rs"
+
+[[example]]
+name = "haft_parametric_monad"
+path = "examples/parametric_monad.rs"
+
+[[example]]
+name = "haft_bifunctor"
+path = "examples/bifunctor.rs"
+
+[[example]]
+name = "haft_profunctor"
+path = "examples/profunctor.rs"
+
+[[example]]
+name = "haft_effect_system_example"
+path = "examples/effect_system.rs"
+
+[[example]]
+name = "haft_unbound_example"
+path = "examples/unbound_haft.rs"
+
+[lints]
+workspace = true

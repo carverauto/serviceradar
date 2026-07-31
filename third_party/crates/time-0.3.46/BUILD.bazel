@@ -111,7 +111,7 @@ rust_library(
         "//third_party/crates/itoa-1.0.18:itoa",
         "//third_party/crates/num-conv-0.2.2:num_conv",
         "//third_party/crates/powerfmt-0.2.0:powerfmt",
-        "//third_party/crates/serde_core-1.0.228:serde_core",
+        "//third_party/crates/serde_core-1.0.229:serde_core",
         "//third_party/crates/time-core-0.1.8:time_core",
     ],
 )

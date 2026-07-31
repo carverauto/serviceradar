@@ -18,17 +18,24 @@ common --enable_platform_specific_config
 build --keep_going
 build --jobs=auto
 build --show_timestamps
-build --action_env=SRQL_TEST_DATABASE_URL
-build --action_env=SRQL_TEST_ADMIN_URL
-build --action_env=SRQL_TEST_DATABASE_CA_CERT
-build --action_env=NATS_URL
-build --action_env=NATS_SERVER_NAME
-build --action_env=NATS_CA_FILE
-build --action_env=NATS_CERT_FILE
-build --action_env=NATS_KEY_FILE
-build --action_env=NATS_CA_B64
-build --action_env=NATS_CERT_B64
-build --action_env=NATS_KEY_B64
+# The SRQL_* and NATS_* fixture variables are declared once, further down, as
+# `test --test_env=`, and deliberately not here as `build --action_env=`.
+#
+# They are test fixture DSNs and credentials, and nothing reads them at compile time: no
+# build.rs or env!() in //rust, no Bazel rule in //build/*.bzl, and the Elixir config that does
+# read them at compile time (elixir/serviceradar_core/config/test.exs) is reached only by
+# integration-core.yml and elixir-quality.yml, which run `mix test` directly, never through
+# Bazel. --test_env reaches test actions, which is the only place they were ever needed.
+#
+# Scope, honestly: this is hygiene, not a cache fix. It keeps credentials out of action
+# environments and off any action that uses the default shell env (genrules, shell actions),
+# where an inherited value would become part of the key. It measurably did NOT affect Go or
+# Rust compiles -- rules_go and rules_rust both declare fixed action environments, so a
+# valueless --action_env never entered those keys. Verified with `bazel aquery --output=text`
+# against GoCompilePkg and Rustc actions: the sentinel value never appears.
+#
+# The NEXT_*/TURBOPACK entries below stay: they carry explicit values, so they are the same on
+# every machine and cost nothing.
 build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
 build --action_env=NEXT_SKIP_TURBO=1
@@ -75,12 +82,44 @@ build --@io_bazel_rules_go//go/config:pure
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors
-test --test_strategy=standalone
+# Deliberately NOT set. --test_strategy=standalone pins every test to local, unsandboxed
+# execution, and nothing in build:ci undid it -- so under --config=ci the build went to the
+# executors while the tests stayed on the runner, and a target's exec_properties (Firecracker
+# size, init-dockerd) were inert because the test never left the runner.
+#
+# Unset, Bazel picks the strategy from the available execution platforms: remote under
+# --config=ci, local otherwise -- the `test --remote_executor=` line below clears the
+# executor for a bare `bazel test`.
+#
+# Note the second effect locally: tests now run sandboxed rather than standalone. A test that
+# needs the sandbox off must say so itself with tags = ["no-sandbox"], the way
+# //elixir/web-ng:precommit already does.
+#test --test_strategy=standalone
 test --remote_executor=
-test --action_env=SRQL_TEST_DATABASE_URL
-test --action_env=SRQL_TEST_ADMIN_URL
-test --action_env=SRQL_TEST_DATABASE_CA_CERT
-test --test_env=PATH
+# --test_env, never --action_env: these reach test actions, which is where they are read, and
+# stay out of every other action's environment. See the note above the NEXT_* block for why
+# that is hygiene rather than a cache fix.
+test --test_env=SRQL_TEST_DATABASE_URL
+test --test_env=SRQL_TEST_ADMIN_URL
+test --test_env=SRQL_TEST_DATABASE_CA_CERT
+# PATH is deliberately absent here. `test --test_env=PATH`, with no value, took the value from
+# the invoking shell and folded it into the cache key of EVERY test action in the repo. CI
+# handed Bazel a different PATH on every run -- scripts/install-bazelisk.sh and
+# scripts/ci/install-sfw.sh both prepend ${RUNNER_TEMP}-scoped directories -- so every test
+# key changed every run and no test result was ever reusable. Build actions take no
+# --test_env, which is why the symptom read as "only the tests re-run", and why an unrelated
+# Go change appeared to invalidate the dgraph container suite.
+#
+# Without the line, tests get Bazel's own action-environment PATH (/bin:/usr/bin:
+# /usr/local/bin), which is identical on every machine and every run. That is the entire
+# point: a test's result must depend on its inputs, not on who invoked it.
+#
+# The inherited value bought nothing anyway. Under --config=ci tests execute on the
+# BuildBuddy executor, where the runner's /workspace/.../_temp entries do not exist.
+#
+# A test that needs a tool beyond the default PATH declares it -- as a `data` dependency, or
+# with an `env`/`--test_env=VAR=value` entry naming a fixed path. Do NOT restore the
+# inherited form to fix one test; that trades the whole repo's test cache for it.
 test --test_env=CNPG_HOST
 test --test_env=CNPG_PORT
 test --test_env=CNPG_DATABASE
@@ -94,14 +133,14 @@ test --test_env=TEST_CNPG_DATABASE
 test --test_env=TEST_CNPG_USERNAME
 test --test_env=TEST_CNPG_PASSWORD
 test --test_env=SRQL_TEST_DATABASE_CA_CERT
-test --action_env=NATS_URL
-test --action_env=NATS_SERVER_NAME
-test --action_env=NATS_CA_FILE
-test --action_env=NATS_CERT_FILE
-test --action_env=NATS_KEY_FILE
-test --action_env=NATS_CA_B64
-test --action_env=NATS_CERT_B64
-test --action_env=NATS_KEY_B64
+test --test_env=NATS_URL
+test --test_env=NATS_SERVER_NAME
+test --test_env=NATS_CA_FILE
+test --test_env=NATS_CERT_FILE
+test --test_env=NATS_KEY_FILE
+test --test_env=NATS_CA_B64
+test --test_env=NATS_CERT_B64
+test --test_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
@@ -131,6 +170,16 @@ build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
 build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
+# Execution goes to the same host as the cache. remote_base points the executor at
+# remote.buildbuddy.io, which is a different frontend (34.98.106.0) from the carverauto
+# org subdomain (34.98.126.170, the same address as app.buildbuddy.io), and this line
+# overrides it because it comes after --config=remote_base above.
+#
+# Keeping one host for execution, cache and BES is what makes an action's inputs and its
+# outputs live in one CAS. When they diverge, the client uploads inputs to one store and
+# the executor fetches from another, and the resulting NOT_FOUND blob errors read like a
+# flaky network rather than the topology mistake they are.
+build:ci --remote_executor=grpcs://carverauto.buildbuddy.io
 build:ci --remote_timeout=15m
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
@@ -173,9 +222,11 @@ build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-# Firecracker task sizing defaults (overridable per target/platform).
-build:remote_base --remote_default_exec_properties=EstimatedCPU=4
-build:remote_base --remote_default_exec_properties=EstimatedMemory=8Gi
+# Firecracker task sizing lives in //build/rbe:rbe_platform's exec_properties, not here.
+# `--remote_default_exec_properties` is ignored outright once the execution platform sets any
+# exec_properties of its own, and rbe_platform sets four, so declaring the sizing at this
+# level had no effect at all. A target still overrides the platform per key, e.g.
+# test.EstimatedMemory on //rust/dgraph-client/tests:acceptance_tests.
 test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu

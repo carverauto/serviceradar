@@ -5,18 +5,6 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 # The new crates.io deps (deep_causality_algebra, deep_causality_uncertain) require a
 # crate-universe re-pin: `scripts/update-rust-bazel-deps.sh` / `MODULE.bazel.lock`.
 
-filegroup(
-    name = "srcs",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "target/**",
-            "bazel-*",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-
 rust_library(
     name = "serviceradar_causal_model",
     srcs = glob(["src/**/*.rs"]),

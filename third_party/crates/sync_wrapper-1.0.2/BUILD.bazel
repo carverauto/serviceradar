@@ -98,6 +98,6 @@ rust_library(
     }),
     version = "1.0.2",
     deps = [
-        "//third_party/crates/futures-core-0.3.32:futures_core",
+        "//third_party/crates/futures-core-0.3.33:futures_core",
     ],
 )

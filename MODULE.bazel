@@ -249,7 +249,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
@@ -568,12 +568,28 @@ use_repo(
     "rust_linux_x86_64__x86_64-unknown-linux-musl__stable_tools",
 )
 
-register_toolchains("@rust_toolchains//:all")
-
+# MUST precede @rust_toolchains//:all. Bazel picks the FIRST registered toolchain that
+# matches, not the most specific one, and rules_rust derives a toolchain's
+# target_compatible_with from the triple alone -- @platforms has no musl constraint, so
+# `x86_64-unknown-linux-gnu` declares exactly [os:linux, cpu:x86_64]. That is a subset of
+# //build/platforms:linux_x86_64_musl, so the glibc toolchain matches the musl platform and,
+# registered first, wins. netprobe then built dynamically linked against glibc while the
+# --platforms flag said musl, and only the shape assertions in rust-musl.yml caught it.
+#
+# These wrappers are what encode the distinction: target_compatible_with carries
+# //build/platforms:linux_musl and target_settings pins the matching config_setting, so they
+# are inert for a non-musl linux platform and resolution falls through to gnu as before.
+#
+# Note this only ever misresolved on a linux-x86_64 executor. extra_target_triples requests
+# no x86_64-unknown-linux-gnu toolchain -- that triple exists only because it is the CI
+# executor's own host triple, so from a macOS or arm64 host the musl toolchain was the only
+# match and the bug was invisible.
 register_toolchains(
     "//build/rust:linux_aarch64_musl_toolchain",
     "//build/rust:linux_x86_64_musl_toolchain",
 )
+
+register_toolchains("@rust_toolchains//:all")
 
 # Custom Prost toolchain
 register_toolchains(
