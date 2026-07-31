@@ -1,7 +1,23 @@
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
+load(
+    "@serviceradar//build:integration_shards.bzl",
+    "integration_shard_names",
+    "partition_by_shard",
+)
 load("@serviceradar//build:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
+
+# Every ExUnit file in the project. test/db/** is excluded because those are the database
+# lifecycle targets (migrate_template), not suite tests -- they are declared individually.
+ALL_TEST_SRCS = glob(
+    ["test/**/*_test.exs"],
+    exclude = ["test/db/**"],
+)
+
+# Disjoint partition of ALL_TEST_SRCS, one bucket per integration shard.
+INTEGRATION_SHARD_SRCS = partition_by_shard(ALL_TEST_SRCS)
 
 filegroup(
     name = "srcs",
@@ -16,6 +32,20 @@ filegroup(
             "**/*.swp",
             "**/*~",
         ],
+    ),
+)
+
+# The migration files, as an input to //rust/integration-db.
+#
+# That crate decides whether the template database is current by comparing the versions in
+# these filenames against the template's schema_migrations, so it needs them staged in its
+# runfiles. Declaring them here rather than globbing from the Rust package keeps the
+# ownership right: this project owns its migrations.
+filegroup(
+    name = "migrations",
+    srcs = glob(
+        ["priv/repo/migrations/*.exs"],
+        allow_empty = False,
     ),
 )
 
@@ -55,18 +85,28 @@ mix_app(
         "//addons/otel-collector:otel_collector_manifest",
         "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
         "//addons/workload-identity:workload_identity_manifest",
+        # Same reason, different consumer. ServiceRadar.Plugins.AddonConfigContractFixtures
+        # pins @repo_root Path.expand("../../../../..", __DIR__) at compile time, so under
+        # mix_app that resolves inside the build tree and the committed fixtures have to be
+        # staged there too. Declaring them on the test target instead puts them in the test's
+        # runfiles, which is a different directory and not the one the baked-in path points
+        # at -- the drift test then fails with "could not read file .../erlang_app_mix/go/...".
+        "//go/pkg/agent:addonconfig_contract_fixtures",
     ],
     app_name = "serviceradar_core",
-    # Keep cargo out of the Bazel action -- neither NIF crate is a Bazel target yet.
-    # `use Rustler` merges Application.compile_env(otp_app, __MODULE__) over its own
-    # options, so this disables native compilation without touching lib/ or the checked-in
-    # config, and without changing what `mix release` does. Tests that call into these two
-    # NIFs are excluded from the Bazel unit-test job.
+    # Bazel builds the cdylibs; Mix must not shell out to cargo. `use Rustler` merges
+    # Application.compile_env(otp_app, __MODULE__) over its own options, so this disables
+    # native compilation without touching lib/ or the checked-in config, and without
+    # changing what `mix release` does. The libraries themselves arrive via native_libs.
     extra_config = [
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     mix_env = "test",
+    native_libs = {
+        "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
+        "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
+    },
     deps = [
         "//elixir/connection:erlang_app",
         "//elixir/elixir_uuid:erlang_app",
@@ -131,7 +171,7 @@ mix_app(
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
 ex_unit_tests(
     name = "unit_tests",
-    srcs = glob(["test/**/*_test.exs"]),
+    srcs = ALL_TEST_SRCS,
     # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
     # read from disk has to be declared: several tests load a specific migration out of
     # priv/repo/migrations to assert on it, and test/support carries fixtures.
@@ -143,7 +183,209 @@ ex_unit_tests(
         ],
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
-    ),
+    ) + [
+        # Read at MODULE level (compile time) by
+        # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+        # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+        # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+        # what puts it where that relative path resolves.
+        "//addons/anomaly-addon:anomaly_manifest",
+        # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+        # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+        # comes back empty, so every first-party Wasm plugin package has to be an input.
+        "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+        "//go/cmd/wasm-plugins/awx:srcs",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/dusk-checker:srcs",
+        "//go/cmd/wasm-plugins/netbox:srcs",
+        "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/sample-northbound:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        # Module level in test/serviceradar/observability/helm_config_contract_test.exs,
+        # which guards that the chart still exposes the env vars AnomalyConfigSeeder reads.
+        # It belongs in this tier, not the database-backed one: it reads two files and
+        # asserts on their text.
+        "//helm/serviceradar:values",
+    ],
     test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+# SHARDED, with a database each.
+#
+# These tests share a mutable external resource, and Ecto's SQL sandbox isolates concurrent
+# tests within a BEAM VM but not across OS processes. Parallel targets against ONE database
+# deadlock: measured at 25 failures across 6 of 7 groups, dominated by
+# `40P01 deadlock_detected`, where each group passed when run on its own.
+#
+# The fix is a database per shard, not fewer shards. That is only affordable because
+# provisioning is now a `CREATE DATABASE ... TEMPLATE` file copy (~0.7s) off a pre-migrated
+# template rather than a 368-migration replay. //rust/integration-db:provision_db clones one
+# database per shard from the same //build:integration_shards.bzl list these targets are
+# generated from, and test/db/integration_env.exs turns SERVICERADAR_TEST_DB_SHARD into the
+# matching name. One list, both sides.
+#
+# Shard count and the arithmetic behind it are documented in //build:integration_shards.bzl.
+[
+    ex_unit_test(
+        name = "integration_tests_{}".format(shard),
+        size = "enormous",
+        srcs = INTEGRATION_SHARD_SRCS[shard],
+        # Files the tests open at runtime. ex_unit_test stages only srcs and data, so anything
+        # read from disk has to be declared: several tests load a specific migration out of
+        # priv/repo/migrations to assert on it, and test/support carries fixtures.
+        #
+        # Every shard gets the full data set: which shard holds which test file is an
+        # implementation detail of the partition, so narrowing this per shard would break the
+        # moment a file moved between them.
+        data = glob(
+            [
+                "config/**",
+                "lib/**",
+                "priv/**",
+                "test/**",
+            ],
+            allow_empty = True,
+            exclude = ["test/**/*_test.exs"],
+        ) + [
+            # Read at MODULE level (compile time) by
+            # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
+            # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
+            # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
+            # what puts it where that relative path resolves.
+            "//addons/anomaly-addon:anomaly_manifest",
+            # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
+            # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
+            # comes back empty, so every first-party Wasm plugin package has to be an input.
+            "//go/cmd/wasm-plugins/alienvault-otx:srcs",
+            "//go/cmd/wasm-plugins/awx:srcs",
+            "//go/cmd/wasm-plugins/axis:srcs",
+            "//go/cmd/wasm-plugins/dusk-checker:srcs",
+            "//go/cmd/wasm-plugins/netbox:srcs",
+            "//go/cmd/wasm-plugins/opentext-network-automation:srcs",
+            "//go/cmd/wasm-plugins/proxmox:srcs",
+            "//go/cmd/wasm-plugins/sample-northbound:srcs",
+            "//go/cmd/wasm-plugins/unifi-protect:srcs",
+            # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
+            # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
+            # resolve the repo root from the working directory when the compile-time one is not
+            # present. That makes these runfiles, not compile inputs: the test executes in a
+            # sandbox, so a file staged only into the mix_app build tree is not there at all.
+            # (anomaly-addon's manifest is already listed above.)
+            "//addons/bumblebee-scan:bumblebee_scan_manifest",
+            "//addons/netprobe:netprobe_manifest",
+            "//addons/otel-collector:otel_collector_manifest",
+            "//addons/rdp-adapter:rdp_adapter_manifest",
+            "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
+            "//addons/workload-identity:workload_identity_manifest",
+            "//go/pkg/agent:addonconfig_contract_fixtures",
+            # The config loader, referenced from elixir_opts by a relative path, so it has to be
+            # a declared input too. The ex_unit_tests macro adds this automatically; a
+            # hand-written ex_unit_test does not.
+            "//build:elixir_test_config_loader.exs",
+        ],
+        elixir_opts = [
+            # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
+            # while building the Repo settings, so deriving it afterwards has no effect. Derives
+            # it from GITHUB_RUN_ID/ATTEMPT the same way //rust/integration-db does, so the suite
+            # hits the database provision_db cloned.
+            "-r",
+            "test/db/integration_env.exs",
+            "-r",
+            "../../build/elixir_test_config_loader.exs",
+            # Must load before the test files: `use ExUnit.Case` raises at module compile time if
+            # ExUnit is not started.
+            "-r",
+            "test/test_helper.exs",
+        ],
+        # Runs ONLY the complement of :unit_tests -- the tests that need a running application
+        # and a database. test_helper.exs reads this and switches to
+        # include: [:integration, :requires_app] with max_cases: 1.
+        env = {
+            "SERVICERADAR_ONLY_INTEGRATION": "1",
+            # Read by test/db/integration_env.exs, which appends it to the derived
+            # database name. //rust/integration-db:provision_db clones exactly this
+            # set of names from the same shard list.
+            "SERVICERADAR_TEST_DB_SHARD": shard,
+        },
+        # `manual` only. NOT `external`: that disables Bazel's test caching, which is
+        # load-bearing for the lifecycle targets below (a cached "pass" would provision nothing)
+        # but pure loss here. This target's result is a function of its declared inputs -- the
+        # sources and the migrations that produced the template -- so a cache hit on BuildBuddy is
+        # a legitimate hit.
+        #
+        # `manual` stays: this needs the SRQL/CNPG fixture, whose URL arrives through --test_env.
+        # Without it test_helper takes the no-database branch and excludes every test, which would
+        # report a vacuous pass.
+        tags = ["manual"],
+        deps = [":erlang_app"],
+    )
+    for shard in integration_shard_names()
+]
+
+# Kept so the workflow, and anyone with the old target in muscle memory, can still say
+# //elixir/serviceradar_core:integration_tests and get every shard.
+test_suite(
+    name = "integration_tests",
+    tags = ["manual"],
+    tests = [
+        ":integration_tests_{}".format(shard)
+        for shard in integration_shard_names()
+    ],
+)
+
+# --- template migration -----------------------------------------------------------------
+#
+# The only part of the database lifecycle that must run on the BEAM: the 368 migrations are
+# `use Ecto.Migration` modules, so only Ecto.Migrator can apply them. Creating databases,
+# extensions, AGE graphs, the stale sweep and the teardown are all //rust/integration-db,
+# which starts in 0.1s where this target costs ~30-45s before it does anything.
+#
+# It migrates the SHARED TEMPLATE, not a per-run database. Per-run databases are physical
+# copies of that template (CREATE DATABASE ... TEMPLATE), so the migrations are applied once
+# and every later run gets the schema as a file copy. //rust/integration-db:prepare_template
+# decides whether this target needs to run at all by comparing the migration versions on disk
+# against the template's schema_migrations, and on a branch that adds no migrations the
+# workflow skips it -- which is the point: the BEAM leaves the critical path entirely.
+#
+# Because migrations are append-only and Ecto.Migrator tracks what it applied, adding one
+# advances the template by exactly that migration rather than rebuilding it.
+#
+# `external` disables Bazel's test caching. Without it a rerun would be a cache hit that
+# applied no migrations -- a green job that changed nothing. `manual` keeps it out of //...
+# so an ordinary `bazel test` never points DDL at the shared fixture.
+ex_unit_test(
+    name = "migrate_template",
+    size = "enormous",
+    srcs = ["test/db/migrate_db_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        # The loader is referenced from elixir_opts by relative path, so it has to be a
+        # declared input too -- the ex_unit_tests macro adds this automatically, a
+        # hand-written ex_unit_test does not.
+        "//build:elixir_test_config_loader.exs",
+        "test/db/db_task_helper.exs",
+        "test/db/template_env.exs",
+    ],
+    elixir_opts = [
+        # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
+        # while building the Repo settings, so deriving it afterwards has no effect.
+        "-r",
+        "test/db/template_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    tags = [
+        "external",
+        "manual",
+    ],
     deps = [":erlang_app"],
 )

@@ -2,6 +2,7 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "elixir_test_config_loader.exs",
     "mix_release_patches.py",
     "repo_alias.bzl",
 ])

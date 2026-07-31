@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.AddonProfileOps
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -101,7 +102,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcileWorker do
 
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 10), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
       )
 
     :ok

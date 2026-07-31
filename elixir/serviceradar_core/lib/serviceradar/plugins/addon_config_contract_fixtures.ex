@@ -159,18 +159,50 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
   @spec addon_ids() :: [String.t()]
   def addon_ids, do: @representative_params |> Map.keys() |> Enum.sort()
 
+  @doc """
+  Repository root, resolved at RUNTIME rather than pinned at compile time.
+
+  `@repo_root` is `Path.expand("../../../../..", __DIR__)`, which is correct under plain
+  `mix` -- the checkout compiles in place. Under Bazel it is not: `mix_app` compiles in its
+  own build tree, so the constant bakes in a path under `bazel-bin/.../erlang_app_mix/`, and
+  the test then runs in a sandbox where only declared runfiles exist. The baked path resolves
+  to a directory that is real on the host and absent in the sandbox, so `File.read!` fails
+  with a path that looks plausible and points nowhere useful.
+
+  Candidates in order, first one that actually contains the tree wins:
+
+    1. `SERVICERADAR_REPO_ROOT`, for a caller that knows better;
+    2. the compile-time root, which is right for `mix`;
+    3. two levels up from the working directory, which is where a Bazel test's runfiles put
+       the workspace (the test runs from `elixir/serviceradar_core`).
+
+  Repo tooling either way -- this module is not meant to run from a release.
+  """
+  @spec repo_root() :: Path.t()
+  def repo_root do
+    [
+      System.get_env("SERVICERADAR_REPO_ROOT"),
+      @repo_root,
+      Path.expand("../..", File.cwd!())
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find(@repo_root, fn root ->
+      File.dir?(Path.join(root, "go/pkg/agent/testdata/addonconfig_contract"))
+    end)
+  end
+
   @spec fixture_dir() :: Path.t()
-  def fixture_dir, do: @fixture_dir
+  def fixture_dir, do: Path.join(repo_root(), "go/pkg/agent/testdata/addonconfig_contract")
 
   @spec fixture_path(String.t()) :: Path.t()
-  def fixture_path(addon_id), do: Path.join(@fixture_dir, addon_id <> ".json")
+  def fixture_path(addon_id), do: Path.join(fixture_dir(), addon_id <> ".json")
 
   @spec representative_params(String.t()) :: map()
   def representative_params(addon_id), do: Map.fetch!(@representative_params, addon_id)
 
   @spec schema(String.t()) :: map()
   def schema(addon_id) do
-    [@addons_root, addon_id, "config.schema.json"]
+    [repo_root(), "addons", addon_id, "config.schema.json"]
     |> Path.join()
     |> File.read!()
     |> Jason.decode!()

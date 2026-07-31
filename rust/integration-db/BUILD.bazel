@@ -1,0 +1,119 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("//build:integration_shards.bzl", "integration_shard_names")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
+
+rust_library(
+    name = "serviceradar_integration_db",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_integration_db",
+    edition = "2021",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(normal = True) + [
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Pure logic: quoting, the disposable-name guard, URL repointing. No database, so this one
+# is a normal cached test and runs in any wildcard.
+rust_test(
+    name = "serviceradar_integration_db_test",
+    crate = ":serviceradar_integration_db",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# The database lifecycle targets.
+#
+# `external` disables Bazel's test caching, which is not optional here: a cached "pass" would
+# mean a rerun provisions nothing and drops nothing, and the job would go green having done
+# neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
+# the shared fixture.
+#
+# Sequencing lives in the workflow, because Bazel deliberately does not order tests:
+#   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
+#     -> (elixir) integration_tests -> teardown_db
+[
+    rust_test(
+        name = target,
+        size = "medium",
+        srcs = ["tests/{}_test.rs".format(target)],
+        crate_root = "tests/{}_test.rs".format(target),
+        tags = [
+            "external",
+            "manual",
+        ],
+        deps = all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ) + [
+            ":serviceradar_integration_db",
+            "//rust/srql:srql_lib",
+        ],
+    )
+    for target in [
+        "sweep_stale_dbs",
+        "teardown_db",
+    ]
+]
+
+# Split out of the list above because it alone reads the migration filenames: it refuses to
+# clone a template that is behind the migrations on disk, which would otherwise run the suite
+# against a schema that does not match the code under test.
+rust_test(
+    name = "provision_db",
+    size = "medium",
+    srcs = ["tests/provision_db_test.rs"],
+    crate_root = "tests/provision_db_test.rs",
+    data = ["//elixir/serviceradar_core:migrations"],
+    # One database per integration shard, from the same .bzl that generates the Elixir shard
+    # targets, so the two name sets cannot drift.
+    #
+    # env, NOT args: libtest reads a bare argv entry as a test-name filter, so passing shard
+    # names as args matched no test, ran nothing and exited 0 -- green having provisioned
+    # nothing at all.
+    env = {"SERVICERADAR_TEST_DB_SHARDS": ",".join(integration_shard_names())},
+    tags = [
+        "external",
+        "manual",
+    ],
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)
+
+# Creates the template if absent and reports whether it needs migrating.
+#
+# A binary rather than a test because it writes `needs_migration` to $GITHUB_OUTPUT, and a
+# `bazel test` under --config=ci runs on a remote executor with no access to the runner's
+# filesystem. `bazel run` builds remotely and runs locally.
+rust_binary(
+    name = "prepare_template",
+    srcs = ["src/bin/prepare_template.rs"],
+    data = ["//elixir/serviceradar_core:migrations"],
+    tags = ["manual"],
+    deps = all_crate_deps(normal = True) + [
+        ":serviceradar_integration_db",
+        "//rust/srql:srql_lib",
+    ],
+)

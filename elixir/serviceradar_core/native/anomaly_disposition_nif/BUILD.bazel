@@ -22,6 +22,13 @@ rust_shared_library(
     srcs = glob(["src/**/*.rs"]),
     crate_name = "anomaly_disposition_nif",
     edition = "2021",
+    # rustler always emits `<crate>_nif_init`, but emits the plain `nif_init` that
+    # :erlang.load_nif looks for only when RUSTLER_PRIMARY_NIF_INIT or CARGO_PRIMARY_PACKAGE
+    # is set (rustler_codegen-0.38.0/src/init.rs:116-118). Cargo sets CARGO_PRIMARY_PACKAGE
+    # for the package it was asked to build; Bazel does not, so without this the library
+    # loads and then fails with
+    #   {:bad_lib, "Failed to find library init function: dlsym(..., _nif_init)"}
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
     rustc_flags = select({
         "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
         "//conditions:default": [],

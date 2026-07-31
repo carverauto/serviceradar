@@ -1,7 +1,33 @@
 defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
-  use ServiceRadar.DataCase, async: false
+  @moduledoc """
+  Startup migrations against a scratch database, run TWICE on purpose.
+
+  `ServiceRadar.Cluster.StartupMigrations.run!/1` branches on `database_bootstrap_state/0`:
+
+    * `:empty`    -> apply the schema baseline, then the migration history. First boot.
+    * `:migrated` -> skip the baseline, apply only what is pending. EVERY pod restart.
+
+  The second invocation is not a repeat, it is the only coverage of the `:migrated` branch --
+  the one production actually takes on every restart. Its assertions (baseline still applied
+  exactly once, migration count unchanged, platform object count unchanged) are what catch a
+  regression that would re-baseline a live database. Collapsing this to a single run would
+  leave only the rare first-boot path covered.
+
+  Deliberately NOT `use ServiceRadar.DataCase`. This test drives its own scratch database
+  through raw Postgrex and runs the migrations in a subprocess; the test process never
+  touches `ServiceRadar.Repo`. DataCase checked out a sandbox connection and held it idle for
+  the several minutes the test spends blocked in `System.cmd/3`, which exhausted the pool for
+  everything else:
+
+      ** (DBConnection.ConnectionError) connection not available and request was dropped from
+         queue after 4000ms
+  """
+  use ExUnit.Case, async: false
+
+  import ExUnit.Assertions
 
   @moduletag :integration
+  @moduletag :requires_app
   @moduletag timeout: 180_000
 
   @result_prefix "BOOTSTRAP_RESULT:"

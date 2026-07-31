@@ -86,16 +86,8 @@ sh_test(
     data = ["wasm-plugin-publish-context.sh"],
 )
 
-sh_test(
-    name = "test_integration_database_guard_test",
-    timeout = "short",
-    srcs = ["test-integration-database-guard.sh"],
-    data = [
-        "db/test-database-url-guard.sh",
-        "drop-test-db.sh",
-        "reset-srql-fixture-test-db.sh",
-        "reset-test-db.sh",
-        "sweep-stale-core-test-dbs.sh",
-        "test-integration.sh",
-    ],
-)
+# test_integration_database_guard_test was removed along with the shell integration-database
+# lifecycle. The disposable-database guard it enforced now lives in //rust/integration-db
+# (`assert_disposable/1`, `like_prefix/1`, and the template's deliberate lack of the
+# disposable prefix) and is covered by //rust/integration-db:serviceradar_integration_db_test,
+# which needs no fixture. See the tombstone in test-integration-database-guard.sh.

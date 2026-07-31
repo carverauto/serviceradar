@@ -1,4 +1,6 @@
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
+load("@serviceradar//build:mix_app.bzl", "mix_app")
 load("//build:mix_deps.bzl", "mix_deps")
 load("//build:mix_precommit.bzl", "mix_precommit")
 load("//build:mix_release.bzl", "mix_release")
@@ -274,4 +276,118 @@ mix_release(
     sfw = "@sfw_free_linux_amd64//file",
     src_dir = "elixir/web-ng",
     workdir_name = "serviceradar_web_ng",
+)
+
+# Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
+# mix.exs sets elixirc_paths(:test) => ["lib", "test/support"].
+mix_app(
+    name = "erlang_app",
+    srcs = [
+        ":srcs",
+        # Signal display contracts, read at compile time and baked in with
+        # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
+        # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,
+        # which is why mix_app mirrors the workspace layout inside the action.
+        "//addons/powerdns:powerdns_manifest",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        "//go/pkg/trivysidecar:display_contracts",
+        "//integrations/falco:display_contracts",
+    ],
+    app_name = "serviceradar_web_ng",
+    # Bazel builds the cdylib; Mix must not shell out to cargo.
+    extra_config = [
+        "config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true",
+    ],
+    mix_env = "test",
+    native_libs = {
+        "//elixir/web-ng/native/god_view_nif:god_view_nif": "god_view_nif",
+    },
+    deps = [
+        "//elixir/connection:erlang_app",
+        "//elixir/datasvc:erlang_app",
+        "//elixir/serviceradar_core:erlang_app",
+        "//elixir/serviceradar_srql:erlang_app",
+        "@hex_adbc//:erlang_app",
+        "@hex_ash_credo//:erlang_app",
+        "@hex_ash_phoenix//:erlang_app",
+        "@hex_bandit//:erlang_app",
+        "@hex_bcrypt_elixir//:erlang_app",
+        "@hex_boundary//:erlang_app",
+        "@hex_broadway_dashboard//:erlang_app",
+        "@hex_castore//:erlang_app",
+        "@hex_credo//:erlang_app",
+        "@hex_dialyxir//:erlang_app",
+        "@hex_dns_cluster//:erlang_app",
+        "@hex_ecto_sql//:erlang_app",
+        "@hex_elixlsx//:erlang_app",
+        "@hex_esbuild//:erlang_app",
+        "@hex_ex_dna//:erlang_app",
+        "@hex_ex_slop//:erlang_app",
+        "@hex_gen_smtp//:erlang_app",
+        "@hex_gettext//:erlang_app",
+        "@hex_gnat//:erlang_app",
+        "@hex_guardian//:erlang_app",
+        "@hex_igniter//:erlang_app",
+        "@hex_jason//:erlang_app",
+        "@hex_jump_credo_checks//:erlang_app",
+        "@hex_lazy_html//:erlang_app",
+        "@hex_mdex//:erlang_app",
+        "@hex_mix_audit//:erlang_app",
+        "@hex_oban_web//:erlang_app",
+        "@hex_open_api_spex//:erlang_app",
+        "@hex_permit//:erlang_app",
+        "@hex_permit_ecto//:erlang_app",
+        "@hex_permit_phoenix//:erlang_app",
+        "@hex_phoenix//:erlang_app",
+        "@hex_phoenix_ecto//:erlang_app",
+        "@hex_phoenix_html//:erlang_app",
+        "@hex_phoenix_live_dashboard//:erlang_app",
+        "@hex_phoenix_live_reload//:erlang_app",
+        "@hex_phoenix_live_view//:erlang_app",
+        "@hex_phoenix_react_ng//:erlang_app",
+        "@hex_postgrex//:erlang_app",
+        "@hex_protobuf//:erlang_app",
+        "@hex_redoc_ui_plug//:erlang_app",
+        "@hex_req//:erlang_app",
+        "@hex_samly//:erlang_app",
+        "@hex_sobelow//:erlang_app",
+        "@hex_stream_data//:erlang_app",
+        "@hex_styler//:erlang_app",
+        "@hex_swoosh//:erlang_app",
+        "@hex_tailwind//:erlang_app",
+        "@hex_telemetry_metrics//:erlang_app",
+        "@hex_telemetry_metrics_prometheus_core//:erlang_app",
+        "@hex_telemetry_poller//:erlang_app",
+        "@hex_ueberauth//:erlang_app",
+        "@hex_ueberauth_oidcc//:erlang_app",
+        "@rules_elixir//elixir",
+    ],
+)
+
+ex_unit_tests(
+    name = "unit_tests",
+    srcs = glob(["test/**/*_test.exs"]),
+    data = glob(
+        [
+            "config/**",
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        allow_empty = True,
+        exclude = ["test/**/*_test.exs"],
+    ),
+    # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
+    # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
+    # only `:db_free`-tagged tests (87 of 316 files). That is the project's own notion of
+    # what runs without a database, so this job uses it rather than inventing a second one.
+    # CI is pinned empty because the helper treats CI=true as "a database is required".
+    env = {
+        "SERVICERADAR_ALLOW_DB_FREE_TESTS": "1",
+        "CI": "",
+    },
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
 )

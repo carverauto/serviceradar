@@ -44,6 +44,7 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentReleaseManager
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -125,7 +126,7 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
 
   defp schedule_next_cleanup do
     ObanSupport.safe_insert(
-      new(%{}, schedule_in: reschedule_seconds(), unique: [states: :scheduled])
+      SelfScheduling.successor_changeset(__MODULE__, %{}, reschedule_seconds())
     )
 
     :ok

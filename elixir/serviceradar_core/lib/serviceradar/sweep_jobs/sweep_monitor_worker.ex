@@ -37,6 +37,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -115,10 +116,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   defp schedule_next_check(args) do
     case ObanSupport.safe_insert(
-           new(args,
-             schedule_in: @monitor_interval_seconds,
-             unique: [states: :scheduled]
-           )
+           SelfScheduling.successor_changeset(__MODULE__, args, @monitor_interval_seconds)
          ) do
       {:ok, _job} ->
         :ok

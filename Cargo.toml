@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "rust/integration-db",
     "elixir/serviceradar_core/native/anomaly_disposition_nif",
     "elixir/serviceradar_core/native/zen_nif",
     "elixir/serviceradar_srql/native/srql_nif",

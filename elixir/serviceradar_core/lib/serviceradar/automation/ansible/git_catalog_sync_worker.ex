@@ -36,6 +36,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -342,8 +343,8 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     seconds = interval_seconds(repo)
 
     _ =
-      %{"repository_id" => repo.id}
-      |> new(schedule_in: seconds, unique: [states: :scheduled])
+      __MODULE__
+      |> SelfScheduling.successor_changeset(%{"repository_id" => repo.id}, seconds)
       |> ObanSupport.safe_insert()
 
     :ok

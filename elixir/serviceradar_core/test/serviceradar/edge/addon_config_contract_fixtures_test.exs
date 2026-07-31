@@ -16,6 +16,8 @@ defmodule ServiceRadar.Edge.AddonConfigContractFixturesTest do
 
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Plugins.AddonConfigContractFixtures, as: Fixtures
   alias ServiceRadar.Plugins.ConfigSchema
 

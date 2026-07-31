@@ -86,6 +86,8 @@ def ex_unit_tests(
         group_depth = 1,
         max_group_size = 100,
         min_subgroup_size = 20,
+        load_config = True,
+        pre_load = [],
         size = "large",
         tags = [],
         **kwargs):
@@ -104,6 +106,11 @@ def ex_unit_tests(
         of every other subsystem sharing its top-level directory.
       min_subgroup_size: when splitting, children smaller than this are pooled
         into `<parent>_other` rather than each paying a full ERL_LIBS staging.
+      load_config: evaluate the project's config/config.exs into the application
+        environment before test_helper runs, the way `mix test` does. Set False for a
+        project that has no config/ or must not have it applied.
+      pre_load: .exs files loaded BEFORE the config loader. For anything that has to shape
+        the environment config/*.exs then reads -- deriving a database URL, for instance.
       size: Bazel test size. A group can hold hundreds of files, so "large".
       tags: Bazel tags applied to every generated target.
       **kwargs: forwarded to each ex_unit_test.
@@ -113,6 +120,42 @@ def ex_unit_tests(
     # (test/**), and Bazel rejects a duplicated label in an attribute.
     extra_data = [d for d in data if d != test_helper]
 
+    # `elixir -r` does not evaluate config/config.exs the way `mix test` does, so a loader
+    # runs first. It is staged at its own workspace-relative path while the test runs from
+    # the package directory, hence the climb back up.
+    # Ahead of the config loader, so these can set what config/*.exs goes on to read.
+    pre_load_opts = []
+    for path in pre_load:
+        pre_load_opts = pre_load_opts + ["-r", path]
+        if path not in extra_data:
+            extra_data = extra_data + [path]
+
+    config_loader_opts = []
+    if load_config:
+        depth = len(native.package_name().split("/")) if native.package_name() else 0
+        loader = ("../" * depth) + "build/elixir_test_config_loader.exs"
+        config_loader_opts = ["-r", loader]
+
+        # The project's own config/ tree, not just the loader script.
+        #
+        # The loader reads config/config.exs relative to the package directory, and treats a
+        # missing one as "this project has no config", which is legitimate. That guard turns
+        # a staging mistake into silence: without these files the loader applies NO
+        # configuration and the tests run against every library's .app defaults.
+        #
+        # It cost a full debugging cycle. serviceradar_core's integration tier boots the
+        # application; with config/ unstaged, `config :swoosh, :api_client, false` never
+        # landed, Swoosh fell back to its default Swoosh.ApiClient.Hackney, and the VM died
+        # with "Could not find hackney dependency" -- a dependency the project does not have
+        # and whose absence is correct. Nothing in that error points at staging.
+        #
+        # Adding it here rather than at each call site is what makes load_config = True mean
+        # what it says: no caller can enable it and forget the data.
+        extra_data = extra_data + ["//build:elixir_test_config_loader.exs"] + native.glob(
+            ["config/**"],
+            allow_empty = True,
+        )
+
     groups = {}
     for src in srcs:
         groups.setdefault(_group_key(src, strip_prefix, group_depth), []).append(src)
@@ -121,8 +164,14 @@ def ex_unit_tests(
 
     tests = []
     for group in sorted(groups):
+        # Namespaced under the suite name: a group is named after a test subdirectory, and
+        # those collide with other targets in the package. serviceradar_agent_gateway has
+        # test/serviceradar_agent_gateway/, whose bare group name collides with mix_app's
+        # own <app_name>/ output directory ("one of the output paths ... is a prefix of the
+        # other").
+        target = "{}_{}".format(name, group)
         ex_unit_test(
-            name = group,
+            name = target,
             size = size,
             # test_helper must load BEFORE the test files: `use ExUnit.Case` raises at
             # module compile time if ExUnit is not started. It cannot go in srcs --
@@ -132,12 +181,12 @@ def ex_unit_tests(
             # there and the helper travels as data.
             srcs = sorted(groups[group]),
             data = [test_helper] + extra_data,
-            elixir_opts = ["-r", test_helper],
+            elixir_opts = pre_load_opts + config_loader_opts + ["-r", test_helper],
             tags = tags,
             deps = deps,
             **kwargs
         )
-        tests.append(":" + group)
+        tests.append(":" + target)
 
     native.test_suite(
         name = name,

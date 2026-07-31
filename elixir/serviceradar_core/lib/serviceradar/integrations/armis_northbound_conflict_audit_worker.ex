@@ -21,6 +21,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -65,14 +66,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundConflictAuditWorker do
   end
 
   defp schedule_next do
+    # The current job is still :executing here. SelfScheduling applies
+    # scheduled-only uniqueness for the follow-up so it can be inserted while the
+    # worker's default :incomplete uniqueness still protects scheduler seed jobs.
     _ =
       support_module().safe_insert(
-        new(%{},
-          schedule_in: max(audit_interval_seconds(), @min_reschedule_seconds),
-          # The current job is still :executing here. Use scheduled-only
-          # uniqueness for the follow-up so it can be inserted while the worker's
-          # default :incomplete uniqueness still protects scheduler seed jobs.
-          unique: [states: :scheduled]
+        SelfScheduling.successor_changeset(
+          __MODULE__,
+          %{},
+          max(audit_interval_seconds(), @min_reschedule_seconds)
         )
       )
 

@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -116,7 +117,7 @@ defmodule ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker do
 
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 10), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
       )
 
     :ok

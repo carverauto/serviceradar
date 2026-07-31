@@ -6036,6 +6036,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-integration-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rustls",
+ "rustls-pemfile",
+ "srql",
+ "tokio",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "serviceradar-log-collector"
 version = "0.1.0"
 dependencies = [

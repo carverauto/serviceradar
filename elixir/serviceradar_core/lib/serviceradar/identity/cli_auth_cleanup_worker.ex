@@ -34,6 +34,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.DeviceAuthorization
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -76,7 +77,7 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorker do
 
   defp schedule_next do
     ObanSupport.safe_insert(
-      new(%{}, schedule_in: @default_reschedule_seconds, unique: [states: :scheduled])
+      SelfScheduling.successor_changeset(__MODULE__, %{}, @default_reschedule_seconds)
     )
 
     :ok

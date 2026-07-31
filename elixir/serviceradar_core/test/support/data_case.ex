@@ -10,6 +10,16 @@ defmodule ServiceRadar.DataCase do
 
   use ExUnit.CaseTemplate
 
+  using do
+    quote do
+      # Every test using this template checks out a Repo connection, which only exists
+      # once the application has been started -- and test_helper.exs starts it only when
+      # a database URL is present. Tagging here rather than in each test file means a new
+      # `use ServiceRadar.DataCase` is classified correctly without anyone remembering to.
+      @moduletag :requires_app
+    end
+  end
+
   setup context do
     ServiceRadar.TestSupport.checkout_repo!(context)
   end
