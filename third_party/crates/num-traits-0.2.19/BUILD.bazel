@@ -166,7 +166,7 @@ cargo_build_script(
     version = "0.2.19",
     visibility = ["//visibility:private"],
     deps = [
-        "//third_party/crates/autocfg-1.5.0:autocfg",
+        "//third_party/crates/autocfg-1.5.1:autocfg",
     ],
 )
 

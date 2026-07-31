@@ -96,7 +96,7 @@ rust_library(
     deps = [
         "//third_party/crates/aya-0.14.0:aya",
         "//third_party/crates/aya-log-common-0.2.0:aya_log_common",
-        "//third_party/crates/log-0.4.30:log",
-        "//third_party/crates/thiserror-2.0.18:thiserror",
+        "//third_party/crates/log-0.4.33:log",
+        "//third_party/crates/thiserror-2.0.19:thiserror",
     ],
 )

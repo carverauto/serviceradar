@@ -263,10 +263,10 @@ spec:
         resources:
           limits:
             cpu: {{ default "1" $gateway.resources.limits.cpu | quote }}
-            memory: {{ default "1Gi" $gateway.resources.limits.memory | quote }}
+            memory: {{ default "2Gi" $gateway.resources.limits.memory | quote }}
           requests:
             cpu: {{ default "200m" $gateway.resources.requests.cpu | quote }}
-            memory: {{ default "512Mi" $gateway.resources.requests.memory | quote }}
+            memory: {{ default "1Gi" $gateway.resources.requests.memory | quote }}
         livenessProbe:
           tcpSocket:
             port: grpc

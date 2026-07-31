@@ -162,9 +162,8 @@ agentGateway:
   enabled: true
   replicas: 3
   publicHostname: "demo-gw.serviceradar.cloud"
-  # Persist the live kubectl-set memory limits (argo would otherwise revert to
-  # the chart default 1Gi, which OOMKills under reconnect-storm spikes; the
-  # gateway sits at ~800Mi steady-state). cpu left at template defaults.
+  # Demo HA headroom above the chart default (1Gi/2Gi). Reconnect-storm spikes
+  # still push the gateway past 2Gi; steady-state is ~850–900Mi.
   resources:
     requests:
       memory: "1Gi"
@@ -493,9 +492,8 @@ gobgp:
 
 core:
   replicas: 3
-  # Persist the live kubectl-set memory limit (argo would otherwise revert to
-  # the chart default 4Gi, which OOMKills core-elx under load; live core runs
-  # at 16Gi). cpu left at template defaults.
+  # Demo HA headroom above the chart default (1Gi/8Gi). Live core sits around
+  # 1.4–1.5Gi RSS but spikes well past 8Gi under full demo load.
   resources:
     requests:
       memory: "2Gi"

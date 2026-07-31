@@ -129,7 +129,7 @@ rust_library(
         "//third_party/crates/ahash-0.8.12:build_script_build",
         "//third_party/crates/cfg-if-1.0.4:cfg_if",
         "//third_party/crates/getrandom-0.3.4:getrandom",
-        "//third_party/crates/zerocopy-0.8.48:zerocopy",
+        "//third_party/crates/zerocopy-0.8.55:zerocopy",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
             "//third_party/crates/once_cell-1.21.4:once_cell",  # cfg(not(all(target_arch = "arm", target_os = "none")))

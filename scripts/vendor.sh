@@ -172,15 +172,19 @@ if oneio is not None:
         print(f"Removed {hits} unreachable rust-s3 dep edge(s) from {build}")
 PY
 
-# Build all vendored deps with those two patches applied;
-# In case the patch is incompatible with a newer version, it will fail here.
-bazel build  //third_party/crates/...
-
 # Record the exact Cargo inputs that produced the committed vendor tree. The root
 # crate universe no longer has a from_cargo extension in MODULE.bazel, so its input
 # hashes do not belong in MODULE.bazel.lock. Native add-on release gates consume
 # this deterministic index instead and can reject a stale vendor snapshot without
 # re-vendoring the whole workspace in every CI job.
+#
+# This runs BEFORE the verification build below, and the ordering is deliberate. The
+# vendor tree on disk was produced by these inputs whether or not it goes on to compile,
+# and this script runs under `set -o errexit`: recording afterwards means a failed build
+# leaves a regenerated tree beside a stale index. That combination is worse than either
+# problem alone, because the next CI run reports "vendor snapshot is stale" instead of the
+# build error that actually needs fixing, and the fix looks like a re-vendor rather than
+# the dependency problem it really is.
 VENDOR_INPUTS="third_party/crates/.serviceradar-vendor-inputs"
 VENDOR_INPUTS_TMP="$(mktemp "${VENDOR_INPUTS}.XXXXXX")"
 trap 'rm -f "${VENDOR_INPUTS_TMP}"' EXIT
@@ -224,3 +228,7 @@ PY
 mv "${VENDOR_INPUTS_TMP}" "${VENDOR_INPUTS}"
 trap - EXIT
 echo "Recorded Cargo vendor inputs in ${VENDOR_INPUTS}"
+
+# Build all vendored deps with those two patches applied;
+# In case the patch is incompatible with a newer version, it will fail here.
+bazel build  //third_party/crates/...

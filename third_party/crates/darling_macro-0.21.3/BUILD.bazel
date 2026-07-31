@@ -95,7 +95,7 @@ rust_proc_macro(
     version = "0.21.3",
     deps = [
         "//third_party/crates/darling_core-0.21.3:darling_core",
-        "//third_party/crates/quote-1.0.45:quote",
-        "//third_party/crates/syn-2.0.117:syn",
+        "//third_party/crates/quote-1.0.47:quote",
+        "//third_party/crates/syn-2.0.119:syn",
     ],
 )

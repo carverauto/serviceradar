@@ -99,6 +99,6 @@ rust_library(
     }),
     version = "0.14.0",
     deps = [
-        "//third_party/crates/either-1.15.0:either",
+        "//third_party/crates/either-1.17.0:either",
     ],
 )

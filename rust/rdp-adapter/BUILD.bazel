@@ -28,7 +28,7 @@ rust_library(
     crate_root = "src/lib.rs",
     deps = [
         "//third_party/crates:serde",
-        "//third_party/crates:serde_json-1.0.150",
+        "//third_party/crates:serde_json",
         "//third_party/crates:zeroize",
     ],
 )
@@ -44,7 +44,7 @@ rust_library(
     crate_root = "src/lib.rs",
     deps = [
         "//third_party/crates:serde",
-        "//third_party/crates:serde_json-1.0.150",
+        "//third_party/crates:serde_json",
         "//third_party/crates:zeroize",
     ],
 )

@@ -99,40 +99,40 @@ rust_library(
     version = "8.0.5",
     deps = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # aarch64-apple-darwin
+            "//third_party/crates/libc-0.2.189:libc",  # aarch64-apple-darwin
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # aarch64-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # aarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/libc-0.2.186:libc",  # arm-unknown-linux-gnueabi
+            "//third_party/crates/libc-0.2.189:libc",  # arm-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # i686-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # i686-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # powerpc-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # powerpc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # riscv64gc-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # riscv64gc-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # s390x-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # s390x-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/libc-0.2.186:libc",  # x86_64-apple-darwin
+            "//third_party/crates/libc-0.2.189:libc",  # x86_64-apple-darwin
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
-            "//third_party/crates/libc-0.2.186:libc",  # x86_64-unknown-freebsd
+            "//third_party/crates/libc-0.2.189:libc",  # x86_64-unknown-freebsd
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # x86_64-unknown-linux-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # x86_64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/libc-0.2.186:libc",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "//third_party/crates/libc-0.2.189:libc",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
         ],
         "//conditions:default": [],
     }),

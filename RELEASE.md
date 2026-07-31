@@ -49,9 +49,18 @@ bazel run --stamp //build/release:publish_packages -- \
 
 The `publish_packages` binary performs the following:
 
-1. Builds every `pkg_deb` and `pkg_rpm` target declared via `build/packaging/packages.bzl` (transitively pulled in through `//build/release:package_artifacts`).
+1. Builds the `pkg_deb` / `pkg_rpm` targets listed in `RELEASE_PACKAGES`
+   (`build/packaging/packages.bzl`), exposed via
+   `//build/release:package_artifacts`. That set is intentionally limited to
+   edge installers (agent, NATS, CLI, collectors, trapd, rperf server, and
+   rperf-checker client). Control-plane services ship as container images /
+   Helm only; individual packages remain buildable under
+   `//build/packaging/<name>:<name>_deb` when needed.
 2. Creates or updates the Forgejo release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
+4. After finalization, the release workflow runs
+   `scripts/prune-forgejo-releases.sh` to keep only the newest 10 fat releases
+   (large deb/rpm attachment sets). Git tags are retained.
 
 ### Useful flags
 

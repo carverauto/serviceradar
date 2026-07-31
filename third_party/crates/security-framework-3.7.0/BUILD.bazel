@@ -100,10 +100,10 @@ rust_library(
     }),
     version = "3.7.0",
     deps = [
-        "//third_party/crates/bitflags-2.11.1:bitflags",
+        "//third_party/crates/bitflags-2.13.1:bitflags",
         "//third_party/crates/core-foundation-0.10.1:core_foundation",
         "//third_party/crates/core-foundation-sys-0.8.7:core_foundation_sys",
-        "//third_party/crates/libc-0.2.186:libc",
+        "//third_party/crates/libc-0.2.189:libc",
         "//third_party/crates/security-framework-sys-2.17.0:security_framework_sys",
     ],
 )
