@@ -46,6 +46,20 @@ rust_test(
 # neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
 # the shared fixture.
 #
+# `no-remote-exec` pins execution to the runner, and is load-bearing under --config=ci.
+# scripts/ci/configure-srql-fixture.sh writes the fixture CA to ${RUNNER_TEMP}/srql-fixture-ca.crt
+# and exports FOUR variables that are paths to it -- PGSSLROOTCERT, CNPG_CA_FILE,
+# SERVICERADAR_TEST_DATABASE_CA_CERT_FILE, SRQL_TEST_DATABASE_CA_CERT_FILE. --test_env forwards
+# the path, never the file, so on a BuildBuddy executor the test dies with
+#
+#   FAILED: failed to open PGSSLROOTCERT
+#   Caused by: No such file or directory (os error 2)
+#
+# The secret cannot become an action input without baking it into the action cache key, and the
+# fixture-reachability probe in that same script tests the route from the RUNNER, which is the
+# client this whole design assumes. Only execution is pinned: `no-remote-exec` leaves remote
+# CACHING intact (that would be `no-remote`).
+#
 # Sequencing lives in the workflow, because Bazel deliberately does not order tests:
 #   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
 #     -> (elixir) integration_tests -> teardown_db
@@ -58,6 +72,7 @@ rust_test(
         tags = [
             "external",
             "manual",
+            "no-remote-exec",
         ],
         deps = all_crate_deps(
             normal = True,
@@ -92,6 +107,7 @@ rust_test(
     tags = [
         "external",
         "manual",
+        "no-remote-exec",
     ],
     deps = all_crate_deps(
         normal = True,

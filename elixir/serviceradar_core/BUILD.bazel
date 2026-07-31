@@ -309,16 +309,26 @@ ex_unit_tests(
             # set of names from the same shard list.
             "SERVICERADAR_TEST_DB_SHARD": shard,
         },
-        # `manual` only. NOT `external`: that disables Bazel's test caching, which is
-        # load-bearing for the lifecycle targets below (a cached "pass" would provision nothing)
-        # but pure loss here. This target's result is a function of its declared inputs -- the
-        # sources and the migrations that produced the template -- so a cache hit on BuildBuddy is
-        # a legitimate hit.
+        # NOT `external`: that disables Bazel's test caching, which is load-bearing for the
+        # lifecycle targets below (a cached "pass" would provision nothing) but pure loss here.
+        # This target's result is a function of its declared inputs -- the sources and the
+        # migrations that produced the template -- so a cache hit on BuildBuddy is a legitimate
+        # hit.
         #
-        # `manual` stays: this needs the SRQL/CNPG fixture, whose URL arrives through --test_env.
+        # `manual`: this needs the SRQL/CNPG fixture, whose URL arrives through --test_env.
         # Without it test_helper takes the no-database branch and excludes every test, which would
         # report a vacuous pass.
-        tags = ["manual"],
+        #
+        # `no-remote-exec`: the fixture CA is a file on the RUNNER
+        # (${RUNNER_TEMP}/srql-fixture-ca.crt, written by scripts/ci/configure-srql-fixture.sh),
+        # and config/test.exs reads it by path through CNPG_CA_FILE /
+        # SERVICERADAR_TEST_DATABASE_CA_CERT_FILE. --test_env forwards the path, not the file, so
+        # under --config=ci a BuildBuddy executor cannot open it. Execution only -- remote caching
+        # still applies, which is the whole reason this target is not `external`.
+        tags = [
+            "manual",
+            "no-remote-exec",
+        ],
         deps = [":erlang_app"],
     )
     for shard in integration_shard_names()
@@ -354,7 +364,8 @@ test_suite(
 #
 # `external` disables Bazel's test caching. Without it a rerun would be a cache hit that
 # applied no migrations -- a green job that changed nothing. `manual` keeps it out of //...
-# so an ordinary `bazel test` never points DDL at the shared fixture.
+# so an ordinary `bazel test` never points DDL at the shared fixture. `no-remote-exec` pins it
+# to the runner, where the fixture CA file actually exists -- see //rust/integration-db.
 ex_unit_test(
     name = "migrate_template",
     size = "enormous",
@@ -386,6 +397,7 @@ ex_unit_test(
     tags = [
         "external",
         "manual",
+        "no-remote-exec",
     ],
     deps = [":erlang_app"],
 )
