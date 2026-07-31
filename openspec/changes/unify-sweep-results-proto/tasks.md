@@ -546,8 +546,10 @@
 - [ ] 2.22 **Bind attribution to the accepted record in the spool
   (`usp2-05b-spool-attribution`; needs companion ABI task 1.3, plus local 2.10, 2.20 and 2.21).** It CONSUMES the durable assignment mapping that local task 2.20
   implements; without that dependency 2.22 could be checked against a mapping that
-  does not exist. INVOKE the shared
-  validated join implemented in 1.3 rather than restating its rules here. FIRST verify the SEMANTIC
+  does not exist. INVOKE the validators task 1.3 implements rather than restating their
+  rules here -- 1.3 owns the correlation RULES and enforcement; THIS task owns the shared
+  validated-attribution RESULT that wraps them: its type, its production from each body's
+  own operands, and its consumption. FIRST verify the SEMANTIC
   JOIN, field by field, refusing the append as a PERMANENT error on any mismatch
   and never storing a mismatch as unattributable: attribution
   `contract_bundle_sha256` == the record's `EdgeOutputContractRef` bundle digest;
