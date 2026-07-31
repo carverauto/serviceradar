@@ -100,23 +100,24 @@ here.
   separate HOST `ASSIGNMENT_EXECUTION` grant. Both compiled-assignment digest grammars and
   both claim tables are frozen in Appendix A, with shared Go-authored vectors.
 
-  STILL OPEN in 1.3 -- TWO ITEMS. Do not describe the Elixir validator as the last
-  remaining piece; that repeats the error this entry already corrected once:
-  (1) the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
-  `SweepExecutionSource`, with a positive and a mismatch vector per variant) is NOT
-  designed. This is the largest remaining item.
-  (2) the ELIXIR EXECUTION-GRANT validator. The CARRIER peer has LANDED:
-  `CompiledAssignmentValidate` covers structure, both self digests, the attestation's binding
-  across every member it commits, the record relation, the lease constraint, and the 64 KiB
-  received-byte ceiling via a curated `WireDecode.decode_compiled_assignment/1` that also runs
-  the recursive wire-hygiene gate.
-  What remains is a SEPARATE validator for the ASSIGNMENT_EXECUTION grant -- Go's
-  `validateExecutionGrantClaims`, its 16 KiB received-byte ceiling and its
-  envelope-containment rule. An earlier revision of this entry said the carrier claim was
-  withheld "since Go's carrier surface includes the grant's claim validation"; that is WRONG.
-  Go's `ValidateCompiledSweepAssignment` does NOT validate a grant -- the grant is checked by
-  its own function, from the composed authorization boundary. The two are separate peers, and
-  the carrier peer is complete.
+  STILL OPEN in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX (per permitted
+  `SweepExecutionSource`, with a positive and a mismatch vector per variant). It is NOT
+  designed, and it is the only remaining item.
+
+  Both Elixir peers have landed. `CompiledAssignmentValidate` covers the CARRIER: structure,
+  both self digests, the attestation's binding across every member it commits, the record
+  relation, the lease constraint, and the 64 KiB received-byte ceiling via a curated
+  `WireDecode.decode_compiled_assignment/1` that also runs the recursive wire-hygiene gate.
+  `ExecutionGrantValidate` covers the GRANT: every claim member interpreted against the record
+  and carrier, the required plan/range lengths, traffic class equal to the carrier's,
+  collection-window containment in the envelope, the exact-carrier binding, source identity
+  present exactly when the record's is, and the 16 KiB received-byte ceiling via a curated
+  `WireDecode.decode_execution_grant/1`. Freshness is a separate `fresh_at/2`, since it asks
+  about an instant rather than a shape.
+  Neither peer VERIFIES a signature or AUTHORIZES collection: those need key material, a trust
+  resolver, an attested caller and the authoritative record, and belong to the composed
+  boundary Go implements as `AuthorizeCollectionNow`. No Elixir peer of that is claimed.
+  The remaining 1.3 work is therefore the correlation matrix alone.
 
   NOT 1.3 work, recorded here only so neither is lost:
   - the tagged POSITIVE / EXPLICIT_NEGATIVE mapping VALUE and its durable negative reason

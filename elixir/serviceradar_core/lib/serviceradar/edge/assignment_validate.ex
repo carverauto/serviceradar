@@ -36,7 +36,9 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
+  alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
   alias Serviceradar.Edge.V1.SweepAssignmentRecordV1
+  alias Serviceradar.Edge.V1.SweepMtrExpectationV1
   alias ServiceRadar.Edge.WireDecode
 
   @sha256_len 32
@@ -52,6 +54,14 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
                   SemanticValidate.enum_field_policy(),
                   {SweepAssignmentRecordV1, :state}
                 )
+
+  # Same rule for the source-authorization kinds: the SHARED policy table, not a second local
+  # list. A hand-maintained copy drifts from `SemanticValidate` silently -- and this one was
+  # exactly that, written out longhand right after the comment above explained why not to.
+  @source_auth_kinds Map.fetch!(
+                       SemanticValidate.enum_field_policy(),
+                       {EdgeSourceSpanIdentityV1, :kind}
+                     )
 
   @type reason ::
           :identity
@@ -148,7 +158,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   expect.
   """
   @spec validate(term()) :: :ok | {:error, reason()}
-  def validate(r) when is_map(r) do
+  def validate(%SweepAssignmentRecordV1{} = r) do
     with :ok <- no_unknown_fields(r),
          :ok <- validate_identity(r),
          :ok <- validate_scope(r),
@@ -158,6 +168,10 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
     end
   end
 
+  # A PLAIN MAP is refused, with the total fallback retained. Protobuf decoding always yields
+  # the struct, so a map reached this by skipping the wire layer -- where retained unknown
+  # fields and wire-hygiene violations live. A fully populated one used to validate, and then
+  # carried straight through the composed grant boundary.
   def validate(_), do: {:error, :identity}
 
   @doc """
@@ -214,8 +228,34 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
         _ -> []
       end
 
-    if unknown == [] and nested == [], do: :ok, else: {:error, :unknown_fields}
+    # The SOURCE IDENTITY is a nested message too, and it was omitted: retained bytes inside it
+    # sit outside every field-framed grammar that reads it, exactly like the expectation's.
+    # Go's hasUnknownFields is recursive, so this walk has to reach the same places.
+    source =
+      case Map.get(r, :source_identity) do
+        si when is_map(si) -> Map.get(si, :__unknown_fields__, [])
+        _ -> []
+      end
+
+    if unknown == [] and nested == [] and source == [],
+      do: :ok,
+      else: {:error, :unknown_fields}
   end
+
+  # The source identity is OPTIONAL -- its joint absence is a legal key shape -- but when
+  # present EVERY member must be valid, or the key it builds is malformed. It must also be the
+  # generated struct: a plain map skips the wire layer, and its retained unknown fields would
+  # be invisible to the walk below.
+  defp source_identity_valid?(nil), do: true
+
+  defp source_identity_valid?(%EdgeSourceSpanIdentityV1{} = si) do
+    Map.get(si, :kind) in @source_auth_kinds and
+      uuid?(Map.get(si, :context_id)) and
+      uuid?(Map.get(si, :source_scope_id)) and
+      digest?(Map.get(si, :source_scope_sha256))
+  end
+
+  defp source_identity_valid?(_), do: false
 
   defp same_plan(r, h) do
     # The plan header carries NO assignment epoch (tag 9 retired): an immutable plan
@@ -269,6 +309,12 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
     # PROTOBUF DOMAINS, not merely signs: 2^32 in a uint32 field and 2^64 in a
     # uint64 one are values the wire cannot represent, so accepting them describes
     # a message that cannot exist.
+    # run_id is the PRODUCER's run identity and a REQUIRED mapping-key member. It is
+    # deliberately NOT compared to execution_id: the spec makes them independent,
+    # because resolving a span to an execution is what the mapping lookup does. An
+    # all-zero value is not a canonical UUID, and without this rule Elixir accepted
+    # one while Go rejected it -- a malformed key member reaching the grant boundary.
+    # The carrier reference: id AND digest, both required.
     if uuid?(Map.get(r, :producer_assignment_id)) and uuid?(Map.get(r, :execution_id)) and
          PlanValidate.uuidv7?(Map.get(r, :execution_plan_id)) and
          uuid?(Map.get(r, :network_scope_id)) and
@@ -278,7 +324,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
          uint64?(Map.get(r, :record_sequence)) and Map.get(r, :record_sequence) > 0 and
          pos_int64?(Map.get(r, :authored_at_unix_nano)) and
          uint32?(Map.get(r, :execution_shard)) and
-         uint64?(Map.get(r, :assignment_epoch)) do
+         uint64?(Map.get(r, :assignment_epoch)) and
+         uuid?(Map.get(r, :run_id)) and
+         PlanValidate.uuidv7?(Map.get(r, :compiled_assignment_id)) and
+         digest?(Map.get(r, :compiled_assignment_sha256)) and
+         source_identity_valid?(Map.get(r, :source_identity)) do
       :ok
     else
       {:error, :identity}
@@ -347,7 +397,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   # treating it as "expects nothing" turns a missing authority into a waiver.
   defp validate_expectation(nil), do: {:error, :expectation}
 
-  defp validate_expectation(e) when is_map(e) do
+  # REQUIRES the generated struct, like the record and source identity around it. A plain map
+  # skipped the wire layer, so its retained unknown fields are invisible to the walk above --
+  # and a fully populated one validated here AND carried through the composed grant boundary.
+  # The fallback below keeps this total.
+  defp validate_expectation(%SweepMtrExpectationV1{} = e) do
     count = Map.get(e, :ordinal_count)
     commitment = Map.get(e, :ordinal_range_commitment)
     empty = commitment == <<0::256>>
