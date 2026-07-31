@@ -1,0 +1,26 @@
+elixir/README.md
+  s_8f6823274fc459::t_a4e5e707db63da 253-256
+  s_8f6823274fc459::t_9a1ed43a169e3d 1-59,62-252,257-520,526-623,626-628,640-641,666,681-726,733-761
+  s_8f6823274fc459::t_ca80d930611c2f 667-680
+  s_8f6823274fc459::t_25bc215b64272a 521-525
+  s_8f6823274fc459::t_75ce29cb751987 624-625,629-630,642-647,652-657
+  s_8f6823274fc459::t_0834c935407b2e 631-639,648-651,658-665
+  s_8f6823274fc459::t_f334d361f96ec1 60-61
+  s_8f6823274fc459::t_d513da125a9689 727-732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "bfbedb26a618992e9181cb3e88cba19fe35532b8",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
