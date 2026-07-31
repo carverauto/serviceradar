@@ -1,0 +1,25 @@
+elixir/web-ng/test/phoenix/components/srql_components_test.exs
+  s_8f6823274fc459::t_c3bdedbea9adde 21-25
+elixir/web-ng/test/phoenix/live/device_live/run_task_modal_test.exs
+  s_8f6823274fc459::t_554098339782d9 128
+  s_8f6823274fc459::t_30a886e28bc954 65-85
+  s_8f6823274fc459::t_a83a54897621f1 102
+elixir/web-ng/test/phoenix/settings/shell_test.exs
+  s_8f6823274fc459::t_16519955f40eff 231-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "4542f25e9a1d327f9da50958111eab52465a5395",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
