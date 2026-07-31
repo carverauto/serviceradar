@@ -1,0 +1,28 @@
+go/cmd/wasm-plugins/dusk-checker/go.mod
+  s_155758d020800a::t_3e68181d90fa5c 5
+go/cmd/wasm-plugins/dusk-checker/main.go
+  s_155758d020800a::t_3e68181d90fa5c 13
+go/README.md
+  s_155758d020800a::t_0922ea6eab8c87 1-39,63-220
+  s_155758d020800a::t_adea84129fe358 40-62
+go/cmd/wasm-plugins/dusk-checker/main_test.go
+  s_155758d020800a::t_3e68181d90fa5c 10
+go/cmd/wasm-plugins/dusk-checker/go.sum
+  s_155758d020800a::t_07db1f7f22be40 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ded22bb5a7a2991d6d48b69406a06b3d97ad8102",
+  "prompts": {},
+  "sessions": {
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
