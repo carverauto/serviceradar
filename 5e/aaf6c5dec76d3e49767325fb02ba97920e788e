@@ -1,0 +1,21 @@
+docs/writting/AiStyleguide.md
+  s_8f6823274fc459::t_1e6ae857aafb9e 1-169
+docs/writting/ElementsOfStyle.md
+  s_8f6823274fc459::t_40dcaa261be1f8 1-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5eaaf6c5dec76d3e49767325fb02ba97920e788e",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
