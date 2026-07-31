@@ -1,0 +1,21 @@
+third_party/crates/.serviceradar-vendor-inputs
+  s_8f6823274fc459::t_37839ea7923cce 1-2,31
+third_party/crates/defs.bzl
+  s_8f6823274fc459::t_37839ea7923cce 559-567,962-965,1135-1136,1269-1270,1389-1390,1499-1500,1594-1595,1703-1704,1829-1830,1962-1963,2073-2074,2168-2169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "adc32fdef649d2fb6885bd6a09476dee9b2c5ade",
+  "prompts": {},
+  "sessions": {
+    "s_8f6823274fc459": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e0fed29-7604-44be-ab59-a7a23835c3df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
