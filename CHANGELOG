@@ -1,3 +1,36 @@
+# ServiceRadar v1.4.27
+
+Published the camera live-feed session fix that was cut as v1.4.26 but never
+shipped (release publish failed on removed Debian security debs), and unblocked
+container image builds by refreshing the postgis-layer curl/nghttp2 pins.
+
+## Whats New
+
+**1.4.27**
+- Camera relay: agent-gateway reaps lease-expired relay sessions so orphaned
+  streams no longer permanently exhaust the per-agent limit of 16. Core reuses
+  a live edge session for the same camera source and stream profile (one
+  Membrane pull, many viewers) instead of opening a new agent relay on every
+  view. Soft viewer disconnects retain shared edge pulls while viewers remain;
+  idle-timeout still tears them down. (PR #4781)
+- Build: web-ng Bazel precommit stages shared Credo configs into the Mix
+  workdir so `mix credo` no longer fails with a missing `.credo.ex_slop.exs`.
+  (PR #4781)
+- Build: refresh MODULE.bazel Debian `http_file` pins for libcurl3-gnutls
+  (deb12u15) and libnghttp2-14 (deb12u3) so the postgis extension layer can
+  fetch during release publish after upstream removed the prior security
+  updates. (unblocks v1.4.26 publish failure)
+- Dgraph client: first-party Rust client with hermetic E2E integration tests
+  and Bazel-generated gRPC bindings for dgraph protos. (PR #4738)
+- Packaging / release: tagged Forgejo deb/rpm assets are limited to edge
+  installers (agent, nats, cli, log-collector, flow-collector, bmp-collector,
+  trapd, rperf, rperf-checker). Control-plane services remain container/Helm
+  only. Finalize prunes fat Forgejo releases to the newest 10 to control
+  attachment growth. (PR #4773)
+- CI and build graph: Bazel-native Go short tests, parallel Rust musl/lint
+  legs, hermetic web-ng precommit cache layers, and several cache-key and
+  registry-auth fixes that stop false invalidations and unauthenticated pulls.
+
 # ServiceRadar v1.4.26
 
 Fixed camera live feeds dying after gateway session exhaustion, landed the
