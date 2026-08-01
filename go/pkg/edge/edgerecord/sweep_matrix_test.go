@@ -96,14 +96,37 @@ func TestSweepSourceRunIDRequiredAbsence(t *testing.T) {
 // source-INDEPENDENT, which says the three rows SHARE a check -- it does not
 // show all three INVOKE it, and one sampled row is satisfied by an
 // implementation that checks canonical form on one source and skips the others.
-// Malformed SHAPES belong to the shared UUID predicate's own suite, so one
-// shape per row is enough here.
+// The three shapes below are the three INDEPENDENT predicates of "canonical UUID";
+// they are not a catalogue of malformations, which does belong to the shared UUID
+// predicate's own suite.
 func TestSweepSourceRunIDMalformedPerRequiredRow(t *testing.T) {
+	// Three shapes, because "canonical UUID" is three independent predicates and
+	// LENGTH alone proves only one. With a wrong-length vector as the sole
+	// malformed case, deleting BOTH the version and variant checks from
+	// ValidateCanonicalUUID leaves the whole suite green -- verified by mutation.
+	shapes := []struct {
+		name string
+		id   func(*testing.T) []byte
+	}{
+		{"wrong-length", func(*testing.T) []byte { return []byte{0x01, 0x02, 0x03} }},
+		{"bad-version", func(t *testing.T) []byte {
+			id := mustUUID(t)
+			id[6] &= 0x0F // version nibble 0: outside the defined 1-8
+			return id
+		}},
+		{"bad-variant", func(t *testing.T) []byte {
+			id := mustUUID(t)
+			id[8] = (id[8] & 0x3F) | 0xC0 // variant 110, not the RFC 10
+			return id
+		}},
+	}
 	for _, src := range requiredRows {
-		b := sweepBatchFor(t, src)
-		b.SourceRunId = []byte{0x01, 0x02, 0x03} // wrong length
-		if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
-			t.Fatalf("%v: want ErrSweepSourceRunID for malformed, got %v", src, err)
+		for _, sh := range shapes {
+			b := sweepBatchFor(t, src)
+			b.SourceRunId = sh.id(t)
+			if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
+				t.Fatalf("%v/%s: want ErrSweepSourceRunID, got %v", src, sh.name, err)
+			}
 		}
 	}
 }
