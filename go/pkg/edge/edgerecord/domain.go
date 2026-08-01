@@ -1187,11 +1187,13 @@ func dispatchContract(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputContrac
 }
 
 // joinSweepAuthority binds a decoded sweep body to the record's signed source
-// authority AND attested producer: source kind, the execution identity
-// (context_id == execution_id, scope_id == target_range_id), plan/range digests,
-// the fence/assignment epoch, and the observed collection time -- so a valid
-// signature cannot be paired with a body naming a different execution, range,
-// epoch, or time window.
+// authority AND attested producer: source kind; the SELECTED CONTEXT identity
+// (context_id == the ONE operand this source's row names -- execution_id on the
+// scheduled-sweep and sweep-profile rows, source_run_id on the other three); the
+// range identity (scope_id == target_range_id); plan/range digests; the
+// fence/assignment epoch; and the observed collection time -- so a valid signature
+// cannot be paired with a body naming a different run, range, epoch, or time
+// window. Not every row binds the EXECUTION: three bind a source-side run.
 func joinSweepAuthority(r *edgev1.EdgeRecordV1, batch *edgev1.SweepObservationBatchV1) error {
 	rule, ok := sweepRuleFor(batch.GetSource())
 	if !ok {

@@ -38,6 +38,7 @@ go_test(
         "principal_test.go",
         "publication_identity_test.go",
         "recovery_test.go",
+        "sweep_matrix_test.go",
         "validate_test.go",
     ],
     data = ["//proto/edge/v1:edge_testdata"],
