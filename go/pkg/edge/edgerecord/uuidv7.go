@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -106,9 +107,44 @@ func ValidateUUIDv7(b []byte) error {
 	return nil
 }
 
+// ErrUUIDv7TimeRange reports that a structurally valid UUIDv7 carries a
+// millisecond timestamp that cannot be expressed as Unix NANOSECONDS in an
+// int64. This is reachable from valid input, not a corruption signal: RFC 9562
+// gives the timestamp 48 bits (up to 281474976710655 ms), while int64 nanos top
+// out near 9223372036854 ms -- so roughly 97% of the encodable range overflows.
+var ErrUUIDv7TimeRange = errors.New("edgerecord: UUIDv7 timestamp is out of int64 nanosecond range")
+
+// maxUUIDv7Millis is the largest millisecond timestamp convertible to int64
+// nanoseconds without overflow.
+const maxUUIDv7Millis = math.MaxInt64 / nanosPerMilli
+
+const nanosPerMilli = 1_000_000
+
+// UUIDv7Nanos extracts a UUIDv7's embedded timestamp as Unix NANOSECONDS, with
+// the millisecond-to-nanosecond conversion CHECKED.
+//
+// Every site that compares a UUIDv7 identity time against a signed window MUST
+// use this rather than multiplying UUIDv7Millis itself. An unchecked `ms * 1e6`
+// wraps: a far-future identity becomes a small or negative nanosecond value that
+// can land INSIDE the window it should have been refused by, turning an identity
+// forgery into an accepted record. The conversion is one helper precisely so a
+// call site cannot silently opt out of the check.
+func UUIDv7Nanos(b []byte) (int64, error) {
+	ms, err := UUIDv7Millis(b)
+	if err != nil {
+		return 0, err
+	}
+	// ms is decoded from 48 unsigned bits, so it is never negative; only the
+	// upper bound is reachable.
+	if ms > maxUUIDv7Millis {
+		return 0, ErrUUIDv7TimeRange
+	}
+	return ms * nanosPerMilli, nil
+}
+
 // UUIDv7Millis extracts the embedded 48-bit Unix-millisecond timestamp. It does
 // not validate the version/variant; call ValidateUUIDv7 first for untrusted
-// input.
+// input. Callers comparing against a time window MUST use UUIDv7Nanos instead.
 func UUIDv7Millis(b []byte) (int64, error) {
 	if len(b) != 16 {
 		return 0, ErrInvalidUUIDv7

@@ -857,11 +857,10 @@ func validateRecoveryLane(r *edgev1.EdgeRecordV1) error {
 // within the production capability's validity window (and the source collection
 // window when present), so a stale/forged identity time is rejected.
 func validateIdentityTime(r *edgev1.EdgeRecordV1) error {
-	ms, err := UUIDv7Millis(r.GetEventId())
+	ns, err := UUIDv7Nanos(r.GetEventId())
 	if err != nil {
 		return ErrIdentityTime
 	}
-	ns := ms * 1_000_000
 	pc := r.GetProductionCapability()
 	if ns < pc.GetNotBeforeUnixNano() || ns > pc.GetExpiresAtUnixNano() {
 		return fmt.Errorf("%w: production window", ErrIdentityTime)
