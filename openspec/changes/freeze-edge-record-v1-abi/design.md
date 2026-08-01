@@ -723,3 +723,29 @@ endpoint conventions.
   from a COMPLETE union is what establishes not-lost.
 - **Capability oneof growth.** Task 1.3 added `collection` = 11 and `assignment_execution`
   = 12. Appendix A is the inventory; task entries do not track additions chronologically.
+
+### Pre-implementation audit for task 1.6a (loss-classification spans)
+
+Recorded here because it describes the state BEFORE the task landed, and a checked task
+should carry its stable rules and evidence rather than the gap that motivated it.
+
+At audit time: Elixir had only `HashGrammar` and no relational recovery validator, so its
+half was new code rather than a port of `recovery.go`; the Go validator re-marshalled decoded
+pages, so duplicate fields and non-minimal varints evaded the physical ceiling; several
+`validate.go` comments were stale; and validators still rejected unattributable spans. All of
+those are now closed — the rules that replaced them are in the task, the narrative is here.
+
+### Mutation record for the MtrCompletionDisposition enum (task 1.4)
+
+Kept here rather than in the ledger, which states the rule and its evidence.
+
+Two mutations, each of which COMPILES — so each is a kill rather than a failed experiment —
+with no edit to either runtime:
+
+- renumbering `SCHEDULER_LOST` 5 -> 6 fails the closed-set tests in both runtimes;
+- SWAPPING `QUARANTINED` and `SCHEDULER_LOST` fails the symbol-pin tests in both runtimes
+  while the closed-set tests stay GREEN.
+
+The second is why both test kinds exist: a swap preserves the set and moves only the meaning
+at each number, so a closed-set test cannot see it. Every existing completion golden vector
+stayed byte-identical under both, confirming the digest grammar did not move.
