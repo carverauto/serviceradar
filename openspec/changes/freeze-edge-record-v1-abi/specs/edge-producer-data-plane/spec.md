@@ -246,15 +246,25 @@ authorization result. The four dimensions and their typed outcome sets are:
    `EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL`.
    ABSENCE AND PRESENT-ZERO ARE DIFFERENT. `source_authorization` is OPTIONAL, and
    its ABSENCE is the only way to express "no source authorization"; such a record
-   is valid. A PRESENT `source_authorization` whose kind is
-   `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED` SHALL be REJECTED: it asserts a
-   source authorization while naming none.
+   is REPRESENTABLE and valid AT THIS LAYER. A PRESENT `source_authorization` whose
+   kind is `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED` SHALL be REJECTED: it
+   asserts a source authorization while naming none.
+   THESE RULES ARE RECORD-LAYER REPRESENTABILITY, SUBJECT TO PAYLOAD-SPECIFIC
+   REQUIREMENTS. "Valid at the record layer" does NOT mean every payload accepts it:
+   a payload contract MAY REQUIRE source authorization, and `SweepObservationBatchV1`
+   DOES -- see the sweep correlation requirements below. The record layer says the
+   field is optional and therefore no structural gate can demand it; a payload
+   contract may still demand it, and where it does that demand governs. Read as an
+   unqualified permission, this paragraph would contradict the sweep matrix.
    SOURCE PRESENCE IS INDEPENDENT OF ATTRIBUTION CLASSIFICATION. Absence SHALL NOT
    be read as, or equated with, PASSIVE -- PASSIVE asserts only that a record claims
    no produced target range, which is a different question from whether a source
    authorization is carried. All four combinations of
    {ACTIVE, PASSIVE} x {source present, source absent} are legal and SHALL each be
-   representable; no component SHALL infer one axis from the other.
+   REPRESENTABLE at the record and classification layers; no component SHALL infer
+   one axis from the other. Representable is not the same as accepted by every
+   payload: a payload contract requiring source authorization narrows which of the
+   four its own records may use, without making any of them unrepresentable.
    The OUTPUT -- the historical-proof RESULT -- is NOT frozen here. It is not
    carried on the wire, it is not this enum (which says which authorization a record
    CLAIMS, never whether that claim proved out), and it exists even for records with
@@ -331,15 +341,19 @@ it.
 - **WHEN** a record carries a present `source_authorization` whose kind is
   `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED`
 - **THEN** it SHALL be rejected
-- **AND** an ABSENT `source_authorization` SHALL remain valid, being the only way to
-  express no source authorization
+- **AND** an ABSENT `source_authorization` SHALL remain valid AT THE RECORD LAYER, being the
+  only way to express no source authorization
+- **AND** this SHALL NOT be read as accepting absence in a payload whose own contract
+  REQUIRES source authorization, such as `SweepObservationBatchV1`
 
 #### Scenario: Source presence is not read as an attribution classification
 - **GIVEN** a record whose `source_authorization` is absent
 - **WHEN** its attribution classification is determined
 - **THEN** the absence SHALL NOT make it PASSIVE, and an ACTIVE record with no
-  source authorization SHALL remain legal
+  source authorization SHALL remain legal AT THE RECORD AND CLASSIFICATION LAYERS
 - **AND** neither axis SHALL be inferred from the other
+- **AND** a payload contract MAY still require source authorization, narrowing which
+  combinations its own records may use without making any of them unrepresentable
 
 
 ### Requirement: The service-ingress publication slot is a frozen wire identity
@@ -1869,3 +1883,505 @@ here as GUIDANCE, not a SHALL.
   the whole plan and the other decodes page-by-page
 - **THEN** both SHALL be conformant, provided each bounded every artifact before decoding it
 - **AND** the plan SHALL be rejected by both
+
+### Requirement: A sweep batch's execution source selects its authority kind and context operand
+A record whose payload is a `SweepObservationBatchV1` SHALL carry SIGNED SOURCE AUTHORITY in
+its ENCLOSING `EdgeRecordV1.source_authorization`, and the BODY's `source` SHALL select both
+the `EdgeSourceAuthorizationKind` that authority must carry and WHICH body field the signed
+context operand is compared against.
+
+THE BATCH CANNOT CARRY AUTHORITY. `SweepObservationBatchV1` has no authorization field and no
+signature; authority lives one level up, on the record that encloses it. An earlier revision
+said the batch "SHALL carry signed source authority", which named a field that does not exist.
+The correlation is precisely a join ACROSS that boundary -- body fields against the enclosing
+record's signed claims -- and collapsing the two messages into one obscures the only thing the
+rule does.
+
+Source authority is OPTIONAL at the record level, and that optionality SHALL NOT be read
+as making it optional here: a sweep body without it has no signed statement of what was
+authorized, so there is nothing for the correlation to compare against. A sweep record
+lacking source authority SHALL be rejected.
+
+The mapping is FROZEN and EXHAUSTIVE over the declared non-zero sources:
+
+| `SweepExecutionSource` | `EdgeSourceAuthorizationKind` | signed context operand | `source_run_id` |
+| --- | --- | --- | --- |
+| `SCHEDULED_SWEEP` (1) | `SCHEDULED_SWEEP` (1) | `execution_id` | FORBIDDEN |
+| `SWEEP_PROFILE` (2) | `SWEEP_PROFILE` (2) | `execution_id` | FORBIDDEN |
+| `AD_HOC` (3) | `AD_HOC` (4) | `source_run_id` (scan_run_id) | REQUIRED |
+| `ON_DEMAND` (4) | `ON_DEMAND` (5) | `source_run_id` (command_id) | REQUIRED |
+| `SCHEDULED_CHECK` (5) | `SCHEDULED_CHECK` (3) | `source_run_id` (check_id) | REQUIRED |
+
+`source_run_id` is REQUIRED exactly where the signed `context_id` names a source-side run
+rather than the execution, and FORBIDDEN otherwise. Permitting it in the forbidden
+positions would leave a second, unchecked correlation candidate on the wire: a consumer
+could bind on it while the validator bound on `execution_id`, and nothing would say which
+was authoritative. Where it is required it SHALL be a canonical UUID.
+
+The KIND NUMBERS deliberately do not line up. Only TWO ordinals coincide --
+`SCHEDULED_SWEEP` and `SWEEP_PROFILE`; `AD_HOC`, `ON_DEMAND` and `SCHEDULED_CHECK` all
+differ. An implementation correlating by NUMBER rather than by this table would accept an
+ad-hoc body under scheduled-check authority. The table is the contract.
+
+`SWEEP_EXECUTION_SOURCE_UNSPECIFIED` (0) has NO authorized kind and SHALL be rejected
+before any other correlation runs. It is the proto default, so accepting it would let an
+unset field select a mapping.
+
+`EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN` and `..._RECOVERY_CONTROL` are NOT in the
+range of this mapping. A sweep record presenting either SHALL be rejected, and this
+requirement SHALL NOT be read as reserving them for later sweep use.
+
+BOTH RUNTIMES SHALL PIN THE MAPPING'S EXACT MEMBERSHIP as an inventory, in addition to any
+behavioural vectors. Vectors sample; only an exhaustive inventory shows that the mapping is
+TOTAL over the declared sources, that it is INJECTIVE, and that the two unreachable kinds
+are absent from its range. A vector set cannot establish absence.
+
+The inventory has TWO parts, and only one of them is descriptor-derived. The SOURCE and KIND
+columns SHALL be checked against the generated enum descriptors, so a renumbering or a new
+member fails. The CONTEXT OPERAND and `source_run_id` DISPOSITION columns are NOT enum
+domains and no descriptor knows them: they SHALL be pinned as LITERAL table entries, exactly
+as the frozen field inventories elsewhere in this change are literals a human wrote. A
+descriptor check over the operand column would assert nothing.
+
+#### Scenario: A body's source must match the signed kind
+- **WHEN** a sweep record's body `source` maps to a kind other than the one its signed
+  source authority carries
+- **THEN** the record SHALL be rejected
+
+#### Scenario: A sweep batch without source authority is rejected
+- **WHEN** a sweep record carries no source authorization
+- **THEN** it SHALL be rejected, whatever its body says
+
+#### Scenario: source_run_id is required or forbidden, never optional
+- **WHEN** a body carries `source_run_id` under `SCHEDULED_SWEEP` or `SWEEP_PROFILE`
+- **THEN** the record SHALL be rejected
+- **AND WHEN** it omits `source_run_id` under `AD_HOC`, `ON_DEMAND` or `SCHEDULED_CHECK`
+- **THEN** the record SHALL be rejected
+- **AND** both SHALL be decided by BODY VALIDATION, without consulting signed authority
+
+#### Scenario: The source selects which body field the signed context is compared against
+- **WHEN** a `source_run_id` row's body has `execution_id != source_run_id` and the signed
+  `context_id` equals the NON-SELECTED `execution_id`
+- **THEN** the record SHALL be rejected, even though the context matches a field the body
+  carries
+- **AND WHEN** an `execution_id` row's body omits `source_run_id`, as that row requires, and
+  its `execution_id` differs from the signed `context_id`
+- **THEN** the record SHALL be rejected
+- **AND** the mismatch SHALL NOT be shown by adding `source_run_id` to an `execution_id` row,
+  which would breach the disposition rule instead
+
+#### Scenario: An unspecified source is rejected before correlation
+- **WHEN** a sweep body carries `SWEEP_EXECUTION_SOURCE_UNSPECIFIED`
+- **THEN** the record SHALL be rejected, and no other correlation SHALL be consulted
+
+#### Scenario: An unreachable kind is refused, not merely unmapped
+- **WHEN** a sweep record's source authority carries `INTEGRATION_RUN` alongside an
+  otherwise-valid body
+- **THEN** the record SHALL be rejected at CORRELATION, not only absent from the inventory
+- **AND WHEN** it carries `RECOVERY_CONTROL` instead
+- **THEN** the record SHALL be rejected by the RESERVED RECOVERY LANE, which runs first, and
+  the vector SHALL assert that rejection rather than a correlation one
+
+### Requirement: The sweep correlation is proven by gate-owned vectors, labelled where frozen
+Every sweep correlation rule SHALL be proven by SHARED cross-language vectors. Each
+CORRELATION-OWNED negative SHALL differ from a committed POSITIVE control in EXACTLY ONE
+CORRELATION COMPARISON, and SHALL be carried by a SIGNATURE-VALID enclosing record.
+
+THE ONE-COMPARISON RULE IS SCOPED, in two ways that the gate table and its scenarios detail
+and that this opening SHALL NOT overrule:
+
+- vectors owned by an EARLIER gate change one INPUT and are refused there; the correlation
+  comparisons downstream of them are UNDEFINED, not required to hold;
+- `source_authority_absent` is the exception WITHIN correlation. It reaches correlation and
+  fails the PRESENCE check, which leaves EVERY claim relation undefined at once -- there are
+  no claims to compare against. It is one comparison in the only sense available, and a rule
+  demanding it differ in exactly one claim relation would be unsatisfiable.
+
+A negative that breaks two things at once proves whichever rule runs first, which is not the
+rule it is named after.
+
+"RE-SIGNED RECORD" IS NOT A THING THAT EXISTS, and an earlier revision requiring one was
+demanding the impossible. `EdgeRecordV1` carries NO signature field; signatures live on
+`EdgeSignedCapabilityV1.signature`, over that capability's own canonical signing bytes. What
+a negative SHALL do is:
+
+REBUILD THE RECORD IN THIS EXACT ORDER. The order is itself frozen, because two of these
+steps consume the output of others and a plausible-looking rearrangement silently produces an
+invalid record:
+
+1. APPLY every mutation the vector intends -- to the body, to record fields, to wrapper
+   fields, and to capabilities;
+2. IF THE BODY CHANGED: re-encode it to the exact bytes the vector carries, re-compress if
+   the record's `compression` is not NONE, update `encoded_size` to the payload length and
+   `uncompressed_size` to the decoded length (equal when compression is NONE), and recompute
+   `payload_sha256` over the exact encoded payload;
+3. RE-SIGN every capability whose COMPLETE SIGNING PREIMAGE changed -- not only those whose
+   claims changed;
+4. RECOMPUTE `semantic_envelope_sha256` LAST;
+5. REBUILD downstream authority that binds record bytes the vector changed.
+
+STEP 4 IS LAST BECAUSE THE SEMANTIC PREIMAGE CONTAINS CAPABILITY SIGNATURES. It frames each
+capability field-by-field INCLUDING its `signature` bytes, and frames the source authorization
+with a PRESENCE marker. Two consequences an earlier revision got wrong by recomputing the
+digest before re-signing:
+
+- computing the semantic digest and THEN re-signing leaves the digest stale, so the record
+  fails its own envelope check and the vector never reaches the gate it is named for;
+- REMOVING SOURCE AUTHORITY CHANGES THE SEMANTIC PREIMAGE WITH NO BODY CHANGE AT ALL, via that
+  presence marker. A rebuild conditioned only on "did the body change" would skip step 4 and
+  produce a stale digest for exactly the `source_authority_absent` vector.
+
+STEP 3 IS THE COMPLETE PREIMAGE, NOT THE CLAIMS. A capability's signing bytes cover its
+version, issuer id, issuer key id, algorithm, purpose, BOTH window endpoints and its claims. A
+vector that shifts a capability's validity window changes no claim and still invalidates the
+signature, so "re-sign when claims change" would leave it unsigned-for-its-content.
+
+STEP 2's SIZE FIELDS ARE NOT AN AFTERTHOUGHT: `encoded_size` MUST equal the payload length and
+`uncompressed_size` the decoded length, so a body mutation that changes length -- which nearly
+every one here does, since adding or removing `source_run_id` changes it -- otherwise leaves a
+record that fails WHOLE-RECORD VALIDATION.
+
+Sealing matters for the same reason re-signing was thought to: an unsealed mutation is refused
+by the payload or envelope digest check before any correlation is consulted.
+
+EVERY NEGATIVE SHALL DECLARE ITS OWNING GATE, and the last-gate obligation applies to the
+CORRELATION vectors only. "Every negative reaches correlation" would be UNSATISFIABLE: some
+of the vectors this requirement demands are refused, correctly and by design, by an EARLIER
+gate, and no re-signing can carry them further.
+
+| owning gate | vectors it owns | why it cannot reach correlation |
+| --- | --- | --- |
+| ENUM ADMISSION | `SWEEP_EXECUTION_SOURCE_UNSPECIFIED` | the value is outside the field's admitted domain, so it is refused as an ENUM before any field is interpreted |
+| BODY VALIDATION | every `source_run_id` DISPOSITION vector (forbidden-presence, required-absence, malformed) | decidable from the batch ALONE -- `source` and `source_run_id` are fields of the SAME message and no signed authority is consulted to compare them |
+| RECOVERY LANE | source authority carrying `RECOVERY_CONTROL` | the reserved-lane rule refuses recovery authority on a non-recovery route, ahead of correlation |
+| CORRELATION | ABSENT source authority; kind mismatch; selected-context mismatch; `INTEGRATION_RUN`; every PER RELATION and endpoint vector | each compares a body field against a SIGNED claim, so nothing earlier can decide them |
+
+ABSENT SOURCE AUTHORITY IS CORRELATION-OWNED, not a structural omission caught earlier. The
+field is OPTIONAL at the record level, so no structural gate can require it; the sweep
+correlation is the first thing that asks for it, and it carries the full last-gate
+obligation.
+
+THE DISPOSITION IS BODY-OWNED BECAUSE IT IS BODY-DECIDABLE, and an implementation SHALL NOT
+defer it to correlation. Deferring a body-decidable rule past the body validator means a
+malformed batch is carried into authority comparison, where the reason it is refused depends
+on which mismatch is noticed first. The line is drawn by what the rule READS, not by which
+requirement introduced it: `source` and `source_run_id` are fields 14 and 15 of
+`SweepObservationBatchV1`, and the whole disposition column is a function of those two.
+
+UNSPECIFIED IS OWNED BY ENUM ADMISSION, not by body validation, and the distinction is not
+cosmetic. Its admitted domain is the five non-zero members; a zero value is outside that
+domain and is refused as an ENUM DOMAIN violation, which is a different claim from "the body
+is malformed". The two runtimes reach that conclusion in different places -- Go's sweep body
+validator refuses an unknown source inline, Elixir's enum-admission policy excludes the member
+before the body is interpreted -- and BOTH conform, because the semantic owner is the enum
+domain either way. A requirement naming body validation as the owner would make Elixir's
+placement non-conforming for no reason.
+
+The UNSPECIFIED rejection and the recovery-lane rejection are PRE-EXISTING behaviour that this
+requirement merely locates. The disposition rejections are NEW: `source_run_id` is currently
+not read by any validator at all, so the body validator SHALL be extended to enforce presence,
+absence and canonical form.
+
+A vector filed under the wrong gate is a false coverage claim: it would be refused whether or
+not the rule it is named after exists. `INTEGRATION_RUN` and `RECOVERY_CONTROL` are BOTH
+outside the mapping's range but are NOT owned by the same gate, and a design that treated them
+as one pair would mis-file one of them.
+
+FOR THE CORRELATION VECTORS, "OTHERWISE VALID" IS A CHECKABLE CLAIM, NOT A DESCRIPTION. Each
+SHALL be shown to pass EVERY gate that precedes correlation, IMMEDIATELY BEFORE the
+correlation call that refuses it. The composed sweep validator's gates, in the order it runs
+them, are:
+
+1. WHOLE-RECORD VALIDATION, including signature verification;
+2. CONTRACT DISPATCH -- the record's `EdgeOutputContractRef` must equal the expected one in
+   all four members: contract id, contract version, bundle digest, registry epoch;
+3. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
+   size bounds;
+4. BOUNDED DECODE of the extracted bytes into the batch message;
+5. BODY VALIDATION, which is where the sweep `source` enum is admitted;
+6. correlation.
+
+RAW WIRE HYGIENE IS NOT IN THIS LIST because it is EXTERNAL to the composed validator -- it
+runs on received bytes before this entry point, and a vector reaches step 1 having already
+passed it. ENUM ADMISSION IS NOT A SEPARATE LEADING STEP either: for the sweep `source` it is
+part of step 5 in Go, while Elixir admits it before interpreting the body. The gate table above
+records enum admission as UNSPECIFIED's semantic owner precisely because the two runtimes place
+it differently; this list is about ORDER within the Go composed path, and asserting a global
+enum-first order would contradict it.
+
+CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY. An earlier revision of this list said it
+checked "payload family and output-contract reference"; it checks only the contract reference.
+Binding the payload family to the contract is a REAL GAP and it is NOT task 1.3's; this
+requirement SHALL NOT be read as having frozen it. It is OWNED BY TASK 1.5, which SHALL either
+freeze the relation with vectors in both runtimes or record an explicit decision that v1
+requires none.
+
+STEPS 2, 3 AND 4 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
+record validation to body validation. They are not bookkeeping: a vector that mutates a sweep
+body changes its length and its digest, so a nominally correct correlation vector can die at
+contract dispatch, at a payload bound, or in the decoder while passing every control the list
+named -- and would then be recorded as proving a correlation rule it never reached.
+
+The REBUILD obligations are stated ONCE, as the numbered sequence in this requirement's
+opening, and are deliberately NOT paraphrased here. A paraphrase is how the withdrawn
+claims-only rule kept coming back: this paragraph previously restated it, one requirement after
+the sequence that replaced it. Follow the numbered steps.
+
+VECTORS OWNED BY AN EARLIER GATE SHALL ASSERT THAT GATE'S OWN REJECTION rather than a
+correlation label they never reach. Where that gate has a FROZEN PORTABLE LABEL -- the whole
+`source_run_id` disposition column does -- the vector SHALL assert it exactly.
+
+WHERE IT DOES NOT, THE VECTOR SHALL ASSERT ONLY THAT THE OWNING GATE REFUSED, and the manifest
+SHALL record it as an UNLABELLED rejection. This is an explicit permission, not an oversight:
+enum admission and the recovery lane are PRE-EXISTING gates whose reasons are typed
+per-runtime -- Go returns sentinel errors, Elixir a tagged tuple -- and no portable label is
+frozen for either. Demanding an exact label for them would be unsatisfiable against the very
+contract that excludes them.
+
+A manifest SHALL NOT present an unlabelled rejection as exact-reason parity, and SHALL mark
+which vectors are unlabelled, so the gap is visible rather than inferred from its absence.
+
+REJECTION LABELS ARE PART OF THE CONTRACT. `ErrSweepJoin` with a formatted string suffix is
+not comparable across runtimes -- Elixir has no access to Go's message text -- so each of the
+FIFTEEN LABELLED RULES BELOW SHALL carry a PORTABLE SEMANTIC LABEL that both runtimes emit and
+the shared manifest pins. This is deliberately NOT "each rule": the enum-admission and
+recovery-lane rejections are excluded by name further down, and a universal SHALL here would
+contradict that exclusion. The frozen list is exactly these fifteen:
+`source_authority_absent`, `source_kind`, `source_run_id_disposition`, `context_id`,
+`range_id`, `scope_digest`, `target_range_digest`, `plan_digest`, `execution_shard`,
+`assignment_epoch`, `batch_time_window`, `host_time_window`, `host_time_overflow`,
+`trace_time_window`, `trace_time_overflow`. Until both runtimes emit these labels, a vector
+manifest SHALL NOT claim exact-reason parity -- it may pin only "rejected", and SHALL say so.
+
+`source_run_id_disposition` is in this list but is emitted by the BODY VALIDATOR, per the gate
+table: the list freezes the labels for the rejections this matrix INTRODUCES, and the gate
+table says which gate emits each. The two are orthogonal, and a label does not imply a gate.
+
+The rejections this matrix merely LOCATES keep their existing reasons and are not frozen here
+-- the body validator's unknown-source rejection and the recovery-lane rejection.
+`source_unspecified` is deliberately ABSENT from the list: enum admission already owns it with
+a pre-existing typed reason, and its vector is an UNLABELLED rejection under the rule above.
+
+PER SOURCE -- and these SHALL vary the CONTEXT OPERAND, not only the kind. A vector set
+that varies kind alone is satisfied by an implementation that pins a correct static
+inventory and still compares `context_id == execution_id` for every source while ignoring
+`source_run_id` -- which is exactly what the current Go join does. For each of the five
+permitted values:
+
+- a POSITIVE vector. On the three `source_run_id` sources it SHALL be built so that
+  `execution_id != source_run_id` AND the signed `context_id` equals `source_run_id`. If
+  the two ids coincide, the vector passes under either operand rule and proves nothing
+  about which was selected;
+- a SELECTED-CONTEXT MISMATCH vector, for EVERY source. Its construction DIFFERS BY ROW,
+  because "point the signed context at the other body field" is not constructible on the
+  forbidden rows -- the other field is `source_run_id`, which those sources forbid, so such
+  a vector would break the disposition rule as well and prove whichever runs first:
+  - on the `execution_id` rows, `source_run_id` stays ABSENT and `execution_id` is moved
+    away from the signed `context_id`;
+  - on the `source_run_id` rows, `execution_id != source_run_id` and the signed
+    `context_id` is set to the NON-SELECTED `execution_id`.
+
+  Either way the vector fails against an implementation reading the wrong operand, and it
+  is per-source because the operand is per-source;
+- a KIND-MISMATCH vector whose signed kind is the one mapped from a DIFFERENT source.
+
+ONE WRONG-KIND SAMPLE PER SOURCE DOES NOT PIN THE MAPPING'S BEHAVIOUR. Five sources against
+seven declared kinds is a 5x7 accept/reject matrix with exactly five accepting cells; a single
+wrong-kind sample per source exercises five of the thirty rejecting cells and leaves an
+implementation free to accept an extra pair nobody tested. The inventory pins the TABLE, and
+these vectors pin five points -- neither pins the mapping's behaviour on the rest.
+
+THE RUNTIME SHALL THEREFORE CONSUME THE PINNED MAPPING AS ITS SOLE KIND LOOKUP: one table, one
+lookup, no second source-to-kind decision anywhere in the correlation. Under that construction
+the inventory's coverage IS the behaviour's coverage, and the per-source vectors prove the
+lookup is consulted rather than re-deriving what it returns.
+
+THIS IS UNCONDITIONAL. An earlier revision offered "or exhaust the full source x kind reject
+matrix" as an alternative for implementations computing the kind some other way. That
+alternative was incoherent and is WITHDRAWN: five of the matrix's thirty-five cells pair a
+sweep body with `RECOVERY_CONTROL` authority, and those are refused by the RESERVED RECOVERY
+LANE before correlation is reached -- so they cannot demonstrate correlation behaviour at all.
+An option whose cells are owned by a different gate, and whose count contradicts the one
+recovery vector the ordinary inventory requires, is not a second path to the same proof. The
+single pinned lookup is the requirement.
+
+PER SOURCE_RUN_ID DISPOSITION -- the disposition is a rule in its own right, and it is
+declared PER ROW, so presence and absence SHALL be covered PER ROW rather than sampled:
+
+- FORBIDDEN-PRESENCE on BOTH forbidden rows -- two vectors;
+- REQUIRED-ABSENCE on ALL THREE required rows -- three vectors.
+
+All five are BODY-VALIDATION vectors, per the gate table. The disposition HAS a frozen
+portable label, so all five -- and all THREE malformed vectors -- assert it exactly.
+
+A single sampled row would leave the other rows' disposition unenforced, which is exactly
+the state a per-row table exists to prevent.
+
+MALFORMEDNESS IS FROZEN AS ONE SOURCE-INDEPENDENT PREDICATE: where `source_run_id` is
+required it SHALL be a canonical UUID, by the SAME check on every row, with no per-source
+variation.
+
+THAT FREEZE STILL OWES ONE MALFORMED VECTOR PER REQUIRED ROW -- three, not one. The freeze
+says the three rows share a predicate; it does not show that all three rows INVOKE it. A
+single sampled row is satisfied by an implementation that checks canonical form on one source
+and skips it on the other two, which is precisely the per-row gap the rest of this inventory
+exists to close.
+
+What the freeze DOES buy is that each row needs only ONE malformed vector rather than a
+catalogue of malformed SHAPES -- wrong LENGTH, wrong VERSION nibble, wrong VARIANT bits.
+Those belong to the shared canonical-UUID predicate's OWN test suite, which every caller
+inherits, and restating them per row here would prove nothing about the sweep matrix.
+
+TWO SHAPES AN EARLIER REVISION LISTED ARE NOT SHAPES. `source_run_id` is `bytes`, not a
+string: "non-hex" names a textual encoding the field never has, and "empty" is
+INDISTINGUISHABLE from absent for a non-optional proto3 `bytes` field, so it restates the
+required-absence vector rather than adding a malformed one.
+
+PER UNREACHABLE KIND -- a negative for `INTEGRATION_RUN` and one for `RECOVERY_CONTROL`: a
+record whose signed authority carries that kind alongside an otherwise-valid sweep body.
+Their absence from the mapping is a STATIC property of the inventory; that a runtime actually
+REFUSES them is a behavioural one, and the inventory cannot establish it.
+
+THE TWO ARE REFUSED BY DIFFERENT GATES and SHALL NOT be filed as a matching pair.
+`INTEGRATION_RUN` reaches correlation and is refused there, so it carries the full last-gate
+obligation. `RECOVERY_CONTROL` never gets that far: the reserved recovery lane refuses
+recovery authority on a non-recovery route first, so its vector asserts the LANE rejection.
+Both prove refusal; only one proves the correlation refuses.
+
+Vectors for `SWEEP_EXECUTION_SOURCE_UNSPECIFIED` and for a sweep record with NO source
+authority SHALL be inventoried explicitly rather than left implied by the prose above.
+
+PER RELATION -- one negative for each rule below, on a single representative source, since
+these are source-independent and crossing them with source would restate one rule five times.
+
+WITH ONE EXCEPTION, which heads the list: the SELECTED OPERAND is source-DEPENDENT, is proven
+per source above, and appears below only for inventory completeness. Every OTHER entry is
+genuinely source-independent:
+
+- THE SELECTED OPERAND against the signed `context_id` -- ALREADY DISCHARGED by the five
+  per-source selected-context mismatch vectors above, and listed here only so the relation
+  inventory is complete. It owes NO SIXTH vector. Unlike every other relation below it is
+  NOT source-independent, which is exactly why it is proven per source rather than once on a
+  representative one. There is exactly ONE selected operand per source and never two: the
+  row's operand column names it, and the non-selected field is not a second thing to agree
+  with. A relation phrased as "`execution_id`, and also `source_run_id` where present" would
+  require both and contradict the table;
+- `target_range_id` against the signed `scope_id`;
+- `target_range_sha256` against the signed `scope_sha256` (label `scope_digest`);
+- `target_range_sha256` against the signed `target_range_sha256` (label
+  `target_range_digest`) -- a SEPARATE vector AND a SEPARATE LABEL, because the signed claim
+  carries BOTH and the two predicates are independently removable: one label covering both
+  would let either be deleted with the manifest still matching;
+- `execution_plan_sha256` against the signed plan digest;
+- `execution_shard` against the attested producer's `run_shard`;
+- `assignment_epoch` against the attested `authority_epoch`;
+- the batch `observed_at_unix_nano` outside the signed collection window -- TWO vectors, one
+  BEFORE the start and one AFTER the expiry;
+- a per-host absolute time outside it -- batch time plus `observed_at_delta_nano`, which is
+  a SIGNED INTEGER (int64), not a cryptographic signature -- with a delta that does NOT
+  overflow. TWO vectors, before-start and after-expiry; a negative delta is what reaches the
+  before-start side. Label `host_time_window`;
+- SEPARATELY, a per-host delta chosen so the sum OVERFLOWS int64 and the naively wrapped
+  result lands INSIDE the window, which SHALL be rejected rather than accepted on the
+  wrapped value. Label `host_time_overflow`. THE HOST PATH THEREFORE OWES THREE VECTORS --
+  before-start, after-expiry, and overflow -- not one described several ways: the two labels
+  are distinct, and a single vector satisfying both would let either predicate be deleted
+  while the manifest still matched;
+- an MTR trace identity time outside the window, on a host whose outcome allocated a trace
+  id -- TWO vectors, before-start and after-expiry;
+- an MTR trace id whose 48-bit UUIDv7 MILLISECOND timestamp overflows when converted to
+  nanoseconds. A valid UUIDv7 can carry a timestamp up to 2^48-1 ms, and multiplying by
+  1e6 exceeds int64 -- so an UNCHECKED conversion wraps a far-future identity into the
+  signed window. This is a distinct vector from the in-range-but-outside-window case.
+
+THE MILLISECOND-TO-NANOSECOND CONVERSION SHALL BE ONE CHECKED HELPER, used at EVERY call site
+that converts a UUIDv7 timestamp for comparison against a signed window. The overflow is a
+property of the CONVERSION, not of the sweep matrix, and it is currently unchecked at THREE
+independent call sites -- the record's own event-identity check, the sweep summary's MTR trace
+id, and the full-MTR trace and event ids. Fixing only the one this matrix happens to exercise
+would leave two live wraps behind a vector set that looks complete.
+
+EACH CALL SITE OWES ITS OWN VECTOR, because a shared helper proves nothing about a caller that
+does not use it. Those vectors are assigned by OWNING TASK, not absorbed here: the sweep
+summary's is task 1.3's and is the bullet above; the record event-identity site belongs to
+task 1.1 and the full-MTR sites to task 1.4. 1.3 introduces the shared helper and its own call
+site; it SHALL NOT be read as having proven the other two.
+
+THE INNER COLLECTION PREDICATE IS INCLUSIVE AT BOTH ENDPOINTS: an observation exactly at
+`EdgeSourceClaimsV1.collection_not_before_unix_nano`, or exactly at that message's
+`collection_expires_unix_nano`, is INSIDE.
+
+THAT MESSAGE QUALIFIER IS LOAD-BEARING, and this statement is scoped to that predicate
+alone. `EdgeAssignmentExecutionClaimsV1` declares fields with THE SAME TWO NAMES and they
+are HALF-OPEN -- an instant exactly at expiry is already outside. Two messages, identical
+field names, deliberately opposite endpoint conventions.
+
+Nor is "capability envelopes are half-open" true as a general claim: the record's
+EVENT-IDENTITY envelope checks -- production window, source window, and the inline collection
+window -- are INCLUSIVE at both ends; only the assignment-execution grant and the capability
+envelopes on the compiled-assignment path are half-open. Each convention is pinned where it
+applies and none generalises.
+
+CLOCK TOLERANCE IS NOT PART OF ANY OF THIS. The event-identity envelope checks are inclusive
+and take NO tolerance: they ask whether an identity time lies inside a signed window, which is
+a question about the record, not about now. Tolerance widens a DIFFERENT decision -- whether an
+authority is CURRENT at the validating instant -- and an earlier revision of this requirement
+wrongly attached it to the envelope checks. Endpoint vectors SHALL therefore not be built or
+explained in terms of tolerance; it does not reach them.
+
+Endpoint controls SHALL use an envelope STRICTLY WIDER than the collection window, so the
+envelope's own endpoint rule cannot be what decides them, and SHALL exercise all three time
+paths -- batch, per-host absolute, and MTR trace identity -- at BOTH endpoints.
+
+EVERY TIME WINDOW OWES A NEGATIVE ON BOTH SIDES, for all three paths. An ACCEPTED endpoint
+control does NOT catch deletion of the opposite bound: an implementation that dropped its
+expiry comparison entirely still accepts both endpoints and still rejects a before-start
+value, so a one-sided negative set leaves the deleted half invisible. Six window negatives
+result -- three paths, two sides -- plus the two overflow vectors, for EIGHT time negatives
+in total: batch two, host three, trace three.
+
+Each OVERFLOW vector SHALL be constructed so that the naively WRAPPED result lands INSIDE
+the window. An overflow whose wrapped value falls outside is refused either way, so it
+cannot distinguish a checked conversion from an unchecked one.
+
+#### Scenario: A correlation-owned negative differs from its control in one comparison
+- **WHEN** a CORRELATION-owned negative vector is compared with its committed positive control
+- **THEN** they SHALL differ in exactly one correlation COMPARISON
+- **AND** the record SHALL be REBUILT in the frozen order -- mutate, then re-encode/compress
+  and update both sizes and `payload_sha256`, then re-sign every capability whose complete
+  signing preimage changed, then recompute `semantic_envelope_sha256` LAST -- so neither a
+  size, a signature, nor a digest check is what refuses it
+- **AND** `EdgeRecordV1` carries no signature of its own, so "re-signing" always means
+  re-signing capabilities, never the record
+
+#### Scenario: Absent source authority leaves every claim relation undefined
+- **WHEN** the `source_authority_absent` negative is compared with its control
+- **THEN** it SHALL be exempt from differing in exactly one CLAIM relation, having no claims
+- **AND** it SHALL still be refused at CORRELATION, by the presence check
+
+#### Scenario: An earlier-gate negative is one input change refused at its own gate
+- **WHEN** a negative owned by enum admission, body validation or the recovery lane is
+  compared with its committed positive control
+- **THEN** they SHALL differ in exactly one INPUT
+- **AND** it SHALL be refused at its OWN gate, with later correlation relations left
+  UNDEFINED rather than required to hold
+
+#### Scenario: Every time window is refused on both sides
+- **WHEN** an observation falls before a window's start, or after its expiry, on the batch,
+  per-host absolute, or MTR trace identity path
+- **THEN** it SHALL be rejected in all six cases
+- **AND** an accepted-endpoint control alone SHALL NOT be treated as covering either bound
+
+#### Scenario: Both source-claim collection endpoints are inside
+- **WHEN** an observation falls exactly on either endpoint of the `EdgeSourceClaimsV1`
+  collection window, inside a strictly wider envelope
+- **THEN** it SHALL be accepted
+- **AND** the identically named `EdgeAssignmentExecutionClaimsV1` window SHALL remain
+  half-open, so the two conventions are pinned separately
+
+#### Scenario: An overflowing time does not wrap into the window
+- **WHEN** a host delta sum, or a UUIDv7 millisecond-to-nanosecond conversion, overflows
+  int64
+- **THEN** the record SHALL be rejected, not accepted on the wrapped value
+- **AND** the conversion SHALL be performed by ONE checked helper shared by every call site
+  that compares a UUIDv7 time against a signed window

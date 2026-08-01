@@ -321,8 +321,12 @@ func (EdgeOriginKind) EnumDescriptor() ([]byte, []int) {
 // source_authorization field unset) means only "no source authorization" -- it is
 // NOT the same as PASSIVE attribution, which asserts that a record claims no
 // produced target range. The two axes are INDEPENDENT: all four combinations of
-// {ACTIVE, PASSIVE} x {source present, source absent} are legal, and no component
-// may infer one from the other.
+// {ACTIVE, PASSIVE} x {source present, source absent} are REPRESENTABLE at the
+// record and classification layers, and no component may infer one from the other.
+// That representability is SUBJECT TO PAYLOAD-SPECIFIC REQUIREMENTS: a payload
+// contract may REQUIRE source authorization, and SweepObservationBatchV1 does --
+// a sweep record without it has no signed statement of what was authorized. Read
+// as an unqualified permission, this comment would contradict that requirement.
 type EdgeSourceAuthorizationKind int32
 
 const (
