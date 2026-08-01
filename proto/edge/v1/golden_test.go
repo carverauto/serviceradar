@@ -226,7 +226,12 @@ func canonicalSweepBatch() *edgev1.SweepObservationBatchV1 {
 		TargetRangeId: uuidv7(0x22), TargetRangeSha256: sweepRangeSha(),
 		AvailabilityPolicyId: []byte("policy-1"),
 		Source:               edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
-		ConfiguredModeBits:   uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
+		// SCHEDULED_CHECK REQUIRES source_run_id and selects it as the signed
+		// context operand. It is deliberately DIFFERENT from execution_id (0x20):
+		// were the two equal, this fixture would pass under either operand rule
+		// and prove nothing about which one the join selected.
+		SourceRunId:        uuidv7(0x23),
+		ConfiguredModeBits: uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
 		TestedChecks: []*edgev1.SweepTestV1{
 			{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
 			{Mode: edgev1.SweepMode_SWEEP_MODE_MTR, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
@@ -248,7 +253,9 @@ func canonicalRecord(t *testing.T) *edgev1.EdgeRecordV1 {
 	sum := sha256.Sum256(payload)
 	scope := uuidv7(0x11)
 	// The source authority context/scope bind the exact sweep execution + range.
-	ctx, scopeID := batch.GetExecutionId(), batch.GetTargetRangeId()
+	// The context operand is the one THIS SOURCE selects: SCHEDULED_CHECK selects
+	// source_run_id, not execution_id.
+	ctx, scopeID := batch.GetSourceRunId(), batch.GetTargetRangeId()
 	contract := &edgev1.EdgeOutputContractRef{
 		ContractId: "serviceradar.sweep.observation", ContractVersion: 1,
 		ContractBundleSha256: digest32(0x40), RegistryEpoch: 7, RegistrySnapshotSha256: digest32(0x50), EffectiveGrantSha256: digest32(0x60),
