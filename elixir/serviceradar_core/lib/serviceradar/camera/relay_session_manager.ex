@@ -321,7 +321,14 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       {:ok, []}
   end
 
-  defp resolve_open_plan(live_session_finder, camera_source_id, stream_profile_id, source, gateway_id, opts) do
+  defp resolve_open_plan(
+         live_session_finder,
+         camera_source_id,
+         stream_profile_id,
+         source,
+         gateway_id,
+         opts
+       ) do
     if Keyword.get(opts, :force_new, false) do
       {:ok, :new}
     else
@@ -387,7 +394,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp lease_still_valid?(session, now) do
     case Map.get(session, :lease_expires_at) do
       %DateTime{} = expires_at ->
-        DateTime.compare(expires_at, now) == :gt
+        DateTime.after?(expires_at, now)
 
       _other ->
         # Pending sessions without a lease stamp are treated as attachable for a
@@ -616,8 +623,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp resolve_session(_session_or_id, _fetcher), do: {:error, :invalid_session}
 
   defp close_transition_mode(%{status: status}, _opts)
-       when status in [:closing, "closing", :closed, "closed", :failed, "failed"],
-       do: :skip
+       when status in [:closing, "closing", :closed, "closed", :failed, "failed"], do: :skip
 
   defp close_transition_mode(session, opts) do
     # Soft UI disconnects must not kill a shared edge pull while other viewers
