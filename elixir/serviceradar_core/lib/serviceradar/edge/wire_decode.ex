@@ -11,8 +11,8 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   The ONLY public entries are a FINITE set of stage decoders -- `decode_client_message/1`,
   `decode_frame/1`, `decode_record/1`, `decode_manifest_page/1`, `decode_assignment_record/1`,
-  `decode_plan_header/1`, and `decode_plan_page/1` -- each bound to exactly one generated edge
-  message module. The recovery, assignment, and plan stages EXTEND this set rather than standing up
+  `decode_plan_header/1`, `decode_plan_page/1`, `decode_compiled_assignment/1`, and
+  `decode_execution_grant/1` -- each bound to exactly one generated edge message module. The recovery, assignment, and plan stages EXTEND this set rather than standing up
   separate raw-bytes ingresses, so each gets the same bound-before-decode discipline and the same
   typed outcomes as the transport stages. The plan entries matter especially: protobuf-elixir ERASES
   an unknown GROUP, so plan wire hygiene is only observable on the raw path.
@@ -100,18 +100,24 @@ defmodule ServiceRadar.Edge.WireDecode do
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias ServiceRadar.Edge.WireValidate
 
+  @typedoc """
+  Every reason a decode can fail with. EXPORTED so a caller composing its own reason union
+  references this instead of copying the atoms -- a copy drifts the moment a reason is added.
+  """
+  @type reason :: :too_large | :poison | :not_ready | :systemic
+
   @typedoc "Typed decode outcome; only `:poison`/`:too_large` authorize permanent resolution."
-  @type outcome ::
-          {:ok, struct()}
-          | {:error, :too_large}
-          | {:error, :poison}
-          | {:error, :not_ready}
-          | {:error, :systemic}
+  @type outcome :: {:ok, struct()} | {:error, reason()}
 
   # Frozen RAW wire size bounds, MUST match the Go constants in go/pkg/edge/edgerecord (MaxRecordBytes
   # / MaxFrameBytes / MaxClientMessageBytes). Checked BEFORE protobuf decode so an oversize input is a
   # permanent rejection rather than an unbounded decode.
   @max_record_bytes 512 * 1024
+  # The carrier's PHYSICAL ceiling, frozen in the ABI bounds table. It travels standalone,
+  # so it does not inherit a containing message's bound.
+  @max_compiled_assignment_bytes 64 * 1024
+  # The standalone execution grant's ceiling, frozen in the ABI bounds table.
+  @max_execution_grant_bytes 16 * 1024
   @max_plan_page_bytes 128 * 1024
   @max_delivery_envelope_bytes 16 * 1024
   @max_frame_bytes @max_record_bytes + @max_delivery_envelope_bytes
@@ -230,6 +236,35 @@ defmodule ServiceRadar.Edge.WireDecode do
     do: run(Serviceradar.Edge.V1.ScheduledPlanPageV1, @max_plan_page_bytes, bytes)
 
   @doc """
+  Decode an immutable `CompiledSweepAssignmentV1` from raw bytes.
+
+  Curated for two reasons a local `rescue` cannot supply. First, the 64 KiB ceiling is
+  PHYSICAL: the carrier is fetched standalone by digest, and a duplicate-known-field
+  encoding collapses on decode, so only a bound taken BEFORE decoding sees the received
+  size. Second, the recursive `WireValidate` gate rejects the inputs protobuf-elixir
+  masks but Go rejects -- groups, out-of-range field numbers, overflow varints,
+  truncation -- at every depth, including the nested capability and its claim. A caller
+  decoding directly would silently accept those AND collapse a codegen or
+  not-yet-deployed fault into permanent poison.
+  """
+  @spec decode_compiled_assignment(binary()) :: outcome()
+  def decode_compiled_assignment(bytes),
+    do: run(Serviceradar.Edge.V1.CompiledSweepAssignmentV1, @max_compiled_assignment_bytes, bytes)
+
+  @doc """
+  Decode a standalone ASSIGNMENT_EXECUTION grant -- an `EdgeSignedCapabilityV1` that travels on
+  its own rather than nested inside a record.
+
+  Its 16 KiB ceiling is SMALLER than any message that embeds a capability, and that is the
+  point: a capability read out of a containing message inherits that message's bound, but this
+  one arrives alone and would otherwise be unbounded. Same module as other capabilities, a
+  different ceiling because of how it travels.
+  """
+  @spec decode_execution_grant(binary()) :: outcome()
+  def decode_execution_grant(bytes),
+    do: run(Serviceradar.Edge.V1.EdgeSignedCapabilityV1, @max_execution_grant_bytes, bytes)
+
+  @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
 
   This EXTENDS the finite stage API rather than superseding it, and deliberately so:
@@ -249,8 +284,9 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
   # module bypass: only the CURATED message modules can be decoded -- the record-plane trio, the
-  # recovery manifest page, the assignment record, and the two plan objects -- and only their own
-  # struct is accepted (is_struct/2).
+  # recovery manifest page, the assignment record, the two plan objects, the compiled-assignment
+  # carrier, and the standalone execution grant -- and only their own struct is accepted
+  # (is_struct/2).
   defp run(mod, max_bytes, bytes) when is_binary(bytes) do
     cond do
       # Oversize is refused BEFORE protobuf is invoked -> permanent rejection, not an unbounded decode.

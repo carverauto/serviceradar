@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   """
 
   alias ServiceRadar.Edge.ClaimsFraming
+  alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
 
   @domain "serviceradar.edge.capability.v1"
   @known_versions [1]
@@ -29,8 +30,39 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   `:collection` | `:assignment_execution`). Returns
   :ok or {:error, reason}.
   """
-  @spec validate(map(), atom()) :: :ok | {:error, atom()}
-  def validate(cap, expected_purpose) when is_map(cap) do
+  @typedoc """
+  Every reason `validate/2` returns.
+
+  EXPORTED so callers reference it instead of copying the list: a hand-copied union in a
+  caller silently drifts the moment a reason is added here, and a caller matching
+  exhaustively then crashes on a shape its own contract said could not occur.
+  """
+  @type reason ::
+          :unknown_fields
+          | :version
+          | :issuer
+          | :algorithm
+          | :window
+          | :claims
+          | :purpose
+          | :signature
+          | :capability
+
+  # `term()`, not `map()`: the fallback clause, the comments and the committed tests all promise
+  # a typed error for ANY input, so a `map()` spec put `validate(:nope, ...)` outside the
+  # contract -- Dialyzer would call the totality clause and its tests unreachable, which is the
+  # opposite of what they exist to prove.
+  @spec validate(term(), atom()) :: :ok | {:error, reason()}
+  # REQUIRES the generated struct, not merely a map. A plain map is not a weaker input, it is a
+  # BYPASS: `unknown_fields_clean?/1` matches on `__unknown_fields__`, so a map without that key
+  # falls through to `true` and the recursive walk NEVER REACHES the nested claim. Retained
+  # unknown bytes inside a perfectly typed claim were therefore accepted whenever the envelope
+  # around it was hand-built. Protobuf decoding always yields the struct, so a map reached here
+  # by skipping the wire layer -- exactly where those bytes live.
+  #
+  # The `validate(_, _)` fallback below keeps this total: a non-struct is `{:error, :capability}`,
+  # never a raise.
+  def validate(%EdgeSignedCapabilityV1{} = cap, expected_purpose) do
     nb = Map.get(cap, :not_before_unix_nano)
     ex = Map.get(cap, :expires_at_unix_nano)
     sig = Map.get(cap, :signature)
@@ -61,6 +93,13 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
       purpose == nil ->
         {:error, :claims}
 
+      # The claim BODY must be the generated struct for its variant. `{:collection, 7}` is a
+      # well-formed oneof shape as far as the tuple goes, so purpose derivation succeeds and
+      # every later `Map.get/2` then raises BadMapError -- a contract promising
+      # `{:error, reason}` must not raise on a shape it did not anticipate.
+      not claim_body_typed?(Map.get(cap, :claims)) ->
+        {:error, :claims}
+
       purpose != expected_purpose ->
         {:error, :purpose}
 
@@ -73,6 +112,19 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   end
 
   def validate(_, _), do: {:error, :capability}
+
+  # Each variant's generated body type. A plain map is NOT accepted: protobuf decoding always
+  # produces the struct, so a map is a hand-built value that skipped the wire layer.
+  defp claim_body_typed?({:production, %Serviceradar.Edge.V1.EdgeProductionClaimsV1{}}), do: true
+  defp claim_body_typed?({:source, %Serviceradar.Edge.V1.EdgeSourceClaimsV1{}}), do: true
+  defp claim_body_typed?({:delivery, %Serviceradar.Edge.V1.EdgeDeliveryClaimsV1{}}), do: true
+  defp claim_body_typed?({:collection, %Serviceradar.Edge.V1.EdgeCollectionClaimsV1{}}), do: true
+
+  defp claim_body_typed?(
+         {:assignment_execution, %Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1{}}
+       ), do: true
+
+  defp claim_body_typed?(_), do: false
 
   defp nonempty_binary?(b), do: is_binary(b) and byte_size(b) > 0
   defp i64?(v), do: is_integer(v) and v >= @i64_min and v <= @i64_max
@@ -108,7 +160,8 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   capability declaring an unsupported algorithm or wrong purpose cannot verify
   even if the raw signature bytes check out.
   """
-  @spec verify(map(), atom(), term()) :: boolean()
+  # `term()` for the same reason: verify/3 rescues and returns false for any shape.
+  @spec verify(term(), atom(), term()) :: boolean()
   def verify(cap, expected_purpose, public_key) do
     sig = if is_map(cap), do: Map.get(cap, :signature)
 
@@ -126,6 +179,19 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   catch
     _kind, _reason -> false
   end
+
+  @doc """
+  The ROLE a capability fills, derived from which typed claims variant is set, or `nil`.
+
+  PUBLIC so a caller can answer the role BEFORE anything else: deriving it only inspects which
+  oneof member is set -- no framing, no hashing, no field reads -- so a wrong-role capability
+  can be reported as exactly that rather than as whichever envelope rule happens to fail first.
+  `validate/2` checks version, issuer and algorithm before purpose, which is right for its own
+  contract but wrong for a caller whose first question is "is this even the right kind".
+  """
+  @spec purpose(term()) :: atom() | nil
+  def purpose(%EdgeSignedCapabilityV1{claims: claims}), do: purpose_of(claims)
+  def purpose(_), do: nil
 
   defp purpose_of({:production, _}), do: :production
   defp purpose_of({:source, _}), do: :source
