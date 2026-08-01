@@ -2473,3 +2473,137 @@ func (s goldenSession) AuthorizeAgent(networkScopeID, agentID []byte) edgerecord
 	}
 	return edgerecord.CallerMismatch
 }
+
+// The FROZEN rebuild sequence is split across TWO helpers, matching the two halves
+// of the contract's own ordering:
+//
+//	step 1  the caller applies its mutation
+//	step 2  mutateSweepBody -- re-encode the body, update BOTH size fields and
+//	        payload_sha256. Only body-mutating vectors need it.
+//	step 3  rebuildRecord   -- re-sign every capability whose COMPLETE SIGNING
+//	        PREIMAGE changed, after re-syncing the outer source-authorization
+//	        mirror to the claims it duplicates
+//	step 4  rebuildRecord   -- recompute semantic_envelope_sha256 LAST, because the
+//	        semantic preimage CONTAINS capability signatures
+//
+// rebuildRecord below is steps 3-4. Skipping either makes a vector die at signature
+// verification or the envelope-digest check, which is a rejection for the wrong
+// reason. Not hypothetical: the first draft of these vectors omitted both and every
+// case failed on "semantic envelope digest mismatch" or "producer identity" instead
+// of its correlation label.
+// mutateSweepBody is STEP 2 of the sequence above: re-encode the mutated body and
+// update BOTH size fields and payload_sha256. The caller then runs rebuildRecord
+// for steps 3-4.
+func mutateSweepBody(r *edgev1.EdgeRecordV1, f func(*edgev1.SweepObservationBatchV1)) {
+	var b edgev1.SweepObservationBatchV1
+	if err := proto.Unmarshal(r.GetPayload(), &b); err != nil {
+		panic("golden record payload is not a sweep batch: " + err.Error())
+	}
+	f(&b)
+	payload := mustMarshal(&b)
+	sum := sha256.Sum256(payload)
+	r.Payload = payload
+	r.EncodedSize = uint32(len(payload))
+	r.UncompressedSize = uint32(len(payload))
+	r.PayloadSha256 = sum[:]
+}
+
+func rebuildRecord(r *edgev1.EdgeRecordV1) {
+	if sa := r.GetSourceAuthorization(); sa != nil {
+		if src := sa.GetCapability().GetSource(); src != nil {
+			// The outer mirror MUST agree with the signed claims; the record
+			// validator checks that before correlation is ever consulted.
+			sa.Kind = src.GetKind()
+			sa.ContextId = src.GetContextId()
+			sa.ScopeId = src.GetScopeId()
+			sa.ScopeSha256 = src.GetScopeSha256()
+		}
+		edgerecord.SignCapability(sa.GetCapability(), issuerPrivB)
+	}
+	if pc := r.GetProductionCapability(); pc != nil {
+		edgerecord.SignCapability(pc, issuerPrivA)
+	}
+	r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)
+}
+
+// EACH SPLIT PREDICATE EMITS ITS OWN LABEL.
+//
+// Five checks in joinSweepAuthority previously covered TWO labels each. Splitting
+// them is what makes the labels independently removable, and this test is what
+// proves the split is real rather than cosmetic: a re-merged pair would report one
+// label for both mutations and fail here.
+//
+// MOST of these vectors mutate the RECORD's signed claims, so the body's digests
+// still hold and only steps 3-4 of the rebuild sequence apply. TWO -- execution
+// shard and assignment epoch -- mutate the BODY, and go through mutateSweepBody
+// for steps 1-2 as well: they must, because the production capability and the
+// source claims both mirror the producer context, so moving the context would be
+// refused by those mirrors before correlation.
+//
+// These assert the LABEL only. Asserting the label AND the owning gate together
+// is task 1.3-f's joint proof, in both runtimes -- neither pins the pair today.
+func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
+	cases := []struct {
+		name   string
+		want   edgerecord.SweepJoinLabel
+		break_ func(*edgev1.EdgeRecordV1)
+	}{
+		{"absent authority", edgerecord.SweepLabelSourceAuthorityAbsent, func(r *edgev1.EdgeRecordV1) {
+			r.SourceAuthorization = nil
+		}},
+		// Mutate the SIGNED claim, not the outer mirror: the mirror is re-synced from
+		// the claims during the rebuild, so mutating it alone would be undone.
+		{"wrong kind", edgerecord.SweepLabelSourceKind, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().Kind =
+				edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC
+		}},
+		{"context id", edgerecord.SweepLabelContextID, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ContextId = uuidv7(0x7E)
+		}},
+		{"range id", edgerecord.SweepLabelRangeID, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ScopeId = uuidv7(0x7D)
+		}},
+		{"scope digest", edgerecord.SweepLabelScopeDigest, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ScopeSha256 = digest32(0x7C)
+		}},
+		{"target range digest", edgerecord.SweepLabelTargetRangeDigest, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().TargetRangeSha256 = digest32(0x7B)
+		}},
+		{"plan digest", edgerecord.SweepLabelPlanDigest, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ExecutionPlanSha256 = digest32(0x7A)
+		}},
+		// These two mutate the BODY's view of the attested producer rather than the
+		// producer context, because the production capability and the source claims
+		// both mirror the context: moving the context would be refused by those
+		// mirrors before correlation, which is a rejection for the wrong reason.
+		{"execution shard", edgerecord.SweepLabelExecutionShard, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.ExecutionShard = 99 })
+		}},
+		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			record := canonicalRecord(t)
+			// CONTROL: unmutated, this record joins. Without it a vector could pass
+			// for a reason unrelated to the mutation.
+			if err := edgerecord.ValidateSweepRecord(record, record.GetOutputContract(), goldenPolicy()); err != nil {
+				t.Fatalf("control must join: %v", err)
+			}
+			tc.break_(record)
+			rebuildRecord(record)
+			err := edgerecord.ValidateSweepRecord(record, record.GetOutputContract(), goldenPolicy())
+			if err == nil {
+				t.Fatal("mutation must be rejected")
+			}
+			got, ok := edgerecord.SweepLabelOf(err)
+			if !ok {
+				t.Fatalf("rejection carries no portable label: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("label = %q, want %q (err: %v)", got, tc.want, err)
+			}
+		})
+	}
+}
