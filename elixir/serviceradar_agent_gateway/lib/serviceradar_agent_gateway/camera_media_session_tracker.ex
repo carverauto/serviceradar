@@ -5,6 +5,10 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   This is intentionally lightweight for the initial media path: the gateway
   authenticates edge sessions, tracks lease/activity, and forwards media
   onward. It does not own fan-out or transcoding.
+
+  Expired or orphaned sessions are reaped on a short interval and again before
+  capacity checks so disconnects that fail to close cleanly cannot permanently
+  exhaust the per-agent/per-gateway relay limits.
   """
 
   use GenServer
@@ -18,6 +22,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
   @default_lease_seconds 30
   @default_max_sessions_per_agent 16
   @default_max_sessions_per_gateway 32
+  @default_sweep_interval_ms 5_000
 
   @type session :: %{
           relay_session_id: String.t(),
@@ -89,13 +94,28 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     GenServer.call(__MODULE__, {:fetch_session_owned, relay_session_id, agent_id})
   end
 
+  def sweep_expired_sessions do
+    GenServer.call(__MODULE__, :sweep_expired_sessions)
+  end
+
   @impl true
-  def init(_opts) do
-    {:ok, %{sessions: %{}}}
+  def init(opts) do
+    sweep_interval_ms =
+      opts
+      |> Keyword.get(
+        :sweep_interval_ms,
+        Application.get_env(:serviceradar_agent_gateway, :camera_relay_sweep_interval_ms)
+      )
+      |> normalize_sweep_interval_ms()
+
+    schedule_sweep(sweep_interval_ms)
+
+    {:ok, %{sessions: %{}, sweep_interval_ms: sweep_interval_ms}}
   end
 
   @impl true
   def handle_call({:open_session, attrs}, _from, state) do
+    state = sweep_expired_sessions(state)
     session = build_session(attrs)
 
     cond do
@@ -273,6 +293,20 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   def handle_call({:fetch_session_owned, relay_session_id, agent_id}, _from, state) do
     {:reply, fetch_session_for_owner(state, relay_session_id, agent_id), state}
+  end
+
+  def handle_call(:sweep_expired_sessions, _from, state) do
+    updated = sweep_expired_sessions(state)
+    removed = map_size(state.sessions) - map_size(updated.sessions)
+
+    {:reply, {:ok, removed}, updated}
+  end
+
+  @impl true
+  def handle_info(:sweep_expired_sessions, state) do
+    updated = sweep_expired_sessions(state)
+    schedule_sweep(Map.get(updated, :sweep_interval_ms, @default_sweep_interval_ms))
+    {:noreply, updated}
   end
 
   defp build_session(attrs) do
@@ -482,4 +516,44 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value), do: 0
+
+  defp sweep_expired_sessions(state) do
+    now = now_unix()
+
+    {expired, active} =
+      Enum.split_with(state.sessions, fn {_relay_session_id, session} ->
+        stale_session?(session, now)
+      end)
+
+    Enum.each(expired, fn {_relay_session_id, session} ->
+      log_session(:info, "Gateway camera relay expired", session, %{reason: expiry_reason(session, now)})
+      emit_session_event(:expired, session, %{reason: expiry_reason(session, now)})
+    end)
+
+    Map.put(state, :sessions, Map.new(active))
+  end
+
+  defp stale_session?(session, now), do: session_expired?(session, now) or ingress_pid_dead?(session)
+
+  defp session_expired?(session, now) do
+    normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now
+  end
+
+  defp ingress_pid_dead?(%{ingress_pid: ingress_pid}) when is_pid(ingress_pid), do: not Process.alive?(ingress_pid)
+  defp ingress_pid_dead?(_session), do: false
+
+  defp expiry_reason(session, now) do
+    if session_expired?(session, now), do: "lease_expired", else: "ingress_pid_dead"
+  end
+
+  defp schedule_sweep(:disabled), do: :ok
+
+  defp schedule_sweep(interval_ms) do
+    Process.send_after(self(), :sweep_expired_sessions, interval_ms)
+    :ok
+  end
+
+  defp normalize_sweep_interval_ms(:disabled), do: :disabled
+  defp normalize_sweep_interval_ms(value) when is_integer(value) and value > 0, do: value
+  defp normalize_sweep_interval_ms(_value), do: @default_sweep_interval_ms
 end
