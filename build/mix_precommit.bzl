@@ -82,6 +82,35 @@ def _mix_precommit_impl(ctx):
             ),
         )
 
+    # `data` is declared as action inputs (so Bazel materializes the files in the
+    # execroot), but unlike `srcs` / `extra_dirs` they were never copied into
+    # WORKDIR. Credo configs under elixir/.credo.* are loaded via
+    # Path.expand("../.credo.ex_slop.exs", __DIR__) from elixir/web-ng/.credo.exs
+    # and must exist at $WORKDIR/elixir/.credo.*. Without this staging, mix credo
+    # fails with Code.LoadError enoent on the shared config fragments.
+    data_copy_cmds = []
+    for f in ctx.files.data:
+        if f.short_path.startswith("../"):
+            continue
+        dest = f.short_path
+        parent = dest.rpartition("/")[0]
+        if parent:
+            data_copy_cmds.append('mkdir -p "$WORKDIR/{}"\n'.format(parent))
+        data_copy_cmds.append(
+            'cp -L "$EXECROOT/{src}" "$WORKDIR/{dest}"\n'.format(
+                src = f.path,
+                dest = dest,
+            ),
+        )
+        # Some Mix tooling reads .tool-versions from the project root.
+        if f.basename == ".tool-versions" and dest != ctx.attr.src_dir + "/.tool-versions":
+            data_copy_cmds.append(
+                'cp -L "$EXECROOT/{src}" "$WORKDIR/{src_dir}/.tool-versions"\n'.format(
+                    src = f.path,
+                    src_dir = ctx.attr.src_dir,
+                ),
+            )
+
     ctx.actions.run_shell(
         mnemonic = "MixPrecommit",
         inputs = depset(direct = direct_inputs),
@@ -167,6 +196,7 @@ copy_dir() {{
 mkdir -p "$WORKDIR/{src_parent}"
 copy_dir "$EXECROOT/{src_dir}/" "$WORKDIR/{src_dir}/"
 {extra_copy}
+{data_copy}
 chmod -R u+w "$WORKDIR"
 
 # Bazel restages sources with fresh mtimes every run, and Mix recompiles a path dependency
@@ -197,6 +227,7 @@ mix {mix_task}
             src_dir = ctx.attr.src_dir,
             src_parent = ctx.attr.src_dir.rpartition("/")[0] or ".",
             extra_copy = "".join(extra_copy_cmds),
+            data_copy = "".join(data_copy_cmds),
             deps_cache = ctx.file.deps_cache.path,
             mix_task = ctx.attr.mix_task,
         ),
@@ -209,7 +240,11 @@ mix_precommit = rule(
     implementation = _mix_precommit_impl,
     attrs = {
         "srcs": attr.label_list(allow_files = True, doc = "Project sources"),
-        "data": attr.label_list(allow_files = True, doc = "Additional data files"),
+        "data": attr.label_list(
+            allow_files = True,
+            doc = "Additional files staged into WORKDIR at their short_path " +
+                  "(e.g. shared elixir/.credo.* configs loaded by project .credo.exs)",
+        ),
         "src_dir": attr.string(
             mandatory = True,
             doc = "Workspace-relative path to the Mix project root",

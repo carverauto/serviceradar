@@ -1,6 +1,11 @@
 defmodule ServiceRadar.Camera.RelaySessionManager do
   @moduledoc """
   Opens and closes camera relay sessions from the core control plane.
+
+  Edge pulls are keyed by camera source + stream profile. Many browser viewers
+  attach to one Membrane pipeline; `request_open/3` reuses a live session for
+  that pair instead of starting another agent relay. Closing only tears down the
+  edge path when no viewers remain (or when `force: true` is passed).
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -13,6 +18,7 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   require Logger
 
   @default_lease_ttl_seconds 30
+  @live_session_statuses [:requested, :opening, :active]
 
   @spec request_open(Ecto.UUID.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, RelaySession.t() | map()} | {:error, term()}
@@ -38,6 +44,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     profile_fetcher =
       Keyword.get(opts, :profile_fetcher, fn source_id, profile_id ->
         fetch_profile(source_id, profile_id, read_ash_opts)
+      end)
+
+    live_session_finder =
+      Keyword.get(opts, :live_session_finder, fn source_id, profile_id ->
+        find_live_sessions(source_id, profile_id, read_ash_opts)
       end)
 
     session_creator =
@@ -95,7 +106,57 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
              source_gateway_updater,
              write_actor
            ),
-         {:ok, session} <-
+         {:ok, open_plan} <-
+           resolve_open_plan(
+             live_session_finder,
+             camera_source_id,
+             stream_profile_id,
+             source,
+             gateway_id,
+             opts
+           ) do
+      case open_plan do
+        {:reuse, session} ->
+          Logger.info(
+            "Reusing camera relay session #{Map.get(session, :id)} for camera=#{camera_source_id} profile=#{stream_profile_id} status=#{inspect(Map.get(session, :status))}"
+          )
+
+          load_session_result(session, session_loader)
+
+        :new ->
+          open_new_session(
+            camera_source_id,
+            stream_profile_id,
+            source,
+            gateway_id,
+            requester,
+            write_actor,
+            session_creator,
+            session_loader,
+            mark_opening,
+            mark_failed,
+            dispatch_open,
+            opts
+          )
+      end
+    end
+  end
+
+  defp open_new_session(
+         camera_source_id,
+         stream_profile_id,
+         source,
+         gateway_id,
+         requester,
+         write_actor,
+         session_creator,
+         session_loader,
+         mark_opening,
+         mark_failed,
+         dispatch_open,
+         opts
+       ) do
+    with {:ok, session} <-
            session_creator.(
              %{
                camera_source_id: camera_source_id,
@@ -184,8 +245,15 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     close_reason = Keyword.get(opts, :reason, "viewer disconnected")
 
     with {:ok, session} <- resolve_session(session_or_id, session_fetcher) do
-      case close_transition_mode(session) do
+      case close_transition_mode(session, opts) do
         :skip ->
+          load_session_result(session, session_loader)
+
+        :retain_for_viewers ->
+          Logger.info(
+            "Retaining camera relay session #{Map.get(session, :id)} for remaining viewers (viewer_count=#{viewer_count(session)})"
+          )
+
           load_session_result(session, session_loader)
 
         :dispatch ->
@@ -223,6 +291,143 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp fetch_session(session_id, ash_opts) do
     RelaySession.get_by_id(session_id, ash_opts)
+  end
+
+  defp find_live_sessions(camera_source_id, stream_profile_id, ash_opts) do
+    case RelaySession.list_live_for_source_profile(camera_source_id, stream_profile_id, ash_opts) do
+      {:ok, sessions} when is_list(sessions) ->
+        {:ok, sessions}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to list live camera relay sessions for camera=#{camera_source_id} profile=#{stream_profile_id}: #{inspect(reason)}"
+        )
+
+        {:ok, []}
+
+      other ->
+        Logger.warning(
+          "Unexpected live camera relay session lookup result for camera=#{camera_source_id} profile=#{stream_profile_id}: #{inspect(other)}"
+        )
+
+        {:ok, []}
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Exception listing live camera relay sessions for camera=#{camera_source_id} profile=#{stream_profile_id}: #{Exception.message(error)}"
+      )
+
+      {:ok, []}
+  end
+
+  defp resolve_open_plan(
+         live_session_finder,
+         camera_source_id,
+         stream_profile_id,
+         source,
+         gateway_id,
+         opts
+       ) do
+    if Keyword.get(opts, :force_new, false) do
+      {:ok, :new}
+    else
+      case live_session_finder.(camera_source_id, stream_profile_id) do
+        {:ok, sessions} when is_list(sessions) ->
+          case pick_reusable_session(sessions, source, gateway_id) do
+            nil -> {:ok, :new}
+            session -> {:ok, {:reuse, session}}
+          end
+
+        {:error, _reason} ->
+          {:ok, :new}
+
+        _other ->
+          {:ok, :new}
+      end
+    end
+  end
+
+  defp pick_reusable_session(sessions, source, gateway_id) do
+    agent_id = to_string(Map.get(source, :assigned_agent_id) || "")
+    gateway_id = to_string(gateway_id || "")
+    now = DateTime.utc_now()
+
+    sessions
+    |> Enum.filter(&reusable_session?(&1, agent_id, gateway_id, now))
+    |> Enum.sort_by(&reuse_rank/1, :desc)
+    |> List.first()
+  end
+
+  defp reusable_session?(session, agent_id, gateway_id, now) do
+    status = normalize_session_status(session)
+    session_agent = to_string(Map.get(session, :agent_id) || "")
+    session_gateway = to_string(Map.get(session, :gateway_id) || "")
+
+    status in @live_session_statuses and
+      session_agent != "" and
+      session_agent == agent_id and
+      session_gateway != "" and
+      session_gateway == gateway_id and
+      (status == :active or lease_still_valid?(session, now))
+  end
+
+  defp reuse_rank(session) do
+    status_score =
+      case normalize_session_status(session) do
+        :active -> 3
+        :opening -> 2
+        :requested -> 1
+        _other -> 0
+      end
+
+    timestamp =
+      Map.get(session, :updated_at) ||
+        Map.get(session, :activated_at) ||
+        Map.get(session, :opened_at) ||
+        Map.get(session, :inserted_at) ||
+        DateTime.from_unix!(0)
+
+    {status_score, timestamp}
+  end
+
+  defp lease_still_valid?(session, now) do
+    case Map.get(session, :lease_expires_at) do
+      %DateTime{} = expires_at ->
+        DateTime.after?(expires_at, now)
+
+      _other ->
+        # Pending sessions without a lease stamp are treated as attachable for a
+        # short open window; expired leases must open a fresh edge pull.
+        true
+    end
+  end
+
+  defp normalize_session_status(%{status: status}) when is_atom(status), do: status
+
+  defp normalize_session_status(%{status: status}) when is_binary(status) do
+    case status do
+      "requested" -> :requested
+      "opening" -> :opening
+      "active" -> :active
+      "closing" -> :closing
+      "closed" -> :closed
+      "failed" -> :failed
+      _other -> :unknown
+    end
+  end
+
+  defp normalize_session_status(_session), do: :unknown
+
+  defp viewer_count(session) do
+    case Map.get(session, :viewer_count, 0) do
+      count when is_integer(count) and count >= 0 -> count
+      _other -> 0
+    end
+  end
+
+  defp force_close?(opts) do
+    Keyword.get(opts, :force, false) == true or Keyword.get(opts, :force_close, false) == true
   end
 
   defp create_session(attrs, _actor, ash_opts) do
@@ -417,10 +622,31 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp resolve_session(session_id, fetcher) when is_binary(session_id), do: fetcher.(session_id)
   defp resolve_session(_session_or_id, _fetcher), do: {:error, :invalid_session}
 
-  defp close_transition_mode(%{status: status})
+  defp close_transition_mode(%{status: status}, _opts)
        when status in [:closing, "closing", :closed, "closed", :failed, "failed"], do: :skip
 
-  defp close_transition_mode(_session), do: :dispatch
+  defp close_transition_mode(session, opts) do
+    # Soft UI disconnects must not kill a shared edge pull while other viewers
+    # remain. Idle-timeout / force / operator stops always tear the edge path down.
+    if soft_viewer_release?(opts) and not force_close?(opts) and viewer_count(session) > 0 do
+      :retain_for_viewers
+    else
+      :dispatch
+    end
+  end
+
+  defp soft_viewer_release?(opts) do
+    reason =
+      opts
+      |> Keyword.get(:reason, "viewer disconnected")
+      |> to_string()
+      |> String.downcase()
+      |> String.trim()
+
+    reason == "" or
+      String.contains?(reason, "viewer disconnected") or
+      String.contains?(reason, "viewer closed")
+  end
 
   defp load_session_result(%{id: session_id} = fallback_session, session_loader)
        when is_binary(session_id) do
