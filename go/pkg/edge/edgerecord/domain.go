@@ -1098,12 +1098,12 @@ func sourceKindForExecution(s edgev1.SweepExecutionSource) (edgev1.EdgeSourceAut
 func validateSourceRunIDDisposition(rule sweepSourceRule, id []byte) error {
 	if rule.sourceRunID == sourceRunIDForbidden {
 		if len(id) != 0 {
-			return ErrSweepSourceRunID
+			return sweepBodyErr(SweepLabelSourceRunIDDisposition, ErrSweepSourceRunID)
 		}
 		return nil
 	}
 	if ValidateCanonicalUUID(id) != nil {
-		return ErrSweepSourceRunID
+		return sweepBodyErr(SweepLabelSourceRunIDDisposition, ErrSweepSourceRunID)
 	}
 	return nil
 }
@@ -1200,8 +1200,13 @@ func joinSweepAuthority(r *edgev1.EdgeRecordV1, batch *edgev1.SweepObservationBa
 		return ErrSweepSource
 	}
 	sa := r.GetSourceAuthorization()
-	if sa == nil || sa.GetKind() != rule.kind {
-		return fmt.Errorf("%w: source kind", ErrSweepJoin)
+	// ABSENT authority and WRONG-KIND authority are separate labels, so they are
+	// separate checks: a combined branch could not say which one refused.
+	if sa == nil {
+		return sweepJoinErr(SweepLabelSourceAuthorityAbsent)
+	}
+	if sa.GetKind() != rule.kind {
+		return sweepJoinErr(SweepLabelSourceKind)
 	}
 	claims := sa.GetCapability().GetSource()
 	p := r.GetProducerContext()
@@ -1210,40 +1215,55 @@ func joinSweepAuthority(r *edgev1.EdgeRecordV1, batch *edgev1.SweepObservationBa
 	// ad-hoc/on-demand/scheduled-check rows. Comparing the non-selected field
 	// would accept a body whose signed authority names a different run.
 	if !bytes.Equal(claims.GetContextId(), sweepContextOperandValue(rule, batch)) {
-		return fmt.Errorf("%w: context id", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelContextID)
 	}
-	// The generic signed scope identity MUST be the range identity (both id AND
-	// digest), and the plan/range digests must match the body.
-	if !bytes.Equal(claims.GetScopeId(), batch.GetTargetRangeId()) ||
-		!bytes.Equal(claims.GetScopeSha256(), batch.GetTargetRangeSha256()) {
-		return fmt.Errorf("%w: range identity", ErrSweepJoin)
+	// The generic signed scope identity MUST be the range identity, in BOTH id and
+	// digest. These are two labels and therefore two checks: the signed claim
+	// carries scope_sha256 AND target_range_sha256, so a single combined branch
+	// would let either predicate be deleted while the manifest still matched.
+	if !bytes.Equal(claims.GetScopeId(), batch.GetTargetRangeId()) {
+		return sweepJoinErr(SweepLabelRangeID)
 	}
-	if !bytes.Equal(claims.GetExecutionPlanSha256(), batch.GetExecutionPlanSha256()) ||
-		!bytes.Equal(claims.GetTargetRangeSha256(), batch.GetTargetRangeSha256()) {
-		return fmt.Errorf("%w: plan/range digest", ErrSweepJoin)
+	if !bytes.Equal(claims.GetScopeSha256(), batch.GetTargetRangeSha256()) {
+		return sweepJoinErr(SweepLabelScopeDigest)
+	}
+	if !bytes.Equal(claims.GetTargetRangeSha256(), batch.GetTargetRangeSha256()) {
+		return sweepJoinErr(SweepLabelTargetRangeDigest)
+	}
+	if !bytes.Equal(claims.GetExecutionPlanSha256(), batch.GetExecutionPlanSha256()) {
+		return sweepJoinErr(SweepLabelPlanDigest)
 	}
 	// The attested producer shard AND fence epoch MUST match the body.
 	if batch.GetExecutionShard() != p.GetRunShard() {
-		return fmt.Errorf("%w: execution shard", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelExecutionShard)
 	}
 	if batch.GetAssignmentEpoch() != p.GetAuthorityEpoch() {
-		return fmt.Errorf("%w: assignment epoch", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelAssignmentEpoch)
 	}
 	// The observed batch time must fall inside the signed collection window.
 	if !withinCollection(batch.GetObservedAtUnixNano(), claims) {
-		return fmt.Errorf("%w: observation time outside collection window", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelBatchTimeWindow)
 	}
 	// Every per-host absolute time (batch time + signed sint64 delta, OVERFLOW-SAFE)
 	// and every per-host MTR trace identity time must also fall inside the window.
 	for _, h := range batch.GetHosts() {
+		// OVERFLOW and OUT-OF-WINDOW are separate labels, so they are separate
+		// checks. A wrapped sum can land INSIDE the window, so folding them
+		// together would report the wrong reason for the case that matters most.
 		abs, ok := addInt64(batch.GetObservedAtUnixNano(), h.GetObservedAtDeltaNano())
-		if !ok || !withinCollection(abs, claims) {
-			return fmt.Errorf("%w: host observation time outside collection window", ErrSweepJoin)
+		if !ok {
+			return sweepJoinErr(SweepLabelHostTimeOverflow)
+		}
+		if !withinCollection(abs, claims) {
+			return sweepJoinErr(SweepLabelHostTimeWindow)
 		}
 		if mtr := h.GetMtr(); mtr != nil && mtrOutcomeAllocated(mtr.GetOutcome()) {
 			ns, err := UUIDv7Nanos(mtr.GetTraceId())
-			if err != nil || !withinCollection(ns, claims) {
-				return fmt.Errorf("%w: mtr trace time outside collection window", ErrSweepJoin)
+			if err != nil {
+				return sweepJoinErr(SweepLabelTraceTimeOverflow)
+			}
+			if !withinCollection(ns, claims) {
+				return sweepJoinErr(SweepLabelTraceTimeWindow)
 			}
 		}
 	}

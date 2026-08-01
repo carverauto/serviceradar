@@ -167,13 +167,22 @@ here.
   - [ ] 1.3-c the SHARED CHECKED UUIDv7 millisecond-to-nanosecond helper, plus 1.3's own
         sweep-summary `trace_id` overflow vector (the 1.1 and 1.4 call-site vectors are
         assigned to those tasks)
-  - [ ] 1.3-d the PORTABLE REJECTION LABELS in both runtimes
-  - [ ] 1.3-e the EXACT MAPPING INVENTORIES in Go AND Elixir. NOT subsumed by the parity
+  - [x] 1.3-d DECLARE THE LABEL NAMES in both runtimes: the fifteen frozen strings exist as
+        one vocabulary in Go (`SweepJoinLabel`, backed by a canonical registry the private
+        constructors enforce) and Elixir (`SweepMatrix.labels/0`), and each inventory pins
+        the exact SET. NAMES ONLY -- EMISSION and the (label, gate) PAIR belong to 1.3-f,
+        which states their current coverage
+  - [x] 1.3-e the EXACT MAPPING INVENTORIES in Go AND Elixir. NOT subsumed by the parity
         vectors: the requirement says vectors SAMPLE, and only an exhaustive inventory shows
         the mapping is total, injective, and excludes the two unreachable kinds. An inventory
         and a vector set prove different things
   - [ ] 1.3-f the Elixir peer, the SHARED PARITY VECTORS, and any FURTHER fixture changes
-        those vectors produce. The BASELINE regeneration is already LANDED: making the
+        those vectors produce. EXPLICITLY INCLUDES, handed over by 1.3-d: Elixir EMISSION of
+        the fourteen correlation labels, and the JOINT (label, gate) vector proof in BOTH
+        runtimes -- every LABELLED vector asserts the portable label AND the owning gate's
+        typed outcome in ONE assertion, so neither can be changed alone. UNLABELLED vectors
+        (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate. Neither runtime pins
+        the pair today. The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
         resulting fixture changes are reviewed there. 1.3-f OWNS these vectors; task 1.15
         ACKNOWLEDGES them as parity evidence (1.15-b) and does not own them
@@ -225,14 +234,19 @@ here.
   STATUS
   - LANDED: the assignment record + plan model (#4770), the compiled-assignment carrier and
     host execution grant (#4775), the normative grammar freeze (#4776), both Elixir
-    validators (#4777), the correlation-matrix design (#4779), and matrix slice 1 --
-    1.3-a and 1.3-b below, with the shared `UUIDv7Nanos` helper.
-  - REMAINING: 1.3-c through 1.3-f below. That checklist is CANONICAL for this task; no
+    validators (#4777), the correlation-matrix design (#4779), matrix slice 1 -- 1.3-a and
+    1.3-b, with the shared `UUIDv7Nanos` helper -- and matrix slice 2, 1.3-d and 1.3-e.
+  - REMAINING: 1.3-c and 1.3-f in the checklist ABOVE, which is CANONICAL for this task; no
     other passage in this file restates it.
   - DEPENDS ON: nothing open. The durable assignment mapping is task 2.20 downstream and
     SHALL NOT gate this.
-  - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`,
-    `go/pkg/edge/edgerecord/sweep_matrix_test.go`, `proto/edge/v1/testdata/sweep_batch.bin`.
+  - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`;
+    `go/pkg/edge/edgerecord/sweep_matrix_test.go` (slice 1 behaviour);
+    `go/pkg/edge/edgerecord/sweep_labels.go` and `sweep_inventory_test.go` (slice 2 Go
+    vocabulary + inventory); `elixir/serviceradar_core/lib/serviceradar/edge/sweep_matrix.ex`
+    and its `test/serviceradar/edge/sweep_matrix_test.exs` (slice 2 Elixir peer table);
+    the per-predicate label vectors in `proto/edge/v1/golden_test.go`; and
+    `proto/edge/v1/testdata/sweep_batch.bin`.
   - NOTE on 1.3-c: the shared checked helper and its unit vectors landed in slice 1; the box
     stays OPEN because 1.3's own sweep-summary `trace_id` CORRELATION vector needs a full
     record fixture and lands with slice 3.
@@ -261,10 +275,7 @@ here.
   completion never depends on arrival order, on per-block buffering, on a
   `proto.Marshal` re-encode, or on execution-wide trace materialization. Allocate and durably record UUIDv7 trace
   IDs before probing and add cross-language UUIDv7/identity-time fixtures.
-  AUDIT (1.1-1.6): the proof machinery is implemented in both runtimes, but the
-  completion-leaf disposition was declared NOWHERE in the protos -- it was a Go
-  `iota` block (`MtrTerminalDisposition`) and separately a set of literal
-  integers in Elixir guards. Declare it ONCE as the generated enum
+  The completion-leaf disposition is declared ONCE as the generated enum
   `MtrCompletionDisposition`, with the members and numbers frozen by the requirement "MTR completion disposition is one generated enum". Distinct from the per-hop `MtrOutcome` numbering
   (REACHED=1, PROBE_FAILED=3, NOT_ADMITTED=5, QUARANTINED=6, SCHEDULER_LOST=7),
   which it SHALL NOT reuse. Go's `MtrTerminalDisposition` constants and Elixir's
@@ -273,19 +284,20 @@ here.
   negative, and unknown-positive values BEFORE widening to `u64` and hashing, and
   keep later-declared values rejected until the completion grammar version itself
   changes. The number is hashed into the frozen leaf preimage, so a hand-maintained
-  pair can produce two different roots for one completion. (This target is owned here and
-  by 1.15 only.)
+  pair can produce two different roots for one completion, which is why one generated enum
+  replaces the hand-maintained pair. (This target is owned here and by 1.15 only.)
   CLOSED: `MtrCompletionDisposition` is declared in `proto/edge/v1/sweep.proto`
   and both runtimes now read it -- Go's `MtrTerminalDisposition` is a type ALIAS
   of the generated enum (`domain.go`), and Elixir's completion guards derive
   `@disposition_trace_allocated` / `@dispositions_without_trace` from the
   generated module at compile time (`hash_grammar.ex`), so neither restates a
   number. Both runtimes assert the closed set (`0`, `-1`, `6`, `999` rejected;
-  `1..5` accepted); `-1` is expressible in Go for the first time because the
-  disposition is now the generated `int32` enum rather than a local `uint32`.
-  Elixir's unvalidated `mtr_completion_root/4` was made PRIVATE in the same pass:
-  it was the one path by which an unrecognised number could reach the frozen
-  preimage, and Go exports no such hasher. Each runtime ALSO pins every
+  `1..5` accepted). `-1` is expressible in Go because the disposition is the
+  generated `int32` enum rather than a local `uint32`, so the negative case is a
+  real input the closed set must reject rather than an unreachable one.
+  RULE: no unvalidated hasher is reachable from outside either runtime. Elixir's
+  `mtr_completion_root/4` is PRIVATE and Go exports no equivalent, so an
+  unrecognised number has no path to the frozen preimage. Each runtime ALSO pins every
   symbol->number pair and the exact membership
   (`TestMtrCompletionDispositionSymbolNumbers`; "MTR completion disposition
   symbols are pinned to their exact numbers"). That pin is not redundant with the
@@ -293,17 +305,13 @@ here.
   valid members -- `QUARANTINED=4` and `SCHEDULER_LOST=5` -- would leave it green
   while changing which meaning is hashed at those numbers, and a quarantined
   ordinal's completion root would silently become a scheduler-lost one's.
-  PROVEN by two mutations, each of which COMPILES (so each is a kill, not a failed
-  experiment), with NO edit to either runtime: renumbering `SCHEDULER_LOST` 5 -> 6
-  fails the closed-set tests in both runtimes, and SWAPPING `QUARANTINED` and
-  `SCHEDULER_LOST` fails the symbol-pin tests in both runtimes while the
-  closed-set tests stay green -- which is exactly why both tests exist. Every
-  existing completion golden vector stays byte-identical, so the digest grammar
-  did not move. STILL 1.15: the SHARED cross-language leaf fixture both runtimes
-  read. Today each runtime pins the mapping against its OWN generated enum, so a
-  divergence is caught only because both generate from one proto -- 1.15 replaces
-  that argument with per-value vectors both runtimes decode (the existing shared
-  goldens exercise dispositions 1 and 2 only).
+  EVIDENCE: the closed-set and symbol-pin tests in both runtimes. They are separate
+  tests on purpose -- a renumbering and a symbol SWAP fail different ones, so neither
+  alone pins the mapping. The mutation record proving that is in `design.md`.
+  STILL 1.15: the SHARED cross-language leaf fixture both runtimes read. Each runtime
+  currently pins the mapping against its OWN generated enum, so a divergence is caught
+  only because both generate from one proto; 1.15 replaces that argument with
+  per-value vectors both runtimes decode.
   1.4 REMAINS UNCHECKED. Zero-MTR is NOT among its reasons: both runtimes implement the
   mandatory canonical zero-leaf proof, so a COMPLETED sweep admitting no MTR targets has
   exactly one valid representation.
@@ -442,7 +450,7 @@ here.
   publication identity separately. Make projected row cost cover every
   synchronous ledger/domain/outbox/work/current-state mutation and canonicalize
   nanoseconds to PostgreSQL microseconds before identity/order comparison.
-  AUDIT (1.1-1.6): the negative-enum divergence this task exists for IS closed --
+  CURRENT STATE: the negative-enum divergence this task exists for IS closed --
   `WireValidate` structural preflight then `SemanticValidate.disposition/2`
   mapping to `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`, with the LAST-ONE-WINS case covered by the
   SHARED fixture `lane_open_negative_then_valid.bin` referenced from both
@@ -509,10 +517,10 @@ here.
   unsupported-input vector) (never whole-record byte equality; protobuf has no canonical wire form,
   so two compliant encoders MAY emit different `record_sha256` for the same
   semantics).
-  AUDIT (1.1-1.6): equivalence IS proven -- Elixir reads the SAME
+  CURRENT STATE: equivalence IS proven -- Elixir reads the SAME
   `proto/edge/v1/testdata` corpus as Go, and both regeneration drift guards run
-  in `proto-abi.yml`. The gap is the fail-closed half. Exactly ONE grammar has an
-  unsupported-version fixture today: transport provenance's `unknown-version` row in
+  in `proto-abi.yml`. The gap is the fail-closed half: unsupported-version fixture
+  coverage is incomplete across the grammars. Present today: transport provenance's `unknown-version` row in
   `pubid_reject_vectors.txt`. (`lane_open_unknown_group.bin` is an unknown
   protobuf GROUP/field fixture, not an unknown-VERSION vector.)
   The gate is OBJECT-LEVEL, not per version family, and it has TWO exhaustive
@@ -651,24 +659,19 @@ here.
   closed-set unknown-enum handling, the recovery digest version, and the Appendix A
   transcripts for both the manifest page and the tombstone scope -- so this task
   IMPLEMENTS that schema rather than deciding it.
-  IMPLEMENTATION SURFACE (audited; the scope is wider than just the
-  digest functions): the proto plus BOTH generated bindings;
-  `edgerecord/recovery.go` and its `validate.go` comment; `hash_grammar.ex`, whose
-  `manifest_page_digest/1` and `tombstone_scope_digest/1` BOTH change; a NEW Elixir
-  RELATIONAL recovery validator -- Elixir has only `HashGrammar` today, so the
-  relational half is not a port of `recovery.go` but new code; `semantic_validate.ex` with its
-  schema-root/policy coverage; the Go enum-policy predicates and manifest contexts;
-  `scripts/patch_edge_enum_negatives.exs` and its test, whose hard-coded inventory
-  goes from 15 enums to 16; `enum_policy_manifest.txt`; SIX transitively changing
-  fixtures (`manifest_page`, `manifest_page_scope`, `tombstone`, `tombstone_scope`,
-  `recovery_resolved`, `resolved_scope`) before the new gap/stale/bloat/reject
-  vectors; and the Go and Elixir golden AND semantic-validation suites.
-  The RAW-BYTE CEILING needs a real recovery-page decode/validation entry point in
-  BOTH runtimes: hashing or re-marshalling a decoded message cannot prove a bound on
-  the bytes actually received, which is the defect at `recovery.go:168` today. Byte ceilings MUST be
-  measured against EXACT RECEIVED page bytes -- the current Go validator
-  re-marshals decoded pages, so duplicate fields and non-minimal varints evade
-  the physical ceiling.
+  LANDED RULES (this task is CHECKED; these are the rules it froze, not a plan):
+  - the recovery digest version, closed-set unknown-enum handling, and the Appendix A
+    transcripts for BOTH the manifest page and the tombstone scope;
+  - byte ceilings are measured against EXACT RECEIVED bytes. Hashing or re-marshalling a
+    decoded message cannot bound what was received: duplicate fields and non-minimal
+    varints survive the round trip and evade a physical ceiling.
+  EVIDENCE: `go/pkg/edge/edgerecord/recovery.go` (field-by-field Appendix A framing, no
+  `proto.Marshal` at any depth); `elixir/serviceradar_core/lib/serviceradar/edge/`
+  `recovery_validate.ex` and `hash_grammar.ex`; `scripts/patch_edge_enum_negatives.exs`
+  with `enum_policy_manifest.txt`; and the six recovery fixtures under
+  `proto/edge/v1/testdata/`.
+  The pre-implementation audit that drove this task -- what each runtime lacked before it
+  landed -- is in `design.md`, not here.
   A PER-PAGE ENTRY POINT IS NOT SUFFICIENT, because `MaxManifestBytes` is an
   AGGREGATE budget. Two pages can each be under the cap in received bytes, exceed it
   TOGETHER, and then collapse back under it when re-encoded -- so a per-page raw
@@ -701,49 +704,42 @@ here.
   itself part of the identity and partial combinations rejected. IDs travel WITH
   their digests: the wire signs and validates each independently and nothing
   derives one from the other.
-  ALSO IN 1.6a: correct the still-live proto/code comments that equate an absent
-  source authorization with "passive output" (`record.proto` lines 82-86 and
-  234-237, the `absent = passive output` comment on `source_authorization`, and
-  `go/pkg/edge/edgerecord/validate.go:785`, which still says a nil source
-  authorization means a passive record -- generated comments follow the proto
-  edit, hand-written ones do not).
-  After this change "passive" means ONLY "asserts no produced target range";
-  leaving those comments gives the word two incompatible meanings in one file. `run_shard`
+  RULE: "passive" means ONLY "asserts no produced target range". It SHALL NOT be equated
+  with an absent source authorization anywhere in the protos or the code -- the two are
+  independent axes, and conflating them gives the word two incompatible meanings in one
+  file. Note that generated comments follow the proto edit while hand-written ones do not,
+  so both need checking when this wording changes. `run_shard`
   and `authority_epoch` equal `execution_shard` / `assignment_epoch` ONLY where the
   originating contract carries them -- `SweepObservationBatchV1` and
   `MtrSweepContextV1` do; the scheduled-check, ad-hoc, and command MTR variants
   carry neither. `run_id` is INDEPENDENT and is NOT REQUIRED to equal
   `execution_id`. A span does NOT embed `execution_plan_id`.
-  SCOPE: the exact-received-bytes ceiling fix in this task covers the RECOVERY
-  MANIFEST PAGE only. `ScheduledPlanPageV1` has the SAME re-marshal bypass
-  (`go/pkg/edge/edgerecord/plan.go`, `MaxPlanPageBytes` measured over a
-  `proto.Marshal` of the decoded page) and is NOT fixed here -- it is recorded
-  under 1.3/1.5. This task MUST NOT claim to have closed the bypass for all paged
-  contracts.
-  This must land BEFORE 1.7 because 1.7 freezes the transport ABI these pages
-  travel on, and it gates 2.21-2.28 (the ORIGINAL PRE-SPLIT task 2.20 is folded into
-  this task; the downstream change reuses the number 2.20 for a distinct runtime
-  task, which is NOT folded).
-  FOLDED IN FROM TASK 2.20 -- the proto shape, BOTH runtimes' validators, the exact
-  byte checks, and the fixtures land ATOMICALLY in this task. Splitting them let a
-  frozen shape ship without the validators that enforce it:
-  Update `ValidateManifestChain` and `ValidateTombstone` so an
-  `UNATTRIBUTABLE` span validates WITHOUT a covering affected scope, so
-  `ATTRIBUTED_PASSIVE` validates with a delivery interval and no produced range,
-  and so the FROZEN span rules are enforced (strict ascending order,
+  SCOPE OF THE EXACT-RECEIVED-BYTES CEILING: this task closed it for the RECOVERY
+  MANIFEST PAGE. The PLAN page is closed too, but by task 1.3 rather than here --
+  `ValidatePlanFromRaw` measures `MaxPlanPageBytes` against RECEIVED bytes
+  (`plan.go:572`). What remains coarse is the DECODED helper at `plan.go:265`, which
+  measures a deterministic re-marshal; that is a convenience path for callers who
+  already hold a decoded page, and it is NOT the physical boundary. This task does
+  not claim to have closed the bypass for all paged contracts.
+  ATOMICITY RULE: the proto shape, BOTH runtimes' validators, the exact byte checks
+  and the fixtures land TOGETHER. Splitting them lets a frozen shape ship without the
+  validators that enforce it.
+  SPAN RULES: an `UNATTRIBUTABLE` span validates WITHOUT a covering affected scope;
+  `ATTRIBUTED_PASSIVE` validates with a delivery interval and no produced range; and
+  the frozen span rules hold (strict ascending order,
   non-overlapping, non-duplicate, primitively valid intervals, at least one span
   per page, and ordering total ACROSS the page chain). There is NO "exact-partition
   rule": gaps are legal and mean "not lost", so the spans do not partition a
-  declared interval. Today's validators reject an
-  unattributable manifest outright, so recovery of a corrupt segment cannot be
-  reported at all until this lands — it gates 2.21-2.28.
+  declared interval. An UNATTRIBUTABLE manifest SHALL be reportable rather than rejected
+  outright: refusing it would make recovery of a corrupt segment unreportable, which is why
+  this gates 2.21-2.28.
 
 - [ ] 1.7 Freeze the agent-gateway frame and lane handshake as an internal,
   producer-neutral transport ABI. PREREQUISITE RULE -- COMPLETE, not a hand-listed
-  subset: this task SHALL NOT be checked while ANY OTHER TASK IN THIS CHANGE is
-  open. That is tasks 1.1-1.6a and 1.13-1.15, and it is stated as a rule precisely
-  because a subset list would silently omit 1.1 and 1.2, which
-  define the frozen messages.
+  subset: this task SHALL NOT be checked while ANY OTHER TASK OR SUBTASK IN THIS CHANGE is
+  open. It is a RULE and not a list on purpose, and this entry does not enumerate one:
+  any enumeration would need editing every time a task is added or split, and a stale one
+  silently narrows the gate it exists to widen.
   ARCHIVAL GATE: 1.7 SHALL NOT be checked until this change contains a NORMATIVE
   delta defining the authoritative assignment-record schema and the frozen
   `SweepObservationBatchV1` correlation matrix (task 1.3). A task that requires a

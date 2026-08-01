@@ -168,6 +168,13 @@ jobs:
       - name: Edge compiled-assignment carrier parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
+      # The sweep CORRELATION MATRIX inventory. Gated because an inventory is the only thing
+      # that shows the mapping is TOTAL, INJECTIVE, and free of the two unreachable kinds --
+      # vectors sample, so a vector-only gate cannot establish absence. It also pins the
+      # fifteen portable labels, which is what makes cross-runtime reason parity checkable.
+      - name: Edge sweep correlation matrix inventory (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/sweep_matrix_test.exs
       # The HOST execution-grant validator, gated for the same reason as the carrier: a parity
       # suite no required job runs proves nothing about what CI accepts.
       - name: Edge execution-grant parity (Elixir)
