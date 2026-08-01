@@ -42,6 +42,7 @@ func validSweepBatch(t *testing.T) *edgev1.SweepObservationBatchV1 {
 		ExecutionPlanSha256: d32domain(0x10), TargetRangeSha256: d32domain(0x20),
 		AvailabilityPolicyId: []byte("policy-1"), BatchSequence: 1, ObservedAtUnixNano: 1,
 		Source:             edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
+		SourceRunId:        mustUUID(t), // REQUIRED on this row; distinct from execution_id
 		ConfiguredModeBits: uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
 		TestedChecks: []*edgev1.SweepTestV1{
 			{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
