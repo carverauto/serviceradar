@@ -690,3 +690,36 @@ Two rows carry the defects the earlier rounds missed, and are the reason the tab
 is worth keeping: the `source` marker row is where source-present and source-absent
 spans stopped collapsing onto one digest, and the two scope-ID rows are where
 "non-empty" was weaker than the accepted-record contract they must agree with.
+
+## Review history and where it lives
+
+This change's slices went through long adversarial review, and the corrections are worth
+keeping — but NOT in `tasks.md`. That file is a work ledger: what landed, what remains, what
+blocks it, and what evidence backs the claim. Narrative of the form "an earlier revision said
+X, which was wrong" belongs here or in the PR that made the correction, because it describes
+how the contract was reached rather than what is owed.
+
+The rule going forward: a `tasks.md` entry states the CURRENT position. If a past error is
+worth recording, it is recorded here or in the PR description, and `tasks.md` carries only the
+forward-looking consequence — for example "the payload-family relation has an owner" rather
+than "an earlier revision called it unowned".
+
+Corrections whose REASONING is load-bearing stay in the spec, not here: those are cases where
+the wrong reading is a live trap for the next implementer, such as the `EdgeSourceClaimsV1` and
+`EdgeAssignmentExecutionClaimsV1` collection windows sharing field names while using opposite
+endpoint conventions.
+
+### Decisions whose rejected alternative is recorded here, not in tasks.md
+
+- **Zero-MTR completion.** Candidate (A) required no proof and left
+  `mtr_ordinal_range_commitment` EMPTY. Rejected because it permitted both an absent and a
+  present proof for one state and rested the choice between them on the event's own
+  producer-reported counters. Candidate (B) — a mandatory canonical zero-leaf proof — shipped
+  in #4769. The ledger states only the rule that survived.
+- **`run_id` equality.** An earlier reading equated `EdgeProducerContext.run_id` with a source
+  correlation. Withdrawn: the span requirement forbids it, and the ledger states the
+  prohibition rather than its history.
+- **Loss-span union direction.** "Proven not-lost by the span union" is backwards; absence
+  from a COMPLETE union is what establishes not-lost.
+- **Capability oneof growth.** Task 1.3 added `collection` = 11 and `assignment_execution`
+  = 12. Appendix A is the inventory; task entries do not track additions chronologically.
