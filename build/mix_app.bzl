@@ -259,6 +259,25 @@ def _impl(ctx):
             "%{" + ", ".join(graph_entries) + "}",
         )
 
+    # Bundlex fetches precompiled native libraries (ffmpeg, opus, srt, ...) with Req.get!
+    # during compilation. Left alone that is a network fetch inside a build action: not
+    # covered by the action key, dependent on executor egress, and repeated per consuming
+    # plugin -- five separate 70.8 MB copies of libavcodec.so in one release.
+    #
+    # The archives are pinned http_file repos in //MODULE.bazel. Staging them here and
+    # pointing BUNDLEX_LOCAL_PRECOMPILED_DIR at the directory makes the patched Bundlex in
+    # //third_party/patches/bundlex copy instead of download. Matching is by URL basename.
+    precompiled_commands = []
+    if uses_bundlex and ctx.files.precompiled_os_deps:
+        precompiled_commands.append('mkdir -p "${MIX_INVOCATION_DIR}/.bundlex_precompiled"')
+        for f in ctx.files.precompiled_os_deps:
+            precompiled_commands.append(
+                'cp "{src}" "${{MIX_INVOCATION_DIR}}/.bundlex_precompiled/{name}"'.format(
+                    src = f.path,
+                    name = f.basename,
+                ),
+            )
+
     # Staged into the copied source tree so `mix compile` picks them up as part of priv,
     # and mix_app's priv output carries them downstream.
     native_lib_commands = []
@@ -329,6 +348,10 @@ export ERL_COMPILER_OPTIONS=deterministic
 # on a network-isolated RBE executor.
 export HEX_OFFLINE=1
 
+# Points the patched Bundlex at the Bazel-staged archives. Harmless when the directory is
+# absent: Bundlex falls back to its original download path.
+export BUNDLEX_LOCAL_PRECOMPILED_DIR="$PWD/.bundlex_precompiled"
+
 for archive in {archives}; do
     "${{ABS_ELIXIR_HOME}}"/bin/mix archive.install --force $ORIGINAL_DIR/$archive
 done
@@ -380,7 +403,7 @@ find . -type l -delete
         elixir_home = elixir_home,
         mix_invocation_dir = mix_invocation_dir.path,
         project_dir = ctx.label.package,
-        copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands),
+        copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands + precompiled_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
         mix_env = ctx.attr.mix_env,
         lock_commands = lock_commands,
@@ -402,6 +425,7 @@ find . -type l -delete
             elixir_runfiles.files,
             depset(ctx.files.archives),
             depset(dep_source_files),
+            depset(ctx.files.precompiled_os_deps),
             depset(native_lib_files),
             depset(erl_libs_files),
         ],
@@ -481,6 +505,12 @@ mix_app = rule(
         # (rustler/lib/rustler/compiler/config.ex), so `skip_compilation?: true` set here
         # keeps cargo out of the Bazel action without changing what `mix release` does.
         "extra_config": attr.string_list(),
+        # Archives Bundlex would otherwise download mid-build. Only staged when the
+        # package actually depends on bundlex, so this costs nothing for the other 271.
+        "precompiled_os_deps": attr.label_list(
+            allow_files = True,
+            default = ["//third_party/membrane:precompiled_os_deps"],
+        ),
         "mix_env": attr.string(default = "prod"),
         "deps": attr.label_list(providers = [ErlangAppInfo]),
     },

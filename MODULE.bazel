@@ -161,6 +161,11 @@ git_repository(
     name = "hex_bundlex",
     build_file = "//third_party/hex:bundlex.BUILD",
     commit = "8f3b94a8d643c4513d61355be53136cb2ea8fbb4",
+    # Resolve precompiled OS deps from BUNDLEX_LOCAL_PRECOMPILED_DIR before reaching for
+    # github.com. Without it `mix deps.compile` downloads ffmpeg and friends inside a build
+    # action -- unkeyed, and once per consuming plugin. See the patch header.
+    patch_args = ["-p1"],
+    patches = ["//third_party/patches/bundlex:local_precompiled.patch"],
     remote = "https://github.com/membraneframework/bundlex.git",
 )
 
