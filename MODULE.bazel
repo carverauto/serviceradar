@@ -3340,9 +3340,9 @@ http_file(
 
 http_file(
     name = "debian_libcurl3_gnutls_amd64_deb",
-    sha256 = "15431a9d3c3ea95df9f2f77ba300a992ada486e9584edf1e88ffa8be43c0fc17",
+    sha256 = "bf430ecf80f7808704e0187cddc582fd57fc98789ea356d4797651edad387ef3",
     urls = [
-        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u14_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
     ],
 )
 
@@ -3388,9 +3388,9 @@ http_file(
 
 http_file(
     name = "debian_libnghttp2_14_amd64_deb",
-    sha256 = "dbe3eb8c831e654ac7d5cf045d605d53fd763e8ebc238607c25f301996103bb9",
+    sha256 = "5a5736cee57e51c1baed869979e6ecdbc6495e939e33203d6cfe3b6e5a149e3f",
     urls = [
-        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u2_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
     ],
 )
 

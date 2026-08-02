@@ -440,7 +440,8 @@ end
 
 config :serviceradar_agent_gateway,
   camera_relay_max_sessions_per_agent: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_AGENT", 16),
-  camera_relay_max_sessions_per_gateway: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_GATEWAY", 32)
+  camera_relay_max_sessions_per_gateway: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_GATEWAY", 32),
+  camera_relay_sweep_interval_ms: parse_int_env.("CAMERA_RELAY_SWEEP_INTERVAL_MS", 5_000)
 
 config :serviceradar_core, Oban, false
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test

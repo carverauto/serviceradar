@@ -47,6 +47,11 @@ defmodule ServiceRadar.Camera.RelaySession do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+
+    define :list_live_for_source_profile,
+      action: :live_for_source_profile,
+      args: [:camera_source_id, :stream_profile_id]
+
     define :create_session, action: :create
     define :mark_opening, action: :mark_opening
     define :activate, action: :activate
@@ -64,6 +69,26 @@ defmodule ServiceRadar.Camera.RelaySession do
       get? true
       filter expr(id == ^arg(:id))
       prepare build(load: [:termination_kind])
+    end
+
+    read :live_for_source_profile do
+      description """
+      Live edge pulls for a camera source + stream profile.
+
+      One Membrane pipeline should back many viewers; this action finds sessions
+      that can still be attached instead of opening another agent relay.
+      """
+
+      argument :camera_source_id, :uuid, allow_nil?: false
+      argument :stream_profile_id, :uuid, allow_nil?: false
+
+      filter expr(
+               camera_source_id == ^arg(:camera_source_id) and
+                 stream_profile_id == ^arg(:stream_profile_id) and
+                 status in [:requested, :opening, :active]
+             )
+
+      prepare build(sort: [updated_at: :desc], load: [:termination_kind])
     end
 
     create :create do
