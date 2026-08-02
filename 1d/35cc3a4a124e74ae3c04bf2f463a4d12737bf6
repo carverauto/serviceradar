@@ -1,0 +1,19 @@
+build/mix_release.bzl
+  s_d2089df286db69::t_41205ad77d0a0e 33-54,57,96-109,112,535,618-629,665-668,772-773,813-825
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "1d35cc3a4a124e74ae3c04bf2f463a4d12737bf6",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
