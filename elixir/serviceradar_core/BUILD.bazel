@@ -5,6 +5,7 @@ load(
     "integration_shard_names",
     "partition_by_shard",
 )
+load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
@@ -315,20 +316,20 @@ ex_unit_tests(
         # migrations that produced the template -- so a cache hit on BuildBuddy is a legitimate
         # hit.
         #
-        # `manual`: this needs the SRQL/CNPG fixture, whose URL arrives through --test_env.
-        # Without it test_helper takes the no-database branch and excludes every test, which would
-        # report a vacuous pass.
+        # `integration_test` selects WHICH invocation addresses this target;
+        # `requires_shared_fixture()` below decides WHETHER it may run at all. Both are
+        # wanted: the tag keeps it out of the unit sweep, the guard stops an unflagged
+        # `bazel test //...` from running DDL against the shared fixture. Without the fixture
+        # URL (arriving via --test_env) test_helper takes the no-database branch and excludes
+        # every test, which would otherwise report a vacuous pass.
         #
-        # `no-remote-exec`: the fixture CA is a file on the RUNNER
-        # (${RUNNER_TEMP}/srql-fixture-ca.crt, written by scripts/ci/configure-srql-fixture.sh),
-        # and config/test.exs reads it by path through CNPG_CA_FILE /
-        # SERVICERADAR_TEST_DATABASE_CA_CERT_FILE. --test_env forwards the path, not the file, so
-        # under --config=ci a BuildBuddy executor cannot open it. Execution only -- remote caching
-        # still applies, which is the whole reason this target is not `external`.
-        tags = [
-            "manual",
-            "no-remote-exec",
-        ],
+        # NO `no-remote-exec`: config/test.exs now takes the fixture CA as PEM CONTENT from
+        # SRQL_TEST_DATABASE_CA_CERT and passes it as :cacerts. It used to read a path
+        # (a file on the runner) which a BuildBuddy executor could not open, and pinning
+        # execution to the runner was the workaround. The content form has no such problem,
+        # so these run remotely like everything else.
+        tags = ["integration_test"],
+        target_compatible_with = requires_shared_fixture(),
         deps = [":erlang_app"],
     )
     for shard in integration_shard_names()
@@ -338,7 +339,7 @@ ex_unit_tests(
 # //elixir/serviceradar_core:integration_tests and get every shard.
 test_suite(
     name = "integration_tests",
-    tags = ["manual"],
+    tags = ["integration_test"],
     tests = [
         ":integration_tests_{}".format(shard)
         for shard in integration_shard_names()
@@ -394,10 +395,15 @@ ex_unit_test(
         "-r",
         "test/db/db_task_helper.exs",
     ],
+    # `manual` stays here on purpose: this is an ordered DDL step in the fixture lifecycle
+    # (sweep -> prepare -> migrate -> provision -> tests -> teardown), not a test to be
+    # tag-selected. Bazel does not order tests, so letting a tag pull this into a batch
+    # would let it race the steps it must sit between.
     tags = [
         "external",
         "manual",
         "no-remote-exec",
     ],
+    target_compatible_with = requires_shared_fixture(),
     deps = [":erlang_app"],
 )

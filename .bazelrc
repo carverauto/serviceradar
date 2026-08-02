@@ -163,7 +163,7 @@ build:no_remote --bes_backend=
 build:no_remote --bes_results_url=
 
 # CI profile can layer on top of the remote config without re-declaring values.
-build:ci --keep_going --build_tag_filters=-manual
+build:ci --keep_going
 build:ci --noenable_platform_specific_config
 build:ci --config=remote_base
 build:ci --build_metadata=ROLE=CI
@@ -185,8 +185,9 @@ build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
 build:ci --strategy=CopyDirectory=local
 
-# CI tests should avoid manual-only targets and preserve detailed output.
-test:ci --test_tag_filters=-manual --test_output=errors
+# Detailed output only. Tag selection is NOT defaulted here: every call site states which
+# tags it wants, so what a command runs is readable from the command itself.
+test:ci --test_output=errors
 
 # Remote execution profile settings shared by CI and --config=remote.
 # NOTE: aggregate `bazel run` targets backed by rules_multirun (like //:push)
