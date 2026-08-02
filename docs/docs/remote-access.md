@@ -316,53 +316,46 @@ sudo chmod 0644 /etc/ssh/serviceradar/current/authorized-principals/mfreeman
 
 SSH certificates authenticate the *session*. They do not create Unix accounts.
 The account named in the browser form (for example `mfreeman`) must already
-exist on the target through:
+exist on the target through FreeIPA (preferred), a local user, or another
+NSS/PAM source.
 
-- a local user, or
-- FreeIPA / LDAP / AD via SSSD, or
-- another NSS/PAM identity source.
+**Decision:** FreeIPA is the fleet Unix IdM. It owns POSIX users/groups,
+**centralized sudo rules**, HBAC, host enrollment, and Kerberos. Prefer
+**2 VMs outside Kubernetes** for production FreeIPA (not Synology LDAP, not
+Authentik LDAP outpost as the sudo plane). Platform runbook:
+platform gitops `k8s/freeipa/README.md` (VM-primary; k8s StatefulSet is lab-only).
 
 ### Division of labor
 
 | System | Role |
 |--------|------|
-| **Authentik** | Human SSO into ServiceRadar (OIDC/SAML). RBAC groups for who may open remote access. Already deployed at `https://auth.carverauto.dev`. |
+| **Authentik** | Human SSO into ServiceRadar (OIDC/SAML). RBAC groups for who may open remote access. Already deployed at `https://auth.carverauto.dev`. Optional LDAP Source from FreeIPA for user/group sync. |
 | **ServiceRadar SSH CA** | Issues short-lived OpenSSH user certificates bound to opaque principals and certificate policy accounts. |
-| **FreeIPA** | Optional enterprise Unix identity: POSIX users/groups, sudo, HBAC, host enrollment. Hosts join FreeIPA and resolve `mfreeman` via SSSD. |
-| **Edge agent path** | All interactive traffic still tunnels browser → web-ng → agent-gateway → agent → host. FreeIPA does not open a second path around the agent. |
+| **FreeIPA** | Enterprise Unix identity: POSIX accounts, **sudo rules**, HBAC, host enrollment. Hosts join FreeIPA and resolve `mfreeman` via SSSD. |
+| **Edge agent path** | All interactive traffic still tunnels browser → web-ng → agent-gateway → edge agent → target. FreeIPA does not open a second path around the agent. |
 
-Authentik is excellent for application OIDC. It is not a full FreeIPA
-replacement for POSIX account management, Kerberos host principals, or HBAC.
-For lab and production Unix fleets, deploy FreeIPA in the `freeipa` namespace
-(GitOps under `k8s/freeipa/` in the platform gitops repo) and enroll hosts with
-`ipa-client-install` / SSSD. Certificate policy still maps ServiceRadar opaque
-principals → the same POSIX account names FreeIPA provides.
+Authentik is not a FreeIPA replacement for sudo/HBAC/host join. Certificate
+policy still maps ServiceRadar opaque principals → the same POSIX account names
+FreeIPA provides.
 
-Until FreeIPA is fully online, lab hosts may use local accounts (as on
-`dusk01` / `192.168.2.22`) with the same CA + `AuthorizedPrincipalsFile` layout.
+Until FreeIPA is online, lab hosts may use local accounts (as on `dusk01` /
+`192.168.2.22`) with the same CA + `AuthorizedPrincipalsFile` layout.
 
-### FreeIPA GitOps (platform)
+### FreeIPA + sudo (summary)
 
-Scaffold lives in the platform gitops repository:
+Manage privilege in IPA after clients enroll (`ipa sudorule-*`, `ipa hbacrule-*`,
+host groups / user groups). Do not scatter permanent sudoers on each host for
+fleet operators. See the platform FreeIPA README for install topology, client
+enrollment, Authentik LDAP Source, and example sudo/HBAC commands.
+
+### FreeIPA platform docs
 
 ```text
-k8s/freeipa/
-  argocd-application.yaml
-  README.md
-  base/
-    namespace.yaml
-    kustomization.yaml
-    statefulset.yaml
-    service.yaml
-    pvc-data.yaml
-    secrets.example.yaml
+# platform gitops repo
+k8s/freeipa/README.md          # VM topology, sudo/HBAC, Authentik, checklist
+k8s/freeipa/argocd-application.yaml
+k8s/freeipa/base/              # optional lab StatefulSet only
 ```
-
-Argo CD Application `freeipa` targets namespace `freeipa`. The FreeIPA server
-container is stateful and needs stable DNS, sufficient CPU/RAM, and careful
-first-boot domain setup. Follow the README in that directory before syncing
-into production clusters. Do not put DS or admin passwords in Git; use Sealed
-Secrets or OpenBao like other platform apps.
 
 ## Lab target: dusk01 (192.168.2.22)
 
