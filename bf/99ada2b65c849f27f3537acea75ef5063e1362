@@ -1,0 +1,70 @@
+.bazelrc
+  s_d2089df286db69::t_e5cd0a68aacad8 235-240
+build/mix_app.bzl
+  s_d2089df286db69::t_5b1fc2139982d8 62-69
+BUILD.bazel
+  s_d2089df286db69::t_0bca719a8d7d2c 13
+  s_d2089df286db69::t_bb513a19926f68 17
+elixir/web-ng/assets/BUILD.bazel
+  s_d2089df286db69::t_067248d9f3af18 1-12,15-17,23-37
+  s_d2089df286db69::t_053a4e2d8b824a 13-14,18-22
+elixir/serviceradar_agent_gateway/BUILD.bazel
+  s_d2089df286db69::t_1e8800520ba7e4 3,8-23
+  s_d2089df286db69::t_cd50630301322a 95-99
+  s_d2089df286db69::t_7736e2c8f2e45f 157
+  s_d2089df286db69::t_8e8d03620bb031 117-141
+  s_d2089df286db69::t_0c8f212aa452f5 143-155,158-159
+  s_d2089df286db69::t_190fa0ee09d1b9 24
+  s_d2089df286db69::t_3a21fe096197bb 142
+  s_d2089df286db69::t_2fc0a22c27a297 77-89
+elixir/serviceradar_core_elx/BUILD.bazel
+  s_d2089df286db69::t_8e44c5c21f6521 46-62
+third_party/distdir/README.md
+  s_d2089df286db69::t_8dc62436717c0a 6-12,16-24
+.bazelignore
+  s_d2089df286db69::t_5828a0f637db21 15-16
+build/elixir_release.bzl
+  s_d2089df286db69::t_d7dc5650a72571 35
+  s_d2089df286db69::t_27e123f35bc702 215
+  s_d2089df286db69::t_64831674462507 181-182,185,187-190
+  s_d2089df286db69::t_0ce4accfecfc0d 82-109
+  s_d2089df286db69::t_cd09e34216f330 1-34,36-81,110-146,153-168,177-180,183-184,186,191-192,195-213,216-222,224-249,259-265
+  s_d2089df286db69::t_666242263e8cc8 214
+  s_d2089df286db69::t_6b046d1884ab8a 223
+  s_d2089df286db69::t_5e454cd092de61 250-253
+  s_d2089df286db69::t_4d574c5dbf0bd3 193-194
+  s_d2089df286db69::t_c1ad955fc06c9d 147-152
+  s_d2089df286db69::t_4cc7da51faced8 169-176
+  s_d2089df286db69::t_f7e219d352b107 254-258
+elixir/serviceradar_core/BUILD.bazel
+  s_d2089df286db69::t_1225097f240660 88-105
+  s_d2089df286db69::t_5030f59058b05d 68-70
+  s_d2089df286db69::t_3e3c999c2d016f 161-193
+MODULE.bazel
+  s_d2089df286db69::t_4b3de51b27a0bb 2927-2933,2936
+  s_d2089df286db69::t_1ccb968a5a05f7 2901-2907,2909,2911,2913,2915
+  s_d2089df286db69::t_4ae6f2fc07781a 13
+  s_d2089df286db69::t_d0d200a9fda07f 2921-2926,2934-2935,2937-2939
+elixir/web-ng/BUILD.bazel
+  s_d2089df286db69::t_f08f502d6e8eab 17,24-30
+  s_d2089df286db69::t_602cee67c697c0 275-294
+  s_d2089df286db69::t_17915a9f19383e 57
+MODULE.bazel.lock
+  s_d2089df286db69::t_f8c88f103d5fdc 75,239-240,675,777-778
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "bf99ada2b65c849f27f3537acea75ef5063e1362",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
