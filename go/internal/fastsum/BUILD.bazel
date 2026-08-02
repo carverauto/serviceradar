@@ -16,6 +16,9 @@ go_library(
 
 go_test(
     name = "fastsum_test",
-    srcs = ["sum_test.go"],
+    srcs = [
+        "api_test.go",
+        "sum_test.go",
+    ],
     embed = [":fastsum"],
 )

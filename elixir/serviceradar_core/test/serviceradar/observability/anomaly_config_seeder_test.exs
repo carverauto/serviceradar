@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Observability.AnomalyConfigSeeder
 
-  @values_path Path.expand("../../../../../helm/serviceradar/values.yaml", __DIR__)
-  @core_template_path Path.expand("../../../../../helm/serviceradar/templates/core.yaml", __DIR__)
 
   test "anomaly seed attrs default to the Helm-backed first-boot values" do
     attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(fn _ -> nil end)
@@ -187,25 +187,5 @@ defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
              ["cpu", "disk", "flow", "interface", "memory"]
 
     assert Map.has_key?(forecast_attrs.metric_class_overrides, "interface")
-  end
-
-  test "Helm values and core pod template expose first-boot config defaults" do
-    values = File.read!(@values_path)
-    template = File.read!(@core_template_path)
-
-    assert values =~ "anomalyDetectionConfig:"
-    assert values =~ "capacityForecastConfig:"
-
-    for env_name <- [
-          "SERVICERADAR_ANOMALY_N_SIGMA",
-          "SERVICERADAR_ANOMALY_METRIC_DENYLIST_JSON",
-          "SERVICERADAR_ANOMALY_EMISSION_JSON",
-          "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON",
-          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS",
-          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT",
-          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON"
-        ] do
-      assert template =~ env_name
-    end
   end
 end

@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   import ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry, only: [assert_receive_telemetry: 2]
 
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker

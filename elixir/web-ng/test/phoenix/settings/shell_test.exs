@@ -215,9 +215,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     # its title + value.
     assert html =~ ~s(href="/settings/api-credentials")
 
-    assert html =~
-             ~s(class="stat py-2 group cursor-pointer transition-colors hover:bg-base-200")
-
     assert html =~ "API keys"
     assert html =~ "hero-arrow-up-right"
 
@@ -230,6 +227,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     doc = LazyHTML.from_fragment(html)
     linked = LazyHTML.query(doc, ~s(a.stat[href="/settings/api-credentials"]))
     assert LazyHTML.text(linked) =~ "API keys"
+
+    # The clickable affordance, read off the element rather than matched as a class literal.
+    # This used to assert the full class string, which broke when the hover colour moved from
+    # DaisyUI's base-200 to sr-subtle -- a restyle that changed nothing about whether the card
+    # is interactive, which is what the test is for.
+    assert linked |> LazyHTML.attribute("class") |> List.first() =~ "cursor-pointer"
 
     plain = LazyHTML.query(doc, ".stats div.stat")
     assert LazyHTML.text(plain) =~ "Uptime"

@@ -30,6 +30,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.PlaybookPlay
   alias ServiceRadar.Automation.Ansible.PlaybookRun
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -213,7 +214,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   defp schedule_next do
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: interval_seconds(), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, interval_seconds())
       )
 
     :ok

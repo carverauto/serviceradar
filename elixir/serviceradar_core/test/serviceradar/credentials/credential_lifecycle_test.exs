@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Credentials.CredentialLifecycleTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialEventWriter

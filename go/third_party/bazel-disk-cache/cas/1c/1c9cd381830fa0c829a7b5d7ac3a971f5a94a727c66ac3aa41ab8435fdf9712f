@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-d@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb/wire/libeps_copy_input_stream.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:Zbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb/wire/libeps_copy_input_stream.a

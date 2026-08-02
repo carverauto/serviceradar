@@ -1,0 +1,44 @@
+diff -ru a/elixir_app.bzl b/elixir_app.bzl
+--- a/elixir_app.bzl	2026-07-30 20:28:46
++++ b/elixir_app.bzl	2026-07-30 20:28:46
+@@ -8,6 +8,7 @@
+         app_name = None,
+         extra_apps = [],
+         srcs = None,
++        data = [],
+         elixirc_opts = [],
+         ez_deps = [],
+         deps = [],
+@@ -36,6 +37,7 @@
+     elixir_bytecode(
+         name = "beam_files",
+         srcs = srcs,
++        data = data,
+         dest = "beam_files",
+         elixirc_opts = elixirc_opts,
+         ez_deps = ez_deps,
+diff -ru a/private/elixir_bytecode.bzl b/private/elixir_bytecode.bzl
+--- a/private/elixir_bytecode.bzl	2026-07-30 20:28:46
++++ b/private/elixir_bytecode.bzl	2026-07-30 20:28:46
+@@ -76,7 +76,12 @@
+     )
+ 
+     inputs = depset(
+-        direct = ctx.files.srcs + erl_libs_files,
++        # ctx.files.data: Elixir modules routinely read files at COMPILE time --
++        # @moduledoc File.read!("README.md") and @external_resource are both common in
++        # Hex packages (crux and sourceror in the Ash closure alone). Without a way to
++        # declare those, the file exists in the repository but never reaches the sandbox
++        # and compilation fails on a missing file.
++        direct = ctx.files.srcs + ctx.files.data + erl_libs_files,
+         transitive = [
+             erlang_runfiles.files,
+             elixir_runfiles.files,
+@@ -102,6 +107,7 @@
+         "srcs": attr.label_list(
+             allow_files = [".ex"],
+         ),
++        "data": attr.label_list(allow_files = True),
+         "elixirc_opts": attr.string_list(),
+         "env": attr.string_dict(),
+         "deps": attr.label_list(

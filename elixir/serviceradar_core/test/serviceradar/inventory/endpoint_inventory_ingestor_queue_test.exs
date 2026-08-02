@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
 
   @missing_queue_name ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest.MissingQueue

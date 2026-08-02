@@ -34,6 +34,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -122,10 +123,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
   defp schedule_next_check(args) do
     case ObanSupport.safe_insert(
-           new(args,
-             schedule_in: @evaluation_interval_seconds,
-             unique: [states: :scheduled]
-           )
+           SelfScheduling.successor_changeset(__MODULE__, args, @evaluation_interval_seconds)
          ) do
       {:ok, _job} ->
         :ok

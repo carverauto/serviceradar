@@ -38,6 +38,54 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
+    crate_features = select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "verbatim",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "verbatim",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "verbatim",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "verbatim",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "verbatim",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "verbatim",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "verbatim",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "verbatim",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "verbatim",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "verbatim",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "verbatim",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "verbatim",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "verbatim",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "verbatim",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "verbatim",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -123,6 +171,54 @@ cargo_build_script(
             "WORKSPACE.bazel",
         ],
     ),
+    crate_features = select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "verbatim",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "verbatim",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "verbatim",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "verbatim",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "verbatim",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "verbatim",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "verbatim",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "verbatim",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "verbatim",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "verbatim",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "verbatim",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "verbatim",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "verbatim",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "verbatim",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "verbatim",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_name = "build_script_build",
     crate_root = "build.rs",
     data = glob(

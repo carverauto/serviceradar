@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
@@ -146,7 +147,7 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   defp schedule_next(seconds) when is_integer(seconds) do
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 3_600), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 3_600))
       )
 
     :ok

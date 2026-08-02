@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.DataRetentionWorkerTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   @worker_path "lib/serviceradar/observability/data_retention_worker.ex"
   @runtime_config_path "config/runtime.exs"
   @ocsf_events_migration_path "priv/repo/migrations/20260203120000_create_ocsf_events.exs"

@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-s@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/compiler/rust/librust_stage1.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:ibazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/compiler/rust/librust_stage1.a

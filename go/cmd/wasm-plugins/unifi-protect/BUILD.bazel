@@ -1,3 +1,12 @@
+# gazelle:ignore
+#
+# This is a TinyGo plugin in its own Go module, compiled to wasip1 by
+# //build/wasm_plugins, not by rules_go. Gazelle has no rules_go targets to generate
+# here, and it cannot resolve the plugin SDK either: the vanity import path
+# code.carverauto.dev/carverauto/serviceradar-sdk-go has no tagged release that declares
+# it -- @upgrade lands on v0.2.0, which still declares the old github.com path -- so a
+# drift check over this directory fails on the mismatch rather than on anything local.
+# Five sibling plugins already carry this directive; these four had been left without it.
 package(default_visibility = ["//visibility:public"])
 
 exports_files([

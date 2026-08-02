@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-w@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/compiler/rust/librust_field_type.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:mbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/compiler/rust/librust_field_type.a

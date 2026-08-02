@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.CertIssuerTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.CertIssuer
 

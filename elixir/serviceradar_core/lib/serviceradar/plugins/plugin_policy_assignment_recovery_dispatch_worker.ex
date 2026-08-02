@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryRequest
   alias ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryWorker
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -88,7 +89,7 @@ defmodule ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker do
 
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 10), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
       )
 
     :ok

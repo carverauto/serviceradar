@@ -1,0 +1,92 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[package]
+name = "reqsign"
+version = "0.20.3"
+
+categories = ["authentication", "web-programming::http-client"]
+description = "Signing HTTP requests for AWS, Azure, Google, Huawei, Aliyun, Tencent and Oracle services"
+documentation = "https://docs.rs/reqsign"
+keywords = ["http", "requests", "signing", "aws", "azure"]
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+# Core functionality (always included)
+reqsign-core = { workspace = true }
+
+# Service implementations (optional)
+reqsign-aliyun-oss = { workspace = true, optional = true }
+reqsign-aws-v4 = { workspace = true, optional = true }
+reqsign-azure-storage = { workspace = true, optional = true }
+reqsign-google = { workspace = true, optional = true }
+reqsign-huaweicloud-obs = { workspace = true, optional = true }
+reqsign-oracle = { workspace = true, optional = true }
+reqsign-tencent-cos = { workspace = true, optional = true }
+reqsign-volcengine-tos = { workspace = true, optional = true }
+
+# Context implementations (optional but included by default)
+reqsign-command-execute-tokio = { workspace = true, optional = true }
+reqsign-file-read-tokio = { workspace = true, optional = true }
+reqsign-http-send-reqwest = { workspace = true, optional = true }
+
+[features]
+default = ["default-context"]
+default-context = [
+  "dep:reqsign-command-execute-tokio",
+  "dep:reqsign-file-read-tokio",
+  "dep:reqsign-http-send-reqwest",
+]
+
+# Service features
+aliyun = ["dep:reqsign-aliyun-oss"]
+aws = ["dep:reqsign-aws-v4"]
+azure = ["dep:reqsign-azure-storage"]
+google = ["dep:reqsign-google"]
+huaweicloud = ["dep:reqsign-huaweicloud-obs"]
+oracle = ["dep:reqsign-oracle"]
+tencent = ["dep:reqsign-tencent-cos"]
+volcengine = ["dep:reqsign-volcengine-tos"]
+
+# Full feature set
+full = ["aliyun", "aws", "azure", "google", "huaweicloud", "oracle", "tencent", "volcengine"]
+
+[dev-dependencies]
+anyhow = "1"
+bytes = "1"
+env_logger = "0.11"
+http = "1"
+tokio = { version = "1", features = ["full"] }
+
+[[example]]
+name = "aws"
+required-features = ["aws", "default-context"]
+
+[[example]]
+name = "azure"
+required-features = ["azure", "default-context"]
+
+[[example]]
+name = "google"
+required-features = ["google", "default-context"]

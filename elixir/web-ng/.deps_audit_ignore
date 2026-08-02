@@ -24,7 +24,19 @@ GHSA-rhv4-8758-jx7v
 
 # EEF-CVE-2026-43966 / cowlib HTTP response splitting and
 # GHSA-g2wm-735q-3f56 / cowlib cookie encoder advisory have no patched release
-# as of cowlib 2.18.0. Keep this waiver until cowlib publishes a patched
-# release or the dependency is replaced.
+# as of cowlib 2.19.0 -- that release fixed only the HPACK/QPACK decoder DoS
+# (EEF-CVE-2026-59248), and both advisories still list every release from 2.9.0
+# as affected. Keep this waiver until cowlib publishes a patched release or the
+# dependency is replaced.
 EEF-CVE-2026-43966
 GHSA-g2wm-735q-3f56
+
+# mix hex.audit and mix deps.audit report the cowlib response-splitting defect
+# under different ids, and the mix_audit ignore file matches on the advisory id
+# exactly (MixAudit.CLI.Audit rejects `&1.id in ignored_advisory_ids`), so the
+# GitHub id has to be listed alongside the EEF id above. It is the same defect:
+# the advisory text is verbatim about cowlib, reported here against the
+# dependent package gun. Note that gun cannot be upgraded out of it -- the gun
+# row carries cowboy's range data (`< 2.16.0`, first patched `2.16.0`) while
+# gun's newest release is 2.5.0, so no gun version can ever satisfy it.
+GHSA-w4f7-4cxr-rv3c

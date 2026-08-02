@@ -38,7 +38,7 @@ exports_files([
     "k8s/argocd/applications/demo-prod.yaml",
 ])
 
-# Custom RBE platform using Oracle Linux 9 based executor image
+# Custom RBE platform executor image
 platform(
     name = "rbe_platform",
     constraint_values = [

@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.MetricsRouterTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   import Plug.Conn
   import Plug.Test
 

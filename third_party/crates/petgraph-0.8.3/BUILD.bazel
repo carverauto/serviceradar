@@ -35,6 +35,10 @@ rust_library(
         ],
     ),
     crate_features = [
+        "default",
+        "graphmap",
+        "matrix_graph",
+        "stable_graph",
         "std",
     ],
     crate_root = "src/lib.rs",

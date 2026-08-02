@@ -30,7 +30,10 @@ go_library(
 
 go_test(
     name = "sysmon_test",
-    srcs = ["collector_test.go"],
+    srcs = [
+        "collector_test.go",
+        "process_test.go",
+    ],
     embed = [":sysmon"],
     # TestCollectNetwork -> CollectNetwork -> gopsutil net.IOCountersWithContext. On Linux that
     # reads /proc/net/dev and spawns nothing, but on macOS gopsutil shells out to netstat,

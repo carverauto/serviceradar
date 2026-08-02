@@ -227,6 +227,12 @@ go_test(
         "remote_file_transfer_test.go",
         "server_metrics_test.go",
         "server_test.go",
+        # Named *_integration_test.go but built entirely on mockSNMPServiceFactory: it needs no
+        # SNMP agent, no network and no privileges, and runs in under a second. It carried a
+        # //go:build integration constraint that no workflow and no Makefile target ever
+        # passed, so its 10 tests had never run anywhere. Constraint removed rather than wired
+        # behind a tag, because this is a unit test.
+        "snmp_integration_test.go",
         "snmp_service_test.go",
         "sweep_config_gateway_test.go",
         "sweep_performance_test.go",

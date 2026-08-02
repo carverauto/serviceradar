@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -116,10 +117,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
     schedule_in = max(interval_minutes, 1) * 60
 
     case ObanSupport.safe_insert(
-           new(%{"scheduled" => true},
-             schedule_in: schedule_in,
-             unique: [states: :scheduled]
-           )
+           SelfScheduling.successor_changeset(__MODULE__, %{"scheduled" => true}, schedule_in)
          ) do
       {:ok, job} -> {:ok, job}
       {:error, reason} -> {:error, reason}

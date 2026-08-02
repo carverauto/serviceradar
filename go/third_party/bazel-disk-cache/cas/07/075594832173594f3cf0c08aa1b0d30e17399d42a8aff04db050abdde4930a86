@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-_@bazel-out/darwin_arm64-opt-exec/bin/external/abseil-cpp+/absl/strings/libcordz_info.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:Ubazel-out/darwin_arm64-opt-exec/bin/external/abseil-cpp+/absl/strings/libcordz_info.a

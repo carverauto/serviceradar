@@ -1,0 +1,283 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "creationInfo": {
+    "created": "2026-07-07T22:29:37Z",
+    "creators": [
+      "Tool: cargo-sbom-v0.10.0"
+    ]
+  },
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://spdx.org/spdxdocs/deep_causality_fft-34589553-2960-46a0-8e1b-47ddc7e98132",
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-deep_causality_fft",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "5c3b88158295f2a586b267227fe36c51700f799e"
+        }
+      ],
+      "fileName": "./Cargo.lock",
+      "fileTypes": [
+        "SOURCE",
+        "TEXT"
+      ]
+    }
+  ],
+  "name": "deep_causality_fft",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--fft-0.1.0",
+      "description": "Fast Fourier transform (FFT, rFFT, N-dimensional) for the deep_causality crate.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_fft",
+      "versionInfo": "0.1.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--algebra-0.1.0",
+      "description": "Abstract algebra traits (groups, rings, fields, algebras) and isomorphism markers for deep_causality.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_algebra",
+      "versionInfo": "0.1.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-rayon-core-1.13.0",
+      "description": "Core APIs for Rayon",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/rayon-core@1.13.0",
+          "referenceType": "purl"
+        }
+      ],
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "rayon-core",
+      "versionInfo": "1.13.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--num-0.3.3",
+      "description": "Number utils for for deep_causality crate.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_num",
+      "versionInfo": "0.3.3"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-crossbeam-deque-0.8.6",
+      "description": "Concurrent work-stealing deque",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/crossbeam-deque@0.8.6",
+          "referenceType": "purl"
+        }
+      ],
+      "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-deque",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "crossbeam-deque",
+      "versionInfo": "0.8.6"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-crossbeam-utils-0.8.21",
+      "description": "Utilities for concurrent programming",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/crossbeam-utils@0.8.21",
+          "referenceType": "purl"
+        }
+      ],
+      "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "crossbeam-utils",
+      "versionInfo": "0.8.21"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--par-0.1.0",
+      "description": "Shared parallelism primitives (MaybeParallel marker, scoped fork-join) for the deep_causality crates.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_par",
+      "versionInfo": "0.1.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-rayon-1.12.0",
+      "description": "Simple work-stealing parallelism for Rust",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/rayon@1.12.0",
+          "referenceType": "purl"
+        }
+      ],
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "rayon",
+      "versionInfo": "1.12.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libm-0.2.16",
+      "description": "libm in pure Rust",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/libm@0.2.16",
+          "referenceType": "purl"
+        }
+      ],
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "libm",
+      "versionInfo": "0.2.16"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-either-1.16.0",
+      "description": "The enum `Either` with variants `Left` and `Right` is a general purpose sum type with two cases.\n",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/either@1.16.0",
+          "referenceType": "purl"
+        }
+      ],
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "either",
+      "versionInfo": "1.16.0"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-crossbeam-epoch-0.9.18",
+      "description": "Epoch-based garbage collection",
+      "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:cargo/crossbeam-epoch@0.9.18",
+          "referenceType": "purl"
+        }
+      ],
+      "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-epoch",
+      "licenseConcluded": "MIT OR Apache-2.0",
+      "licenseDeclared": "MIT OR Apache-2.0",
+      "name": "crossbeam-epoch",
+      "versionInfo": "0.9.18"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-deep--causality--num--complex-0.1.0",
+      "description": "Complex, quaternion, and octonion number types for deep_causality.",
+      "downloadLocation": "NONE",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "name": "deep_causality_num_complex",
+      "versionInfo": "0.1.0"
+    }
+  ],
+  "relationships": [
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--num-0.3.3",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--fft-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-crossbeam-epoch-0.9.18",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-crossbeam-deque-0.8.6"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--num-0.3.3",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--algebra-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-crossbeam-utils-0.8.21",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-crossbeam-epoch-0.9.18"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-either-1.16.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-rayon-1.12.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--algebra-0.1.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--num--complex-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-crossbeam-utils-0.8.21",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-crossbeam-deque-0.8.6"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--num-0.3.3",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--num--complex-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-rayon-core-1.13.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-rayon-1.12.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-rayon-1.12.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--fft-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-libm-0.2.16",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--num-0.3.3"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--fft-0.1.0",
+      "relationshipType": "GENERATED_FROM",
+      "spdxElementId": "SPDXRef-File-deep_causality_fft"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-crossbeam-deque-0.8.6",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-rayon-core-1.13.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--par-0.1.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--fft-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--num--complex-0.1.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--fft-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-File-deep_causality_fft",
+      "relationshipType": "DESCRIBES",
+      "spdxElementId": "SPDXRef-DOCUMENT"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-deep--causality--algebra-0.1.0",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-deep--causality--fft-0.1.0"
+    },
+    {
+      "relatedSpdxElement": "SPDXRef-Package-crossbeam-utils-0.8.21",
+      "relationshipType": "DEPENDS_ON",
+      "spdxElementId": "SPDXRef-Package-rayon-core-1.13.0"
+    }
+  ],
+  "spdxVersion": "SPDX-2.3"
+}

@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadarAgentGateway.CameraMediaServer
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub

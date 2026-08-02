@@ -40,7 +40,324 @@ rust_library(
     crate_features = [
         "alloc",
         "std",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "default",  # aarch64-apple-darwin
+            "perf-inline",  # aarch64-apple-darwin
+            "tz-fat",  # aarch64-apple-darwin
+            "tz-system",  # aarch64-apple-darwin
+            "tzdb-bundle-platform",  # aarch64-apple-darwin
+            "tzdb-concatenated",  # aarch64-apple-darwin
+            "tzdb-zoneinfo",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "default",  # aarch64-apple-ios
+            "perf-inline",  # aarch64-apple-ios
+            "tz-fat",  # aarch64-apple-ios
+            "tz-system",  # aarch64-apple-ios
+            "tzdb-bundle-platform",  # aarch64-apple-ios
+            "tzdb-concatenated",  # aarch64-apple-ios
+            "tzdb-zoneinfo",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "default",  # aarch64-apple-ios-sim
+            "perf-inline",  # aarch64-apple-ios-sim
+            "tz-fat",  # aarch64-apple-ios-sim
+            "tz-system",  # aarch64-apple-ios-sim
+            "tzdb-bundle-platform",  # aarch64-apple-ios-sim
+            "tzdb-concatenated",  # aarch64-apple-ios-sim
+            "tzdb-zoneinfo",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "default",  # aarch64-linux-android
+            "perf-inline",  # aarch64-linux-android
+            "tz-fat",  # aarch64-linux-android
+            "tz-system",  # aarch64-linux-android
+            "tzdb-bundle-platform",  # aarch64-linux-android
+            "tzdb-concatenated",  # aarch64-linux-android
+            "tzdb-zoneinfo",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "default",  # aarch64-pc-windows-msvc
+            "perf-inline",  # aarch64-pc-windows-msvc
+            "tz-fat",  # aarch64-pc-windows-msvc
+            "tz-system",  # aarch64-pc-windows-msvc
+            "tzdb-bundle-platform",  # aarch64-pc-windows-msvc
+            "tzdb-concatenated",  # aarch64-pc-windows-msvc
+            "tzdb-zoneinfo",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "default",  # aarch64-unknown-fuchsia
+            "perf-inline",  # aarch64-unknown-fuchsia
+            "tz-fat",  # aarch64-unknown-fuchsia
+            "tz-system",  # aarch64-unknown-fuchsia
+            "tzdb-bundle-platform",  # aarch64-unknown-fuchsia
+            "tzdb-concatenated",  # aarch64-unknown-fuchsia
+            "tzdb-zoneinfo",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "default",  # aarch64-unknown-linux-gnu
+            "perf-inline",  # aarch64-unknown-linux-gnu
+            "tz-fat",  # aarch64-unknown-linux-gnu
+            "tz-system",  # aarch64-unknown-linux-gnu
+            "tzdb-bundle-platform",  # aarch64-unknown-linux-gnu
+            "tzdb-concatenated",  # aarch64-unknown-linux-gnu
+            "tzdb-zoneinfo",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "default",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "perf-inline",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "tz-fat",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "tz-system",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "tzdb-bundle-platform",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "tzdb-concatenated",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "tzdb-zoneinfo",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "default",  # aarch64-unknown-nto-qnx710
+            "perf-inline",  # aarch64-unknown-nto-qnx710
+            "tz-fat",  # aarch64-unknown-nto-qnx710
+            "tz-system",  # aarch64-unknown-nto-qnx710
+            "tzdb-bundle-platform",  # aarch64-unknown-nto-qnx710
+            "tzdb-concatenated",  # aarch64-unknown-nto-qnx710
+            "tzdb-zoneinfo",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [
+            "default",  # aarch64-unknown-uefi
+            "perf-inline",  # aarch64-unknown-uefi
+            "tz-fat",  # aarch64-unknown-uefi
+            "tz-system",  # aarch64-unknown-uefi
+            "tzdb-bundle-platform",  # aarch64-unknown-uefi
+            "tzdb-concatenated",  # aarch64-unknown-uefi
+            "tzdb-zoneinfo",  # aarch64-unknown-uefi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "default",  # arm-unknown-linux-gnueabi
+            "perf-inline",  # arm-unknown-linux-gnueabi
+            "tz-fat",  # arm-unknown-linux-gnueabi
+            "tz-system",  # arm-unknown-linux-gnueabi
+            "tzdb-bundle-platform",  # arm-unknown-linux-gnueabi
+            "tzdb-concatenated",  # arm-unknown-linux-gnueabi
+            "tzdb-zoneinfo",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "default",  # armv7-linux-androideabi
+            "perf-inline",  # armv7-linux-androideabi
+            "tz-fat",  # armv7-linux-androideabi
+            "tz-system",  # armv7-linux-androideabi
+            "tzdb-bundle-platform",  # armv7-linux-androideabi
+            "tzdb-concatenated",  # armv7-linux-androideabi
+            "tzdb-zoneinfo",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "default",  # armv7-unknown-linux-gnueabi
+            "perf-inline",  # armv7-unknown-linux-gnueabi
+            "tz-fat",  # armv7-unknown-linux-gnueabi
+            "tz-system",  # armv7-unknown-linux-gnueabi
+            "tzdb-bundle-platform",  # armv7-unknown-linux-gnueabi
+            "tzdb-concatenated",  # armv7-unknown-linux-gnueabi
+            "tzdb-zoneinfo",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "default",  # i686-apple-darwin
+            "perf-inline",  # i686-apple-darwin
+            "tz-fat",  # i686-apple-darwin
+            "tz-system",  # i686-apple-darwin
+            "tzdb-bundle-platform",  # i686-apple-darwin
+            "tzdb-concatenated",  # i686-apple-darwin
+            "tzdb-zoneinfo",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "default",  # i686-linux-android
+            "perf-inline",  # i686-linux-android
+            "tz-fat",  # i686-linux-android
+            "tz-system",  # i686-linux-android
+            "tzdb-bundle-platform",  # i686-linux-android
+            "tzdb-concatenated",  # i686-linux-android
+            "tzdb-zoneinfo",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "default",  # i686-pc-windows-msvc
+            "perf-inline",  # i686-pc-windows-msvc
+            "tz-fat",  # i686-pc-windows-msvc
+            "tz-system",  # i686-pc-windows-msvc
+            "tzdb-bundle-platform",  # i686-pc-windows-msvc
+            "tzdb-concatenated",  # i686-pc-windows-msvc
+            "tzdb-zoneinfo",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "default",  # i686-unknown-freebsd
+            "perf-inline",  # i686-unknown-freebsd
+            "tz-fat",  # i686-unknown-freebsd
+            "tz-system",  # i686-unknown-freebsd
+            "tzdb-bundle-platform",  # i686-unknown-freebsd
+            "tzdb-concatenated",  # i686-unknown-freebsd
+            "tzdb-zoneinfo",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "default",  # i686-unknown-linux-gnu
+            "perf-inline",  # i686-unknown-linux-gnu
+            "tz-fat",  # i686-unknown-linux-gnu
+            "tz-system",  # i686-unknown-linux-gnu
+            "tzdb-bundle-platform",  # i686-unknown-linux-gnu
+            "tzdb-concatenated",  # i686-unknown-linux-gnu
+            "tzdb-zoneinfo",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "default",  # powerpc-unknown-linux-gnu
+            "perf-inline",  # powerpc-unknown-linux-gnu
+            "tz-fat",  # powerpc-unknown-linux-gnu
+            "tz-system",  # powerpc-unknown-linux-gnu
+            "tzdb-bundle-platform",  # powerpc-unknown-linux-gnu
+            "tzdb-concatenated",  # powerpc-unknown-linux-gnu
+            "tzdb-zoneinfo",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
+            "default",  # riscv32imc-unknown-none-elf
+            "perf-inline",  # riscv32imc-unknown-none-elf
+            "tz-fat",  # riscv32imc-unknown-none-elf
+            "tz-system",  # riscv32imc-unknown-none-elf
+            "tzdb-bundle-platform",  # riscv32imc-unknown-none-elf
+            "tzdb-concatenated",  # riscv32imc-unknown-none-elf
+            "tzdb-zoneinfo",  # riscv32imc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "default",  # riscv64gc-unknown-linux-gnu
+            "perf-inline",  # riscv64gc-unknown-linux-gnu
+            "tz-fat",  # riscv64gc-unknown-linux-gnu
+            "tz-system",  # riscv64gc-unknown-linux-gnu
+            "tzdb-bundle-platform",  # riscv64gc-unknown-linux-gnu
+            "tzdb-concatenated",  # riscv64gc-unknown-linux-gnu
+            "tzdb-zoneinfo",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
+            "default",  # riscv64gc-unknown-none-elf
+            "perf-inline",  # riscv64gc-unknown-none-elf
+            "tz-fat",  # riscv64gc-unknown-none-elf
+            "tz-system",  # riscv64gc-unknown-none-elf
+            "tzdb-bundle-platform",  # riscv64gc-unknown-none-elf
+            "tzdb-concatenated",  # riscv64gc-unknown-none-elf
+            "tzdb-zoneinfo",  # riscv64gc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "default",  # s390x-unknown-linux-gnu
+            "perf-inline",  # s390x-unknown-linux-gnu
+            "tz-fat",  # s390x-unknown-linux-gnu
+            "tz-system",  # s390x-unknown-linux-gnu
+            "tzdb-bundle-platform",  # s390x-unknown-linux-gnu
+            "tzdb-concatenated",  # s390x-unknown-linux-gnu
+            "tzdb-zoneinfo",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabi": [
+            "default",  # thumbv7em-none-eabi
+            "perf-inline",  # thumbv7em-none-eabi
+            "tz-fat",  # thumbv7em-none-eabi
+            "tz-system",  # thumbv7em-none-eabi
+            "tzdb-bundle-platform",  # thumbv7em-none-eabi
+            "tzdb-concatenated",  # thumbv7em-none-eabi
+            "tzdb-zoneinfo",  # thumbv7em-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
+            "default",  # thumbv8m.main-none-eabi
+            "perf-inline",  # thumbv8m.main-none-eabi
+            "tz-fat",  # thumbv8m.main-none-eabi
+            "tz-system",  # thumbv8m.main-none-eabi
+            "tzdb-bundle-platform",  # thumbv8m.main-none-eabi
+            "tzdb-concatenated",  # thumbv8m.main-none-eabi
+            "tzdb-zoneinfo",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "default",  # x86_64-apple-darwin
+            "perf-inline",  # x86_64-apple-darwin
+            "tz-fat",  # x86_64-apple-darwin
+            "tz-system",  # x86_64-apple-darwin
+            "tzdb-bundle-platform",  # x86_64-apple-darwin
+            "tzdb-concatenated",  # x86_64-apple-darwin
+            "tzdb-zoneinfo",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "default",  # x86_64-apple-ios
+            "perf-inline",  # x86_64-apple-ios
+            "tz-fat",  # x86_64-apple-ios
+            "tz-system",  # x86_64-apple-ios
+            "tzdb-bundle-platform",  # x86_64-apple-ios
+            "tzdb-concatenated",  # x86_64-apple-ios
+            "tzdb-zoneinfo",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "default",  # x86_64-linux-android
+            "perf-inline",  # x86_64-linux-android
+            "tz-fat",  # x86_64-linux-android
+            "tz-system",  # x86_64-linux-android
+            "tzdb-bundle-platform",  # x86_64-linux-android
+            "tzdb-concatenated",  # x86_64-linux-android
+            "tzdb-zoneinfo",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "default",  # x86_64-pc-windows-msvc
+            "perf-inline",  # x86_64-pc-windows-msvc
+            "tz-fat",  # x86_64-pc-windows-msvc
+            "tz-system",  # x86_64-pc-windows-msvc
+            "tzdb-bundle-platform",  # x86_64-pc-windows-msvc
+            "tzdb-concatenated",  # x86_64-pc-windows-msvc
+            "tzdb-zoneinfo",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "default",  # x86_64-unknown-freebsd
+            "perf-inline",  # x86_64-unknown-freebsd
+            "tz-fat",  # x86_64-unknown-freebsd
+            "tz-system",  # x86_64-unknown-freebsd
+            "tzdb-bundle-platform",  # x86_64-unknown-freebsd
+            "tzdb-concatenated",  # x86_64-unknown-freebsd
+            "tzdb-zoneinfo",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "default",  # x86_64-unknown-fuchsia
+            "perf-inline",  # x86_64-unknown-fuchsia
+            "tz-fat",  # x86_64-unknown-fuchsia
+            "tz-system",  # x86_64-unknown-fuchsia
+            "tzdb-bundle-platform",  # x86_64-unknown-fuchsia
+            "tzdb-concatenated",  # x86_64-unknown-fuchsia
+            "tzdb-zoneinfo",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "default",  # x86_64-unknown-linux-gnu
+            "perf-inline",  # x86_64-unknown-linux-gnu
+            "tz-fat",  # x86_64-unknown-linux-gnu
+            "tz-system",  # x86_64-unknown-linux-gnu
+            "tzdb-bundle-platform",  # x86_64-unknown-linux-gnu
+            "tzdb-concatenated",  # x86_64-unknown-linux-gnu
+            "tzdb-zoneinfo",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "default",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "perf-inline",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "tz-fat",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "tz-system",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "tzdb-bundle-platform",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "tzdb-concatenated",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "tzdb-zoneinfo",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-none": [
+            "default",  # x86_64-unknown-none
+            "perf-inline",  # x86_64-unknown-none
+            "tz-fat",  # x86_64-unknown-none
+            "tz-system",  # x86_64-unknown-none
+            "tzdb-bundle-platform",  # x86_64-unknown-none
+            "tzdb-concatenated",  # x86_64-unknown-none
+            "tzdb-zoneinfo",  # x86_64-unknown-none
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [
+            "default",  # x86_64-unknown-uefi
+            "perf-inline",  # x86_64-unknown-uefi
+            "tz-fat",  # x86_64-unknown-uefi
+            "tz-system",  # x86_64-unknown-uefi
+            "tzdb-bundle-platform",  # x86_64-unknown-uefi
+            "tzdb-concatenated",  # x86_64-unknown-uefi
+            "tzdb-zoneinfo",  # x86_64-unknown-uefi
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -103,9 +420,21 @@ rust_library(
     deps = [
         "//third_party/crates/jiff-core-0.1.0:jiff_core",
     ] + select({
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "//third_party/crates/jiff-tzdb-platform-0.1.3:jiff_tzdb_platform",  # aarch64-pc-windows-msvc
+            "//third_party/crates/windows-link-0.2.1:windows_link",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "//third_party/crates/jiff-tzdb-platform-0.1.3:jiff_tzdb_platform",  # i686-pc-windows-msvc
+            "//third_party/crates/windows-link-0.2.1:windows_link",  # i686-pc-windows-msvc
+        ],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
             "//third_party/crates/portable-atomic-1.14.0:portable_atomic",  # cfg(not(target_has_atomic = "ptr"))
             "//third_party/crates/portable-atomic-util-0.2.7:portable_atomic_util",  # cfg(not(target_has_atomic = "ptr"))
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "//third_party/crates/jiff-tzdb-platform-0.1.3:jiff_tzdb_platform",  # x86_64-pc-windows-msvc
+            "//third_party/crates/windows-link-0.2.1:windows_link",  # x86_64-pc-windows-msvc
         ],
         "//conditions:default": [],
     }),

@@ -3,6 +3,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
 
   setup_all do

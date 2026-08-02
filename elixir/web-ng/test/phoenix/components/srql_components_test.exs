@@ -18,7 +18,11 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
     assert html =~ ~s(phx-hook="SRQLInput")
     assert html =~ ~s(class="relative srql-input-frame")
-    assert html =~ ~s(--srql-font-size: 0.75rem;)
+    # The compact frame drives its own type scale through custom properties, which is what
+    # the overlay and the input have to agree on. The exact value is a design decision that
+    # has already moved once (0.75rem -> 0.875rem); pinning it made this test fail on a
+    # restyle while saying nothing about the hook or the datalist it is named for.
+    assert html =~ "--srql-font-size:"
     assert html =~ ~s(data-srql-input-overlay)
     assert html =~ ~s(<datalist id="query-completions">)
     refute html =~ ~s(phx-hook="SRQLEditor")

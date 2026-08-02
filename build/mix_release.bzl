@@ -17,7 +17,10 @@ def _mix_release_impl(ctx):
 
     # Use short_path for tree artifacts so the symlink forest in the sandbox
     # can find the binaries reliably.
-    elixir_home = elixir.elixir_home or elixir.release_dir.short_path
+    # release_dir.path, not short_path: these run as build ACTIONS whose cwd is the
+    # execroot, where .path resolves and ../<repo>/... does not. elixir_home is only
+    # non-None for a genuinely externally-installed Elixir.
+    elixir_home = elixir.elixir_home or elixir.release_dir.path
 
     tar_out = ctx.outputs.out
 

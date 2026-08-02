@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "c6ee21efc29083422e466aceb2a15bf1e50c83b3"
+  },
+  "path_in_vcs": "crates/jsonschema-referencing"
+}

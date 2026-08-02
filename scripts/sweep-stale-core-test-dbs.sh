@@ -1,89 +1,40 @@
 #!/usr/bin/env bash
+#
+# TOMBSTONE -- this script no longer does anything. Delete it after 2026-12-31.
+#
+# What it did:
+#   Dropped leaked `sr_core_test_*` databases from the shared SRQL/CNPG fixture. Runs that
+#   were cancelled or whose runner died never reached teardown, so the fixture accumulated
+#   per-run databases until someone noticed.
+#
+# Where the functionality went:
+#   //rust/integration-db:sweep_stale_dbs
+#   Implementation: rust/integration-db/src/lib.rs, `sweep_stale/1`.
+#
+#   The whole database lifecycle is Bazel targets now, driven by
+#   .forgejo/workflows/elixir-integration-sr-core.yml:
+#
+#     //rust/integration-db:sweep_stale_dbs    <- replaces THIS script
+#     //rust/integration-db:prepare_template
+#     //elixir/serviceradar_core:migrate_template
+#     //rust/integration-db:provision_db       <- replaces scripts/reset-test-db.sh
+#     //elixir/serviceradar_core:integration_tests
+#     //rust/integration-db:teardown_db        <- replaces scripts/drop-test-db.sh
+#
+# Why it is a stub rather than already deleted:
+#   Kept briefly so anyone with the old path in a runbook, a local alias or an in-flight
+#   branch gets this note instead of "command not found".
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cat >&2 <<'EOF'
+scripts/sweep-stale-core-test-dbs.sh has been removed.
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  echo "Usage: $0 <admin_url> [max_age_seconds]" >&2
-  exit 1
-fi
+Use the Bazel target instead:
 
-admin_url="$1"
-max_age_seconds="${2:-86400}"
-now_epoch="${SERVICERADAR_TEST_DATABASE_SWEEP_NOW_EPOCH:-$(date +%s)}"
+    bazel test //rust/integration-db:sweep_stale_dbs
 
-if [[ ! "${max_age_seconds}" =~ ^[0-9]{1,9}$ ]] || [ "${max_age_seconds}" -eq 0 ]; then
-  echo "max_age_seconds must be a positive integer of at most 9 digits" >&2
-  exit 1
-fi
+It needs SRQL_TEST_ADMIN_URL in the environment, which .bazelrc forwards via --test_env.
+EOF
 
-if [[ ! "${now_epoch}" =~ ^[0-9]{10,11}$ ]]; then
-  echo "SERVICERADAR_TEST_DATABASE_SWEEP_NOW_EPOCH must be a 10- or 11-digit epoch" >&2
-  exit 1
-fi
-
-if ! command -v psql >/dev/null 2>&1; then
-  echo "psql is required to sweep stale integration databases." >&2
-  exit 1
-fi
-
-parser="$(command -v python3 || command -v python || true)"
-if [ -z "${parser}" ]; then
-  echo "python is required to sweep stale integration databases." >&2
-  exit 1
-fi
-
-cutoff_epoch=$((now_epoch - max_age_seconds))
-if [ "${cutoff_epoch}" -lt 0 ]; then
-  exit 0
-fi
-
-database_names="$(
-  psql "${admin_url}" -v ON_ERROR_STOP=1 -Atc \
-    "SELECT datname FROM pg_database WHERE datname ~ '^sr_core_test_[0-9]{10,11}_[0-9]+_[0-9]+$' ORDER BY datname"
-)"
-
-while IFS= read -r database_name; do
-  if [ -z "${database_name}" ]; then
-    continue
-  fi
-
-  if [[ ! "${database_name}" =~ ^sr_core_test_([0-9]{10,11})_([0-9]+)_([0-9]+)$ ]]; then
-    echo "refusing to sweep unexpected database name '${database_name}'" >&2
-    exit 1
-  fi
-
-  created_epoch="${BASH_REMATCH[1]}"
-  if [ "${created_epoch}" -gt "${cutoff_epoch}" ]; then
-    continue
-  fi
-
-  database_url="$("${parser}" - "${admin_url}" "${database_name}" <<'PY'
-import sys
-from urllib.parse import quote, urlparse, urlunparse
-
-parsed = urlparse(sys.argv[1])
-database_name = sys.argv[2]
-
-if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
-    raise SystemExit("admin URL is not a valid PostgreSQL URL")
-
-print(
-    urlunparse(
-        (
-            parsed.scheme,
-            parsed.netloc,
-            "/" + quote(database_name, safe=""),
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
-)
-PY
-)"
-
-  echo "dropping stale Core integration database ${database_name}"
-  "${SCRIPT_DIR}/drop-test-db.sh" "${admin_url}" "${database_url}"
-done <<<"${database_names}"
+exit 1

@@ -1,0 +1,42 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+/// BoxedFuture is the type alias of [`futures::future::BoxFuture`].
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxedFuture<'a, T> = futures::future::BoxFuture<'a, T>;
+
+/// BoxedFuture is the type alias of [`futures::future::LocalBoxFuture`].
+#[cfg(target_arch = "wasm32")]
+pub type BoxedFuture<'a, T> = futures::future::LocalBoxFuture<'a, T>;
+
+/// MaybeSend is a marker to determine whether a type is `Send` or not.
+///
+/// [`MaybeSend`] is equivalent to `Send` on non-wasm32 target.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send {}
+
+/// MaybeSend is a marker to determine whether a type is `Send` or not.
+///
+/// [`MaybeSend`] is empty on wasm32 target.
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> MaybeSend for T {}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> MaybeSend for T {}

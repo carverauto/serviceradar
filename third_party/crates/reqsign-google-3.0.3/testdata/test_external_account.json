@@ -1,0 +1,14 @@
+{
+  "type": "external_account",
+  "audience": "//iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/reqsign/providers/reqsign-provider",
+  "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+  "service_account_impersonation_url": "http://127.0.0.1:5000/v1/projects/-/serviceAccounts/test-234@test.iam.gserviceaccount.com:generateAccessToken",
+  "token_url": "http://127.0.0.1:5000/v1/token",
+  "credential_source": {
+    "url": "http://127.0.0.1:5000/token",
+    "format": {
+      "type": "json",
+      "subject_token_field_name": "id_token"
+    }
+  }
+}
