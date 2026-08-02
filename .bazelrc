@@ -167,19 +167,10 @@ build:ci --keep_going
 build:ci --noenable_platform_specific_config
 build:ci --config=remote_base
 build:ci --build_metadata=ROLE=CI
-build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-build:ci --bes_backend=grpcs://carverauto.buildbuddy.io
-build:ci --remote_cache=grpcs://carverauto.buildbuddy.io
-# Execution goes to the same host as the cache. remote_base points the executor at
-# remote.buildbuddy.io, which is a different frontend (34.98.106.0) from the carverauto
-# org subdomain (34.98.126.170, the same address as app.buildbuddy.io), and this line
-# overrides it because it comes after --config=remote_base above.
-#
-# Keeping one host for execution, cache and BES is what makes an action's inputs and its
-# outputs live in one CAS. When they diverge, the client uploads inputs to one store and
-# the executor fetches from another, and the resulting NOT_FOUND blob errors read like a
-# flaky network rather than the topology mistake they are.
-build:ci --remote_executor=grpcs://carverauto.buildbuddy.io
+# Endpoints are NOT re-declared here. remote_base above already names
+# carverauto.buildbuddy.io for execution, cache and BES; these lines used to repeat them
+# purely to override a remote_base that pointed at BuildBuddy's cloud, which meant
+# --config=remote (and --config=el9) never got the fix.
 build:ci --remote_timeout=15m
 build:ci --strategy=ExpandTemplate=local
 build:ci --strategy=NpmPackageExtract=local
@@ -192,9 +183,35 @@ test:ci --test_output=errors
 # Remote execution profile settings shared by CI and --config=remote.
 # NOTE: aggregate `bazel run` targets backed by rules_multirun (like //:push)
 # fail locally on macOS when using remote execution because host Python tools
-# may be resolved for Linux. Use `./scripts/push_all_images.sh` locally, or
-# push from CI/Linux where the aggregate target works as intended.
-build:remote_base --remote_executor=grpcs://remote.buildbuddy.io
+# may be resolved for Linux. Push from CI/Linux, where the aggregate target
+# works as intended.
+#
+# THE ENDPOINT. Execution, cache and BES all name carverauto.buildbuddy.io -- the org's
+# instance, which is where the executor fleet registers
+# (`app_target` in //k8s/buildbuddy/values.yaml).
+#
+# Pointing any of them at remote.buildbuddy.io (BuildBuddy's shared cloud, a different
+# frontend: 34.98.106.0 vs 34.98.126.170) sends work to a scheduler this org's executors
+# never joined, so the fleet sits idle while the build runs locally -- exactly the failure
+# values.yaml warns about. Declared once here so every profile that layers on remote_base
+# inherits it; do not re-point it per config.
+#
+# Keeping one host for execution, cache and BES is also what makes an action's inputs and
+# outputs live in one CAS. When they diverge, the client uploads inputs to one store and
+# the executor fetches from another, and the resulting NOT_FOUND blob errors read like a
+# flaky network rather than the topology mistake they are.
+# zstd-compress CAS blobs. Default is false, and leaving it off was the actual throughput
+# limit on a remote build: `--remote_download_minimal` (below) means outputs stay remote, but
+# the client still uploads every action's INPUTS, and an uncompressed uplink starves the
+# executors no matter how many are free. Turning this on brought a `//go/...` build back into
+# range. It is a client-side win, so it belongs on every remote profile rather than being a
+# flag someone has to remember per invocation.
+build:remote_base --remote_cache_compression
+
+build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
+build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
+build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
+build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
@@ -239,7 +256,7 @@ test:remote --action_env=NEXT_SKIP_TURBO=1
 # Remote execution profile (opt-in via --config=remote).
 build:remote --config=remote_base
 build:remote --noenable_platform_specific_config
-build:remote --remote_cache=grpcs://remote.buildbuddy.io
+# Cache/executor/BES come from remote_base. Do not re-point them here.
 build:remote --remote_timeout=10m
 
 # Remote image publish profile.
@@ -307,7 +324,7 @@ test:macos --config=darwin_local
 # Use this for RPM packages targeting RHEL/AlmaLinux/Rocky/Oracle Linux 9
 # Note: We duplicate remote_base settings here instead of inheriting, to ensure
 # the EL9 platform takes precedence over the default rbe_platform
-build:el9 --remote_executor=grpcs://remote.buildbuddy.io
+build:el9 --remote_executor=grpcs://carverauto.buildbuddy.io
 build:el9 --noenable_platform_specific_config
 build:el9 --host_platform=//build/platforms:rbe_linux_el9
 build:el9 --platforms=//build/platforms:rbe_linux_el9
@@ -335,7 +352,9 @@ build:el9 --action_env=OPENSSL_DIR=/usr
 build:el9 --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build:el9 --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:el9 --action_env=PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/pgsql-16/lib/pkgconfig
-build:el9 --remote_cache=grpcs://remote.buildbuddy.io
+build:el9 --remote_cache=grpcs://carverauto.buildbuddy.io
+build:el9 --bes_backend=grpcs://carverauto.buildbuddy.io
+build:el9 --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 build:el9 --remote_timeout=10m
 # Use remote_default_exec_properties to force the EL9 container for all remote actions
 build:el9 --remote_default_exec_properties=container-image=docker://ghcr.io/carverauto/serviceradar/rbe-executor-el9:v1.0.23
