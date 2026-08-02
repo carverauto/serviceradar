@@ -341,6 +341,22 @@ FreeIPA provides.
 Until FreeIPA is online, lab hosts may use local accounts (as on `dusk01` /
 `192.168.2.22`) with the same CA + `AuthorizedPrincipalsFile` layout.
 
+
+### Authentik groups (Model A)
+
+Authentik is the source of truth for people. FreeIPA only receives users who are
+explicitly gated:
+
+| Authentik group | Meaning |
+|-----------------|---------|
+| `unix-users` | May have a FreeIPA POSIX account and host login (HBAC). |
+| `unix-sudo` | Subset of Unix users who receive FreeIPA sudo rules. |
+
+Operator flow: create/invite user in Authentik → add to `unix-users` (and
+`unix-sudo` if needed) → run the provisioner in platform gitops
+`k8s/freeipa/PROVISIONING.md`. Username must match FreeIPA `uid` and the
+ServiceRadar certificate policy account name.
+
 ### FreeIPA + sudo (summary)
 
 Manage privilege in IPA after clients enroll (`ipa sudorule-*`, `ipa hbacrule-*`,
