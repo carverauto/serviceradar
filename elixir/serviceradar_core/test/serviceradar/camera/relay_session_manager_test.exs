@@ -540,6 +540,69 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert_receive :dispatch_open
   end
 
+  test "does not reuse an active session with an expired lease" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    new_session_id = Ecto.UUID.generate()
+
+    expired_active = %{
+      id: Ecto.UUID.generate(),
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      status: :active,
+      viewer_count: 1,
+      media_ingest_id: "core-media-zombie",
+      lease_expires_at: DateTime.add(DateTime.utc_now(), -3600, :second),
+      updated_at: DateTime.add(DateTime.utc_now(), -86_400, :second)
+    }
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: fn ^camera_source_id ->
+                 {:ok,
+                  %{
+                    id: camera_source_id,
+                    assigned_agent_id: "agent-1",
+                    assigned_gateway_id: "gateway-1"
+                  }}
+               end,
+               profile_fetcher: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, %{id: stream_profile_id}}
+               end,
+               live_session_finder: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, [expired_active]}
+               end,
+               control_gateway_resolver: current_gateway_resolver(),
+               session_creator: fn attrs, _actor ->
+                 send(parent, :session_create)
+                 {:ok, Map.put(attrs, :id, new_session_id)}
+               end,
+               dispatch_open: fn _agent_id, _payload, _opts, _actor ->
+                 send(parent, :dispatch_open)
+                 {:ok, Ecto.UUID.generate()}
+               end,
+               mark_opening: fn session, command_id, lease_token, lease_expires_at, _actor ->
+                 {:ok,
+                  Map.merge(session, %{
+                    command_id: command_id,
+                    lease_token: lease_token,
+                    lease_expires_at: lease_expires_at,
+                    status: :opening
+                  })}
+               end,
+               session_loader: fn ^new_session_id ->
+                 {:ok, %{id: new_session_id, status: :opening}}
+               end
+             )
+
+    assert session.id == new_session_id
+    assert_receive :session_create
+    assert_receive :dispatch_open
+  end
+
   test "does not reuse a live session assigned to a different agent or gateway" do
     parent = self()
     camera_source_id = Ecto.UUID.generate()

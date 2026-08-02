@@ -364,12 +364,16 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     session_agent = to_string(Map.get(session, :agent_id) || "")
     session_gateway = to_string(Map.get(session, :gateway_id) || "")
 
+    # Active sessions must still have a valid lease. Skipping the lease check for
+    # :active reattached viewers to zombie DB rows (expired edge pulls with no
+    # media) after gateway restarts or agent source failures — demo saw a July
+    # "active" session reused for weeks with lease_expires_at long past.
     status in @live_session_statuses and
       session_agent != "" and
       session_agent == agent_id and
       session_gateway != "" and
       session_gateway == gateway_id and
-      (status == :active or lease_still_valid?(session, now))
+      lease_allows_reuse?(session, status, now)
   end
 
   defp reuse_rank(session) do
@@ -391,15 +395,31 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     {status_score, timestamp}
   end
 
+  defp lease_allows_reuse?(session, :active, now), do: lease_still_valid?(session, now)
+
+  defp lease_allows_reuse?(session, status, now) when status in [:requested, :opening] do
+    case Map.get(session, :lease_expires_at) do
+      %DateTime{} = expires_at ->
+        DateTime.after?(expires_at, now)
+
+      _other ->
+        # Pending sessions without a lease stamp are still attachable during the
+        # short open window; stamped but expired leases must open a fresh pull.
+        true
+    end
+  end
+
+  defp lease_allows_reuse?(_session, _status, _now), do: false
+
   defp lease_still_valid?(session, now) do
     case Map.get(session, :lease_expires_at) do
       %DateTime{} = expires_at ->
         DateTime.after?(expires_at, now)
 
       _other ->
-        # Pending sessions without a lease stamp are treated as attachable for a
-        # short open window; expired leases must open a fresh edge pull.
-        true
+        # Active rows without a lease stamp are not safe to reuse — they cannot
+        # prove the edge pull is still live.
+        false
     end
   end
 
