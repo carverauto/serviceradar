@@ -1,6 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react"
 
 import RemoteAccessTerminal from "./RemoteAccessTerminal.jsx"
+import {
+  generateEphemeralEd25519Keypair,
+  loadPreferredSshUsername,
+  pickDefaultUsername,
+  savePreferredSshUsername,
+  supportsEphemeralEd25519,
+} from "./sshEphemeralKeypair.js"
 
 const STORE_PREFIX = "serviceradar.remoteAccess.sshKey.v1."
 const FILE_TRANSFER_CHUNK_BYTES = 65_536
@@ -160,6 +167,7 @@ export function Component({
   deviceUid = "",
   createPath = "/api/remote-access/sessions",
   fileTransferPath = "/api/remote-access/file-transfers",
+  sshOptionsPath = "",
   approvalId = "",
   title = "SSH remote access",
   allowRememberedKeys = false,
@@ -169,8 +177,12 @@ export function Component({
   terminalModuleLoader = null,
 }) {
   const [mode, setMode] = useState("paste")
+  // SSO certificate is the enterprise default (Teleport-style). Legacy key paste is opt-in.
   const [credentialMode, setCredentialMode] = useState("ssh_certificate")
-  const [username, setUsername] = useState("")
+  const [username, setUsername] = useState(() => loadPreferredSshUsername())
+  const [accounts, setAccounts] = useState([])
+  const [optionsLoading, setOptionsLoading] = useState(true)
+  const [optionsError, setOptionsError] = useState("")
   const [targetHost, setTargetHost] = useState("")
   const [targetPort, setTargetPort] = useState("22")
   const [hostKeyPolicy, setHostKeyPolicy] = useState("known_hosts")
@@ -178,7 +190,9 @@ export function Component({
   const [publicKey, setPublicKey] = useState("")
   const [passphrase, setPassphrase] = useState("")
   const [rememberKey, setRememberKey] = useState(false)
+  const [rememberUsername, setRememberUsername] = useState(true)
   const [keyDigest, setKeyDigest] = useState("")
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [session, setSession] = useState(null)
   const [credential, setCredential] = useState(null)
   const [error, setError] = useState("")
@@ -195,6 +209,68 @@ export function Component({
   const pendingUploadsRef = useRef(new Map())
   const startedUploadsRef = useRef(new Set())
   const downloadBuffersRef = useRef(new Map())
+  const ephemeralSupported = supportsEphemeralEd25519()
+
+  const resolvedOptionsPath = useMemo(() => {
+    if (sshOptionsPath) {
+      return sshOptionsPath
+    }
+    if (!deviceUid) {
+      return ""
+    }
+    return `/api/remote-access/devices/${encodeURIComponent(deviceUid)}/ssh-options`
+  }, [deviceUid, sshOptionsPath])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadOptions() {
+      if (!resolvedOptionsPath) {
+        setOptionsLoading(false)
+        return
+      }
+
+      setOptionsLoading(true)
+      setOptionsError("")
+
+      try {
+        const response = await fetch(resolvedOptionsPath, {
+          credentials: "same-origin",
+          headers: {"x-csrf-token": csrfToken()},
+        })
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(payload?.message || payload?.error || "Unable to load SSH options.")
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        const nextAccounts = Array.isArray(payload?.data?.accounts)
+          ? payload.data.accounts
+          : Array.isArray(payload?.accounts)
+            ? payload.accounts
+            : []
+        setAccounts(nextAccounts)
+        setUsername((current) => pickDefaultUsername(nextAccounts, current || loadPreferredSshUsername()))
+      } catch (loadError) {
+        if (!cancelled) {
+          setOptionsError(errorMessage(loadError))
+        }
+      } finally {
+        if (!cancelled) {
+          setOptionsLoading(false)
+        }
+      }
+    }
+
+    loadOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedOptionsPath])
 
   useEffect(() => {
     if (!allowRememberedKeys) {
@@ -211,7 +287,7 @@ export function Component({
     const remembered = loadRemembered(deviceUid)
 
     if (remembered) {
-      setUsername(remembered.username || "")
+      setUsername(remembered.username || loadPreferredSshUsername())
       setPrivateKey(remembered.privateKey || "")
       setRememberKey(Boolean(remembered.privateKey))
     }
@@ -498,25 +574,45 @@ export function Component({
     setError("")
     setApprovalRequired(false)
 
-    const key = normalizeKey(privateKey)
-    const publicKeyValue = normalizeKey(publicKey)
     const sshUsername = username.trim()
-
-    if (!key) {
-      setOpening(false)
-      setError("Private key is required.")
-      return
-    }
 
     if (!sshUsername) {
       setOpening(false)
-      setError("SSH username is required.")
+      setError("SSH username is required. Pick an account allowed by certificate policy.")
       return
     }
 
-    if (credentialMode === "ssh_certificate" && !publicKeyValue) {
+    let key = normalizeKey(privateKey)
+    let publicKeyValue = normalizeKey(publicKey)
+
+    // Teleport-style: for SSO certificates, generate an ephemeral browser keypair.
+    // The control plane signs the public key; the private key never leaves browser memory.
+    if (credentialMode === "ssh_certificate") {
+      if (!ephemeralSupported) {
+        setOpening(false)
+        setError(
+          "This browser cannot generate ephemeral session keys. Use a current Chrome/Firefox/Edge, or switch to legacy user-present key mode."
+        )
+        return
+      }
+
+      try {
+        const ephemeral = await generateEphemeralEd25519Keypair(
+          `serviceradar-session:${deviceUid || "device"}`
+        )
+        key = normalizeKey(ephemeral.privateKeyPem)
+        publicKeyValue = normalizeKey(ephemeral.publicKeyOpenSSH)
+        setPrivateKey("")
+        setPublicKey("")
+        setKeyDigest("")
+      } catch (keyError) {
+        setOpening(false)
+        setError(errorMessage(keyError))
+        return
+      }
+    } else if (!key) {
       setOpening(false)
-      setError("Public key is required for certificate sessions.")
+      setError("Private key is required for user-present key mode.")
       return
     }
 
@@ -572,11 +668,15 @@ export function Component({
         clearRemembered(deviceUid)
       }
 
+      if (rememberUsername) {
+        savePreferredSshUsername(sshUsername)
+      }
+
       const nextCredential = buildSshAttachCredential({
         credentialMode,
         username: sshUsername,
         privateKey: key,
-        passphrase,
+        passphrase: credentialMode === "ssh_certificate" ? "" : passphrase,
         publicKey: publicKeyValue,
       })
 
@@ -752,87 +852,106 @@ export function Component({
     )
   }
 
+  const accountNames = useMemo(
+    () =>
+      accounts
+        .map((account) => (typeof account === "string" ? account : account?.name))
+        .filter((name) => typeof name === "string" && name.trim() !== "")
+        .map((name) => name.trim()),
+    [accounts]
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-base-100">
       <div className="border-b border-base-300 px-5 py-4">
         <h2 className="text-sm font-semibold">{title}</h2>
         <p className="text-xs text-base-content/60">{deviceUid}</p>
+        <p className="mt-2 max-w-3xl text-xs text-base-content/70">
+          Enterprise default: sign in with SSO, open a short-lived certificate session. No private key paste.
+          Traffic path: browser → web-ng → agent-gateway → edge agent → target SSH.
+        </p>
       </div>
 
       <form className="grid min-h-0 flex-1 gap-5 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_22rem]" onSubmit={openSession}>
         <div className="space-y-4">
+          {credentialMode === "ssh_certificate" ? (
+            <div className="rounded-box border border-success/30 bg-success/5 p-4 text-sm">
+              <div className="font-medium text-success">SSO certificate (default)</div>
+              <p className="mt-1 text-xs text-base-content/70">
+                This browser will generate a one-session Ed25519 keypair. ServiceRadar signs the public key with
+                the remote-access CA after your existing Authentik/OIDC login and RBAC checks. The private key
+                stays in memory only for this tab.
+              </p>
+              {!ephemeralSupported ? (
+                <p className="mt-2 text-xs text-error">
+                  Ephemeral key generation is unavailable in this browser. Enable a current Chromium/Firefox or
+                  use legacy key mode under Advanced.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-box border border-warning/40 bg-warning/10 p-4 text-sm">
+              <div className="font-medium text-warning">Legacy user-present key</div>
+              <p className="mt-1 text-xs text-base-content/70">
+                Break-glass only. Prefer SSO certificate for production access.
+              </p>
+            </div>
+          )}
+
           <label className="form-control">
             <div className="label">
-              <span className="label-text">Credential mode</span>
+              <span className="label-text">Unix account</span>
+              {optionsLoading ? <span className="label-text-alt">Loading policy…</span> : null}
             </div>
-            <select
-              className="select select-bordered"
-              value={credentialMode}
-              onChange={(event) => setCredentialMode(event.target.value)}
-            >
-              <option value="ssh_certificate">SSO certificate</option>
-              <option value="user_present">User-present key</option>
-            </select>
-          </label>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="form-control">
-              <div className="label">
-                <span className="label-text">SSH username</span>
-              </div>
+            {accountNames.length > 0 ? (
+              <select
+                className="select select-bordered"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              >
+                {accountNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            ) : (
               <input
                 className="input input-bordered"
                 autoComplete="username"
+                placeholder="mfreeman"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
-            </label>
-
-            {allowTargetPortOverride ? (
-              <label className="form-control">
-                <div className="label">
-                  <span className="label-text">Target port override</span>
-                </div>
-                <input
-                  className="input input-bordered"
-                  min="1"
-                  max="65535"
-                  inputMode="numeric"
-                  type="number"
-                  value={targetPort}
-                  onChange={(event) => setTargetPort(event.target.value)}
-                />
-              </label>
-            ) : null}
-          </div>
-
-          <label className="form-control">
+            )}
             <div className="label">
-              <span className="label-text">Host key policy</span>
+              <span className="label-text-alt text-base-content/60">
+                Must exist on the target (local or FreeIPA/LDAP). Certificate policy controls which accounts you
+                may request.
+              </span>
             </div>
-            <select
-              className="select select-bordered"
-              value={hostKeyPolicy}
-              onChange={(event) => setHostKeyPolicy(event.target.value)}
-            >
-              <option value="known_hosts">Known hosts</option>
-              <option value="trust_on_first_use">Trust on first use</option>
-              {allowSkipVerifyHostKeyPolicy ? <option value="skip_verify">Skip verification</option> : null}
-            </select>
           </label>
 
-          {allowTargetHostOverride ? (
-            <label className="form-control">
-              <div className="label">
-                <span className="label-text">Target host override</span>
-              </div>
-              <input
-                className="input input-bordered"
-                placeholder="Use inventory target"
-                value={targetHost}
-                onChange={(event) => setTargetHost(event.target.value)}
-              />
-            </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded border border-base-300 bg-base-200 p-3">
+            <input
+              type="checkbox"
+              className="checkbox checkbox-sm mt-0.5"
+              checked={rememberUsername}
+              onChange={(event) => setRememberUsername(event.target.checked)}
+            />
+            <span className="text-sm">
+              <span className="font-medium">Remember preferred account in this browser</span>
+              <span className="mt-0.5 block text-xs text-base-content/60">
+                Profile-style preference for multi-account policies (Teleport-like default account pick).
+              </span>
+            </span>
+          </label>
+
+          {optionsError ? (
+            <div className="alert alert-warning text-xs">
+              Policy accounts could not be loaded ({optionsError}). You can still type a username if policy allows
+              it.
+            </div>
           ) : null}
 
           {approvalRequired || accessApprovalId ? (
@@ -848,66 +967,132 @@ export function Component({
             </label>
           ) : null}
 
-          <div className="join">
-            <button
-              className={`btn join-item btn-sm ${mode === "paste" ? "btn-active" : ""}`}
-              type="button"
-              onClick={() => setMode("paste")}
-            >
-              Paste key
-            </button>
-            <button
-              className={`btn join-item btn-sm ${mode === "upload" ? "btn-active" : ""}`}
-              type="button"
-              onClick={() => setMode("upload")}
-            >
-              Upload key
-            </button>
-          </div>
+          <button
+            className="btn btn-ghost btn-sm justify-start px-0"
+            type="button"
+            onClick={() => setShowAdvanced((value) => !value)}
+          >
+            {showAdvanced ? "Hide advanced" : "Show advanced / legacy"}
+          </button>
 
-          {mode === "upload" ? (
-            <input className="file-input file-input-bordered w-full" type="file" onChange={handleFile} />
-          ) : null}
+          {showAdvanced ? (
+            <div className="space-y-4 rounded-box border border-base-300 p-4">
+              <label className="form-control">
+                <div className="label">
+                  <span className="label-text">Credential mode</span>
+                </div>
+                <select
+                  className="select select-bordered"
+                  value={credentialMode}
+                  onChange={(event) => setCredentialMode(event.target.value)}
+                >
+                  <option value="ssh_certificate">SSO certificate (default)</option>
+                  <option value="user_present">User-present key (legacy)</option>
+                </select>
+              </label>
 
-          <label className="form-control">
-            <div className="label">
-              <span className="label-text">Private key</span>
-              {keyDigest ? <span className="label-text-alt font-mono">Key digest {keyDigest}</span> : null}
+              <label className="form-control">
+                <div className="label">
+                  <span className="label-text">Host key policy</span>
+                </div>
+                <select
+                  className="select select-bordered"
+                  value={hostKeyPolicy}
+                  onChange={(event) => setHostKeyPolicy(event.target.value)}
+                >
+                  <option value="known_hosts">Known hosts</option>
+                  <option value="trust_on_first_use">Trust on first use</option>
+                  {allowSkipVerifyHostKeyPolicy ? (
+                    <option value="skip_verify">Skip verification</option>
+                  ) : null}
+                </select>
+              </label>
+
+              {allowTargetHostOverride ? (
+                <label className="form-control">
+                  <div className="label">
+                    <span className="label-text">Target host override</span>
+                  </div>
+                  <input
+                    className="input input-bordered"
+                    placeholder="Use inventory target"
+                    value={targetHost}
+                    onChange={(event) => setTargetHost(event.target.value)}
+                  />
+                </label>
+              ) : null}
+
+              {allowTargetPortOverride ? (
+                <label className="form-control">
+                  <div className="label">
+                    <span className="label-text">Target port override</span>
+                  </div>
+                  <input
+                    className="input input-bordered"
+                    min="1"
+                    max="65535"
+                    inputMode="numeric"
+                    type="number"
+                    value={targetPort}
+                    onChange={(event) => setTargetPort(event.target.value)}
+                  />
+                </label>
+              ) : null}
+
+              {credentialMode === "user_present" ? (
+                <>
+                  <div className="join">
+                    <button
+                      className={`btn join-item btn-sm ${mode === "paste" ? "btn-active" : ""}`}
+                      type="button"
+                      onClick={() => setMode("paste")}
+                    >
+                      Paste key
+                    </button>
+                    <button
+                      className={`btn join-item btn-sm ${mode === "upload" ? "btn-active" : ""}`}
+                      type="button"
+                      onClick={() => setMode("upload")}
+                    >
+                      Upload key
+                    </button>
+                  </div>
+
+                  {mode === "upload" ? (
+                    <input className="file-input file-input-bordered w-full" type="file" onChange={handleFile} />
+                  ) : null}
+
+                  <label className="form-control">
+                    <div className="label">
+                      <span className="label-text">Private key</span>
+                      {keyDigest ? (
+                        <span className="label-text-alt font-mono">Key digest {keyDigest}</span>
+                      ) : null}
+                    </div>
+                    <textarea
+                      className="textarea textarea-bordered min-h-40 font-mono text-xs"
+                      spellCheck="false"
+                      value={privateKey}
+                      onChange={(event) => setPrivateKey(event.target.value)}
+                    />
+                  </label>
+
+                  <label className="form-control">
+                    <div className="label">
+                      <span className="label-text">Passphrase</span>
+                    </div>
+                    <input
+                      className="input input-bordered"
+                      type="password"
+                      autoComplete="current-password"
+                      value={passphrase}
+                      onChange={(event) => setPassphrase(event.target.value)}
+                    />
+                  </label>
+                </>
+              ) : null}
             </div>
-            <textarea
-              className="textarea textarea-bordered min-h-52 font-mono text-xs"
-              spellCheck="false"
-              value={privateKey}
-              onChange={(event) => setPrivateKey(event.target.value)}
-            />
-          </label>
-
-          {credentialMode === "ssh_certificate" ? (
-            <label className="form-control">
-              <div className="label">
-                <span className="label-text">Public key</span>
-              </div>
-              <textarea
-                className="textarea textarea-bordered min-h-24 font-mono text-xs"
-                spellCheck="false"
-                value={publicKey}
-                onChange={(event) => setPublicKey(event.target.value)}
-              />
-            </label>
           ) : null}
-
-          <label className="form-control">
-            <div className="label">
-              <span className="label-text">Passphrase</span>
-            </div>
-            <input
-              className="input input-bordered"
-              type="password"
-              autoComplete="current-password"
-              value={passphrase}
-              onChange={(event) => setPassphrase(event.target.value)}
-            />
-          </label>
         </div>
 
         <div className="space-y-4">
@@ -930,9 +1115,13 @@ export function Component({
 
           {error ? <div className="alert alert-error text-sm">{error}</div> : null}
 
-          <button className="btn btn-primary w-full" type="submit" disabled={opening}>
+          <button
+            className="btn btn-primary w-full"
+            type="submit"
+            disabled={opening || optionsLoading || (credentialMode === "ssh_certificate" && !ephemeralSupported)}
+          >
             {opening ? <span className="loading loading-spinner loading-sm" /> : null}
-            Open SSH session
+            {credentialMode === "ssh_certificate" ? "Connect with SSO certificate" : "Open SSH session"}
           </button>
         </div>
       </form>
