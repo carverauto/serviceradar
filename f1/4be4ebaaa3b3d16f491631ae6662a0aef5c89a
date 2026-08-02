@@ -1,0 +1,57 @@
+elixir/serviceradar_core/BUILD.bazel
+  s_d2089df286db69::t_3e07d3c0283b1c 8
+  s_d2089df286db69::t_fc1c73a4a62482 342
+  s_d2089df286db69::t_cc494308183eb3 398-401,407
+  s_d2089df286db69::t_e7944b244974f3 332
+  s_d2089df286db69::t_8de4ea6f23c7df 326-331
+  s_d2089df286db69::t_ee771a5c2c86de 319-324
+build/integration_tests.bzl
+  s_d2089df286db69::t_04801b6d3f5489 1-27
+rust/integration-db/src/lib.rs
+  s_d2089df286db69::t_b858ab3e62dd7a 267-296,298,304,307,310
+  s_d2089df286db69::t_53cf09e921d182 32
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_c8495c56f2296d 28-29
+  s_d2089df286db69::t_fdea27c38314a8 51-81
+  s_d2089df286db69::t_e0689a06421728 32
+  s_d2089df286db69::t_1d6d13273f6c10 25-27
+  s_d2089df286db69::t_1cb0852b7ad36f 30-31
+  s_d2089df286db69::t_9aadf52aea4ea9 33-35,48-50
+  s_d2089df286db69::t_7a19731220cc9c 1-24,36-47
+elixir/serviceradar_core/config/test.exs
+  s_d2089df286db69::t_d359be9f2b826f 97-121
+  s_d2089df286db69::t_7ab0e58bd59b69 215-223
+build/BUILD.bazel
+  s_d2089df286db69::t_85ef1a11179424 2-3,11-35
+go/pkg/scan/banner_grab/BUILD.bazel
+  s_d2089df286db69::t_0b794c245b99c5 47
+rust/integration-db/BUILD.bazel
+  s_d2089df286db69::t_3c411228ede6f3 3
+  s_d2089df286db69::t_5ef5ac02772d7f 78
+  s_d2089df286db69::t_54b299491c5064 114
+  s_d2089df286db69::t_3e798fba86a1ef 134
+AGENTS.md
+  s_d2089df286db69::t_b633c0e3cf89dd 74-94
+.bazelrc
+  s_d2089df286db69::t_e9a69b62355c5f 166
+  s_d2089df286db69::t_d428c4bd90e382 190
+  s_d2089df286db69::t_915e1685a2ae31 188-189
+BUILD.bazel
+  s_d2089df286db69::t_ae268577591fdf 3,5-7,24-26,46-64,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "f14be4ebaaa3b3d16f491631ae6662a0aef5c89a",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
