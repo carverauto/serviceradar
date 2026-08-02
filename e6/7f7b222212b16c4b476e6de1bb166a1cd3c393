@@ -1,0 +1,35 @@
+build/rbe/BUILD
+  s_d2089df286db69::t_f388cbd97b008b 1-7
+  s_d2089df286db69::t_c4e5dfb91cd115 8-26
+k8s/buildbuddy/podmonitor.yaml
+  s_d2089df286db69::t_4bcc74a515f1e5 1-35,41-47
+  s_d2089df286db69::t_04aa5e8f04d539 36-40
+k8s/buildbuddy/README.md
+  s_d2089df286db69::t_610eb293e92133 7-16
+k8s/buildbuddy/values.yaml
+  s_d2089df286db69::t_9784422beceb24 18-29,31
+.bazelrc
+  s_d2089df286db69::t_82d74f01ad3644 259,327,355-357
+  s_d2089df286db69::t_5a18950288ba7e 203-210
+  s_d2089df286db69::t_dd8662fa64ef04 170-173
+  s_d2089df286db69::t_2d045770dafda0 186-202,211-214
+k8s/buildbuddy/scaledobject.yaml
+  s_d2089df286db69::t_45f470ed3f8a8e 1-14,27-65
+  s_d2089df286db69::t_fa8aa0c3a6030f 15-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e67f7b222212b16c4b476e6de1bb166a1cd3c393",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
