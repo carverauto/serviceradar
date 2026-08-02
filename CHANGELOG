@@ -1,3 +1,18 @@
+# ServiceRadar v1.4.28
+
+Fixed agent-gateway camera relay tracker crashes that took down live camera
+feeds after the v1.4.27 lease reaper landed, by making ingress liveness checks
+safe for remote core PIDs.
+
+## Whats New
+
+**1.4.28**
+- Camera relay: agent-gateway session tracker no longer calls `Process.alive?/1`
+  on remote core ingress PIDs (that raised `ArgumentError`, crashed the tracker
+  GenServer, wiped gateway session state, and broke live feeds). Remote PIDs are
+  probed via `:erpc`; unreachable remotes leave the session until lease expiry.
+  (PR #4785)
+
 # ServiceRadar v1.4.27
 
 Published the camera live-feed session fix that was cut as v1.4.26 but never
