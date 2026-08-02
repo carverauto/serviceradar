@@ -53,6 +53,49 @@ load(
     "erl_libs_contents",
 )
 
+# Emitted into the staged project when a package uses Bundlex. See the call site for why a
+# lock is required at all. __GRAPH__ is replaced with an Elixir map of app => [children],
+# built from the Bazel dependency graph; versions are read back from each application's own
+# compiled .app so nothing is invented here.
+#
+# Checksums are left empty. They exist for lock verification, which `--no-deps-check`
+# skips, and Bazel has already established provenance -- every one of these packages came
+# from a `hex_archive` with a pinned sha256 in //MODULE.bazel.
+_MIX_LOCK_SCRIPT = """
+"${ABS_ELIXIR_HOME}"/bin/elixir -e '
+  graph = __GRAPH__
+  erl_libs = System.get_env("ERL_LIBS") || ""
+
+  version = fn app ->
+    name = Atom.to_string(app)
+    app_file = Path.join([erl_libs, name, "ebin", name <> ".app"])
+
+    case :file.consult(String.to_charlist(app_file)) do
+      {:ok, [{:application, _name, keys}]} ->
+        case Keyword.get(keys, :vsn) do
+          nil -> nil
+          vsn -> to_string(vsn)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  lock =
+    for {app, children} <- graph, vsn = version.(app), vsn != nil, into: %{} do
+      deps =
+        for child <- children, child != :elixir, version.(child) != nil do
+          {child, ">= 0.0.0", [hex: child, repo: "hexpm", optional: false]}
+        end
+
+      {app, {:hex, app, vsn, "", [:mix], deps, "hexpm", ""}}
+    end
+
+  File.write!("mix.lock", inspect(lock, limit: :infinity, printable_limit: :infinity) <> "\\n")
+'
+"""
+
 def _impl(ctx):
     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx)
@@ -117,6 +160,104 @@ def _impl(ctx):
                     dest = dest,
                 ),
             ])
+
+    # Bundlex reads its dependencies' SOURCE, not their compiled output.
+    #
+    # `Bundlex.Project.load/1` does Code.require_file("deps/<app>/bundlex.exs"), and
+    # `Bundlex.Native.parse_app_libs/3` walks that for every dependency declaring native
+    # libraries. ERL_LIBS carries ebin and priv only, so a package like shmex dies with
+    #     ** (Code.LoadError) could not load .../deps/bunch_native/bundlex.exs
+    # and the whole Membrane stack under it is unbuildable -- which is why
+    # //elixir/serviceradar_core_elx had no mix_app and stayed on the non-hermetic
+    # mix_release path.
+    #
+    # Detected rather than declared: a package needs this exactly when it depends on
+    # bundlex, and that is already visible in the graph. Making it an attribute would mean
+    # hand-maintaining a list across the 55 generated third_party/hex BUILD files.
+    #
+    # Sources are staged, not fetched -- every file here is an existing Bazel input from
+    # the dependency's own filegroup, so the action stays hermetic.
+    all_deps = flat_deps(ctx.attr.deps)
+    uses_bundlex = False
+    for dep in all_deps:
+        if dep[ErlangAppInfo].app_name == "bundlex":
+            uses_bundlex = True
+
+    dep_source_commands = []
+    dep_source_files = []
+    if uses_bundlex:
+        for dep in all_deps:
+            dep_info = dep[ErlangAppInfo]
+            for dep_file in dep_info.srcs:
+                if dep_file.is_directory:
+                    continue
+                dest = path_join(
+                    "deps",
+                    dep_info.app_name,
+                    additional_file_dest_relative_path(dep.label, dep_file),
+                )
+                dep_source_files.append(dep_file)
+                dep_source_commands.extend([
+                    'mkdir -p "$(dirname ${{MIX_INVOCATION_DIR}}/{dest})"'.format(dest = dest),
+                    'cp "{src}" "${{MIX_INVOCATION_DIR}}/{dest}"'.format(
+                        src = dep_file.path,
+                        dest = dest,
+                    ),
+                ])
+
+            # Then overlay the dependency's POST-COMPILE tree, which is where Unifex left
+            # its generated headers (c_src/**/_generated/). Pristine sources alone give a
+            # dependent `fatal error: _generated/membrane.h: No such file or directory`.
+            #
+            # _build, deps, .mix and mix.lock are excluded: they are that action's own
+            # scratch state, and `deps` in particular would nest this staging inside itself.
+            mix_trees = getattr(dep[OutputGroupInfo], "mix_tree", None)
+            if mix_trees:
+                for mix_tree in mix_trees.to_list():
+                    dep_source_files.append(mix_tree)
+                    dep_source_commands.append(
+                        'if [ -d "{src}/{pkg}" ]; then\n'.format(
+                            src = mix_tree.path,
+                            pkg = dep.label.package,
+                        ) +
+                        '  mkdir -p "${{MIX_INVOCATION_DIR}}/deps/{app}"\n'.format(app = dep_info.app_name) +
+                        '  tar -cf - -C "{src}/{pkg}" --exclude=_build --exclude=deps --exclude=.mix --exclude=.hex --exclude=mix.lock . | tar -xf - -C "${{MIX_INVOCATION_DIR}}/deps/{app}"\n'.format(
+                            src = mix_tree.path,
+                            pkg = dep.label.package,
+                            app = dep_info.app_name,
+                        ) +
+                        "fi",
+                    )
+
+
+    # Mix does NOT read a Hex dependency's mix.exs to discover its children. Hex registers
+    # as Mix.RemoteConverger, and Mix.Dep.Converger asks it instead:
+    #     {:unloaded, dep, remote.deps(dep, lock)}
+    # `Hex.RemoteConverger.deps/2` reads the lock, whose entries carry the dependency list.
+    # Hex package tarballs do not ship mix.lock, so without one every staged dependency has
+    # zero children and Mix.Project.deps_paths/0 holds only direct dependencies. Bundlex
+    # resolves native apps through exactly that map, so a transitively-declared one fails:
+    # unifex's bundlex.exs names shmex, shmex's names bunch_native, and unifex's mix.exs
+    # never mentions bunch_native -> :unknown_application.
+    #
+    # So the lock is generated from the Bazel graph, which already knows the full closure.
+    # Children come from ErlangAppInfo.deps -- flattened rather than direct, which is
+    # harmless here: every app named is present, and the requirement is ">= 0.0.0" so
+    # convergence cannot fail on a version range.
+    lock_commands = ""
+    if uses_bundlex:
+        graph_entries = []
+        for dep in all_deps:
+            dep_info = dep[ErlangAppInfo]
+            children = [child[ErlangAppInfo].app_name for child in dep_info.deps]
+            graph_entries.append("{}: [{}]".format(
+                dep_info.app_name,
+                ", ".join([":" + child for child in children]),
+            ))
+        lock_commands = _MIX_LOCK_SCRIPT.replace(
+            "__GRAPH__",
+            "%{" + ", ".join(graph_entries) + "}",
+        )
 
     # Staged into the copied source tree so `mix compile` picks them up as part of priv,
     # and mix_app's priv output carries them downstream.
@@ -199,6 +340,8 @@ if [[ -n "{erl_libs_path}" ]]; then
     done
 fi
 
+{lock_commands}
+
 {extra_config_commands}
 
 {native_lib_commands}
@@ -237,9 +380,10 @@ find . -type l -delete
         elixir_home = elixir_home,
         mix_invocation_dir = mix_invocation_dir.path,
         project_dir = ctx.label.package,
-        copy_srcs_commands = "\n".join(copy_srcs_commands),
+        copy_srcs_commands = "\n".join(copy_srcs_commands + dep_source_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
         mix_env = ctx.attr.mix_env,
+        lock_commands = lock_commands,
         extra_config_commands = extra_config_commands,
         native_lib_commands = "\n".join([
             c.replace('cp "', 'cp "$ORIGINAL_DIR/') if c.startswith("cp ") else c
@@ -257,6 +401,7 @@ find . -type l -delete
             erlang_runfiles.files,
             elixir_runfiles.files,
             depset(ctx.files.archives),
+            depset(dep_source_files),
             depset(native_lib_files),
             depset(erl_libs_files),
         ],
@@ -270,7 +415,7 @@ find . -type l -delete
         progress_message = "Compiling Mix package %s" % app_name,
     )
 
-    deps = flat_deps(ctx.attr.deps)
+    deps = all_deps
 
     runfiles = ctx.runfiles([ebin, priv])
     for dep in ctx.attr.deps:
@@ -291,6 +436,17 @@ find . -type l -delete
             srcs = ctx.files.srcs,
             deps = deps,
         ),
+        # The whole post-compile tree, for the one consumer that needs more than ebin+priv.
+        #
+        # Unifex generates C headers into a package's own c_src/**/_generated/ while that
+        # package compiles. A dependent then does #include "_generated/membrane.h" against
+        # the DEPENDENCY's tree, so staging pristine sources is not enough:
+        #     deps/membrane_common_c/c_src/membrane/log.h:6:10:
+        #         fatal error: _generated/membrane.h: No such file or directory
+        # The generated headers only exist inside the producing action, and ErlangAppInfo
+        # carries neither them nor a place to put them -- but the Mix invocation directory
+        # is already a declared output, so it is simply surfaced here.
+        OutputGroupInfo(mix_tree = depset([mix_invocation_dir])),
     ]
 
 mix_app = rule(

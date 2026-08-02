@@ -1,7 +1,6 @@
 load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
 load("//build:elixir_release.bzl", "elixir_release")
-load("//build:mix_release.bzl", "mix_release")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -41,55 +40,6 @@ filegroup(
         "mix.exs",
         "mix.lock",
     ] + glob(["config/**"]),
-)
-
-mix_release(
-    name = "release_tar",
-    srcs = [":srcs"],
-    out = "serviceradar-agent-gateway-release.tar.gz",
-    bootstrap_srcs = [":deps_srcs"],
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-    ],
-    extra_dirs = [
-        "addons/bumblebee-scan",
-        "addons/scalibr-endpoint-inventory",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-    ],
-    # Bazel builds the NIFs; Mix must not shell out to cargo. serviceradar_srql and
-    # serviceradar_core are path deps staged via extra_dirs, so their .so lands in the
-    # staged copy of each app's priv/native.
-    extra_config = [
-        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
-        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
-        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
-    ],
-    native_libs = {
-        "//elixir/serviceradar_srql/native/srql_nif:srql_nif": "elixir/serviceradar_srql/priv/native/srql_nif.so",
-        "//elixir/serviceradar_core/native/zen_nif:zen_nif": "elixir/serviceradar_core/priv/native/zen_nif.so",
-        "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "elixir/serviceradar_core/priv/native/anomaly_disposition_nif.so",
-    },
-    run_assets = False,
-    src_dir = "elixir/serviceradar_agent_gateway",
-    workdir_name = "serviceradar_agent_gateway",
 )
 
 # Deps shared by the :test and :prod compilations below. The first entry differs between
@@ -143,7 +93,7 @@ mix_app(
 # Assembly-only release: no deps.get, no recompilation, no cargo, no network.
 # Contents come from the transitive ErlangAppInfo closure of :erlang_app.
 elixir_release(
-    name = "release_assembled",
+    name = "release_tar",
     srcs = [
         ":release_recipe",
         # Mix reads each PATH dependency's mix.exs to learn its app name and version,
@@ -155,7 +105,7 @@ elixir_release(
         "//elixir/vendor/opentelemetry_oban:mix.exs",
     ],
     app = ":erlang_app_prod",
-    out = "serviceradar-agent-gateway-assembled.tar.gz",
+    out = "serviceradar-agent-gateway-release.tar.gz",
     release_name = "serviceradar_agent_gateway",
 )
 

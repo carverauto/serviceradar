@@ -2918,11 +2918,7 @@ register_toolchains(
 
 # --- npm dependency ingestion ------------------------------------------------
 
-# web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile" the
-# previous TODO here was waiting for: //elixir/web-ng/assets builds the Tailwind and
-# esbuild bundles as their own target so that //build:elixir_release.bzl can take
-# priv/static as a declared input, instead of the release action running `bun install`
-# against a mutable node_modules symlinked out of the executor's /cache.
+# web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
 #
 # pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it

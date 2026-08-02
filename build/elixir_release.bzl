@@ -87,6 +87,26 @@ def _impl(ctx):
     # This is what keeps `bun install`, tailwind and esbuild out of the release action:
     # they become their own cacheable target keyed on assets/**, instead of re-running
     # every time an .ex file changes.
+    # Appended to the SANDBOX copy of config/config.exs, never the checked-in file.
+    #
+    # This is not the same thing as mix_release's `extra_config`, which existed to defeat
+    # Rustler at compile time. Nothing is compiled here. It exists because `mix release`
+    # verifies that every Application.compile_env/2 key holds the same value now as it did
+    # when the app was compiled, and fails with "has a different value set for key ... during
+    # runtime compared to compile time" otherwise. The apps were compiled by mix_app with
+    # its own extra_config applied, so the release has to be told the same thing. Pass the
+    # SAME list to both; a BUILD-file variable shared between them is the way to keep them
+    # from drifting.
+    extra_config_cmds = ""
+    if ctx.attr.extra_config:
+        extra_config_cmds = "\n".join([
+            "mkdir -p config",
+            "[ -f config/config.exs ] || echo 'import Config' > config/config.exs",
+            "cat >> config/config.exs <<'__BAZEL_EXTRA_CONFIG__'",
+        ] + ctx.attr.extra_config + [
+            "__BAZEL_EXTRA_CONFIG__",
+        ])
+
     release_app_name = ctx.attr.app[ErlangAppInfo].app_name
     overlay_files = []
     overlay_cmds = []
@@ -190,13 +210,15 @@ if [ "$STAGED" -eq 0 ]; then
 fi
 chmod -R u+w _build
 
+{extra_config}
+
 {overlays}
 
 # --no-compile is what makes this assembly rather than a build: every .beam already
 # exists. --no-deps-check because deps/ is deliberately absent -- the dependency graph
 # lives in Bazel, not in a fetched deps directory.
 RELEASE_DIR=$(mktemp -d)
-mix release {release_name} --no-compile --no-deps-check --overwrite --path "$RELEASE_DIR"
+mix release {release_name}--no-compile --no-deps-check --overwrite --path "$RELEASE_DIR"
 
 # Mix can leave links pointing back into _build. Materialize before archiving so the
 # tarball is self-contained inside the image.
@@ -212,10 +234,15 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED" .
         erl_libs_path = erl_libs_path,
         copy_srcs_commands = "\n".join(copy_srcs_commands),
         archives = " ".join([shell.quote(a.path) for a in ctx.files.archives]),
+        extra_config = extra_config_cmds,
         overlays = "\n".join(overlay_cmds),
         project_dir = ctx.label.package,
         mix_env = ctx.attr.mix_env,
-        release_name = ctx.attr.release_name,
+        # Named only when mix.exs declares `releases:`. web-ng does not, and passing a name
+        # that has no entry there fails with "Unknown release ... available releases are: []".
+        # With no name, `mix release` assembles the implicit release named after the app,
+        # which is exactly what mix_release did.
+        release_name = ctx.attr.release_name + " " if ctx.attr.release_name else "",
         tar_out = tar_out.path,
     )
 
@@ -232,7 +259,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED" .
         outputs = [tar_out],
         command = script,
         mnemonic = "ElixirRelease",
-        progress_message = "Assembling OTP release %s" % ctx.attr.release_name,
+        progress_message = "Assembling OTP release %s" % release_app_name,
     )
 
     return [DefaultInfo(files = depset([tar_out]))]
@@ -243,7 +270,7 @@ elixir_release = rule(
         # The release's own application, prod-compiled. Its transitive ErlangAppInfo
         # closure IS the release contents -- there is no second list to keep in sync.
         "app": attr.label(mandatory = True, providers = [ErlangAppInfo]),
-        "release_name": attr.string(mandatory = True, doc = "Release name declared in mix.exs releases/0"),
+        "release_name": attr.string(doc = "Release name from mix.exs releases/0. Empty when mix.exs declares none."),
         # The release recipe only: mix.exs, config/**, rel/**, plus each path dep's
         # mix.exs. Never lib/ -- compiled code arrives through `app`.
         "srcs": attr.label_list(allow_files = True),
@@ -256,6 +283,10 @@ elixir_release = rule(
         # passes {"//elixir/web-ng/assets:static": "priv"} so the digested asset tree
         # lands at priv/static without the release action ever running a JS toolchain.
         "overlays": attr.label_keyed_string_dict(allow_files = True),
+        # Must match the extra_config the applications were COMPILED with. See the comment
+        # at the emission site: `mix release` refuses to assemble when a compile_env key
+        # differs between compile time and release time.
+        "extra_config": attr.string_list(),
         "mix_env": attr.string(default = "prod"),
         "out": attr.output(mandatory = True),
     },

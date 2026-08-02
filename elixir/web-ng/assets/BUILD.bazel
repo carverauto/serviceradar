@@ -1,4 +1,4 @@
-"""web-ng browser assets.
+"""web-ng browser assets, built by Bazel instead of inside the release action.
 
 Adding this file makes assets/ its own Bazel package, which is required for
 `npm.npm_translate_lock` in //MODULE.bazel to address package-lock.json by label.
@@ -8,17 +8,27 @@ IMPORTANT: a `glob` never crosses a package boundary. The moment this BUILD file
 no error. Every target that needs the asset sources must therefore depend on :all_srcs
 explicitly. //elixir/web-ng:srcs does; if you add another consumer of the web-ng tree,
 it needs :all_srcs too, or it will build against a project with no CSS and no JS.
+
+What this replaces: //build:mix_release.bzl ran `bun install` (twice, against a
+node_modules symlinked out of the executor's mutable /cache), then `mix tailwind`,
+`mix esbuild` and `mix phx.digest`, all inside the single release action. That made every
+Elixir source change re-run the entire JS toolchain. Here they are ordinary targets keyed
+on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 """
 
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary")
+load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
+load("//build:phoenix_digest.bzl", "phoenix_digest")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["package-lock.json"])
 
 # Materializes node_modules from the checked-in pnpm-lock.yaml as a Bazel-managed tree.
-# This is what replaces `bun install` inside the release action, and with it the
-# node_modules symlink into the executor's mutable /cache.
+# This is what replaces `bun install`, and with it the node_modules symlink into the
+# executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
 
 # Everything under assets/, minus installed dependency trees. node_modules is listed in
@@ -34,4 +44,92 @@ filegroup(
             "**/target/**",
         ],
     ),
+)
+
+# Inputs both bundlers read: the stylesheet entry, the JS tree, the vendored Tailwind
+# plugins (css/app.css does `@plugin "../vendor/heroicons"`), and the React component
+# sources that Tailwind scans via `@source "../component/src"`.
+filegroup(
+    name = "bundle_srcs",
+    srcs = glob(
+        [
+            "css/**",
+            "js/**",
+            "vendor/**",
+            "component/src/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# css/app.css declares `@source "../../lib/serviceradar_web_ng_web"`, so Tailwind v4 reads
+# the HEEx templates to decide which utility classes to emit. Leave these out and the
+# stylesheet builds clean and ships almost empty.
+tailwind_bin.tailwindcss(
+    name = "css_bundle",
+    srcs = [
+        ":bundle_srcs",
+        ":node_modules",
+        "//elixir/web-ng:web_templates",
+    ],
+    outs = ["static/assets/css/app.css"],
+    args = [
+        "--input=css/app.css",
+        "--output=static/assets/css/app.css",
+        "--minify",
+    ],
+    chdir = package_name(),
+)
+
+# Driven through esbuild.config.mjs rather than the generated `bin.esbuild`: that bin is
+# the platform-native executable and rules_js would hand it to node. See the comment at
+# the top of esbuild.config.mjs.
+js_binary(
+    name = "bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "esbuild.config.mjs",
+)
+
+# out_dirs, not outs: the `file` loaders make esbuild emit content-hashed copies of every
+# font and wasm blob it encounters, and those names cannot be predicted at analysis time.
+js_run_binary(
+    name = "js_bundle",
+    srcs = [
+        ":bundle_srcs",
+        ":node_modules",
+    ],
+    args = ["static/assets/js"],
+    chdir = package_name(),
+    out_dirs = ["static/assets/js"],
+    tool = ":bundler",
+)
+
+# The undigested static tree: generated bundles plus the files that are checked in
+# (favicon, robots.txt, images, openapi.json). mix_release preserved those by copying them
+# aside before wiping priv/static; here they are simply inputs.
+copy_to_directory(
+    name = "static_undigested",
+    srcs = [
+        ":css_bundle",
+        ":js_bundle",
+        "//elixir/web-ng:static_files",
+    ],
+    replace_prefixes = {
+        "static/": "",
+        "priv/static/": "",
+    },
+    root_paths = [
+        package_name(),
+        "elixir/web-ng/priv/static",
+    ],
+)
+
+# config/prod.exs sets `cache_static_manifest: "priv/static/cache_manifest.json"`, so the
+# release needs the digested tree, not the raw one. Output is a tar consumed by
+# //elixir/web-ng:release_assembled through elixir_release's `overlays`.
+phoenix_digest(
+    name = "static",
+    src = ":static_undigested",
+    out = "static.tar.gz",
+    prefix = "static",
 )
