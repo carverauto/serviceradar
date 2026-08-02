@@ -539,8 +539,32 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTracker do
     normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now
   end
 
-  defp ingress_pid_dead?(%{ingress_pid: ingress_pid}) when is_pid(ingress_pid), do: not Process.alive?(ingress_pid)
+  # Core ingress lives on another ERTS node. Process.alive?/1 only accepts local
+  # PIDs and raises ArgumentError on remote ones — that crash took down the whole
+  # tracker GenServer and wiped every gateway camera session. Probe remote PIDs
+  # via :erpc; if the remote node is unreachable, leave the session (lease expiry
+  # still reaps it).
+  defp ingress_pid_dead?(%{ingress_pid: ingress_pid}) when is_pid(ingress_pid) do
+    not process_alive?(ingress_pid)
+  end
+
   defp ingress_pid_dead?(_session), do: false
+
+  defp process_alive?(pid) when is_pid(pid) do
+    case node(pid) do
+      n when n == node() ->
+        Process.alive?(pid)
+
+      remote ->
+        try do
+          :erpc.call(remote, Process, :alive?, [pid], 1_000)
+        rescue
+          _ -> true
+        catch
+          :exit, _ -> true
+        end
+    end
+  end
 
   defp expiry_reason(session, now) do
     if session_expired?(session, now), do: "lease_expired", else: "ingress_pid_dead"
