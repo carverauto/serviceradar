@@ -325,6 +325,50 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     assert CameraMediaSessionTracker.fetch_session("relay-periodic-expired-1") == nil
   end
 
+  test "sweep reaps dead local ingress pid and keeps live sessions" do
+    dead = spawn(fn -> :ok end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+    assert {:ok, _} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-dead-ingress-1",
+               media_ingest_id: "core-media-dead-ingress-1",
+               agent_id: "agent-dead-ingress-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-dead-1",
+               stream_profile_id: "main",
+               lease_token: "lease-dead-ingress-1",
+               lease_expires_at_unix: System.os_time(:second) + 120,
+               ingress_pid: dead
+             })
+
+    assert {:ok, live} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-live-ingress-1",
+               media_ingest_id: "core-media-live-ingress-1",
+               agent_id: "agent-live-ingress-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-live-1",
+               stream_profile_id: "main",
+               lease_token: "lease-live-ingress-1",
+               lease_expires_at_unix: System.os_time(:second) + 120,
+               ingress_pid: self()
+             })
+
+    # Opening the second session sweeps first; dead ingress must reap without
+    # crashing the tracker (regression for remote/local Process.alive?/1).
+    assert Process.whereis(CameraMediaSessionTracker)
+    assert CameraMediaSessionTracker.fetch_session("relay-dead-ingress-1") == nil
+    assert live.relay_session_id == "relay-live-ingress-1"
+    assert CameraMediaSessionTracker.fetch_session("relay-live-ingress-1")
+
+    assert {:ok, 0} = CameraMediaSessionTracker.sweep_expired_sessions()
+    assert CameraMediaSessionTracker.fetch_session("relay-live-ingress-1")
+  end
+
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
   end
