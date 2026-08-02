@@ -1,0 +1,78 @@
+build/phoenix_digest.bzl
+  s_d2089df286db69::t_3772c05c966467 80-84,87-91
+  s_d2089df286db69::t_3c9ce620c3aa58 1-79,85-86,92-134
+build/mix_app.bzl
+  s_d2089df286db69::t_edfb402ef929bf 232-261,343,386
+  s_d2089df286db69::t_18327587437ba8 344
+  s_d2089df286db69::t_a09a2eaa6be6cd 208-231
+  s_d2089df286db69::t_f6bf50fadfca14 383,404,418
+  s_d2089df286db69::t_9b4aa3af5803c3 439-449
+  s_d2089df286db69::t_c8a3fd0aa9020b 164-207
+  s_d2089df286db69::t_6f41d942fcbb74 56-98
+MODULE.bazel
+  s_d2089df286db69::t_d5704938a6e91f 2921
+.gitignore
+  s_d2089df286db69::t_b5a890bf7c4ca3 159-163
+elixir/web-ng/assets/BUILD.bazel
+  s_d2089df286db69::t_85af991842905e 84-95,101,103-104
+  s_d2089df286db69::t_51087f6984c293 1,11-16,19,23,30-31,48-83,96-100,102,105-135
+  s_d2089df286db69::t_5bf5096d21152f 21
+  s_d2089df286db69::t_5d3f9cf36e1c9b 20
+.bazelrc
+  s_d2089df286db69::t_79c6788426169f 18-29
+elixir/web-ng/assets/package.json
+  s_d2089df286db69::t_80238c5d72e1f2 36
+  s_d2089df286db69::t_dae9418aac70df 28-30
+  s_d2089df286db69::t_861d2a128c5c6c 31
+  s_d2089df286db69::t_e00ff3f4a833cc 63-71
+  s_d2089df286db69::t_6f577265c686c8 73-77
+  s_d2089df286db69::t_f0bf60c81dce00 45
+elixir/web-ng/assets/esbuild.config.mjs
+  s_d2089df286db69::t_c2bb8a42e209d7 1-43
+elixir/serviceradar_agent_gateway/BUILD.bazel
+  s_d2089df286db69::t_6165dbafd77f2e 96,108
+elixir/web-ng/BUILD.bazel
+  s_d2089df286db69::t_1691e81588bce8 215,228
+  s_d2089df286db69::t_5cf62b084b8042 73-78
+  s_d2089df286db69::t_83a41278756174 181-214,216-225,227,241-243
+  s_d2089df286db69::t_898cde16cd68c1 111-122,125
+  s_d2089df286db69::t_9310e3b2ec322f 238-240
+  s_d2089df286db69::t_a46a974ee19641 6-16
+  s_d2089df286db69::t_25e84bd7a2088d 99-101
+  s_d2089df286db69::t_71833d2245a6fe 51-65,68-71,79-86,89-96
+  s_d2089df286db69::t_d4552ef2274816 4
+  s_d2089df286db69::t_448b4eeeca5158 229-237
+  s_d2089df286db69::t_2a7a4c7b0d63f6 1
+  s_d2089df286db69::t_c93f5dffd45092 123-124
+  s_d2089df286db69::t_cda11f53e446da 5
+build/elixir_release.bzl
+  s_d2089df286db69::t_39a7b8c9a0429b 237
+  s_d2089df286db69::t_7cb09b870d3e21 241-245
+  s_d2089df286db69::t_288f92fdd88f6e 262,273
+  s_d2089df286db69::t_a42e15eb78b223 286-289
+  s_d2089df286db69::t_dbc9542e4b74c4 213-214
+  s_d2089df286db69::t_f3f7de347cf7fe 221
+  s_d2089df286db69::t_280baf18e61336 90-109
+elixir/web-ng/assets/package-lock.json
+  s_d2089df286db69::t_b196b2a0c26cc7 19-22,27,36
+elixir/web-ng/assets/pnpm-lock.yaml
+  s_d2089df286db69::t_78d01c67ef6b15 1-5931
+elixir/web-ng/assets/component/package-lock.json
+  s_d2089df286db69::t_7cc9c06dc986d7 1-3390
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "8fb020fb9866509a0b37f99deb70c7a391a3cbba",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
