@@ -1,3 +1,19 @@
+# ServiceRadar v1.4.29
+
+Fixed camera live feeds reattaching to zombie relay sessions that stayed
+`status=active` after the edge pull was dead, by requiring a still-valid lease
+before reusing an active session.
+
+## Whats New
+
+**1.4.29**
+- Camera relay: core no longer reuses `active` relay sessions whose lease has
+  expired (or was never stamped). Zombie DB rows from gateway restarts, agent
+  source failures, or abandoned July sessions were reattached forever — viewers
+  saw open websockets with no media and no new `camera.open_relay` to the agent.
+  Pending `requested`/`opening` rows may still attach during the short open
+  window; stamped-but-expired leases always open a fresh pull. (PR #4787)
+
 # ServiceRadar v1.4.28
 
 Fixed agent-gateway camera relay tracker crashes that took down live camera
