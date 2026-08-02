@@ -1,0 +1,37 @@
+"""web-ng browser assets.
+
+Adding this file makes assets/ its own Bazel package, which is required for
+`npm.npm_translate_lock` in //MODULE.bazel to address package-lock.json by label.
+
+IMPORTANT: a `glob` never crosses a package boundary. The moment this BUILD file exists,
+`glob(["**"])` in //elixir/web-ng stops matching anything under assets/ -- silently, with
+no error. Every target that needs the asset sources must therefore depend on :all_srcs
+explicitly. //elixir/web-ng:srcs does; if you add another consumer of the web-ng tree,
+it needs :all_srcs too, or it will build against a project with no CSS and no JS.
+"""
+
+load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["package-lock.json"])
+
+# Materializes node_modules from the checked-in pnpm-lock.yaml as a Bazel-managed tree.
+# This is what replaces `bun install` inside the release action, and with it the
+# node_modules symlink into the executor's mutable /cache.
+npm_link_all_packages(name = "node_modules")
+
+# Everything under assets/, minus installed dependency trees. node_modules is listed in
+# //.bazelignore, so Bazel does not see it; the excludes here are belt-and-braces for a
+# developer working tree where an install has already happened.
+filegroup(
+    name = "all_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "node_modules/**",
+            "component/node_modules/**",
+            "**/target/**",
+        ],
+    ),
+)

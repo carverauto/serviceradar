@@ -128,6 +128,14 @@ helm upgrade --install buildbuddy buildbuddy/buildbuddy-executor \
   -f k8s/buildbuddy/values.yaml
 ```
 
+### Add auto scalar
+
+```bash
+kubectl apply -f k8s/buildbuddy/scaledobject.yaml
+
+kubectl get scaledobject,hpa -n buildbuddy
+```
+
 ### Verify Status
 
 ```bash

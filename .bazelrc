@@ -232,7 +232,12 @@ build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=100
 build:remote_base --strategy=ExpandTemplate=local
-build:remote_base --strategy=NpmPackageExtract=local
+# NpmPackageExtract is deliberately NOT pinned local. It runs aspect_bazel_lib's `tar`,
+# which comes from a toolchain resolved for the EXEC platform -- and this config pins
+# --host_platform/--extra_execution_platforms to the Linux RBE platform. Forcing the action
+# local therefore hands a macOS developer a linux_amd64 binary to run:
+#     bsd_tar_linux_amd64/tar: cannot execute binary file   (Exit 126)
+# Any forced-local strategy for an action that uses an exec-platform tool has this bug.
 build:remote_base --strategy=CopyDirectory=local
 build:remote_base --action_env=OPENSSL_DIR=/usr
 build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu

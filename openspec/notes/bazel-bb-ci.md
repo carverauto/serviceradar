@@ -3,6 +3,8 @@ Reality
 Bazel builds and tests 
 - Go source tree
 - Rust source tree 
+- JS source tree
+- Proto source tree
 - Only parts of the elixir tree
 
 Known gaps
@@ -14,7 +16,7 @@ Known gaps
 
 Vision
 
-Build all of the repo via a Bazel and migrate CI to BuildBuddy Workflow  
+Build all of the repo via a Bazel and migrate CI to BuildBuddy (BB) Workflow  
 
 A BuildBuddy Workflow would look like this:
 
@@ -38,7 +40,7 @@ bazel run -c opt //:push --config=remote
 
 
 Side effects
-- BB remote build is leveraged througout
+- BB remote build is leveraged throughout
 - BB remote cache is used consistently
 - CI can replicate these steps and gain speedup from BB remote cache and build
 - Most existing CI GH actions will be replaced with a single BB CI workflow

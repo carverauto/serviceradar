@@ -14,14 +14,20 @@ filegroup(
         exclude = [
             "bazel-*",
             "_build/**",
-            "assets/**/target/**",
+            "assets/**",
             "deps/**",
             "native/**/target/**",
             "node_modules/**",
             "tmp/**",
             ".git/**",
         ],
-    ),
+    ) + [
+        # assets/ is its own package now (it owns package-lock.json for npm_translate_lock),
+        # and a glob does not cross a package boundary. Without this label the assets would
+        # drop out of every consumer silently -- the excluded "assets/**" above is there to
+        # make that fact explicit rather than implied.
+        "//elixir/web-ng/assets:all_srcs",
+    ],
 )
 
 filegroup(
@@ -48,7 +54,7 @@ filegroup(
 # job even with a warm Hex cache. Its inputs here are mix.exs/mix.lock/config only, so an
 # ordinary PR gets a remote cache hit and pays none of it.
 #
-# The split between :srcs and :deps_srcs below is the whole trick, and it is not arbitrary:
+# The split between :srcs and :deps_srcs below is the whole trick:
 #   * connection, elixir_uuid and opentelemetry_oban are vendored *overrides of Hex packages*
 #     (`override: true` in mix.exs). Hex packages compile against them -- gnat does
 #     `use Connection` -- so they must be compiled here, which means full :srcs. They are ~30
@@ -238,10 +244,6 @@ mix_release(
         "//elixir/serviceradar_srql:srcs",
         "//elixir/vendor/opentelemetry_oban:srcs",
         "//proto:kv_proto_src",
-        "//rust/anomaly-core:srcs",
-        "//rust/anomaly-disposition:srcs",
-        "//rust/srql:srcs",
-        "//rust/kvutil:srcs",
         "//elixir/datasvc:srcs",
         "//go/cmd/wasm-plugins/axis:srcs",
         "//go/pkg/trivysidecar:display_contracts",
@@ -262,10 +264,6 @@ mix_release(
         "elixir/serviceradar_srql",
         "elixir/vendor/opentelemetry_oban",
         "proto",
-        "rust/anomaly-core",
-        "rust/anomaly-disposition",
-        "rust/srql",
-        "rust/kvutil",
         "elixir/datasvc",
         "go/cmd/wasm-plugins/axis",
         "go/pkg/trivysidecar",
@@ -274,6 +272,26 @@ mix_release(
         "go/cmd/wasm-plugins/unifi-protect",
     ],
     sfw = "@sfw_free_linux_amd64//file",
+    # Bazel builds the NIFs; Mix must not shell out to cargo. Without this the release
+    # action dies on `System.cmd("cargo", ...) -> :enoent`, because the RBE image has no
+    # Rust toolchain and, deliberately, no network.
+    #
+    # Three of the four NIFs belong to PATH DEPENDENCIES staged through extra_dirs, so
+    # their .so goes into that app's staged priv/native. god_view_nif is web-ng's own,
+    # and web-ng's project root IS the workdir root (copy_dir "{src_dir}/" "$WORKDIR/"),
+    # hence the unprefixed path.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+        "config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true",
+    ],
+    native_libs = {
+        "//elixir/serviceradar_srql/native/srql_nif:srql_nif": "elixir/serviceradar_srql/priv/native/srql_nif.so",
+        "//elixir/serviceradar_core/native/zen_nif:zen_nif": "elixir/serviceradar_core/priv/native/zen_nif.so",
+        "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "elixir/serviceradar_core/priv/native/anomaly_disposition_nif.so",
+        "//elixir/web-ng/native/god_view_nif:god_view_nif": "priv/native/god_view_nif.so",
+    },
     src_dir = "elixir/web-ng",
     workdir_name = "serviceradar_web_ng",
 )
