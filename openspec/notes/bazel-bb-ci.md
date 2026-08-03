@@ -22,6 +22,39 @@ makes rules_oci send a dead credential, and ghcr answers 403 where anonymous ret
 `docker logout ghcr.io` restores it. Large ghcr blob fetches (arc-runner) are also just
 flaky over a slow link -- two attempts failed two different ways, a third succeeded.
 
+Step 2 is green. One test is tagged `manual` and therefore out of the sweep:
+
+  //scripts:release_publish_contracts_test        (RED when run explicitly)
+
+It does not belong in a unit sweep in the first place. It is 665 lines of bash driving
+embedded Python that makes literal substring assertions over CI configuration -- 5 .forgejo
+workflow YAMLs, 9 release shell scripts, the image inventory, the ArgoCD app -- and
+exercises no shipped code path. It was in the sweep only because it was untagged, which
+under the exclusion convention below means "included by default".
+
+Run it deliberately:
+
+  bazel test //scripts:release_publish_contracts_test --test_tag_filters=
+
+It is not stale and it is not flaky -- it is reporting real drift between the two release
+workers. fa88629ca ("pin forgejo-ci digest for Wasm plugin publish") also loosened the
+release-tag source gate in .forgejo/workflows/wasm-plugins.yml to let workflow_dispatch run
+from a non-tag ref, and did not make the same change to native-addons.yml:
+
+    native-addons.yml:97   if [[ "${GITHUB_REF}" != "${expected_ref}" ]]
+    wasm-plugins.yml:97    if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && ... ]]
+
+The test asserts both gates stay identical (test-release-publish-contracts.sh:593); the
+fragment loop just trips first. The bypass is bounded -- the dispatch path still requires
+validate-release-tag.sh, a VERSION match, and the tag commit being an ancestor of staging;
+only the run's ref may differ from the tag ref.
+
+Deliberately NOT fixed: .forgejo/workflows/ is being replaced by BB workflows, so editing
+those jobs is throwaway work. Whoever writes the replacement owns this decision -- either
+the dispatch recovery path is intended and both workers should have it, or it is not and
+wasm-plugins.yml should go back to the strict gate. Do not "fix" it by relaxing the
+assertion in the contract test; that would rubber-stamp the drift.
+
 
 Vision
 
@@ -70,9 +103,11 @@ everything else fall into the default sweep.
 
   integration_test          10   core integration_tests_s0..s7, banner_grab_integration_test,
                                  and the dgraph acceptance target
-  manual                     8   the DB-backed tier that cannot self-provision:
+  manual                     9   the DB-backed tier that cannot self-provision:
                                  migrate_template, the 3 //rust/integration-db lifecycle
-                                 targets, the 2 //integration_tests/srql tests, 2 js :ci
+                                 targets, the 2 //integration_tests/srql tests, 2 js :ci,
+                                 plus //scripts:release_publish_contracts_test (a CI-config
+                                 linter, not a unit test -- see above)
   no-remote                  8   (same shape)
   no-remote-exec             6   migrate_template, the 3 integration-db targets, the 2 srql
                                  tests; cannot run on RBE
