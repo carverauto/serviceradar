@@ -3,17 +3,18 @@ actions:
     triggers:
       push:
         branches:
-          - "main"
+          - "staging"
           #- "no_run" # Disables CI i.e. when testing the custom RBE image.
-    # Renovate Bot triggers too many builds. Disabled PR builds.
-    #      pull_request:
-    #        branches:
-    #          - "main"
-    # When adding new bazel commands, also update scripts/test.sh script with the same command for local testing
-    bazel_commands:
+    # NOT set: `self_hosted: true`. The runner is therefore a BuildBuddy-hosted VM, not one
+    # of the 3 in-cluster executors. Fan-out is unaffected -- --config=remote names a public
+    # endpoint -- but it is why the integration step is not here yet: the DB lifecycle
+    # targets are `no-remote-exec` and would run on that cloud runner, which cannot reach
+    # the in-cluster CNPG fixture. See "WHICH ENDPOINT" in openspec/notes/bazel-bb-ci.md.
+    steps:
       # Setup & Authenticate
-      - "run -c opt //:buildbuddy_setup_docker_auth --verbose_failures"
-      # Build all targets with remote. Do NOT disable remote, otherwise the missing lib .. makes the workflow build fail.
-      - "build -c opt //...  --config=remote"
-      # Run Unit & Doc tests tests
-      - "test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test"
+      - run: "bazel run -c opt //:buildbuddy_setup_docker_auth --verbose_failures"
+      # Build all targets with remote. Do NOT disable remote, otherwise the missing lib ..
+      # makes the workflow build fail.
+      - run: "bazel build -c opt //... --config=remote"
+      # Run Unit & Doc tests
+      - run: "bazel test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test"

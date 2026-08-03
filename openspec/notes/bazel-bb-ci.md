@@ -260,11 +260,38 @@ has no such file. Get it with:
     kubectl get secret srql-fixture-ca -n srql-fixtures -o jsonpath='{.data.ca\.crt}' | base64 -d
 
 WHICH ENDPOINT. Only the executors are self-hosted (3 pods in the `buildbuddy` namespace);
-the BB app is cloud. A workflow runner is itself an action, so it lands on those same
-in-cluster executors -- which means runner and test actions share one network view and ONE
-DSN serves both the no-remote-exec provisioning targets and the remote shards:
+the BB app is cloud. The shards run there via env-secrets and reach the fixture over:
 
     postgres://<user>:<pass>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture?sslmode=verify-full
+
+THE RUNNER IS A DIFFERENT MACHINE, and this was recorded wrongly here on 2026-08-03. An
+earlier revision claimed a workflow runner "lands on those same in-cluster executors", so
+one DSN would serve both legs. That holds ONLY with `self_hosted: true` in buildbuddy.yaml,
+which is NOT set -- the field defaults to false, so the runner is a BuildBuddy-hosted VM
+(3 CPU / 8 GB / 20 GB by default) outside the datacenter.
+
+Consequences, and this blocks step 3 rather than merely complicating it:
+
+  * The 8 shards are fine. env-secrets injects at the in-cluster executors, which reach the
+    fixture over the service DNS above.
+  * The 4 no-remote-exec lifecycle targets are NOT fine. They execute ON THE RUNNER, and a
+    BB cloud VM cannot resolve srql-fixture-rw.srql-fixtures.svc.cluster.local. Provisioning
+    fails, and then the shards connect to sr_core_test_local_<shard> databases that were
+    never created.
+
+Fan-out is unaffected either way: --config=remote names grpcs://carverauto.buildbuddy.io,
+which is public, so a cloud runner still dispatches to the self-hosted executors. A run on
+2026-08-03 reached 29 concurrent actions from exactly this configuration.
+
+Two ways out, neither yet taken:
+
+  1. `self_hosted: true` on the action, so the runner lands in-cluster. Note the pool: the
+     docs require the self-hosted workflow executors' pool to be named `workflows` unless
+     `pool` is also given, and k8s/buildbuddy/values.yaml sets no pool at all -- those 3
+     executors are in the default pool, so `self_hosted: true` alone finds nothing. The
+     runner would also then compete with build actions for the same executor capacity.
+  2. Give the lifecycle targets an endpoint a cloud runner can reach. The public LB
+     (srql-fixture.serviceradar.cloud, in the cert SAN) is the candidate.
 
 Measured reachability, 2026-08-03 (bash /dev/tcp from a workstation and from an executor pod
 -- note `sh` in the executor image is not bash, so /dev/tcp silently fails there; use bash):
@@ -341,4 +368,5 @@ DeepCausality checkout and assorted logs); it is in .gitignore, which does NOT i
 Note `manual` already excludes targets from `//...` wildcard expansion, so `-manual` in the
 filter is redundant-but-explicit. The inverse matters more: any step that WANTS a manual
 target must name it AND pass an empty `--test_tag_filters=`, or it resolves to nothing.
-- no action in the image graph reaches the network; all deps are declared inputs.
+- no action in the image graph reaches the network; all deps are declared inputs. 
+
