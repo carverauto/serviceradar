@@ -1,0 +1,23 @@
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_64704db257ec86 25,27-37
+  s_d2089df286db69::t_cdbed374f193c2 26,38-57
+  s_d2089df286db69::t_a61f784abc8021 106,108-110
+scripts/BUILD.bazel
+  s_d2089df286db69::t_687232067200bb 49-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "6d862b8fcb6dba4101b29e2e8b66ae7a4ef2a1fe",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
