@@ -1,0 +1,19 @@
+buildbuddy.yaml
+  s_d2089df286db69::t_5c83b99c79c078 36-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "914ba875a7222f0c37041de0e3a5cb6a599d049d",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
