@@ -1,0 +1,42 @@
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_207c23a9f1ecdb 93-97,105-106
+  s_d2089df286db69::t_8f0267e0ee2135 112
+  s_d2089df286db69::t_6cf712cf743f66 136-152,182,196-236
+  s_d2089df286db69::t_6951b8570cb013 153-181
+  s_d2089df286db69::t_0a44d17d060d13 183-195
+  s_d2089df286db69::t_6adfe9b9923035 98-103,108-110,114
+  s_d2089df286db69::t_56b8f497929061 55-75
+  s_d2089df286db69::t_ce6f5d6857c4cf 52-54
+  s_d2089df286db69::t_695494efe17482 104
+  s_d2089df286db69::t_123c438ac042d3 107
+  s_d2089df286db69::t_3c83f1c6989172 111
+  s_d2089df286db69::t_80d6c236f52374 113
+go/pkg/scan/banner_grab/integration_test.go
+  s_d2089df286db69::t_65e75564d4ccef 203-210
+buildbuddy.yaml
+  s_d2089df286db69::t_91642efa909993 1-19
+go/pkg/scan/banner_grab/BUILD.bazel
+  s_d2089df286db69::t_5668f4c140a64b 47-61
+BUILD.bazel
+  s_d2089df286db69::t_8ff8393ec59bbd 66-78
+buildbuddy_setup_fixture_env.sh
+  s_d2089df286db69::t_94e9dcf7c8c530 121-129,132-134
+  s_d2089df286db69::t_2af902af4ec230 1-120,130-131,135-139,152,155
+  s_d2089df286db69::t_d66a9ee85f8d6b 140-151,153-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "a5582c06a9a6ab2bf7840dd435c35bdc63a5384a",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
