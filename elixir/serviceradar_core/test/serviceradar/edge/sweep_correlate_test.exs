@@ -293,31 +293,20 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
       end
     end
 
-    test "a malformed endpoint is a precondition failure on the HOST and TRACE paths too" do
+    test "a malformed endpoint is refused ONCE, before any time path runs" do
       {record, batch} = control()
-      outside = div(@window_end, 1_000_000) + 10
+
+      # The window is resolved before batch/host/trace are checked, so there is no
+      # per-path malformed branch to exercise. An earlier form asserted the host and
+      # trace paths here, but those assertions could never reach them: batch_time
+      # consumes the same two endpoints first, so they passed for the wrong reason.
+      r = put_claims(record, &Map.put(&1, :collection_expires_unix_nano, :whenever))
 
       host_batch = %{batch | hosts: [%V1.SweepHostObservationV1{observed_at_delta_nano: 0}]}
 
-      trace_batch = %{
-        batch
-        | hosts: [
-            %V1.SweepHostObservationV1{
-              observed_at_delta_nano: 0,
-              mtr: %V1.SweepMtrSummaryV1{
-                outcome: :MTR_OUTCOME_REACHED,
-                trace_id: uuid_at(outside)
-              }
-            }
-          ]
-      }
-
-      r = put_claims(record, &Map.put(&1, :collection_expires_unix_nano, :whenever))
+      assert SweepCorrelate.validate(r, batch) == {:error, {:precondition, :malformed_record}}
 
       assert SweepCorrelate.validate(r, host_batch) ==
-               {:error, {:precondition, :malformed_record}}
-
-      assert SweepCorrelate.validate(r, trace_batch) ==
                {:error, {:precondition, :malformed_record}}
     end
 
@@ -361,6 +350,16 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
                | source: :SWEEP_EXECUTION_SOURCE_UNSPECIFIED
              }) ==
                {:error, {:enum_admission, :source}}
+    end
+
+    test "a MALFORMED authorization carrying RECOVERY_CONTROL is structural, not a lane hit" do
+      {record, batch} = control()
+      # Reading the kind off any shape would report a lane rejection for what is a
+      # structural failure.
+      plain = %{kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL}
+
+      assert SweepCorrelate.validate(%{record | source_authorization: plain}, batch) ==
+               {:error, {:precondition, :malformed_record}}
     end
 
     test "RECOVERY_CONTROL is refused by the RESERVED LANE, which runs first" do
