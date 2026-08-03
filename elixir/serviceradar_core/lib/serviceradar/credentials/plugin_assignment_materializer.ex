@@ -44,14 +44,24 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
     with {:ok, profiles} <- target_policy_profiles(actor, opts) do
       Enum.reduce_while(profiles, {:ok, empty_summary()}, fn profile, {:ok, acc} ->
-        Enum.reduce_while(CredentialIntegration.purposes(profile), {:ok, acc}, fn purpose,
-                                                                                  {:ok,
-                                                                                   nested_acc} ->
+        # The inner reduce_while returns {:ok, acc} | {:error, reason}, which are not
+        # valid reduce_while accumulators. Returning it directly made the *outer*
+        # reduce_while hand {:ok, acc} to the Enumerable protocol, which only accepts
+        # :cont / :halt / :suspend -- a FunctionClauseError in Enumerable.List.reduce/3.
+        # An empty catalog hid this for as long as it existed: with no profiles the
+        # callback never ran, so the crash only appeared once a package was approved.
+        profile
+        |> CredentialIntegration.purposes()
+        |> Enum.reduce_while({:ok, acc}, fn purpose, {:ok, nested_acc} ->
           case reconcile_provider_for_agent(profile, agent_id, purpose, opts) do
             {:ok, summary} -> {:cont, {:ok, add_summaries(nested_acc, summary)}}
             {:error, reason} -> {:halt, {:error, reason}}
           end
         end)
+        |> case do
+          {:ok, merged} -> {:cont, {:ok, merged}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
       end)
     end
   end
