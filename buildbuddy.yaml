@@ -27,26 +27,22 @@ execution_config:
 
 # BuildBuddy CI workflow. Details and gotchas: k8s/buildbuddy/README.md ("Workflows").
 actions:
-  - name: "Build, test and publish all containers"
-    # Run the runner on the org's own executors. `pool` MUST name a pool that HAS executors:
-    # self_hosted defaults it to "workflows" (which does not exist here) and an empty string
-    # reads as unset, not as the default pool. See the README.
+  - name: "Build, test and publish containers"
     self_hosted: true
     pool: "default"
-    # Runner sizing. Defaults are 3 CPU / 8 GB / 20 GB,
-    #
-    # Values are byte counts or numeric strings with an IEC abbreviation; cpu also accepts
-    # an `m` suffix for thousandths of a core ("8000m" = 8 cores).
-    resource_requests:
-      memory: "24GB"
-      disk: "40GB"
     triggers:
       push:
         branches:
           - "staging"
-          #- "no_run" # Disables CI i.e. when testing the custom RBE image.
     steps:
       - run: "bazel run -c opt //:buildbuddy_setup_docker_auth --verbose_failures"
       # --config=remote is what turns RBE on; workflows do not enable it by default.
       - run: "bazel build -c opt //... --config=remote"
       - run: "bazel test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test"
+
+    # Runner sizing. Defaults are 2 CPU / 8 GB / 20 GB,
+    # Values are byte counts or numeric strings with an IEC abbreviation; cpu also accepts
+    # an `m` suffix for thousandths of a core ("8000m" = 8 cores).
+    resource_requests:
+      memory: "24GB"
+      disk: "40GB"
