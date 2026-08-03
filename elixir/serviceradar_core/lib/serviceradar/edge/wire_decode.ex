@@ -11,11 +11,17 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   The ONLY public entries are a FINITE set of stage decoders -- `decode_client_message/1`,
   `decode_frame/1`, `decode_record/1`, `decode_manifest_page/1`, `decode_assignment_record/1`,
-  `decode_plan_header/1`, `decode_plan_page/1`, `decode_compiled_assignment/1`, and
-  `decode_execution_grant/1` -- each bound to exactly one generated edge message module. The recovery, assignment, and plan stages EXTEND this set rather than standing up
+  `decode_plan_header/1`, `decode_plan_page/1`, `decode_compiled_assignment/1`,
+  `decode_execution_grant/1`, and `decode_sweep_batch/1` -- each bound to exactly one
+  generated edge message module. The recovery, assignment, plan, and sweep-body stages
+  EXTEND this set rather than standing up
   separate raw-bytes ingresses, so each gets the same bound-before-decode discipline and the same
   typed outcomes as the transport stages. The plan entries matter especially: protobuf-elixir ERASES
   an unknown GROUP, so plan wire hygiene is only observable on the raw path.
+  ONE STAGE IS NOT PHYSICALLY BOUNDED AT 512 KiB: `decode_sweep_batch/1` runs on
+  ALREADY-EXTRACTED, uncompressed bytes, where a legitimately decompressed body may exceed
+  the record's physical bound. It inherits the 32 MiB extracted-body work ceiling instead.
+  See its own doc.
   There is no public "decode any module" entry (that was a bypass: a caller-defined struct decoder
   could return `{:ok, fake_struct}`). A decode result is additionally accepted only when it is
   genuinely a struct of the target module (`is_struct(decoded, mod)`).
@@ -124,6 +130,9 @@ defmodule ServiceRadar.Edge.WireDecode do
   @max_client_message_bytes @max_frame_bytes + 8
   # Whole-manifest budget, mirroring Go's edgerecord.MaxManifestBytes. Used as the
   # per-page ceiling too: one page can never be larger than the entire manifest.
+  # The EXTRACTED-BODY work ceiling, mirroring Go's MaxUncompressedBytes. It bounds a body
+  # AFTER decompression, where the 512 KiB physical record bound no longer applies.
+  @max_extracted_body_bytes 32 * 1024 * 1024
   @max_manifest_bytes 256 * 1024
 
   # Protobuf field numbers for the RAW outer-wire peel (P1-2). EdgeRecordClientMessage is a oneof of
@@ -265,6 +274,37 @@ defmodule ServiceRadar.Edge.WireDecode do
     do: run(Serviceradar.Edge.V1.EdgeSignedCapabilityV1, @max_execution_grant_bytes, bytes)
 
   @doc """
+  Decode ONE `SweepObservationBatchV1` from ALREADY-EXTRACTED, UNCOMPRESSED protobuf bytes
+  (task 1.2-c).
+
+  ## The ceiling here is the EXTRACTED-BODY WORK ceiling, not the record's 512 KiB
+
+  512 KiB is the PHYSICAL bound on the outer record and its encoded/compressed payload. A
+  compressed payload under that bound may legitimately EXPAND past it: Go decompresses up to
+  `MaxUncompressedBytes` (32 MiB, ratio <= 100) and then decodes the result with NO second
+  512 KiB cap. Applying the physical bound here would permanently reject a valid record whose
+  ZSTD body expands beyond it.
+
+  So this stage inherits the 32 MiB extracted-body work ceiling. It is deliberately NOT a
+  sweep-specific limit -- a separate one would be a second, divergent bound on the same
+  bytes.
+
+  ## What this function does NOT do
+
+  It does not decompress, does not check the compression ratio, and does not reject trailing
+  frames. ZSTD extraction and the normative 32 MiB freeze belong to task 1.5-f; this stage
+  runs on its output. Passing still-compressed bytes here is a caller error, not something
+  this function detects.
+
+  Bound-before-decode and the recursive wire-hygiene gate come from `run/3`, the same path
+  every other curated decoder uses, so unknown-field rejection and the
+  `:poison` / `:not_ready` / `:systemic` classification are the ones already frozen.
+  """
+  @spec decode_sweep_batch(term()) :: outcome()
+  def decode_sweep_batch(bytes),
+    do: run(Serviceradar.Edge.V1.SweepObservationBatchV1, @max_extracted_body_bytes, bytes)
+
+  @doc """
   Decodes ONE raw `EdgeLossManifestPageV1` -- the recovery-page ingress stage.
 
   This EXTENDS the finite stage API rather than superseding it, and deliberately so:
@@ -283,10 +323,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   def decode_manifest_page(bytes), do: run(EdgeLossManifestPageV1, @max_manifest_bytes, bytes)
 
   # Internal decode engine shared by the stage decoders. PRIVATE so there is no generic decode-any-
-  # module bypass: only the CURATED message modules can be decoded -- the record-plane trio, the
-  # recovery manifest page, the assignment record, the two plan objects, the compiled-assignment
-  # carrier, and the standalone execution grant -- and only their own struct is accepted
-  # (is_struct/2).
+  # module bypass: only the CURATED message modules can be decoded, and only their own struct is
+  # accepted (is_struct/2). The moduledoc holds the ONE canonical list of those stages; this
+  # comment deliberately does not restate it, because a second enumeration -- this one was by
+  # CATEGORY rather than by function name -- goes stale invisibly.
   defp run(mod, max_bytes, bytes) when is_binary(bytes) do
     cond do
       # Oversize is refused BEFORE protobuf is invoked -> permanent rejection, not an unbounded decode.
