@@ -1,10 +1,38 @@
+remote_execution:
+  enabled: true
+  endpoint: "grpcs://remote.buildbuddy.io"
+
+remote_cache:
+  enabled: true
+  endpoint: "grpcs://remote.buildbuddy.io"
+  compression_enabled: true
+  upload_enabled: true
+  download_enabled: true
+  max_size_gb: 100
+  ttl_hours: 168
+
+build_event_streaming:
+  enabled: true
+  endpoint: "grpcs://events.buildbuddy.io"
+
+execution_config:
+  platform_properties:
+    container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
+    OSFamily: "linux"
+    Arch: "amd64"
+  max_execution_timeout_seconds: 3600
+  default_exec_properties:
+    dockerNetwork: "host"
+    Pool: "default"
+
 # BuildBuddy CI workflow. Details and gotchas: k8s/buildbuddy/README.md ("Workflows").
 actions:
   - name: "Build, test and publish all containers"
-    # Run the runner on the org's own executors. `pool: ""` is required because
-    # without it the run queues against an empty pool. See the README.
+    # Run the runner on the org's own executors. `pool` MUST name a pool that HAS executors:
+    # self_hosted defaults it to "workflows" (which does not exist here) and an empty string
+    # reads as unset, not as the default pool. See the README.
     self_hosted: true
-    pool: ""
+    pool: "default"
     triggers:
       push:
         branches:
