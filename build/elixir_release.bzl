@@ -51,6 +51,51 @@ load(
     "erl_libs_contents",
 )
 
+_DEDUPE_SCRIPT = """python3 - "$PACKAGED" <<'__DEDUPE__'
+import hashlib, os, sys
+
+root = sys.argv[1]
+MIN_SIZE = 1 << 20
+
+by_size = {}
+for dirpath, _dirnames, filenames in os.walk(root):
+    for name in filenames:
+        path = os.path.join(dirpath, name)
+        if os.path.islink(path):
+            continue
+        size = os.lstat(path).st_size
+        if size >= MIN_SIZE:
+            by_size.setdefault(size, []).append(path)
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.digest()
+
+saved = 0
+links = 0
+for size, paths in by_size.items():
+    if len(paths) < 2:
+        continue
+    canonical = {}
+    for path in sorted(paths):
+        key = digest(path)
+        target = canonical.get(key)
+        if target is None:
+            canonical[key] = path
+            continue
+        rel = os.path.relpath(target, os.path.dirname(path))
+        os.remove(path)
+        os.symlink(rel, path)
+        saved += size
+        links += 1
+
+print("dedupe: %d files -> symlinks, %.0f MB saved" % (links, saved / 1048576))
+__DEDUPE__
+"""
+
 def _impl(ctx):
     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx)
@@ -225,9 +270,28 @@ mix release {release_name}--no-compile --no-deps-check --overwrite --path "$RELE
 PACKAGED=$(mktemp -d)
 cp -RL "$RELEASE_DIR"/. "$PACKAGED"/
 
+# Replace byte-identical files with relative symlinks.
+#
+# Bundlex unpacks a precompiled archive into EVERY consuming package's priv/bundlex/nif/,
+# and the membraneframework-precompiled ffmpeg tarball ships each shared library three
+# times as real files rather than the usual symlink chain. serviceradar_core_elx therefore
+# carried 15 copies of libavcodec.so (5 plugins x 3 name variants) -- 66% of a 2,252 MB
+# release tree was byte-identical duplicates.
+#
+# This runs AFTER the `cp -RL` above precisely so it cannot create a dangling link: every
+# path is a real file inside PACKAGED by this point, so every symlink written here is
+# intra-tree and survives extraction into the image. dlopen follows symlinks, and this is
+# the layout a normal ffmpeg install has anyway.
+#
+# Files are grouped by size first and only hashed when a size collides, so unique files are
+# never read. Small files are skipped: the win is entirely in shared libraries, and
+# symlinking thousands of tiny beams would trade bytes for inodes.
+{dedupe}
+
 mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
 tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED" .
 """.format(
+        dedupe = _DEDUPE_SCRIPT,
         maybe_install_erlang = maybe_install_erlang(ctx),
         erlang_home = erlang_home,
         elixir_home = elixir_home,
