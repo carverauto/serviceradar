@@ -230,13 +230,37 @@ and absent in CI; BuildBuddy injects the key itself, so this is fine.
 
 ### `self_hosted: true` requires a matching `pool`
 
-Every executor here is self-hosted, so the runner should be too. But BuildBuddy defaults the
-self-hosted workflow pool to the name `workflows`, and `values.yaml` sets **no** pool — these
-executors are in the *default* pool. `self_hosted: true` alone therefore schedules against a
-pool with no executors and the run simply **queues**; it does not fail with a useful error.
-`pool: ""` targets the default pool.
+Every executor here is self-hosted, so the runner should be too. But `self_hosted` defaults
+the workflow pool to the name `workflows`, and `values.yaml` sets **no** `poolName` — these
+executors are in the unnamed default pool. Without a matching `pool` the run fails with:
 
-If a run hangs in "queued", check what the executors actually register as:
+```
+No registered executors in pool "workflows" with os "linux" with arch "amd64"
+```
+
+`pool: ""` does **not** fix this: an empty string reads as *unset*, so it falls straight back
+to `workflows`. BuildBuddy's default pool name is literally the empty string, and there is no
+way to spell that in the action YAML.
+
+We set `pool: "default"`, betting that the app's `default_pool_name` is `default` — which is
+the same bet `build/platforms/BUILD.bazel` already makes with `"Pool": "default"` on the
+`rbe_linux_*` platforms. **If that bet is wrong**, the run fails with the identical message
+naming pool `"default"`, and the fix is to make the name explicit on both sides:
+
+| file | change |
+|---|---|
+| `k8s/buildbuddy/values.yaml` | top-level `poolName: <name>` (sibling of `image`/`replicas`, **not** under `config.executor`) |
+| `build/rbe/BUILD` | add `"Pool": "<name>"` to `rbe_platform` `exec_properties` |
+| `buildbuddy.yaml` | `pool: "<name>"` |
+
+Those three must land **together** and the helm redeploy must happen. Naming the executors
+without naming the pool in `rbe_platform` sends every RBE request to a pool with no
+executors — that breaks all remote builds, not just workflows.
+
+The alternative, if the runner competing with build actions becomes a problem, is a second
+small executor deployment with `poolName: workflows` and no `pool` in the action.
+
+To see what the executors actually register as:
 
 ```bash
 kubectl exec -n buildbuddy <executor-pod> -- printenv | grep -i pool
