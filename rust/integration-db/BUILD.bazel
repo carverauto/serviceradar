@@ -1,5 +1,6 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//build:integration_shards.bzl", "integration_shard_names")
+load("//build:integration_tests.bzl", "requires_shared_fixture")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
@@ -74,6 +75,7 @@ rust_test(
             "manual",
             "no-remote-exec",
         ],
+        target_compatible_with = requires_shared_fixture(),
         deps = all_crate_deps(
             normal = True,
             normal_dev = True,
@@ -109,6 +111,7 @@ rust_test(
         "manual",
         "no-remote-exec",
     ],
+    target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(
         normal = True,
         normal_dev = True,
@@ -128,6 +131,7 @@ rust_binary(
     srcs = ["src/bin/prepare_template.rs"],
     data = ["//elixir/serviceradar_core:migrations"],
     tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(normal = True) + [
         ":serviceradar_integration_db",
         "//rust/srql:srql_lib",

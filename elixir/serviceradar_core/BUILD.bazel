@@ -5,6 +5,7 @@ load(
     "integration_shard_names",
     "partition_by_shard",
 )
+load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
@@ -64,16 +65,9 @@ filegroup(
     ),
 )
 
-# serviceradar_core compiled by Mix inside a single hermetic Bazel action.
-#
-# mix_env is "test", not "prod", deliberately: mix.exs sets
-# elixirc_paths(:test) => ["lib", "test/support"], and the 20 modules under test/support
-# (ServiceRadar.TestSupport and friends) are what every ExUnit target needs on the code
-# path. Compiling under :prod would silently omit them.
-mix_app(
-    name = "erlang_app",
-    srcs = [
-        ":srcs",
+# Shared between the :test and :prod compilations below, which differ only in mix_env.
+CORE_SRCS = [
+    ":srcs",
         # Read at compile time, from outside this package. The *_addon_package_seeder
         # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
         # and bake the result in with @external_resource, so these have to be declared
@@ -91,23 +85,24 @@ mix_app(
         # staged there too. Declaring them on the test target instead puts them in the test's
         # runfiles, which is a different directory and not the one the baked-in path points
         # at -- the drift test then fails with "could not read file .../erlang_app_mix/go/...".
-        "//go/pkg/agent:addonconfig_contract_fixtures",
-    ],
-    app_name = "serviceradar_core",
-    # Bazel builds the cdylibs; Mix must not shell out to cargo. `use Rustler` merges
-    # Application.compile_env(otp_app, __MODULE__) over its own options, so this disables
-    # native compilation without touching lib/ or the checked-in config, and without
-    # changing what `mix release` does. The libraries themselves arrive via native_libs.
-    extra_config = [
-        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
-        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
-    ],
-    mix_env = "test",
-    native_libs = {
-        "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
-        "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
-    },
-    deps = [
+    "//go/pkg/agent:addonconfig_contract_fixtures",
+]
+
+# Bazel builds the cdylibs; Mix must not shell out to cargo. `use Rustler` merges
+# Application.compile_env(otp_app, __MODULE__) over its own options, so this disables
+# native compilation without touching lib/ or the checked-in config. The libraries
+# themselves arrive via native_libs, and reach a release through this app's priv.
+CORE_EXTRA_CONFIG = [
+    "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+]
+
+CORE_NATIVE_LIBS = {
+    "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
+    "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
+}
+
+CORE_DEPS = [
         "//elixir/connection:erlang_app",
         "//elixir/elixir_uuid:erlang_app",
         "//elixir/serviceradar_srql:erlang_app",
@@ -163,9 +158,39 @@ mix_app(
         "@hex_swoosh//:erlang_app",
         "@hex_telemetry//:erlang_app",
         "@hex_telemetry_metrics//:erlang_app",
-        "@hex_yaml_elixir//:erlang_app",
-        "@rules_elixir//elixir",
-    ],
+    "@hex_yaml_elixir//:erlang_app",
+    "@rules_elixir//elixir",
+]
+
+# serviceradar_core compiled by Mix inside a single hermetic Bazel action.
+#
+# mix_env is "test", not "prod", deliberately: mix.exs sets
+# elixirc_paths(:test) => ["lib", "test/support"], and the 20 modules under test/support
+# (ServiceRadar.TestSupport and friends) are what every ExUnit target needs on the code
+# path. Compiling under :prod would silently omit them.
+mix_app(
+    name = "erlang_app",
+    srcs = CORE_SRCS,
+    app_name = "serviceradar_core",
+    extra_config = CORE_EXTRA_CONFIG,
+    mix_env = "test",
+    native_libs = CORE_NATIVE_LIBS,
+    deps = CORE_DEPS,
+)
+
+# The same application compiled for release. This is not a duplicate of :erlang_app --
+# the env is the whole point. Under :prod, elixirc_paths drops test/support, and every
+# Application.compile_env/2 read resolves against config/prod.exs instead of
+# config/test.exs. Shipping the :test build in an image would bake test configuration
+# into production, so //build:elixir_release.bzl consumes this one.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = CORE_SRCS,
+    app_name = "serviceradar_core",
+    extra_config = CORE_EXTRA_CONFIG,
+    mix_env = "prod",
+    native_libs = CORE_NATIVE_LIBS,
+    deps = CORE_DEPS,
 )
 
 # One Bazel test target per ExUnit file. See //build:elixir_tests.bzl for why per-file.
@@ -315,20 +340,20 @@ ex_unit_tests(
         # migrations that produced the template -- so a cache hit on BuildBuddy is a legitimate
         # hit.
         #
-        # `manual`: this needs the SRQL/CNPG fixture, whose URL arrives through --test_env.
-        # Without it test_helper takes the no-database branch and excludes every test, which would
-        # report a vacuous pass.
+        # `integration_test` selects WHICH invocation addresses this target;
+        # `requires_shared_fixture()` below decides WHETHER it may run at all. Both are
+        # wanted: the tag keeps it out of the unit sweep, the guard stops an unflagged
+        # `bazel test //...` from running DDL against the shared fixture. Without the fixture
+        # URL (arriving via --test_env) test_helper takes the no-database branch and excludes
+        # every test, which would otherwise report a vacuous pass.
         #
-        # `no-remote-exec`: the fixture CA is a file on the RUNNER
-        # (${RUNNER_TEMP}/srql-fixture-ca.crt, written by scripts/ci/configure-srql-fixture.sh),
-        # and config/test.exs reads it by path through CNPG_CA_FILE /
-        # SERVICERADAR_TEST_DATABASE_CA_CERT_FILE. --test_env forwards the path, not the file, so
-        # under --config=ci a BuildBuddy executor cannot open it. Execution only -- remote caching
-        # still applies, which is the whole reason this target is not `external`.
-        tags = [
-            "manual",
-            "no-remote-exec",
-        ],
+        # NO `no-remote-exec`: config/test.exs now takes the fixture CA as PEM CONTENT from
+        # SRQL_TEST_DATABASE_CA_CERT and passes it as :cacerts. It used to read a path
+        # (a file on the runner) which a BuildBuddy executor could not open, and pinning
+        # execution to the runner was the workaround. The content form has no such problem,
+        # so these run remotely like everything else.
+        tags = ["integration_test"],
+        target_compatible_with = requires_shared_fixture(),
         deps = [":erlang_app"],
     )
     for shard in integration_shard_names()
@@ -338,7 +363,7 @@ ex_unit_tests(
 # //elixir/serviceradar_core:integration_tests and get every shard.
 test_suite(
     name = "integration_tests",
-    tags = ["manual"],
+    tags = ["integration_test"],
     tests = [
         ":integration_tests_{}".format(shard)
         for shard in integration_shard_names()
@@ -394,10 +419,15 @@ ex_unit_test(
         "-r",
         "test/db/db_task_helper.exs",
     ],
+    # `manual` stays here on purpose: this is an ordered DDL step in the fixture lifecycle
+    # (sweep -> prepare -> migrate -> provision -> tests -> teardown), not a test to be
+    # tag-selected. Bazel does not order tests, so letting a tag pull this into a batch
+    # would let it race the steps it must sit between.
     tags = [
         "external",
         "manual",
         "no-remote-exec",
     ],
+    target_compatible_with = requires_shared_fixture(),
     deps = [":erlang_app"],
 )

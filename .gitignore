@@ -156,6 +156,11 @@ jspm_packages/
 
 pnpm-lock.yaml
 !web/pnpm-lock.yaml
+# Bazel input, not a developer artifact: npm_translate_lock in //MODULE.bazel resolves
+# @web_ng_npm from this file. Ignored, it is absent on every other checkout and in CI, and
+# //elixir/web-ng/assets:node_modules fails to fetch. rules_js generates it from
+# package-lock.json and instructs you to commit it.
+!elixir/web-ng/assets/pnpm-lock.yaml
 
 .vscode
 

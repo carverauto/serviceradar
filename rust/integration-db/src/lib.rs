@@ -29,8 +29,7 @@
 //! be recomputed by a later step.
 
 use std::env;
-use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::sync::Once;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -265,24 +264,50 @@ where
 /// TLS from `PGSSLROOTCERT`, matching how the SRQL harness reaches the same fixture.
 ///
 /// Absent root cert means plaintext, which is what a local docker fixture uses.
+/// The fixture CA as PEM bytes, preferring the certificate ITSELF over a path to it.
+///
+/// `SRQL_TEST_DATABASE_CA_CERT` carries the PEM; `PGSSLROOTCERT` carries a filesystem path.
+/// Only the first form works on a remote executor: a path names a file on the machine that
+/// launched the build, and an RBE worker has no such file. Reading the path was what forced
+/// `no-remote-exec` onto every fixture-touching target -- the worker died with
+/// `failed to open PGSSLROOTCERT: No such file or directory`.
+///
+/// The CA cannot become a declared Bazel input instead: it is a CNPG cluster cert on a 90-day
+/// rotation (the current one is valid 2026-06-02..2026-08-31), so a committed copy would
+/// expire on a calendar rather than on a change. Content-in-env is the only form that is both
+/// rotatable and reachable from a remote worker.
+///
+/// The path form is kept as a fallback for a developer pointing at a local fixture by file.
+fn ca_pem_from_env() -> Result<Option<Vec<u8>>> {
+    if let Ok(pem) = env::var("SRQL_TEST_DATABASE_CA_CERT") {
+        if !pem.trim().is_empty() {
+            return Ok(Some(pem.into_bytes()));
+        }
+    }
+
+    match env::var("PGSSLROOTCERT") {
+        Ok(path) if !path.is_empty() => Ok(Some(
+            std::fs::read(&path)
+                .with_context(|| format!("failed to open PGSSLROOTCERT {path:?}"))?,
+        )),
+        _ => Ok(None),
+    }
+}
+
 fn tls_connector_from_env() -> Result<Option<PgRustlsConnect>> {
-    let Ok(root_cert) = env::var("PGSSLROOTCERT") else {
+    let Some(pem) = ca_pem_from_env()? else {
         return Ok(None);
     };
-    if root_cert.is_empty() {
-        return Ok(None);
-    }
 
     ensure_crypto_provider();
 
-    let mut reader =
-        BufReader::new(File::open(&root_cert).context("failed to open PGSSLROOTCERT")?);
+    let mut reader = BufReader::new(Cursor::new(pem));
     let mut root_store = RootCertStore::empty();
     for cert in certs(&mut reader) {
-        let cert = cert.context("failed to parse PGSSLROOTCERT")?;
+        let cert = cert.context("failed to parse the fixture CA certificate")?;
         root_store
             .add(cert)
-            .map_err(|_| anyhow!("invalid certificate in PGSSLROOTCERT"))?;
+            .map_err(|_| anyhow!("invalid certificate in the fixture CA"))?;
     }
 
     let config = ClientConfig::builder()

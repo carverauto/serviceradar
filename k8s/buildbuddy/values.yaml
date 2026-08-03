@@ -15,11 +15,20 @@ image:
 
 replicas: 3
 
+# Disabled in favour of ./scaledobject.yaml (KEDA).
+#
+# The chart's HPA reads buildbuddy_remote_execution_queue_length as a Pods metric from
+# custom.metrics.k8s.io, which is not registered on this cluster -- there is no
+# prometheus-adapter. It therefore reported `<unknown>/5` and logged FailedGetPodsMetric
+# 163,082 times over 28 days while the fleet sat pinned at minReplicas=3 and builds queued.
+#
+# KEDA is already installed and already serves external.metrics.k8s.io, so the scaler there
+# reads the same series without adding another component. Leave this false: with both
+# enabled, two controllers drive the same Deployment's replica count and fight.
+#
+# Scaling bounds now live in scaledobject.yaml (min 3 / max 10, unchanged).
 autoscaler:
-  enabled: true
-  minReplicas: 3
-  maxReplicas: 10
-  averageQueueLength: 5
+  enabled: false
 
 resources:
   requests:

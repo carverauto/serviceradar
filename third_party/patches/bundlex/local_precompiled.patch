@@ -1,0 +1,38 @@
+Resolve precompiled OS dependencies from a local directory instead of GitHub.
+
+Bundlex fetches precompiled native libraries (ffmpeg, opus, srt, ...) with
+`Req.get!` during `mix deps.compile`. Under Bazel that is a network fetch inside
+a build action: it is not covered by the action key, it needs egress the RBE
+executors should not rely on, and each consuming plugin downloads and embeds its
+own copy -- five separate 70.8 MB libavcodec.so copies in one release.
+
+Every one of those archives is already a pinned `http_file` in //MODULE.bazel
+(@membrane_precompiled_*), staged by //build:mix_app.bzl into
+BUNDLEX_LOCAL_PRECOMPILED_DIR. When a file matching the URL's basename is
+present there, copy it; otherwise fall back to the original download so this
+stays a no-op outside Bazel.
+
+//build:mix_release.bzl applied the same change by rewriting the source in
+deps/. That worked because mix_release compiled bundlex itself; mix_app receives
+bundlex already compiled, so the fix has to live at the repository instead.
+
+--- a/lib/bundlex/toolchain/common/unix/os_deps.ex
++++ b/lib/bundlex/toolchain/common/unix/os_deps.ex
+@@ -246,6 +246,16 @@
+     end
+   end
+
+   defp download(url, dest) do
++    local = System.get_env("BUNDLEX_LOCAL_PRECOMPILED_DIR")
++
++    if local && File.exists?(Path.join(local, Path.basename(url))) do
++      File.cp!(Path.join(local, Path.basename(url)), dest)
++    else
++      download_remote(url, dest)
++    end
++  end
++
++  defp download_remote(url, dest) do
+     response = Req.get!(url)
+
+     case response.status do

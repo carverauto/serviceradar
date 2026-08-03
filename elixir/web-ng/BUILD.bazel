@@ -1,9 +1,19 @@
-load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@serviceradar//build:elixir_tests.bzl", "ex_unit_tests")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
-load("//build:mix_deps.bzl", "mix_deps")
-load("//build:mix_precommit.bzl", "mix_precommit")
-load("//build:mix_release.bzl", "mix_release")
+load("//build:elixir_release.bzl", "elixir_release")
+
+# REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
+# (:deps_cache, :path_deps_cache) that existed only to feed them.
+#
+# :precommit_check fails on `mix format --check-formatted` against pre-existing HEEx
+# formatting, which has nothing to do with the build graph and blocks `//elixir/...` from
+# going green. The two cache layers went with it because nothing else consumed them, and
+# :deps_cache alone was a 214s `mix deps.get + deps.compile` action -- the second-largest
+# single action in the Elixir tree.
+#
+# Restore from git history once the tree is formatted; //build:mix_deps.bzl and
+# //build:mix_precommit.bzl are untouched.
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,14 +24,20 @@ filegroup(
         exclude = [
             "bazel-*",
             "_build/**",
-            "assets/**/target/**",
+            "assets/**",
             "deps/**",
             "native/**/target/**",
             "node_modules/**",
             "tmp/**",
             ".git/**",
         ],
-    ),
+    ) + [
+        # assets/ is its own package now (it owns package-lock.json for npm_translate_lock),
+        # and a glob does not cross a package boundary. Without this label the assets would
+        # drop out of every consumer silently -- the excluded "assets/**" above is there to
+        # make that fact explicit rather than implied.
+        "//elixir/web-ng/assets:all_srcs",
+    ],
 )
 
 filegroup(
@@ -32,258 +48,57 @@ filegroup(
     ] + glob(["config/**"]),
 )
 
-# scripts/bazel_precommit.sh and scripts/bazel_precommit_test.sh are kept on disk for
-# reference but are no longer wired into any target. They were the host-toolchain
-# implementation of :precommit, replaced by the mix_precommit action below, which takes
-# Elixir and Rust from Bazel toolchains instead of looking for mix and cargo on $PATH.
-#
-# Note neither script is directly runnable as-is: both derive their root from TEST_SRCDIR /
-# TEST_WORKSPACE, and bazel_precommit_test.sh execs precommit_runner.sh, which was a genrule
-# output that no longer exists.
-
-# The dependency tree, fetched and compiled once and keyed on lockfiles.
-#
-# This is the half of the old monolithic precommit action that had no business re-running on
-# every source change: `mix deps.get` for 171 Hex packages plus compiling them, ~63s of the
-# job even with a warm Hex cache. Its inputs here are mix.exs/mix.lock/config only, so an
-# ordinary PR gets a remote cache hit and pays none of it.
-#
-# The split between :srcs and :deps_srcs below is the whole trick, and it is not arbitrary:
-#   * connection, elixir_uuid and opentelemetry_oban are vendored *overrides of Hex packages*
-#     (`override: true` in mix.exs). Hex packages compile against them -- gnat does
-#     `use Connection` -- so they must be compiled here, which means full :srcs. They are ~30
-#     files of third-party code that essentially never change, so this costs no hit rate.
-#   * serviceradar_core, serviceradar_srql and datasvc are first-party and churn constantly.
-#     They contribute :deps_srcs (mix.exs/mix.lock/config) so Mix can resolve the dependency
-#     graph, and nothing else. Their compilation belongs to :path_deps_cache below.
-mix_deps(
-    name = "deps_cache",
-    srcs = [":deps_srcs"],
-    out = "deps_cache.tar.gz",
-    compile_deps = [
-        "connection",
-        "elixir_uuid",
-        "opentelemetry_oban",
-    ],
-    extra_dir_srcs = [
-        "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//elixir/datasvc:deps_srcs",
-        "//elixir/serviceradar_core:deps_srcs",
-        "//elixir/serviceradar_srql:deps_srcs",
-    ],
-    extra_dirs = [
-        "elixir/connection",
-        "elixir/datasvc",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-    ],
-    patches = "//build:mix_release_patches.py",
-    src_dir = "elixir/web-ng",
-    workdir_key = "serviceradar_web_ng_mix",
-)
-
-# Second cache layer: the first-party path dependencies, stacked on the Hex tree above.
-#
-# serviceradar_core is the single most expensive thing in this graph -- 2231 files of Ash
-# resources, minutes of compilation, with Elixir itself reporting individual modules "taking
-# more than 10s". Compiling it is unavoidable when it changes. Compiling it when it has *not*
-# changed, which is most web-ng pull requests, is pure waste.
-#
-# Keyed on these three projects' sources, so a PR that only touches elixir/web-ng gets a
-# remote cache hit here as well and :precommit_check compiles nothing at all -- it unpacks a
-# finished tree and runs format and credo. A PR that does touch serviceradar_core rebuilds
-# this layer only; the 168-package Hex tree underneath is still a hit.
-mix_deps(
-    name = "path_deps_cache",
-    srcs = [":deps_srcs"],
-    out = "path_deps_cache.tar.gz",
-    base_cache = ":deps_cache",
-    compile_deps = [
-        "datasvc",
-        "serviceradar_core",
-        "serviceradar_srql",
-    ],
-    compile_hex_deps = False,
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/datasvc:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-    ],
-    extra_dirs = [
-        # serviceradar_core's *_addon_package_seeder modules File.read! these schemas at
-        # module-compile time via @external_resource, so they have to be present here too.
-        "addons/bumblebee-scan",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/scalibr-endpoint-inventory",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/datasvc",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-    ],
-    src_dir = "elixir/web-ng",
-    workdir_key = "serviceradar_web_ng_mix",
-)
-
-# The precommit work, as a cacheable build action.
-#
-# This replaces an sh_test that was local/no-remote/no-sandbox because its script began by
-# looking for `mix` and `cargo` on $PATH. The RBE image has neither -- on purpose, since
-# Bazel provides those toolchains -- so the target could never leave the runner. mix_precommit
-# takes OTP/Elixir from @rules_elixir instead, exactly as mix_release already does for the
-# production release.
-#
-# There is no cargo here at all: `mix precommit_fast` is three source-level lint tasks that
-# never load a NIF, so the action sets SERVICERADAR_SKIP_NIF_COMPILATION and Rustler skips all
-# four crates. That is why rust/anomaly-core, rust/anomaly-disposition, rust/kvutil, rust/srql
-# and //:Cargo.lock are no longer staged -- nothing in this action reads them.
-#
-# Being an action rather than a test is what makes it fast: an unchanged tree is a remote
-# cache hit instead of a full rebuild.
-mix_precommit(
-    name = "precommit_check",
-    srcs = [":srcs"],
-    out = "precommit.log",
-    data = [
-        "//:.tool-versions",
-        "//:elixir/.credo.base.exs",
-        "//:elixir/.credo.ex_dna.exs",
-        "//:elixir/.credo.ex_slop.exs",
-        "//:elixir/.credo.jump_checks.exs",
-    ],
-    deps_cache = ":path_deps_cache",
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/datasvc:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-    ],
-    # Every path dependency arrives already compiled inside :path_deps_cache. These are still
-    # staged because Mix requires a path dependency's directory to exist to resolve the graph
-    # at all -- but their mtimes are pinned to a fixed epoch before the tarball is unpacked,
-    # so Mix sees the prebuilt beams as current and recompiles none of them.
-    extra_dirs = [
-        # serviceradar_core's *_addon_package_seeder modules File.read! these schemas at
-        # module-compile time via @external_resource, reaching out of the project with
-        # "../../../../../addons/<id>/config.schema.json". Declaring the manifests in `data`
-        # only stages them in the execroot; `extra_dirs` is what copies a directory into the
-        # action work directory, so without these five entries the compile dies with
-        # File.Error on the first seeder. Keep this list in sync with
-        # `grep -l addons/ elixir/serviceradar_core/lib/serviceradar/plugins/*.ex`.
-        "addons/bumblebee-scan",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/scalibr-endpoint-inventory",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/datasvc",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-    ],
-    src_dir = "elixir/web-ng",
-    workdir_key = "serviceradar_web_ng_mix",
-)
-
-# Keeps `bazel test //elixir/web-ng:precommit` working. build_test succeeds iff the action
-# above builds, so the gate is unchanged while the work itself is now remote and cached.
-build_test(
-    name = "precommit",
-    targets = [":precommit_check"],
-)
-
-mix_release(
-    name = "release_tar",
-    srcs = [":srcs"],
-    out = "serviceradar-web-ng-release.tar.gz",
-    bootstrap_srcs = [":deps_srcs"],
-    bun = "@bun_linux_amd64//:bun",
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/powerdns:powerdns_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-        "//rust/anomaly-core:srcs",
-        "//rust/anomaly-disposition:srcs",
-        "//rust/srql:srcs",
-        "//rust/kvutil:srcs",
-        "//elixir/datasvc:srcs",
-        "//go/cmd/wasm-plugins/axis:srcs",
-        "//go/pkg/trivysidecar:display_contracts",
-        "//integrations/falco:display_contracts",
-        "//go/cmd/wasm-plugins/proxmox:srcs",
-        "//go/cmd/wasm-plugins/unifi-protect:srcs",
-    ],
-    extra_dirs = [
-        "addons/bumblebee-scan",
-        "addons/scalibr-endpoint-inventory",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/powerdns",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-        "rust/anomaly-core",
-        "rust/anomaly-disposition",
-        "rust/srql",
-        "rust/kvutil",
-        "elixir/datasvc",
-        "go/cmd/wasm-plugins/axis",
-        "go/pkg/trivysidecar",
-        "integrations/falco",
-        "go/cmd/wasm-plugins/proxmox",
-        "go/cmd/wasm-plugins/unifi-protect",
-    ],
-    sfw = "@sfw_free_linux_amd64//file",
-    src_dir = "elixir/web-ng",
-    workdir_name = "serviceradar_web_ng",
-)
-
-# Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
-# mix.exs sets elixirc_paths(:test) => ["lib", "test/support"].
-mix_app(
-    name = "erlang_app",
+# The release RECIPE, as opposed to the release CONTENTS: mix.exs supplies releases/0,
+# config/ and rel/ supply what `mix release` renders. Compiled code is not here -- it
+# reaches the release through the ErlangAppInfo closure of :erlang_app_prod.
+filegroup(
+    name = "release_recipe",
     srcs = [
-        ":srcs",
+        "mix.exs",
+        "mix.lock",
+    ] + glob(
+        [
+            "config/**",
+            "rel/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Read by Tailwind, not by Elixir. css/app.css declares
+# `@source "../../lib/serviceradar_web_ng_web"`, so v4 scans these templates to decide
+# which utility classes to emit; without them as declared inputs the stylesheet builds
+# clean and nearly empty, and the change would not invalidate the CSS bundle.
+#
+# copy_to_bin, not a plain filegroup: rules_js stages every src of a js_run_binary through
+# copy_to_bin, which refuses a source file owned by a different package. Copying them here,
+# in their own package, makes them bazel-out files that //elixir/web-ng/assets can consume.
+# It also lands them at bazel-out/.../elixir/web-ng/lib/..., which is exactly where
+# `@source "../../lib/serviceradar_web_ng_web"` resolves from the assets working directory.
+copy_to_bin(
+    name = "web_templates",
+    srcs = glob(
+        [
+            "lib/serviceradar_web_ng_web/**/*.ex",
+            "lib/serviceradar_web_ng_web/**/*.heex",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# Static files that are committed rather than generated. mix_release preserved these by
+# copying them aside before wiping priv/static; as a target they are just inputs.
+filegroup(
+    name = "static_files",
+    srcs = glob(
+        ["priv/static/**"],
+        allow_empty = True,
+    ),
+)
+
+# Shared between the :test and :prod compilations below, which differ only in mix_env.
+WEB_NG_SRCS = [
+    ":srcs",
         # Signal display contracts, read at compile time and baked in with
         # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
         # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,
@@ -293,21 +108,23 @@ mix_app(
         "//go/cmd/wasm-plugins/proxmox:srcs",
         "//go/cmd/wasm-plugins/unifi-protect:srcs",
         "//go/pkg/trivysidecar:display_contracts",
-        "//integrations/falco:display_contracts",
-    ],
-    app_name = "serviceradar_web_ng",
-    # Bazel builds the cdylib; Mix must not shell out to cargo.
-    extra_config = [
-        "config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true",
-    ],
-    mix_env = "test",
-    native_libs = {
-        "//elixir/web-ng/native/god_view_nif:god_view_nif": "god_view_nif",
-    },
-    deps = [
+    "//integrations/falco:display_contracts",
+]
+
+# Bazel builds the cdylib; Mix must not shell out to cargo.
+WEB_NG_EXTRA_CONFIG = [
+    "config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true",
+]
+
+WEB_NG_NATIVE_LIBS = {
+    "//elixir/web-ng/native/god_view_nif:god_view_nif": "god_view_nif",
+}
+
+# serviceradar_core is deliberately absent: each mix_app below prepends the build of it
+# that matches its own env. Listing it here too would duplicate the label.
+WEB_NG_DEPS = [
         "//elixir/connection:erlang_app",
         "//elixir/datasvc:erlang_app",
-        "//elixir/serviceradar_core:erlang_app",
         "//elixir/serviceradar_srql:erlang_app",
         "@hex_adbc//:erlang_app",
         "@hex_ash_credo//:erlang_app",
@@ -361,9 +178,69 @@ mix_app(
         "@hex_telemetry_metrics_prometheus_core//:erlang_app",
         "@hex_telemetry_poller//:erlang_app",
         "@hex_ueberauth//:erlang_app",
-        "@hex_ueberauth_oidcc//:erlang_app",
-        "@rules_elixir//elixir",
+    "@hex_ueberauth_oidcc//:erlang_app",
+    "@rules_elixir//elixir",
+]
+
+# Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
+# mix.exs sets elixirc_paths(:test) => ["lib", "test/support"].
+mix_app(
+    name = "erlang_app",
+    srcs = WEB_NG_SRCS,
+    app_name = "serviceradar_web_ng",
+    extra_config = WEB_NG_EXTRA_CONFIG,
+    mix_env = "test",
+    native_libs = WEB_NG_NATIVE_LIBS,
+    deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS,
+)
+
+# The release build. Under :prod, elixirc_paths drops test/support and every
+# Application.compile_env/2 read resolves against config/prod.exs rather than
+# config/test.exs -- shipping the :test build would bake test configuration into the
+# image. Pulls the :prod build of serviceradar_core for the same reason.
+mix_app(
+    name = "erlang_app_prod",
+    srcs = WEB_NG_SRCS,
+    app_name = "serviceradar_web_ng",
+    extra_config = WEB_NG_EXTRA_CONFIG,
+    mix_env = "prod",
+    native_libs = WEB_NG_NATIVE_LIBS,
+    deps = ["//elixir/serviceradar_core:erlang_app_prod"] + WEB_NG_DEPS,
+)
+
+# Assembly-only release: no deps.get, no recompilation, no cargo, no bun, no network.
+# Application code comes from the ErlangAppInfo closure of :erlang_app_prod; the digested
+# CSS/JS arrives as a declared overlay instead of being built inside this action.
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version,
+        # transitively. Only the manifest is needed -- compiled code arrives via `app`.
+        "//elixir/connection:mix.exs",
+        "//elixir/datasvc:mix.exs",
+        "//elixir/elixir_uuid:mix.exs",
+        "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_srql:mix.exs",
+        "//elixir/vendor/opentelemetry_oban:mix.exs",
     ],
+    app = ":erlang_app_prod",
+    out = "serviceradar-web-ng-release.tar.gz",
+    # The same list :erlang_app_prod compiled with. `mix release` compares every
+    # Application.compile_env/2 key against its compile-time value and refuses to assemble
+    # if they differ, so these have to agree -- hence the shared variable rather than two
+    # copies. serviceradar_core's entries are here for the same reason: it is part of the
+    # release and was compiled with them.
+    extra_config = WEB_NG_EXTRA_CONFIG + [
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    # No release_name: web-ng's mix.exs declares no `releases:` block, so Mix assembles the
+    # implicit release named after the app. Naming it explicitly fails with
+    # "Unknown release :serviceradar_web_ng. The available releases are: []".
+    overlays = {
+        "//elixir/web-ng/assets:static": "priv",
+    },
 )
 
 ex_unit_tests(

@@ -10,7 +10,7 @@ bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rust", version = "0.65.0")
 bazel_dep(name = "rules_rust_prost", version = "0.65.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
-bazel_dep(name = "rules_nodejs", version = "6.5.0")
+bazel_dep(name = "rules_nodejs", version = "6.6.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.2.6")
@@ -161,6 +161,11 @@ git_repository(
     name = "hex_bundlex",
     build_file = "//third_party/hex:bundlex.BUILD",
     commit = "8f3b94a8d643c4513d61355be53136cb2ea8fbb4",
+    # Resolve precompiled OS deps from BUNDLEX_LOCAL_PRECOMPILED_DIR before reaching for
+    # github.com. Without it `mix deps.compile` downloads ffmpeg and friends inside a build
+    # action -- unkeyed, and once per consuming plugin. See the patch header.
+    patch_args = ["-p1"],
+    patches = ["//third_party/patches/bundlex:local_precompiled.patch"],
     remote = "https://github.com/membraneframework/bundlex.git",
 )
 
@@ -2898,21 +2903,41 @@ node.toolchain(
 )
 use_repo(node, "nodejs_toolchains")
 
+# rules_nodejs 6.6.0 renamed the exec-platform half of each pair: `<plat>_toolchain_target`
+# became `<plat>_runtime_toolchain`. The 6.5.0 names do not exist any more and registering
+# them fails analysis, not just the node targets.
+#
+# 6.5.0 itself cannot be used on Bazel 9: nodejs/toolchain.bzl references the top-level
+# CcInfo symbol, which Bazel 9 removed, so every load of it fails with
+# "The CcInfo symbol has been removed".
 register_toolchains(
-    "@nodejs_toolchains//:darwin_amd64_toolchain_target",
+    "@nodejs_toolchains//:darwin_amd64_runtime_toolchain",
     "@nodejs_toolchains//:darwin_amd64_toolchain",
-    "@nodejs_toolchains//:darwin_arm64_toolchain_target",
+    "@nodejs_toolchains//:darwin_arm64_runtime_toolchain",
     "@nodejs_toolchains//:darwin_arm64_toolchain",
-    "@nodejs_toolchains//:linux_amd64_toolchain_target",
+    "@nodejs_toolchains//:linux_amd64_runtime_toolchain",
     "@nodejs_toolchains//:linux_amd64_toolchain",
-    "@nodejs_toolchains//:linux_arm64_toolchain_target",
+    "@nodejs_toolchains//:linux_arm64_runtime_toolchain",
     "@nodejs_toolchains//:linux_arm64_toolchain",
 )
 
 # --- npm dependency ingestion ------------------------------------------------
 
-# TODO(bazel-migration): Re-enable npm translation once a Bazel-managed JS app
-# (with a lockfile) is reintroduced.
+# web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+#
+# pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
+# to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a
+# single asset is built. The converted file is checked in instead, so the conversion happens
+# once when a dependency actually changes. Regenerate by pointing this at
+# npm_package_lock = "//elixir/web-ng/assets:package-lock.json", building once, and
+# switching back; rules_js writes the file and tells you to commit it.
+npm.npm_translate_lock(
+    name = "web_ng_npm",
+    pnpm_lock = "//elixir/web-ng/assets:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "web_ng_npm")
 
 # --- External binary artifacts ----------------------------------------------
 
