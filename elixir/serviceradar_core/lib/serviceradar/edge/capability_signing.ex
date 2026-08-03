@@ -97,7 +97,7 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
       # well-formed oneof shape as far as the tuple goes, so purpose derivation succeeds and
       # every later `Map.get/2` then raises BadMapError -- a contract promising
       # `{:error, reason}` must not raise on a shape it did not anticipate.
-      not claim_body_typed?(Map.get(cap, :claims)) ->
+      not ServiceRadar.Edge.CapabilityClaims.typed?(Map.get(cap, :claims)) ->
         {:error, :claims}
 
       purpose != expected_purpose ->
@@ -112,19 +112,6 @@ defmodule ServiceRadar.Edge.CapabilitySigning do
   end
 
   def validate(_, _), do: {:error, :capability}
-
-  # Each variant's generated body type. A plain map is NOT accepted: protobuf decoding always
-  # produces the struct, so a map is a hand-built value that skipped the wire layer.
-  defp claim_body_typed?({:production, %Serviceradar.Edge.V1.EdgeProductionClaimsV1{}}), do: true
-  defp claim_body_typed?({:source, %Serviceradar.Edge.V1.EdgeSourceClaimsV1{}}), do: true
-  defp claim_body_typed?({:delivery, %Serviceradar.Edge.V1.EdgeDeliveryClaimsV1{}}), do: true
-  defp claim_body_typed?({:collection, %Serviceradar.Edge.V1.EdgeCollectionClaimsV1{}}), do: true
-
-  defp claim_body_typed?(
-         {:assignment_execution, %Serviceradar.Edge.V1.EdgeAssignmentExecutionClaimsV1{}}
-       ), do: true
-
-  defp claim_body_typed?(_), do: false
 
   defp nonempty_binary?(b), do: is_binary(b) and byte_size(b) > 0
   defp i64?(v), do: is_integer(v) and v >= @i64_min and v <= @i64_max

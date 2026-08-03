@@ -296,10 +296,10 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
     test "a malformed endpoint is refused ONCE, before any time path runs" do
       {record, batch} = control()
 
-      # The window is resolved before batch/host/trace are checked, so there is no
-      # per-path malformed branch to exercise. An earlier form asserted the host and
-      # trace paths here, but those assertions could never reach them: batch_time
-      # consumes the same two endpoints first, so they passed for the wrong reason.
+      # The window is resolved ONCE, before batch/host/trace are checked, so there is no
+      # per-path malformed branch to exercise. Asserting the host and trace paths here
+      # would be vacuous: batch_time consumes the same two endpoints first, so such
+      # assertions would pass without ever reaching the path they name.
       r = put_claims(record, &Map.put(&1, :collection_expires_unix_nano, :whenever))
 
       host_batch = %{batch | hosts: [%V1.SweepHostObservationV1{observed_at_delta_nano: 0}]}
@@ -362,9 +362,110 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
                {:error, {:precondition, :malformed_record}}
     end
 
+    test "an EXACT recovery authorization with a malformed NESTED capability is structural" do
+      {record, batch} = control()
+      # The outer struct is exact and the kind IS RECOVERY_CONTROL, but the capability is
+      # not the generated envelope. Reading the kind without preflighting the nested shape
+      # would report a lane rejection for an unusable record.
+      # The ENVELOPE is the only thing that varies: the claim body is the EXACT struct,
+      # so this changes one axis rather than two.
+      {:source, exact} = record.source_authorization.capability.claims
+
+      sa = %{
+        record.source_authorization
+        | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+          capability: %{claims: {:source, exact}}
+      }
+
+      assert SweepCorrelate.validate(%{record | source_authorization: sa}, batch) ==
+               {:error, {:precondition, :malformed_record}}
+
+      # Same with an exact envelope but a plain-map claim BODY.
+      {:source, c} = record.source_authorization.capability.claims
+
+      sa2 = %{
+        record.source_authorization
+        | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+          capability: %V1.EdgeSignedCapabilityV1{claims: {:source, Map.from_struct(c)}}
+      }
+
+      assert SweepCorrelate.validate(%{record | source_authorization: sa2}, batch) ==
+               {:error, {:precondition, :malformed_record}}
+    end
+
     test "RECOVERY_CONTROL is refused by the RESERVED LANE, which runs first" do
       {record, batch} = control()
-      sa = %{record.source_authorization | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL}
+      # BOTH the outer mirror AND the signed claim carry RECOVERY_CONTROL. Changing only
+      # the outer one leaves a record whose mirror disagrees with its claims, which no
+      # authenticated boundary would admit -- so it would not be a valid lane control.
+      r = put_claims(record, &%{&1 | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL})
+
+      r = %{
+        r
+        | source_authorization: %{
+            r.source_authorization
+            | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL
+          }
+      }
+
+      assert SweepCorrelate.validate(r, batch) == {:error, {:recovery_lane, :kind}}
+    end
+
+    test "the lane preflight rejects any struct, unknown tag, or mismatched pair" do
+      {record, batch} = control()
+
+      # `is_struct/1` alone would admit all three of these and let them reach the lane
+      # gate as if well formed.
+      for {name, claims} <- [
+            {"arbitrary struct", {:source, %URI{}}},
+            {"unknown tag", {:bogus_tag, %V1.EdgeSourceClaimsV1{}}},
+            {"mismatched pair", {:source, %V1.EdgeProductionClaimsV1{}}}
+          ] do
+        sa = %{
+          record.source_authorization
+          | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+            capability: %V1.EdgeSignedCapabilityV1{claims: claims}
+        }
+
+        assert SweepCorrelate.validate(%{record | source_authorization: sa}, batch) ==
+                 {:error, {:precondition, :malformed_record}},
+               "#{name} was not refused"
+      end
+    end
+
+    test "EVERY frozen claim variant is structurally accepted by the preflight" do
+      # The variant SET is pinned against generated oneof metadata in
+      # capability_claims_test.exs; asserting it again from a list written here would only
+      # compare two handwritten lists. What this pins is that the preflight uses that
+      # shared predicate -- every frozen pair must clear it, so the lane gate (not the
+      # structural gate) is what answers.
+      {record, batch} = control()
+
+      for {tag, mod} <- ServiceRadar.Edge.CapabilityClaims.variants() do
+        sa = %{
+          record.source_authorization
+          | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+            capability: %V1.EdgeSignedCapabilityV1{claims: {tag, struct(mod)}}
+        }
+
+        assert SweepCorrelate.validate(%{record | source_authorization: sa}, batch) ==
+                 {:error, {:recovery_lane, :kind}},
+               "#{inspect(tag)} was refused structurally instead of reaching the lane gate"
+      end
+    end
+
+    test "the lane preflight does not mint a MATRIX label for a wrong claim variant" do
+      {record, batch} = control()
+      # An exact envelope carrying a DIFFERENT generated claim variant, with the lane kind
+      # set. Correlation would call this `:source_kind`; the lane gate must not, because it
+      # runs before correlation and this record violates the module's preconditions.
+      cap = %V1.EdgeSignedCapabilityV1{claims: {:production, %V1.EdgeProductionClaimsV1{}}}
+
+      sa = %{
+        record.source_authorization
+        | kind: :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL,
+          capability: cap
+      }
 
       assert SweepCorrelate.validate(%{record | source_authorization: sa}, batch) ==
                {:error, {:recovery_lane, :kind}}
@@ -480,6 +581,8 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
       {record, batch} = control()
       {:source, c} = record.source_authorization.capability.claims
 
+      # The envelope is the only thing that varies: the claim body is the EXACT struct,
+      # so this isolates the envelope pattern from the claim-body pattern.
       map_cap = %{claims: {:source, c}}
       sa1 = %{record.source_authorization | capability: map_cap}
 
@@ -518,9 +621,9 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
       assert SweepCorrelate.validate(%{record | source_authorization: :bogus}, batch) ==
                {:error, {:precondition, :malformed_record}}
 
-      # FAIL-CLOSED, with the EXACT reason. An earlier form accepted "any atom", which
-      # `:ok` satisfies -- so normalizing malformed values into [], nil or 0 passed it
-      # while silently ACCEPTING a structurally invalid record.
+      # FAIL-CLOSED, with the EXACT reason -- never "some error". Asserting only that the
+      # result is an atom would be satisfied by `:ok`, so normalizing a malformed value
+      # into [], nil or 0 would pass while ACCEPTING a structurally invalid record.
       for hosts <- [
             :bogus,
             [:bogus],

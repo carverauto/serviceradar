@@ -168,6 +168,19 @@ jobs:
       - name: Edge compiled-assignment carrier parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
+      # The claim-variant freeze, pinned against GENERATED oneof metadata. Gated because it
+      # is the only place a proto-side variant addition fails loudly; every gate that asks
+      # "is this a claim body?" shares the predicate it guards.
+      - name: Edge capability claim variants (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/capability_claims_test.exs
+      # The sweep BODY ingress stage (task 1.2-c). Gated because its ceiling is the
+      # EXTRACTED-BODY work bound, not the record's physical 512 KiB: a compressed payload
+      # may legitimately expand past that, and a wrong bound here permanently rejects valid
+      # records rather than failing loudly.
+      - name: Edge sweep body decode (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/sweep_batch_decode_test.exs
       # The sweep CORRELATION peer: the Elixir half of the matrix. Gated because the
       # (label, gate) PAIR is only proven if BOTH runtimes assert it, and a peer no
       # required job runs proves nothing about what CI accepts.

@@ -45,11 +45,13 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   no frozen label, because none is frozen for them.
   """
 
+  alias ServiceRadar.Edge.CapabilityClaims
   alias ServiceRadar.Edge.SweepMatrix
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
   alias Serviceradar.Edge.V1.EdgeSourceAuthorizationV1
+  alias Serviceradar.Edge.V1.EdgeSourceClaimsV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepMtrSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
@@ -158,10 +160,12 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   the carrier and grant peers make — so this stays a RELATION with stated
   preconditions rather than pretending to be the boundary.
 
-  DECODING IS THE GENERATED DECODER, not `WireDecode`: there is no curated sweep
-  decoder yet, so the `:poison` / `:not_ready` classification, the received-byte
-  ceiling, recursive wire hygiene and unknown-field rejection are all ABSENT. Those
-  belong to the body validator this relation assumes has already run.
+  DECODING HERE IS THE GENERATED DECODER. A curated `WireDecode.decode_sweep_batch/1`
+  now exists and carries the `:poison` / `:not_ready` classification, the
+  extracted-body work ceiling, recursive wire hygiene and unknown-field rejection --
+  but this relation does not call it, because it assumes the body validator (task
+  1.2-c) has ALREADY run that path. Callers holding raw bytes should go through that
+  decoder, not this function.
   """
   @spec correlate_own_payload(term()) :: result()
   def correlate_own_payload(%EdgeRecordV1{} = record) do
@@ -261,13 +265,27 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   defp recovery_lane(%EdgeRecordV1{source_authorization: nil}), do: :ok
 
   defp recovery_lane(%EdgeRecordV1{source_authorization: %EdgeSourceAuthorizationV1{} = sa}) do
-    case sa.kind do
-      :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL -> {:error, {:recovery_lane, :kind}}
-      _ -> :ok
+    # The NESTED shapes are preflighted too. An exact authorization struct can still hold a
+    # malformed capability or claim body, and reading `kind` off it would report a lane
+    # rejection for a record that is structurally unusable.
+    #
+    # This uses the STRUCTURAL extractor, not `source_claims_of/1`. The latter maps an exact
+    # envelope carrying a DIFFERENT generated claim variant to `{:correlation, :source_kind}`
+    # -- a matrix label. Minting one here, before the reserved-lane gate and on a record that
+    # violates this module's documented preconditions, would report a correlation verdict for
+    # something correlation never judged.
+    case structural_source_claims(sa.capability) do
+      :ok -> lane_kind(sa.kind)
+      {:error, _} = err -> err
     end
   end
 
   defp recovery_lane(_), do: {:error, {:precondition, :malformed_record}}
+
+  defp lane_kind(:EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL),
+    do: {:error, {:recovery_lane, :kind}}
+
+  defp lane_kind(_), do: :ok
 
   defp source_claims(record, row) do
     case Map.get(record, :source_authorization) do
@@ -296,13 +314,24 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
     end
   end
 
+  # STRUCTURE ONLY: is this the generated envelope, and is its claims oneof a generated
+  # claim body? It makes no judgement about WHICH variant -- that is correlation's, later.
+  # The EXACT tag/body pairs come from `CapabilityClaims`, the one structural predicate this
+  # and capability signing share; it is pinned against the generated oneof metadata there.
+  defp structural_source_claims(%EdgeSignedCapabilityV1{claims: claims}) do
+    if CapabilityClaims.typed?(claims),
+      do: :ok,
+      else: {:error, {:precondition, :malformed_record}}
+  end
+
+  defp structural_source_claims(_), do: {:error, {:precondition, :malformed_record}}
+
   # The claims live in the generated ONEOF: `claims == {:source, %EdgeSourceClaimsV1{}}`.
   # There is no `:source` key on the capability struct, so the patterns below match the
   # oneof exactly and the fallbacks are TOTAL rather than defaulting to an empty binary.
   defp source_claims_of(%EdgeSignedCapabilityV1{
-         claims: {:source, %Serviceradar.Edge.V1.EdgeSourceClaimsV1{} = claims}
-       }),
-       do: {:ok, claims}
+         claims: {:source, %EdgeSourceClaimsV1{} = claims}
+       }), do: {:ok, claims}
 
   # The tag SAYS source but the body is not the generated claims struct: structurally
   # unusable. NOT :source_kind -- the kind IS source -- and NOT
