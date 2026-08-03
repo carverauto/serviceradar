@@ -18,6 +18,7 @@ package edgerecord
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -75,9 +76,7 @@ func TestSweepSourceRunIDForbiddenPresence(t *testing.T) {
 	for _, src := range forbiddenRows {
 		b := sweepBatchFor(t, src)
 		b.SourceRunId = mustUUID(t) // canonical, so only the DISPOSITION can reject it
-		if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
-			t.Fatalf("%v: want ErrSweepSourceRunID for present-when-forbidden, got %v", src, err)
-		}
+		assertDispositionRejection(t, ValidateSweepObservationBatch(b), fmt.Sprintf("%v present-when-forbidden", src))
 	}
 }
 
@@ -86,9 +85,7 @@ func TestSweepSourceRunIDRequiredAbsence(t *testing.T) {
 	for _, src := range requiredRows {
 		b := sweepBatchFor(t, src)
 		b.SourceRunId = nil
-		if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
-			t.Fatalf("%v: want ErrSweepSourceRunID for absent-when-required, got %v", src, err)
-		}
+		assertDispositionRejection(t, ValidateSweepObservationBatch(b), fmt.Sprintf("%v absent-when-required", src))
 	}
 }
 
@@ -124,9 +121,7 @@ func TestSweepSourceRunIDMalformedPerRequiredRow(t *testing.T) {
 		for _, sh := range shapes {
 			b := sweepBatchFor(t, src)
 			b.SourceRunId = sh.id(t)
-			if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
-				t.Fatalf("%v/%s: want ErrSweepSourceRunID, got %v", src, sh.name, err)
-			}
+			assertDispositionRejection(t, ValidateSweepObservationBatch(b), fmt.Sprintf("%v/%s", src, sh.name))
 		}
 	}
 }
@@ -138,9 +133,7 @@ func TestSweepSourceRunIDMalformedPerRequiredRow(t *testing.T) {
 func TestSweepDispositionIsBodyOwned(t *testing.T) {
 	b := sweepBatchFor(t, edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC)
 	b.SourceRunId = nil
-	if err := ValidateSweepObservationBatch(b); !errors.Is(err, ErrSweepSourceRunID) {
-		t.Fatalf("body validator must own the disposition, got %v", err)
-	}
+	assertDispositionRejection(t, ValidateSweepObservationBatch(b), "body-owned disposition")
 }
 
 // UUIDv7Nanos is the ONE checked conversion. A 48-bit timestamp can encode
@@ -221,4 +214,24 @@ func uuidV7WithMillis(t *testing.T, ms int64) []byte {
 		t.Fatalf("constructed id decodes to %d (err %v), want %d", got, err, ms)
 	}
 	return out
+}
+
+// assertDispositionRejection pins the LABEL and the OWNING GATE together. Asserting
+// only the gate leaves the pair unpinned: the body validator could emit any label
+// with the right sentinel and stay green.
+func assertDispositionRejection(t *testing.T, err error, ctx string) {
+	t.Helper()
+	if !errors.Is(err, ErrSweepSourceRunID) {
+		t.Fatalf("%s: want ErrSweepSourceRunID, got %v", ctx, err)
+	}
+	if errors.Is(err, ErrSweepJoin) {
+		t.Fatalf("%s: a BODY rejection must not also be a correlation one: %v", ctx, err)
+	}
+	got, ok := SweepLabelOf(err)
+	if !ok {
+		t.Fatalf("%s: rejection carries no portable label: %v", ctx, err)
+	}
+	if got != SweepLabelSourceRunIDDisposition {
+		t.Fatalf("%s: label = %q, want %q", ctx, got, SweepLabelSourceRunIDDisposition)
+	}
 }
