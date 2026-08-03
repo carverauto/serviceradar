@@ -19,6 +19,18 @@
 # `bazel run` streams into the build log. Writing 0600 to a path outside the workspace keeps
 # the password out of both the log and the source tree.
 #
+# RELATION TO scripts/ci/configure-srql-fixture.sh
+#
+# That script is the Forgejo-era equivalent and is NOT superseded by accident. It CONSUMES
+# the same three secrets rather than sourcing them, and writes to $GITHUB_ENV / $RUNNER_TEMP,
+# neither of which exists in a BuildBuddy workflow. It also materialises the CA to a file and
+# exports four *_CA_CERT_FILE paths, which is exactly what forces `no-remote-exec` onto the
+# //rust/integration-db targets. It dies with the .forgejo tier.
+#
+# This target differs in two ways: it can SOURCE the credentials from the srql-fixtures K8s
+# secrets rather than requiring them pre-set, and it emits PEM content rather than a path, so
+# a remotely executed test can use it.
+#
 # USAGE (BuildBuddy workflow, in ONE step so the env survives):
 #
 #   bazel run -c opt //:buildbuddy_setup_fixture_env
@@ -153,3 +165,29 @@ printf 'Fixture credentials from %s -> %s\n' "${source_used}" "${env_file}" >&2
 printf '  database : %s\n' "$(endpoint_of "${SRQL_TEST_DATABASE_URL}")" >&2
 printf '  admin    : %s\n' "$(endpoint_of "${SRQL_TEST_ADMIN_URL}")" >&2
 printf '  CA       : %s bytes of PEM\n' "${#SRQL_TEST_DATABASE_CA_CERT}" >&2
+
+# The fixture CA is on a 90-day rotation. Where it arrives as a stored BuildBuddy secret
+# rather than straight from srql-fixture-ca, nothing refreshes it -- so the day it lapses,
+# eight shards start failing TLS verification and it reads as a database outage rather than
+# a stale copy. Say the date out loud while there is still time to act on it.
+#
+# WARNS ONLY, never fails: an expired CA is a real failure the tests themselves will report,
+# and turning credential setup into a second place that can hard-fail on a clock is worse
+# than the confusion it prevents.
+if command -v openssl >/dev/null 2>&1; then
+  not_after="$(printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)"
+  if [[ -n "${not_after}" ]]; then
+    if printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
+      # 21 days: longer than a sprint, short enough to still be urgent.
+      if ! printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -checkend 1814400 >/dev/null 2>&1; then
+        printf '  EXPIRES  : %s -- under 21 days. Refresh the SRQL_TEST_DATABASE_CA_CERT secret from\n' "${not_after}" >&2
+        printf '             kubectl get secret srql-fixture-ca -n %s -o jsonpath=%s | base64 -d\n' \
+          "${namespace}" "'{.data.ca\.crt}'" >&2
+      else
+        printf '  expires  : %s\n' "${not_after}" >&2
+      fi
+    else
+      printf '  EXPIRED  : %s -- TLS verification WILL fail. Refresh the secret before running step 3.\n' "${not_after}" >&2
+    fi
+  fi
+fi

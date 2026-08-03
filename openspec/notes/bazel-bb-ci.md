@@ -90,20 +90,8 @@ bazel build -c opt //... --config=remote
 # 2 Unit tests 
 bazel test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test
 
-# 3 Integration / acceptance tests -- ONE workflow step, see "Fixture credentials" below.
-#   The env must be established in the SAME step: a process cannot set its parent's
-#   environment, so a separate step would lose it. Provisioning is manual+external+
-#   no-remote-exec, so //... never reaches it, and the shards connect to
-#   sr_core_test_local_<shard> databases that must exist first.
-#
-#   --//build:enable_integration_tests goes on EVERY line, not just the sweep. The four
-#   lifecycle targets carry requires_shared_fixture() too, so without the flag each one is
-#   @platforms//:incompatible; naming it then leaves zero targets and Bazel reports
-#   "No test targets were found, yet testing was requested" -- which reads like a typo in
-#   the label rather than a missing flag.
-
-bazel run -c opt //:buildbuddy_setup_fixture_env
-set -a; . "${SERVICERADAR_FIXTURE_ENV_FILE:-${TMPDIR:-/tmp}/serviceradar-fixture-env}"; set +a
+# Integration tests: setup, test, teardown
+bazel test -c opt //rust/integration-db:sweep_stale_dbs       --config=remote --test_tag_filters= --//build:enable_integration_tests
 
 bazel test -c opt //elixir/serviceradar_core:migrate_template --config=remote --test_tag_filters= --//build:enable_integration_tests
 
@@ -135,11 +123,83 @@ What must be true for the vision to become the new reality?
 
 Fixture credentials in a BB workflow (verified 2026-08-03)
 
+STATUS: the three secrets are CONFIGURED in BuildBuddy as of 2026-08-03, alongside
+DOCKERHUB_*, GHCR_* and NATS_*. Names match what .bazelrc and the shards' exec_properties
+expect, so nothing further is needed to wire them.
+
+  SRQL_TEST_DATABASE_URL   SRQL_TEST_ADMIN_URL   SRQL_TEST_DATABASE_CA_CERT
+
+>>> THE CA EXPIRES 2026-08-31 18:15:31 GMT <<<
+
+A BuildBuddy-stored copy does not refresh itself. On that date all 8 shards begin failing
+TLS verification, and it presents as a database outage rather than a stale secret.
+//:buildbuddy_setup_fixture_env warns when the CA is inside 21 days (warns only -- an
+expired CA is a real failure the tests themselves report, and a second thing that hard-fails
+on a clock is worse than the confusion it prevents). Refresh with:
+
+    kubectl get secret srql-fixture-ca -n srql-fixtures -o jsonpath='{.data.ca\.crt}' | base64 -d
+
+Granting the workflow runner `get secrets` in srql-fixtures would remove the manual step
+entirely -- deferred until the BB workflow runs green, so that only one thing is new at a
+time.
+
+The NATS_* secrets are NOT needed by these shards. The only core test touching NATS env is
+test/serviceradar/event_writer/config_test.exs (shard s6), and it uses System.put_env to set
+its own values rather than reading the deployment's. They stay in the .bazelrc --test_env
+list for other targets.
+
+GHCR_TOKEN/GHCR_USERNAME being configured is why the ghcr.io 403 recorded at the top of this
+file is a WORKSTATION-ONLY problem: buildbuddy_setup_docker_auth.sh reads exactly those two,
+so CI authenticates to ghcr and never takes the anonymous path.
+
+//:buildbuddy_setup_fixture_env is deliberately ABSENT from the CI steps above. On a BB
+workflow both groups are already covered: BB secrets are env vars on the runner (which is
+what the 4 no-remote-exec lifecycle targets read) and env-secrets injects into the shards at
+the executor. Running it there would re-emit values that are already present.
+
+It is REQUIRED on a workstation -- no BB secrets exist there, and nothing else assembles a
+DSN from the srql-fixtures K8s secrets:
+
+    bazel run -c opt //:buildbuddy_setup_fixture_env
+    set -a; . "${SERVICERADAR_FIXTURE_ENV_FILE:-${TMPDIR:-/tmp}/serviceradar-fixture-env}"; set +a
+
+The one thing CI gives up by omitting it: a missing or misnamed secret surfaces as 8 shards
+reporting "no test database URL is present" (which reads as a database outage) rather than a
+named variable, and nothing prints the CA expiry. Add it back as a preflight if either bites.
+
 Step 3 needs a live CNPG fixture. The plumbing to carry credentials into a remote test action
 ALREADY EXISTS -- nothing to build, only values to configure.
 
+TWO mechanisms, deliberately, because the targets split into two groups.
+
+THE 8 SHARDS run remotely and use BuildBuddy's `env-secrets` execution property, set
+per-target in elixir/serviceradar_core/BUILD.bazel:
+
+    exec_properties = {
+        "test.env-secrets": "SRQL_TEST_DATABASE_URL,SRQL_TEST_ADMIN_URL,SRQL_TEST_DATABASE_CA_CERT",
+    }
+
+BuildBuddy injects those into the action ON THE EXECUTOR from secrets configured in the BB
+app. The bazel client never holds the value, and BB redacts `env-secrets` from action cache
+entries and workflow logs. The `test.` prefix scopes it to the test execution group so the
+compile actions never see it. BB documents setting this per-target rather than globally via
+--remote_default_exec_properties, which is why it is not in .bazelrc. Do NOT use the legacy
+`env-overrides` property: it does not redact.
+
+THE 4 LIFECYCLE TARGETS (migrate_template + the 3 //rust/integration-db) are
+`no-remote-exec` and run on the runner, where a remote-execution property cannot reach them.
+They read the same three variables from the runner's environment -- BB secrets are already
+env vars there. //:buildbuddy_setup_fixture_env fills them in on a workstation.
+
+The older `--test_env` pass-through below still works and remains the fallback for anything
+running on the client:
+
   BuildBuddy org secret -> env var on the workflow runner -> --test_env pass-through
                         -> test action env on the executor
+
+Its cost is why the shards moved off it: --test_env copies the value into the action, which
+makes the DSN -- password included -- part of the action key and visible in BuildBuddy's
+action details.
 
 `--test_env=NAME` with NO `=value` reads from the BAZEL CLIENT's environment and copies the
 value into each test action. In a workflow the client is the `bazel` process on the runner,
