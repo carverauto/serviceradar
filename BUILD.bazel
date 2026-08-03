@@ -64,6 +64,19 @@ sh_binary(
 )
 
 ###############################################################################
+# CI INTEGRATION-FIXTURE CREDENTIALS
+#
+# Same credential carve-out as the docker auth target above: a test action cannot fetch
+# these itself (remote executor, no kubeconfig, sandboxed), so they must reach the bazel
+# CLIENT's environment before `bazel test` runs. Reads the srql-fixtures K8s secrets when
+# the caller has cluster access, otherwise trusts pre-set BuildBuddy workflow secrets.
+###############################################################################
+sh_binary(
+    name = "buildbuddy_setup_fixture_env",
+    srcs = ["buildbuddy_setup_fixture_env.sh"],
+)
+
+###############################################################################
 # Custom RBE platform executor image
 ###############################################################################
 platform(

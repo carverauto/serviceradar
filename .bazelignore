@@ -1,5 +1,6 @@
 .bazel_cache
 .cargo
+ctx
 .gomodcache
 cmd/logos/.venv
 cmd/otel/target

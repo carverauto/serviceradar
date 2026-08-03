@@ -1,30 +1,19 @@
-remote_execution:
-  enabled: true
-  endpoint: "grpcs://remote.buildbuddy.io"
-
-remote_cache:
-  enabled: true
-  endpoint: "grpcs://remote.buildbuddy.io"
-  compression_enabled: true
-  upload_enabled: true
-  download_enabled: true
-  max_size_gb: 100
-  ttl_hours: 168
-
-build_event_streaming:
-  enabled: true
-  endpoint: "grpcs://events.buildbuddy.io"
-
-execution_config:
-  platform_properties:
-    container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
-    OSFamily: "linux"
-    Arch: "amd64"
-  max_execution_timeout_seconds: 3600
-  default_exec_properties:
-    dockerNetwork: "host"
-    Pool: "default"
-
-# Authentication - set via environment variables:
-# BUILDBUDDY_API_KEY: your BuildBuddy API key
-# BUILDBUDDY_ORG: your organization name
+actions:
+  - name: "Build, test and publish all containers"
+    triggers:
+      push:
+        branches:
+          - "main"
+          #- "no_run" # Disables CI i.e. when testing the custom RBE image.
+    # Renovate Bot triggers too many builds. Disabled PR builds.
+    #      pull_request:
+    #        branches:
+    #          - "main"
+    # When adding new bazel commands, also update scripts/test.sh script with the same command for local testing
+    bazel_commands:
+      # Setup & Authenticate
+      - "run -c opt //:buildbuddy_setup_docker_auth --verbose_failures"
+      # Build all targets with remote. Do NOT disable remote, otherwise the missing lib .. makes the workflow build fail.
+      - "build -c opt //...  --config=remote"
+      # Run Unit & Doc tests tests
+      - "test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test"
