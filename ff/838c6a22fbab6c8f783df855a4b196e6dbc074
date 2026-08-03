@@ -1,0 +1,28 @@
+.bazelignore
+  s_d2089df286db69::t_542b4341e22712 3
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_2c15674f12d6e9 64,69,71-73,75-78,81-82,86,92-104
+  s_d2089df286db69::t_ca8040e5818e97 14-23
+  s_d2089df286db69::t_fe822ce638c3f3 24
+  s_d2089df286db69::t_c70a1cc5047f0c 105
+  s_d2089df286db69::t_33454e6d79b549 8-9,11,35,38,41,44,47
+integration_tests/srql/BUILD.bazel
+  s_d2089df286db69::t_682cde0cbe6790 16-28
+  s_d2089df286db69::t_21be8124d49a69 57-60,76-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "ff838c6a22fbab6c8f783df855a4b196e6dbc074",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
