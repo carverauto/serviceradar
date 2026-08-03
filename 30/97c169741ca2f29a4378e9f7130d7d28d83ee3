@@ -1,0 +1,23 @@
+buildbuddy.yaml
+  s_d2089df286db69::t_2785d68ee7c2b0 8-13,15-20
+  s_d2089df286db69::t_f009d11baaafbd 6
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_89892afd4ea109 263,267-294
+  s_d2089df286db69::t_d2b16aa17aa032 295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "3097c169741ca2f29a4378e9f7130d7d28d83ee3",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
