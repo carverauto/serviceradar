@@ -96,6 +96,38 @@ _MIX_LOCK_SCRIPT = """
 '
 """
 
+def _nif_opt_transition_impl(_settings, _attr):
+    return {"//command_line_option:compilation_mode": "opt"}
+
+# Build NIFs optimised no matter what mode the rest of the build is in.
+#
+# `fastbuild` -- the default -- means `-C opt-level=0 -C debuginfo=2` for rules_rust, and
+# the result ships straight into the release:
+#
+#     libsrql_nif.so                 60.6 MB -> 17.0 MB
+#     libzen_nif.so                  49.3 MB -> 20.4 MB
+#     libanomaly_disposition_nif.so   5.2 MB ->  0.7 MB
+#
+# 77 MB across every image, since serviceradar_core and serviceradar_srql are in all of
+# them. `-c opt` on the command line would get the same bytes, but it is a whole-
+# configuration flag: it would also change how every Go binary and Rust tool in the repo
+# is built, and it only helps if whoever runs the build remembers to pass it.
+#
+# A transition scopes it to this one dependency edge instead. A NIF is dlopened into the
+# BEAM and its failures surface as Erlang errors, not native stack traces, so there is
+# nothing to gain from an unoptimised build of one.
+#
+# //build/transition.bzl uses the same mechanism for //command_line_option:platforms.
+#
+# Cost: crates reachable from a NIF are configured twice if something else depends on them
+# in the default mode -- built once per configuration. That is the price of not forcing
+# opt on the whole repo.
+_nif_opt_transition = transition(
+    implementation = _nif_opt_transition_impl,
+    inputs = [],
+    outputs = ["//command_line_option:compilation_mode"],
+)
+
 def _impl(ctx):
     (erlang_home, _, erlang_runfiles) = erlang_dirs(ctx)
     (elixir_home, elixir_runfiles) = elixir_dirs(ctx)
@@ -496,7 +528,13 @@ mix_app = rule(
         # as Application.app_dir(otp_app, "priv/native/<crate>") and :erlang.load_nif
         # appends the platform extension -- which is ".so" on macOS too, not ".dylib". So
         # the cdylib is installed as priv/native/<crate>.so, dropping cargo's "lib" prefix.
-        "native_libs": attr.label_keyed_string_dict(allow_files = True),
+        #
+        # cfg: NIFs build in `opt` regardless of the invocation's mode. See
+        # _nif_opt_transition above.
+        "native_libs": attr.label_keyed_string_dict(
+            allow_files = True,
+            cfg = _nif_opt_transition,
+        ),
         # Config lines appended to config/config.exs *inside the action*, i.e. to the
         # sandbox copy -- the checked-in file is never touched. This exists so a
         # build-system concern can be expressed in the build system instead of in
