@@ -1,15 +1,95 @@
-# ServiceRadar (unreleased)
+# ServiceRadar v1.4.29
 
-## Packaging / release
+Fixed camera live feeds reattaching to zombie relay sessions that stayed
+`status=active` after the edge pull was dead, by requiring a still-valid lease
+before reusing an active session.
 
-- Limit tagged Forgejo release deb/rpm assets to edge installers only:
-  agent, nats, cli, log-collector, flow-collector, bmp-collector, trapd,
-  rperf, rperf-checker. Control-plane services (core-elx, web-ng,
-  agent-gateway, datasvc, faker, …) remain container/Helm only; ad-hoc
-  package builds under `//build/packaging/<name>` still work.
-- Add `scripts/prune-forgejo-releases.sh` and run it from the release finalize
-  job to keep the newest 10 fat releases (prevents multi-hundred-GB Forgejo
-  attachment growth on worker nodes).
+## Whats New
+
+**1.4.29**
+- Camera relay: core no longer reuses `active` relay sessions whose lease has
+  expired (or was never stamped). Zombie DB rows from gateway restarts, agent
+  source failures, or abandoned July sessions were reattached forever — viewers
+  saw open websockets with no media and no new `camera.open_relay` to the agent.
+  Pending `requested`/`opening` rows may still attach during the short open
+  window; stamped-but-expired leases always open a fresh pull. (PR #4787)
+
+# ServiceRadar v1.4.28
+
+Fixed agent-gateway camera relay tracker crashes that took down live camera
+feeds after the v1.4.27 lease reaper landed, by making ingress liveness checks
+safe for remote core PIDs.
+
+## Whats New
+
+**1.4.28**
+- Camera relay: agent-gateway session tracker no longer calls `Process.alive?/1`
+  on remote core ingress PIDs (that raised `ArgumentError`, crashed the tracker
+  GenServer, wiped gateway session state, and broke live feeds). Remote PIDs are
+  probed via `:erpc`; unreachable remotes leave the session until lease expiry.
+  (PR #4785)
+
+# ServiceRadar v1.4.27
+
+Published the camera live-feed session fix that was cut as v1.4.26 but never
+shipped (release publish failed on removed Debian security debs), and unblocked
+container image builds by refreshing the postgis-layer curl/nghttp2 pins.
+
+## Whats New
+
+**1.4.27**
+- Camera relay: agent-gateway reaps lease-expired relay sessions so orphaned
+  streams no longer permanently exhaust the per-agent limit of 16. Core reuses
+  a live edge session for the same camera source and stream profile (one
+  Membrane pull, many viewers) instead of opening a new agent relay on every
+  view. Soft viewer disconnects retain shared edge pulls while viewers remain;
+  idle-timeout still tears them down. (PR #4781)
+- Build: web-ng Bazel precommit stages shared Credo configs into the Mix
+  workdir so `mix credo` no longer fails with a missing `.credo.ex_slop.exs`.
+  (PR #4781)
+- Build: refresh MODULE.bazel Debian `http_file` pins for libcurl3-gnutls
+  (deb12u15) and libnghttp2-14 (deb12u3) so the postgis extension layer can
+  fetch during release publish after upstream removed the prior security
+  updates. (unblocks v1.4.26 publish failure)
+- Dgraph client: first-party Rust client with hermetic E2E integration tests
+  and Bazel-generated gRPC bindings for dgraph protos. (PR #4738)
+- Packaging / release: tagged Forgejo deb/rpm assets are limited to edge
+  installers (agent, nats, cli, log-collector, flow-collector, bmp-collector,
+  trapd, rperf, rperf-checker). Control-plane services remain container/Helm
+  only. Finalize prunes fat Forgejo releases to the newest 10 to control
+  attachment growth. (PR #4773)
+- CI and build graph: Bazel-native Go short tests, parallel Rust musl/lint
+  legs, hermetic web-ng precommit cache layers, and several cache-key and
+  registry-auth fixes that stop false invalidations and unauthenticated pulls.
+
+# ServiceRadar v1.4.26
+
+Fixed camera live feeds dying after gateway session exhaustion, landed the
+first-party Rust Dgraph client with E2E coverage, and slimmed Forgejo release
+packages so control-plane services stay container/Helm only.
+
+## Whats New
+
+**1.4.26**
+- Camera relay: agent-gateway reaps lease-expired relay sessions so orphaned
+  streams no longer permanently exhaust the per-agent limit of 16. Core reuses
+  a live edge session for the same camera source and stream profile (one
+  Membrane pull, many viewers) instead of opening a new agent relay on every
+  view. Soft viewer disconnects retain shared edge pulls while viewers remain;
+  idle-timeout still tears them down. (PR #4781)
+- Build: web-ng Bazel precommit stages shared Credo configs into the Mix
+  workdir so `mix credo` no longer fails with a missing `.credo.ex_slop.exs`.
+  (PR #4781)
+- Dgraph client: first-party Rust client with hermetic E2E integration tests
+  and Bazel-generated gRPC bindings for dgraph protos. (PR #4738)
+- Packaging / release: tagged Forgejo deb/rpm assets are limited to edge
+  installers (agent, nats, cli, log-collector, flow-collector, bmp-collector,
+  trapd, rperf, rperf-checker). Control-plane services remain container/Helm
+  only. Finalize prunes fat Forgejo releases to the newest 10 to control
+  attachment growth. (PR #4773)
+- CI and build graph: Bazel-native Go short tests, parallel Rust musl/lint
+  legs, hermetic web-ng precommit cache layers, and several cache-key and
+  registry-auth fixes that stop false invalidations and unauthenticated pulls.
 
 # ServiceRadar v1.4.25
 

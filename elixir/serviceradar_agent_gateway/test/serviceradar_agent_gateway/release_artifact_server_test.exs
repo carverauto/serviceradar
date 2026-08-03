@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   import Plug.Conn
   import Plug.Test
 

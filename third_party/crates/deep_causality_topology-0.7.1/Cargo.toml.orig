@@ -1,0 +1,106 @@
+[package]
+name = "deep_causality_topology"
+version = "0.7.1"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+authors = ["The DeepCausality Authors and Contributors"]
+description = "Topological data structures for the DeepCausality project"
+repository = "https://github.com/deepcausality-rs/deep_causality"
+documentation = "https://docs.rs/deep_causality_topology"
+readme = "README.md"
+keywords = ["causality", "topology", "complex", "differential", "geometry"]
+categories = ["science", "mathematics"]
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+    "papers/*",
+]
+
+[lib]
+name = "deep_causality_topology"
+path = "src/lib.rs"
+
+[features]
+# Enables random number generator from the host OS for secure random numbers.
+# Enabling os-random adds an indirect depdency on getrandom and libc.
+# Disabled by default to use native Rust prng instead.
+os-random = ["deep_causality_rand/os-random"]
+# Enables parallel execution of the per-cell DEC operator loops (wedge,
+# interior product, de Rham, sharp) by adding a dependency on Rayon.
+# Disabled by default. Under this feature the lattice DEC operators bound
+# their scalar by Send + Sync (via the shared MaybeParallel alias trait
+# from deep_causality_par); every scalar in the workspace satisfies it.
+# The FFT crate's own parallel fan-out is forwarded so the spectral
+# Poisson path parallelizes together with the DEC operators.
+parallel = [
+    "dep:rayon",
+    "deep_causality_par/parallel",
+    "deep_causality_fft/parallel",
+]
+
+[dependencies.rayon]
+version = "1.12"
+optional = true
+
+[dependencies.deep_causality_num]
+path = "../deep_causality_num"
+version = "0.4"
+default-features = false
+
+[dependencies.deep_causality_num_complex]
+path = "../deep_causality_num_complex"
+version = "0.1"
+default-features = false
+
+[dependencies.deep_causality_algebra]
+path = "../deep_causality_algebra"
+version = "0.2"
+default-features = false
+
+[dependencies.deep_causality_par]
+path = "../deep_causality_par"
+version = "0.1"
+
+[dependencies.deep_causality_fft]
+path = "../deep_causality_fft"
+version = "0.1"
+default-features = false
+
+[dependencies.deep_causality_rand]
+path = "../deep_causality_rand"
+version = "0.2"
+
+[dependencies.deep_causality_sparse]
+path = "../deep_causality_sparse"
+version = "0.2"
+default-features = false
+
+[dependencies.deep_causality_haft]
+path = "../deep_causality_haft"
+version = "0.4"
+
+[dependencies.deep_causality_tensor]
+path = "../deep_causality_tensor"
+version = "0.5"
+
+[dependencies.deep_causality_metric]
+path = "../deep_causality_metric"
+version = "0.2"
+
+[dependencies.deep_causality_multivector]
+path = "../deep_causality_multivector"
+version = "0.5"
+
+
+[lints.rust]
+# Exempt from the workspace `unsafe_code = "forbid"` policy.
+# HKT fmap pointer-cast (rustc type-equality limitation) in hkt_gauge. Remove when the compiler limitation is resolved.
+unsafe_code = "allow"

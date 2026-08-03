@@ -1,24 +1,31 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@platforms//host:extension.bzl", "host_platform")
 
+###############################################################################
+# Gazelle
+###############################################################################
 # gazelle:prefix github.com/carverauto/serviceradar
 # gazelle:exclude .claude
 # gazelle:exclude .gomodcache
 # gazelle:exclude _build
 # gazelle:exclude dist
+# gazelle:exclude elixir
 # gazelle:exclude js
 # gazelle:exclude release-artifacts
 # gazelle:exclude target
+# gazelle:exclude rust
 # gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 # gazelle:exclude go/pkg/agent/testdata
-
-load("@platforms//host:extension.bzl", "host_platform")
 
 gazelle(
     name = "gazelle",
 )
 
+###############################################################################
+# exports_files
+###############################################################################
 exports_files([
     ".forgejo/workflows/external-wasm-plugin.yml",
     ".forgejo/workflows/image-security.yml",
@@ -38,7 +45,27 @@ exports_files([
     "k8s/argocd/applications/demo-prod.yaml",
 ])
 
-# Custom RBE platform using Oracle Linux 9 based executor image
+###############################################################################
+# RUST RELEASE MODE OPTIMIZATION
+###############################################################################
+config_setting(
+    name = "release",
+    values = {
+        "compilation_mode": "opt",
+    },
+)
+
+###############################################################################
+# CI DOCKER AUTHENTICATION
+###############################################################################
+sh_binary(
+    name = "buildbuddy_setup_docker_auth",
+    srcs = ["buildbuddy_setup_docker_auth.sh"],
+)
+
+###############################################################################
+# Custom RBE platform executor image
+###############################################################################
 platform(
     name = "rbe_platform",
     constraint_values = [

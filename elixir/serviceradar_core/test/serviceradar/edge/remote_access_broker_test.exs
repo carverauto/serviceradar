@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Edge.RemoteAccessBroker
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy

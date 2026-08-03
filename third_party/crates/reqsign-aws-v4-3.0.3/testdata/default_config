@@ -1,0 +1,4 @@
+[default]
+region = test
+aws_access_key_id = config_access_key_id
+aws_secret_access_key = config_secret_access_key

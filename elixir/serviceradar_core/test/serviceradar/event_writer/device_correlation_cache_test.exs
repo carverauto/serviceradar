@@ -1,6 +1,8 @@
 defmodule ServiceRadar.EventWriter.DeviceCorrelationCacheTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
 
   setup do

@@ -3,7 +3,7 @@
 //! Contains fallback logic and formatting heuristics to
 //! annotate link-layer graphs with realtime performance numbers.
 
-use crate::types::telemetry::InterfaceTelemetryRecord;
+use crate::types::telemetry::{EnrichedEdgeTelemetry, InterfaceTelemetryRecord, RawEdgeTelemetry};
 use std::collections::HashMap;
 
 /// Discovers an aggregated telemetry payload by comparing interface indexes and names.
@@ -166,8 +166,6 @@ pub(crate) fn format_rate(value: u64) -> String {
 pub(crate) fn format_capacity(value: u64) -> String {
     if value >= 1_000_000_000 {
         format!("{}G", value / 1_000_000_000)
-    } else if value >= 100_000_000 {
-        format!("{}M", value / 1_000_000)
     } else if value > 0 {
         format!("{}M", value / 1_000_000)
     } else {
@@ -189,17 +187,11 @@ pub(crate) fn edge_label(protocol: &str, flow_pps: u32, capacity_bps: u64) -> St
 /// Orchestrates the total assembly of a real-time topology flow. Combines structural
 /// graph layout edges with physical port index/PPS/BPS observations passed in from Elixir metric queries.
 pub(crate) fn enrich_edges_telemetry_impl(
-    edges: Vec<(
-        String,
-        String,
-        String,
-        (i64, String, i64, String),
-        (u32, u64, u64),
-    )>,
+    edges: Vec<RawEdgeTelemetry>,
     interfaces: Vec<(String, String, i64, u64)>,
     pps_metrics: Vec<(String, i64, u32, u32)>,
     bps_metrics: Vec<(String, i64, u64, u64)>,
-) -> Result<Vec<(String, String, u32, u64, u64, String, (u32, u32, u64, u64))>, rustler::Error> {
+) -> Result<Vec<EnrichedEdgeTelemetry>, rustler::Error> {
     let mut by_index = HashMap::<(String, i64), InterfaceTelemetryRecord>::new();
     let mut by_name = HashMap::<(String, String), Vec<InterfaceTelemetryRecord>>::new();
 

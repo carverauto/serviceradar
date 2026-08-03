@@ -71,6 +71,27 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Historical note: PR #4677 chased Dialyzer counts with apply/opaque barriers and
   MapSet churn; it was fully reverted in #4679. Do not reintroduce that style.
+- **No shell scripts. Everything is a Bazel target.** Do not add a script under
+  `scripts/`, and do not extend an existing one. Build, test, provisioning, teardown,
+  packaging and publishing are Bazel targets invoked with `bazel build` / `bazel test` /
+  `bazel run`. A script is a build system with no dependency graph, no cache, no sandbox
+  and no remote execution — every one of them is a hole in the graph that has to be
+  re-run, re-debugged and re-documented by hand.
+
+  **The only permitted exception is a hard corner case that genuinely cannot be a Bazel
+  action**, and it must be justified in a comment at the top of the file. Today that means
+  credential handling that must not become an action input: Docker/registry authentication
+  and cosign/OpenBao signing setup. "It was easier" is not a corner case.
+
+  Corollaries:
+  - Work an existing script does belongs in a target. `//rust/integration-db` already
+    replaced `scripts/{reset,drop,sweep-stale-core}-test-db.sh` — those files are dead and
+    should be deleted, not maintained.
+  - A test needing a file gets it as a **declared input** (`data`/`srcs`), never from a
+    script writing it to a runner temp dir and exporting a path. That pattern is what
+    forces `no-remote-exec` and breaks RBE.
+  - Ordering between targets is the caller's sequence of `bazel` invocations, not a script
+    that wraps them.
 
 # Codex Agent Guide for ServiceRadar
 

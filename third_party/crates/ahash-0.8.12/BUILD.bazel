@@ -42,6 +42,7 @@ rust_library(
         "default",
         "getrandom",
         "runtime-rng",
+        "serde",
         "std",
     ] + select({
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
@@ -129,6 +130,7 @@ rust_library(
         "//third_party/crates/ahash-0.8.12:build_script_build",
         "//third_party/crates/cfg-if-1.0.4:cfg_if",
         "//third_party/crates/getrandom-0.3.4:getrandom",
+        "//third_party/crates/serde-1.0.229:serde",
         "//third_party/crates/zerocopy-0.8.55:zerocopy",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
@@ -277,6 +279,7 @@ cargo_build_script(
         "default",
         "getrandom",
         "runtime-rng",
+        "serde",
         "std",
     ] + select({
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [

@@ -42,6 +42,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule
   alias ServiceRadar.Automation.Ansible.RunLauncher
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -253,7 +254,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   defp schedule_next do
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: interval_seconds(), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, interval_seconds())
       )
 
     :ok

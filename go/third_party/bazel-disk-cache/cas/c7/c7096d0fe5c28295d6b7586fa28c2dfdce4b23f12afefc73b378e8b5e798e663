@@ -1,36 +1,0 @@
-
-jbazel-out/darwin_arm64-opt-exec-ST-981954bde326/bin/external/rules_go++go_sdk+go_sdk/builder_reset/builder
-link
--sdk
- external/rules_go++go_sdk+go_sdk
--goroot
-Nbazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go+/stdlib_
--installsuffix
-darwin_arm64
--package_list
-abazel-out/darwin_arm64-opt-exec-ST-981954bde326/bin/external/rules_go++go_sdk+go_sdk/packages.txt
--o
-ubazel-out/darwin_arm64-opt-exec-ST-981954bde326/bin/external/rules_go+/go/tools/builders/go-protoc-bin_/go-protoc-bin
--main
-hbazel-out/darwin_arm64-opt-exec-ST-981954bde326/bin/external/rules_go+/go/tools/builders/go-protoc-bin.a
--p
-go/tools/builders/go-protoc-bin
---
--extld
-Gexternal/rules_cc++cc_configure_extension+local_config_cc/cc_wrapper.sh
--buildid=redacted
--s
--w
--extldflags
-u-mmacosx-version-min=26.5 -no-canonical-prefixes -fobjc-link-runtime -headerpad_max_install_names -Wl,-dead_strip -lm
-CGO_ENABLED1
-GOARCHarm64
-GODEBUGwinsymlink=0
-GOEXPERIMENT
-GOOSdarwin
-GOPATHX
-GOROOTNbazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go+/stdlib_
-GOROOT_FINALGOROOT
-GOTOOLCHAINlocalO
-PATHGexternal/rules_cc++cc_configure_extension+local_config_cc:/usr/bin:/bin
-ZERO_AR_DATE1:ubazel-out/darwin_arm64-opt-exec-ST-981954bde326/bin/external/rules_go+/go/tools/builders/go-protoc-bin_/go-protoc-bin

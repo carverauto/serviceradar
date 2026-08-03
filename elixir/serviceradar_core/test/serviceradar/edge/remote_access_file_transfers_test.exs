@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessSession
 

@@ -1,0 +1,30 @@
+Stage dependency headers into an ex_unit_test's ERL_LIBS.
+
+ex_unit_test builds its ERL_LIBS tree with erl_libs_contents but leaves the
+`headers` argument commented out, so it defaults to False and a dependency's
+include/ directory is never staged. Compilation rules stage headers; tests do
+not, and there is no reason for the difference -- Elixir reads a dependency's
+public header at RUNTIME whenever a module uses Record.extract/2:
+
+    @span_fields Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
+
+which resolves through code:lib_dir/1 against ERL_LIBS. Without the headers the
+test dies before running a single case:
+
+    ** (RuntimeError) error parsing file .../serviceradar_deps/opentelemetry/include/otel_span.hrl,
+       got: {:error, :enoent}
+
+target_info stays commented out: unlike erlang_bytecode, ex_unit_test has no
+app of its own to stage, only its deps.
+
+--- a/private/ex_unit_test.bzl
++++ b/private/ex_unit_test.bzl
+@@ -38,7 +38,7 @@
+     erl_libs_files = erl_libs_contents(
+         ctx,
+         # target_info = None,
+-        # headers = True,
++        headers = True,
+         deps = flat_deps(ctx.attr.deps),
+         ez_deps = ctx.files.ez_deps,
+         dir = erl_libs_dir,

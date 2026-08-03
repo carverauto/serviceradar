@@ -36,7 +36,149 @@ rust_library(
     ),
     crate_features = [
         "default",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "serde",  # aarch64-apple-darwin
+            "serialize",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "serde",  # aarch64-apple-ios
+            "serialize",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "serde",  # aarch64-apple-ios-sim
+            "serialize",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "serde",  # aarch64-linux-android
+            "serialize",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "serde",  # aarch64-pc-windows-msvc
+            "serialize",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "serde",  # aarch64-unknown-fuchsia
+            "serialize",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "serde",  # aarch64-unknown-linux-gnu
+            "serialize",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "serde",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "serialize",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "serde",  # aarch64-unknown-nto-qnx710
+            "serialize",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [
+            "serde",  # aarch64-unknown-uefi
+            "serialize",  # aarch64-unknown-uefi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "serde",  # arm-unknown-linux-gnueabi
+            "serialize",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "serde",  # armv7-linux-androideabi
+            "serialize",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "serde",  # armv7-unknown-linux-gnueabi
+            "serialize",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "serde",  # i686-apple-darwin
+            "serialize",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "serde",  # i686-linux-android
+            "serialize",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "serde",  # i686-pc-windows-msvc
+            "serialize",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "serde",  # i686-unknown-freebsd
+            "serialize",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "serde",  # i686-unknown-linux-gnu
+            "serialize",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "serde",  # powerpc-unknown-linux-gnu
+            "serialize",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
+            "serde",  # riscv32imc-unknown-none-elf
+            "serialize",  # riscv32imc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "serde",  # riscv64gc-unknown-linux-gnu
+            "serialize",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
+            "serde",  # riscv64gc-unknown-none-elf
+            "serialize",  # riscv64gc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "serde",  # s390x-unknown-linux-gnu
+            "serialize",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabi": [
+            "serde",  # thumbv7em-none-eabi
+            "serialize",  # thumbv7em-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
+            "serde",  # thumbv8m.main-none-eabi
+            "serialize",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "serde",  # x86_64-apple-darwin
+            "serialize",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "serde",  # x86_64-apple-ios
+            "serialize",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "serde",  # x86_64-linux-android
+            "serialize",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "serde",  # x86_64-pc-windows-msvc
+            "serialize",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "serde",  # x86_64-unknown-freebsd
+            "serialize",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "serde",  # x86_64-unknown-fuchsia
+            "serialize",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "serde",  # x86_64-unknown-linux-gnu
+            "serialize",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "serde",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "serialize",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-none": [
+            "serde",  # x86_64-unknown-none
+            "serialize",  # x86_64-unknown-none
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [
+            "serde",  # x86_64-unknown-uefi
+            "serialize",  # x86_64-unknown-uefi
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -98,5 +240,112 @@ rust_library(
     version = "0.41.0",
     deps = [
         "//third_party/crates/memchr-2.8.3:memchr",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [
+            "//third_party/crates/serde-1.0.229:serde",  # aarch64-unknown-uefi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "//third_party/crates/serde-1.0.229:serde",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "//third_party/crates/serde-1.0.229:serde",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "//third_party/crates/serde-1.0.229:serde",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "//third_party/crates/serde-1.0.229:serde",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "//third_party/crates/serde-1.0.229:serde",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "//third_party/crates/serde-1.0.229:serde",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "//third_party/crates/serde-1.0.229:serde",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
+            "//third_party/crates/serde-1.0.229:serde",  # riscv32imc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
+            "//third_party/crates/serde-1.0.229:serde",  # riscv64gc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabi": [
+            "//third_party/crates/serde-1.0.229:serde",  # thumbv7em-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
+            "//third_party/crates/serde-1.0.229:serde",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-none": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-none
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [
+            "//third_party/crates/serde-1.0.229:serde",  # x86_64-unknown-uefi
+        ],
+        "//conditions:default": [],
+    }),
 )

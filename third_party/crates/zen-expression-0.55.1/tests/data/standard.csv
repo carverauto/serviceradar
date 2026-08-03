@@ -1,0 +1,651 @@
+expression (string);input (json 5);output (json 5)
+
+# Boolean
+true and true;;true
+true and false;;false
+false and true;;false
+false and false;;false
+true or true;;true
+true or false;;true
+false or true;;true
+false or false;;false
+not true;;false
+not false;;true
+x == true;{ "x": true };true
+x == true;{ "x": false };false
+x == false;{ "x": true };false
+x == false;{ "x": false };true
+x and true;{ "x": true };true
+x and true;{ "x": false };false
+x or true;{ "x": true };true
+x or true;{ "x": false };true
+not x;{ "x": true };false
+not x;{ "x": false };true
+true and x;{ "x": true };true
+true and x;{ "x": false };false
+true or x;{ "x": true };true
+true or x;{ "x": false };true
+true and not x;{ "x": true };false
+true and not x;{ "x": false };true
+false or x;{ "x": true };true
+false or x;{ "x": false };false
+false and x;{ "x": true };false
+false and x;{ "x": false };false
+false or not x;{ "x": true };false
+false or not x;{ "x": false };true
+not x and true;{ "x": true };false
+not x and true;{ "x": false };true
+x or not true;{ "x": true };true
+x or not true;{ "x": false };false
+x or not false;{ "x": true };true
+x or not false;{ "x": false };true
+
+# Numbers
+1 == 1;;true
+1 == 2;;false
+1 != 2;;true
+1 != 1;;false
+1 < 2;;true
+1 < 1;;false
+1 <= 1;;true
+2 <= 1;;false
+2 > 1;;true
+1 > 1;;false
+1 >= 1;;true
+1 >= 2;;false
+-1 == -1;;true
+-1 == 1;;false
+-1 != 1;;true
+-1 != -1;;false
+-1 < 1;;true
+-1 < -1;;false
+-1 <= -1;;true
+1 <= -1;;false
+1 > -1;;true
+-1 > -1;;false
+-1 >= -1;;true
+-1 >= 1;;false
+1 + 2 == 3;;true
+1 + 2 == 4;;false
+1 - 2 == -1;;true
+1 - 2 == 0;;false
+2 * 3 == 6;;true
+2 * 3 == 7;;false
+6 / 3 == 2;;true
+6 / 3 == 2.5;;false
+5 % 2 == 1;;true
+6 % 2 == 0;;true
+-5 + 5 == 0;;true
+-5 * 5 == -25;;true
+-5 * -5 == 25;;true
+10 / 0;;null
+abs(-5) == 5;;true
+abs(5) == 5;;true
+2 ^ 3 == 8;;true
+2 ^ -1 == 0.5;;true
+max([3, 5]) == 5;;true
+max([-3, -5]) == -3;;true
+min([3, 5]) == 3;;true
+min([-3, -5]) == -5;;true
+3 + 4 * 2;;11
+(3 + 4) * 2;;14
+(10 - 4) / 2;;3
+abs(-5);;5
+sum([1, 2, 3, 4, 5]);;15
+avg([10, 20, 30]);;20
+min([5, 8, 2, 11, 7]);;2
+max([5, 8, 2, 11, 7]);;11
+floor(4.8);;4
+ceil(4.1);;5
+round(3.5);;4
+rand(100) >= 0 and rand(100) <= 100;;true
+median([4, 2, 7, 5, 3]);;4
+mode([1, 2, 2, 3, 3, 3, 4, 4, 4, 4]);;4
+5 % 2 == 1;;true
+10 % 4 == 2;;true
+true ? 10 == 10 : 20 == 30;;true
+false ? 10 == 10 : 20 == 30;;false
+true ? 10 == 20 : false ? 30 == 40 : true ? 50 == 60 : 70 == 80;;false
+
+# String
+'hello' + " " + "world";; 'hello world'
+len("Hello, World!");; 13
+lower("Hello, World!");; "hello, world!"
+upper("Hello, World!");; "HELLO, WORLD!"
+trim("HELLO, WORLD!");; "HELLO, WORLD!"
+trim("  HELLO, WORLD!");; "HELLO, WORLD!"
+trim("HELLO, WORLD!  ");; "HELLO, WORLD!"
+startsWith("Hello, World!", "Hello");; true
+startsWith("Hello, World!", "World");; false
+endsWith("Hello, World!", "World!");; true
+endsWith("Hello, World!", "Hello!");; false
+contains("Hello, World!", "lo");; true
+contains("Hello, World!", "foo");; false
+matches("Hello, World!", "H[a-z]+, W[a-z]+!");; true
+matches("Hello, World!", "[0-9]+");; false
+extract("2022-09-18", "(\d{4})-(\d{2})-(\d{2})");; ["2022-09-18", "2022", "09", "18"]
+fuzzyMatch("hello", "hello");; 1
+fuzzyMatch("world", "hello");; 0.2
+fuzzyMatch(["hello", "world"], "hello");;[1, 0.2]
+split("hello1,hello2,hello3", ",");;['hello1', 'hello2', 'hello3']
+map(split("123,456,789", ","), number(#));;[123, 456, 789]
+
+# Template string
+`simple template`;;'simple template'
+`sum of numbers ${sum([1, 2, 3])}`;;'sum of numbers 6'
+`reference env: ${a}`;{a:'example'};'reference env: example'
+`uppercase inner ${upper('string')}`;;'uppercase inner STRING'
+
+# String Slice
+string[0:5];{string: 'sample_string'};'sample'
+string[7:12];{string: 'sample_string'};'string'
+string[7:];{string: 'sample_string'};'string'
+string[:5];{string: 'sample_string'};'sample'
+
+# Array
+len([1, 2, 3, 4, 5]);; 5
+sum([1, 2, 3, 4, 5]);; 15
+avg([10, 20, 30]);; 20
+min([5, 8, 2, 11, 7]);; 2
+max([5, 8, 2, 11, 7]);; 11
+contains([1, 2, 3, 4, 5], 3);; true
+contains([1, 2, 3, 4, 5], 6);; false
+count([1, 2, 3, 4, 5, 2], # == 2);; 2
+filter([1, 2, 3, 4, 5], # > 3);; [4, 5]
+map([1, 2, 3, 4, 5], # * 2);; [2, 4, 6, 8, 10]
+one([1, 2, 3, 4, 5], # == 3);; true
+one([1, 2, 3, 4, 5], # == 6);; false
+none([1, 2, 3, 4, 5], # > 5);; true
+some([1, 2, 3, 4, 5], # > 3);; true
+flatMap([[1, 2], [3, 4], [5, 6]], #);; [1, 2, 3, 4, 5, 6]
+keys([10, 11, 12]);;[0, 1, 2]
+merge([[1, 2], [3, 4], [5]]);;[1, 2, 3, 4, 5]
+merge([[1, 2], [], [3]]);;[1, 2, 3]
+merge([]);;{}
+merge([{"a": 1}, {"b": 2}, {"c": 3}]);;{"a": 1, "b": 2, "c": 3}
+merge([{"a": 1, "b": 2}, {"b": 3, "c": 4}]);;{"a": 1, "b": 3, "c": 4}
+mergeDeep([{"a": 1}, {"b": 2}]);;{"a": 1, "b": 2}
+mergeDeep([{"a": 1, "b": 2}, {"b": 3, "c": 4}]);;{"a": 1, "b": 3, "c": 4}
+mergeDeep([{"a": {"x": 1}}, {"a": {"y": 2}}]);;{"a": {"x": 1, "y": 2}}
+mergeDeep([{"a": [1, 2]}, {"a": [3, 4]}]);;{"a": [1, 2, 3, 4]}
+mergeDeep([{"a": {"b": {"c": 1}}}, {"a": {"b": {"d": 2}}}]);;{"a": {"b": {"c": 1, "d": 2}}}
+mergeDeep([{"a": 1}, {"a": 2}]);;{"a": 2}
+mergeDeep([]);;{}
+
+# Dates
+date("2023-09-18T12:00:00Z");; 1695038400
+date("2023-09-18T00:00:00Z");; 1694995200
+time("2023-09-18T12:00:00Z");; 43200
+time("2023-09-18T00:00:00Z");; 0
+duration("1h 30m");; 5400
+year("2023-09-18");; 2023
+monthOfYear("2023-09-18");; 9
+monthString("2023-09-18");; "Sep"
+dayOfMonth("2023-09-18");; 18
+dayOfWeek("2023-09-18");; 1
+dayOfYear("2023-09-18");; 261
+weekOfYear("2023-09-18");; 38
+weekdayString("2023-09-18");; "Mon"
+
+# Decimal precision
+0.1 + 0.2 == 0.3;; true
+0.1 + 0.2;; 0.3
+0.1 * 0.2 == 0.02;; true
+0.1 * 0.2;; 0.02
+0.3 - 0.1 == 0.2;; true
+0.3 - 0.1;; 0.2
+0.3 / 0.1 == 3.0;; true
+0.3 / 0.1;; 3
+
+# More complex formulas
+(10 + 5) * 3 / 2 > 15;; true
+(100 - 25) / (5 * 2) < 10;; true
+1000 / (10 - 2) + 50 == 175;; true
+(3 + 4) * (8 - 6) == 14;; true
+10^3 != 999;; true
+1000 / 10^3 <= 1.1;; true
+abs(-20) > 10;; true
+floor(8.9) == 8;; true
+ceil(8.1) == 9;; true
+round(7.6) == 8;; true
+10 % 3 != 0;; true
+-8 + 2^3 == 0;; true
+2 * -(-5) == 10;; true
+20 / (5 / 2) == 8.0;; true
+(4 + 2) * 3 - (5 / 2) + 1 < 18;; true
+5^2 + 3 * 4 - 6 / 2 > 20;; true
+4^3 - 2 * 5 + 7 / 2 == 57.5;; true
+abs(-7 + 4) * (8 - 6^2) < 34;; true
+5 in [1..10];; true
+5 in (1..10);; true
+5 not in [1..10);; false
+5 not in (1..10);; false
+-5 in [-10..-1];; true
+-5 in [-10..-1);; true
+-5 not in [-10..-1];; false
+-5 not in [-10..-1);; false
+-5 in [-5..5];; true
+-5 in (-5..5);; false
+-5 not in [-5..5);; false
+-5 not in (-5..5);; true
+10 > 5;; true
+5 < 10;; true
+10 >= 10;; true
+5 <= 5;; true
+(1 + 2) == 3;; true
+(1 + 2) != 4;; true
+(1 + 2) > 2;; true
+(1 + 2) < 5;; true
+
+# Date Functions
+dateString(startOf('2023-01-01 15:45:01', 'day'));;'2023-01-01 00:00:00'
+dateString(endOf('2023-01-01 15:45:01', 'd'));;'2023-01-01 23:59:59'
+dateString(startOf('2023-01-01 15:45:01', 'hour'));;'2023-01-01 15:00:00'
+dateString(endOf('2023-01-01 15:45:01', 'h'));;'2023-01-01 15:59:59'
+dateString(startOf('2023-01-01 15:45:01', 'minute'));;'2023-01-01 15:45:00'
+dateString(endOf('2023-01-01 15:45:01', 'm'));;'2023-01-01 15:45:59'
+dateString(startOf('2023-01-04 15:45:01', 'week'));;'2023-01-02 00:00:00'
+dateString(endOf('2023-01-04 15:45:01', 'w'));;'2023-01-08 23:59:59'
+dateString(startOf('2023-01-04 15:45:01', 'month'));;'2023-01-01 00:00:00'
+dateString(endOf('2023-01-04 15:45:01', 'M'));;'2023-01-31 23:59:59'
+dateString(startOf('2023-01-04 15:45:01', 'year'));;'2023-01-01 00:00:00'
+dateString(endOf('2023-01-04 15:45:01', 'y'));;'2023-12-31 23:59:59'
+
+# Type conversions
+string(123.123);;'123.123'
+string(123);;'123'
+string(true);;'true'
+string(false);;'false'
+string('already string');;'already string'
+number('123.123');;123.123
+number('123');;123
+number(123.123);;123.123
+number(123);;123
+number(true);;1
+number(false);;0
+
+# Type check
+isNumeric(123.123);;true
+isNumeric(123);;true
+isNumeric('123.123');;true
+isNumeric('123');;true
+isNumeric('string');;false
+isNumeric(true);;false
+
+# Types
+type('hello');;'string'
+type(123);;'number'
+type(true);;'bool'
+type(null);;'null'
+type([1, 2, 3]);;'array'
+
+# Object
+{customer: { firstName: "John", lastName: "Doe" }};;{customer: { firstName: "John", lastName: "Doe" }}
+sum(values({a: 1, b: 2, c: 3}));;6
+keys({[`dynamic-${'key'}`]: 123});;['dynamic-key']
+keys(customer);{"customer": {"firstName": "John"}};["firstName"]
+keys(customer);{"customer": {"lastName": "Doe"}};["lastName"]
+values(customer);{"customer": {"firstName": "John"}};["John"]
+values(customer);{"customer": {"lastName": "Doe"}};["Doe"]
+{};;{}
+
+# Interval iterator
+map([0..3], #);[0, 1, 2, 3]
+map((0..3], #);[1, 2, 3]
+map([0..3), #);[0, 1, 2]
+map((0..3), #);[1, 2]
+
+# Nullish coalescing
+null ?? 'hello';;'hello'
+null ?? 123 ?? 321;;123
+null ?? null ?? 321;;321
+false or true ? null ?? 'test' : false;;'test'
+
+# Array indexing and dot notation
+data.items[0] == 'a';{"data":{"items":["a","b","c"]}};true
+data.items[1] == 'b';{"data":{"items":["a","b","c"]}};true
+
+# Array functions
+len(['a', 'b', 'c']);;3
+contains(['a', 'b', 'c'], 'b');;true
+contains(['a', 'b', 'c'], 'd');;false
+some(['a', 'b', 'c'], # == 'b');;true
+some(['a', 'b', 'c'], # == 'd');;false
+all(['a', 'b', 'c'], # in ['a', 'b', 'c', 'd']);;true
+all(['a', 'b', 'c'], # in ['a', 'b']);;false
+filter(['a', 'b', 'c', 'd'], # in ['a', 'c']);;['a', 'c']
+map(['a', 'b', 'c'], # + '!');;['a!', 'b!', 'c!']
+
+# Array combinations
+map(filter([1, 2, 3, 4, 5], # > 2), # * 2);;[6, 8, 10]
+len(filter([1, 2, 3, 4, 5], # % 2 == 0));;2
+sum(filter([1, 2, 3, 4, 5], # % 2 == 0));;6
+sum(map(filter([1, 2, 3, 4, 5], # > 3), # ^ 2));;41
+
+# Complex array operations
+some(map([1, 2, 3], # * 2), # > 5);;true
+all(map([1, 2, 3], # + 2), # > 2);;true
+contains(map([1, 2, 3], # * 2), 6);;true
+contains(values({a: 1, b: 2, c: 3}), 2);;true
+
+# Array with objects
+map([{id: 1, name: 'John'}, {id: 2, name: 'Jane'}], #.id);;[1, 2]
+filter([{id: 1, name: 'John'}, {id: 2, name: 'Jane'}], #.id > 1);;[{id: 2, name: 'Jane'}]
+map(filter([{id: 1, name: 'John'}, {id: 2, name: 'Jane'}], #.id > 1), #.name);;['Jane']
+
+# String concatenation
+'Hello' + ' ' + 'World' + '!';;'Hello World!'
+'User: ' + user.name;{"user":{"name":"John"}};'User: John'
+
+# String functions
+len('Hello');;5
+upper('Hello');;'HELLO'
+lower('HELLO');;'hello'
+trim('  hello  ');;'hello'
+startsWith('Hello World', 'Hell');;true
+endsWith('Hello World', 'orld');;true
+contains('Hello World', 'lo Wo');;true
+matches('123-456-7890', '[0-9]{3}-[0-9]{3}-[0-9]{4}');;true
+extract('2023-10-15', '([0-9]{4})-([0-9]{2})-([0-9]{2})');; ["2023-10-15", "2023", "10", "15"]
+
+# String formatting
+`User ${user.name} is ${user.age} years old`;{"user":{"name":"John","age":30}};'User John is 30 years old'
+`Total: ${sum([1, 2, 3])}`;;'Total: 6'
+`${score > 70 ? 'Pass' : 'Fail'}`;{"score":85};'Pass'
+
+# Nested object access
+user.address.city;{"user":{"address":{"city":"New York"}}};'New York'
+user.contacts[0].phone;{"user":{"contacts":[{"phone":"123-456-7890"}]}};'123-456-7890'
+
+# Dynamic keys
+{[`key-${value}`]: 123};{"value":"test"};{"key-test":123}
+{[user.id]: user.name};{"user":{"id":"u123","name":"John"}};{"u123":"John"}
+
+# Date arithmetic
+date('2023-10-15') + duration('1d');;1697414400
+date('2023-10-15') - duration('7d');;1696723200
+dateString(date('2023-10-15') + duration('1d'));;'2023-10-16 00:00:00'
+dateString(date('2023-10-15') - duration('7d'));;'2023-10-08 00:00:00'
+
+# Date comparisons
+date('2023-10-15') > date('2023-10-14');;true
+date('2023-10-15') < date('2023-10-16');;true
+date('2023-10-15') + duration('1d') == date('2023-10-16');;true
+
+# Date parts
+year(date('2023-10-15'));;2023
+monthOfYear(date('2023-10-15'));;10
+dayOfMonth(date('2023-10-15'));;15
+dayOfWeek(date('2023-10-15'));;7
+weekOfYear(date('2023-10-15'));;41
+
+# Date formatting
+dateString(date('2023-10-15'));;'2023-10-15 00:00:00'
+dateString(date('2023-10-15') + duration('12h'));;'2023-10-15 12:00:00'
+
+# Ternary operators
+score > 70 ? 'Pass' : 'Fail';{"score":85};'Pass'
+score > 70 ? 'Pass' : 'Fail';{"score":60};'Fail'
+score > 90 ? 'A' : score > 80 ? 'B' : score > 70 ? 'C' : 'D';{"score":85};'B'
+
+# Null handling
+user.name ?? 'Guest';{"user":{"name":"John"}};'John'
+user.name ?? 'Guest';{"user":{}};'Guest'
+(user.address.city) ?? 'Unknown';{"user":{"address":{"city":"New York"}}};'New York'
+(user.address.city) ?? 'Unknown';{"user":{}};'Unknown'
+
+# Type conversions
+string(123);;'123'
+string(true);;'true'
+number('123');;123
+number('12.3');;12.3
+number(true);;1
+number(false);;0
+bool(1);;true
+bool(0);;false
+bool('true');;true
+bool('false');;false
+
+# Complex nested expressions
+len(filter(map([1, 2, 3, 4, 5], # * 2), # > 5));;3
+sum(map(filter([{id: 1, val: 10}, {id: 2, val: 20}, {id: 3, val: 30}], #.id > 1), #.val));;50
+
+# Data transformation
+map(items, {id: #.id, fullName: #.firstName + ' ' + #.lastName});{"items":[{"id":1,"firstName":"John","lastName":"Doe"},{"id":2,"firstName":"Jane","lastName":"Smith"}]};[{"id":1,"fullName":"John Doe"},{"id":2,"fullName":"Jane Smith"}]
+
+# Array-based conditions
+some(user.permissions, # == 'edit');{"user":{"permissions":["view","edit","delete"]}};true
+all(items, #.price > 10);{"items":[{"price":15},{"price":20},{"price":25}]};true
+all(items, #.price > 10);{"items":[{"price":15},{"price":5},{"price":25}]};false
+
+# Statistical calculations
+avg(map(items, #.price));{"items":[{"price":10},{"price":20},{"price":30}]};20
+max(map(items, #.qty * #.price));{"items":[{"qty":2,"price":10},{"qty":1,"price":20},{"qty":3,"price":15}]};45
+
+# Closures and the # symbol
+map([1, 2, 3], # * 2);;[2, 4, 6]
+filter([1, 2, 3, 4, 5], # % 2 == 0);;[2, 4]
+some([1, 2, 3], # > 2);;true
+all([1, 2, 3], # > 0);;true
+count([1, 2, 2, 3, 3, 3], # == 3);;3
+one([1, 2, 3], # == 2);;true
+none([1, 2, 3], # > 3);;true
+
+# Nested closures
+filter(map([1, 2, 3, 4], # * 2), # > 5);;[6, 8]
+map(filter([1, 2, 3, 4], # % 2 == 0), # * 3);;[6, 12]
+
+# Range tests
+x in [1..10];{"x":5};true
+x in [1..10];{"x":0};false
+x in (1..10);{"x":1};false
+x in (1..10);{"x":5};true
+x not in [1..10];{"x":11};true
+x not in [1..10];{"x":5};false
+
+# Interval iterator
+map([0..5], # * 2);;[0, 2, 4, 6, 8, 10]
+filter([0..10], # % 2 == 0);;[0, 2, 4, 6, 8, 10]
+
+# Rounding
+round(7.4);; 7
+round(7.5);; 8
+round(7.6);; 8
+round(-7.4);; -7
+round(-7.5);; -8
+round(-7.6);; -8
+round(0.5);;1
+round(-0.5);;-1
+round(1.5);;2
+round(-1.5);;-2
+round(0.4);;0
+round(-0.4);;0
+
+round(7.444, 0);; 7
+round(7.444, 1);; 7.4
+round(7.444, 2);; 7.44
+round(7.555, 0);; 8
+round(7.555, 1);; 7.6
+round(7.555, 2);; 7.56
+round(-7.444, 2);; -7.44
+round(-7.555, 2);; -7.56
+
+trunc(7.4);; 7
+trunc(7.5);; 7
+trunc(7.6);; 7
+trunc(-7.4);; -7
+trunc(-7.5);; -7
+trunc(-7.6);; -7
+
+trunc(7.444, 0);; 7
+trunc(7.444, 1);; 7.4
+trunc(7.444, 2);; 7.44
+trunc(7.999, 0);; 7
+trunc(7.999, 1);; 7.9
+trunc(7.999, 2);; 7.99
+trunc(-7.444, 2);; -7.44
+trunc(-7.999, 2);; -7.99
+
+# Scientific notation - basic parsing
+1e5;;100000
+2e3;;2000
+5e0;;5
+1e-2;;0.01
+2.5e2;;250
+3.14e1;;31.4
+1.23e-3;;0.00123
+-1e3;;-1000
+-2.5e-2;;-0.025
+
+# Scientific notation - arithmetic operations
+1e2 + 1e1;;110
+2e3 - 5e2;;1500
+3e2 * 2e1;;6000
+1e4 / 2e2;;50
+1e2 + 50;;150
+1e3 - 100;;900
+2e2 * 3;;600
+1e3 / 10;;100
+
+# Scientific notation - comparisons
+1e3 == 1000;;true
+1e3 != 999;;true
+1e2 > 50;;true
+1e2 < 200;;true
+1e2 >= 100;;true
+1e2 <= 100;;true
+2.5e2 == 250;;true
+1.5e-2 == 0.015;;true
+
+# Scientific notation - type conversions
+string(1e3);;'1000'
+string(2.5e2);;'250'
+string(1.23e-3);;'0.00123'
+number('1e3');;1000
+number('2.5e2');;250
+number('1.23e-3');;0.00123
+isNumeric('1e3');;true
+isNumeric('2.5e-2');;true
+isNumeric('1.23e-3');;true
+
+# Scientific notation - array operations
+sum([1e2, 2e2, 3e2]);;600
+max([1e1, 2e1, 3e1]);;30
+min([1e1, 2e1, 3e1]);;10
+avg([1e2, 2e2, 3e2]);;200
+contains([1e2, 2e2, 3e2], 200);;true
+map([1e1, 2e1, 3e1], # * 2);;[20, 40, 60]
+filter([1e1, 2e1, 3e1, 4e1], # > 25);;[30, 40]
+
+# Scientific notation - edge cases
+1e+3;;1000
+1e-0;;1
+0e5;;0
+1.0e2;;100
+10e1;;100
+0.1e3;;100
+1.5e+2;;150
+2e-1;;0.2
+
+# Scientific notation - mixed with regular numbers
+1e2 + 50.5;;150.5
+1000 - 1e2;;900
+15 * 1e2;;1500
+1e3 / 2.5;;400
+
+# Scientific notation - complex expressions
+(1e2 + 2e2) * 1e1;;3000
+1e3 / (2e1 + 3e1);;20
+abs(-1e2);;100
+floor(1.23e2);;123
+ceil(1.23e2);;123
+round(1.234e2);;123
+
+# Scientific notation - in functions
+1e1 ^ 2;;100
+
+# Scientific notation - template strings
+`Value: ${1e3}`;; 'Value: 1000'
+`Scientific: ${2.5e2}`;; 'Scientific: 250'
+`Negative: ${-1e2}`;; 'Negative: -100'
+
+### Assignment
+
+# Basic assignment
+"a = 5";{};{"a": 5}
+"name = 'John'";{};{"name": "John"}
+"active = true";{};{"active": true}
+"items = [1, 2, 3]";{};{"items": [1, 2, 3]}
+"config = {debug: true}";{};{"config": {"debug": true}}
+
+# Property assignment
+"user.name = 'Alice'";{};{"user": {"name": "Alice"}}
+"user.age = 30";{};{"user": {"age": 30}}
+"settings.theme = 'dark'";{};{"settings": {"theme": "dark"}}
+
+# Nested property assignment
+"user.profile.bio = 'Developer'";{};{"user": {"profile": {"bio": "Developer"}}}
+"app.config.database.host = 'localhost'";{};{"app": {"config": {"database": {"host": "localhost"}}}}
+"system.cache.redis.port = 6379";{};{"system": {"cache": {"redis": {"port": 6379}}}}
+
+# Multiple assignments
+"a = 1; b = 2";{};{"a": 1, "b": 2}
+"user.name = 'Charlie'; user.age = 35";{};{"user": {"name": "Charlie", "age": 35}}
+"x = 10; y = 20; z = 30";{};{"x": 10, "y": 20, "z": 30}
+
+# Assignment with expressions
+"counter = counter + 1";{"counter": 5};{"counter": 6}
+"total = price * quantity";{"price": 15, "quantity": 3};{"total": 45}
+"fullName = firstName + ' ' + lastName";{"firstName": "John", "lastName": "Doe"};{"fullName": "John Doe"}
+
+# Assignment with function calls
+"timestamp = date('2023-10-15')";{};{"timestamp": 1697328000}
+"userName = upper(name)";{"name": "alice"};{"userName": "ALICE"}
+"itemCount = len(items)";{"items": [1, 2, 3, 4]};{"itemCount": 4}
+
+# Assignment with array operations
+"doubled = map(numbers, # * 2)";{"numbers": [1, 2, 3]};{"doubled": [2, 4, 6]}
+"filtered = filter(items, # > 10)";{"items": [5, 15, 8, 20]};{"filtered": [15, 20]}
+"total = sum(values)";{"values": [10, 20, 30]};{"total": 60}
+
+# Assignment with conditional expressions
+"status = score > 70 ? 'pass' : 'fail'";{"score": 85};{"status": "pass"}
+"message = user.isActive ? 'Welcome!' : 'Please activate'";{"user": {"isActive": true}};{"message": "Welcome!"}
+"category = age >= 18 ? 'adult' : 'minor'";{"age": 25};{"category": "adult"}
+
+# Assignment with object creation
+"person = {name: firstName, age: userAge}";{"firstName": "Diana", "userAge": 28};{"person": {"name": "Diana", "age": 28}}
+"point = {x: posX, y: posY}";{"posX": 10, "posY": 15};{"point": {"x": 10, "y": 15}}
+
+# Assignment with template strings
+"greeting = `Hello, ${name}!`";{"name": "World"};{"greeting": "Hello, World!"}
+"summary = `Total: ${count} items`";{"count": 42};{"summary": "Total: 42 items"}
+
+# Assignment with return value
+"user.name = 'Eve'; user.name";{};'Eve'
+"config.debug = true; config.env = 'dev'; config";{};{"debug": true, "env": "dev"}
+"config.debug = true; config.env = 'dev'; $root";{};{"config": {"debug": true, "env": "dev"}}
+"a = 5; b = 10; a + b";{};15
+
+# Closure 'as' alias syntax
+map(products as p, p.price);{"products": [{"name": "A", "price": 10}, {"name": "B", "price": 20}]};[10, 20]
+filter(products as p, p.price > 15);{"products": [{"name": "A", "price": 10}, {"name": "B", "price": 20}]};[{"name": "B", "price": 20}]
+some(items as i, i.active);{"items": [{"active": false}, {"active": true}]};true
+all(items as i, i.value > 0);{"items": [{"value": 1}, {"value": 2}]};true
+none(items as i, i.value < 0);{"items": [{"value": 1}, {"value": 2}]};true
+count(items as i, i.value > 1);{"items": [{"value": 1}, {"value": 2}, {"value": 3}]};2
+one(items as i, i.id == 2);{"items": [{"id": 1}, {"id": 2}, {"id": 3}]};true
+flatMap(groups as g, g.items);{"groups": [{"items": [1, 2]}, {"items": [3, 4]}]};[1, 2, 3, 4]
+
+# Nested closures with 'as' aliases
+map(orders as o, map(o.items as i, i.qty));{"orders": [{"items": [{"qty": 1}, {"qty": 2}]}, {"items": [{"qty": 3}]}]};[[1, 2], [3]]
+map(orders as o, map(o.items as i, o.id + i.qty));{"orders": [{"id": 10, "items": [{"qty": 1}, {"qty": 2}]}]};[[11, 12]]
+filter(orders as o, some(o.items as i, i.qty > 2));{"orders": [{"id": 1, "items": [{"qty": 1}]}, {"id": 2, "items": [{"qty": 3}]}]};[{"id": 2, "items": [{"qty": 3}]}]
+
+# Mixed # and 'as' alias
+map(orders as o, map(o.items, #.qty));{"orders": [{"items": [{"qty": 5}, {"qty": 6}]}]};[[5, 6]]
+map(items, #.value * 2);{"items": [{"value": 1}, {"value": 2}]};[2, 4]
+
+# Backwards compatibility - # still works
+map([1, 2, 3], # * 2);;[2, 4, 6]
+filter([1, 2, 3, 4], # > 2);;[3, 4]

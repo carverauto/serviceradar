@@ -4,7 +4,16 @@ This directory contains the Helm configuration for the BuildBuddy executor deplo
 
 ## Overview
 
-The BuildBuddy executors connect to the remote BuildBuddy instance at `remote.buildbuddy.io` to provide Remote Build Execution (RBE) capabilities for the Bazel builds.
+The BuildBuddy executors connect to the org's own BuildBuddy instance at
+`grpcs://carverauto.buildbuddy.io:443` (`config.executor.app_target` in `values.yaml`) to
+provide Remote Build Execution (RBE) for the Bazel builds.
+
+**Not** `remote.buildbuddy.io` — that is BuildBuddy's shared cloud, a different frontend
+(34.98.106.0 vs 34.98.126.170). The executor's `app_target` and the Bazel client's
+`--remote_executor` must name the *same* instance: the fleet registers with that instance's
+scheduler, so if they diverge the executors sit idle and the build silently runs somewhere
+else. The client side lives in `//.bazelrc` under `build:remote_base`, which every remote
+profile (`ci`, `remote`, `el9`) inherits.
 
 ## Configuration
 
@@ -117,6 +126,14 @@ kubectl create secret generic buildbuddy-api-key \
 helm upgrade --install buildbuddy buildbuddy/buildbuddy-executor \
   -n buildbuddy \
   -f k8s/buildbuddy/values.yaml
+```
+
+### Add auto scalar
+
+```bash
+kubectl apply -f k8s/buildbuddy/scaledobject.yaml
+
+kubectl get scaledobject,hpa -n buildbuddy
 ```
 
 ### Verify Status

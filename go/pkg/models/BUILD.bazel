@@ -17,7 +17,9 @@ go_library(
 go_test(
     name = "models_test",
     srcs = [
+        "auth_test.go",
         "service_device_test.go",
+        "sweep_deepcopy_test.go",
         "sync_test.go",
         "utils_test.go",
     ],

@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
 
   setup do

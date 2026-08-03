@@ -364,7 +364,7 @@ pub(crate) fn layout_nodes_layered(
     edges: &[(u32, u32)],
     node_weights: &[u32],
 ) -> Vec<(u16, u16)> {
-    let count = node_count as usize;
+    let count = node_count;
     if count == 0 {
         return Vec::new();
     }

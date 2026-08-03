@@ -427,6 +427,330 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert payload.insecure_skip_verify == true
   end
 
+  test "reuses a live active session for the same camera and stream profile" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    existing_session_id = Ecto.UUID.generate()
+
+    existing = %{
+      id: existing_session_id,
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      status: :active,
+      viewer_count: 2,
+      lease_expires_at: DateTime.add(DateTime.utc_now(), 30, :second),
+      updated_at: DateTime.utc_now()
+    }
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: fn ^camera_source_id ->
+                 {:ok,
+                  %{
+                    id: camera_source_id,
+                    assigned_agent_id: "agent-1",
+                    assigned_gateway_id: "gateway-1"
+                  }}
+               end,
+               profile_fetcher: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, %{id: stream_profile_id, camera_source_id: camera_source_id}}
+               end,
+               live_session_finder: fn ^camera_source_id, ^stream_profile_id ->
+                 send(parent, :live_lookup)
+                 {:ok, [existing]}
+               end,
+               control_gateway_resolver: current_gateway_resolver(),
+               session_creator: fn _attrs, _actor ->
+                 flunk("session_creator should not run when reusing a live session")
+               end,
+               dispatch_open: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_open should not run when reusing a live session")
+               end,
+               session_loader: fn ^existing_session_id ->
+                 send(parent, {:session_load, existing_session_id})
+                 {:ok, existing}
+               end
+             )
+
+    assert session.id == existing_session_id
+    assert session.status == :active
+    assert_receive :live_lookup
+    assert_receive {:session_load, ^existing_session_id}
+  end
+
+  test "opens a new edge session when force_new is set even if a live session exists" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    existing_session_id = Ecto.UUID.generate()
+    new_session_id = Ecto.UUID.generate()
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               force_new: true,
+               source_fetcher: fn ^camera_source_id ->
+                 {:ok,
+                  %{
+                    id: camera_source_id,
+                    assigned_agent_id: "agent-1",
+                    assigned_gateway_id: "gateway-1"
+                  }}
+               end,
+               profile_fetcher: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, %{id: stream_profile_id}}
+               end,
+               live_session_finder: fn _source_id, _profile_id ->
+                 flunk("live_session_finder should not run when force_new is set")
+               end,
+               control_gateway_resolver: current_gateway_resolver(),
+               session_creator: fn attrs, _actor ->
+                 send(parent, {:session_create, attrs})
+                 {:ok, Map.put(attrs, :id, new_session_id)}
+               end,
+               dispatch_open: fn _agent_id, _payload, _opts, _actor ->
+                 send(parent, :dispatch_open)
+                 {:ok, Ecto.UUID.generate()}
+               end,
+               mark_opening: fn session, command_id, lease_token, lease_expires_at, _actor ->
+                 {:ok,
+                  Map.merge(session, %{
+                    command_id: command_id,
+                    lease_token: lease_token,
+                    lease_expires_at: lease_expires_at,
+                    status: :opening
+                  })}
+               end,
+               session_loader: fn ^new_session_id ->
+                 {:ok,
+                  %{
+                    id: new_session_id,
+                    status: :opening,
+                    agent_id: "agent-1",
+                    gateway_id: "gateway-1"
+                  }}
+               end
+             )
+
+    assert session.id == new_session_id
+    assert session.id != existing_session_id
+    assert_receive {:session_create, _attrs}
+    assert_receive :dispatch_open
+  end
+
+  test "does not reuse an active session with an expired lease" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    new_session_id = Ecto.UUID.generate()
+
+    expired_active = %{
+      id: Ecto.UUID.generate(),
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      status: :active,
+      viewer_count: 1,
+      media_ingest_id: "core-media-zombie",
+      lease_expires_at: DateTime.add(DateTime.utc_now(), -3600, :second),
+      updated_at: DateTime.add(DateTime.utc_now(), -86_400, :second)
+    }
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: fn ^camera_source_id ->
+                 {:ok,
+                  %{
+                    id: camera_source_id,
+                    assigned_agent_id: "agent-1",
+                    assigned_gateway_id: "gateway-1"
+                  }}
+               end,
+               profile_fetcher: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, %{id: stream_profile_id}}
+               end,
+               live_session_finder: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, [expired_active]}
+               end,
+               control_gateway_resolver: current_gateway_resolver(),
+               session_creator: fn attrs, _actor ->
+                 send(parent, :session_create)
+                 {:ok, Map.put(attrs, :id, new_session_id)}
+               end,
+               dispatch_open: fn _agent_id, _payload, _opts, _actor ->
+                 send(parent, :dispatch_open)
+                 {:ok, Ecto.UUID.generate()}
+               end,
+               mark_opening: fn session, command_id, lease_token, lease_expires_at, _actor ->
+                 {:ok,
+                  Map.merge(session, %{
+                    command_id: command_id,
+                    lease_token: lease_token,
+                    lease_expires_at: lease_expires_at,
+                    status: :opening
+                  })}
+               end,
+               session_loader: fn ^new_session_id ->
+                 {:ok, %{id: new_session_id, status: :opening}}
+               end
+             )
+
+    assert session.id == new_session_id
+    assert_receive :session_create
+    assert_receive :dispatch_open
+  end
+
+  test "does not reuse a live session assigned to a different agent or gateway" do
+    parent = self()
+    camera_source_id = Ecto.UUID.generate()
+    stream_profile_id = Ecto.UUID.generate()
+    new_session_id = Ecto.UUID.generate()
+
+    stale = %{
+      id: Ecto.UUID.generate(),
+      camera_source_id: camera_source_id,
+      stream_profile_id: stream_profile_id,
+      agent_id: "agent-old",
+      gateway_id: "gateway-old",
+      status: :active,
+      viewer_count: 1,
+      lease_expires_at: DateTime.add(DateTime.utc_now(), 30, :second)
+    }
+
+    assert {:ok, session} =
+             RelaySessionManager.request_open(camera_source_id, stream_profile_id,
+               source_fetcher: fn ^camera_source_id ->
+                 {:ok,
+                  %{
+                    id: camera_source_id,
+                    assigned_agent_id: "agent-1",
+                    assigned_gateway_id: "gateway-1"
+                  }}
+               end,
+               profile_fetcher: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, %{id: stream_profile_id}}
+               end,
+               live_session_finder: fn ^camera_source_id, ^stream_profile_id ->
+                 {:ok, [stale]}
+               end,
+               control_gateway_resolver: current_gateway_resolver(),
+               session_creator: fn attrs, _actor ->
+                 send(parent, :session_create)
+                 {:ok, Map.put(attrs, :id, new_session_id)}
+               end,
+               dispatch_open: fn _agent_id, _payload, _opts, _actor ->
+                 send(parent, :dispatch_open)
+                 {:ok, Ecto.UUID.generate()}
+               end,
+               mark_opening: fn session, command_id, lease_token, lease_expires_at, _actor ->
+                 {:ok,
+                  Map.merge(session, %{
+                    command_id: command_id,
+                    lease_token: lease_token,
+                    lease_expires_at: lease_expires_at,
+                    status: :opening
+                  })}
+               end,
+               session_loader: fn ^new_session_id ->
+                 {:ok, %{id: new_session_id, status: :opening}}
+               end
+             )
+
+    assert session.id == new_session_id
+    assert_receive :session_create
+    assert_receive :dispatch_open
+  end
+
+  test "retains a shared edge session when a soft viewer disconnect still has viewers" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         agent_id: "agent-2",
+         gateway_id: "gateway-2",
+         status: :active,
+         viewer_count: 2
+       }}
+    end
+
+    session_loader = fn ^relay_session_id ->
+      send(parent, {:session_load, relay_session_id})
+
+      {:ok,
+       %{
+         id: relay_session_id,
+         agent_id: "agent-2",
+         gateway_id: "gateway-2",
+         status: :active,
+         viewer_count: 2
+       }}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               reason: "viewer closed device details",
+               session_fetcher: session_fetcher,
+               mark_closing: fn _session, _reason, _actor ->
+                 flunk("mark_closing should not run while viewers remain")
+               end,
+               dispatch_close: fn _agent_id, _payload, _opts, _actor ->
+                 flunk("dispatch_close should not run while viewers remain")
+               end,
+               session_loader: session_loader
+             )
+
+    assert session.status == :active
+    assert_receive {:session_load, ^relay_session_id}
+  end
+
+  test "idle timeout still closes a shared edge session even when viewer_count is stale" do
+    parent = self()
+    relay_session_id = Ecto.UUID.generate()
+
+    session_fetcher = fn ^relay_session_id ->
+      {:ok,
+       %{
+         id: relay_session_id,
+         agent_id: "agent-2",
+         gateway_id: "gateway-2",
+         status: :active,
+         viewer_count: 1
+       }}
+    end
+
+    mark_closing = fn session, reason, _actor ->
+      send(parent, {:mark_closing, session.id, reason})
+      {:ok, Map.put(session, :status, :closing)}
+    end
+
+    dispatch_close = fn agent_id, payload, _opts, _actor ->
+      send(parent, {:dispatch_close, agent_id, payload})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    assert {:ok, session} =
+             RelaySessionManager.request_close(relay_session_id,
+               reason: "viewer idle timeout",
+               session_fetcher: session_fetcher,
+               mark_closing: mark_closing,
+               dispatch_close: dispatch_close,
+               session_loader: fn ^relay_session_id ->
+                 {:ok, %{id: relay_session_id, status: :closing}}
+               end
+             )
+
+    assert session.status == :closing
+    assert_receive {:mark_closing, ^relay_session_id, "viewer idle timeout"}
+    assert_receive {:dispatch_close, "agent-2", payload}
+    assert payload.reason == "viewer idle timeout"
+  end
+
   test "requests close and dispatches a stop command" do
     parent = self()
     relay_session_id = Ecto.UUID.generate()

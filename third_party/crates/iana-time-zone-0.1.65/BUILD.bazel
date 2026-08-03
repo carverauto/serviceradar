@@ -34,9 +34,87 @@ rust_library(
             "WORKSPACE.bazel",
         ],
     ),
-    crate_features = [
-        "fallback",
-    ],
+    crate_features = select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "fallback",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "fallback",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "fallback",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "fallback",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "fallback",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "fallback",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "fallback",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "fallback",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "fallback",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "fallback",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "fallback",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "fallback",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "fallback",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "fallback",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "fallback",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "fallback",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "fallback",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "fallback",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:wasm32-unknown-emscripten": [
+            "fallback",  # wasm32-unknown-emscripten
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "fallback",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "fallback",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "fallback",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "fallback",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "fallback",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "fallback",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "fallback",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [

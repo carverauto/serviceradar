@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-f@bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/protobuf+/upb/message/libcopy.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:\bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/protobuf+/upb/message/libcopy.a

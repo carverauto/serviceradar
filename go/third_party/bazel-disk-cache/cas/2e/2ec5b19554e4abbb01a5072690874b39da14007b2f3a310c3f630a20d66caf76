@@ -1,5 +1,0 @@
-
-	/bin/bash
--c
-Žsource external/bazel_tools/tools/genrule/genrule-setup.sh; bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/compiler/protoc_minimal --plugin=protoc-gen-upb_minitable=bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/minitable/protoc-gen-upb_minitable_stage0 -I$(dirname external/protobuf+/src/google/protobuf/descriptor.proto)/../.. --upb_minitable_out=bootstrap_stage=1:bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb/reflection/stage1 google/protobuf/descriptor.proto$
-PATH/bin:/usr/bin:/usr/local/bin:wbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb/reflection/stage1/google/protobuf/descriptor.upb_minitable.c:wbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb/reflection/stage1/google/protobuf/descriptor.upb_minitable.h

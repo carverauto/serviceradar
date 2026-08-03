@@ -1,6 +1,8 @@
 defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   import ExUnit.CaptureLog
 
   alias ServiceRadar.AgentCommands.StatusHandler

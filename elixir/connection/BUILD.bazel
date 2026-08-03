@@ -1,3 +1,5 @@
+load("@serviceradar//build:mix_app.bzl", "mix_app")
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -26,4 +28,16 @@ filegroup(
         ],
         allow_empty = True,
     ),
+)
+
+# Compiled by Mix inside a single hermetic Bazel action, with dependencies supplied as
+# Bazel-built ErlangAppInfo rather than fetched. See //build:mix_app.bzl.
+mix_app(
+    name = "erlang_app",
+    srcs = [":srcs"],
+    app_name = "connection",
+    deps = [
+        "@hex_boundary//:erlang_app",
+        "@rules_elixir//elixir",
+    ],
 )

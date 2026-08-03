@@ -45,9 +45,294 @@ rust_library(
         "sink",
         "slab",
         "std",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "async-await",  # aarch64-apple-darwin
+            "async-await-macro",  # aarch64-apple-darwin
+            "futures-macro",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "async-await",  # aarch64-apple-ios
+            "async-await-macro",  # aarch64-apple-ios
+            "futures-macro",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "async-await",  # aarch64-apple-ios-sim
+            "async-await-macro",  # aarch64-apple-ios-sim
+            "futures-macro",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "async-await",  # aarch64-linux-android
+            "async-await-macro",  # aarch64-linux-android
+            "futures-macro",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "async-await",  # aarch64-pc-windows-msvc
+            "async-await-macro",  # aarch64-pc-windows-msvc
+            "futures-macro",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "async-await",  # aarch64-unknown-fuchsia
+            "async-await-macro",  # aarch64-unknown-fuchsia
+            "futures-macro",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "async-await",  # aarch64-unknown-linux-gnu
+            "async-await-macro",  # aarch64-unknown-linux-gnu
+            "futures-macro",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "async-await",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "async-await-macro",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "futures-macro",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "async-await",  # aarch64-unknown-nto-qnx710
+            "async-await-macro",  # aarch64-unknown-nto-qnx710
+            "futures-macro",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [
+            "async-await",  # aarch64-unknown-uefi
+            "async-await-macro",  # aarch64-unknown-uefi
+            "futures-macro",  # aarch64-unknown-uefi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "async-await",  # arm-unknown-linux-gnueabi
+            "async-await-macro",  # arm-unknown-linux-gnueabi
+            "futures-macro",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "async-await",  # armv7-linux-androideabi
+            "async-await-macro",  # armv7-linux-androideabi
+            "futures-macro",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "async-await",  # armv7-unknown-linux-gnueabi
+            "async-await-macro",  # armv7-unknown-linux-gnueabi
+            "futures-macro",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "async-await",  # i686-apple-darwin
+            "async-await-macro",  # i686-apple-darwin
+            "futures-macro",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "async-await",  # i686-linux-android
+            "async-await-macro",  # i686-linux-android
+            "futures-macro",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "async-await",  # i686-pc-windows-msvc
+            "async-await-macro",  # i686-pc-windows-msvc
+            "futures-macro",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "async-await",  # i686-unknown-freebsd
+            "async-await-macro",  # i686-unknown-freebsd
+            "futures-macro",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "async-await",  # i686-unknown-linux-gnu
+            "async-await-macro",  # i686-unknown-linux-gnu
+            "futures-macro",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "async-await",  # powerpc-unknown-linux-gnu
+            "async-await-macro",  # powerpc-unknown-linux-gnu
+            "futures-macro",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
+            "async-await",  # riscv32imc-unknown-none-elf
+            "async-await-macro",  # riscv32imc-unknown-none-elf
+            "futures-macro",  # riscv32imc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "async-await",  # riscv64gc-unknown-linux-gnu
+            "async-await-macro",  # riscv64gc-unknown-linux-gnu
+            "futures-macro",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
+            "async-await",  # riscv64gc-unknown-none-elf
+            "async-await-macro",  # riscv64gc-unknown-none-elf
+            "futures-macro",  # riscv64gc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "async-await",  # s390x-unknown-linux-gnu
+            "async-await-macro",  # s390x-unknown-linux-gnu
+            "futures-macro",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabi": [
+            "async-await",  # thumbv7em-none-eabi
+            "async-await-macro",  # thumbv7em-none-eabi
+            "futures-macro",  # thumbv7em-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
+            "async-await",  # thumbv8m.main-none-eabi
+            "async-await-macro",  # thumbv8m.main-none-eabi
+            "futures-macro",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "async-await",  # x86_64-apple-darwin
+            "async-await-macro",  # x86_64-apple-darwin
+            "futures-macro",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "async-await",  # x86_64-apple-ios
+            "async-await-macro",  # x86_64-apple-ios
+            "futures-macro",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "async-await",  # x86_64-linux-android
+            "async-await-macro",  # x86_64-linux-android
+            "futures-macro",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "async-await",  # x86_64-pc-windows-msvc
+            "async-await-macro",  # x86_64-pc-windows-msvc
+            "futures-macro",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "async-await",  # x86_64-unknown-freebsd
+            "async-await-macro",  # x86_64-unknown-freebsd
+            "futures-macro",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "async-await",  # x86_64-unknown-fuchsia
+            "async-await-macro",  # x86_64-unknown-fuchsia
+            "futures-macro",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "async-await",  # x86_64-unknown-linux-gnu
+            "async-await-macro",  # x86_64-unknown-linux-gnu
+            "futures-macro",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "async-await",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "async-await-macro",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "futures-macro",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-none": [
+            "async-await",  # x86_64-unknown-none
+            "async-await-macro",  # x86_64-unknown-none
+            "futures-macro",  # x86_64-unknown-none
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [
+            "async-await",  # x86_64-unknown-uefi
+            "async-await-macro",  # x86_64-unknown-uefi
+            "futures-macro",  # x86_64-unknown-uefi
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2018",
+    proc_macro_deps = select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-apple-ios
+        ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-apple-ios-sim
+        ],
+        "@rules_rust//rust/platform:aarch64-linux-android": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-linux-android
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-unknown-nto-qnx710
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-uefi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # aarch64-unknown-uefi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:armv7-linux-androideabi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # armv7-linux-androideabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-apple-darwin": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # i686-apple-darwin
+        ],
+        "@rules_rust//rust/platform:i686-linux-android": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # i686-linux-android
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-freebsd": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # i686-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # riscv32imc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # riscv64gc-unknown-none-elf
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # thumbv7em-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-linux-android": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-linux-android
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-fuchsia
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-none": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-none
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-uefi": [
+            "//third_party/crates/futures-macro-0.3.33:futures_macro",  # x86_64-unknown-uefi
+        ],
+        "//conditions:default": [],
+    }),
     rustc_env_files = [
         ":cargo_toml_env_vars",
     ],

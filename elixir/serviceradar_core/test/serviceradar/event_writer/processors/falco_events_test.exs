@@ -1,6 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.FalcoEvents
 

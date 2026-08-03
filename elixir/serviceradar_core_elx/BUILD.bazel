@@ -1,4 +1,5 @@
-load("//build:mix_release.bzl", "mix_release")
+load("@serviceradar//build:mix_app.bzl", "mix_app")
+load("//build:elixir_release.bzl", "elixir_release")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -23,61 +24,97 @@ filegroup(
     ] + glob(["config/**"]),
 )
 
-mix_release(
-    name = "release_tar",
+
+CORE_ELX_DEPS = [
+    "//elixir/elixir_uuid:erlang_app",
+    "//elixir/serviceradar_core:erlang_app_prod",
+    "//elixir/vendor/boombox:erlang_app",
+    "@hex_bandit//:erlang_app",
+    "@hex_boundary//:erlang_app",
+    "@hex_bundlex//:erlang_app",
+    "@hex_credo//:erlang_app",
+    "@hex_decimal//:erlang_app",
+    "@hex_grpc//:erlang_app",
+    "@hex_gun//:erlang_app",
+    "@hex_libcluster//:erlang_app",
+    "@hex_membrane_core//:erlang_app",
+    "@hex_membrane_mpeg_ts_plugin//:erlang_app",
+    "@hex_membrane_webrtc_plugin//:erlang_app",
+    "@hex_mpeg_ts//:erlang_app",
+    "@hex_numbers//:erlang_app",
+    "@hex_plug//:erlang_app",
+    "@hex_protobuf//:erlang_app",
+    "@hex_req//:erlang_app",
+    "@hex_swoosh//:erlang_app",
+    "@hex_telemetry_metrics_prometheus_core//:erlang_app",
+    "@rules_elixir//elixir",
+]
+
+# The release RECIPE: mix.exs supplies releases/0, config/ and rel/ supply the templates
+# `mix release` renders. Compiled code arrives through :erlang_app_prod.
+filegroup(
+    name = "release_recipe",
+    srcs = [
+        "mix.exs",
+        "mix.lock",
+    ] + glob(
+        [
+            "config/**",
+            "rel/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+# core_elx compiled by Mix inside a hermetic Bazel action.
+#
+# This project had no mix_app at all until now. Its Membrane dependencies build native
+# code through Bundlex, which reads its dependencies' SOURCE bundlex.exs and resolves them
+# through Mix.Project.deps_paths/0 -- a map Mix populates from mix.lock, not from each
+# package's mix.exs. Hex tarballs ship no lock, so the whole stack was unbuildable and this
+# project stayed on the non-hermetic mix_release path. See //build:mix_app.bzl.
+#
+# There is no :test variant: nothing runs ExUnit against core_elx under Bazel today, and a
+# second env would compile the entire Membrane stack twice.
+mix_app(
+    name = "erlang_app_prod",
     srcs = [":srcs"],
-    bootstrap_srcs = [":deps_srcs"],
+    app_name = "serviceradar_core_elx",
+    # Bazel builds the cdylibs; Mix must not shell out to cargo. The libraries reach the
+    # release through serviceradar_core's own priv.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    ],
+    mix_env = "prod",
+    deps = CORE_ELX_DEPS,
+)
+
+# Assembly-only release: no deps.get, no recompilation, no cargo, no network, and no
+# precompiled_os_deps -- the Membrane native code is built by the mix_app targets above,
+# so the release action no longer needs the Bundlex OS-dep tarballs.
+elixir_release(
+    name = "release_tar",
+    srcs = [
+        ":release_recipe",
+        # Mix reads each PATH dependency's mix.exs to learn its app name and version.
+        # vendor/boombox lives inside this project, so :release_recipe does not cover it.
+        "vendor/boombox/mix.exs",
+        "//elixir/connection:mix.exs",
+        "//elixir/elixir_uuid:mix.exs",
+        "//elixir/serviceradar_core:mix.exs",
+        "//elixir/serviceradar_srql:mix.exs",
+        "//elixir/vendor/opentelemetry_oban:mix.exs",
+    ],
+    app = ":erlang_app_prod",
     out = "serviceradar-core-elx-release.tar.gz",
-    src_dir = "elixir/serviceradar_core_elx",
-    run_assets = False,
-    extra_dirs = [
-        "addons/bumblebee-scan",
-        "addons/scalibr-endpoint-inventory",
-        "addons/netprobe",
-        "addons/otel-collector",
-        "addons/workload-identity",
-        "elixir/connection",
-        "elixir/elixir_uuid",
-        "elixir/serviceradar_core",
-        "elixir/serviceradar_srql",
-        "elixir/vendor/opentelemetry_oban",
-        "proto",
-        "rust/anomaly-core",
-        "rust/anomaly-disposition",
-        "rust/kvutil",
-        "rust/srql",
+    # Must match what :erlang_app_prod compiled with -- `mix release` refuses to assemble
+    # when an Application.compile_env/2 key differs between compile and release time.
+    extra_config = [
+        "config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
+        "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
-    extra_dir_srcs = [
-        "//addons/bumblebee-scan:bumblebee_scan_manifest",
-        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-        "//addons/netprobe:netprobe_manifest",
-        "//addons/otel-collector:otel_collector_manifest",
-        "//addons/workload-identity:workload_identity_manifest",
-        "//elixir/connection:srcs",
-        "//elixir/elixir_uuid:srcs",
-        "//elixir/serviceradar_core:srcs",
-        "//elixir/serviceradar_srql:srcs",
-        "//elixir/vendor/opentelemetry_oban:srcs",
-        "//proto:kv_proto_src",
-        "//rust/anomaly-core:srcs",
-        "//rust/anomaly-disposition:srcs",
-        "//rust/kvutil:srcs",
-        "//rust/srql:srcs",
-    ],
-    # Membrane precompiled OS-dep tarballs (x86_64 linux), pinned in MODULE.bazel.
-    # Staged into the sandbox and copied by Bundlex's patched download/2 so
-    # `mix deps.compile` does not need github.com egress on the CI runner.
-    precompiled_os_deps = [
-        "@membrane_precompiled_fdk_aac//file",
-        "@membrane_precompiled_lame//file",
-        "@membrane_precompiled_mad//file",
-        "@membrane_precompiled_opus//file",
-        "@membrane_precompiled_portaudio//file",
-        "@membrane_precompiled_sdl2//file",
-        "@membrane_precompiled_libvpx//file",
-        "@membrane_precompiled_srt//file",
-        "@membrane_precompiled_srtp//file",
-        "@membrane_precompiled_ffmpeg//file",
-    ],
-    workdir_name = "serviceradar_core_elx",
+    release_name = "serviceradar_core_elx",
 )
