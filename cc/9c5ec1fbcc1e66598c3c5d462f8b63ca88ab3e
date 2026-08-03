@@ -1,0 +1,32 @@
+buildbuddy_setup_fixture_env.sh
+  s_d2089df286db69::t_4ebcf481665a17 168-193
+  s_d2089df286db69::t_5ea5d1e21c54eb 22-33
+openspec/notes/bazel-bb-ci.md
+  s_d2089df286db69::t_b346da8dc314fd 155-169
+  s_d2089df286db69::t_3dba57ce9770fe 126-154
+  s_d2089df286db69::t_feffae0b6bdace 173-196,200-202
+  s_d2089df286db69::t_329a597082cbd2 94
+  s_d2089df286db69::t_b7242df0a780fd 93
+  s_d2089df286db69::t_e18516112d8725 203
+rust/integration-db/BUILD.bazel
+  s_d2089df286db69::t_fe182664b30842 64-72,76-79
+elixir/serviceradar_core/BUILD.bazel
+  s_d2089df286db69::t_356540e6c71299 417-423
+  s_d2089df286db69::t_8ea9b1f57045bb 356-378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "cc9c5ec1fbcc1e66598c3c5d462f8b63ca88ab3e",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
