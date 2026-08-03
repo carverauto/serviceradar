@@ -1,0 +1,22 @@
+buildbuddy.yaml
+  s_d2089df286db69::t_8caa94a414ae25 31-33,35
+  s_d2089df286db69::t_f6a22a86071dca 1-27
+k8s/buildbuddy/README.md
+  s_d2089df286db69::t_7fd32521edf7d6 233-235,237-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "8405b3da5aa64ab47ea142aa9001d05eba9ad07f",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
