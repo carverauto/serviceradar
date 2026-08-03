@@ -65,7 +65,6 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
           :ok
           | {:error, failure()}
           | {:error, precondition_failure()}
-          | {:error, precondition_failure()}
 
   @typedoc "Rejections raised before correlation is reached."
   @type payload_failure ::
@@ -256,12 +255,19 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   # RECOVERY_CONTROL on a sweep record is refused by the reserved lane, BEFORE the
   # correlation. It and INTEGRATION_RUN are both outside the mapping's range, but
   # they are NOT a matching pair: only INTEGRATION_RUN reaches correlation.
-  defp recovery_lane(record) do
-    case get_in_struct(record, [:source_authorization, :kind]) do
+  # STRUCTURE FIRST. Reading the kind off any shape would let a malformed
+  # authorization that happens to carry RECOVERY_CONTROL be reported as a lane
+  # rejection instead of the structural failure it is.
+  defp recovery_lane(%EdgeRecordV1{source_authorization: nil}), do: :ok
+
+  defp recovery_lane(%EdgeRecordV1{source_authorization: %EdgeSourceAuthorizationV1{} = sa}) do
+    case sa.kind do
       :EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL -> {:error, {:recovery_lane, :kind}}
       _ -> :ok
     end
   end
+
+  defp recovery_lane(_), do: {:error, {:precondition, :malformed_record}}
 
   defp source_claims(record, row) do
     case Map.get(record, :source_authorization) do
@@ -372,55 +378,65 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   # The collection window is INCLUSIVE at both endpoints. This is the
   # EdgeSourceClaimsV1 window; EdgeAssignmentExecutionClaimsV1 declares fields with
   # the same two names and they are HALF-OPEN.
+  # The signed window is read ONCE, here. Validating it per path would leave the
+  # host and trace `:malformed` branches UNREACHABLE -- batch_time consumes the same
+  # two endpoints first -- so those branches would be dead code that no vector could
+  # exercise. Resolving the bounds up front removes them instead of testing them.
   defp times(claims, batch) do
-    with :ok <- batch_time(claims, batch) do
-      hosts(claims, batch)
+    with {:ok, window} <- window_bounds(claims),
+         :ok <- batch_time(window, batch) do
+      hosts(window, batch)
     end
   end
 
-  defp batch_time(claims, batch) do
+  defp window_bounds(claims) do
+    with {:ok, lo} <- int(claims, :collection_not_before_unix_nano),
+         {:ok, hi} <- int(claims, :collection_expires_unix_nano) do
+      {:ok, {lo, hi}}
+    else
+      :malformed -> {:error, {:precondition, :malformed_record}}
+    end
+  end
+
+  defp batch_time(window, batch) do
     case int(batch, :observed_at_unix_nano) do
       :malformed ->
         {:error, {:precondition, :malformed_batch}}
 
       {:ok, ns} ->
-        case within?(ns, claims) do
-          {:ok, true} -> :ok
-          {:ok, false} -> {:error, {:correlation, :batch_time_window}}
-          :malformed -> {:error, {:precondition, :malformed_record}}
-        end
+        if within?(ns, window), do: :ok, else: {:error, {:correlation, :batch_time_window}}
     end
   end
 
-  defp hosts(claims, batch) do
+  defp hosts(window, batch) do
     case Map.get(batch, :hosts) do
-      list when is_list(list) -> reduce_hosts(claims, batch, list)
+      list when is_list(list) -> reduce_hosts(window, batch, list)
       _ -> {:error, {:precondition, :malformed_batch}}
     end
   end
 
-  defp reduce_hosts(claims, batch, list) do
+  defp reduce_hosts(window, batch, list) do
     Enum.reduce_while(list, :ok, fn h, _ ->
-      case host(claims, batch, h) do
+      case host(window, batch, h) do
         :ok -> {:cont, :ok}
         err -> {:halt, err}
       end
     end)
   end
 
-  defp host(_claims, _batch, h) when not is_struct(h, SweepHostObservationV1),
+  defp host(_window, _batch, h) when not is_struct(h, SweepHostObservationV1),
     do: {:error, {:precondition, :malformed_batch}}
 
-  defp host(claims, batch, h) do
+  defp host(window, batch, h) do
     with {:ok, base} <- int(batch, :observed_at_unix_nano),
          {:ok, delta} <- int(h, :observed_at_delta_nano) do
-      host_times(claims, h, base, delta)
+      host_times(window, h, base, delta)
     else
       :malformed -> {:error, {:precondition, :malformed_batch}}
     end
   end
 
-  defp host_times(claims, h, base, delta) do
+  defp host_times(window, h, base, delta) do
     # OVERFLOW and OUT-OF-WINDOW are separate labels, so separate checks: a wrapped
     # sum can land INSIDE the window, so folding them reports the wrong reason for
     # exactly the case that matters.
@@ -429,15 +445,13 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
         {:error, {:correlation, :host_time_overflow}}
 
       {:ok, abs} ->
-        case within?(abs, claims) do
-          {:ok, true} -> mtr(claims, h)
-          {:ok, false} -> {:error, {:correlation, :host_time_window}}
-          :malformed -> {:error, {:precondition, :malformed_record}}
-        end
+        if within?(abs, window),
+          do: mtr(window, h),
+          else: {:error, {:correlation, :host_time_window}}
     end
   end
 
-  defp mtr(claims, h) do
+  defp mtr(window, h) do
     case Map.get(h, :mtr) do
       nil ->
         :ok
@@ -452,11 +466,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
               {:error, {:correlation, :trace_time_overflow}}
 
             {:ok, ns} ->
-              case within?(ns, claims) do
-                {:ok, true} -> :ok
-                {:ok, false} -> {:error, {:correlation, :trace_time_window}}
-                :malformed -> {:error, {:precondition, :malformed_record}}
-              end
+              if within?(ns, window), do: :ok, else: {:error, {:correlation, :trace_time_window}}
           end
         else
           :ok
@@ -471,17 +481,11 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @nanos_per_milli 1_000_000
   @max_uuid_v7_millis div(@int64_max, @nanos_per_milli)
 
-  # Returns {:ok, boolean} or :malformed. Collapsing :malformed to `false` would turn
-  # a malformed SIGNED WINDOW ENDPOINT into a genuine `batch_time_window` correlation
-  # verdict -- a precondition failure reported as a contract violation.
-  defp within?(ns, claims) when is_integer(ns) do
-    with {:ok, lo} <- int(claims, :collection_not_before_unix_nano),
-         {:ok, hi} <- int(claims, :collection_expires_unix_nano) do
-      {:ok, ns >= lo and ns <= hi}
-    end
-  end
-
-  defp within?(_ns, _claims), do: :malformed
+  # The window is ALREADY RESOLVED by window_bounds/1, so a malformed endpoint is a
+  # precondition failure raised once, before any path runs -- never a
+  # `batch_time_window` correlation verdict. INCLUSIVE at both ends.
+  defp within?(ns, {lo, hi}) when is_integer(ns), do: ns >= lo and ns <= hi
+  defp within?(_ns, _window), do: false
 
   # Numeric reads REFUSE rather than substitute. Coercing a malformed value to 0 is
   # FAIL-OPEN: it invents a time the record never carried, and can turn a structurally
@@ -525,10 +529,4 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
 
   defp bin(nil, _key), do: <<>>
   defp bin(m, key), do: Map.get(m, key) || <<>>
-
-  defp get_in_struct(nil, _path), do: nil
-  defp get_in_struct(m, []), do: m
-
-  defp get_in_struct(m, [k | rest]) when is_map(m), do: get_in_struct(Map.get(m, k), rest)
-  defp get_in_struct(_, _), do: nil
 end

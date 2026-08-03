@@ -71,9 +71,7 @@ here.
     lane-open/session handshake shapes are frozen in Appendix A and generated in both
     runtimes; the semantic-envelope digest and record validator are implemented and
     mutation-verified.
-  - REMAINING: see subtasks 1.1-a..b below; not restated here. Note the shared checked helper
-    `UUIDv7Nanos` already exists and `validateIdentityTime` already calls it -- 1.1-b owes the
-    VECTOR proving this call site rejects rather than wraps, not the fix.
+  - REMAINING: see subtasks 1.1-a..b below; not restated here.
   - DEPENDS ON: nothing open. 1.15 supplies the shared fixture corpus but does not gate the
     local vector.
   - EVIDENCE: `go/pkg/edge/edgerecord/validate.go`, `proto/edge/v1/record.proto`,
@@ -81,7 +79,10 @@ here.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.1-a the typed Hello carrier
-  - [ ] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3)
+  - [ ] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3). The
+        shared checked helper `UUIDv7Nanos` exists and `validateIdentityTime` calls it, so
+        what is owed is the VECTOR proving this call site rejects rather than wraps -- not
+        the fix
 
 - [ ] 1.2 Add compact `SweepObservationBatchV1` and mergeable
   host/ICMP/TCP/MTR-summary messages with exact `(mode, protocol, port)` check
@@ -100,10 +101,8 @@ here.
   - DEPENDS ON: NOTHING OPEN. 1.2-c consumes the matrix semantics ALREADY LANDED in #4779;
     it adds no new matrix semantics and does not depend on 1.3-f. The only edge in this
     direction is 1.3-f -> 1.2-c.
-  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`, and — for the
-    CORRELATION half that 1.3-f owns —
-    `elixir/serviceradar_core/lib/serviceradar/edge/sweep_correlate.ex` with its
-    `test/serviceradar/edge/sweep_correlate_test.exs`.
+  - EVIDENCE: `proto/edge/v1/sweep.proto` and `ValidateSweepObservationBatch`. The
+    CORRELATION half is 1.3-f's; its evidence is listed under task 1.3, not duplicated here.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.2-a field-by-field closeout audit against what shipped
@@ -209,7 +208,8 @@ here.
         validator as a PRECONDITION, and a vector CANNOT satisfy a last-gate proof by
         stating that an unenforced precondition occurred. 1.3-f SHALL NOT be checked before
         1.2-c. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
-        matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c. The BASELINE regeneration is already LANDED: making the
+        matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c.
+        The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
         resulting fixture changes are reviewed there. 1.3-f OWNS these vectors; task 1.15
         ACKNOWLEDGES them as parity evidence (1.15-b) and does not own them
@@ -264,9 +264,9 @@ here.
     validators (#4777), the correlation-matrix design (#4779), matrix slice 1 -- 1.3-a and
     1.3-b, with the shared `UUIDv7Nanos` helper -- matrix slice 2, 1.3-d and 1.3-e, and
     slice 3a's Elixir correlation peer (`SweepCorrelate`).
-    THE JOINT (label, gate) PROOF IS PARTIAL, NOT COMPLETE: it covers the nine correlation
-    labels plus the disposition label. The remaining proof is enumerated in 1.3-f's
-    checklist entry above and is not restated here.
+    THE JOINT (label, gate) PROOF IS PARTIAL, NOT COMPLETE. Its exact coverage and the
+    remaining proof are both stated in 1.3-f's checklist entry above; neither is restated
+    here.
   - REMAINING: 1.3-c and 1.3-f in the checklist ABOVE, which is CANONICAL for this task --
     including 1.3-f's four-item remainder. No other passage restates it, and this line does
     not either.
@@ -821,8 +821,8 @@ here.
 - [x] 1.13 Restack prerequisite -- IMPLEMENTED as the stacked CANDIDATE slices.
   SCOPE: item (7) is MOVED OUT to tasks 1.4/1.15 and is NOT delivered here, so no
   statement in this task asserts the generated `MtrCompletionDisposition` enum
-  exists or that the freeze prerequisite it represents is met -- task 1.4 has
-  since delivered the enum, but it was never 1.13's to claim. Slices:
+  exists or that the freeze prerequisite it represents is met: that enum is task 1.4's,
+  never 1.13's to claim. Slices:
   `usp-v2-02-wire-contract` (#4713), `usp-v2-03-ci-harness` (#4714), and
   `usp-v2-04-publication-identity` (#4715). This is a field/schema CANDIDATE (draft PRs,
   reviewable), NOT a frozen/accepted cross-runtime ABI: the freeze/accept gate is task 1.7
