@@ -1,0 +1,27 @@
+[package]
+name = "rust_decimal_macros"
+version = "1.40.0"
+authors = ["Paul Mason <paul@form1.co.nz>"]
+edition = "2021"
+description = "Shorthand macros to assist creating Decimal types."
+documentation = "https://docs.rs/rust_decimal/"
+repository = "https://github.com/paupino/rust-decimal"
+readme = "../README.md"
+keywords = ["decimal", "financial", "fixed", "precision"]
+categories = ["science", "data-structures"]
+license = "MIT"
+
+[dependencies]
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+
+[dev-dependencies]
+rust_decimal = { path = "..", default-features = false }
+trybuild = "1.0.55"
+
+[features]
+default = []
+reexportable = []
+
+[lib]
+proc-macro = true

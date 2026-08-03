@@ -11,6 +11,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: :incomplete]
 
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Plugins.AddonRolloutCoordinator
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Plugins.AddonRolloutWorker do
 
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 10), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
       )
 
     :ok

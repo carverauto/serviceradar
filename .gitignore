@@ -31,6 +31,12 @@ ctx/
 .local-dev-certs/
 third_party/bazel-disk-cache/
 third_party/bazel-repo-cache/
+# Both patterns above contain a slash, so git anchors them to the repo root. Running bazel
+# from a subdirectory writes a cache there instead, and nothing matched it: go/third_party/
+# accumulated 7,951 committed files and 860 MB on disk before anyone noticed. These two carry
+# no slash, so they match a directory of that name at any depth.
+bazel-disk-cache/
+bazel-repo-cache/
 docker/compose/creds/
 
 # Added by me
@@ -150,6 +156,11 @@ jspm_packages/
 
 pnpm-lock.yaml
 !web/pnpm-lock.yaml
+# Bazel input, not a developer artifact: npm_translate_lock in //MODULE.bazel resolves
+# @web_ng_npm from this file. Ignored, it is absent on every other checkout and in CI, and
+# //elixir/web-ng/assets:node_modules fails to fetch. rules_js generates it from
+# package-lock.json and instructs you to commit it.
+!elixir/web-ng/assets/pnpm-lock.yaml
 
 .vscode
 

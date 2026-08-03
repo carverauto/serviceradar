@@ -94,11 +94,34 @@ cnpg_key =
   System.get_env("CNPG_KEY_FILE") ||
     (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation-key.pem"))
 
+# The fixture CA, preferring the certificate ITSELF over a path to it.
+#
+# `*_CA_CERT` carries the PEM; `*_CA_CERT_FILE` carries a filesystem path. Only the content
+# form works on a remote executor: a path names a file on the machine that launched the
+# build, and an RBE worker has no such file. Reading the path is what forced `no-remote-exec`
+# onto every fixture-touching target.
+#
+# The CA cannot become a declared Bazel input instead -- it is a CNPG cluster cert on a
+# 90-day rotation, so a committed copy would expire on a calendar rather than on a change.
+#
+# The previous chain listed the CONTENT variables as fallbacks for `ssl_ca` and then passed
+# the result as `:cacertfile`, i.e. handed a whole PEM where a filename was expected. That
+# only ever worked because the `_FILE` variables happened to be set alongside them.
+ca_pem =
+  System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
+    System.get_env("SRQL_TEST_DATABASE_CA_CERT")
+
+ca_certs =
+  if is_binary(ca_pem) and String.trim(ca_pem) != "" do
+    ca_pem
+    |> :public_key.pem_decode()
+    |> Enum.filter(&match?({:Certificate, _der, _cipher}, &1))
+    |> Enum.map(fn {:Certificate, der, _cipher} -> der end)
+  end
+
 ssl_ca =
   System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT_FILE") ||
     System.get_env("SRQL_TEST_DATABASE_CA_CERT_FILE") ||
-    System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
-    System.get_env("SRQL_TEST_DATABASE_CA_CERT") ||
     cnpg_ca
 
 ssl_cert =
@@ -189,7 +212,15 @@ repo_config =
 
       ssl_opts =
         []
-        |> put_if.(:cacertfile, ssl_ca)
+        # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), because only
+        # the former survives on a remote executor. Never both: :ssl rejects the combination.
+        |> then(fn opts ->
+          if ca_certs not in [nil, []] do
+            Keyword.put(opts, :cacerts, ca_certs)
+          else
+            put_if.(opts, :cacertfile, ssl_ca)
+          end
+        end)
         |> put_if.(:certfile, ssl_cert)
         |> put_if.(:keyfile, ssl_key)
         |> put_if.(:server_name_indication, ssl_server_name)

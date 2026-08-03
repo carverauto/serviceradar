@@ -1,0 +1,21 @@
+package(default_visibility = ["//visibility:public"])
+
+# The chart files an Elixir test reads directly.
+#
+# elixir/serviceradar_core/test/serviceradar/observability/anomaly_config_seeder_test.exs
+# resolves both at MODULE level via Path.expand("../../../../../helm/serviceradar/...",
+# __DIR__). It is a drift guard: ServiceRadar.Observability.AnomalyConfigSeeder takes its
+# first-boot defaults from SERVICERADAR_ANOMALY_* / SERVICERADAR_CAPACITY_FORECAST_* env
+# vars, so values.yaml has to declare the blocks and templates/core.yaml has to wire the
+# variables through. Adding a knob to the seeder and forgetting the chart would otherwise
+# ship silent defaults.
+#
+# Module-level reads, so no ExUnit tag can skip them -- unstaged, the test file fails to load
+# at all rather than failing an assertion.
+filegroup(
+    name = "values",
+    srcs = [
+        "templates/core.yaml",
+        "values.yaml",
+    ],
+)

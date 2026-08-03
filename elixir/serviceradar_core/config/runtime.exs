@@ -696,6 +696,25 @@ if config_env() == :prod do
       value -> parse_int.(value)
     end
 
+  # Ecto logs every statement, and repo_opts above sets no :log key, so it defaults to logging
+  # each one. In the integration suite that produced ~40MB of begin/commit/advisory-lock/SELECT
+  # noise in a single run -- 4842 "begin" lines alone -- burying the four real failures at line
+  # 239878 of a 239911-line log.
+  #
+  # This belongs here rather than in config/test.exs for two reasons. Runtime config is applied
+  # last and replaces the ServiceRadar.Repo config wholesale, so a :log key set in test.exs is
+  # discarded. And placing it before control_repo_opts is derived below means ControlRepo
+  # inherits it too, rather than needing a second copy.
+  #
+  # Ecto's :log is the level queries are logged AT, not a threshold, so `false` is the only way
+  # to silence them. Failing queries still surface through the exceptions they raise.
+  repo_opts =
+    if config_env() == :test do
+      Keyword.put(repo_opts, :log, false)
+    else
+      repo_opts
+    end
+
   control_repo_opts =
     repo_opts
     |> Keyword.put(:pool_size, control_repo_pool_size)

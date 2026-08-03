@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+    "rust/integration-db",
+    "elixir/serviceradar_core/native/anomaly_disposition_nif",
+    "elixir/serviceradar_core/native/zen_nif",
+    "elixir/serviceradar_srql/native/srql_nif",
+    "elixir/web-ng/native/god_view_nif",
     "proto/dgraph",
     "rust/dgraph-client",
     "rust/kvutil",
@@ -44,7 +49,11 @@ members = [
 ]
 
 exclude = [
-    "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
+    #"elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
+    # Orphaned copy of the srql NIF: nothing in web-ng references it (its only Rustler
+    # module is god_view_nif), and its package name collides with
+    # elixir/serviceradar_srql/native/srql_nif, which cargo forbids in one workspace.
+    "elixir/web-ng/native/srql_nif",
     "rust/netprobe/ebpf",
 ]
 
@@ -74,6 +83,8 @@ base64 = "0.22"
 bb8 = "0.8"
 bgpkit-parser = { version = "0.15", default-features = false }
 bytes = "1"
+capnp = "0.25.1"
+capnpc = "0.25.0"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # default = std/color/help/usage/error-context/suggestions -- all standard CLI UX
 clap = "4"
@@ -82,6 +93,9 @@ deep_causality = "0.15"
 deep_causality_algebra = "0.2"
 deep_causality_core = "0.11"
 deep_causality_data_structures = "0.10"
+deep_causality_sparse = "0.2"
+deep_causality_tensor = "0.5"
+deep_causality_topology = "0.7"
 deep_causality_uncertain = "0.5"
 diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.7.1", default-features = false }
@@ -137,6 +151,7 @@ rand = "0.10"
 rcgen = "0.12"
 redis = { version = "1.4", default-features = false }
 regex-automata = { version = "0.4", default-features = false, features = ["std"] }
+roaring = "0.11"
 rustler = { version = "0.38", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 rustls-pemfile = "2"
@@ -172,6 +187,7 @@ ureq = "3.3"
 urlencoding = "2"
 uuid = { version = "1", default-features = false, features = ["std"] }
 which = "8.0"
+zen-engine = "0.55"
 zeroize = { version = "1", default-features = false }
 
 [patch.crates-io]

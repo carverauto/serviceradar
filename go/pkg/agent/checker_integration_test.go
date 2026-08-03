@@ -26,7 +26,6 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestICMPChecker(t *testing.T) {
@@ -49,7 +48,13 @@ func TestICMPChecker(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			checker, err := NewICMPChecker(tt.host, log)
-			require.NoError(t, err)
+			if err != nil {
+				// Raw ICMP sockets need root or CAP_NET_RAW. Skip rather than fail so an
+				// unprivileged workstation reports honestly, matching
+				// icmp_scanner_priv_test.go. On the RBE executor, which runs as root inside
+				// a Firecracker microVM, the sockets open and the test really runs.
+				t.Skipf("ICMP checker requires root or CAP_NET_RAW: %v", err)
+			}
 
 			ctx := context.Background()
 			available, response := checker.Check(ctx, &proto.StatusRequest{})

@@ -1,0 +1,109 @@
+[package]
+name = "rquickjs-core"
+version = "0.10.0"
+authors = ["Mees Delzenne <mees.delzenne@gmail.com>", "K. <kayo@illumium.org>"]
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+description = "High level bindings to the QuickJS JavaScript engine"
+keywords = ["quickjs", "ecmascript", "javascript", "es6", "es2020"]
+categories = ["api-bindings"]
+repository = "https://github.com/DelSkayn/rquickjs.git"
+
+[package.metadata.docs.rs]
+features = ["full-async", "doc-cfg"]
+
+[dependencies]
+rquickjs-sys = { workspace = true }
+hashbrown = { version = "0.16" }
+phf = { version = "0.13", optional = true }
+indexmap = { version = "2", optional = true }
+either = { version = "1", optional = true }
+async-lock = { version = "3", optional = true, default-features = false }
+chrono = { version = "0.4", optional = true }
+dlopen2 = { version = "0.8", optional = true }
+relative-path = { version = "2.0", optional = true, default-features = false, features = [
+  "alloc",
+] }
+
+[dev-dependencies]
+futures-rs = { package = "futures", version = "0.3" }
+tokio = { version = "1", default-features = false, features = [
+  "rt",
+  "time",
+  "macros",
+  "sync",
+] }
+rquickjs.path = "../"
+approx = "0.5"
+trybuild = "1"
+
+[features]
+default = ["std"]
+
+std = ["relative-path?/std"]
+
+# Almost all features excluding "parallel" and support for async runtimes
+full = ["std", "chrono", "loader", "dyn-load", "either", "indexmap"]
+
+# Almost all features excluding "parallel"
+full-async = ["full", "futures"]
+
+# Enable conversion of chrono types to/from JS
+chrono = ["dep:chrono"]
+
+# Use bindgen to generate bindings at compile-type
+# otherwise bundled bindings will be used
+bindgen = ["rquickjs-sys/bindgen"]
+
+# Enable support of parallel execution
+parallel = ["std", "tokio/rt-multi-thread"]
+
+# Enable user-defined module loader support
+loader = ["relative-path"]
+
+# Enable native module loading support
+dyn-load = ["loader", "dlopen2"]
+
+# Use Rust global allocator by default
+# otherwise libc allocator will be used
+rust-alloc = []
+
+# Enable user-defined classes support
+
+
+# Enable interop between Rust futures and JS Promises
+futures = ["dep:async-lock"]
+
+# Allows transferring objects between different contexts of the same runtime.
+multi-ctx = []
+
+# Enable QuickJS dumps for debug
+dump-bytecode = ["rquickjs-sys/dump-bytecode"]
+dump-gc = ["rquickjs-sys/dump-gc"]
+dump-gc-free = ["rquickjs-sys/dump-gc-free"]
+dump-free = ["rquickjs-sys/dump-free"]
+# Dump JS values which still alive when runtime is freed
+dump-leaks = ["rquickjs-sys/dump-leaks"]
+dump-mem = ["rquickjs-sys/dump-mem"]
+dump-objects = ["rquickjs-sys/dump-objects"]
+dump-atoms = ["rquickjs-sys/dump-atoms"]
+dump-shapes = ["rquickjs-sys/dump-shapes"]
+dump-module-resolve = ["rquickjs-sys/dump-module-resolve"]
+dump-promise = ["rquickjs-sys/dump-promise"]
+dump-read-object = ["rquickjs-sys/dump-read-object"]
+
+# Disable QuickJS for faster performance
+disable-assertions = ["rquickjs-sys/disable-assertions"]
+
+# Enable compilation tests
+compile-tests = []
+
+# Enable unstable doc-cfg feature (for docs.rs)
+doc-cfg = []
+
+# Deprecated features
+properties = []
+classes = []
+array-buffer = []
+allocator = []

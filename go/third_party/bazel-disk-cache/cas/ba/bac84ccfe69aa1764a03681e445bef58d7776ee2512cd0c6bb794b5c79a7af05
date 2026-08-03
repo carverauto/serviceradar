@@ -1,51 +1,0 @@
-
-¾
-$proto/spiffe/workload/workload.protogoogle/protobuf/struct.proto"
-X509SVIDRequest"à
-X509SVIDResponse
-svids (2	.X509SVIDRsvids
-crl (RcrlT
-federated_bundles (2'.X509SVIDResponse.FederatedBundlesEntryRfederatedBundlesC
-FederatedBundlesEntry
-key (	Rkey
-value (Rvalue:8"”
-X509SVID
-	spiffe_id (	RspiffeId
-	x509_svid (Rx509Svid"
-x509_svid_key (Rx509SvidKey
-bundle (Rbundle
-hint (	Rhint"
-X509BundlesRequest" 
-X509BundlesResponse
-crl (Rcrl;
-bundles (2!.X509BundlesResponse.BundlesEntryRbundles:
-BundlesEntry
-key (	Rkey
-value (Rvalue:8"I
-JWTSVIDRequest
-audience (	Raudience
-	spiffe_id (	RspiffeId"1
-JWTSVIDResponse
-svids (2.JWTSVIDRsvids"N
-JWTSVID
-	spiffe_id (	RspiffeId
-svid (	Rsvid
-hint (	Rhint"
-JWTBundlesRequest"Œ
-JWTBundlesResponse:
-bundles (2 .JWTBundlesResponse.BundlesEntryRbundles:
-BundlesEntry
-key (	Rkey
-value (Rvalue:8"H
-ValidateJWTSVIDRequest
-audience (	Raudience
-svid (	Rsvid"g
-ValidateJWTSVIDResponse
-	spiffe_id (	RspiffeId/
-claims (2.google.protobuf.StructRclaims2Ã
-SpiffeWorkloadAPI6
-FetchX509SVID.X509SVIDRequest.X509SVIDResponse0?
-FetchX509Bundles.X509BundlesRequest.X509BundlesResponse01
-FetchJWTSVID.JWTSVIDRequest.JWTSVIDResponse<
-FetchJWTBundles.JWTBundlesRequest.JWTBundlesResponse0D
-ValidateJWTSVID.ValidateJWTSVIDRequest.ValidateJWTSVIDResponseB?Z=github.com/spiffe/go-spiffe/v2/proto/spiffe/workload;workloadbproto3

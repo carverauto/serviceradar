@@ -1,0 +1,47 @@
+Mirror the workspace inside an ex_unit_test sandbox, and run from the package dir.
+
+The runner copies srcs and data into TEST_UNDECLARED_OUTPUTS_DIR with the
+target's package prefix stripped, then cds to the top of that tree. Under mix,
+a test sees TWO things at once: the working directory is the project root, and
+__DIR__ is the file's real location inside the repo. The stripped-and-flattened
+layout provides neither, so both styles of path in first-party tests break:
+
+  * cwd-relative, e.g. File.read!("priv/repo/migrations/2026...exs")
+  * __DIR__-relative escaping the package, e.g.
+    Path.expand("../../../../../addons/anomaly-addon/config.schema.json", __DIR__)
+
+Fixing only the flattening trades the second failure for the first. Doing both
+-- stage at the workspace-relative path AND cd into the package directory --
+reproduces what mix provides, so each resolves the same way it does under mix.
+
+srcs_args keeps using _package_relative_path, which is now correct rather than
+incidental: the -r arguments are relative to the package directory we cd into.
+
+--- a/private/ex_unit_test.bzl
++++ b/private/ex_unit_test.bzl
+@@ -28,7 +28,7 @@
+     copy_srcs_and_data_commands = [
+         'mkdir -p $(dirname "{dst}") && cp "{src}" "{dst}"'.format(
+             src = s.path,
+-            dst = path_join("${TEST_UNDECLARED_OUTPUTS_DIR}", _package_relative_path(ctx, s.path)),
++            dst = path_join("${TEST_UNDECLARED_OUTPUTS_DIR}", s.path),
+         )
+         for s in ctx.files.srcs + ctx.files.data
+     ]
+@@ -74,7 +74,7 @@
+ 
+ export ERL_LIBS="$TEST_SRCDIR/$TEST_WORKSPACE/{erl_libs_path}"
+ 
+-cd "${{TEST_UNDECLARED_OUTPUTS_DIR}}"
++cd "${{TEST_UNDECLARED_OUTPUTS_DIR}}/{package}"
+ 
+ export HOME=${{PWD}}
+ 
+@@ -96,6 +96,7 @@
+             elixir_home = elixir_home,
+             copy_srcs_and_data_commands = "\n".join(copy_srcs_and_data_commands),
+             erl_libs_path = erl_libs_path,
++            package = package,
+             env = env,
+             setup = ctx.attr.setup,
+             elixir_opts = " ".join([shell.quote(opt) for opt in ctx.attr.elixir_opts]),

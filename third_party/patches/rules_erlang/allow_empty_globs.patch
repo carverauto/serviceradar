@@ -1,0 +1,69 @@
+--- a/erlang_app.bzl	2026-07-30 20:25:15
++++ b/erlang_app.bzl	2026-07-30 20:25:16
+@@ -95,16 +95,13 @@
+     if beam_files == None:
+         only_srcs = native.glob(
+             ["src/**/*.erl"],
+-            exclude = extra_srcs,
+-        ) + extra_srcs
++            exclude = extra_srcs, allow_empty = True) + extra_srcs
+         private_hdrs = native.glob(
+             ["src/**/*.hrl"],
+-            exclude = extra_hdrs,
+-        )
++            exclude = extra_hdrs, allow_empty = True)
+         public_hdrs = native.glob(
+             ["include/**/*.hrl"],
+-            exclude = extra_hdrs,
+-        ) + extra_hdrs
++            exclude = extra_hdrs, allow_empty = True) + extra_hdrs
+ 
+         srcs = only_srcs + private_hdrs + public_hdrs
+         hdrs = public_hdrs if not test else private_hdrs + public_hdrs
+@@ -122,7 +119,7 @@
+ 
+         beam_files = [":beam_files" if not test else ":test_beam_files"]
+ 
+-    if len(native.glob(["ebin/{}.app".format(app_name)])) == 0:
++    if len(native.glob(["ebin/{}.app".format(app_name)], allow_empty = True)) == 0:
+         if not test:
+             app_file(
+                 name = "app_file",
+@@ -134,7 +131,7 @@
+                 app_env = app_env,
+                 app_extra_keys = app_extra_keys,
+                 extra_apps = extra_apps,
+-                app_src = native.glob(["src/{}.app.src".format(app_name)]),
++                app_src = native.glob(["src/{}.app.src".format(app_name)], allow_empty = True),
+                 modules = beam_files,
+                 deps = deps + runtime_deps,
+                 dest = "ebin",
+@@ -145,9 +142,9 @@
+     else:
+         app = "ebin/{}.app".format(app_name)
+ 
+-    if len(native.glob(["ebin/{}.appup".format(app_name)])) > 0:
++    if len(native.glob(["ebin/{}.appup".format(app_name)], allow_empty = True)) > 0:
+         appup = "ebin/{}.appup".format(app_name)
+-    elif len(native.glob(["src/{}.appup".format(app_name)])) > 0:
++    elif len(native.glob(["src/{}.appup".format(app_name)], allow_empty = True)) > 0:
+         if not test:
+             copy_file(
+                 name = "appup",
+@@ -163,14 +160,12 @@
+     if priv == None:
+         priv = native.glob(
+             ["priv/**/*"],
+-            exclude = extra_priv,
+-        ) + extra_priv
++            exclude = extra_priv, allow_empty = True) + extra_priv
+ 
+     if license_files == None:
+         license_files = native.glob(
+             ["LICENSE*"],
+-            exclude = extra_license_files,
+-        ) + extra_license_files
++            exclude = extra_license_files, allow_empty = True) + extra_license_files
+ 
+     erlang_app_info(
+         name = name,

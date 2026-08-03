@@ -3,6 +3,20 @@ defmodule ServiceRadar.Repo.Migrations.AddUiSlowQueryIndexes do
 
   @disable_ddl_transaction true
 
+  # Required alongside @disable_ddl_transaction whenever a migration issues
+  # CREATE INDEX CONCURRENTLY, which the first index below does (create_index_sql/2 defaults
+  # to concurrently? = true).
+  #
+  # CREATE INDEX CONCURRENTLY waits for every transaction open at its start to finish.
+  # Ecto's migration lock is one of them: it holds `SELECT version FROM schema_migrations`
+  # open on a second pooled connection for the duration of the run. The two then wait on each
+  # other forever -- observed as one backend `idle in transaction` and one blocked on
+  # Lock/virtualxid, with the migrator making no further progress.
+  #
+  # Every other CONCURRENTLY migration in this directory already carries both attributes
+  # (see 20260617150000_add_agent_commands_retention_index.exs); this one was the outlier.
+  @disable_migration_lock true
+
   def up do
     execute(
       create_index_sql("idx_ocsf_devices_active_last_seen_uid", """

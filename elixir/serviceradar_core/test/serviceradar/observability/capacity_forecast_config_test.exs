@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias Ash.Resource.Info
   alias AshPostgres.DataLayer.Info, as: PostgresInfo
   alias ServiceRadar.Observability

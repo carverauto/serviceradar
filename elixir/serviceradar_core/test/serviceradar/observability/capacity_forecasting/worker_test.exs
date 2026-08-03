@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Observability.AnomalyConfigRuntime

@@ -86,6 +86,7 @@ defmodule ServiceRadar.Telemetry do
     :opened,
     :closing,
     :closed,
+    :expired,
     :saturation_denied,
     :failed,
     :viewer_count_changed

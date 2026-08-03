@@ -1,6 +1,8 @@
 defmodule ServiceRadar.PrefixTags.ManualTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation

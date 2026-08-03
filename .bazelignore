@@ -12,6 +12,8 @@ elixir/protobuf/deps
 elixir/protobuf/_build
 node_modules
 js/cli/node_modules
+elixir/web-ng/assets/node_modules
+elixir/web-ng/assets/component/node_modules
 dist
 target
 third_party/vendor/tools_opam

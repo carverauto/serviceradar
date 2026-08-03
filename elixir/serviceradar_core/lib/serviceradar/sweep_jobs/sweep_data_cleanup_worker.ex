@@ -34,6 +34,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
   import Ecto.Query
 
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.SweepJobs.SweepGroupExecution
@@ -115,10 +116,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
   defp schedule_next_cleanup do
     case ObanSupport.safe_insert(
-           new(%{},
-             schedule_in: @reschedule_interval_seconds,
-             unique: [states: :scheduled]
-           )
+           SelfScheduling.successor_changeset(__MODULE__, %{}, @reschedule_interval_seconds)
          ) do
       {:ok, _job} ->
         :ok

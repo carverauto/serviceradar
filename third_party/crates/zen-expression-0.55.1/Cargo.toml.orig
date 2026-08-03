@@ -1,0 +1,63 @@
+[package]
+authors = ["GoRules Team <bot@gorules.io>"]
+description = "Zen Expression Language"
+name = "zen-expression"
+license = "MIT"
+version = "0.55.1"
+edition = "2021"
+repository = "https://github.com/gorules/zen.git"
+
+[dependencies]
+anyhow = { workspace = true }
+ahash = { workspace = true }
+bumpalo = { workspace = true, features = ["collections"] }
+chrono = { workspace = true }
+chrono-tz = "0.10"
+humantime = { workspace = true }
+fastrand = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true, optional = true }
+regex-lite = { workspace = true, optional = true }
+serde = { workspace = true, features = ["rc", "derive"] }
+serde_json = { workspace = true, features = [] }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+rust_decimal = { workspace = true, features = ["maths-nopanic"] }
+rust_decimal_macros = { workspace = true }
+nohash-hasher = { workspace = true }
+strsim = "0.11"
+iana-time-zone = "0.1"
+
+zen-macros = { path = "../macros", version = "0.55.1" }
+zen-types = { path = "../types", version = "0.55.1" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+csv = "1"
+serde_json5 = "0.2"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+recursive = { workspace = true }
+
+[features]
+default = ["regex-deprecated"]
+regex-lite = ["dep:regex-lite"]
+regex-deprecated = ["dep:regex"]
+arbitrary_precision = ["serde_json/arbitrary_precision", "zen-types/arbitrary_precision"]
+
+[[bench]]
+harness = false
+name = "lexer"
+
+[[bench]]
+harness = false
+name = "standard"
+
+[[bench]]
+harness = false
+name = "unary"
+
+[[bench]]
+harness = false
+name = "isolate"

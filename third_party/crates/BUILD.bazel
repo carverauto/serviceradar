@@ -235,6 +235,30 @@ alias(
 )
 
 alias(
+    name = "capnp-0.25.6",
+    actual = "//third_party/crates/capnp-0.25.6:capnp",
+    tags = ["manual"],
+)
+
+alias(
+    name = "capnp",
+    actual = "//third_party/crates/capnp-0.25.6:capnp",
+    tags = ["manual"],
+)
+
+alias(
+    name = "capnpc-0.25.3",
+    actual = "//third_party/crates/capnpc-0.25.3:capnpc",
+    tags = ["manual"],
+)
+
+alias(
+    name = "capnpc",
+    actual = "//third_party/crates/capnpc-0.25.3:capnpc",
+    tags = ["manual"],
+)
+
+alias(
     name = "chrono-0.4.45",
     actual = "//third_party/crates/chrono-0.4.45:chrono",
     tags = ["manual"],
@@ -339,6 +363,42 @@ alias(
 alias(
     name = "deep_causality_data_structures",
     actual = "//third_party/crates/deep_causality_data_structures-0.10.16:deep_causality_data_structures",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_sparse-0.2.2",
+    actual = "//third_party/crates/deep_causality_sparse-0.2.2:deep_causality_sparse",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_sparse",
+    actual = "//third_party/crates/deep_causality_sparse-0.2.2:deep_causality_sparse",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_tensor-0.5.1",
+    actual = "//third_party/crates/deep_causality_tensor-0.5.1:deep_causality_tensor",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_tensor",
+    actual = "//third_party/crates/deep_causality_tensor-0.5.1:deep_causality_tensor",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_topology-0.7.1",
+    actual = "//third_party/crates/deep_causality_topology-0.7.1:deep_causality_topology",
+    tags = ["manual"],
+)
+
+alias(
+    name = "deep_causality_topology",
+    actual = "//third_party/crates/deep_causality_topology-0.7.1:deep_causality_topology",
     tags = ["manual"],
 )
 
@@ -955,6 +1015,18 @@ alias(
 )
 
 alias(
+    name = "roaring-0.11.4",
+    actual = "//third_party/crates/roaring-0.11.4:roaring",
+    tags = ["manual"],
+)
+
+alias(
+    name = "roaring",
+    actual = "//third_party/crates/roaring-0.11.4:roaring",
+    tags = ["manual"],
+)
+
+alias(
     name = "rsa-0.9.10",
     actual = "//third_party/crates/rsa-0.9.10:rsa",
     tags = ["manual"],
@@ -975,6 +1047,18 @@ alias(
 alias(
     name = "rustix",
     actual = "//third_party/crates/rustix-1.1.4:rustix",
+    tags = ["manual"],
+)
+
+alias(
+    name = "rustler-0.38.0",
+    actual = "//third_party/crates/rustler-0.38.0:rustler",
+    tags = ["manual"],
+)
+
+alias(
+    name = "rustler",
+    actual = "//third_party/crates/rustler-0.38.0:rustler",
     tags = ["manual"],
 )
 
@@ -1063,14 +1147,14 @@ alias(
 )
 
 alias(
-    name = "serviceradar-netprobe-0.2.24",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.24:serviceradar_netprobe",
+    name = "serviceradar-netprobe-0.2.25",
+    actual = "//third_party/crates/serviceradar-netprobe-0.2.25:serviceradar_netprobe",
     tags = ["manual"],
 )
 
 alias(
     name = "serviceradar-netprobe",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.24:serviceradar_netprobe",
+    actual = "//third_party/crates/serviceradar-netprobe-0.2.25:serviceradar_netprobe",
     tags = ["manual"],
 )
 
@@ -1455,6 +1539,18 @@ alias(
 alias(
     name = "which",
     actual = "//third_party/crates/which-8.0.5:which",
+    tags = ["manual"],
+)
+
+alias(
+    name = "zen-engine-0.55.1",
+    actual = "//third_party/crates/zen-engine-0.55.1:zen_engine",
+    tags = ["manual"],
+)
+
+alias(
+    name = "zen-engine",
+    actual = "//third_party/crates/zen-engine-0.55.1:zen_engine",
     tags = ["manual"],
 )
 

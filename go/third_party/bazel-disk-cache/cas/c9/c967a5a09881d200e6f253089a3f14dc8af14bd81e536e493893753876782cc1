@@ -1,6 +1,0 @@
-
-Gexternal/rules_cc++cc_configure_extension+local_config_cc/cc_wrapper.sh
-f@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/c/protoc-gen-upb_stage0-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:\bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/c/protoc-gen-upb_stage0

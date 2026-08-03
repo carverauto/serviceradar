@@ -12,29 +12,17 @@ use crate::core::telemetry::enrich_edges_telemetry_impl;
 use crate::core::utils::{
     indexed_edge_telemetry, indexed_edges_from_runtime_rows, runtime_graph_row_from_term,
 };
+use crate::types::bitmap::CausalStateBitmaps;
 use crate::types::causality::CausalStateReasonRow;
 use crate::types::graph::{RuntimeGraphResource, RuntimeGraphRow};
+use crate::types::snapshot::EncodeSnapshotPayload;
+use crate::types::telemetry::{EnrichedEdgeTelemetry, RawEdgeTelemetry};
 use rustler::NifResult;
 use std::sync::RwLock;
 
 // -----------------------------------------------------------------------------
 // NIF Mappings
 // -----------------------------------------------------------------------------
-
-#[derive(NifMap)]
-struct EncodeSnapshotPayload {
-    schema_version: u32,
-    revision: u64,
-    nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
-    edge_meta: Vec<(String, String, String)>,
-    edge_directional: Vec<(u32, u32, u64, u64)>,
-    edge_details: Vec<String>,
-    root_bitmap_bytes: u32,
-    affected_bitmap_bytes: u32,
-    healthy_bitmap_bytes: u32,
-    unknown_bitmap_bytes: u32,
-}
 
 #[derive(NifMap)]
 struct RuntimeGraphEncodeSnapshotPayload {
@@ -52,17 +40,11 @@ struct RuntimeGraphEncodeSnapshotPayload {
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn enrich_edges_telemetry(
-    edges: Vec<(
-        String,
-        String,
-        String,
-        (i64, String, i64, String),
-        (u32, u64, u64),
-    )>,
+    edges: Vec<RawEdgeTelemetry>,
     interfaces: Vec<(String, String, i64, u64)>,
     pps_metrics: Vec<(String, i64, u32, u32)>,
     bps_metrics: Vec<(String, i64, u64, u64)>,
-) -> NifResult<Vec<(String, String, u32, u64, u64, String, (u32, u32, u64, u64))>> {
+) -> NifResult<Vec<EnrichedEdgeTelemetry>> {
     enrich_edges_telemetry_impl(edges, interfaces, pps_metrics, bps_metrics)
 }
 
@@ -81,34 +63,7 @@ fn layout_nodes_hypergraph(
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn encode_snapshot<'a>(env: Env<'a>, payload: EncodeSnapshotPayload) -> NifResult<Binary<'a>> {
-    let EncodeSnapshotPayload {
-        schema_version,
-        revision,
-        nodes,
-        edges,
-        edge_meta,
-        edge_directional,
-        edge_details,
-        root_bitmap_bytes,
-        affected_bitmap_bytes,
-        healthy_bitmap_bytes,
-        unknown_bitmap_bytes,
-    } = payload;
-
-    encode_snapshot_impl(
-        env,
-        schema_version,
-        revision,
-        nodes,
-        edges,
-        edge_meta,
-        edge_directional,
-        edge_details,
-        root_bitmap_bytes,
-        affected_bitmap_bytes,
-        healthy_bitmap_bytes,
-        unknown_bitmap_bytes,
-    )
+    encode_snapshot_impl(env, payload)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -126,16 +81,7 @@ fn evaluate_causal_states(health_signals: Vec<u8>, edges: Vec<(u32, u32)>) -> Ni
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-fn build_roaring_bitmaps<'a>(
-    env: Env<'a>,
-    states: Vec<u8>,
-) -> NifResult<(
-    Binary<'a>,
-    Binary<'a>,
-    Binary<'a>,
-    Binary<'a>,
-    (u32, u32, u32, u32),
-)> {
+fn build_roaring_bitmaps(env: Env<'_>, states: Vec<u8>) -> NifResult<CausalStateBitmaps<'_>> {
     let mut root = roaring::RoaringBitmap::new();
     let mut affected = roaring::RoaringBitmap::new();
     let mut healthy = roaring::RoaringBitmap::new();
@@ -190,7 +136,7 @@ fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<crate::types::survey::S
     let cursor = std::io::Cursor::new(binary.as_slice());
 
     // Try streaming format first
-    let mut reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
+    let reader = match arrow_ipc::reader::StreamReader::try_new(cursor, None) {
         Ok(r) => r,
         Err(_) => {
             // Fallback to file reader
@@ -199,7 +145,7 @@ fn decode_arrow_payload(binary: Binary) -> NifResult<Vec<crate::types::survey::S
     };
 
     let mut rows = Vec::new();
-    while let Some(batch_result) = reader.next() {
+    for batch_result in reader {
         let batch = batch_result.map_err(|_| rustler::Error::BadArg)?;
         core::arrow_serde::extract_rows(&batch, &mut rows).map_err(|_| rustler::Error::BadArg)?;
     }
@@ -357,26 +303,23 @@ fn runtime_graph_encode_snapshot<'a>(
 
     encode_snapshot_impl(
         env,
-        u32::from(schema_version),
-        revision,
-        nodes,
-        edges,
-        edge_meta,
-        Vec::new(),
-        Vec::new(),
-        root_bitmap_bytes as u32,
-        affected_bitmap_bytes as u32,
-        healthy_bitmap_bytes as u32,
-        unknown_bitmap_bytes as u32,
+        EncodeSnapshotPayload {
+            schema_version: u32::from(schema_version),
+            revision,
+            nodes,
+            edges,
+            edge_meta,
+            edge_directional: Vec::new(),
+            edge_details: Vec::new(),
+            root_bitmap_bytes: root_bitmap_bytes as u32,
+            affected_bitmap_bytes: affected_bitmap_bytes as u32,
+            healthy_bitmap_bytes: healthy_bitmap_bytes as u32,
+            unknown_bitmap_bytes: unknown_bitmap_bytes as u32,
+        },
     )
 }
 
-#[allow(non_local_definitions)]
-fn on_load(env: Env, _info: Term) -> bool {
-    let _ = rustler::resource!(RuntimeGraphResource, env);
-    true
-}
-rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native", load = on_load);
+rustler::init!("Elixir.ServiceRadarWebNG.Topology.Native");
 
 #[cfg(test)]
 mod tests {

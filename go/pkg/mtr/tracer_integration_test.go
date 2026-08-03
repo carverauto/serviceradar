@@ -18,19 +18,18 @@ func TestTracer_LoopbackTrace(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	opts := DefaultOptions()
-	opts.Target = "127.0.0.1"
+	opts := DefaultOptions("127.0.0.1")
 	opts.MaxHops = 5
 	opts.ProbesPerHop = 3
 	opts.DNSResolve = false
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
 	tracer, err := NewTracer(ctx, opts, log)
 	if err != nil {
 		t.Skipf("Cannot create tracer (may need root/cap_net_raw): %v", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 
 	result, err := tracer.Run(ctx)
 	if err != nil {
@@ -61,19 +60,18 @@ func TestTracer_LoopbackIPv6(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	opts := DefaultOptions()
-	opts.Target = "::1"
+	opts := DefaultOptions("::1")
 	opts.MaxHops = 5
 	opts.ProbesPerHop = 3
 	opts.DNSResolve = false
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
 	tracer, err := NewTracer(ctx, opts, log)
 	if err != nil {
 		t.Skipf("Cannot create IPv6 tracer (may not be supported): %v", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 
 	result, err := tracer.Run(ctx)
 	if err != nil {

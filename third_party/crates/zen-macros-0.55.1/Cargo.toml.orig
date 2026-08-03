@@ -1,0 +1,15 @@
+[package]
+name = "zen-macros"
+description = "Zen Helper Macros"
+version = "0.55.1"
+edition = "2024"
+license = "MIT"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+serde_derive_internals = "0.29"

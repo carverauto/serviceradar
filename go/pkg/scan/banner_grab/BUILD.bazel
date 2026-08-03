@@ -44,7 +44,7 @@ go_test(
     srcs = ["integration_test.go"],
     data = ["//rust/netprobe"],
     embed = [":banner_grab"],
-    tags = ["manual"],
+    tags = ["integration_test"],
     deps = [
         "//go/pkg/agent/netprobe",
         "//go/pkg/models",

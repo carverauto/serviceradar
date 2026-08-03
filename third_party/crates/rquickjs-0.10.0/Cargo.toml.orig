@@ -1,0 +1,140 @@
+[package]
+name = "rquickjs"
+version = "0.10.0"
+authors = ["Mees Delzenne <mees.delzenne@gmail.com>", "K. <kayo@illumium.org>"]
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+readme = "README.md"
+description = "High level bindings to the QuickJS JavaScript engine"
+keywords = ["quickjs", "ecmascript", "javascript", "es6", "es2020"]
+categories = ["api-bindings"]
+repository = "https://github.com/DelSkayn/rquickjs.git"
+
+
+[workspace]
+members = [
+  "sys",
+  "core",
+  "macro",
+  "examples/native-module",
+  "examples/module-loader",
+  "examples/rquickjs-cli",
+]
+
+[workspace.dependencies]
+rquickjs-core = { version = "0.10.0", path = "core", default-features = false }
+rquickjs-macro = { version = "0.10.0", path = "macro", default-features = false }
+rquickjs-sys = { version = "0.10.0", path = "sys", default-features = false }
+rquickjs = { version = "0.10.0", path = "./", default-features = false }
+
+[dependencies]
+indexmap-rs = { package = "indexmap", version = "2", optional = true }
+either-rs = { package = "either", version = "1", optional = true }
+rquickjs-core = { workspace = true }
+rquickjs-macro = { workspace = true, optional = true }
+
+
+[features]
+default = ["std"]
+
+# Almost all features excluding "parallel" and support for async runtimes
+full = [
+  "std",
+  "chrono",
+  "loader",
+  "dyn-load",
+  "either",
+  "indexmap",
+  "macro",
+  "phf",
+]
+
+# A version of full designed for wasm32-wasip1 and wasm32-wasip2 (simply excludes dyn-load)
+full-wasi = ["std", "chrono", "loader", "either", "indexmap", "macro", "phf"]
+
+# Almost all features excluding "parallel"
+full-async = ["full", "futures"]
+
+# A version of full-async designed for wasm32-wasip1 and wasm32-wasip2
+full-async-wasi = ["full-wasi", "futures"]
+
+# Enable use of the rust standard library
+std = ["rquickjs-core/std"]
+
+# Chrono support.
+chrono = ["rquickjs-core/chrono"]
+
+# Enable support for Either type
+either = ["rquickjs-core/either", "either-rs"]
+
+# Enable support for IndexMap and IndexSet types type
+indexmap = ["rquickjs-core/indexmap", "indexmap-rs"]
+
+# Enable support for perfect hash maps
+phf = ["rquickjs-core/phf", "rquickjs-macro/phf"]
+
+# Use bindgen to generate bindings at compile-time
+# otherwise bundled bindings will be used
+bindgen = ["rquickjs-core/bindgen", "rquickjs-macro?/bindgen"]
+
+# Enable support of parallel execution
+parallel = ["rquickjs-core/parallel"]
+
+# Enable user-defined module loader support
+loader = ["rquickjs-core/loader"]
+
+# Enable native module loading support
+dyn-load = ["rquickjs-core/dyn-load"]
+
+# Use Rust global allocator by default
+# otherwise libc allocator will be used
+rust-alloc = ["rquickjs-core/rust-alloc"]
+
+
+# Enable helper macros
+macro = ["rquickjs-macro"]
+
+# Allows transferring objects between different contexts of the same runtime.
+# Disabled for now as it can be used to create unsound code.
+# multi-ctx = ["rquickjs-core/multi-ctx"]
+
+# Enable interop between Rust futures and JS Promises
+futures = ["rquickjs-core/futures"]
+
+# Enable QuickJS dumps for debug
+dump-bytecode = ["rquickjs-core/dump-bytecode"]
+dump-gc = ["rquickjs-core/dump-gc"]
+dump-gc-free = ["rquickjs-core/dump-gc-free"]
+dump-free = ["rquickjs-core/dump-free"]
+# Dump JS values which still alive when runtime is freed
+dump-leaks = ["rquickjs-core/dump-leaks"]
+dump-mem = ["rquickjs-core/dump-mem"]
+dump-objects = ["rquickjs-core/dump-objects"]
+dump-atoms = ["rquickjs-core/dump-atoms"]
+dump-shapes = ["rquickjs-core/dump-shapes"]
+dump-module-resolve = ["rquickjs-core/dump-module-resolve"]
+dump-promise = ["rquickjs-core/dump-promise"]
+dump-read-object = ["rquickjs-core/dump-read-object"]
+
+# Disable QuickJS assertions for faster performance
+disable-assertions = ["rquickjs-core/disable-assertions"]
+
+# Enable compilation tests
+compile-tests = ["rquickjs-core/compile-tests"]
+
+# Enable unstable doc-cfg feature (for docs.rs)
+doc-cfg = ["rquickjs-core/doc-cfg"]
+
+# Deprecated features
+classes = ["rquickjs-core/classes"]
+array-buffer = ["rquickjs-core/array-buffer"]
+allocator = ["rquickjs-core/allocator"]
+properties = ["rquickjs-core/properties"]
+
+
+[dev-dependencies]
+trybuild = "1"
+
+[package.metadata.docs.rs]
+features = ["full-async", "parallel", "doc-cfg"]

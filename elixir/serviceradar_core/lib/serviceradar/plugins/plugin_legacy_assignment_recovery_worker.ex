@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.PluginLegacyAssignmentRecoveryWorker do
     max_attempts: 3,
     unique: [period: :infinity, fields: [:worker, :args], states: :incomplete]
 
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Plugins.PluginAssignmentRecovery
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -78,7 +79,7 @@ defmodule ServiceRadar.Plugins.PluginLegacyAssignmentRecoveryWorker do
 
     _ =
       ObanSupport.safe_insert(
-        new(%{}, schedule_in: max(seconds, 30), unique: [states: :scheduled])
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 30))
       )
 
     :ok

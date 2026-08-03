@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Edge.RemoteAccessSessionPolicyTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.RemoteAccessSession
 

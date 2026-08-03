@@ -120,7 +120,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # Utilities
       {:jason, "~> 1.4"},
-      {:rustler, "~> 0.37"},
+      {:rustler, "~> 0.38"},
       {:ex_json_schema, "~> 0.10"},
       {:elixir_uuid, path: "../elixir_uuid"},
       {:file_system, "~> 1.0"},

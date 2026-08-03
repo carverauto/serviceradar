@@ -21,6 +21,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -106,8 +107,8 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorker do
     seconds = interval_seconds()
 
     _ =
-      %{"controller_id" => controller.id}
-      |> new(schedule_in: seconds, unique: [states: :scheduled])
+      __MODULE__
+      |> SelfScheduling.successor_changeset(%{"controller_id" => controller.id}, seconds)
       |> ObanSupport.safe_insert()
 
     :ok

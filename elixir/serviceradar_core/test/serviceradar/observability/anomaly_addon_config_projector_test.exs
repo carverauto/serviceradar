@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Observability.AnomalyAddonConfigProjector
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Plugins.ConfigSchema

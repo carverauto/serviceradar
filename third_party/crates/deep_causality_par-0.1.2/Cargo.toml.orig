@@ -1,0 +1,41 @@
+[package]
+name = "deep_causality_par"
+version = "0.1.2"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
+description = "Shared parallelism primitives (MaybeParallel marker, scoped fork-join) for the deep_causality crates."
+documentation = "https://docs.rs/deep_causality"
+categories = ["concurrency", "science"]
+keywords = ["parallel", "rayon", "marker-trait"]
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+    "papers/*",
+]
+
+[features]
+default = []
+# Turns `MaybeParallel` into a `Send + Sync` alias and switches
+# `scoped_map` from an inline map to scoped fork-join threads. Downstream
+# crates forward their own `parallel` feature here so the single
+# definition unifies across the workspace.
+parallel = []
+
+[dependencies]
+# Intentionally empty. The fork-join surface (`scoped_map`) rides
+# `std::thread::scope`, so even the parallel path needs no external
+# dependency.
+
+[lints]
+workspace = true

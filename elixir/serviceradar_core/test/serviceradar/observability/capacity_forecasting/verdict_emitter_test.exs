@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 

@@ -1,0 +1,47 @@
+# Scrape the BuildBuddy executors into Prometheus.
+#
+# WHY THIS EXISTS
+# The executor pods already carry `prometheus.io/scrape: "true"` and
+# `prometheus.io/port: "9090"`, but those annotations are inert here: the cluster runs
+# kube-prometheus-stack (`prometheus-promstack-prometheus`), which discovers targets through
+# ServiceMonitor/PodMonitor CRDs and ignores scrape annotations. Nothing else selected the
+# namespace either, so Prometheus held no buildbuddy series at all:
+#
+#     up{namespace="buildbuddy"}                       -> []
+#     buildbuddy_remote_execution_queue_length         -> []
+#
+# That empty metric is the root of the autoscaling failure. The chart's HPA targets
+# `buildbuddy_remote_execution_queue_length` via custom.metrics.k8s.io, so with no series to
+# read it reported `<unknown>/5` and failed 163,082 times over 28 days, pinning the fleet at
+# minReplicas=3 while builds queued.
+#
+# A PodMonitor rather than a ServiceMonitor because the executor Deployment has no Service --
+# it is a scheduler client, not a server, so nothing routes to it. PodMonitor scrapes pods
+# directly, which is what we want anyway: the queue depth is per-executor.
+#
+# No labels are needed to be discovered: the Prometheus CR sets `podMonitorSelector: {}` and
+# `podMonitorNamespaceSelector: {}`, which match everything. If those are ever tightened, this
+# object needs whatever label they then require.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: buildbuddy-executor
+  namespace: buildbuddy
+  labels:
+    app.kubernetes.io/name: buildbuddy-executor
+    app.kubernetes.io/part-of: buildbuddy
+spec:
+  selector:
+    matchLabels:
+      # Verified against the running pods, not assumed. The chart labels them
+      # app.kubernetes.io/{name,instance}; there is no bare `app` label, and a selector
+      # naming one would match nothing while looking perfectly correct.
+      app.kubernetes.io/name: buildbuddy-executor
+      app.kubernetes.io/instance: buildbuddy
+  podMetricsEndpoints:
+    # Matches the container port named `metrics` (9090) on the executor pod. Referencing it
+    # by name rather than number so a chart bump that moves the port cannot silently break
+    # scraping -- the PodMonitor would fail to find the port instead of scraping the wrong one.
+    - port: metrics
+      path: /metrics
+      interval: 15s

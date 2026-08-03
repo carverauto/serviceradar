@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.ControlStreamTelemetryTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
 

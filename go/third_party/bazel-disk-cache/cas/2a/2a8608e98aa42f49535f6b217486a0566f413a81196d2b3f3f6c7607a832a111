@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-i@bazel-out/darwin_arm64-opt-exec/bin/external/abseil-cpp+/absl/profiling/libexponential_biased.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:_bazel-out/darwin_arm64-opt-exec/bin/external/abseil-cpp+/absl/profiling/libexponential_biased.a

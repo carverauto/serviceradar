@@ -1,31 +1,0 @@
-
-Mbazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/protobuf+/protoc
-‹--descriptor_set_out=bazel-out/darwin_arm64-fastbuild-ST-9cacdbe66e22/bin/proto/agent/netprobe/v1/netprobepb_proto-descriptor-set.proto.bin
--I.
-&proto/agent/netprobe/v1/netprobe.proto
---retain_options
---direct_dependencies
-&proto/agent/netprobe/v1/netprobe.proto
- --direct_dependencies_violation_msg=%s is imported, but //proto/agent/netprobe/v1:netprobepb_proto doesn't have direct `deps` on a proto_library that 'srcs' it.
---option_dependencies
-&proto/agent/netprobe/v1/netprobe.proto
-®--option_dependencies_violation_msg=%s is option imported, but //proto/agent/netprobe/v1:netprobepb_proto doesn't have direct `option_deps` on a proto_library that 'srcs' it.-
-%AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR/usrO
--AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR/usr/include/aarch64-linux-gnuG
-)AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR/usr/lib/aarch64-linux-gnu=
-AR_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-arO
--CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER/usr/bin/aarch64-linux-gnu-gcc>
-CC_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-gcc?
-CXX_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-g++ 
-NEXT_PRIVATE_SKIP_TURBOPACK1
-NEXT_SKIP_TURBO1
-OPENSSL_DIR/usr#
-OPENSSL_INCLUDE_DIR/usr/include,
-OPENSSL_LIB_DIR/usr/lib/x86_64-linux-gnu
-OPENSSL_NO_PKG_CONFIG
-OPENSSL_NO_VENDOR$
-PATH/bin:/usr/bin:/usr/local/binž
-)PKG_CONFIG_PATH_aarch64_unknown_linux_gnuq/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig5
-0PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu/$
-RULES_PKG_PYTHON/usr/bin/python3
-	TURBOPACK:vbazel-out/darwin_arm64-fastbuild-ST-9cacdbe66e22/bin/proto/agent/netprobe/v1/netprobepb_proto-descriptor-set.proto.bin

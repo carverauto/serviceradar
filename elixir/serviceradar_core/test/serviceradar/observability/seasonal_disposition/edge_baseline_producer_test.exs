@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTest do
   use ExUnit.Case, async: true
 
+  @moduletag :requires_app
+
   alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Plugins.ConfigSchema

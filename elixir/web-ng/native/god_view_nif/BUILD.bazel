@@ -1,0 +1,38 @@
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("//third_party/crates:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
+
+# A NIF is loaded by the BEAM, which supplies the enif_* symbols at load time, so the
+# shared object is linked with those symbols left undefined. That is the default for an
+# ELF .so; Mach-O has to be told explicitly.
+rust_shared_library(
+    name = "god_view_nif",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "god_view_nif",
+    edition = "2021",
+    # rustler always emits `<crate>_nif_init`, but emits the plain `nif_init` that
+    # :erlang.load_nif looks for only when RUSTLER_PRIMARY_NIF_INIT or CARGO_PRIMARY_PACKAGE
+    # is set (rustler_codegen-0.38.0/src/init.rs:116-118). Cargo sets CARGO_PRIMARY_PACKAGE
+    # for the package it was asked to build; Bazel does not, so without this the library
+    # loads and then fails with
+    #   {:bad_lib, "Failed to find library init function: dlsym(..., _nif_init)"}
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
+    rustc_flags = select({
+        "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+    deps = all_crate_deps(normal = True) + [
+    ],
+)

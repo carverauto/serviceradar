@@ -1,0 +1,44 @@
+[package]
+name = "deep_causality_num_dual"
+version = "0.1.4"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+repository = "https://github.com/deepcausality/deep_causality.rs"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>", ]
+description = "Dual number type (forward-mode automatic differentiation) for deep_causality."
+documentation = "https://docs.rs/deep_causality_num_dual"
+categories = ["development-tools", "mathematics"]
+keywords = ["dual-number", "automatic-diff", "autodiff"]
+# Exclude all bazel files as these conflict with Bazel workspace when vendored.
+exclude = [
+    "*.bazel",
+    "*/*.bazel",
+    "*.bazel.*",
+    "BUILD",
+    "BUILD.bazel",
+    "MODULE.bazel",
+    ".bazelignore",
+    ".bazelrc",
+    "tests/**/*",
+    "papers/*",
+]
+
+[features]
+default = ["std"]
+std = ["deep_causality_num/std", "deep_causality_algebra/std"]
+no-std = ["deep_causality_num/no-std", "deep_causality_algebra/no-std"]
+
+[dependencies.deep_causality_num]
+path = "../deep_causality_num"
+version = "0.4"
+default-features = false
+
+[dependencies.deep_causality_algebra]
+path = "../deep_causality_algebra"
+version = "0.2"
+default-features = false
+
+[lints]
+workspace = true

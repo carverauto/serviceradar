@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_app
+
   alias ServiceRadarAgentGateway.DesktopMediaServer
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub

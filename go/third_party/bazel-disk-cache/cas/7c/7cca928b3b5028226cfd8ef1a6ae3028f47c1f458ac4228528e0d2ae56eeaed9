@@ -1,45 +1,0 @@
-
--external/bazel_tools/tools/test/test-setup.sh
-5go/pkg/agent/syncsources/armis/armis_test_/armis_test-
-%AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_DIR/usrO
--AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR/usr/include/aarch64-linux-gnuG
-)AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR/usr/lib/aarch64-linux-gnu=
-AR_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-arO
--CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER/usr/bin/aarch64-linux-gnu-gcc>
-CC_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-gcc?
-CXX_aarch64_unknown_linux_gnu/usr/bin/aarch64-linux-gnu-g++
-GO_TEST_RUN_FROM_BAZEL1t
-JAVA_RUNFILEScbazel-out/darwin_arm64-fastbuild/bin/go/pkg/agent/syncsources/armis/armis_test_/armis_test.runfiles 
-NEXT_PRIVATE_SKIP_TURBOPACK1
-NEXT_SKIP_TURBO1
-OPENSSL_DIR/usr#
-OPENSSL_INCLUDE_DIR/usr/include,
-OPENSSL_LIB_DIR/usr/lib/x86_64-linux-gnu
-OPENSSL_NO_PKG_CONFIG
-OPENSSL_NO_VENDORü
-PATHñ/Users/mfreeman/Library/Caches/bazelisk/downloads/sha256/2e504b99739a1b2f04fdafed08fe89eba27c9b75f6383703310b7f7071c15841/bin:/Users/mfreeman/.cubic/bin:/Users/mfreeman/.git-ai/bin:/Users/mfreeman/.antigravity/antigravity/bin:/opt/homebrew/opt/icu4c/sbin:/opt/homebrew/opt/icu4c/bin:/Users/mfreeman/.wasmtime/bin:/Users/mfreeman/Library/pnpm:/Users/mfreeman/.nvm/versions/node/v22.13.0/bin:/Users/mfreeman/bin:/Users/mfreeman/.local/bin:/usr/local/bin:/opt/local/bin:/opt/local/sbin:/Library/Frameworks/Python.framework/Versions/3.13/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/usr/local/go/bin:/Users/mfreeman/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/mfreeman/Library/Application Support/JetBrains/Toolbox/scripts:/Applications/Visual Studio Code.app/Contents/Resources/app/bin:/Users/mfreeman/go/bin:/Users/mfreeman/.claude/plugins/cache/claude-context-mode/context-mode/0.7.2/bin:/Users/mfreeman/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/bin:/Users/mfreeman/.claude/plugins/cache/claude-plugins-official/gopls-lsp/1.0.0/bin:/Users/mfreeman/.claude/plugins/cache/claude-code-elixir/elixir-lsp/2.1.0/bin:/Users/mfreeman/.claude/plugins/cache/claude-code-elixir/mix-format/1.0.3/bin:/Users/mfreeman/.claude/plugins/cache/claude-code-elixir/mix-compile/1.1.0/bin:/Users/mfreeman/.claude/plugins/cache/claude-code-elixir/mix-credo/1.1.0/bin:/Users/mfreeman/.claude/plugins/cache/claude-code-elixir/elixir/2.1.0/binû
-)PKG_CONFIG_PATH_aarch64_unknown_linux_gnuq/usr/lib/postgresql/18/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig5
-0PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu/v
-PYTHON_RUNFILEScbazel-out/darwin_arm64-fastbuild/bin/go/pkg/agent/syncsources/armis/armis_test_/armis_test.runfiles$
-RULES_PKG_PYTHON/usr/bin/python3s
-RUNFILES_DIRcbazel-out/darwin_arm64-fastbuild/bin/go/pkg/agent/syncsources/armis/armis_test_/armis_test.runfiles
-RUN_UNDER_RUNFILES1D
-TEST_BINARY5go/pkg/agent/syncsources/armis/armis_test_/armis_testì
- TEST_INFRASTRUCTURE_FAILURE_FILEobazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.infrastructure_failureï
-TEST_LOGSPLITTER_OUTPUT_FILEubazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.raw_splitlogs/test.splitlogsá
-TEST_PREMATURE_EXIT_FILEkbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.exited_prematurely
-	TEST_SIZEmediumr
-TEST_SRCDIRcbazel-out/darwin_arm64-fastbuild/bin/go/pkg/agent/syncsources/armis/armis_test_/armis_test.runfiles:
-TEST_TARGET+//go/pkg/agent/syncsources/armis:armis_test
-TEST_TIMEOUT3004
-TEST_TMPDIR%_tmp/356b2fe37b5b079ff79ce4a6498e2019ú
-#TEST_UNDECLARED_OUTPUTS_ANNOTATIONSubazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest/ANNOTATIONSî
-'TEST_UNDECLARED_OUTPUTS_ANNOTATIONS_DIRibazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest
-TEST_UNDECLARED_OUTPUTS_DIR`bazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputsñ
- TEST_UNDECLARED_OUTPUTS_MANIFESTrbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest/MANIFESTç
-TEST_UNUSED_RUNFILES_LOG_FILElbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.unused_runfiles_log~
-TEST_WARNINGS_OUTPUT_FILEabazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.warnings
-TEST_WORKSPACE_main
-	TURBOPACK	
-TZUTCo
-XML_OUTPUT_FILE\bazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.xml:kbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.exited_prematurely:obazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.infrastructure_failure:`bazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs:ubazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest/ANNOTATIONS:xbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest/ANNOTATIONS.pb:rbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.outputs_manifest/MANIFEST:ubazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.raw_splitlogs/test.splitlogs:lbazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.unused_runfiles_log:abazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.warnings:\bazel-out/darwin_arm64-fastbuild/testlogs/go/pkg/agent/syncsources/armis/armis_test/test.xml
