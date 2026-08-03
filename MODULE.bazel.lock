@@ -1122,7 +1122,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "TO0sjSNkDsRNtKiwgPJW4ogKM/yK77iip7GpQtVYt44=",
-        "usagesDigest": "3KnD5KgbaO/vyS3d7AUQQP4wvekOoTrmGlSva9NvIbQ=",
+        "usagesDigest": "LjwFfkCfjueyAlKkqRHbY+/Ut+vaWQtGbu/taECi6P8=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1136,8 +1136,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/ubuntu",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/ubuntu",
               "identifier": "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
               "platform": "linux/amd64",
               "target_name": "ubuntu_jammy_linux_amd64",
@@ -1150,8 +1150,8 @@
               "target_name": "ubuntu_jammy",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/ubuntu",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/ubuntu",
               "identifier": "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@ubuntu_jammy_linux_amd64"
@@ -1165,8 +1165,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "actions/actions-runner",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/actions/actions-runner",
               "identifier": "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
               "platform": "linux/amd64",
               "target_name": "actions_runner_linux_amd64",
@@ -1179,8 +1179,8 @@
               "target_name": "actions_runner",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "actions/actions-runner",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/actions/actions-runner",
               "identifier": "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@actions_runner_linux_amd64"
@@ -1194,8 +1194,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "carverauto/arc-runner",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/carverauto/arc-runner",
               "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
               "platform": "linux/amd64",
               "target_name": "arc_runner_linux_amd64",
@@ -1208,8 +1208,8 @@
               "target_name": "arc_runner",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "carverauto/arc-runner",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/carverauto/arc-runner",
               "identifier": "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@arc_runner_linux_amd64"
@@ -1223,8 +1223,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/alpine",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/alpine",
               "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
               "platform": "linux/amd64",
               "target_name": "alpine_3_20_linux_amd64",
@@ -1236,8 +1236,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/alpine",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/alpine",
               "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
               "platform": "linux/arm64/v8",
               "target_name": "alpine_3_20_linux_arm64_v8",
@@ -1250,8 +1250,8 @@
               "target_name": "alpine_3_20",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/alpine",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/alpine",
               "identifier": "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@alpine_3_20_linux_amd64",
@@ -1266,8 +1266,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/alpine",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/alpine",
               "identifier": "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
               "platform": "linux/amd64",
               "target_name": "alpine_3_24_linux_amd64",
@@ -1280,8 +1280,8 @@
               "target_name": "alpine_3_24",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/alpine",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/alpine",
               "identifier": "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@alpine_3_24_linux_amd64"
@@ -1295,8 +1295,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/ubuntu",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/ubuntu",
               "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
               "platform": "linux/amd64",
               "target_name": "ubuntu_noble_linux_amd64",
@@ -1308,8 +1308,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/ubuntu",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/ubuntu",
               "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
               "platform": "linux/arm64/v8",
               "target_name": "ubuntu_noble_linux_arm64_v8",
@@ -1322,8 +1322,8 @@
               "target_name": "ubuntu_noble",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/ubuntu",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/ubuntu",
               "identifier": "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@ubuntu_noble_linux_amd64",
@@ -1338,8 +1338,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/debian",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/debian",
               "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
               "platform": "linux/amd64",
               "target_name": "debian_bookworm_slim_linux_amd64",
@@ -1351,8 +1351,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/debian",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/debian",
               "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
               "platform": "linux/arm64/v8",
               "target_name": "debian_bookworm_slim_linux_arm64_v8",
@@ -1365,8 +1365,8 @@
               "target_name": "debian_bookworm_slim",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/debian",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/debian",
               "identifier": "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@debian_bookworm_slim_linux_amd64",
@@ -1381,8 +1381,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/debian",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/debian",
               "identifier": "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
               "platform": "linux/amd64",
               "target_name": "debian_testing_slim_linux_amd64",
@@ -1395,8 +1395,8 @@
               "target_name": "debian_testing_slim",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/debian",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/debian",
               "identifier": "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@debian_testing_slim_linux_amd64"
@@ -1410,8 +1410,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/node",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/node",
               "identifier": "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
               "platform": "linux/amd64",
               "target_name": "node_20_alpine_linux_amd64",
@@ -1424,8 +1424,8 @@
               "target_name": "node_20_alpine",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "index.docker.io",
-              "repository": "library/node",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/library/node",
               "identifier": "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@node_20_alpine_linux_amd64"
@@ -1441,7 +1441,7 @@
               "scheme": "https",
               "registry": "registry.carverauto.dev",
               "repository": "serviceradar/serviceradar-tools",
-              "identifier": "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+              "identifier": "sha256:dbd070a74d1e3ea67f3d560018080d35adf06415233504d52111bcbbd8d0cd32",
               "platform": "linux/amd64",
               "target_name": "serviceradar_tools_linux_amd64",
               "bazel_tags": []
@@ -1455,7 +1455,7 @@
               "scheme": "https",
               "registry": "registry.carverauto.dev",
               "repository": "serviceradar/serviceradar-tools",
-              "identifier": "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+              "identifier": "sha256:dbd070a74d1e3ea67f3d560018080d35adf06415233504d52111bcbbd8d0cd32",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@serviceradar_tools_linux_amd64"
               },
@@ -1468,8 +1468,8 @@
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "cloudnative-pg/postgresql",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/cloudnative-pg/postgresql",
               "identifier": "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
               "platform": "linux/amd64",
               "target_name": "cloudnativepg_postgresql_18_linux_amd64",
@@ -1482,8 +1482,8 @@
               "target_name": "cloudnativepg_postgresql_18",
               "www_authenticate_challenges": {},
               "scheme": "https",
-              "registry": "ghcr.io",
-              "repository": "cloudnative-pg/postgresql",
+              "registry": "registry.carverauto.dev",
+              "repository": "mirror/cloudnative-pg/postgresql",
               "identifier": "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
               "platforms": {
                 "@@platforms//cpu:x86_64": "@cloudnativepg_postgresql_18_linux_amd64"
