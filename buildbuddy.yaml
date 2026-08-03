@@ -33,6 +33,13 @@ actions:
     # reads as unset, not as the default pool. See the README.
     self_hosted: true
     pool: "default"
+    # Runner sizing. Defaults are 3 CPU / 8 GB / 20 GB,
+    #
+    # Values are byte counts or numeric strings with an IEC abbreviation; cpu also accepts
+    # an `m` suffix for thousandths of a core ("8000m" = 8 cores).
+    resource_requests:
+      memory: "24GB"
+      disk: "40GB"
     triggers:
       push:
         branches:
