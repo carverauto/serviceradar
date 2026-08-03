@@ -1,0 +1,23 @@
+MODULE.bazel
+  s_5e6e8015a348e5::t_94e85f2d1de2c8 2532-2538
+  s_5e6e8015a348e5::t_1fe8f740fbb6e6 2546-2549
+  s_5e6e8015a348e5::t_9e15b32fd3d7a8 2524,2557,2566,2574,2583,2592,2600,2607-2610,2638
+MODULE.bazel.lock
+  s_5e6e8015a348e5::t_59ff3224b3a299 1125,1139-1140,1153-1154,1168-1169,1182-1183,1197-1198,1211-1212,1226-1227,1239-1240,1253-1254,1269-1270,1283-1284,1298-1299,1311-1312,1325-1326,1341-1342,1354-1355,1368-1369,1384-1385,1398-1399,1413-1414,1427-1428,1444,1458,1471-1472,1485-1486
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "706c9db9fce4cdc24aadeb5bdb62d8bbbf4b7caa",
+  "prompts": {},
+  "sessions": {
+    "s_5e6e8015a348e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad3a80e1-d879-4628-ba49-a192364f8007",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
