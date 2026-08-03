@@ -207,3 +207,54 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
+
+## Workflows (`buildbuddy.yaml`)
+
+The repo-root `buildbuddy.yaml` drives CI. Four things about it are easy to get wrong.
+
+### `steps`, not `bazel_commands`
+
+`bazel_commands` is a legacy field and no longer in the documented schema; it still parses.
+`steps` takes **bash** commands rather than bazel subcommands, which matters for the
+integration tier: `set -a; . "$FIXTURE_ENV"; set +a` must run in the *same shell* as the
+bazel calls that consume it, so those belong in one multi-line `- run: |` step. Separate
+steps do not share an environment.
+
+### RBE is not on by default
+
+BuildBuddy supplies `--bes_backend`, `--bes_results_url` and the API key header to every
+invocation, but *not* remote cache or remote execution — "the configuration steps are the
+same as when running Bazel locally." `--config=remote` is what enables them. Note that
+`.bazelrc.remote` (which carries `--remote_header=x-buildbuddy-api-key=...`) is gitignored
+and absent in CI; BuildBuddy injects the key itself, so this is fine.
+
+### `self_hosted: true` requires a matching `pool`
+
+Every executor here is self-hosted, so the runner should be too. But BuildBuddy defaults the
+self-hosted workflow pool to the name `workflows`, and `values.yaml` sets **no** pool — these
+executors are in the *default* pool. `self_hosted: true` alone therefore schedules against a
+pool with no executors and the run simply **queues**; it does not fail with a useful error.
+`pool: ""` targets the default pool.
+
+If a run hangs in "queued", check what the executors actually register as:
+
+```bash
+kubectl exec -n buildbuddy <executor-pod> -- printenv | grep -i pool
+```
+
+The runner also competes with build actions for these same 3 executors and asks for
+3 CPU / 8 GB by default. Add `resource_requests` to the action if it starves the fan-out.
+
+### Where the runner runs decides what it can reach
+
+This is not about fan-out — that works either way, because `--config=remote` names a public
+endpoint a BuildBuddy-hosted runner can dispatch through (a cloud-runner build reached 29
+concurrent actions).
+
+It matters because **`no-remote-exec` targets execute on the runner, not on an executor**.
+The DB lifecycle targets in the integration tier are `no-remote-exec`, and only an
+in-cluster runner resolves `srql-fixture-rw.srql-fixtures.svc.cluster.local`. With
+`self_hosted: false` those four fail while the 8 remote shards succeed, and the shards then
+connect to databases that were never provisioned.
+
+Full reachability matrix and the fixture-credential design: `openspec/notes/bazel-bb-ci.md`.

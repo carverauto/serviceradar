@@ -1,20 +1,17 @@
+# BuildBuddy CI workflow. Details and gotchas: k8s/buildbuddy/README.md ("Workflows").
 actions:
   - name: "Build, test and publish all containers"
+    # Run the runner on the org's own executors. `pool: ""` is required because
+    # without it the run queues against an empty pool. See the README.
+    self_hosted: true
+    pool: ""
     triggers:
       push:
         branches:
           - "staging"
           #- "no_run" # Disables CI i.e. when testing the custom RBE image.
-    # NOT set: `self_hosted: true`. The runner is therefore a BuildBuddy-hosted VM, not one
-    # of the 3 in-cluster executors. Fan-out is unaffected -- --config=remote names a public
-    # endpoint -- but it is why the integration step is not here yet: the DB lifecycle
-    # targets are `no-remote-exec` and would run on that cloud runner, which cannot reach
-    # the in-cluster CNPG fixture. See "WHICH ENDPOINT" in openspec/notes/bazel-bb-ci.md.
     steps:
-      # Setup & Authenticate
       - run: "bazel run -c opt //:buildbuddy_setup_docker_auth --verbose_failures"
-      # Build all targets with remote. Do NOT disable remote, otherwise the missing lib ..
-      # makes the workflow build fail.
+      # --config=remote is what turns RBE on; workflows do not enable it by default.
       - run: "bazel build -c opt //... --config=remote"
-      # Run Unit & Doc tests
       - run: "bazel test -c opt //... --config=remote --test_tag_filters=-integration_test,-acceptance_test"
