@@ -95,14 +95,21 @@ here.
     golden test, and have a full Go body validator (`ValidateSweepObservationBatch`).
     ELIXIR NOW HAS A RELATIONAL PEER for the CORRELATION -- `SweepCorrelate`, landed by
     1.3-f -- but still has NO FULL BODY VALIDATOR for this message: shape, bounds,
-    received-byte ceiling, recursive wire hygiene and unknown-field rejection remain
-    Go-only. The two are different obligations and only the first is met.
+    extracted-body work ceiling, recursive wire hygiene and unknown-field rejection have
+    LANDED for the raw stage -- `WireDecode.decode_sweep_batch/1` -- so what remains Go-only
+    is the DECODED body validation: exact shapes, per-width bounds, enum/domain checks. The two are different obligations and only the first is met.
   - REMAINING: see subtasks 1.2-a..c below; not restated here.
-  - DEPENDS ON: NOTHING OPEN. 1.2-c consumes the matrix semantics ALREADY LANDED in #4779;
-    it adds no new matrix semantics and does not depend on 1.3-f. The only edge in this
-    direction is 1.3-f -> 1.2-c.
-  - EVIDENCE: `proto/edge/v1/sweep.proto` and `ValidateSweepObservationBatch`. The
-    CORRELATION half is 1.3-f's; its evidence is listed under task 1.3, not duplicated here.
+  - DEPENDS ON: TASK 1.5-f, at CLOSURE ONLY -- see 1.5-f for the ownership and the reason.
+    NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
+  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`, and for the raw
+    stage `WireDecode.decode_sweep_batch/1` with
+    `test/serviceradar/edge/sweep_batch_decode_test.exs`. Claim-variant structure is
+    `ServiceRadar.Edge.CapabilityClaims` -- the ONE predicate shared by capability signature
+    verification and the sweep recovery-lane preflight, pinned against
+    `EdgeSignedCapabilityV1.__message_props__/0` in BOTH directions by
+    `test/serviceradar/edge/capability_claims_test.exs`, so a proto-side variant addition
+    fails loudly instead of being classified as malformed everywhere. The CORRELATION half
+    is 1.3-f's; its evidence is listed under task 1.3, not duplicated here.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.2-a field-by-field closeout audit against what shipped
@@ -110,8 +117,23 @@ here.
         (`SweepCorrelate`); the Elixir FULL BODY VALIDATOR belongs to 1.2. This item is
         the DECISION, and it is closed
   - [ ] 1.2-c the Elixir FULL BODY VALIDATOR for `SweepObservationBatchV1`: shape, bounds,
-        received-byte ceiling via a curated `WireDecode` entry point, recursive wire
-        hygiene, unknown-field rejection. `SweepCorrelate` names this as a PRECONDITION
+        recursive wire hygiene and unknown-field rejection via a curated `WireDecode` entry
+        point, under the EXTRACTED-BODY WORK CEILING (32 MiB, mirroring Go's
+        `MaxUncompressedBytes`).
+        NOT a "received-byte ceiling": 512 KiB is the PHYSICAL bound on the outer record
+        and its encoded/compressed payload. A compressed payload under that bound may
+        legitimately EXPAND past it, and Go decodes the expanded body with no second
+        physical cap -- so a 512 KiB bound at this stage would permanently reject valid
+        records. 1.2-c's vectors are inputs to THIS STAGE and assert nothing about
+        composed-record reachability.
+        Extraction, the ratio rule, trailing frames, the normative 32 MiB freeze and
+        composed-record reachability are 1.5-f's -- see 1.5-f. Buildable now, closable only
+        after it.
+        BOUNDS EVIDENCE SHALL enumerate EACH protobuf integer width separately -- `uint32`,
+        `uint64`, `int32`, `int64`, `sint64` -- not a single "bounds checked" claim. A
+        `uint32` field guarded against a `uint64` ceiling accepts 2^32, which the wire
+        cannot carry -- `digest_version` and `execution_shard` are two such
+        fields. `SweepCorrelate` names this as a PRECONDITION
         and does not substitute for it, so 1.3-f's last-gate proof is incomplete until
         this lands -- see 1.3-f's DEPENDS-ON note
 
@@ -511,7 +533,23 @@ here.
   - [ ] 1.5-e ASN RANGE admission
   - [ ] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, recursion, and
         trailing-frame rejection. #4734 was the candidate and is CLOSED UNMERGED, so this
-        is unstarted work, not a review-pending one
+        is unstarted work, not a review-pending one.
+        1.5-f OWNS THE NORMATIVE FREEZE OF THE EXTRACTED-BODY BOUNDS and SHALL state them
+        in the spec's frozen bounds table: `MaxUncompressedBytes = 32 MiB` and
+        `MaxCompressionRatio = 100`, mirroring `go/pkg/edge/edgerecord/validate.go:38-39`,
+        with cross-language parity vectors. Neither value appears in a normative
+        requirement or the bounds table today -- both live only in Go source and, since
+        1.2-c step 1, in an Elixir constant.
+        1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
+        applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
+        32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is
+        asserting. Otherwise the number is pinned by a test with no normative source.
+        1.5-f ALSO OWNS COMPOSED-RECORD REACHABILITY. 1.2-c's vectors are inputs to the
+        extracted-decoder stage and assert nothing about whether a record carrying such a
+        body survives compression admission -- highly repetitive padding compresses far
+        beyond 100:1 and is refused before extraction. Proving that SOME body above the
+        512 KiB physical bound is transport-reachable requires a composed-record vector
+        under the ratio rule, which is 1.5-f's; no other task may claim it.
   - [ ] 1.5-g the payload-family <-> output-contract admission decision (assigned by 1.3):
         freeze the relation with vectors in both runtimes, or record an explicit decision
         that v1 needs none
