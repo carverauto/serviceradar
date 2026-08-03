@@ -35,14 +35,12 @@ import "errors"
 //   - The ORDER is not frozen: the shared vector manifest that would give an order
 //     its authority does not exist yet. The inventories therefore compare an
 //     unordered set, and any list here is presentation only.
-//   - EMISSION is per-runtime and incomplete: Go emits all fifteen. Elixir emits
-//     NONE from a wired path -- its SweepMatrix.check_source_run_id/2 returns the
-//     disposition label, but nothing calls it, because that runtime has no sweep
-//     body validator or correlation until its peer lands (task 1.3-f).
-//   - The (label, gate) PAIR is NOT yet pinned in either runtime. The two axes are
-//     asserted separately by different tests, so a site can emit the wrong label
-//     with the right sentinel, or the right label with the wrong sentinel, and
-//     stay green. That proof belongs to task 1.3-f.
+//   - EMISSION: Go emits all fifteen. Elixir's SweepCorrelate emits the correlation
+//     labels and the disposition; it has no full body validator yet (task 1.2-c), so
+//     it names one as a precondition rather than enforcing it.
+//   - The (label, gate) PAIR is pinned for TEN of the fifteen in both runtimes -- the
+//     nine correlation labels and the disposition. The FIVE TIME labels are asserted
+//     for their label only, with no vector pinning a gate; task 1.3-f owns that.
 //
 // LABELS AND GATES ARE ORTHOGONAL. Most of these are emitted by the correlation,
 // but SweepLabelSourceRunIDDisposition is emitted by the BODY VALIDATOR, because

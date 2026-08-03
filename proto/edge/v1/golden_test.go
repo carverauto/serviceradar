@@ -2540,46 +2540,51 @@ func rebuildRecord(r *edgev1.EdgeRecordV1) {
 // source claims both mirror the producer context, so moving the context would be
 // refused by those mirrors before correlation.
 //
-// These assert the LABEL only. Asserting the label AND the owning gate together
-// is task 1.3-f's joint proof, in both runtimes -- neither pins the pair today.
+// These assert the LABEL and the OWNING GATE together, and that the error does NOT
+// match the other gate. The FIVE TIME labels are not among them: those still have no
+// vector pinning them to a gate, which task 1.3-f owns.
 func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
+	// Every case pins the label AND the owning gate in ONE assertion. Asserting them
+	// in separate tests leaves the PAIR unpinned: a site can emit the right label with
+	// the wrong gate, or the reverse, and both tests stay green.
 	cases := []struct {
 		name   string
 		want   edgerecord.SweepJoinLabel
+		gate   error
 		break_ func(*edgev1.EdgeRecordV1)
 	}{
-		{"absent authority", edgerecord.SweepLabelSourceAuthorityAbsent, func(r *edgev1.EdgeRecordV1) {
+		{"absent authority", edgerecord.SweepLabelSourceAuthorityAbsent, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.SourceAuthorization = nil
 		}},
 		// Mutate the SIGNED claim, not the outer mirror: the mirror is re-synced from
 		// the claims during the rebuild, so mutating it alone would be undone.
-		{"wrong kind", edgerecord.SweepLabelSourceKind, func(r *edgev1.EdgeRecordV1) {
+		{"wrong kind", edgerecord.SweepLabelSourceKind, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().Kind =
 				edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC
 		}},
-		{"context id", edgerecord.SweepLabelContextID, func(r *edgev1.EdgeRecordV1) {
+		{"context id", edgerecord.SweepLabelContextID, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().ContextId = uuidv7(0x7E)
 		}},
-		{"range id", edgerecord.SweepLabelRangeID, func(r *edgev1.EdgeRecordV1) {
+		{"range id", edgerecord.SweepLabelRangeID, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().ScopeId = uuidv7(0x7D)
 		}},
-		{"scope digest", edgerecord.SweepLabelScopeDigest, func(r *edgev1.EdgeRecordV1) {
+		{"scope digest", edgerecord.SweepLabelScopeDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().ScopeSha256 = digest32(0x7C)
 		}},
-		{"target range digest", edgerecord.SweepLabelTargetRangeDigest, func(r *edgev1.EdgeRecordV1) {
+		{"target range digest", edgerecord.SweepLabelTargetRangeDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().TargetRangeSha256 = digest32(0x7B)
 		}},
-		{"plan digest", edgerecord.SweepLabelPlanDigest, func(r *edgev1.EdgeRecordV1) {
+		{"plan digest", edgerecord.SweepLabelPlanDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.GetSourceAuthorization().GetCapability().GetSource().ExecutionPlanSha256 = digest32(0x7A)
 		}},
 		// These two mutate the BODY's view of the attested producer rather than the
 		// producer context, because the production capability and the source claims
 		// both mirror the context: moving the context would be refused by those
 		// mirrors before correlation, which is a rejection for the wrong reason.
-		{"execution shard", edgerecord.SweepLabelExecutionShard, func(r *edgev1.EdgeRecordV1) {
+		{"execution shard", edgerecord.SweepLabelExecutionShard, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.ExecutionShard = 99 })
 		}},
-		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, func(r *edgev1.EdgeRecordV1) {
+		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
 		}},
 	}
@@ -2603,6 +2608,20 @@ func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("label = %q, want %q (err: %v)", got, tc.want, err)
+			}
+			// The GATE, asserted here rather than in a separate test, so the two
+			// cannot drift apart.
+			if !errors.Is(err, tc.gate) {
+				t.Fatalf("label %q came from the wrong gate: %v, want errors.Is %v", got, err, tc.gate)
+			}
+			// And NOT from the other gate -- otherwise a single error wrapping both
+			// sentinels would satisfy the check above.
+			other := edgerecord.ErrSweepSourceRunID
+			if tc.gate == edgerecord.ErrSweepSourceRunID {
+				other = edgerecord.ErrSweepJoin
+			}
+			if errors.Is(err, other) {
+				t.Fatalf("label %q matched BOTH gates: %v", got, err)
 			}
 		})
 	}

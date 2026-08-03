@@ -3,17 +3,13 @@ defmodule ServiceRadar.Edge.SweepMatrix do
   The FROZEN `SweepObservationBatchV1` correlation matrix, and the label
   vocabulary shared with Go.
 
-  THIS RUNTIME EMITS NONE OF THESE FROM A WIRED PATH. `check_source_run_id/2` below
-  returns `:source_run_id_disposition`, but nothing calls it yet: there is no
-  Elixir body validator or correlation for `SweepObservationBatchV1` until the
-  relational peer lands (task 1.3-f). The fifteen names are declared here as
-  VOCABULARY, so both runtimes agree on them before either emits.
+  `ServiceRadar.Edge.SweepCorrelate` consumes this table and emits these labels. It
+  is a RELATION, not an authenticated boundary, and it names the Elixir full body
+  validator (task 1.2-c) as a precondition rather than enforcing it.
 
-  This is the Elixir peer of Go's `sweepSourceMatrix`. There is NO correlation in
-  this runtime yet, so this table is not currently consulted by one; when the peer
-  lands it SHALL be that correlation's SOLE kind lookup, and nothing else may
-  derive a source's authorization kind, its signed context operand, or its
-  `source_run_id` disposition. That single-lookup property is what makes the exhaustive inventory
+  This is the Elixir peer of Go's `sweepSourceMatrix`, and it is `SweepCorrelate`'s
+  SOLE kind lookup: nothing else may derive a source's authorization kind, its signed
+  context operand, or its `source_run_id` disposition. That single-lookup property is what makes the exhaustive inventory
   test equal to the behaviour's coverage — five sources against seven declared
   kinds is a 5x7 accept/reject matrix with five accepting cells, so sampling wrong
   kinds per source would exercise five of thirty rejecting cells and leave an

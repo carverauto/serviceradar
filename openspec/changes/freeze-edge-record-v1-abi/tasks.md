@@ -92,18 +92,29 @@ here.
   - LANDED: `SweepObservationBatchV1` and the mergeable summary shapes are frozen and
     generated in both runtimes, carry golden fixtures consumed byte-for-byte by the Elixir
     golden test, and have a full Go body validator (`ValidateSweepObservationBatch`).
-    ELIXIR HAS NO RELATIONAL/BODY PEER for this message -- only enum admission
-    (`SemanticValidate`) and golden decoding. This message has NO Elixir relational or body
-    peer.
-  - REMAINING: see subtasks 1.2-a..b below; not restated here.
-  - DEPENDS ON: 1.3's matrix, which added `source_run_id` semantics to this message after
-    the shape was frozen.
-  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`.
+    ELIXIR NOW HAS A RELATIONAL PEER for the CORRELATION -- `SweepCorrelate`, landed by
+    1.3-f -- but still has NO FULL BODY VALIDATOR for this message: shape, bounds,
+    received-byte ceiling, recursive wire hygiene and unknown-field rejection remain
+    Go-only. The two are different obligations and only the first is met.
+  - REMAINING: see subtasks 1.2-a..c below; not restated here.
+  - DEPENDS ON: NOTHING OPEN. 1.2-c consumes the matrix semantics ALREADY LANDED in #4779;
+    it adds no new matrix semantics and does not depend on 1.3-f. The only edge in this
+    direction is 1.3-f -> 1.2-c.
+  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`, and — for the
+    CORRELATION half that 1.3-f owns —
+    `elixir/serviceradar_core/lib/serviceradar/edge/sweep_correlate.ex` with its
+    `test/serviceradar/edge/sweep_correlate_test.exs`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.2-a field-by-field closeout audit against what shipped
-  - [ ] 1.2-b decide whether the Elixir relational peer for `SweepObservationBatchV1` is
-        owed here or under 1.3-f, and record the answer
+  - [x] 1.2-b DECIDED: the CORRELATION peer belongs to 1.3-f and has landed
+        (`SweepCorrelate`); the Elixir FULL BODY VALIDATOR belongs to 1.2. This item is
+        the DECISION, and it is closed
+  - [ ] 1.2-c the Elixir FULL BODY VALIDATOR for `SweepObservationBatchV1`: shape, bounds,
+        received-byte ceiling via a curated `WireDecode` entry point, recursive wire
+        hygiene, unknown-field rejection. `SweepCorrelate` names this as a PRECONDITION
+        and does not substitute for it, so 1.3-f's last-gate proof is incomplete until
+        this lands -- see 1.3-f's DEPENDS-ON note
 
 - [ ] 1.3 Add `SweepExecutionEventV1` start, progress/watermark, completion, and
   aborted evidence per assignment attempt; an immutable scheduler plan that
@@ -181,8 +192,24 @@ here.
         the fourteen correlation labels, and the JOINT (label, gate) vector proof in BOTH
         runtimes -- every LABELLED vector asserts the portable label AND the owning gate's
         typed outcome in ONE assertion, so neither can be changed alone. UNLABELLED vectors
-        (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate. Neither runtime pins
-        the pair today. The BASELINE regeneration is already LANDED: making the
+        (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate.
+        PARTIALLY DONE. TEN pairs are pinned in both runtimes -- the nine correlation
+        labels and the disposition. THE CANONICAL REMAINDER IS HERE:
+          (i)   the FIVE time-label pairs: `batch_time_window`, both host labels, both
+                trace labels -- asserted for their LABEL only, with no vector pinning a
+                gate;
+          (ii)  NON-VACUOUS overflow vectors: both current ones wrap to values OUTSIDE
+                the window, so an unchecked implementation rejects them anyway;
+          (iii) the SHARED cross-language corpus, including a protobuf-equivalent
+                NONCANONICAL payload -- duplicate known singular fields -- proving
+                `payload_sha256` is checked against the EXACT CARRIED BYTES rather than
+                decode/re-encode bytes;
+          (iv)  task 1.2-c, under task 1.2.
+        BLOCKED ON 1.2-c, not merely dependent: `SweepCorrelate` names the Elixir full body
+        validator as a PRECONDITION, and a vector CANNOT satisfy a last-gate proof by
+        stating that an unenforced precondition occurred. 1.3-f SHALL NOT be checked before
+        1.2-c. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
+        matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c. The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
         resulting fixture changes are reviewed there. 1.3-f OWNS these vectors; task 1.15
         ACKNOWLEDGES them as parity evidence (1.15-b) and does not own them
@@ -235,22 +262,25 @@ here.
   - LANDED: the assignment record + plan model (#4770), the compiled-assignment carrier and
     host execution grant (#4775), the normative grammar freeze (#4776), both Elixir
     validators (#4777), the correlation-matrix design (#4779), matrix slice 1 -- 1.3-a and
-    1.3-b, with the shared `UUIDv7Nanos` helper -- and matrix slice 2, 1.3-d and 1.3-e.
-  - REMAINING: 1.3-c and 1.3-f in the checklist ABOVE, which is CANONICAL for this task; no
-    other passage in this file restates it.
-  - DEPENDS ON: nothing open. The durable assignment mapping is task 2.20 downstream and
-    SHALL NOT gate this.
+    1.3-b, with the shared `UUIDv7Nanos` helper -- matrix slice 2, 1.3-d and 1.3-e, and
+    slice 3a's Elixir correlation peer (`SweepCorrelate`).
+    THE JOINT (label, gate) PROOF IS PARTIAL, NOT COMPLETE: it covers the nine correlation
+    labels plus the disposition label. The remaining proof is enumerated in 1.3-f's
+    checklist entry above and is not restated here.
+  - REMAINING: 1.3-c and 1.3-f in the checklist ABOVE, which is CANONICAL for this task --
+    including 1.3-f's four-item remainder. No other passage restates it, and this line does
+    not either.
+  - DEPENDS ON: task 1.2-c, the Elixir full body validator, which blocks 1.3-f. The durable
+    assignment mapping is task 2.20 downstream and SHALL NOT gate this.
   - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`;
+    `elixir/serviceradar_core/lib/serviceradar/edge/sweep_correlate.ex` and its
+    `test/serviceradar/edge/sweep_correlate_test.exs` (slice 3a correlation peer);
     `go/pkg/edge/edgerecord/sweep_matrix_test.go` (slice 1 behaviour);
     `go/pkg/edge/edgerecord/sweep_labels.go` and `sweep_inventory_test.go` (slice 2 Go
     vocabulary + inventory); `elixir/serviceradar_core/lib/serviceradar/edge/sweep_matrix.ex`
     and its `test/serviceradar/edge/sweep_matrix_test.exs` (slice 2 Elixir peer table);
     the per-predicate label vectors in `proto/edge/v1/golden_test.go`; and
     `proto/edge/v1/testdata/sweep_batch.bin`.
-  - NOTE on 1.3-c: the shared checked helper and its unit vectors landed in slice 1; the box
-    stays OPEN because 1.3's own sweep-summary `trace_id` CORRELATION vector needs a full
-    record fixture and lands with slice 3.
-
 - [ ] 1.4 Add lossless `MtrTraceBatchV1` and `MtrTraceEventV1` contracts covering
   every current trace/hop/ECMP/MPLS/ASN/DNS/timing/outcome/source/correlation
   field without generic metric attributes. Require every batch to share one
