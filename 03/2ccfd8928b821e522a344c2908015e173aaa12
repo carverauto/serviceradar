@@ -1,0 +1,20 @@
+build/mix_app.bzl
+  s_d2089df286db69::t_b27f3f3e70293e 99-130
+  s_d2089df286db69::t_6460efba2f81fc 531-537
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "032ccfd8928b821e522a344c2908015e173aaa12",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
