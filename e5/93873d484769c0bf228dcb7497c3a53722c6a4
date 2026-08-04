@@ -1,0 +1,14 @@
+MODULE.bazel
+  h_080fb89ca1f0c4 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e593873d484769c0bf228dcb7497c3a53722c6a4",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
