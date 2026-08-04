@@ -46,6 +46,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   """
 
   alias ServiceRadar.Edge.CapabilityClaims
+  alias ServiceRadar.Edge.SweepBodyValidate
   alias ServiceRadar.Edge.SweepMatrix
   alias ServiceRadar.Edge.SweepOutcomePolicy
   alias Serviceradar.Edge.V1.EdgeProducerContext
@@ -56,6 +57,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepMtrSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
+  alias ServiceRadar.Edge.WireDecode
 
   @typedoc "The gate that refused, paired with its reason."
   @type failure ::
@@ -201,12 +203,15 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   the carrier and grant peers make — so this stays a RELATION with stated
   preconditions rather than pretending to be the boundary.
 
-  DECODING HERE IS THE GENERATED DECODER. A curated `WireDecode.decode_sweep_batch/1`
-  now exists and carries the `:poison` / `:not_ready` classification, the
-  extracted-body work ceiling, recursive wire hygiene and unknown-field rejection --
-  but this relation does not call it, because it assumes the body validator (task
-  1.2-c) has ALREADY run that path. Callers holding raw bytes should go through that
-  decoder, not this function.
+  DECODING HERE IS THE GENERATED DECODER, which RETAINS unknown fields and applies no
+  work ceiling. This function does not call the curated one, because precondition 6
+  says the body validator already ran that path over THESE EXACT BYTES.
+
+  CALLERS HOLDING RAW PAYLOAD BYTES SHOULD USE `ingest_own_payload/1`, which composes
+  the curated decode and the full body validator with this correlation. Reaching for
+  the curated decoder alone is not enough either -- decoding is not validating, and a
+  decoded batch still has to pass `SweepBodyValidate`. Use THIS function only when
+  those exact bytes have already been through both.
   """
   @spec correlate_own_payload(term()) :: result()
   def correlate_own_payload(%EdgeRecordV1{} = record) do
@@ -221,6 +226,55 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   def correlate_own_payload(_), do: {:error, {:payload, :not_a_record}}
 
   @doc """
+  THE COMPOSED INGRESS (task 1.2-c step 3): extracted payload -> curated decode -> FULL body
+  validation -> correlation, from ONE call.
+
+  This is what `correlate_own_payload/1` could not be. That function decodes with the
+  generated decoder and assumes precondition 6 -- that someone already ran the body
+  validator -- so a body defect and a correlation defect reached callers from two different
+  places, and nothing made the first actually run. Here they come from one ingress, and the
+  body stage is `SweepBodyValidate.validate_bytes/1`, which carries the extracted-body work
+  ceiling, recursive wire hygiene and unknown-field rejection that the generated decoder does
+  not.
+
+  Preconditions 1-5 of `correlate_own_payload/1` still apply: this is STILL NOT an
+  authenticated boundary. It verifies no signature and resolves no trust.
+
+  ## Outcomes
+
+  Body reasons arrive through `translate_body_reason/1`, so the two rules decided in BOTH
+  validators keep their frozen shapes -- `{:body, label}` and `{:enum_admission, :source}` --
+  and everything else enters under `{:body_validation, {family, detail}}`.
+
+  DECODER reasons get their own gate, `{:wire, reason}`, rather than being folded into the
+  existing `{:payload, :decode}`. The curated decoder deliberately separates `:poison` from
+  `:not_ready` and `:systemic` -- malformed data is not an undeployed schema is not a caller
+  fault -- and collapsing them would discard the one classification that stage exists to make.
+  """
+  @spec ingest_own_payload(term()) :: combined_result() | {:error, {:wire, WireDecode.reason()}}
+  def ingest_own_payload(%EdgeRecordV1{} = record) do
+    with :ok <- uncompressed(record),
+         {:ok, payload} <- payload_bytes(record),
+         :ok <- payload_digest(record, payload),
+         {:ok, batch} <- validated_body(payload) do
+      # `correlate/2`, not `validate/2`: the disposition is body-decidable and the body
+      # validator has already decided it, under the same frozen label. Running it twice
+      # would be harmless but would state the rule in two places on one path.
+      correlate(record, batch)
+    end
+  end
+
+  def ingest_own_payload(_), do: {:error, {:payload, :not_a_record}}
+
+  defp validated_body(payload) do
+    case SweepBodyValidate.validate_bytes(payload) do
+      {:ok, batch} -> {:ok, batch}
+      {:error, reason} when is_atom(reason) -> {:error, {:wire, reason}}
+      {:error, {_family, _detail} = reason} -> translate_body_reason(reason)
+    end
+  end
+
+  @doc """
   Body-decidable rules FIRST, then correlation.
 
   THE ORDER IS NOT IDENTICAL TO GO'S. Go runs the reserved recovery lane during
@@ -229,9 +283,14 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   check on. Both refuse the same records; only which rejection surfaces first
   differs, and a shared vector asserting an exact reason must account for it.
 
-  This arity takes the record and batch INDEPENDENTLY and cannot prove the batch
-  came from that record's payload. Prefer `correlate_own_payload/1`, and read its
-  preconditions — neither function is an authenticated boundary.
+  This arity takes the record and batch INDEPENDENTLY and cannot prove the batch came
+  from that record's payload.
+
+  PREFER `ingest_own_payload/1`: it binds the batch to the record's payload AND runs
+  the full body validator, which neither this arity nor `correlate_own_payload/1`
+  does. Use `correlate_own_payload/1` only when the payload bytes have already been
+  validated. NONE of the three is an authenticated boundary -- read the preconditions
+  on `correlate_own_payload/1`, which apply to all of them.
   """
   @spec validate(term(), term()) :: result()
   def validate(%EdgeRecordV1{} = record, %SweepObservationBatchV1{} = batch) do

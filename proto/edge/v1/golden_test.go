@@ -30,6 +30,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,23 @@ func goldenPolicy() edgerecord.AuthorizationPolicy {
 		ActiveFence:      edgerecord.ResolvedFence(5),
 		TrustPolicyEpoch: 1,
 	}
+}
+
+// uuidv7At builds a canonical UUIDv7 carrying an EXPLICIT millisecond timestamp, so a
+// vector can place a trace time outside the signed window or above the ns-conversion
+// ceiling. `uuidv7` always carries `fixedMillis` and cannot express either case.
+func uuidv7At(millis int64, seed byte) []byte {
+	out := make([]byte, 16)
+	var tsb [8]byte
+	binary.BigEndian.PutUint64(tsb[:], uint64(millis)<<16)
+	copy(out[0:6], tsb[0:6])
+	for i := 6; i < 16; i++ {
+		out[i] = seed + byte(i)
+	}
+	out[6] = (out[6] & 0x0F) | 0x70
+	out[8] = (out[8] & 0x3F) | 0x80
+
+	return out
 }
 
 func uuidv7(seed byte) []byte {
@@ -289,6 +307,13 @@ func canonicalRecord(t *testing.T) *edgev1.EdgeRecordV1 {
 func golden(t *testing.T, name string, m proto.Message) []byte {
 	t.Helper()
 	return goldenBytes(t, name, mustMarshal(m))
+}
+
+// goldenText is `golden` for a TEXT manifest: the shared corpus carries its expectations
+// beside the bytes so the other runtime derives them instead of restating them.
+func goldenText(t *testing.T, name, body string) {
+	t.Helper()
+	goldenBytes(t, name, []byte(body))
 }
 
 // mustStr unwraps a validated (string, error) encoder in a golden context. A validated encoder
@@ -2543,16 +2568,21 @@ func rebuildRecord(r *edgev1.EdgeRecordV1) {
 // These assert the LABEL and the OWNING GATE together, and that the error does NOT
 // match the other gate. The FIVE TIME labels are not among them: those still have no
 // vector pinning them to a gate, which task 1.3-f owns.
-func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
-	// Every case pins the label AND the owning gate in ONE assertion. Asserting them
-	// in separate tests leaves the PAIR unpinned: a site can emit the right label with
-	// the wrong gate, or the reverse, and both tests stay green.
-	cases := []struct {
-		name   string
-		want   edgerecord.SweepJoinLabel
-		gate   error
-		break_ func(*edgev1.EdgeRecordV1)
-	}{
+// sweepJoinCase is one labelled rejection: the mutation, the portable label it must
+// produce, and the gate that must own it.
+type sweepJoinCase struct {
+	name   string
+	want   edgerecord.SweepJoinLabel
+	gate   error
+	break_ func(*edgev1.EdgeRecordV1)
+}
+
+// sweepJoinCases is the ONE table. `TestSweepJoinLabelsAreDistinctPerPredicate` proves each
+// case in-process; `TestSweepJoinSharedCorpus` writes the same cases as bytes for Elixir to
+// consume. Two tables would let the in-process proof and the shared corpus drift, so that a
+// label is pinned in one runtime and never exported to the other.
+func sweepJoinCases() []sweepJoinCase {
+	return []sweepJoinCase{
 		{"absent authority", edgerecord.SweepLabelSourceAuthorityAbsent, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			r.SourceAuthorization = nil
 		}},
@@ -2587,8 +2617,55 @@ func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
 		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
 		}},
+		// THE FIVE TIME LABELS. Until now these were asserted for their LABEL alone, with
+		// no vector pinning the owning gate -- so a time rejection could have been emitted
+		// from the body gate and stayed green.
+		{"batch time window", edgerecord.SweepLabelBatchTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+				b.ObservedAtUnixNano = winExpires + 1
+			})
+		}},
+		// A delta that moves the host's ABSOLUTE time out of the window WITHOUT overflowing,
+		// so this vector cannot be satisfied by the overflow branch.
+		{"host time window", edgerecord.SweepLabelHostTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+				b.GetHosts()[0].ObservedAtDeltaNano = 2 * (winExpires - fixedNanos)
+			})
+		}},
+		// NON-VACUITY, stated exactly: a wrapped int64 sum CANNOT be made to land inside
+		// this window. The base is ~1.78e18 ns, so an overflowing sum wraps to roughly
+		// -7.4e18, and reaching +1.78e18 again would need a delta near 2^64 -- outside
+		// int64. So the vector's force is in the LABEL, not in the accept/reject verdict:
+		// drop the overflow check and the wrapped value is refused as `host_time_window`
+		// instead, which this assertion catches. That is mutation-proven, not assumed.
+		{"host time overflow", edgerecord.SweepLabelHostTimeOverflow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+				b.GetHosts()[0].ObservedAtDeltaNano = math.MaxInt64
+			})
+		}},
+		// A trace timestamp two hours past the window: in range for the ns conversion, so
+		// the overflow branch cannot claim it.
+		{"trace time window", edgerecord.SweepLabelTraceTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+				b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis+7_200_000, 0x30)
+			})
+		}},
+		// A 48-bit timestamp ABOVE the ms ceiling the ns conversion can carry. Same
+		// non-vacuity argument as the host case: dropping the check reports
+		// `trace_time_window` instead, and the label is what distinguishes them.
+		{"trace time overflow", edgerecord.SweepLabelTraceTimeOverflow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+				b.GetHosts()[0].GetMtr().TraceId = uuidv7At(9_300_000_000_000, 0x30)
+			})
+		}},
 	}
-	for _, tc := range cases {
+}
+
+func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
+	// Every case pins the label AND the owning gate in ONE assertion. Asserting them
+	// in separate tests leaves the PAIR unpinned: a site can emit the right label with
+	// the wrong gate, or the reverse, and both tests stay green.
+	for _, tc := range sweepJoinCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			record := canonicalRecord(t)
 			// CONTROL: unmutated, this record joins. Without it a vector could pass
