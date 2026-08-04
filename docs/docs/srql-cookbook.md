@@ -183,7 +183,19 @@ The 10 source IPs that sent the most traffic.
 in:flows dst_ip:8.8.8.8 time:last_24h sort:bytes_total:desc
 ```
 
-All flows headed to one destination address.
+All flows headed to one destination address. Note the address is written bare —
+wrapping it in `%` turns the filter into a wildcard match, which is slower and
+matches more than you asked for (`%10.0.0.1%` also matches `110.0.0.1`).
+
+### Traffic matching part of an address
+
+```srql
+in:flows dst_ip:%34.98.126.% time:last_24h sort:bytes_total:desc
+```
+
+`src_ip` / `dst_ip` accept `%` wildcards for partial-address matching. Prefer
+`src_cidr` / `dst_cidr` when you can express the range as a CIDR block — those
+use real network containment and hit the address indexes.
 
 ### Large flows above a threshold
 
