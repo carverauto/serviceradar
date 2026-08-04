@@ -1,0 +1,15 @@
+load(
+    "@bazel_skylib//rules:common_settings.bzl",
+    "string_flag",
+)
+
+string_flag(
+    name = "elixir_home",
+    build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "toolchain_type",
+    visibility = ["//visibility:public"],
+)

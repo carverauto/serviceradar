@@ -1,0 +1,3 @@
+/bazel-*
+/user.bazelrc
+/logs/

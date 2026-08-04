@@ -1,0 +1,15 @@
+{
+  "homepage": "https://github.com/rabbitmq/rules_elixir",
+  "maintainers": [
+    {
+      "email": "rin.kuryloski@broadcom.com",
+      "github": "pjk25",
+      "name": "Rin Kuryloski"
+    }
+  ],
+  "repository": [
+    "github:rabbitmq/rules_elixir"
+  ],
+  "versions": [],
+  "yanked_versions": {}
+}

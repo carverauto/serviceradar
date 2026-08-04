@@ -177,7 +177,7 @@ workflow.
 | `main.yml` | Test sweep absorbed. Guards 1-4 deleted, 6-9 kept as steps, 10 migrated. |
 | `golang-tests.yml` | Plain run absorbed. The race and count=10 pass becomes its own job. |
 | `rust-tests.yml` | Fully absorbed. |
-| `elixir-unit-tests.yml` | Fully absorbed. |
+| `elixir-unit-tests.yml` | Fully absorbed. **DELETED 2026-08-04** — the Bazel CI covers it, and its `paths:` triggers watched `third_party/patches/rules_{erlang,elixir}/**`, which no longer exist now that both rulesets are vendored. |
 | `elixir-integration-sr-core.yml` | Becomes the integration job, chain unchanged. |
 | `precommit-web-ng.yml` | Absorbed only if the master stops excluding `//elixir/web-ng:precommit`. |
 | `rust-musl.yml` | Absorbed once the linkage assertion is an `sh_test`. |
