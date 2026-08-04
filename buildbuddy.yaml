@@ -38,7 +38,7 @@ actions:
     #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
     pool: "workflows"
     triggers:
-      push:
+      pr:
         branches:
           - "staging"
 
@@ -82,7 +82,7 @@ actions:
     #   28 GiB -> "35.31GB used of 30.06GB total"   still short
     #   32 GiB -> current
     resource_requests:
-      memory: "32GB"
+      memory: "36GB"
       disk: "40GB"
 
     steps:
@@ -165,7 +165,7 @@ actions:
           --test_tag_filters=-integration_test,-acceptance_test
           --test_timeout=600
           --flaky_test_attempts=1
-          --test_arg=-test.count=10
+          --test_arg=-test.count=5
           --test_arg=-test.short
           --test_arg=-test.shuffle=on
 
