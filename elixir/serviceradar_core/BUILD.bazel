@@ -334,48 +334,9 @@ ex_unit_tests(
             # set of names from the same shard list.
             "SERVICERADAR_TEST_DB_SHARD": shard,
         },
-        # NOT `external`: that disables Bazel's test caching, which is load-bearing for the
-        # lifecycle targets below (a cached "pass" would provision nothing) but pure loss here.
-        # This target's result is a function of its declared inputs -- the sources and the
-        # migrations that produced the template -- so a cache hit on BuildBuddy is a legitimate
-        # hit.
-        #
-        # `integration_test` selects WHICH invocation addresses this target;
-        # `requires_shared_fixture()` below decides WHETHER it may run at all. Both are
-        # wanted: the tag keeps it out of the unit sweep, the guard stops an unflagged
-        # `bazel test //...` from running DDL against the shared fixture. Without the fixture
-        # URL (arriving via --test_env) test_helper takes the no-database branch and excludes
-        # every test, which would otherwise report a vacuous pass.
-        #
-        # NO `no-remote-exec`: config/test.exs now takes the fixture CA as PEM CONTENT from
-        # SRQL_TEST_DATABASE_CA_CERT and passes it as :cacerts. It used to read a path
-        # (a file on the runner) which a BuildBuddy executor could not open, and pinning
-        # execution to the runner was the workaround. The content form has no such problem,
-        # so these run remotely like everything else.
+
         tags = ["integration_test"],
-        # BuildBuddy injects these three into the test action ON THE EXECUTOR, from secrets
-        # configured in the BB app. Two reasons to prefer it over the --test_env pass-through
-        # in .bazelrc, which also works and stays as the fallback:
-        #
-        #   * --test_env=NAME copies the value out of the bazel CLIENT's environment into the
-        #     action, which makes the DSN -- password included -- part of the action key and
-        #     visible in BuildBuddy's action details. `env-secrets` values are redacted from
-        #     action cache entries and workflow logs.
-        #   * The client never needs the value at all, so a workflow runner does not need
-        #     cluster access to hand credentials to a remote test.
-        #
-        # The `test.` prefix scopes this to the test execution group; the compile actions for
-        # this target never see the secrets. BuildBuddy documents setting env-secrets
-        # per-target rather than globally via --remote_default_exec_properties, which is why
-        # this is here and not in .bazelrc.
-        #
-        # This does NOT apply to the lifecycle targets (migrate_template below, and the three
-        # //rust/integration-db targets): they are `no-remote-exec` and run on the runner, and
-        # a remote-execution platform property cannot inject anything into a local action.
-        # Those read the same three variables straight from the runner's environment.
-        exec_properties = {
-            "test.env-secrets": "SRQL_TEST_DATABASE_URL,SRQL_TEST_ADMIN_URL,SRQL_TEST_DATABASE_CA_CERT",
-        },
+        # NO exec_properties, deliberately.
         target_compatible_with = requires_shared_fixture(),
         deps = [":erlang_app"],
     )
@@ -415,12 +376,16 @@ test_suite(
 # so an ordinary `bazel test` never points DDL at the shared fixture. `no-remote-exec` pins it
 # to the runner, where the fixture CA file actually exists -- see //rust/integration-db.
 #
-# NO `test.env-secrets` here, unlike the shards above. That is a REMOTE EXECUTION platform
-# property: BuildBuddy injects the secret when it dispatches the action to an executor, and
-# `no-remote-exec` means this action never leaves the runner. Setting it would be inert and
-# would imply a redaction guarantee that is not in force. This target reads the same three
-# variables straight from the runner's environment -- BB secrets are already env vars there,
-# and //:buildbuddy_setup_fixture_env fills them in on a workstation.
+# Credentials arrive the same way as everywhere else now: the three SRQL_TEST_* variables
+# come through the `test --test_env=` list in //.bazelrc, read from the bazel client's
+# environment. In CI scripts/ci/configure-srql-fixture.sh puts them there;
+# //:buildbuddy_setup_fixture_env does it on a workstation.
+#
+# This target never had the `test.env-secrets` exec_property the integration shards used to
+# carry, because that was a REMOTE EXECUTION platform property and `no-remote-exec` means this
+# action never leaves the runner. The distinction stopped mattering when env-secrets was
+# removed from the shards; the note survives only so nobody reintroduces a backend-specific
+# secret mechanism here on the assumption it would do something.
 ex_unit_test(
     name = "migrate_template",
     size = "enormous",

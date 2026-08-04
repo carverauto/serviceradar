@@ -329,19 +329,31 @@ across branches. Decide this before the first run.
 Every fixture target is `@platforms//:incompatible` without it, so those six steps are
 broken on `staging` right now, independent of this work.
 
-`//elixir/web-ng:precommit` no longer exists. It was removed or renamed by `8fb020fb9`
-("assemble OTP releases from Bazel targets instead of rebuilding"). Two things break on it:
+`//elixir/web-ng:precommit` no longer exists — FIXED.
 
-- `precommit-web-ng.yml` runs `bazel test --config=ci //elixir/web-ng:precommit`, which
-  cannot resolve.
-- `main.yml`'s Test step ends its target query with `except set(//elixir/web-ng:precommit)`.
-  `set()` hard-errors on an unknown label rather than skipping it, so the whole query dies
-  and the step exits through its own "refusing to run an empty test sweep" guard. This is
-  the exact failure mode the `.bazelrc` comment warns about for stale labels in `set()`.
+It was not renamed, it was withdrawn on purpose. `8fb020fb9` pulled `:precommit` and
+`:precommit_check` because `mix format --check-formatted` fails against pre-existing HEEx
+formatting and was blocking `//elixir/...` from going green. The header of
+`elixir/web-ng/BUILD.bazel` says to restore it once the tree is formatted, and keeps
+`//build:mix_deps.bzl` and `//build:mix_precommit.bzl` untouched for that.
 
-Consequence for the consolidation: the master workflow must not carry that exclusion
-forward. It was there to keep the web-ng precommit failing on its own red X, and that
-target needs to be found or rebuilt first.
+Two things were broken by the withdrawal and are now repaired:
+
+- `main.yml`'s Test step ended its target query with `except set(//elixir/web-ng:precommit)`.
+  `set()` hard-errors on an unknown label rather than skipping it, so the query aborted with
+  exit 7 and the step died through its own "refusing to run an empty test sweep" guard. **No
+  tests ran at all.** The clause is removed; the query now resolves 134 targets.
+- `precommit-web-ng.yml` is deleted. Its only substantive step was
+  `bazel test //elixir/web-ng:precommit`, so every run exited 1. Everything else in it was
+  preamble.
+
+Both removals are recorded in the restoration note at the top of `elixir/web-ng/BUILD.bazel`,
+so whoever formats the tree brings back the target, the workflow and the exclusion together —
+or decides deliberately that the separate red X is not worth a workflow.
+
+This is the third live bug of its kind, and they share a shape: a target moves or goes away,
+and a `set()` or an explicit label in a workflow keeps naming it. The master workflow should
+prefer tag- and wildcard-based selection over `set()` for exactly this reason.
 
 Two stale comments to correct while the files are open. The `NOTE:` in
 `rust/integration-db/BUILD.bazel` says `prepare_template` does not exist as a target; it
@@ -385,10 +397,29 @@ Changing `exec_properties` changes the platform, so the 8 targets rebuild once.
 If either of the first two is unacceptable, pass the credential as a file path and let the
 test open it. The Rust side already works that way.
 
-### Verdict
+### Verdict — DONE
 
-Do it during the rehearsal, while BuildBuddy still works. Deferred to the cutover, a broken
-fallback leaves no working backend to debug against.
+Removed. The `exec_properties` block is gone from all 8 shards, confirmed by querying each
+one. Nothing else in the repo sets `env-secrets`.
+
+Two cross-referencing comments were rewritten rather than left to rot, since both explained
+why some OTHER target deliberately did not set the property: the `migrate_template` note in
+`elixir/serviceradar_core/BUILD.bazel` and the lifecycle-target note in
+`rust/integration-db/BUILD.bazel`. Both now describe the single mechanism that remains, the
+`test --test_env=` list in `.bazelrc` lines 112-114.
+
+Nothing about execution changed. The shards still run remotely: they carry no
+`no-remote-exec`, and the PEM-content form of the fixture CA is what made that possible.
+
+**Verified:** the three `--test_env` entries are present, no shard carries `exec_properties`,
+and `//elixir/serviceradar_core:integration_tests_s0` builds under
+`--//build:enable_integration_tests` (267 actions).
+
+**Not verified, and it needs to be:** the shards have not been RUN since the change. That
+takes the shared CNPG fixture and the full lifecycle chain, which is destructive against a
+resource concurrent PRs share, so it is not something to do unilaterally from a workstation.
+The first CI run of the integration chain is the real proof that the credentials arrive by
+`--test_env`. Watch that run before treating this as settled.
 
 ## Part 6: Execution order
 
