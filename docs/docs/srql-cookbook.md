@@ -177,6 +177,23 @@ in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc 
 
 The 10 source IPs that sent the most traffic.
 
+### All traffic for one host (both directions)
+
+```srql
+in:flows ip:8.8.8.8 time:last_24h sort:bytes_total:desc
+```
+
+`ip:` matches **either** endpoint, so this is everything the host sent *and*
+received. `src_ip:` / `dst_ip:` are the directional forms. There is no cross-field
+`OR` in SRQL, so without `ip:` this question needs two separate queries.
+
+Same idea for a whole block — `cidr:` matches either endpoint, `src_cidr:` /
+`dst_cidr:` are directional:
+
+```srql
+in:flows cidr:203.0.113.0/24 time:last_24h stats:sum(bytes_total) as bytes by app
+```
+
 ### Traffic to a specific destination
 
 ```srql

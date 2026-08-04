@@ -124,6 +124,29 @@ fn build_stats_bigint_filter(
     }
 }
 
+/// `ip:` across both flow endpoints for the stats path.
+///
+/// A positive match is "either endpoint matches"; a negative match is "neither
+/// endpoint matches", which by De Morgan is the AND of the two per-side negatives,
+/// not their OR. `build_stats_text_filter` already emits NULL-safe negative clauses
+/// per column, so joining them with AND is the whole difference.
+///
+/// The two calls push one bind each, in src-then-dst order, matching the clause.
+fn build_stats_bidirectional_ip_filter(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let src = build_stats_text_filter("f.src_endpoint_ip", filter, binds)?;
+    let dst = build_stats_text_filter("f.dst_endpoint_ip", filter, binds)?;
+
+    Ok(format!("({src}{joiner}{dst})"))
+}
+
 pub(in crate::query::flows) fn build_stats_filter_clause(
     filter: &Filter,
     binds: &mut Vec<FlowSqlBindValue>,
@@ -132,6 +155,7 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "device_id" => flow_device_scope_expr(filter),
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
+        "ip" | "endpoint_ip" => build_stats_bidirectional_ip_filter(filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
@@ -280,6 +304,33 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
             }
             _ => Err(ServiceError::InvalidRequest(
                 "dst_cidr filter only supports equality or list matching".into(),
+            )),
+        },
+        // Bare `cidr:` mirrors `near:` -- containment on either endpoint. Only equality is
+        // supported, matching `src_cidr` / `dst_cidr`.
+        "cidr" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+                // One bind per side, in src-then-dst order, matching the clause below.
+                binds.push(FlowSqlBindValue::Text(cidr.clone()));
+                binds.push(FlowSqlBindValue::Text(cidr));
+
+                match filter.op {
+                    FilterOp::Eq => Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr \
+                         OR try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)"
+                        .to_string()),
+                    // "Neither endpoint is inside the block": the AND of the two NULL-safe
+                    // per-side negatives, not their OR.
+                    FilterOp::NotEq => Ok(
+                        "((try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)) \
+                         AND (try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)))"
+                            .to_string(),
+                    ),
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "cidr filter only supports equality".into(),
             )),
         },
         "direction" => {

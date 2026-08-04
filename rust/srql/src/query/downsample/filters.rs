@@ -33,6 +33,7 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" => text_clause("src_endpoint_ip", filter),
         "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
+        "ip" | "endpoint_ip" => bidirectional_ip_clause(filter),
         "protocol_name" => text_clause("protocol_name", filter),
         "sampler_address" => text_clause("sampler_address", filter),
         "exporter_name" => expr_text_clause(FLOW_EXPORTER_NAME_EXPR, filter),
@@ -56,6 +57,24 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
 
 fn expr_text_clause(expr: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     text_clause(&format!("({expr})"), filter)
+}
+
+/// `ip:` across both flow endpoints for the chart (`bucket:`) path.
+///
+/// A positive match is "either endpoint matches"; a negative match is "neither
+/// endpoint matches" -- the AND of the two per-side negatives, not their OR.
+/// Binds are concatenated in src-then-dst order to match the emitted clause.
+fn bidirectional_ip_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let (src_clause, mut binds) = text_clause("src_endpoint_ip", filter)?;
+    let (dst_clause, dst_binds) = text_clause("dst_endpoint_ip", filter)?;
+    binds.extend(dst_binds);
+
+    Ok((format!("({src_clause}{joiner}{dst_clause})"), binds))
 }
 
 fn text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
