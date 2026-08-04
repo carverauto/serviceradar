@@ -39,6 +39,8 @@ go_test(
         "principal_test.go",
         "publication_identity_test.go",
         "recovery_test.go",
+        "sweep_body_parity_test.go",
+        "sweep_ingress_benchmark_test.go",
         "sweep_inventory_test.go",
         "sweep_labels_external_test.go",
         "sweep_matrix_test.go",
