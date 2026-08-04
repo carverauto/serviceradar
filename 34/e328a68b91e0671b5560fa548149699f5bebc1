@@ -1,0 +1,765 @@
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_erlang/private/app_file_test.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-44
+third_party/rules_erlang/test/app_file/myapp.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_elixir/bzlmod/extensions.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-87
+third_party/rules_elixir/examples/basic/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_elixir/examples/basic/lib/basic.ex
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_elixir/examples/basic/test/helped_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-8
+third_party/rules_elixir/examples/internal-elixir/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-66
+third_party/rules_erlang/internal_setup.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-18
+third_party/rules_erlang/internal_deps.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/test/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-3
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/src/seshat_app.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-19
+third_party/rules_erlang/gazelle/slices/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_erlang/escript.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_util_SUITE_data/inter_node_tls_client_server_ok.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-18
+third_party/rules_erlang/test/rebar_config_to_json/test/rebar.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-279
+third_party/rules_elixir/ex_unit_test.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-13
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/src/seshat.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-125
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-21
+third_party/rules_erlang/test/gazelle/integration_test.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-214
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/repositories/BUILD_external.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-60
+third_party/rules_erlang/gazelle/language.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-16
+third_party/rules_erlang/gazelle/rebar_config_to_json.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-148
+third_party/rules_erlang/test/gazelle/testdata/own_header_include_lib/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/mutable_set_test.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-37
+third_party/rules_erlang/gazelle/util.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_elixir/.bcr/presubmit.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-32
+third_party/rules_erlang/test/WORKSPACE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-71
+third_party/rules_elixir/.bazelversion
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_erlang/.github/dependabot.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-8
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_erlang/gazelle/generate.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-618
+third_party/rules_elixir/iex_eval.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/test/erl_attrs_to_json/test/erl_attrs_to_json_SUITE_data/basic.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-42
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/test/seshat_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/private/xref2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-437
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/rebar.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/shell.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-13
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/CONTRIBUTING.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-38
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_tracking.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-254
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_bench.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-167
+third_party/rules_erlang/private/erlang_tool.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-42
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/CHECKSUM
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/bzlmod/semver.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-50
+third_party/rules_erlang/private/erlang_bytecode.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-186
+third_party/rules_erlang/tools/app_file_tool/src/app_file_tool.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-24
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/BUILD.in
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/private/shell.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-90
+third_party/rules_elixir/examples/internal-elixir/lib/basic.ex
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_erlang/dialyze.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-42
+third_party/rules_erlang/CONTRIBUTING.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-42
+third_party/rules_erlang/private/erlang_xrl_yrl.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-88
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_elixir/private/elixir_build.bzl
+  s_d2089df286db69::t_9c38b229ea5024 56
+  s_d2089df286db69::t_0a150c98b5ffb4 1-55,57-209
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar/metadata.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/gazelle/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-71
+third_party/rules_erlang/private/xref.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-133
+third_party/rules_elixir/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-15
+third_party/rules_erlang/test/dot_app_to_json/test/basic.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/test/dot_app_to_json/test/dot_app_to_json_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-31
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/Makefile
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/test/app_file/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_server_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-75
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/OsirisSafety/MC.cfg
+  s_d2089df286db69::t_0a150c98b5ffb4 1-35
+third_party/rules_erlang/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2
+third_party/rules_erlang/test/rebar_config_to_json/test/rebar_config_to_json_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/go.mod
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/shard_suite/test/shard_suite_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-102
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_elixir/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_erlang/gazelle/fetch/tar.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-79
+third_party/rules_elixir/test/test/test_helper.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_erlang/.bcr/presubmit.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/BUILD.thoas
+  s_d2089df286db69::t_0a150c98b5ffb4 1-98
+third_party/rules_erlang/private/util_test.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-47
+third_party/rules_erlang/erlang_dia.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_elixir/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/tools/coverdata_to_lcov/src/coverdata_to_lcov.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-84
+third_party/rules_erlang/gazelle/erl_attrs_to_json/src/erl_attrs_to_json.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-252
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_log_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-1503
+third_party/rules_erlang/xref.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/gazelle/configure.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-335
+third_party/rules_erlang/private/erl_eval.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-58
+third_party/rules_erlang/tools/erlang_vars.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-37
+third_party/rules_elixir/test/lib/basic.ex
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/src/seshat.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-125
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/BUILD.in
+  s_d2089df286db69::t_0a150c98b5ffb4 1-3
+third_party/rules_erlang/gazelle/moduleindex.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-44
+third_party/rules_elixir/test/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-26
+third_party/rules_erlang/private/eunit.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-242
+third_party/rules_erlang/test/rebar_config_to_json/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-111
+third_party/rules_elixir/examples/basic/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_replica.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-733
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/OsirisSafety/OsirisMsgPassing.tla
+  s_d2089df286db69::t_0a150c98b5ffb4 1-758
+third_party/rules_erlang/eunit.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-48
+third_party/rules_erlang/.bazelignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/hex_pm.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-39
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/metadata.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_replica_reader.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-385
+third_party/rules_erlang/.bcr/source.template.json
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_erlang/test/go.mod
+  s_d2089df286db69::t_0a150c98b5ffb4 1-29
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_elixir/.bcr/source.template.json
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_erlang/gazelle/fetch/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-13
+third_party/rules_elixir/tools/elixir_vars.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-44
+third_party/rules_erlang/gazelle/fetch/fetch.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-34
+third_party/rules_erlang/erlang_app_info.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-72
+third_party/rules_erlang/erlang_bytecode2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-38
+third_party/rules_erlang/.github/workflows/release.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-46
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/OsirisMsgPassing___OsirisSafety.launch
+  s_d2089df286db69::t_0a150c98b5ffb4 1-57
+third_party/rules_erlang/gazelle/moduleindex.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-86
+third_party/rules_erlang/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/Makefile
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_elixir/examples/internal-elixir/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-15
+third_party/rules_erlang/gazelle/update.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-424
+third_party/rules_erlang/test/WORKSPACE.bzlmod
+  s_d2089df286db69::t_0a150c98b5ffb4 1-29
+third_party/rules_erlang/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-54
+third_party/rules_erlang/common_root_as_var.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-35
+MODULE.bazel
+  s_d2089df286db69::t_ac91e5c516c3bd 93-101,103
+  s_d2089df286db69::t_cd9e17ea3e23b2 106-109,111
+third_party/rules_erlang/VENDORING.md
+  s_d2089df286db69::t_0c940f5c39747d 1-53
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_elixir/private/elixir_toolchain.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-68
+third_party/rules_elixir/examples/basic/test/assertion_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_elixir/elixir_build.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_elixir/private/erlang_app_filter_module_conflicts.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_erlang/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/.github/workflows/ci.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_elixir/private/ex_unit_test.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-153
+third_party/rules_erlang/ez.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-13
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/filegroup.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2
+third_party/rules_erlang/test/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-34
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/.github/workflows/ci.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/gazelle/resolve.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-123
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/src/seshat_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/.project
+  s_d2089df286db69::t_0a150c98b5ffb4 1-24
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/WORKSPACE
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/own_header_include_lib/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-3
+third_party/rules_erlang/bzlmod/extensions.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-377
+third_party/rules_erlang/tools/xref_runner/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-57
+third_party/rules_erlang/tools/compile_first/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-31
+third_party/rules_elixir/test/test/failing_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_erlang/gazelle/erlang_app_builder.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-453
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/test/seshat_counters_server_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-45
+third_party/rules_erlang/test/gazelle/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-108
+third_party/rules_elixir/.bcr/metadata.template.json
+  s_d2089df286db69::t_0a150c98b5ffb4 1-15
+third_party/rules_elixir/.bazelignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2
+third_party/rules_elixir/examples/internal-elixir/test/assertion_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_erlang/gazelle/erl_attrs_to_json/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-27
+third_party/rules_erlang/private/erlang_bytecode2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-162
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/test/foo.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar/CHECKSUM
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/test/seshat_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_util.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-269
+third_party/rules_erlang/util_test.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-21
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_util_SUITE_data/inter_node_tls_server_client_ok.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-18
+third_party/rules_elixir/VENDORING.md
+  s_d2089df286db69::t_63639d4e7fcef0 1-46
+third_party/rules_erlang/tools/erlang_toolchain.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-74
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-27
+third_party/rules_erlang/test/custom_vars/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-13
+third_party/rules_elixir/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_erlang/app_file.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-19
+third_party/rules_erlang/gazelle/fetch/hex_pm.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-91
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/rebar.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_erlang/test/gazelle/testdata/own_header_include_lib/BUILD.in
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_erlang/repositories/defaults.bzl.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-6
+third_party/rules_erlang/test/gazelle/fake_erl_parser.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-35
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/rebar.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_erlang/test/shard_suite/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-165
+third_party/rules_erlang/tools/app_file_tool/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-31
+third_party/rules_elixir/test/test/helped_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-8
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_retention.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-120
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-37
+third_party/rules_erlang/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/erlang.mk
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7599
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/erlang.mk
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7599
+third_party/rules_elixir/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/shard_suite/test/example_suite.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/src/seshat_counters_server.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-94
+third_party/rules_erlang/gazelle/deps.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-269
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/.github/workflows/ci.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/gazelle/dot_app_to_json.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/private/erlang_asn1.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-136
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-27
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/Makefile
+  s_d2089df286db69::t_0a150c98b5ffb4 1-32
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/OsirisSafety/MC.tla
+  s_d2089df286db69::t_0a150c98b5ffb4 1-36
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/BUILD.in
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/erlang.mk
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7599
+third_party/rules_erlang/tools/coverdata_to_lcov/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-31
+third_party/rules_erlang/tools/erlang_headers.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-57
+third_party/rules_erlang/gazelle/slices/slices.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-35
+third_party/rules_erlang/test/dot_app_to_json/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-110
+third_party/rules_elixir/tools/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/src/seshat.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_erlang/private/escript_flat.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-70
+third_party/rules_erlang/private/ez.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-117
+third_party/rules_erlang/xref2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-40
+third_party/rules_erlang/repositories/BUILD_internal.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-66
+.bazelignore
+  s_d2089df286db69::t_85a55b5a3e159b 21-22
+third_party/rules_erlang/private/generlang.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-81
+third_party/rules_elixir/.github/workflows/publish-rabbitmq-bcr.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_elixir/repositories/BUILD_external.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-34
+third_party/rules_erlang/test/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-39
+third_party/rules_erlang/private/app_file.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-275
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/src/seshat.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_replica_reader_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/source_tree.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/private/erlang_build.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-290
+third_party/rules_erlang/test/gazelle/erlang_test.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-492
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/Makefile
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/.github/workflows/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-348
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/src/seshat.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/test/seshat_counters_server_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-45
+openspec/notes/bazel-ci.md
+  s_d2089df286db69::t_ba77028db12b1a 180
+third_party/rules_erlang/.github/workflows/publish-rabbitmq-bcr.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/gazelle/hex_metadata_config_to_json.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-53
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-27
+third_party/rules_erlang/.bcr/metadata.template.json
+  s_d2089df286db69::t_0a150c98b5ffb4 1-15
+third_party/rules_elixir/repositories/BUILD_internal.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-36
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_log_shared.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-72
+third_party/rules_elixir/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-6
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_log.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2789
+third_party/rules_elixir/.github/workflows/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-129
+third_party/rules_elixir/.github/workflows/release.yml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-45
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_erlang/tools/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-17
+third_party/rules_erlang/bzlmod/hex_pm.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-47
+third_party/rules_elixir/elixir/elixir_as_app.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-52
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/src/seshat_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_elixir/test/test/assertion_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_elixir/test/.bazelrc
+  s_d2089df286db69::t_0a150c98b5ffb4 1-4
+third_party/rules_erlang/.bazelversion
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_erlang/gazelle/def.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/BUILD.in
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/github.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-47
+third_party/rules_erlang/test/shard_suite/test/shard_suite_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_elixir/examples/internal-elixir/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/erlang.mk
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7599
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar_no_tests/VERSION
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/app_file/test_applications_preserved.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-3
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/src/seshat_app.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-19
+third_party/rules_erlang/test/gazelle/testdata/own_header_include_lib/src/own_header_include_lib.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/private/escript_archive.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-159
+third_party/rules_erlang/gazelle/mutable_set/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_elixir/repositories/elixir_config.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-240
+third_party/rules_erlang/test/custom_vars/custom_var_test.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-5
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/rebar.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_erlang/private/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/LICENSE-APACHE2
+  s_d2089df286db69::t_0a150c98b5ffb4 1-202
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-282
+third_party/rules_erlang/erlang_app.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-195
+third_party/rules_elixir/private/iex_eval.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-65
+third_party/rules_erlang/test/erl_attrs_to_json/test/erl_attrs_to_json_SUITE_data/basic.hrl
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_peer_shim.hrl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_writer.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-580
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/LICENSE-MPL-RabbitMQ
+  s_d2089df286db69::t_0a150c98b5ffb4 1-373
+third_party/rules_erlang/test/gazelle/testdata/basic_hex_tar/VERSION
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/tools/erlang.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-103
+third_party/rules_erlang/WORKSPACE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-17
+third_party/rules_erlang/test/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-70
+third_party/rules_elixir/private/elixir_ebin_dir.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-38
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_util_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-189
+third_party/rules_erlang/generlang.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/util.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-34
+third_party/rules_erlang/repositories/erlang_config.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-292
+third_party/rules_elixir/repositories/defaults.bzl.tpl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-6
+third_party/rules_erlang/bzlmod/erlang_package.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-385
+third_party/rules_erlang/private/erlang_dia.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-113
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/src/seshat_app.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-19
+third_party/rules_erlang/app_file2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-14
+third_party/rules_elixir/examples/internal-elixir/test/test_helper.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/gazelle/dot_app_parser.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-117
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_tracking_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-189
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/ct.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-131
+third_party/rules_erlang/eunit2.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-15
+third_party/rules_erlang/gazelle/kinds.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-323
+third_party/rules_erlang/private/util.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-109
+third_party/rules_erlang/test/erl_attrs_to_json/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-47
+third_party/rules_erlang/test/erl_attrs_to_json/test/erl_attrs_to_json_SUITE_data/test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-92
+third_party/rules_erlang/test/shard_suite/test/example_suite_missing_group.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-28
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1-27
+third_party/rules_erlang/gazelle/mutable_set/mutable_set.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-139
+third_party/rules_elixir/test/test/empty_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-4
+third_party/rules_elixir/elixir_toolchain.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/erlang_bytecode.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/erlang_xrl_yrl.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/gazelle/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-170
+third_party/rules_erlang/gazelle/erl_parser.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-21
+third_party/rules_erlang/private/dialyze.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-137
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/src/seshat_counters_server.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-94
+third_party/rules_elixir/test/escript_test.sh
+  s_d2089df286db69::t_0a150c98b5ffb4 1-20
+third_party/rules_erlang/hex_archive.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-180
+third_party/rules_erlang/test/erl_attrs_to_json/test/erl_attrs_to_json_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-86
+third_party/rules_erlang/erl_eval.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_erlang/gazelle/erlang_app.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-830
+third_party/rules_elixir/elixir/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_elixir/examples/basic/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-39
+third_party/rules_erlang/gazelle/hex_metadata_parser.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-128
+third_party/rules_erlang/gazelle/fetch/github.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-36
+third_party/rules_elixir/examples/internal-elixir/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-52
+third_party/rules_erlang/test/gazelle/testdata/own_header_include_lib/src/own_header_include_lib.app.src
+  s_d2089df286db69::t_0a150c98b5ffb4 1-9
+third_party/rules_erlang/rules_erlang.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-122
+third_party/rules_elixir/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-23
+third_party/rules_erlang/erlang_asn1.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-7
+third_party/rules_elixir/elixir_app.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-86
+third_party/rules_erlang/gazelle/erl_parser_impl.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-166
+third_party/rules_erlang/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-61
+third_party/rules_erlang/untar.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-40
+third_party/rules_elixir/private/elixir_bytecode.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-125
+third_party/rules_elixir/examples/basic/test/test_helper.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-11
+third_party/rules_elixir/test/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-116
+third_party/rules_erlang/gazelle/rebar_config_parser.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-154
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/src/seshat_sup.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-25
+third_party/rules_erlang/gazelle/fix.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-10
+third_party/rules_erlang/test/BUILD.thoas
+  s_d2089df286db69::t_0a150c98b5ffb4 1-98
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/test.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/test/seshat_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-76
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/LICENSE
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/mk/bazel.mk
+  s_d2089df286db69::t_0a150c98b5ffb4 1-12
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris.hrl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-55
+third_party/rules_erlang/tools/shard_suite/src/shard_suite.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-225
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.toolbox/.settings/org.lamport.tla.toolbox.prefs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2
+third_party/rules_elixir/examples/basic/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-17
+third_party/rules_erlang/platforms/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-59
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/tla/OsirisMsgPassing.tla
+  s_d2089df286db69::t_0a150c98b5ffb4 1-758
+third_party/rules_erlang/README.md
+  s_d2089df286db69::t_0a150c98b5ffb4 1-142
+third_party/rules_erlang/WORKSPACE.bzlmod
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/src/seshat_counters_server.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-94
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_util_SUITE_data/inter_node_tls_broken.config
+  s_d2089df286db69::t_0a150c98b5ffb4 1-21
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/src/seshat.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-125
+third_party/rules_elixir/MODULE.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-26
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_app.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-21
+third_party/rules_erlang/test/gazelle/mutable_set_matchers.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-53
+third_party/rules_erlang/private/source_tree.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-47
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/src/osiris_counters.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-45
+third_party/rules_erlang/tools/shard_suite/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1-33
+third_party/rules_erlang/private/plt.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-168
+third_party/rules_erlang/tools/compile_first/src/compile_first.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-87
+third_party/rules_elixir/test/.gitignore
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_erlang/.github/workflows/update-rbe-image.yaml
+  s_d2089df286db69::t_0a150c98b5ffb4 1-46
+third_party/rules_erlang/bzlmod/BUILD.bazel
+  s_d2089df286db69::t_0a150c98b5ffb4 1
+third_party/rules_elixir/examples/internal-elixir/test/helped_test.exs
+  s_d2089df286db69::t_0a150c98b5ffb4 1-8
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/test/osiris_SUITE.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-2079
+third_party/rules_erlang/test/gazelle/fetch_test.go
+  s_d2089df286db69::t_0a150c98b5ffb4 1-75
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/test/seshat_counters_server_test.erl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-45
+third_party/rules_erlang/private/ct.bzl
+  s_d2089df286db69::t_0a150c98b5ffb4 1-358
+MODULE.bazel.lock
+  s_d2089df286db69::t_34bf90be420252 596,628
+third_party/rules_elixir/MODULE.bazel.lock
+  s_d2089df286db69::t_7098231e37d743 1-305
+third_party/rules_elixir/examples/basic/MODULE.bazel.lock
+  s_d2089df286db69::t_b98bbc5cac003e 1-304
+third_party/rules_elixir/examples/internal-elixir/MODULE.bazel.lock
+  s_d2089df286db69::t_f6e4db64f217eb 1-330
+third_party/rules_elixir/test/MODULE.bazel.lock
+  s_d2089df286db69::t_b98ee66b414819 1-307
+third_party/rules_erlang/go.sum
+  s_d2089df286db69::t_519d80b30a608a 1-102
+third_party/rules_erlang/test/.bazelversion
+  s_d2089df286db69::t_4fb2e23e58d563 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar/rebar.lock
+  s_d2089df286db69::t_7dbbdd8d1feeff 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_compact_rules/rebar.lock
+  s_d2089df286db69::t_aeb42090a72d87 1
+third_party/rules_erlang/test/gazelle/testdata/basic_rebar_gen_macro/rebar.lock
+  s_d2089df286db69::t_2401abcebea875 1
+third_party/rules_erlang/test/gazelle/testdata/rebar_with_ct_suites/rebar.lock
+  s_d2089df286db69::t_acd5303addfc08 1
+third_party/rules_erlang/test/go.sum
+  s_d2089df286db69::t_347e37433e1b65 1-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "34e328a68b91e0671b5560fa548149699f5bebc1",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
