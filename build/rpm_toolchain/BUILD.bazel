@@ -7,25 +7,25 @@ package(default_visibility = ["//visibility:public"])
 # remote Linux workers.
 rpmbuild_toolchain(
     name = "rpmbuild_linux",
+    debuginfo_type = "none",
     path = "/usr/bin/rpmbuild",
     version = "system",
-    debuginfo_type = "none",
 )
 
 toolchain(
     name = "rpmbuild_linux_toolchain",
-    toolchain = ":rpmbuild_linux",
-    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
     exec_compatible_with = [
         "@platforms//os:linux",
     ],
+    toolchain = ":rpmbuild_linux",
+    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
 )
 
 toolchain(
     name = "rpmbuild_linux_only",
-    toolchain = ":rpmbuild_linux",
-    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
     exec_compatible_with = [
         "@platforms//os:linux",
     ],
+    toolchain = ":rpmbuild_linux",
+    toolchain_type = "@rules_pkg//toolchains/rpm:rpmbuild_toolchain_type",
 )

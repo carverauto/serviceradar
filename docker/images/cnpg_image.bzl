@@ -53,6 +53,15 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @debian_gcc_15_base_amd64_deb//file)" \
   "$(location @debian_libgcc_s1_amd64_deb//file)" \
   "$(location @debian_libc6_amd64_deb//file)"
+# Normalise mtimes before tarring, or this layer changes on every cache miss and drags the
+# CNPG image digest with it. Two sources: `mkdir -p` stamps ROOT_DIR with wall-clock time,
+# and overlay_deb_packages.py writes every file, directory and symlink without ever reading
+# the deb member's mtime -- so the whole tree carries build time, not package time.
+# 200001010000.00 matches rules_pkg's PORTABLE_MTIME so this agrees with layers built from
+# declared files. POSIX `touch -t`; `-h` is not POSIX, hence the fallback, and it matters
+# because the deb overlay creates symlinks.
+find "$${ROOT_DIR}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${ROOT_DIR}" -exec touch -t 200001010000.00 {} +
 tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
 """,
     )
@@ -149,6 +158,11 @@ if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "Timescale install prefix $${INSTALL_PREFIX} not found" >&2
   exit 1
 fi
+# Normalise mtimes before tarring -- see glibc_runtime_layer above. Worse here than there:
+# every file in this tree was just written by `make install`, so without this ALL of them
+# carry build time and the layer is guaranteed to differ on each rebuild.
+find "$${INSTALL_PREFIX}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${INSTALL_PREFIX}" -exec touch -t 200001010000.00 {} +
 tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
 """,
     )
@@ -233,6 +247,10 @@ if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
   exit 1
 fi
+# Normalise mtimes before tarring -- see glibc_runtime_layer above. As with TimescaleDB,
+# `make install` just wrote this whole tree at wall-clock time.
+find "$${INSTALL_PREFIX}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${INSTALL_PREFIX}" -exec touch -t 200001010000.00 {} +
 tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
 """,
     )
@@ -308,6 +326,11 @@ ln -sf postgis_sfcgal-3.control "$${EXT_DIR}/postgis_sfcgal.control"
 ln -sf postgis_topology-3.control "$${EXT_DIR}/postgis_topology.control"
 ln -sf postgis_tiger_geocoder-3.control "$${EXT_DIR}/postgis_tiger_geocoder.control"
 ln -sf address_standardizer-3.control "$${EXT_DIR}/address_standardizer.control"
+# Normalise mtimes before tarring -- see glibc_runtime_layer above. This layer adds a third
+# source on top of the deb overlay: the six `ln -sf` symlinks are created here, at build
+# time, which is exactly why the `-h` form matters.
+find "$${ROOT_DIR}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${ROOT_DIR}" -exec touch -t 200001010000.00 {} +
 tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
 """,
     )

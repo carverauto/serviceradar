@@ -123,12 +123,12 @@ jobs:
           echo "Resolved Bazel: ${actual}"
           test "${actual}" = "${expected}"
 
-      - name: Check Gazelle BUILD drift for changed Go packages
-        run: |
-          set -euo pipefail
-          base_ref="${GITHUB_BASE_REF:-staging}"
-          git fetch --no-tags --depth=1 origin "${base_ref}"
-          scripts/check-gazelle-drift.sh FETCH_HEAD HEAD
+      # Gazelle drift is now //:gazelle_diff_test, which the Test step below picks up through
+      # `tests(//...)`. It replaced scripts/check-gazelle-drift.sh and the `git fetch` of the
+      # base branch that step needed: the old check could only look at the Go directories a
+      # change touched, because a repo-wide `-mode=diff` was permanently red while Gazelle
+      # was walking //third_party/crates. The exclusions in //BUILD.bazel fixed the cause, so
+      # the whole repo is gated now and CI does not need to know what changed.
 
       - name: Report unavailable SRQL fixture secrets
         if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}

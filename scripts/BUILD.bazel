@@ -5,7 +5,6 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "check-addon-binary-size.sh",
     "check-oci-chart-version-available.sh",
-    "check-gazelle-drift.sh",
     "check-native-addon-version-bumps.sh",
     "check-rust-vendor-tracked.py",
     "swiftlint_bazel.sh",

@@ -12,4 +12,5 @@ go_test(
     name = "sshca_test",
     srcs = ["sshca_test.go"],
     embed = [":sshca"],
+    deps = ["@org_golang_x_crypto//ssh"],
 )

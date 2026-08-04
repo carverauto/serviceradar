@@ -4,6 +4,19 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":addon_inventory.bzl", "ADDON_BUNDLES")
 load(":defs.bzl", "declare_native_addon_targets")
 
+# gazelle:ignore
+#
+# Hand-maintained. This package is the native add-on release gate
+# (//build/native_addons:build_gates_test), so a plausible-looking rewrite here fails the
+# publish, not the build. Gazelle gets three things wrong at once:
+#
+#   * It splits addon_artifact_signature_tool into go_binary + a generated
+#     `native_addons_lib`, giving the library importpath .../build/native_addons while the
+#     binary keeps .../build/native_addons/addon_artifact_signature_tool. The two disagree.
+#   * It appends a duplicate `native_addons_test` over addon_artifact_signature_tool_test.go,
+#     which addon_artifact_signature_tool_test already compiles.
+#   * Most of this package is py_test, sh_test, genquery and declare_native_addon_targets(),
+#     none of which Gazelle models, so it has no view of what the Go rules exist to serve.
 package(default_visibility = ["//visibility:public"])
 
 exports_files([

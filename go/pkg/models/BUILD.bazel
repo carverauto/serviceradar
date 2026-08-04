@@ -2,6 +2,16 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "models",
+    # keep
+    #
+    # A glob, deliberately: this package is a flat bag of model types and a hand-maintained
+    # srcs list would churn on every added file. Gazelle cannot reconcile a glob with the
+    # explicit list it wants to generate, and says so:
+    #
+    #   go/pkg/models/BUILD.bazel:5.12-8.6: could not merge expression
+    #
+    # That warning is non-fatal but it is the one thing standing between //:gazelle_diff_test
+    # and a clean run, so the attribute is pinned rather than left to argue with every build.
     srcs = glob(
         ["*.go"],
         exclude = ["*_test.go"],

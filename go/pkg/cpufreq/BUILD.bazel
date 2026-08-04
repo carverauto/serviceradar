@@ -7,7 +7,10 @@ go_library(
     name = "cpufreq",
     srcs = [
         "collector.go",
+        "hostfreq_bridge.h",
+        "hostfreq_darwin.cc",
         "hostfreq_darwin.go",
+        "hostfreq_darwin.mm",
         "hostfreq_darwin_nocgo.go",
         "hostfreq_other.go",
         # hostfreq_sampler.go and snapshot_clone.go are both //go:build darwin, and both were
@@ -19,14 +22,48 @@ go_library(
         "perf_other.go",
         "snapshot_clone.go",
     ],
-    cgo = True,
-    importpath = "github.com/carverauto/serviceradar/go/pkg/cpufreq",
-    deps = [
-        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
-        "@org_golang_x_sys//unix:go_default_library",
-    ],
     cdeps = select({
         "@platforms//os:macos": [":hostfreq_darwin_cc"],
+        "//conditions:default": [],
+    }),
+    cgo = True,
+    clinkopts = select({
+        "@io_bazel_rules_go//go/platform:darwin": [
+            "-framework Foundation -framework IOKit -framework CoreFoundation -lIOReport",
+        ],
+        "@io_bazel_rules_go//go/platform:ios": [
+            "-framework Foundation -framework IOKit -framework CoreFoundation -lIOReport",
+        ],
+        "//conditions:default": [],
+    }),
+    copts = select({
+        "@io_bazel_rules_go//go/platform:darwin": [
+            "-fobjc-arc",
+        ],
+        "@io_bazel_rules_go//go/platform:ios": [
+            "-fobjc-arc",
+        ],
+        "//conditions:default": [],
+    }),
+    cxxopts = select({
+        "@io_bazel_rules_go//go/platform:darwin": [
+            "-std=c++20 -fobjc-arc -x objective-c++",
+        ],
+        "@io_bazel_rules_go//go/platform:ios": [
+            "-std=c++20 -fobjc-arc -x objective-c++",
+        ],
+        "//conditions:default": [],
+    }),
+    importpath = "github.com/carverauto/serviceradar/go/pkg/cpufreq",
+    deps = [
+        "@com_github_shirou_gopsutil_v3//cpu",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:android": [
+            "@org_golang_x_sys//unix",
+        ],
+        "@io_bazel_rules_go//go/platform:linux": [
+            "@org_golang_x_sys//unix",
+        ],
         "//conditions:default": [],
     }),
 )
@@ -44,9 +81,12 @@ cc_library(
         "-xobjective-c++",
     ],
     linkopts = [
-        "-framework", "Foundation",
-        "-framework", "IOKit",
-        "-framework", "CoreFoundation",
+        "-framework",
+        "Foundation",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "CoreFoundation",
         "-lIOReport",
     ],
     target_compatible_with = ["@platforms//os:macos"],
@@ -65,6 +105,6 @@ go_test(
     ],
     embed = [":cpufreq"],
     deps = [
-        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
+        "@com_github_shirou_gopsutil_v3//cpu",
     ],
 )

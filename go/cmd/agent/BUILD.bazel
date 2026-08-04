@@ -9,16 +9,10 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/cmd/agent",
     visibility = ["//visibility:private"],
     deps = [
-        "//go/pkg/agent:agent",
-        "//go/pkg/agentgateway:agentgateway",
-        "//go/pkg/config:config",
-        "//go/pkg/config/bootstrap:bootstrap",
-        "//go/pkg/edgeonboarding:edgeonboarding",
-        "//go/pkg/lifecycle:lifecycle",
-        "//go/pkg/logger:logger",
-        "//go/pkg/models:models",
-        "//proto",
-        "@org_golang_google_grpc//:grpc",
+        "//go/pkg/agent",
+        "//go/pkg/agentgateway",
+        "//go/pkg/lifecycle",
+        "//go/pkg/logger",
     ],
 )
 

@@ -146,7 +146,7 @@ docker compose ps
 If you want to publish the official OCI images the same way CI does, use Bazel:
 
 ```bash
-bazel run --config=remote_push //docker/images:push_all
+bazel run --config=remote //docker/images:push_all
 ```
 
 That publishes the Harbor-hosted images used by the default Compose stack.

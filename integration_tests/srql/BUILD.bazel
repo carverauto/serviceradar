@@ -40,7 +40,10 @@ SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
     normal_dev = True,
 )
 
-SRQL_IT_PROC_MACROS = all_crate_deps(proc_macro = True, proc_macro_dev = True)
+SRQL_IT_PROC_MACROS = all_crate_deps(
+    proc_macro = True,
+    proc_macro_dev = True,
+)
 
 rust_test(
     name = "srql_api_test",
