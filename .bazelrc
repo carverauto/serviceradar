@@ -2,8 +2,6 @@
 # Keep this file minimal and import developer- or environment-specific overrides
 # via the optional .bazelrc.local and .bazelrc.remote files.
 
-startup --max_idle_secs=60
-
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
