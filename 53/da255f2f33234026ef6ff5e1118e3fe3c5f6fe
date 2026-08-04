@@ -1,0 +1,21 @@
+MODULE.bazel
+  s_0eda1e1f71cc86::t_e39687e37fc047 3471-3473,3479-3494
+  s_0eda1e1f71cc86::t_a3809fadec3476 3506-3509,3516-3519,3526-3529,3536-3539,3546-3549,3556-3559,3566-3569,3576-3579,3586-3589,3596-3599,3606-3609,3616-3619
+  s_0eda1e1f71cc86::t_e8481e0e10ca08 3465-3470,3474-3478,3495-3501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "53da255f2f33234026ef6ff5e1118e3fe3c5f6fe",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
