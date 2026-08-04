@@ -176,8 +176,10 @@ here.
     and, as of 1.2-c, the RAW stage (`WireDecode.decode_sweep_batch/1` -- extracted-body
     work ceiling, recursive wire hygiene, unknown-field rejection) plus the DECODED BODY
     VALIDATOR (`SweepBodyValidate` -- exact shapes, per-width bounds, enum/domain checks).
-    What remains for 1.2-c is INTEGRATION: nothing yet calls the body validator on the
-    correlation path, so the two run as separate gates rather than one ingress.
+    INTEGRATION HAS LANDED TOO: `SweepCorrelate.ingest_own_payload/1` composes the curated
+    decode, the full body validator and correlation into ONE call, so a body rejection and a
+    correlation rejection no longer reach callers from two places. What keeps 1.2 open is
+    1.2-a's closeout audit and 1.2-c's 1.5-f CLOSURE dependency -- not missing work.
   - REMAINING: see subtasks 1.2-a..c below; not restated here.
   - DEPENDS ON: TASK 1.5-f, at CLOSURE ONLY -- see 1.5-f for the ownership and the reason.
     NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
@@ -197,8 +199,9 @@ here.
     unrepresentable.
     FAMILY -> GO SENTINEL is pinned exactly as data, and BEHAVIOURALLY on the Go side by
     `TestSweepBodyFamilySentinelsAreBehavioural`, which fails if a Go branch changes which
-    sentinel it returns. The family strings are duplicated across runtimes until the shared
-    corpus (slice 3b) absorbs them.
+    sentinel it returns. The family strings remain duplicated across runtimes -- the
+    sweep-join corpus does NOT close this, since it carries correlation labels rather than
+    the body-family mapping -- until a body-family corpus of its own exists.
     ORDER: batch-level and per-host precedence, and the two structure/semantics
     interleavings, are each pinned by multi-invalid vectors.
     DOMAINS ARE BORROWED, never restated: admitted enum members from
@@ -249,9 +252,24 @@ here.
               recursive wire hygiene, unknown fields and groups
         - [x] step 2 DECODED BODY VALIDATOR -- `SweepBodyValidate`: exact shapes, per-width
               bounds, enum/domain checks, in Go's rejection ORDER; see the parent EVIDENCE
-        - [ ] step 3 INTEGRATION -- call the validator on the correlation path so a body
-              rejection and a correlation rejection come from ONE ingress, then the shared
-              cross-language vectors. NO corpus regeneration until the semantics settle.
+        - [x] step 3 INTEGRATION -- LANDED as `SweepCorrelate.ingest_own_payload/1`:
+              extracted payload -> curated decode -> FULL body validation -> correlation,
+              from one call. `correlate_own_payload/1` could not be this: it decodes with
+              the GENERATED decoder and assumes precondition 6 (someone already ran the body
+              validator), so a body defect and a correlation defect reached callers from two
+              places and nothing made the first actually run. DECODER reasons get their own
+              `{:wire, reason}` gate rather than folding into `{:payload, :decode}`, because
+              the `:poison` / `:not_ready` / `:systemic` split is the one classification that
+              stage exists to make. Mutation-verified, three killed: skipping the body
+              validator, passing body reasons through untranslated, and collapsing the
+              decoder reasons.
+              FIXTURE FINDING: the correlation control batch was never body-VALID -- it
+              carried only the fields correlation reads. Before step 3 nothing required one
+              batch to satisfy both stages, so the composed tests build a fixture that does,
+              without touching any field correlation compares.
+              THE SHARED CORPUS IS NOT A 1.2-c REMAINDER -- 1.3-f owns it exclusively, and
+              1.2-c does not depend on 1.3-f (that edge runs the other way). With step 3
+              landed, the ONLY thing holding 1.2-c open is its 1.5-f CLOSURE dependency.
               THE RESULT TRANSLATION IS SETTLED IN ADVANCE, as
               `SweepCorrelate.translate_body_reason/1`: `{:source_run_id, label}` ->
               `{:body, label}` and `{:source, :unknown}` -> `{:enum_admission, :source}`,
@@ -321,9 +339,11 @@ here.
         its SOLE kind lookup
   - [x] 1.3-b Go DISPOSITION ENFORCEMENT in `ValidateSweepObservationBatch` (`source_run_id`
         presence, absence, canonical form)
-  - [ ] 1.3-c the SHARED CHECKED UUIDv7 millisecond-to-nanosecond helper, plus 1.3's own
+  - [x] 1.3-c the SHARED CHECKED UUIDv7 millisecond-to-nanosecond helper, plus 1.3's own
         sweep-summary `trace_id` overflow vector (the 1.1 and 1.4 call-site vectors are
-        assigned to those tasks)
+        assigned to those tasks). The helper landed in slice 1; the vector needed a FULL
+        RECORD fixture and lands with the shared corpus as
+        `sweep_join_trace_time_overflow.bin`, asserted by both runtimes
   - [x] 1.3-d DECLARE THE LABEL NAMES in both runtimes: the fifteen frozen strings exist as
         one vocabulary in Go (`SweepJoinLabel`, backed by a canonical registry the private
         constructors enforce) and Elixir (`SweepMatrix.labels/0`), and each inventory pins
@@ -339,22 +359,59 @@ here.
         runtimes -- every LABELLED vector asserts the portable label AND the owning gate's
         typed outcome in ONE assertion, so neither can be changed alone. UNLABELLED vectors
         (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate.
-        PARTIALLY DONE. TEN pairs are pinned in both runtimes -- the nine correlation
-        labels and the disposition. THE CANONICAL REMAINDER IS HERE:
-          (i)   the FIVE time-label pairs: `batch_time_window`, both host labels, both
-                trace labels -- asserted for their LABEL only, with no vector pinning a
-                gate;
-          (ii)  NON-VACUOUS overflow vectors: both current ones wrap to values OUTSIDE
-                the window, so an unchecked implementation rejects them anyway;
-          (iii) the SHARED cross-language corpus, including a protobuf-equivalent
-                NONCANONICAL payload -- duplicate known singular fields -- proving
-                `payload_sha256` is checked against the EXACT CARRIED BYTES rather than
-                decode/re-encode bytes;
-          (iv)  task 1.2-c, under task 1.2.
-        BLOCKED ON 1.2-c, not merely dependent: `SweepCorrelate` names the Elixir full body
-        validator as a PRECONDITION, and a vector CANNOT satisfy a last-gate proof by
-        stating that an unenforced precondition occurred. 1.3-f SHALL NOT be checked before
-        1.2-c. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
+        (i), (ii) and (iii) HAVE LANDED. THE ONLY REMAINDER IS (iv).
+          (i)   DONE -- the FIVE time-label pairs (`batch_time_window`, both host labels,
+                both trace labels) now pin label AND gate in one assertion, in both
+                runtimes. `uuidv7At/2` was added so a vector can place a trace time outside
+                the window or above the ns-conversion ceiling; `uuidv7/1` always carries
+                `fixedMillis` and could express neither.
+          (ii)  DONE, and CONSTRUCTED AS THE SPEC REQUIRES -- each overflow vector's
+                naively wrapped value lands INSIDE the window, so an UNCHECKED
+                implementation ACCEPTS it. Proven by verdict, not by label: removing either
+                check makes both records validate clean.
+                An earlier attempt wrapped OUTSIDE the window and leaned on the label
+                changing instead. That contradicted a SHALL, and code does not get to
+                replace one silently. The trace path needed only a different timestamp --
+                20_230_744_073_710 ms wraps to 1_784_000_000_000_448_384 ns, inside the
+                canonical window, because the overflow is in the MULTIPLICATION and a 48-bit
+                ms field can reach any wrapped value. The HOST path cannot do this with the
+                canonical window at all: the base is ~1.78e18 ns, an overflowing int64 sum
+                wraps to about -7.4e18, and returning would need a delta near 2^64. It
+                therefore carries its OWN committed positive control with a signed window
+                spanning the negative range, and differs from THAT control in exactly one
+                comparison -- the delta -- which satisfies both SHALLs rather than trading
+                one off against the other.
+          (iii) DONE, and REQUIREMENT-complete rather than label-complete. FORTY-FIVE shared
+                vectors under `proto/edge/v1/testdata/`, written by Go and consumed by
+                Elixir through `ingest_own_payload/1`, with the expectation travelling
+                beside the bytes in `sweep_join_corpus.txt` so Elixir DERIVES it.
+                An earlier seventeen-vector corpus covered all fifteen labels exactly and
+                was still far short of the normative inventory: label-completeness proves
+                each label is REACHABLE, while the spec requires vectors PER SOURCE ROW, PER
+                DISPOSITION ROW and on BOTH SIDES of every window. Manifest-to-disk equality
+                only proves two incomplete sets agree.
+                The inventory now covers: five per-source POSITIVE controls; five
+                selected-context mismatches; five kind mismatches plus INTEGRATION_RUN;
+                RECOVERY_CONTROL at the LANE gate, not correlation; the eight disposition
+                vectors (two forbidden-presence, three required-absence, three malformed --
+                per row, not sampled); UNSPECIFIED and absent-authority; six
+                source-independent relations on one representative row; the EIGHT time
+                negatives (batch two, host three, trace three); both endpoint controls; the
+                wide-window control; and the NONCANONICAL payload -- a duplicate known
+                singular field, 243 carried bytes against 233 re-encoded -- which both
+                runtimes must ACCEPT, proving `payload_sha256` is checked against the exact
+                carried bytes.
+                Go asserts the OWNING GATE before writing it to the manifest, including
+                not-the-other-gate. A gate name written unchecked is a claim Elixir then
+                derives its expectation from.
+          (iv)  task 1.2-c, under task 1.2 -- LANDED but unchecked on its own 1.5-f closure
+                dependency, which is what keeps 1.3-f unchecked too.
+        STILL BLOCKED ON 1.2-c, but NOT for the original reason. That reason -- a vector
+        cannot satisfy a last-gate proof by stating an UNENFORCED precondition occurred --
+        is OBSOLETE: `ingest_own_payload/1` now runs the body validator on the correlation
+        path, so the corpus consumes an ingress that enforces it. What remains is the
+        ordinary dependency: 1.2-c is unchecked on its 1.5-f closure, and 1.3-f SHALL NOT be
+        checked before it. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
         matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c.
         The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
@@ -411,12 +468,9 @@ here.
     validators (#4777), the correlation-matrix design (#4779), matrix slice 1 -- 1.3-a and
     1.3-b, with the shared `UUIDv7Nanos` helper -- matrix slice 2, 1.3-d and 1.3-e, and
     slice 3a's Elixir correlation peer (`SweepCorrelate`).
-    THE JOINT (label, gate) PROOF IS PARTIAL, NOT COMPLETE. Its exact coverage and the
-    remaining proof are both stated in 1.3-f's checklist entry above; neither is restated
-    here.
-  - REMAINING: 1.3-c and 1.3-f in the checklist ABOVE, which is CANONICAL for this task --
-    including 1.3-f's four-item remainder. No other passage restates it, and this line does
-    not either.
+    THE JOINT (label, gate) PROOF IS COMPLETE, and the shared corpus has landed.
+  - REMAINING: 1.3-f in the checklist ABOVE, which is CANONICAL for this task -- and its
+    only open item is (iv). No other passage restates it, and this line does not either.
   - DEPENDS ON: task 1.2-c, the Elixir full body validator, which blocks 1.3-f. The durable
     assignment mapping is task 2.20 downstream and SHALL NOT gate this.
   - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`;
