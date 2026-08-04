@@ -215,6 +215,12 @@ ex_unit_tests(
         # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
         # what puts it where that relative path resolves.
         "//addons/anomaly-addon:anomaly_manifest",
+        # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the
+        # SHARED cross-language fixtures -- the sweep-join corpus among them -- through
+        # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the
+        # required Bazel shard runs a test whose fixtures are not staged, so the shared
+        # corpus would be proven only under `mix test`.
+        "//proto/edge/v1:edge_testdata",
         # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
         # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
         # comes back empty, so every first-party Wasm plugin package has to be an input.

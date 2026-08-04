@@ -74,7 +74,10 @@ func mtrOutcomeAllocated(o edgev1.MtrOutcome) bool {
 }
 
 var (
-	ErrSweepSource      = errors.New("edgerecord: sweep source unspecified/unknown")
+	ErrSweepSource = errors.New("edgerecord: sweep source unspecified/unknown")
+	// ErrSweepSourceRunID reports a source_run_id present where its source
+	// forbids it, absent where required, or non-canonical where required.
+	ErrSweepSourceRunID = errors.New("edgerecord: sweep source_run_id disposition violated")
 	ErrSweepChecks      = errors.New("edgerecord: sweep tested-check set invalid")
 	ErrSweepModeBits    = errors.New("edgerecord: sweep configured/result mode bits inconsistent")
 	ErrSweepModeSummary = errors.New("edgerecord: sweep named mode lacks its summary")
@@ -323,8 +326,17 @@ func ValidateSweepObservationBatch(b *edgev1.SweepObservationBatchV1) error {
 	if b == nil {
 		return ErrNilRecord
 	}
-	if !knownSweepSource(b.GetSource()) {
+	rule, ok := sweepRuleFor(b.GetSource())
+	if !ok {
 		return ErrSweepSource
+	}
+	// The source_run_id disposition is decided HERE, not in the correlation: it is
+	// a function of two fields of THIS message (source and source_run_id) and
+	// consults no signed authority. Deferring a body-decidable rule past the body
+	// validator would carry a malformed batch into authority comparison, where
+	// which mismatch is reported depends on which is noticed first.
+	if err := validateSourceRunIDDisposition(rule, b.GetSourceRunId()); err != nil {
+		return err
 	}
 	// Batch identity/plan/range/policy/timestamp must be present and well-formed so
 	// a body cannot omit the fields that bind it to the authorized work.
@@ -657,18 +669,12 @@ func mtrCorrelationMatchesSource(b *edgev1.MtrTraceBatchV1) error {
 	return nil
 }
 
+// knownSweepSource reports whether a source is admitted. It reads the frozen
+// matrix rather than restating its membership: a second list would let the two
+// disagree, admitting a source the correlation has no row for.
 func knownSweepSource(v edgev1.SweepExecutionSource) bool {
-	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
-	switch v {
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP,
-		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE,
-		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC,
-		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_ON_DEMAND,
-		edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK:
-		return true
-	default:
-		return false
-	}
+	_, ok := sweepRuleFor(v)
+	return ok
 }
 
 // ---------------------------------------------------------------------------
@@ -998,24 +1004,117 @@ func VerifyCompletionAgainstPlanState(
 // Composed envelope <-> body validation (contract-dispatched)
 // ---------------------------------------------------------------------------
 
+// sweepContextOperand names WHICH body field a source's signed context_id is
+// compared against. There is exactly ONE selected operand per source and never
+// two: the non-selected field is not a second thing the context may agree with.
+type sweepContextOperand uint8
+
+const (
+	operandExecutionID sweepContextOperand = iota
+	operandSourceRunID
+)
+
+// sourceRunIDDisposition names whether a source may carry source_run_id.
+// Permitting it where the signed context names the execution would leave a
+// SECOND, unchecked correlation candidate on the wire: a consumer could bind on
+// it while the validator bound on execution_id, with nothing saying which is
+// authoritative. So it is REQUIRED or FORBIDDEN, never optional.
+type sourceRunIDDisposition uint8
+
+const (
+	sourceRunIDForbidden sourceRunIDDisposition = iota
+	sourceRunIDRequired
+)
+
+// sweepSourceRule is one row of the FROZEN sweep correlation matrix.
+type sweepSourceRule struct {
+	kind        edgev1.EdgeSourceAuthorizationKind
+	operand     sweepContextOperand
+	sourceRunID sourceRunIDDisposition
+}
+
+// sweepSourceMatrix IS the frozen mapping, and it is the SOLE kind lookup in the
+// correlation. Nothing else may derive a source's authorization kind, operand or
+// disposition.
+//
+// Why one table rather than three switches: five sources against seven declared
+// kinds is a 5x7 accept/reject matrix with five accepting cells, so a per-source
+// sample of wrong kinds exercises five of thirty rejecting cells and leaves an
+// implementation free to accept an untested pair. With a single lookup the
+// exhaustive inventory test IS the behavioural coverage.
+//
+// The kind ordinals deliberately do NOT line up with the source ordinals -- only
+// SCHEDULED_SWEEP and SWEEP_PROFILE coincide. Correlating by NUMBER instead of by
+// this table accepts an ad-hoc body under scheduled-check authority.
+var sweepSourceMatrix = map[edgev1.SweepExecutionSource]sweepSourceRule{
+	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP: {
+		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP,
+		operand:     operandExecutionID,
+		sourceRunID: sourceRunIDForbidden,
+	},
+	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE: {
+		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE,
+		operand:     operandExecutionID,
+		sourceRunID: sourceRunIDForbidden,
+	},
+	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC: {
+		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC,
+		operand:     operandSourceRunID,
+		sourceRunID: sourceRunIDRequired,
+	},
+	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_ON_DEMAND: {
+		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND,
+		operand:     operandSourceRunID,
+		sourceRunID: sourceRunIDRequired,
+	},
+	edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK: {
+		kind:        edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK,
+		operand:     operandSourceRunID,
+		sourceRunID: sourceRunIDRequired,
+	},
+}
+
+// sweepRuleFor returns the frozen row for a source. UNSPECIFIED (the proto
+// default) is absent from the table, so an unset field cannot select a mapping.
+func sweepRuleFor(s edgev1.SweepExecutionSource) (sweepSourceRule, bool) {
+	r, ok := sweepSourceMatrix[s]
+	return r, ok
+}
+
 // sourceKindForExecution maps a sweep/MTR execution source to the source
-// authorization kind a record MUST carry to authorize that collection.
+// authorization kind a record MUST carry to authorize that collection. It reads
+// the frozen matrix; it does not restate it.
 func sourceKindForExecution(s edgev1.SweepExecutionSource) (edgev1.EdgeSourceAuthorizationKind, bool) {
-	//nolint:exhaustive // fail-closed: the default arm rejects any unlisted/unsupported value
-	switch s {
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP:
-		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP, true
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SWEEP_PROFILE:
-		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SWEEP_PROFILE, true
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK:
-		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK, true
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_AD_HOC:
-		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC, true
-	case edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_ON_DEMAND:
-		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_ON_DEMAND, true
-	default:
+	r, ok := sweepRuleFor(s)
+	if !ok {
 		return edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED, false
 	}
+	return r.kind, true
+}
+
+// validateSourceRunIDDisposition enforces the frozen per-row disposition. Where
+// required, source_run_id MUST be a canonical UUID -- ONE source-independent
+// predicate, the same check on every required row.
+func validateSourceRunIDDisposition(rule sweepSourceRule, id []byte) error {
+	if rule.sourceRunID == sourceRunIDForbidden {
+		if len(id) != 0 {
+			return sweepBodyErr(SweepLabelSourceRunIDDisposition, ErrSweepSourceRunID)
+		}
+		return nil
+	}
+	if ValidateCanonicalUUID(id) != nil {
+		return sweepBodyErr(SweepLabelSourceRunIDDisposition, ErrSweepSourceRunID)
+	}
+	return nil
+}
+
+// sweepContextOperandValue returns the ONE body field this source's signed
+// context_id is compared against.
+func sweepContextOperandValue(rule sweepSourceRule, b *edgev1.SweepObservationBatchV1) []byte {
+	if rule.operand == operandSourceRunID {
+		return b.GetSourceRunId()
+	}
+	return b.GetExecutionId()
 }
 
 // ValidateSweepRecord is the composed sweep validator the trusted sink/EventWriter
@@ -1088,57 +1187,83 @@ func dispatchContract(r *edgev1.EdgeRecordV1, expected *edgev1.EdgeOutputContrac
 }
 
 // joinSweepAuthority binds a decoded sweep body to the record's signed source
-// authority AND attested producer: source kind, the execution identity
-// (context_id == execution_id, scope_id == target_range_id), plan/range digests,
-// the fence/assignment epoch, and the observed collection time -- so a valid
-// signature cannot be paired with a body naming a different execution, range,
-// epoch, or time window.
+// authority AND attested producer: source kind; the SELECTED CONTEXT identity
+// (context_id == the ONE operand this source's row names -- execution_id on the
+// scheduled-sweep and sweep-profile rows, source_run_id on the other three); the
+// range identity (scope_id == target_range_id); plan/range digests; the
+// fence/assignment epoch; and the observed collection time -- so a valid signature
+// cannot be paired with a body naming a different run, range, epoch, or time
+// window. Not every row binds the EXECUTION: three bind a source-side run.
 func joinSweepAuthority(r *edgev1.EdgeRecordV1, batch *edgev1.SweepObservationBatchV1) error {
-	wantKind, ok := sourceKindForExecution(batch.GetSource())
+	rule, ok := sweepRuleFor(batch.GetSource())
 	if !ok {
 		return ErrSweepSource
 	}
 	sa := r.GetSourceAuthorization()
-	if sa == nil || sa.GetKind() != wantKind {
-		return fmt.Errorf("%w: source kind", ErrSweepJoin)
+	// ABSENT authority and WRONG-KIND authority are separate labels, so they are
+	// separate checks: a combined branch could not say which one refused.
+	if sa == nil {
+		return sweepJoinErr(SweepLabelSourceAuthorityAbsent)
+	}
+	if sa.GetKind() != rule.kind {
+		return sweepJoinErr(SweepLabelSourceKind)
 	}
 	claims := sa.GetCapability().GetSource()
 	p := r.GetProducerContext()
-	if !bytes.Equal(claims.GetContextId(), batch.GetExecutionId()) {
-		return fmt.Errorf("%w: execution id", ErrSweepJoin)
+	// The signed context is compared against the ONE operand this source selects
+	// -- execution_id for the scheduled/profile rows, source_run_id for the
+	// ad-hoc/on-demand/scheduled-check rows. Comparing the non-selected field
+	// would accept a body whose signed authority names a different run.
+	if !bytes.Equal(claims.GetContextId(), sweepContextOperandValue(rule, batch)) {
+		return sweepJoinErr(SweepLabelContextID)
 	}
-	// The generic signed scope identity MUST be the range identity (both id AND
-	// digest), and the plan/range digests must match the body.
-	if !bytes.Equal(claims.GetScopeId(), batch.GetTargetRangeId()) ||
-		!bytes.Equal(claims.GetScopeSha256(), batch.GetTargetRangeSha256()) {
-		return fmt.Errorf("%w: range identity", ErrSweepJoin)
+	// The generic signed scope identity MUST be the range identity, in BOTH id and
+	// digest. These are two labels and therefore two checks: the signed claim
+	// carries scope_sha256 AND target_range_sha256, so a single combined branch
+	// would let either predicate be deleted while the manifest still matched.
+	if !bytes.Equal(claims.GetScopeId(), batch.GetTargetRangeId()) {
+		return sweepJoinErr(SweepLabelRangeID)
 	}
-	if !bytes.Equal(claims.GetExecutionPlanSha256(), batch.GetExecutionPlanSha256()) ||
-		!bytes.Equal(claims.GetTargetRangeSha256(), batch.GetTargetRangeSha256()) {
-		return fmt.Errorf("%w: plan/range digest", ErrSweepJoin)
+	if !bytes.Equal(claims.GetScopeSha256(), batch.GetTargetRangeSha256()) {
+		return sweepJoinErr(SweepLabelScopeDigest)
+	}
+	if !bytes.Equal(claims.GetTargetRangeSha256(), batch.GetTargetRangeSha256()) {
+		return sweepJoinErr(SweepLabelTargetRangeDigest)
+	}
+	if !bytes.Equal(claims.GetExecutionPlanSha256(), batch.GetExecutionPlanSha256()) {
+		return sweepJoinErr(SweepLabelPlanDigest)
 	}
 	// The attested producer shard AND fence epoch MUST match the body.
 	if batch.GetExecutionShard() != p.GetRunShard() {
-		return fmt.Errorf("%w: execution shard", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelExecutionShard)
 	}
 	if batch.GetAssignmentEpoch() != p.GetAuthorityEpoch() {
-		return fmt.Errorf("%w: assignment epoch", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelAssignmentEpoch)
 	}
 	// The observed batch time must fall inside the signed collection window.
 	if !withinCollection(batch.GetObservedAtUnixNano(), claims) {
-		return fmt.Errorf("%w: observation time outside collection window", ErrSweepJoin)
+		return sweepJoinErr(SweepLabelBatchTimeWindow)
 	}
 	// Every per-host absolute time (batch time + signed sint64 delta, OVERFLOW-SAFE)
 	// and every per-host MTR trace identity time must also fall inside the window.
 	for _, h := range batch.GetHosts() {
+		// OVERFLOW and OUT-OF-WINDOW are separate labels, so they are separate
+		// checks. A wrapped sum can land INSIDE the window, so folding them
+		// together would report the wrong reason for the case that matters most.
 		abs, ok := addInt64(batch.GetObservedAtUnixNano(), h.GetObservedAtDeltaNano())
-		if !ok || !withinCollection(abs, claims) {
-			return fmt.Errorf("%w: host observation time outside collection window", ErrSweepJoin)
+		if !ok {
+			return sweepJoinErr(SweepLabelHostTimeOverflow)
+		}
+		if !withinCollection(abs, claims) {
+			return sweepJoinErr(SweepLabelHostTimeWindow)
 		}
 		if mtr := h.GetMtr(); mtr != nil && mtrOutcomeAllocated(mtr.GetOutcome()) {
-			ms, err := UUIDv7Millis(mtr.GetTraceId())
-			if err != nil || !withinCollection(ms*1_000_000, claims) {
-				return fmt.Errorf("%w: mtr trace time outside collection window", ErrSweepJoin)
+			ns, err := UUIDv7Nanos(mtr.GetTraceId())
+			if err != nil {
+				return sweepJoinErr(SweepLabelTraceTimeOverflow)
+			}
+			if !withinCollection(ns, claims) {
+				return sweepJoinErr(SweepLabelTraceTimeWindow)
 			}
 		}
 	}
@@ -1204,8 +1329,8 @@ func joinMtrAuthority(r *edgev1.EdgeRecordV1, batch *edgev1.MtrTraceBatchV1) err
 // uuidTimeWithin reports whether a UUIDv7's embedded millisecond time (as nanos)
 // falls inside the collection window.
 func uuidTimeWithin(id []byte, c *edgev1.EdgeSourceClaimsV1) bool {
-	ms, err := UUIDv7Millis(id)
-	return err == nil && withinCollection(ms*1_000_000, c)
+	ns, err := UUIDv7Nanos(id)
+	return err == nil && withinCollection(ns, c)
 }
 
 func withinCollection(ns int64, c *edgev1.EdgeSourceClaimsV1) bool {

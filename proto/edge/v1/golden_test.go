@@ -89,6 +89,23 @@ func goldenPolicy() edgerecord.AuthorizationPolicy {
 	}
 }
 
+// uuidv7At builds a canonical UUIDv7 carrying an EXPLICIT millisecond timestamp, so a
+// vector can place a trace time outside the signed window or above the ns-conversion
+// ceiling. `uuidv7` always carries `fixedMillis` and cannot express either case.
+func uuidv7At(millis int64, seed byte) []byte {
+	out := make([]byte, 16)
+	var tsb [8]byte
+	binary.BigEndian.PutUint64(tsb[:], uint64(millis)<<16)
+	copy(out[0:6], tsb[0:6])
+	for i := 6; i < 16; i++ {
+		out[i] = seed + byte(i)
+	}
+	out[6] = (out[6] & 0x0F) | 0x70
+	out[8] = (out[8] & 0x3F) | 0x80
+
+	return out
+}
+
 func uuidv7(seed byte) []byte {
 	out := make([]byte, 16)
 	var tsb [8]byte
@@ -226,7 +243,12 @@ func canonicalSweepBatch() *edgev1.SweepObservationBatchV1 {
 		TargetRangeId: uuidv7(0x22), TargetRangeSha256: sweepRangeSha(),
 		AvailabilityPolicyId: []byte("policy-1"),
 		Source:               edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
-		ConfiguredModeBits:   uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
+		// SCHEDULED_CHECK REQUIRES source_run_id and selects it as the signed
+		// context operand. It is deliberately DIFFERENT from execution_id (0x20):
+		// were the two equal, this fixture would pass under either operand rule
+		// and prove nothing about which one the join selected.
+		SourceRunId:        uuidv7(0x23),
+		ConfiguredModeBits: uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR),
 		TestedChecks: []*edgev1.SweepTestV1{
 			{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
 			{Mode: edgev1.SweepMode_SWEEP_MODE_MTR, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
@@ -248,7 +270,9 @@ func canonicalRecord(t *testing.T) *edgev1.EdgeRecordV1 {
 	sum := sha256.Sum256(payload)
 	scope := uuidv7(0x11)
 	// The source authority context/scope bind the exact sweep execution + range.
-	ctx, scopeID := batch.GetExecutionId(), batch.GetTargetRangeId()
+	// The context operand is the one THIS SOURCE selects: SCHEDULED_CHECK selects
+	// source_run_id, not execution_id.
+	ctx, scopeID := batch.GetSourceRunId(), batch.GetTargetRangeId()
 	contract := &edgev1.EdgeOutputContractRef{
 		ContractId: "serviceradar.sweep.observation", ContractVersion: 1,
 		ContractBundleSha256: digest32(0x40), RegistryEpoch: 7, RegistrySnapshotSha256: digest32(0x50), EffectiveGrantSha256: digest32(0x60),
@@ -282,6 +306,13 @@ func canonicalRecord(t *testing.T) *edgev1.EdgeRecordV1 {
 func golden(t *testing.T, name string, m proto.Message) []byte {
 	t.Helper()
 	return goldenBytes(t, name, mustMarshal(m))
+}
+
+// goldenText is `golden` for a TEXT manifest: the shared corpus carries its expectations
+// beside the bytes so the other runtime derives them instead of restating them.
+func goldenText(t *testing.T, name, body string) {
+	t.Helper()
+	goldenBytes(t, name, []byte(body))
 }
 
 // mustStr unwraps a validated (string, error) encoder in a golden context. A validated encoder
@@ -2465,4 +2496,175 @@ func (s goldenSession) AuthorizeAgent(networkScopeID, agentID []byte) edgerecord
 		return edgerecord.CallerMatches
 	}
 	return edgerecord.CallerMismatch
+}
+
+// The FROZEN rebuild sequence is split across TWO helpers, matching the two halves
+// of the contract's own ordering:
+//
+//	step 1  the caller applies its mutation
+//	step 2  mutateSweepBody -- re-encode the body, update BOTH size fields and
+//	        payload_sha256. Only body-mutating vectors need it.
+//	step 3  rebuildRecord   -- re-sign every capability whose COMPLETE SIGNING
+//	        PREIMAGE changed, after re-syncing the outer source-authorization
+//	        mirror to the claims it duplicates
+//	step 4  rebuildRecord   -- recompute semantic_envelope_sha256 LAST, because the
+//	        semantic preimage CONTAINS capability signatures
+//
+// rebuildRecord below is steps 3-4. Skipping either makes a vector die at signature
+// verification or the envelope-digest check, which is a rejection for the wrong
+// reason. Not hypothetical: the first draft of these vectors omitted both and every
+// case failed on "semantic envelope digest mismatch" or "producer identity" instead
+// of its correlation label.
+// mutateSweepBody is STEP 2 of the sequence above: re-encode the mutated body and
+// update BOTH size fields and payload_sha256. The caller then runs rebuildRecord
+// for steps 3-4.
+func mutateSweepBody(r *edgev1.EdgeRecordV1, f func(*edgev1.SweepObservationBatchV1)) {
+	var b edgev1.SweepObservationBatchV1
+	if err := proto.Unmarshal(r.GetPayload(), &b); err != nil {
+		panic("golden record payload is not a sweep batch: " + err.Error())
+	}
+	f(&b)
+	payload := mustMarshal(&b)
+	sum := sha256.Sum256(payload)
+	r.Payload = payload
+	r.EncodedSize = uint32(len(payload))
+	r.UncompressedSize = uint32(len(payload))
+	r.PayloadSha256 = sum[:]
+}
+
+func rebuildRecord(r *edgev1.EdgeRecordV1) {
+	if sa := r.GetSourceAuthorization(); sa != nil {
+		if src := sa.GetCapability().GetSource(); src != nil {
+			// The outer mirror MUST agree with the signed claims; the record
+			// validator checks that before correlation is ever consulted.
+			sa.Kind = src.GetKind()
+			sa.ContextId = src.GetContextId()
+			sa.ScopeId = src.GetScopeId()
+			sa.ScopeSha256 = src.GetScopeSha256()
+		}
+		edgerecord.SignCapability(sa.GetCapability(), issuerPrivB)
+	}
+	if pc := r.GetProductionCapability(); pc != nil {
+		edgerecord.SignCapability(pc, issuerPrivA)
+	}
+	r.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(r)
+}
+
+// EACH SPLIT PREDICATE EMITS ITS OWN LABEL.
+//
+// Five checks in joinSweepAuthority previously covered TWO labels each. Splitting
+// them is what makes the labels independently removable, and this test is what
+// proves the split is real rather than cosmetic: a re-merged pair would report one
+// label for both mutations and fail here.
+//
+// MOST of these vectors mutate the RECORD's signed claims, so the body's digests
+// still hold and only steps 3-4 of the rebuild sequence apply. TWO -- execution
+// shard and assignment epoch -- mutate the BODY, and go through mutateSweepBody
+// for steps 1-2 as well: they must, because the production capability and the
+// source claims both mirror the producer context, so moving the context would be
+// refused by those mirrors before correlation.
+//
+// These assert the LABEL and the OWNING GATE together, and that the error does NOT
+// match the other gate. The FIVE TIME labels are not among them: those still have no
+// vector pinning them to a gate, which task 1.3-f owns.
+// sweepJoinCase is one labelled rejection: the mutation, the portable label it must
+// produce, and the gate that must own it.
+type sweepJoinCase struct {
+	name   string
+	want   edgerecord.SweepJoinLabel
+	gate   error
+	break_ func(*edgev1.EdgeRecordV1)
+}
+
+// sweepJoinCases is the ONE table. `TestSweepJoinLabelsAreDistinctPerPredicate` proves each
+// case in-process; `TestSweepJoinSharedCorpus` writes the same cases as bytes for Elixir to
+// consume. Two tables would let the in-process proof and the shared corpus drift, so that a
+// label is pinned in one runtime and never exported to the other.
+func sweepJoinCases() []sweepJoinCase {
+	return []sweepJoinCase{
+		{"absent authority", edgerecord.SweepLabelSourceAuthorityAbsent, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.SourceAuthorization = nil
+		}},
+		// Mutate the SIGNED claim, not the outer mirror: the mirror is re-synced from
+		// the claims during the rebuild, so mutating it alone would be undone.
+		{"wrong kind", edgerecord.SweepLabelSourceKind, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().Kind =
+				edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_AD_HOC
+		}},
+		{"context id", edgerecord.SweepLabelContextID, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ContextId = uuidv7(0x7E)
+		}},
+		{"range id", edgerecord.SweepLabelRangeID, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ScopeId = uuidv7(0x7D)
+		}},
+		{"scope digest", edgerecord.SweepLabelScopeDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ScopeSha256 = digest32(0x7C)
+		}},
+		{"target range digest", edgerecord.SweepLabelTargetRangeDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().TargetRangeSha256 = digest32(0x7B)
+		}},
+		{"plan digest", edgerecord.SweepLabelPlanDigest, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			r.GetSourceAuthorization().GetCapability().GetSource().ExecutionPlanSha256 = digest32(0x7A)
+		}},
+		// These two mutate the BODY's view of the attested producer rather than the
+		// producer context, because the production capability and the source claims
+		// both mirror the context: moving the context would be refused by those
+		// mirrors before correlation, which is a rejection for the wrong reason.
+		{"execution shard", edgerecord.SweepLabelExecutionShard, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.ExecutionShard = 99 })
+		}},
+		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
+			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
+		}},
+		// THE FIVE TIME LABELS ARE NOT HERE. They live in the SHARED corpus
+		// (sweep_corpus_test.go), which asserts the same label/gate/not-other-gate triple
+		// AND constructs them as the spec requires: both window sides on all three paths,
+		// overflow values that wrap INSIDE the window, and batch-time negatives whose host
+		// delta is counter-adjusted so only one comparison differs. The versions that used
+		// to sit here satisfied none of that, and a second, weaker construction of the same
+		// vectors is worse than none.
+	}
+}
+
+func TestSweepJoinLabelsAreDistinctPerPredicate(t *testing.T) {
+	// Every case pins the label AND the owning gate in ONE assertion. Asserting them
+	// in separate tests leaves the PAIR unpinned: a site can emit the right label with
+	// the wrong gate, or the reverse, and both tests stay green.
+	for _, tc := range sweepJoinCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			record := canonicalRecord(t)
+			// CONTROL: unmutated, this record joins. Without it a vector could pass
+			// for a reason unrelated to the mutation.
+			if err := edgerecord.ValidateSweepRecord(record, record.GetOutputContract(), goldenPolicy()); err != nil {
+				t.Fatalf("control must join: %v", err)
+			}
+			tc.break_(record)
+			rebuildRecord(record)
+			err := edgerecord.ValidateSweepRecord(record, record.GetOutputContract(), goldenPolicy())
+			if err == nil {
+				t.Fatal("mutation must be rejected")
+			}
+			got, ok := edgerecord.SweepLabelOf(err)
+			if !ok {
+				t.Fatalf("rejection carries no portable label: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("label = %q, want %q (err: %v)", got, tc.want, err)
+			}
+			// The GATE, asserted here rather than in a separate test, so the two
+			// cannot drift apart.
+			if !errors.Is(err, tc.gate) {
+				t.Fatalf("label %q came from the wrong gate: %v, want errors.Is %v", got, err, tc.gate)
+			}
+			// And NOT from the other gate -- otherwise a single error wrapping both
+			// sentinels would satisfy the check above.
+			other := edgerecord.ErrSweepSourceRunID
+			if tc.gate == edgerecord.ErrSweepSourceRunID {
+				other = edgerecord.ErrSweepJoin
+			}
+			if errors.Is(err, other) {
+				t.Fatalf("label %q matched BOTH gates: %v", got, err)
+			}
+		})
+	}
 }
