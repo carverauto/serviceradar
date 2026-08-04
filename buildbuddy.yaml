@@ -9,6 +9,24 @@ actions:
     #
     # `self_hosted` is also load-bearing for the database tier below, well beyond pool
     # selection -- see the comment on that step.
+    # Static environment. Secrets are NOT declared here: BuildBuddy exposes anything configured
+    # in the app's secret store as an environment variable automatically.
+    #
+    # OCI_REGISTRY is required and its absence is silent. buildbuddy_setup_docker_auth.sh does
+    #   oci_registry="${OCI_REGISTRY:-ghcr.io}"
+    # so without it every credential is written into ~/.docker/config.json under the `ghcr.io`
+    # key. Harbor then gets no entry at all and rules_oci's repository fetch fails during the
+    # LOADING phase, which surfaces as a package error on targets that have nothing to do with
+    # containers:
+    #
+    #   GET .../v2/mirror/cloudnative-pg/postgresql/manifests/sha256:... returned 401 Unauthorized
+    #   ERROR: no such package '@@rules_oci++oci+cloudnativepg_postgresql_18_linux_amd64//'
+    #
+    # Every oci.pull in MODULE.bazel now resolves to registry.carverauto.dev, so this is the
+    # only registry that matters. GHCR and Docker Hub are no longer pulled from.
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+
     self_hosted: true
     # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
     # build executors in values.yaml. Those advertise 16Gi and this runner wants ~32GB, so it
@@ -80,7 +98,56 @@ actions:
       disk: "40GB"
 
     steps:
-      - run: "bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures"
+      # Guarded, because buildbuddy_setup_docker_auth.sh FAILS SILENTLY in exactly the state
+      # this workflow starts in. Its first branch is:
+      #
+      #   if [[ -f "${config_path}" && -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" && ... ]];
+      #     echo "Docker config already present ...; nothing to do." >&2; exit 0
+      #
+      # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
+      # the environment the script writes nothing and exits 0. The run then continues for three
+      # more minutes and dies in the LOADING phase of the next step, on a target that has
+      # nothing to do with containers:
+      #
+      #   401 Unauthorized ... no such package '@@rules_oci++oci+cloudnativepg_postgresql_18...'
+      #
+      # The assertion below turns that into a five-second failure naming the missing secret. The
+      # grep afterwards is the other half: it proves the entry landed under OCI_REGISTRY rather
+      # than under the script's `ghcr.io` default, which is a separate way to get the same 401.
+      - run: |
+          set -euo pipefail
+
+          if [[ -z "${HARBOR_USERNAME:-}" || -z "${HARBOR_TOKEN:-}" ]]; then
+            echo "No credentials for ${OCI_REGISTRY} in the environment." >&2
+            echo "HARBOR_USERNAME and HARBOR_TOKEN must exist in the BuildBuddy secret store;" >&2
+            echo "BuildBuddy exposes configured secrets to workflows as environment variables." >&2
+            exit 1
+          fi
+
+          # NAME BRIDGE. The secret store holds HARBOR_*, buildbuddy_setup_docker_auth.sh reads
+          # OCI_* -- the script's "primary / push registry" pair, whose host comes from
+          # OCI_REGISTRY above. Mapped here rather than in the action's `env:` block because
+          # that takes static values only and cannot interpolate a secret; inside a step the
+          # secrets are already ordinary environment variables.
+          #
+          # Do NOT rename the secrets to OCI_* instead. The Forgejo workflows read
+          # HARBOR_ROBOT_USERNAME/HARBOR_ROBOT_SECRET from their own store and map the same
+          # way, so the credential keeps one name per store and the mapping stays visible at
+          # the point of use.
+          export OCI_USERNAME="${HARBOR_USERNAME}"
+          export OCI_TOKEN="${HARBOR_TOKEN}"
+
+          # Cleared explicitly: the script prefers OCI_DOCKER_AUTH over the pair above when it
+          # is non-empty, so a value inherited from anywhere else would silently shadow these.
+          export OCI_DOCKER_AUTH=""
+
+          bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
+
+          if ! grep -q "${OCI_REGISTRY}" "${HOME}/.docker/config.json"; then
+            echo "~/.docker/config.json has no ${OCI_REGISTRY} entry after setup." >&2
+            echo "OCI_REGISTRY is probably unset, so credentials went under ghcr.io." >&2
+            exit 1
+          fi
 
       - run: "bazel build -c opt --config=ci //..."
 
