@@ -1,0 +1,179 @@
+# Executor fleet dedicated to BuildBuddy Workflow runners. Deployed as a SEPARATE helm
+# release from ./values.yaml -- see "Two fleets" in ./README.md for the deploy command.
+#
+# WHY A SECOND FLEET RATHER THAN A BIGGER FIRST ONE.
+#
+# The workflow runner in //buildbuddy.yaml is one long-lived task that wants ~32GB: it holds a
+# Bazel server over ~2,000 targets, uploads inputs for --jobs=100 concurrent remote actions
+# over the WAN, and executes every `no-remote-exec` target locally, including two
+# //integration_tests/srql suites that each start their own Postgres.
+#
+# Raising ./values.yaml to suit it would reserve that on all three build executors, because
+# `requests` is what the kube scheduler holds, not what is used. It would also let one runner
+# consume an executor that remote execution needs: the runner and the build fan-out would be
+# competing for the same three pods, which is the problem this file exists to remove.
+#
+# So: one pod, sized for the runner, in its own pool. Build actions never land here and the
+# runner never lands on a build executor.
+
+# The whole point of the file. The chart puts this on the executor's own registration, and
+# //buildbuddy.yaml names it as `pool: "workflows"`.
+#
+# TOP-LEVEL, a sibling of `image`/`replicas` -- NOT under `config.executor`. Nested there it is
+# silently ignored, the executor registers into the default pool, and the workflow lands on a
+# build executor exactly as before.
+poolName: workflows
+
+image:
+  repository: gcr.io/flame-public/buildbuddy-executor-enterprise
+  # Kept in lockstep with ./values.yaml. See the note there before moving either: below
+  # v2.290.0 a 12 KB VM log tail buffer discards the one line explaining a guest-init death.
+  tag: enterprise-v2.290.0
+  imagePullPolicy: IfNotPresent
+
+# One runner at a time. The action in //buildbuddy.yaml has no `allow_concurrent_runs`, so a
+# second staging push queues rather than needing a second pod.
+replicas: 1
+
+# Both scalers off, deliberately and for different reasons.
+#
+# The chart's HPA is off for the same reason as in ./values.yaml: it reads a Pods metric from
+# custom.metrics.k8s.io, which is not registered on this cluster.
+#
+# KEDA does not touch this fleet at all, and that is not something this file controls:
+# ./scaledobject.yaml targets the Deployment `buildbuddy-buildbuddy-executor` by name. A
+# second helm release produces a differently-named Deployment, so it falls outside that
+# scaler. If this release is ever renamed to collide, KEDA would start driving it to
+# minReplicaCount 3.
+autoscaler:
+  enabled: false
+
+# Sized for the runner, with the action requesting 32GB.
+#
+# `requests` is the number that matters twice over: the kube scheduler reserves it, AND the
+# BuildBuddy scheduler advertises capacity from it. A task larger than requests is
+# unschedulable rather than slow -- that is the failure this whole change came from:
+#
+#   no registered executors in pool "" ... can fit a task with milli_cpu=3000,
+#   memory_bytes=25769803776
+#
+# 36Gi of request against a 32GB (= 32e9 bytes = 29.8GiB) action leaves ~6Gi of headroom for
+# the executor process itself and for page cache, which is where the runner's real pressure
+# showed up: an invocation reported 31.24GB used of 15.03GB total and did NOT get OOM-killed,
+# so most of it was reclaimable cache from disk-cache writes and input uploads, not resident
+# demand.
+#
+# BEFORE DEPLOYING, confirm a node can actually hold this:
+#   kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'
+# A 36Gi request no node can satisfy leaves the pod Pending, and the workflow then fails with
+# the same "no registered executors" message it does today -- only after a helm deploy rather
+# than before one.
+resources:
+  requests:
+    cpu: "8"
+    memory: "36Gi"
+    ephemeral-storage: "45Gi"
+  limits:
+    cpu: "16"
+    memory: "40Gi"
+    ephemeral-storage: "50Gi"
+
+# Same exclusion as the build fleet.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: NotIn
+              values:
+                - k8s-cp3-worker3
+
+extraVolumes:
+  # A DIFFERENT hostPath from ./values.yaml, and this is not cosmetic.
+  #
+  # hostPath is per node, and nothing stops this pod being scheduled onto a node that already
+  # runs a build executor. BuildBuddy's filecache assumes it owns its directory: it tracks
+  # size and evicts against local_cache_size_bytes. Two executors sharing one directory means
+  # two independent eviction loops deleting each other's entries while both believe they are
+  # under budget -- cache thrash at best, and each one's accounting is wrong.
+  - name: cache-volume
+    hostPath:
+      path: /var/lib/buildbuddy/cache-workflows
+      type: DirectoryOrCreate
+  - name: dockerhub-auth
+    secret:
+      secretName: dockerhub-auth
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+
+extraVolumeMounts:
+  - name: cache-volume
+    mountPath: /cache
+  - name: dockerhub-auth
+    mountPath: /root/.docker
+    readOnly: true
+
+config:
+  executor:
+    enable_local_snapshot_sharing: true
+
+    # Must match ./values.yaml and //.bazelrc `build:remote_base`. This is the control AND
+    # data plane: the executor registers with the scheduler here and reads/writes the CAS
+    # here. Pointed anywhere else, this pod registers with a scheduler that never sends it
+    # the workflow, and the run fails as though the pool were empty.
+    app_target: grpcs://carverauto.buildbuddy.io:443
+
+    enable_oci: true
+    default_isolation_type: oci
+    # The runner executes in a microVM -- BuildBuddy's own low-memory notice reads "The VM
+    # that executed this invocation", which is what makes the sizing above the VM's sizing.
+    enable_firecracker: true
+    firecracker_debug_stream_vm_logs: true
+
+    # Floor only, same rationale as ./values.yaml: without it a predicted size can leave a
+    # microVM too small to unpack its own initrd. The runner's real size comes from
+    # resource_requests in //buildbuddy.yaml, which is far above this.
+    #
+    # int64 byte count, not a k8s quantity: "2Gi" does not parse here.
+    default_task_size:
+      estimated_milli_cpu: 2000
+      estimated_memory_bytes: 2147483648 # 2 GiB
+
+    image_pull_timeout: 15m
+    startup_warmup_max_wait_secs: 300
+    warmup_timeout_secs: 300
+
+    # NO warmup_additional_images, unlike ./values.yaml.
+    #
+    # That fleet warms registry.carverauto.dev/serviceradar/rbe-executor because it runs build
+    # ACTIONS, whose platform pins that container-image. This pool runs one task: the workflow
+    # runner, in BuildBuddy's own runner image. The bazel calls inside it dispatch their
+    # actions to the default pool -- //build/rbe:rbe_platform sets no `Pool` property -- so the
+    # rbe-executor image is never pulled here. Warming it would cost startup time for an image
+    # this fleet does not use.
+
+    oci:
+      mounts:
+        - source: /cache
+          destination: /cache
+          type: bind
+          options:
+            - rbind
+            - rw
+    local_cache_directory: /cache
+
+    # 50 GB, a third of the build fleet's 150 GB, because this pod is one runner rather than a
+    # fan-out fleet and its working set is one repo's inputs.
+    #
+    # Node disk is the constraint, and this may share a node with a build executor: 589 GB
+    # total, ~170-230 GB non-cache baseline, 150 GB for that executor's filecache. Adding
+    # 50 GB puts the worst case near 430 GB, leaving ~159 GB -- clear of the kubelet
+    # DiskPressure threshold (10% free, i.e. ~530 GB used). `root_directory` below shares this
+    # filesystem and is NOT counted against this budget, so leave the margin.
+    #
+    # Plain int64 byte count: "50Gi" does not parse.
+    local_cache_size_bytes: 50000000000
+    root_directory: /cache/remotebuilds/
+    api_key: ""

@@ -208,6 +208,57 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
 
+## Two fleets
+
+There are **two helm releases of the same chart** in this namespace, and they must not be
+confused:
+
+| release | values | pool | replicas | mem requests | hostPath cache | runs |
+|---|---|---|---|---|---|---|
+| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/var/lib/buildbuddy/cache` | build actions |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 36Gi | `/var/lib/buildbuddy/cache-workflows` | the CI runner |
+
+The workflow runner wants ~32GB — a Bazel server over ~2,000 targets, `--jobs=100` of input
+uploads over the WAN, and every `no-remote-exec` target executing locally. Putting that on the
+build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
+up, one runner reserves 36Gi on all three pods and squeezes out the very fan-out it is driving.
+
+Deploy the workflow fleet with the same API key the build fleet uses:
+
+```bash
+API_KEY=$(kubectl get secret buildbuddy-api-key -n buildbuddy -o jsonpath='{.data.api-key}' | base64 -d)
+
+helm upgrade --install buildbuddy-workflows buildbuddy/buildbuddy-executor \
+  -n buildbuddy \
+  -f k8s/buildbuddy/values-workflows.yaml \
+  --set config.executor.api_key="$API_KEY"
+```
+
+`deploy.sh` deliberately does not do this — it hardcodes `RELEASE_NAME=buildbuddy` and would
+overwrite the build fleet with these values.
+
+Three things to know before deploying:
+
+- **Check a node can hold 36Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
+- **The hostPath differs on purpose.** This pod can land on a node already running a build executor. BuildBuddy's filecache assumes it owns its directory and evicts against `local_cache_size_bytes`; two executors sharing one directory means two eviction loops deleting each other's entries while both believe they are under budget.
+- **KEDA does not touch this release.** `scaledobject.yaml` targets the Deployment `buildbuddy-buildbuddy-executor` by name, and a second release produces a different name. Rename this release into a collision and KEDA will start driving it to `minReplicaCount: 3`.
+
+Verify after deploying. A `Running` pod proves scheduling, not pool registration — check both:
+
+```bash
+kubectl get deploy -n buildbuddy
+#   buildbuddy-buildbuddy-executor             3/3   <- untouched
+#   buildbuddy-workflows-buildbuddy-executor   1/1
+
+kubectl exec -n buildbuddy <workflow-pod> -- printenv | grep -i pool
+#   MY_POOL=workflows
+```
+
+`MY_POOL` is the variable the chart renders top-level `poolName` into; that is how you know
+the key was not silently ignored. Empty output means it was, in which case this pod joined the
+default pool and is now accepting build actions — the workflow would fail with `no registered
+executors in pool "workflows"` while a 36Gi executor quietly competed with the build fleet.
+
 ## Workflows (`buildbuddy.yaml`)
 
 The repo-root `buildbuddy.yaml` drives CI. Four things about it are easy to get wrong.
@@ -242,23 +293,42 @@ No registered executors in pool "workflows" with os "linux" with arch "amd64"
 to `workflows`. BuildBuddy's default pool name is literally the empty string, and there is no
 way to spell that in the action YAML.
 
-We set `pool: "default"`, betting that the app's `default_pool_name` is `default` — which is
-the same bet `build/platforms/BUILD.bazel` already makes with `"Pool": "default"` on the
-`rbe_linux_*` platforms. **If that bet is wrong**, the run fails with the identical message
-naming pool `"default"`, and the fix is to make the name explicit on both sides:
+**RESOLVED, and not the way this section originally guessed.** We briefly set `pool: "default"`,
+betting the app's `default_pool_name` was `default`. That bet was *correct* — the scheduler
+resolved it to the unnamed default pool — but it did not matter, because the next failure was
+a different one wearing similar words:
+
+```
+no registered executors in pool "" with os "linux" with arch "amd64" can fit a task
+with milli_cpu=3000, memory_bytes=25769803776
+```
+
+Read the two apart carefully, because they are diagnosed completely differently:
+
+| message | meaning |
+|---|---|
+| `No registered executors in pool "X"` | the pool name is wrong or that fleet is not deployed |
+| `... in pool "X" ... **can fit** a task with ...` | the pool was found; no member is large enough |
+
+The second is a sizing problem, and `25769803776` is exactly 24 GiB — the action's
+`resource_requests`. The ceiling is the executor pod's **`requests`** (16Gi), not its `limits`
+(32Gi), because that is what the BuildBuddy scheduler advertises.
+
+The runner genuinely needs ~32GB, so the fix was the second-deployment alternative rather than
+a pool rename: `pool: "workflows"` in `buildbuddy.yaml` against the dedicated fleet in
+`values-workflows.yaml`. See "Two fleets" above. `build/rbe/BUILD` is deliberately **not**
+touched — it sets no `Pool`, so build actions keep going to the default pool.
+
+If you ever do need to rename the *default* pool, the three files still have to land together:
 
 | file | change |
 |---|---|
 | `k8s/buildbuddy/values.yaml` | top-level `poolName: <name>` (sibling of `image`/`replicas`, **not** under `config.executor`) |
 | `build/rbe/BUILD` | add `"Pool": "<name>"` to `rbe_platform` `exec_properties` |
-| `buildbuddy.yaml` | `pool: "<name>"` |
+| `buildbuddy.yaml` | `pool: "<name>"` — only if you want workflows there too |
 
-Those three must land **together** and the helm redeploy must happen. Naming the executors
-without naming the pool in `rbe_platform` sends every RBE request to a pool with no
-executors — that breaks all remote builds, not just workflows.
-
-The alternative, if the runner competing with build actions becomes a problem, is a second
-small executor deployment with `poolName: workflows` and no `pool` in the action.
+Naming the executors without naming the pool in `rbe_platform` sends every RBE request to a
+pool with no executors, which breaks all remote builds, not just workflows.
 
 To see what the executors actually register as:
 

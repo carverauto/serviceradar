@@ -10,7 +10,15 @@ actions:
     # `self_hosted` is also load-bearing for the database tier below, well beyond pool
     # selection -- see the comment on that step.
     self_hosted: true
-    pool: "default"
+    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
+    # build executors in values.yaml. Those advertise 16Gi and this runner wants ~32GB, so it
+    # could never be placed there; and sizing them up would reserve it on all three and let one
+    # runner squeeze out the remote-execution fan-out it is itself driving.
+    #
+    # The two must be changed together: this string is matched against the executor's
+    # `poolName`. If the fleet is not deployed yet, this fails before any step runs with
+    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
+    pool: "workflows"
     triggers:
       push:
         branches:
@@ -20,33 +28,33 @@ actions:
     # also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     #
     # THE CEILING IS THE EXECUTOR POD'S `requests`, NOT ITS `limits`.
-    # //k8s/buildbuddy/values.yaml requests 8 CPU / 16Gi and limits 16 CPU / 32Gi, and the
-    # scheduler places tasks against the advertised capacity, which tracks requests. Asking for
-    # more than that is unschedulable rather than slow -- there is no executor it can ever land
-    # on, so the run fails before a single step executes:
+    # //k8s/buildbuddy/values-workflows.yaml requests 8 CPU / 36Gi and limits 16 CPU / 40Gi,
+    # and the scheduler places tasks against advertised capacity, which tracks requests. Asking
+    # for more is unschedulable rather than slow -- no executor it can ever land on -- so the
+    # run fails before a single step executes. That is what the build fleet's 16Gi produced
+    # when this action was pointed at it:
     #
     #   no registered executors in pool "" with os "linux" with arch "amd64" can fit a task
     #   with milli_cpu=3000, memory_bytes=25769803776
     #
-    # 25769803776 is 24 GiB, the value that used to be here. Note that message is NOT the
-    # pool-misconfiguration one the README describes: pool "" is correct and `pool: "default"`
-    # resolves to it. "can fit" means the pool was found and no member is large enough.
+    # 25769803776 is exactly 24 GiB, the value that used to be here. Do not read that as the
+    # pool being misconfigured: pool "" was correct. "can fit" means the pool WAS found and no
+    # member was large enough. The two messages differ by those two words and nothing else --
+    # see the README table.
     #
-    # 14GB, not the 8GB default and not the 16Gi ceiling. This runner does real local work --
-    # a Bazel server over ~2,000 targets, plus every `no-remote-exec` target, which includes
-    # two //integration_tests/srql suites that each start their own Postgres.
+    # 32GB against the workflow fleet's 36Gi request. BuildBuddy reads GB as 10^9, so this is
+    # 29.8GiB and leaves ~6Gi for the executor process and page cache.
     #
-    # This sits close to the ceiling on purpose, and the trade is explicit: 14GB against a
-    # 16Gi advertisement leaves ~2Gi, so an executor hosting the runner has almost nothing left
-    # for build actions and effectively drops out of the fan-out pool of three. That is
-    # acceptable while the runner is the long pole. If the fan-out starves, come down rather
-    # than up -- there is no headroom above this.
+    # Sized from evidence, not guesswork: at 14GB an invocation reported "31.24GB used of
+    # 15.03GB total" and was NOT OOM-killed. Surviving 2x over cgroup limit means most of it
+    # was reclaimable page cache -- disk-cache writes and --jobs=100 input uploads -- rather
+    # than resident demand. Hence generous headroom rather than a tight fit.
     #
-    # If it still will not schedule, the advertisement is lower than requests (BuildBuddy
-    # reserves some for its own overhead). Check what the executors actually offer:
-    #   kubectl get pods -n buildbuddy -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].resources.requests.memory}{"\n"}{end}'
+    # If this still will not schedule, the executor advertises less than its `requests`
+    # (BuildBuddy reserves some for itself). Check what the fleet actually offers:
+    #   kubectl get pods -n buildbuddy -l pool=workflows -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].resources.requests.memory}{"\n"}{end}'
     resource_requests:
-      memory: "14GB"
+      memory: "32GB"
       disk: "40GB"
 
     steps:
