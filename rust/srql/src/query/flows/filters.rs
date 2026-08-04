@@ -15,6 +15,9 @@ pub(super) fn apply_filter<'a>(
         "dst_endpoint_ip" | "dst_ip" => {
             query = apply_text_filter!(query, filter, dst_endpoint_ip)?;
         }
+        "ip" | "endpoint_ip" => {
+            query = apply_bidirectional_ip_filter(query, filter)?;
+        }
         "protocol_name" => {
             query = apply_text_filter!(query, filter, protocol_name)?;
         }
@@ -368,6 +371,23 @@ pub(super) fn apply_filter<'a>(
                 }
             }
         }
+        "cidr" => {
+            let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+            let within = sql::<diesel::sql_types::Bool>(&format!(
+                "(try_inet(NULLIF(src_endpoint_ip, '')) <<= '{cidr}'::cidr \
+                 OR try_inet(NULLIF(dst_endpoint_ip, '')) <<= '{cidr}'::cidr)"
+            ));
+
+            match filter.op {
+                FilterOp::Eq => query = query.filter(within),
+                FilterOp::NotEq => query = query.filter(not(within)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "cidr filter only supports equality".into(),
+                    ));
+                }
+            }
+        }
         "tag" | "src_tag" | "dst_tag" => {
             query = apply_tag_filter(query, filter)?;
         }
@@ -378,6 +398,93 @@ pub(super) fn apply_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
             )));
+        }
+    }
+
+    Ok(query)
+}
+
+/// `ip:` matches either flow endpoint, mirroring the bare `near:` form
+/// (`NearSide::Either`, see `literals::near_exists_sql`).
+///
+/// A positive match means "either endpoint matches". A negative match means
+/// "neither endpoint matches", which by De Morgan is the AND of the two per-side
+/// negatives, not their OR -- ORing them would match every row where the two
+/// endpoints differ. Both sides are nullable, so each negative is NULL-guarded
+/// the same way `apply_text_filter!` guards a single column.
+///
+/// Every arm binds the value once per side; `collect_filter_params` pushes the
+/// matching pair so the translate path's LIMIT/OFFSET binds do not shift.
+fn apply_bidirectional_ip_filter<'a>(
+    mut query: FlowsQuery<'a>,
+    filter: &Filter,
+) -> Result<FlowsQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
+            query = query.filter(
+                src_endpoint_ip
+                    .eq(value.clone())
+                    .or(dst_endpoint_ip.eq(value)),
+            );
+        }
+        FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.to_string();
+            query = query.filter(
+                src_endpoint_ip
+                    .is_null()
+                    .or(src_endpoint_ip.ne(value.clone()))
+                    .and(dst_endpoint_ip.is_null().or(dst_endpoint_ip.ne(value))),
+            );
+        }
+        FilterOp::Like => {
+            let value = filter.value.as_scalar()?.to_string();
+            query = query.filter(
+                src_endpoint_ip
+                    .ilike(value.clone())
+                    .or(dst_endpoint_ip.ilike(value)),
+            );
+        }
+        FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            query = query.filter(
+                src_endpoint_ip
+                    .is_null()
+                    .or(src_endpoint_ip.not_ilike(value.clone()))
+                    .and(
+                        dst_endpoint_ip
+                            .is_null()
+                            .or(dst_endpoint_ip.not_ilike(value)),
+                    ),
+            );
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = query.filter(
+                src_endpoint_ip
+                    .eq_any(values.clone())
+                    .or(dst_endpoint_ip.eq_any(values)),
+            );
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = query.filter(
+                src_endpoint_ip
+                    .is_null()
+                    .or(src_endpoint_ip.ne_all(values.clone()))
+                    .and(dst_endpoint_ip.is_null().or(dst_endpoint_ip.ne_all(values))),
+            );
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "ip filter supports equality, wildcard, and list matching".into(),
+            ));
         }
     }
 

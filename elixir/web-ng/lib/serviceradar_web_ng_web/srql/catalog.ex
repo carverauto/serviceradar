@@ -962,6 +962,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "src_ip",
         "dst_endpoint_ip",
         "dst_ip",
+        # Bidirectional: matches either endpoint, like the bare `near:` / `tag:` forms.
+        "ip",
+        "cidr",
         "src_endpoint_port",
         "src_port",
         "dst_endpoint_port",
