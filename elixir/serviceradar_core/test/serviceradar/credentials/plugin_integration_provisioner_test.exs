@@ -184,6 +184,120 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     refute_received {:create_assignment, _attrs}
   end
 
+  describe "profiles this provisioner does not own" do
+    # IntegrationDescriptor defines three provisioning modes. Only
+    # "producer_schedule" carries a schedule for this provisioner to bind, and
+    # IntegrationCatalog attaches the "producer_schedule" key to that mode alone.
+    #
+    # credential_only is the case a denylist would miss: rejecting only
+    # target_policy still lets it reach cadence validation. On demo the awx
+    # profile is credential_only, so the AWX / AAP Bridge is exactly this path.
+    defp credential_only_profile do
+      integration_profile()
+      |> Map.put("provisioning", %{"mode" => "credential_only"})
+      |> Map.delete("producer_schedule")
+    end
+
+    test "credential_only is skipped, not run through cadence validation" do
+      opts = [
+        actor: %{id: "system"},
+        assignment_store: AssignmentStore,
+        schedule_store: ScheduleStore
+      ]
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(
+                 [integration_rule()],
+                 [credential_only_profile()],
+                 opts
+               )
+
+      assert summary.rules == 0
+      assert summary.assignments_disabled == 0
+      refute_received {:create_assignment, _attrs}
+    end
+  end
+
+  describe "target-policy profiles" do
+    # These are owned by PluginTargetPolicyReconcileWorker. IntegrationCatalog only
+    # attaches a "producer_schedule" when the provisioning mode is
+    # "producer_schedule", so one reaching this provisioner has no schedule at all.
+    #
+    # On demo that was every credential rule -- two proxmox, one camera -- and
+    # because reconcile_rules/3 halts on the first error, one of them stopped
+    # reconciliation for all of them and the worker discarded after max_attempts.
+    defp target_policy_profile do
+      integration_profile()
+      |> Map.put("provisioning", %{
+        "mode" => "target_policy",
+        "credential_requirement" => "inventory_account"
+      })
+      |> Map.delete("producer_schedule")
+    end
+
+    test "are skipped by reconcile_rules rather than failing the whole batch" do
+      opts = [
+        actor: %{id: "system"},
+        assignment_store: AssignmentStore,
+        schedule_store: ScheduleStore
+      ]
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(
+                 [integration_rule()],
+                 [target_policy_profile()],
+                 opts
+               )
+
+      assert summary.rules == 0
+      assert summary.assignments_written == 0
+      assert summary.schedules_bound == 0
+      # Skipped, NOT disabled -- these rules are valid and actively in use by the
+      # other worker. Treating an unmatched profile as revoked would tear down
+      # working target-policy assignments.
+      assert summary.assignments_disabled == 0
+      assert summary.schedules_disabled == 0
+      refute_received {:create_assignment, _attrs}
+      refute_received {:update_schedule, _id, _attrs}
+    end
+
+    test "one target-policy rule does not stop a producer-schedule rule beside it" do
+      opts = [
+        actor: %{id: "system"},
+        assignment_store: AssignmentStore,
+        schedule_store: ScheduleStore
+      ]
+
+      target_only = Map.put(target_policy_profile(), "provider", "camera-inventory")
+      camera_rule = integration_rule(%{id: "rule-camera", provider: "camera-inventory"})
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(
+                 [camera_rule, integration_rule()],
+                 [target_only, integration_profile()],
+                 opts
+               )
+
+      assert summary.rules == 1
+      assert_receive {:create_assignment, assignment}
+      assert assignment.agent_uid == "agent-k8s"
+    end
+
+    test "a producer_schedule-mode profile missing its schedule names the schedule" do
+      # Distinct from an out-of-range cadence. Indexing nil returns nil rather than
+      # raising, so this used to surface as {:invalid_plugin_integration_cadence,
+      # nil, nil} -- blaming the cadence for a missing schedule.
+      profile = Map.delete(integration_profile(), "producer_schedule")
+
+      assert {:error, {:missing_producer_schedule, "example-inventory-plugin"}} =
+               PluginIntegrationProvisioner.reconcile_rule(integration_rule(), profile,
+                 actor: %{id: "system"},
+                 assignment_store: AssignmentStore,
+                 schedule_store: ScheduleStore
+               )
+    end
+  end
+
   defp integration_profile(overrides \\ %{}) do
     defaults = %{
       "provider" => "example-inventory",
