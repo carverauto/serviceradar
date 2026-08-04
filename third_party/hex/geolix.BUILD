@@ -1,3 +1,4 @@
+load("@serviceradar//build:hex_compile_env.bzl", "HEX_COMPILE_ENV_CONFIG")
 load("@serviceradar//build:mix_app.bzl", "mix_app")
 
 package(default_visibility = ["//visibility:public"])
@@ -18,12 +19,17 @@ filegroup(
 
 mix_app(
     name = "erlang_app",
+    app_name = "geolix",
     srcs = [":sources"],
     hdrs = glob(
         ["include/**/*.hrl"],
         allow_empty = True,
     ),
-    app_name = "geolix",
+    # A dependency reading a key with Application.compile_env/3 records what it saw,
+    # and the release refuses to boot if that disagrees with the sys.config it applies.
+    # Each package compiles in its own sandbox here, so the root config has to be handed
+    # to it explicitly. See //build:hex_compile_env.bzl.
+    extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
         "@rules_elixir//elixir",
     ],

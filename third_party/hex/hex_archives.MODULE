@@ -866,8 +866,8 @@ hex_archive(
     name = "hex_lazy_html",
     build_file = "//third_party/hex:lazy_html.BUILD",
     package_name = "lazy_html",
-    sha256 = "3b1be592929c31eca1a21673d25696e5c14cddfe922d9d1a3e3b48be4163883b",
-    version = "0.1.11",
+    sha256 = "8a0da594776caee58782c6f93b2abaa5bdb809daf8d43351a561f7de9dc2e2a8",
+    version = "0.1.12",
 )
 
 hex_archive(
