@@ -34,6 +34,15 @@ else
   done
 fi
 {post_extract_cmd}
+# Normalise mtimes before tarring, or this layer changes on every cache miss. The APK's own
+# files carry the packager's fixed mtimes and are fine, but the directories this genrule
+# creates (`mkdir -p .../rootfs`, and anything post_extract_cmd adds) get wall-clock times --
+# measured as a single "." entry at build time, which is enough to change the tar bytes, the
+# layer and the image digest. 200001010000.00 matches rules_pkg's PORTABLE_MTIME so this
+# agrees with layers built from declared files. POSIX `touch -t`; `-h` is not POSIX, hence
+# the fallback, and it matters for symlinks inside the package.
+find "$${{TMP}}/rootfs" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
+  find "$${{TMP}}/rootfs" -exec touch -t 200001010000.00 {{}} +
 tar -czf "$@" -C "$${{TMP}}/rootfs" .
 """.format(
             apk_target = apk_target,
@@ -73,6 +82,11 @@ mkdir -p "$${{ROOT}}"
 for tarfile in $(SRCS); do
   tar -xzf "$${{tarfile}}" -C "$${{ROOT}}"
 done
+# Same normalisation as apk_rootfs_amd64 above, and needed for the same reason: `mkdir -p`
+# stamps this merge root with wall-clock time, which alone changes the tar bytes and the
+# resulting image digest on every cache miss.
+find "$${{ROOT}}" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
+  find "$${{ROOT}}" -exec touch -t 200001010000.00 {{}} +
 tar -czf "$@" -C "$${{ROOT}}" .
 """.format(name = name),
         visibility = visibility,
