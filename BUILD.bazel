@@ -1,6 +1,6 @@
-load("@bazel_gazelle//:def.bzl", "gazelle")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@bazel_gazelle//:def.bzl", "gazelle", "gazelle_test")
 load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 ###############################################################################
 # Gazelle
@@ -18,15 +18,77 @@ load("@platforms//host:extension.bzl", "host_platform")
 # gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
 # gazelle:exclude go/pkg/agent/testdata
+#
+# third_party is generated and vendored, never hand-authored, so Gazelle has no business
+# rewriting it. Without this exclusion Gazelle walked into //third_party/crates -- the
+# crates_vendor output -- and tried to generate proto_library rules for .proto files that
+# ship inside vendored crates (prost-build fixtures, tonic-health, spiffe, prometheus).
+# Two of those directories hold more than one proto package, which Gazelle cannot express,
+# so it errored:
+#
+#   third_party/crates/prost-build-0.14.4/src/fixtures/alphabet: directory contains
+#   multiple proto packages. Gazelle can only generate a proto_library for one package.
+#
+# That made a repo-wide `-mode=diff` non-zero for reasons no first-party change can fix,
+# which is why the drift check used to be scoped to changed Go directories instead. It also
+# put 13 vendored BUILD files in the diff. scripts/vendor.sh owns that tree; regenerate it
+# there, do not let Gazelle edit it.
+# gazelle:exclude third_party
+#
+# Three proto directories that hold UPSTREAM schemas, not Go packages of ours. Gazelle's
+# proto language wants to own them and gets all three wrong:
+#
+#   proto/cri          generates rules with importpath k8s.io/cri-api/pkg/apis/runtime/v1
+#   google/protobuf    generates a second google.golang.org/protobuf/.../wrapperspb, which
+#                      collides with the real well-known type
+#   proto/dgraph       hand-written. //proto/dgraph:proto_dgraph is named to match the
+#                      Cargo crate and carries strip_import_prefix = "proto" so Bazel and
+#                      Cargo agree on prost import paths. Excluding only the nested
+#                      proto/dgraph/proto directory is NOT enough: that orphans the parent
+#                      rule in Gazelle's view and it DELETES the proto_library outright,
+#                      leaving rust_prost_library(proto = ":proto_dgraph") dangling and the
+#                      build broken. Exclude the whole directory.
+# gazelle:exclude proto/cri
+# gazelle:exclude proto/dgraph
+# gazelle:exclude google/protobuf
 
 gazelle(
     name = "gazelle",
+)
+
+# Repo-wide Gazelle drift gate.
+#
+# Replaces scripts/check-gazelle-drift.sh, which diffed only the Go directories a change
+# touched. That scoping was not a design choice, it was a workaround: a repo-wide
+# `-mode=diff` could never pass while Gazelle was walking //third_party/crates (see the
+# exclusions above), so the script narrowed the blast radius instead of fixing the cause.
+# With the exclusions in place the whole repo can be gated, and CI no longer needs to
+# `git fetch` the base branch to work out what to check.
+#
+# `workspace` is a legacy attribute name from the pre-bzlmod era and MODULE.bazel is the
+# correct value here. The rule never parses the file: internal/gazelle.bash.in only takes
+# its `dirname` to recover BUILD_WORKSPACE_DIRECTORY at runtime. Any root-level file would
+# do, and pointing it at the vestigial WORKSPACE file would imply a dependency that does
+# not exist.
+#
+# gazelle_test forces `no-sandbox`, `no-cache` and `external` on itself, because it reads
+# the real source tree rather than a declared set of inputs. `no-remote-exec` is ours: that
+# source tree exists on the CI runner and not on an RBE executor, so without it the test is
+# dispatched to a worker that cannot see the repo. Remote CACHING is unaffected, and
+# `no-cache` means there is nothing to cache anyway.
+gazelle_test(
+    name = "gazelle_diff_test",
+    timeout = "short",
+    tags = ["no-remote-exec"],
+    workspace = "//:MODULE.bazel",
 )
 
 ###############################################################################
 # exports_files
 ###############################################################################
 exports_files([
+    # Consumed by //:gazelle_diff_test as its workspace-root marker, not for its contents.
+    "MODULE.bazel",
     ".forgejo/workflows/external-wasm-plugin.yml",
     ".forgejo/workflows/image-security.yml",
     ".forgejo/workflows/native-addons.yml",

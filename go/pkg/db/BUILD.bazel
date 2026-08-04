@@ -10,8 +10,8 @@ go_library(
         "errors.go",
         "interfaces.go",
         "mock_db.go",
-        "ocsf_network_activity.go",
         "ocsf_events.go",
+        "ocsf_network_activity.go",
         "pgx_batch_helper.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/db",
@@ -20,8 +20,8 @@ go_library(
         "//go/pkg/logger",
         "//go/pkg/models",
         "@com_github_jackc_pgx_v5//:pgx",
-        "@com_github_jackc_pgx_v5//pgconn:pgconn",
-        "@com_github_jackc_pgx_v5//pgxpool:pgxpool",
+        "@com_github_jackc_pgx_v5//pgconn",
+        "@com_github_jackc_pgx_v5//pgxpool",
         "@org_uber_go_mock//gomock",
     ],
 )
@@ -38,8 +38,7 @@ go_test(
     deps = [
         "//go/pkg/models",
         "@com_github_jackc_pgx_v5//:pgx",
-        "@com_github_jackc_pgx_v5//pgconn:pgconn",
-        "@com_github_stretchr_testify//assert",
+        "@com_github_jackc_pgx_v5//pgconn",
         "@com_github_stretchr_testify//require",
     ],
 )
