@@ -3462,88 +3462,161 @@ exports_files(["crane"])
     ],
 )
 
+# Ubuntu .deb dependencies for //third_party/libpcap, twelve rules: six amd64 and six arm64.
+#
+# EVERY ONE CARRIES TWO URLS ON PURPOSE. Bazel tries them in order and every rule pins a
+# sha256, so a mirror is verified exactly like the origin -- there is no trust cost to listing
+# one, only a resilience gain.
+#
+# The amd64 six are mirrored because archive.ubuntu.com is unreachable, full stop -- not just
+# from CI. Six simultaneous "Connect timed out" failures took down the loading phase and, with
+# it, //third_party/libpcap and everything depending on it:
+#
+#   ERROR: loading failure: ... Error downloading
+#   [http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_...deb]: Connect timed out
+#   ERROR: //third_party/libpcap:pcap: analysis failure
+#
+# It is NOT a port-80 block, which was the first guess: the arm64 six are also plain HTTP, on
+# ports.ubuntu.com, and none failed in the same run. The host itself is the problem.
+# archive.ubuntu.com is round-robin DNS across a mirror set, serves no HTTPS at all (curl
+# returns 000, so switching scheme in place is not an option), and currently times out from
+# developer machines too.
+#
+# WHY THIS LOOKED CI-SPECIFIC AND WAS NOT. A local `bazel build --config=ci //...` succeeds
+# while CI fails, which reads like an environment difference. It is a warm repository cache:
+# //.bazelrc sets --repository_cache=third_party/bazel-repo-cache, these files landed there
+# during an older fetch, and nothing has needed to reach the network for them since. The cache
+# is content-addressed -- look for content_addressable/sha256/<sha>/file, not for *.deb -- so
+# it is easy to conclude the files are absent when they are not.
+#
+# So the mirror is not a CI workaround. It repairs a single point of failure that any cold
+# checkout hits: a new machine, a fresh clone, a pruned cache. mirrors.edge.kernel.org carries
+# the same pool over HTTPS and answers in ~0.5s.
+#
+# The arm64 six keep ports.ubuntu.com but lead with its HTTPS endpoint, which does answer.
+# They have not failed, so this is prophylactic rather than a fix.
+#
+# distdir is NOT the answer here. //third_party/distdir is gitignored and documented as a
+# cache rather than vendored source, restored in Forgejo through actions/cache -- a mechanism
+# BuildBuddy Workflows has no equivalent of, so a fresh runner starts empty regardless.
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_amd64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "9007bd2c29216bcee3282f10fb63856899b833a37a77c053be0c1b8bb45c65e9",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_amd64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "62e3379edd4b8cf748f2a1260c96f54dd2074ae4f956bd2b444440d62c0b5d2a",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_arm64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "36af9fe819a2600babd87fb4dd47186bce8c2d856c4938beebece68922242b93",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_arm64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "d1dd3eab09ae527cda36ddb06976ac5ea3d210c4ae03ac6a86cd344d46c2d3c7",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_amd64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
     sha256 = "bbb55111182a44d0fe97a84120407e17bb6e23d41e2670d73aa78f619e29efa2",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_arm64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
     sha256 = "c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_amd64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_amd64.deb",
     sha256 = "731e9d88e498b1a8b03a4eaf6e3ed6227f1c4646b9931256f7e234b42ae618dd",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_arm64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_arm64.deb",
     sha256 = "d5cf6b37c02ccc9609f96ac46b3a823ba087088e98a5f17ff823156c9a765eb0",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_amd64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "0afff6a14f55122757db02ff7e11ad58f128465fd796e2e33a0b0fe5b45a09ed",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_arm64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "dac93582da210a157bc4d9e34c1a55214823ed94adceb43d641912b56e8e5094",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_amd64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "8abfa9a87f78dbba7edc19ef4cfcb16b70dde562bccc3ff7550bdd3a0487e358",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_arm64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "978dc9ba1f36b2813138563776c7640bd6bd86fbe0a3a7da47cb8c93bfcd3807",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(
