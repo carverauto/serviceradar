@@ -151,6 +151,9 @@ are served from pre-computed hourly rollups.
   `order:` is an accepted alias for `sort:`.
 - `limit:<n>` — caps the number of rows. Must be a positive integer; the engine
   enforces a configured maximum.
+- On `bucket:` queries `sort:` selects which end of the time window survives
+  `limit:`, not the order rows come back in. See
+  [Downsampling with `bucket`](#downsampling-with-bucket).
 - Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
   values that callers pass back to page through results.
 
@@ -189,6 +192,18 @@ For time-series charts, `bucket:` groups rows into fixed time buckets.
 in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
 in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
 ```
+
+Buckets are always **returned** oldest-first, because that is what a chart renders.
+`sort:` instead chooses which end of the window `limit:` keeps when the range holds
+more buckets than the limit allows:
+
+- `sort:time:desc` (or no `sort:` reversal) keeps the **newest** buckets.
+- `sort:time:asc` keeps the **oldest**.
+- With no `sort:` at all, the oldest buckets are kept.
+
+This matters on long ranges with narrow buckets: `time:last_30d bucket:5m` spans 8640
+buckets, so `limit:100` returns a fraction of the window either way. Widen the bucket
+rather than raising the limit — `bucket:1h` over 30 days is 720 buckets.
 
 ## Queryable entities
 
