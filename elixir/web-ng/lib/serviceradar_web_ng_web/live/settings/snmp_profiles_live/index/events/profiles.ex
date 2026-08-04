@@ -37,24 +37,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
     # Include selected OID template IDs
     params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
 
-    ash_form = Form.validate(socket.assigns.ash_form, params)
     scope = socket.assigns.current_scope
 
-    case Form.submit(ash_form, params: params) do
-      {:ok, _profile} ->
-        action = if socket.assigns.show_form == :new_profile, do: "created", else: "updated"
+    # "Save as reusable" promotes the credential just typed into the shared
+    # inventory and binds the profile to it, rather than encrypting a private
+    # copy onto the profile. Done before the profile is written so a failure
+    # here surfaces on the form instead of leaving a profile pointing at a
+    # credential that was never created.
+    case maybe_promote_credential(params, scope) do
+      {:ok, params} ->
+        submit_profile(socket, params, scope)
 
-        {:noreply,
-         socket
-         |> Data.assign_profiles_with_counts(scope)
-         |> put_flash(:info, "Profile #{action} successfully")
-         |> push_navigate(to: ~p"/settings/snmp")}
-
-      {:error, ash_form} ->
-        {:noreply,
-         socket
-         |> assign(:ash_form, ash_form)
-         |> assign(:form, to_form(ash_form))}
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -130,4 +125,84 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
   end
 
   # Builder event handlers
+
+  # Form controls, not profile attributes.
+  @credential_control_params ["save_credential_as_reusable", "credential_name"]
+
+  defp submit_profile(socket, params, scope) do
+    params = Map.drop(params, @credential_control_params)
+    ash_form = Form.validate(socket.assigns.ash_form, params)
+
+    case Form.submit(ash_form, params: params) do
+      {:ok, _profile} ->
+        action = if socket.assigns.show_form == :new_profile, do: "created", else: "updated"
+
+        {:noreply,
+         socket
+         |> Data.assign_profiles_with_counts(scope)
+         |> put_flash(:info, "Profile #{action} successfully")
+         |> push_navigate(to: ~p"/settings/snmp")}
+
+      {:error, ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:ash_form, ash_form)
+         |> assign(:form, to_form(ash_form))}
+    end
+  end
+
+  # Only promotes when the box is ticked AND no existing credential is already
+  # selected -- the two are alternatives, and the form hides the credential
+  # inputs entirely while one is selected, so there would be nothing to promote.
+  defp maybe_promote_credential(%{"save_credential_as_reusable" => flag} = params, scope)
+       when flag in ["true", "on", true] do
+    if blank?(params["credential_secret_id"]) do
+      promote_credential(params, scope)
+    else
+      {:ok, params}
+    end
+  end
+
+  defp maybe_promote_credential(params, _scope), do: {:ok, params}
+
+  defp promote_credential(params, scope) do
+    name = String.trim(to_string(params["credential_name"] || ""))
+
+    if name == "" do
+      {:error, "Name the credential to save it for reuse."}
+    else
+      values =
+        Map.take(params, [
+          "community",
+          "username",
+          "auth_protocol",
+          "auth_password",
+          "priv_protocol",
+          "priv_password"
+        ])
+
+      case Data.create_snmp_credential(scope, params["version"] || "v2c", name, values) do
+        {:ok, secret} ->
+          # Bind the profile to the new credential and drop the values that were
+          # just promoted. Leaving them would encrypt a second private copy onto
+          # the profile that nothing reads -- the resolver takes the broker path
+          # once credential_secret_id is set -- and rotating the shared
+          # credential would silently leave that copy stale.
+          {:ok,
+           params
+           |> Map.drop(Map.keys(values))
+           |> Map.put("credential_secret_id", secret.id)}
+
+        {:error, {:missing_credential_field, field}} ->
+          {:error, "#{field} is required to save this credential for reuse."}
+
+        {:error, reason} ->
+          {:error, "Could not save the credential for reuse: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: false
 end

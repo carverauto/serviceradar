@@ -307,6 +307,38 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 Leave password fields blank to keep existing values. Credentials are encrypted at rest.
               </p>
             <% end %>
+
+            <div class="rounded-md border border-sr-line/60 p-3 space-y-3">
+              <label class="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  name="form[save_credential_as_reusable]"
+                  value="true"
+                  class="mt-1"
+                />
+                <span class="text-sm text-sr-ink">
+                  Also save this credential for reuse
+                  <span class="block text-xs text-sr-muted">
+                    Stores it in the shared inventory and binds this profile to it, so other
+                    profiles and targets can use the same credential instead of a separate copy.
+                  </span>
+                </span>
+              </label>
+
+              <div>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Credential name</span>
+                </label>
+                <.input
+                  type="text"
+                  name="form[credential_name]"
+                  value=""
+                  class={ui_field_class(class: "w-full")}
+                  placeholder="e.g., Core switches read-only"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
           <% end %>
         </div>
 
