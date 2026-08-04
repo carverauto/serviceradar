@@ -987,6 +987,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["as_path", "bgp_communities"],
+      # Address-shaped fields default to `equals`, not `contains` (see address_fields/1).
+      address_fields: [
+        "src_endpoint_ip",
+        "src_ip",
+        "dst_endpoint_ip",
+        "dst_ip",
+        "sampler_address"
+      ],
       downsample: true,
       default_bucket: "5m",
       default_agg: "sum",
@@ -1059,6 +1067,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_tag"
       ],
       numeric_fields: ["pid", "uid", "src_endpoint_port", "dst_endpoint_port", "protocol_num"],
+      address_fields: [
+        "src_endpoint_ip",
+        "src_ip",
+        "dst_endpoint_ip",
+        "dst_ip",
+        "sampler_address"
+      ],
       downsample: false
     },
     %{
@@ -1567,8 +1582,46 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   def entity(_), do: entity("devices")
 
+  @doc """
+  Address-shaped filter fields for an entity (IP addresses and the like).
+
+  These are matched exactly by default. `contains` on an address is a substring
+  match, so `10.0.0.1` would also match `110.0.0.1` and `10.0.0.100` — never what
+  someone filtering on an address means.
+  """
+  def address_fields(entity_id) when is_binary(entity_id) do
+    entity_id |> entity() |> address_fields()
+  end
+
+  def address_fields(%{} = entity), do: Map.get(entity, :address_fields, [])
+
+  @doc """
+  Default filter operator for a field on an entity.
+
+  `contains` is the right default for free-text fields, but it is wrong for
+  fields with a structured value: booleans, numerics, and addresses are all
+  matched exactly. Callers seeding a new filter row (`Builder.default_state/2`,
+  the builder's "add filter" event) use this so the seeded operator agrees with
+  the operator list the UI actually offers for that field.
+  """
+  def default_filter_op(entity_id, field) when is_binary(entity_id) do
+    entity_id |> entity() |> default_filter_op(field)
+  end
+
+  def default_filter_op(%{} = entity, field) when is_binary(field) do
+    exact? =
+      field in Map.get(entity, :boolean_fields, []) or
+        field in Map.get(entity, :numeric_fields, []) or
+        field in address_fields(entity)
+
+    if exact?, do: "equals", else: "contains"
+  end
+
+  def default_filter_op(_entity, _field), do: "contains"
+
   defp structured_entity(%{} = entity) do
     fields = %{
+      "address" => entity |> address_fields() |> Enum.sort(),
       "array" => entity |> Map.get(:array_fields, []) |> Enum.sort(),
       "boolean" => entity |> Map.get(:boolean_fields, []) |> Enum.sort(),
       "filter" => entity |> Map.get(:filter_fields, []) |> Enum.sort(),

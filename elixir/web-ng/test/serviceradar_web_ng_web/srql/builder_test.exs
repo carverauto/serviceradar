@@ -76,6 +76,65 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     refute Enum.any?(devices.filter_fields, &String.contains?(&1, "example_inventory"))
   end
 
+  test "flows builder seeds its default IP filter with equals, not contains" do
+    state = Builder.default_state("flows", 100)
+
+    assert [%{"field" => "src_endpoint_ip", "op" => op}] = state["filters"]
+
+    assert op == "equals",
+           "the flows default filter field is an IP; `contains` wraps it in % and matches nothing"
+  end
+
+  test "address filters build an exact match rather than a wildcard" do
+    state =
+      "flows"
+      |> Builder.default_state(100)
+      |> Map.put("filters", [
+        %{"field" => "dst_endpoint_ip", "op" => "equals", "value" => "34.98.126.170"}
+      ])
+
+    query = Builder.build(state)
+
+    assert query =~ "dst_endpoint_ip:34.98.126.170"
+    refute query =~ "%34.98.126.170%"
+  end
+
+  test "a missing filter operator falls back to the field's default, not always contains" do
+    # An absent or unrecognised op used to become `contains` for every field, which
+    # turns an address into `%addr%`. It should follow the field type instead.
+    address =
+      Builder.build(%{
+        "entity" => "flows",
+        "filters" => [%{"field" => "dst_ip", "value" => "34.98.126.170"}]
+      })
+
+    assert address =~ "dst_ip:34.98.126.170"
+    refute address =~ "%"
+
+    text =
+      Builder.build(%{
+        "entity" => "flows",
+        "filters" => [%{"field" => "app", "value" => "https"}]
+      })
+
+    assert text =~ "app:%https%"
+  end
+
+  test "catalog reports address fields for the flow entities" do
+    for entity <- ["flows", "attributed_flows"] do
+      address_fields = Catalog.address_fields(entity)
+
+      assert "src_endpoint_ip" in address_fields, entity
+      assert "dst_endpoint_ip" in address_fields, entity
+      assert "src_ip" in address_fields, entity
+      assert "dst_ip" in address_fields, entity
+      assert "sampler_address" in address_fields, entity
+
+      assert Catalog.default_filter_op(entity, "dst_ip") == "equals", entity
+      assert Catalog.default_filter_op(entity, "app") == "contains", entity
+    end
+  end
+
   test "builds default WiFi site query" do
     state = Builder.default_state("wifi_sites", 50)
     query = Builder.build(state)
