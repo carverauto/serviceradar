@@ -90,50 +90,25 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
-single_version_override(
+# VENDORED, not patched. rabbitmq/rules_erlang is ARCHIVED upstream -- last release 3.16.0,
+# roughly two years ago, and the repository states it is no longer maintained. The six local
+# fixes were therefore never going to land, which made the patch files a permanent tax: they
+# apply by context, break silently, and cannot express a design change.
+#
+# //third_party/rules_erlang is the 3.16.0 source with those six fixes already applied.
+# See //third_party/rules_erlang/VENDORING.md for the per-fix rationale and for how to diff
+# this tree against upstream 3.16.0.
+local_path_override(
     module_name = "rules_erlang",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_erlang:skip_system_erlang.patch",
-        "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
-        # erlang_build extracted the OTP tarball with GNU tar's --transform, which the
-        # bsdtar macOS ships does not implement. Every Elixir/Erlang target therefore failed
-        # on macOS at "tar: Option --transform is not supported" -- before compiling a line --
-        # so no one could build or iterate on //elixir/... locally.
-        "//third_party/patches/rules_erlang:portable_tar_extract.patch",
-        # erlang_app globs include/, priv/, LICENSE* and .appup, any of which a given Hex
-        # package may legitimately lack; empty globs are fatal since Bazel 7.
-        "//third_party/patches/rules_erlang:allow_empty_globs.patch",
-        # erl_libs_contents accepts a tree artifact for ebin but not for priv. A rule that
-        # compiles a whole package in one action cannot enumerate priv in advance, so
-        # without this it must drop priv entirely. See //build:mix_app.bzl.
-        "//third_party/patches/rules_erlang:erl_libs_priv_dir.patch",
-        # An app that -include_lib's its own public header (grpcbox does) cannot resolve it,
-        # because code:lib_dir/1 needs an ebin that this action has not produced yet.
-        "//third_party/patches/rules_erlang:include_lib_self_reference.patch",
-    ],
+    path = "third_party/rules_erlang",
 )
 
-single_version_override(
+# VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
+# is the 1.1.0 source with its six local fixes already applied; the per-fix rationale lives
+# in //third_party/rules_elixir/VENDORING.md.
+local_path_override(
     module_name = "rules_elixir",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_elixir:skip_system_elixir.patch",
-        # Same GNU-tar assumption as rules_erlang; see that patch for the rationale.
-        "//third_party/patches/rules_elixir:portable_tar_extract.patch",
-        # elixir_app hard-failed on any package without a LICENSE file.
-        "//third_party/patches/rules_elixir:allow_empty_license_glob.patch",
-        # elixir_bytecode could not declare compile-time file inputs, so packages doing
-        # File.read!("README.md") or @external_resource failed in the sandbox.
-        "//third_party/patches/rules_elixir:compile_time_data.patch",
-        # ex_unit_test stages its deps without their include/ directories, so a test using
-        # Record.extract(from_lib: ...) dies before running a case. Compilation rules stage
-        # headers; there is no reason tests should not.
-        "//third_party/patches/rules_elixir:ex_unit_test_headers.patch",
-        # ex_unit_test flattens srcs/data by stripping the package prefix, which breaks any
-        # test resolving a repo-relative path off __DIR__ (several read addons/*/config.schema.json).
-        "//third_party/patches/rules_elixir:ex_unit_test_workspace_layout.patch",
-    ],
+    path = "third_party/rules_elixir",
 )
 
 # Hex packages as first-class Bazel repositories, compiled by the Bazel Elixir toolchain.

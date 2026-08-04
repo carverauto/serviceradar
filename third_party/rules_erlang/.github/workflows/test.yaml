@@ -1,0 +1,348 @@
+name: Test
+on:
+  push:
+    branches:
+      - main
+      - 3.15.x
+      - 3.16.x
+      - bump-rbe
+  pull_request:
+jobs:
+  unit-test:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp:
+        - "25.3"
+        - "26.2"
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: UNIT TEST
+      run: |
+        ERLANG_HOME="$(dirname $(dirname $(which erl)))"
+        bazelisk test //... \
+          --noenable_bzlmod \
+          --color=yes
+  unit-test-bzlmod:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp:
+        - "25.3"
+        - "26.2"
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: UNIT TEST
+      run: |
+        ERLANG_HOME="$(dirname $(dirname $(which erl)))"
+        bazelisk test //... \
+          --color=yes
+  test:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp:
+        - "25.3"
+        - "26.2"
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: TEST
+      working-directory: test
+      run: |
+        ERLANG_HOME="$(dirname $(dirname $(which erl)))"
+        bazelisk test //... \
+          --noenable_bzlmod \
+          --color=yes
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-${{matrix.otp}}
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  test-bzlmod:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        otp:
+        - "25.3"
+        - "26.2"
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: TEST
+      working-directory: test
+      run: |
+        bazelisk test //... \
+          --color=yes
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-bzlmod-${{matrix.otp}}
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  test-bzlmod-macos:
+    runs-on: macos-latest
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      run: |
+        brew install erlang
+    - name: TEST
+      working-directory: test
+      run: |
+        ERLANG_HOME="$(dirname $(dirname $(which erl)))"
+        bazelisk test //... \
+          --color=yes
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-bzlmod-macos
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  test-bzlmod-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        otp:
+        - "25.3"
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ matrix.otp }}
+    - name: CONFIGURE BAZEL
+      working-directory: test
+      shell: bash
+      run: |
+        cat << EOF >> user.bazelrc
+          startup --output_user_root=C:/tmp
+          startup --windows_enable_symlinks
+          build --enable_runfiles
+          build --color=yes
+          build --@rules_erlang//:ct_test_windows_logdir_drive_letter=z
+          build --jobs=1
+        EOF
+    - name: TEST
+      working-directory: test
+      shell: cmd
+      run: |
+        bazelisk test //...
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      shell: bash
+      run: |
+        LOGS_TAR=$PWD/logs.tar
+        cd bazel-testlogs
+        tar -cf $LOGS_TAR *
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-bzlmod-windows-${{matrix.otp}}
+        path: test/logs.tar
+  test-bzlmod-internal-erlang:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE BAZEL
+      working-directory: test
+      run: |
+        cat << EOF >> user.bazelrc
+          build:buildbuddy --remote_download_minimal
+          build:buildbuddy --color=yes
+        EOF
+    - name: BUILD
+      working-directory: test
+      run: |
+        bazelisk build @rules_erlang//tools:erlang_headers \
+          --config=rbe \
+          --toolchain_resolution_debug="@rules_erlang.*" \
+          --verbose_failures
+    - name: TEST
+      working-directory: test
+      run: |
+        bazelisk test //... \
+          --config=rbe \
+          --toolchain_resolution_debug="@rules_erlang.*" \
+          --verbose_failures \
+          --build_tests_only
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-bzlmod-internal-erlang
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  test-bzlmod-coverage:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    # - name: INSTALL LCOV
+    #   run: |
+    #     sudo apt-get install -y lcov
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: 26
+    - name: COVERAGE
+      working-directory: test
+      run: |
+        bazelisk coverage --combined_report=lcov //...
+    # - name: GENHTML
+    #   working-directory: test
+    #   run: |
+    #     head "$(bazel info output_path)/_coverage/_coverage_report.dat"
+    #     genhtml --output genhtml "$(bazel info output_path)/_coverage/_coverage_report.dat"
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-bzlmod-coverage
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  test-host-erlang-change-detected:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: "25.0"
+    - name: BUILD
+      working-directory: test
+      id: before
+      run: |
+        bazelisk build :otp_version \
+          --color=yes
+        echo "otp=$(cat bazel-bin/otp_version.txt)" >> $GITHUB_OUTPUT
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: "24.3"
+    - name: BUILD
+      working-directory: test
+      id: after
+      run: |
+        bazelisk build :otp_version \
+          --color=yes
+        echo "otp=$(cat bazel-bin/otp_version.txt)" >> $GITHUB_OUTPUT
+    - name: CHECK
+      run: |
+        set -x
+        if [[ "${{ steps.before.outputs.otp }}" == "${{ steps.after.outputs.otp }}" ]]; then
+          echo "Fail"
+        fi
+  test-gazelle-extension:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: CHECKOUT
+      uses: actions/checkout@v4
+    - name: CONFIGURE ERLANG
+      uses: erlef/setup-beam@v1
+      with:
+        otp-version: 26
+    - name: CONFIGURE BAZEL
+      working-directory: test
+      run: |
+        cat << EOF >> user.bazelrc
+          build --color=yes
+        EOF
+    - name: TEST GAZELLE PACKAGE (UNIT_SUITE)
+      working-directory: test
+      run: |
+        bazelisk test //gazelle:unit_suite
+    - name: TEST GAZELLE PACKAGE (INTEGRATION_SUITE)
+      working-directory: test
+      run: |
+        bazelisk test //gazelle:integration_suite --test_env PATH \
+          || bazelisk test //gazelle:integration_suite --test_env PATH
+    - name: RESOVLE TEST LOGS PATH
+      if: always()
+      working-directory: test
+      run: |
+        echo "LOGS_PATH=$(readlink -f bazel-testlogs)" >> $GITHUB_OUTPUT
+      id: resolve-test-logs-path
+    - name: CAPTURE TEST LOGS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bazel-testlogs-gazelle
+        path: ${{ steps.resolve-test-logs-path.outputs.LOGS_PATH }}/*
+  summary:
+    needs:
+    - unit-test
+    - unit-test-bzlmod
+    - test
+    - test-bzlmod
+    - test-bzlmod-macos
+    - test-bzlmod-windows
+    - test-bzlmod-internal-erlang
+    - test-bzlmod-coverage
+    - test-host-erlang-change-detected
+    - test-gazelle-extension
+    runs-on: ubuntu-latest
+    steps:
+    - name: SUMMARY
+      run: |
+        cat << 'EOF' | jq -e 'map(.result == "success") | all(.)'
+        ${{ toJson(needs) }}
+        EOF

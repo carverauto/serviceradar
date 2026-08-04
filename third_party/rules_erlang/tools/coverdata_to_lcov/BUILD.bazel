@@ -1,0 +1,31 @@
+load(
+    "//:erlang_bytecode2.bzl",
+    "erlang_bytecode",
+    "erlc_opts",
+)
+load(
+    "//private:escript_flat.bzl",
+    "escript_flat",
+)
+load(
+    "//:erlang_app.bzl",
+    "DEFAULT_ERLC_OPTS",
+)
+
+erlc_opts(
+    name = "erlc_opts",
+    values = DEFAULT_ERLC_OPTS,
+)
+
+erlang_bytecode(
+    name = "beam_files",
+    srcs = glob(["src/*.erl"]),
+    dest = "ebin",
+    erlc_opts = ":erlc_opts",
+)
+
+escript_flat(
+    name = "coverdata_to_lcov",
+    beam = ":beam_files",
+    visibility = ["//visibility:public"],
+)

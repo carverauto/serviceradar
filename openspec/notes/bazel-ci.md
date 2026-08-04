@@ -119,11 +119,27 @@ Runner-level network policy. Outside the sandbox by definition.
 
 ### Migrate to Bazel targets
 
-**10. Gazelle drift — DONE**
+**10. Gazelle drift — DROPPED, not migrated**
 
-Now `//:gazelle_diff_test`, a `gazelle_test` in the root `BUILD.bazel`. `scripts/check-gazelle-drift.sh`
-and the `main.yml` step that ran it are gone, along with the `git fetch` of the base branch
-that step needed. The whole repo is gated instead of only the Go directories a change touched.
+There is no drift gate. `scripts/check-gazelle-drift.sh` and the `main.yml` step that ran it
+are gone, along with the `git fetch` of the base branch that step needed. A `//:gazelle_diff_test`
+briefly replaced them and was then removed as well.
+
+The reasoning for removing it: strip away what the build already enforces and almost nothing
+is left. A Go file importing something absent from `deps` fails to compile, and a package with
+no BUILD file surfaces the moment anything depends on it. What the gate uniquely caught was
+canonicalisation -- sorted `srcs`, shortened labels, attribute ordering -- which is tidiness,
+not correctness. Against that it was `no-cache` so it ran every invocation, it could not
+distinguish "Gazelle is right" from "Gazelle is wrong" (three `# keep` markers and two
+`# gazelle:ignore` directives exist precisely because it was wrong), and under `--config=ci`
+it could not run on macOS at all: that config builds the gazelle binary for the Linux exec
+platform while `no-remote-exec` runs it on the host.
+
+`bazel run //:gazelle` stays, to be run by hand when Go files move.
+
+**What survives from the migration attempt, and must not be reverted:** the exclusions and
+`# keep` markers below. They are not artifacts of the deleted test -- they are what stops
+`bazel run //:gazelle` from breaking the build.
 
 The root cause of the old narrow scoping was not policy, it was that Gazelle was walking
 `//third_party/crates` and erroring on vendored crates holding multiple proto packages. Three
@@ -151,20 +167,36 @@ Three packages are marked `# gazelle:ignore` because Gazelle cannot model them:
 `build/native_addons` (release gate, mostly py_test/sh_test/genquery/macros).
 `go/pkg/models` keeps a `# keep` on its `srcs` glob.
 
-Verified: drift is zero and stable across repeated runs, `//:gazelle_diff_test` passes,
-`//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build, and the renamed
-test targets pass.
+Verified: drift is zero and stable across repeated runs of `bazel run //:gazelle`, and
+`//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build with the renamed test
+targets passing.
 
-**11. netprobe libpcap-free assertion**
+**11. netprobe libpcap-free assertion — DONE**
 
-Today: `rust-musl.yml` runs `bazel build`, then `scripts/ci/assert-netprobe-libpcap-free.sh`
-against the output path.
+Now `//rust/netprobe:static_linkage_test`. `scripts/ci/assert-netprobe-libpcap-free.sh` is
+deleted, and `rust-musl.yml` lost its two-architecture matrix, its `Build` step and its
+`Verify static linkage` step in favour of one `bazel test`.
 
-This is a property of a built binary, which is the textbook case for an `sh_test` with the
-binary as `data`. Once it is a target it rides `bazel test //...` for free and
-`rust-musl.yml` disappears completely. The only open question is whether the musl build
-needs a platform flag that a plain `//...` build does not supply. Check before deleting the
-workflow.
+The open question in the original note was real: a plain `//...` build does not produce a
+musl artifact. `platform_transition_filegroup` from `@aspect_bazel_lib` answers it. The test
+depends on the binary twice, once transitioned to each musl platform, so no `--platforms`
+on the command line and no `bazel cquery --output=files | tail -n 1` to rediscover the path.
+
+It is a `go_test`, not the `sh_test` this note predicted. The `sh_test` was written first
+and failed on the executor with `file(1) is required to assert static linkage`: the RBE
+image does not carry `file`, and `.bazelrc` deliberately withholds `PATH` from test actions,
+so a test sees only `/bin:/usr/bin:/usr/local/bin`. Go's `debug/elf` is stdlib and
+architecture-neutral, which removes the host-tool dependency and lets one test on an x86_64
+executor check the aarch64 artifact too. `DT_NEEDED` is read as a list rather than grepped
+out of `readelf` prose, and the check extends to `DT_RPATH`, `DT_RUNPATH` and `DT_SONAME`.
+
+Verified both directions. Against the real musl artifacts both subtests pass. Pointed at the
+glibc build it fails with exactly the expected findings: a `PT_INTERP` and five `DT_NEEDED`
+entries (`libgcc_s`, `libm`, `libc`, `ld-linux-x86-64`, `libstdc++`).
+
+`rust-musl.yml` is now a single `bazel test` and is a deletion candidate once the master
+workflow lands, since the target rides `bazel test //...`. Confirmed it is selected by the
+existing sweep query.
 
 ## Part 2: Workflow inventory
 
@@ -177,7 +209,7 @@ workflow.
 | `main.yml` | Test sweep absorbed. Guards 1-4 deleted, 6-9 kept as steps, 10 migrated. |
 | `golang-tests.yml` | Plain run absorbed. The race and count=10 pass becomes its own job. |
 | `rust-tests.yml` | Fully absorbed. |
-| `elixir-unit-tests.yml` | Fully absorbed. |
+| `elixir-unit-tests.yml` | Fully absorbed. **DELETED 2026-08-04** — the Bazel CI covers it, and its `paths:` triggers watched `third_party/patches/rules_{erlang,elixir}/**`, which no longer exist now that both rulesets are vendored. |
 | `elixir-integration-sr-core.yml` | Becomes the integration job, chain unchanged. |
 | `precommit-web-ng.yml` | Absorbed only if the master stops excluding `//elixir/web-ng:precommit`. |
 | `rust-musl.yml` | Absorbed once the linkage assertion is an `sh_test`. |
@@ -313,19 +345,31 @@ across branches. Decide this before the first run.
 Every fixture target is `@platforms//:incompatible` without it, so those six steps are
 broken on `staging` right now, independent of this work.
 
-`//elixir/web-ng:precommit` no longer exists. It was removed or renamed by `8fb020fb9`
-("assemble OTP releases from Bazel targets instead of rebuilding"). Two things break on it:
+`//elixir/web-ng:precommit` no longer exists — FIXED.
 
-- `precommit-web-ng.yml` runs `bazel test --config=ci //elixir/web-ng:precommit`, which
-  cannot resolve.
-- `main.yml`'s Test step ends its target query with `except set(//elixir/web-ng:precommit)`.
-  `set()` hard-errors on an unknown label rather than skipping it, so the whole query dies
-  and the step exits through its own "refusing to run an empty test sweep" guard. This is
-  the exact failure mode the `.bazelrc` comment warns about for stale labels in `set()`.
+It was not renamed, it was withdrawn on purpose. `8fb020fb9` pulled `:precommit` and
+`:precommit_check` because `mix format --check-formatted` fails against pre-existing HEEx
+formatting and was blocking `//elixir/...` from going green. The header of
+`elixir/web-ng/BUILD.bazel` says to restore it once the tree is formatted, and keeps
+`//build:mix_deps.bzl` and `//build:mix_precommit.bzl` untouched for that.
 
-Consequence for the consolidation: the master workflow must not carry that exclusion
-forward. It was there to keep the web-ng precommit failing on its own red X, and that
-target needs to be found or rebuilt first.
+Two things were broken by the withdrawal and are now repaired:
+
+- `main.yml`'s Test step ended its target query with `except set(//elixir/web-ng:precommit)`.
+  `set()` hard-errors on an unknown label rather than skipping it, so the query aborted with
+  exit 7 and the step died through its own "refusing to run an empty test sweep" guard. **No
+  tests ran at all.** The clause is removed; the query now resolves 134 targets.
+- `precommit-web-ng.yml` is deleted. Its only substantive step was
+  `bazel test //elixir/web-ng:precommit`, so every run exited 1. Everything else in it was
+  preamble.
+
+Both removals are recorded in the restoration note at the top of `elixir/web-ng/BUILD.bazel`,
+so whoever formats the tree brings back the target, the workflow and the exclusion together —
+or decides deliberately that the separate red X is not worth a workflow.
+
+This is the third live bug of its kind, and they share a shape: a target moves or goes away,
+and a `set()` or an explicit label in a workflow keeps naming it. The master workflow should
+prefer tag- and wildcard-based selection over `set()` for exactly this reason.
 
 Two stale comments to correct while the files are open. The `NOTE:` in
 `rust/integration-db/BUILD.bazel` says `prepare_template` does not exist as a target; it
@@ -369,10 +413,29 @@ Changing `exec_properties` changes the platform, so the 8 targets rebuild once.
 If either of the first two is unacceptable, pass the credential as a file path and let the
 test open it. The Rust side already works that way.
 
-### Verdict
+### Verdict — DONE
 
-Do it during the rehearsal, while BuildBuddy still works. Deferred to the cutover, a broken
-fallback leaves no working backend to debug against.
+Removed. The `exec_properties` block is gone from all 8 shards, confirmed by querying each
+one. Nothing else in the repo sets `env-secrets`.
+
+Two cross-referencing comments were rewritten rather than left to rot, since both explained
+why some OTHER target deliberately did not set the property: the `migrate_template` note in
+`elixir/serviceradar_core/BUILD.bazel` and the lifecycle-target note in
+`rust/integration-db/BUILD.bazel`. Both now describe the single mechanism that remains, the
+`test --test_env=` list in `.bazelrc` lines 112-114.
+
+Nothing about execution changed. The shards still run remotely: they carry no
+`no-remote-exec`, and the PEM-content form of the fixture CA is what made that possible.
+
+**Verified:** the three `--test_env` entries are present, no shard carries `exec_properties`,
+and `//elixir/serviceradar_core:integration_tests_s0` builds under
+`--//build:enable_integration_tests` (267 actions).
+
+**Not verified, and it needs to be:** the shards have not been RUN since the change. That
+takes the shared CNPG fixture and the full lifecycle chain, which is destructive against a
+resource concurrent PRs share, so it is not something to do unilaterally from a workstation.
+The first CI run of the integration chain is the real proof that the credentials arrive by
+`--test_env`. Watch that run before treating this as settled.
 
 ## Part 6: Execution order
 

@@ -1,0 +1,2 @@
+# gazelle:erlang_no_tests
+# gazelle:erlang_generate_fewer_bytecode_rules

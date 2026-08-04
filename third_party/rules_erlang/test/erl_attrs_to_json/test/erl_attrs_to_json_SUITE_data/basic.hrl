@@ -1,0 +1,1 @@
+-define(SOME_CONST, 10).

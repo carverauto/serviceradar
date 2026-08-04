@@ -19,10 +19,33 @@ slowest =
     _ -> []
   end
 
-if System.get_env("SRQL_TEST_DATABASE_URL") ||
-     System.get_env("SERVICERADAR_TEST_DATABASE_URL") ||
-     System.get_env("SRQL_TEST_DATABASE_URL_FILE") ||
-     System.get_env("SERVICERADAR_TEST_DATABASE_URL_FILE") do
+# A BLANK value counts as absent. `System.get_env/1` returns "" for a variable that is set
+# but empty, and "" is truthy in Elixir, so the plain `a || b || c` this replaced treated
+# `FOO=""` as "a database is available" and took the branch below.
+#
+# That is what makes the database-free tier defensible. //build/elixir_tests.bzl pins these
+# four to "" on every unit group precisely so an ambient value cannot reach them -- and
+# without blank-means-absent, pinning them is not merely useless, it FORCES the wrong branch.
+# Bazel has no way to unset a variable for an action, only to set one, so "" has to be the
+# lever.
+#
+# The failure it prevents: `--test_env=SERVICERADAR_TEST_DATABASE_URL` in //.bazelrc is
+# valueless, so it copies whatever the developer's shell holds. Anyone following the SRQL
+# fixture playbook in AGENTS.md has it exported, which sent the unit sweep down this branch,
+# started the application, and killed 13 targets on
+# "Oban migrations have not been run. The oban_jobs table does not exist."
+database_available? =
+  Enum.any?(
+    ~w(
+      SRQL_TEST_DATABASE_URL
+      SERVICERADAR_TEST_DATABASE_URL
+      SRQL_TEST_DATABASE_URL_FILE
+      SERVICERADAR_TEST_DATABASE_URL_FILE
+    ),
+    fn name -> String.trim(System.get_env(name) || "") != "" end
+  )
+
+if database_available? do
   # SERVICERADAR_ONLY_INTEGRATION runs ONLY what the database-free Bazel job
   # (//elixir/serviceradar_core:unit_tests) does not, instead of re-running the whole suite
   # on top of it. `--include integration` adds to the default set rather than replacing it,
