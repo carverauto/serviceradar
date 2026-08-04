@@ -35,11 +35,6 @@ jobs:
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
-      SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
-      SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
-      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
-      SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
-      SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
 
     steps:
       # Hand-rolled rather than actions/checkout, and the exclusions are load-bearing.
@@ -98,10 +93,6 @@ jobs:
       # From here down: one Bazel server, one loading and analysis phase, warm across every
       # command. Do not move any of these into another job.
       # =====================================================================================
-
-      # 0. Docker auth for rules_oci fetches.
-      - name: Setup Docker authentication
-        run: bazel run -c opt --config=ci //:buildbuddy_setup_docker_auth --verbose_failures
 
       # 1. Build everything.
       - name: Build
@@ -177,8 +168,38 @@ jobs:
       # `--test_tag_filters=//rust/integration-db:sweep_stale_dbs`: the empty filter swallowed
       # the label and the command named no target at all. `>-` folds the same way but needs no
       # continuation characters, so each argument stays an argument.
+      #
+      # POSITION IS LOAD-BEARING. This must stay below the unit tier and above the chain.
+      #
+      # configure-srql-fixture.sh writes the fixture CA to ${RUNNER_TEMP} and appends the
+      # derived values to $GITHUB_ENV -- and $GITHUB_ENV is JOB scope, visible to every step
+      # after this one. Among those values is SRQL_TEST_DATABASE_URL itself (passed through
+      # unchanged, line 53 of the script). Move this step above "Unit tests" and that URL is in
+      # scope for the sweep, test_helper.exs takes its DB-present branch, and the unit groups
+      # start running :integration tests against a per-run database that provision_db has not
+      # created yet. See the note on the Unit tests step.
+      #
+      # A Bazel action cannot do this work itself: an action that read these secrets from its
+      # environment would fold them into its action cache key. It also hard-exits when the DSNs
+      # are absent, hence the guard.
+      - name: Configure SRQL fixture
+        if: ${{ secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_URL != '' && secrets.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
+        run: ./scripts/ci/configure-srql-fixture.sh
+
       - name: Sweep stale integration databases
-        if: ${{ env.SRQL_TEST_ADMIN_URL != '' }}
+        if: ${{ secrets.SRQL_TEST_ADMIN_URL != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=
@@ -190,7 +211,13 @@ jobs:
       # --test_tag_filters, because it is a rust_binary.
       - name: Prepare template database
         id: template
-        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        if: ${{ secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_URL != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel run -c opt --config=ci --//build:enable_integration_tests
           --build_tag_filters=
@@ -202,6 +229,12 @@ jobs:
       # rather than a correctness requirement.
       - name: Migrate template database
         if: ${{ steps.template.outputs.needs_migration == 'true' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=
@@ -210,7 +243,13 @@ jobs:
       # Re-checks the pending set itself, so a wrong skip above fails here rather than silently
       # running a suite against a stale schema.
       - name: Provision integration database
-        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        if: ${{ secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_URL != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=
@@ -230,7 +269,13 @@ jobs:
       # This is also the step that first exercises the 8 shards since `test.env-secrets` was
       # removed from them, so it is the proof that the --test_env credential path works.
       - name: Integration suites
-        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        if: ${{ secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_URL != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=integration_test,-acceptance_test //...
@@ -238,7 +283,13 @@ jobs:
       # always() rather than success(): a red suite must not leak its database. A cancelled job
       # never reaches this at all, which is what the sweep above is for.
       - name: Drop integration database
-        if: ${{ always() && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        if: ${{ always() && secrets.SRQL_TEST_ADMIN_URL != '' && secrets.SRQL_TEST_DATABASE_URL != '' }}
+        env:
+          SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+          SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+          SRQL_TEST_DATABASE_CERT: ${{ secrets.SRQL_TEST_DATABASE_CERT }}
+          SRQL_TEST_DATABASE_KEY: ${{ secrets.SRQL_TEST_DATABASE_KEY }}
         run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=

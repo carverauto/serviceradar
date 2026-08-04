@@ -118,12 +118,18 @@ jobs:
       # bazelisk itself were broken, and in that case every later step fails anyway with a
       # message that names the real problem.
 
-      # Gazelle drift is now //:gazelle_diff_test, which the Test step below picks up through
-      # `tests(//...)`. It replaced scripts/check-gazelle-drift.sh and the `git fetch` of the
-      # base branch that step needed: the old check could only look at the Go directories a
-      # change touched, because a repo-wide `-mode=diff` was permanently red while Gazelle
-      # was walking //third_party/crates. The exclusions in //BUILD.bazel fixed the cause, so
-      # the whole repo is gated now and CI does not need to know what changed.
+      # No Gazelle drift check. scripts/check-gazelle-drift.sh and its `git fetch` of the base
+      # branch are gone, and the //:gazelle_diff_test that briefly replaced them is gone too.
+      #
+      # It only ever enforced canonicalisation -- sorted srcs, shortened labels, attribute
+      # order. The part that matters is already enforced by the build: a Go file importing
+      # something absent from `deps` fails to compile, and a package with no BUILD file shows
+      # up the moment anything tries to depend on it.
+      #
+      # Run `bazel run //:gazelle` when you add or move Go files. The `# gazelle:exclude`
+      # directives and the `# keep` markers in //BUILD.bazel and elsewhere still matter --
+      # without them that command deletes //proto/dgraph:proto_dgraph and rewrites the proto
+      # compiler lists.
 
       - name: Report unavailable SRQL fixture secrets
         if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}

@@ -182,6 +182,40 @@ def ex_unit_tests(
 
     groups = _subdivide(groups, strip_prefix, group_depth, max_group_size, min_subgroup_size)
 
+    # Pin the four database-URL variables to "" on every generated target.
+    #
+    # This macro IS the database-free tier -- the module docstring says so, and each project's
+    # test_helper.exs decides at RUNTIME whether to start the application based on whether one
+    # of these is present. The decision therefore hung on a variable being ABSENT, which is not
+    # something a Bazel target could previously guarantee: //.bazelrc forwards all four with
+    # valueless `--test_env=NAME`, so each one is copied verbatim out of the invoking shell.
+    #
+    # Anyone who had followed the SRQL fixture playbook in AGENTS.md -- which tells you to
+    # `export SERVICERADAR_TEST_DATABASE_URL` -- therefore turned the unit sweep into an
+    # integration run against the shared fixture. It started the application and killed 13
+    # targets on "Oban migrations have not been run. The oban_jobs table does not exist."
+    #
+    # Bazel can SET a variable for an action but cannot unset one, so "" is the only available
+    # lever; the paired change is that both test_helper.exs files now treat a blank value as
+    # absent. Without that half this pinning would force the wrong branch rather than prevent
+    # it. The ex_unit_test script emits `env` as `export` lines after everything else, so these
+    # win over --test_env.
+    #
+    # Deliberately NOT applied to the integration shards. Those are declared as bare
+    # ex_unit_test targets in //elixir/serviceradar_core:BUILD.bazel, not through this macro,
+    # and they carry env = {"SERVICERADAR_ONLY_INTEGRATION": "1"} to opt IN.
+    database_free_env = {
+        "SRQL_TEST_DATABASE_URL": "",
+        "SERVICERADAR_TEST_DATABASE_URL": "",
+        "SRQL_TEST_DATABASE_URL_FILE": "",
+        "SERVICERADAR_TEST_DATABASE_URL_FILE": "",
+    }
+
+    # A caller's own env wins, so a project that genuinely needs one of these can still say so.
+    caller_env = kwargs.pop("env", {})
+    target_env = dict(database_free_env)
+    target_env.update(caller_env)
+
     tests = []
     for group in sorted(groups):
         # Namespaced under the suite name: a group is named after a test subdirectory, and
@@ -202,6 +236,7 @@ def ex_unit_tests(
             srcs = sorted(groups[group]),
             data = target_data,
             elixir_opts = pre_load_opts + config_loader_opts + ["-r", test_helper],
+            env = target_env,
             tags = tags,
             deps = deps,
             **kwargs

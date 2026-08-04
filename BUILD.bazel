@@ -1,4 +1,4 @@
-load("@bazel_gazelle//:def.bzl", "gazelle", "gazelle_test")
+load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@platforms//host:extension.bzl", "host_platform")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
@@ -56,39 +56,10 @@ gazelle(
     name = "gazelle",
 )
 
-# Repo-wide Gazelle drift gate.
-#
-# Replaces scripts/check-gazelle-drift.sh, which diffed only the Go directories a change
-# touched. That scoping was not a design choice, it was a workaround: a repo-wide
-# `-mode=diff` could never pass while Gazelle was walking //third_party/crates (see the
-# exclusions above), so the script narrowed the blast radius instead of fixing the cause.
-# With the exclusions in place the whole repo can be gated, and CI no longer needs to
-# `git fetch` the base branch to work out what to check.
-#
-# `workspace` is a legacy attribute name from the pre-bzlmod era and MODULE.bazel is the
-# correct value here. The rule never parses the file: internal/gazelle.bash.in only takes
-# its `dirname` to recover BUILD_WORKSPACE_DIRECTORY at runtime. Any root-level file would
-# do, and pointing it at the vestigial WORKSPACE file would imply a dependency that does
-# not exist.
-#
-# gazelle_test forces `no-sandbox`, `no-cache` and `external` on itself, because it reads
-# the real source tree rather than a declared set of inputs. `no-remote-exec` is ours: that
-# source tree exists on the CI runner and not on an RBE executor, so without it the test is
-# dispatched to a worker that cannot see the repo. Remote CACHING is unaffected, and
-# `no-cache` means there is nothing to cache anyway.
-gazelle_test(
-    name = "gazelle_diff_test",
-    timeout = "short",
-    tags = ["no-remote-exec"],
-    workspace = "//:MODULE.bazel",
-)
-
 ###############################################################################
 # exports_files
 ###############################################################################
 exports_files([
-    # Consumed by //:gazelle_diff_test as its workspace-root marker, not for its contents.
-    "MODULE.bazel",
     ".forgejo/workflows/external-wasm-plugin.yml",
     ".forgejo/workflows/image-security.yml",
     ".forgejo/workflows/native-addons.yml",

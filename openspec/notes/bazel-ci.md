@@ -119,11 +119,27 @@ Runner-level network policy. Outside the sandbox by definition.
 
 ### Migrate to Bazel targets
 
-**10. Gazelle drift — DONE**
+**10. Gazelle drift — DROPPED, not migrated**
 
-Now `//:gazelle_diff_test`, a `gazelle_test` in the root `BUILD.bazel`. `scripts/check-gazelle-drift.sh`
-and the `main.yml` step that ran it are gone, along with the `git fetch` of the base branch
-that step needed. The whole repo is gated instead of only the Go directories a change touched.
+There is no drift gate. `scripts/check-gazelle-drift.sh` and the `main.yml` step that ran it
+are gone, along with the `git fetch` of the base branch that step needed. A `//:gazelle_diff_test`
+briefly replaced them and was then removed as well.
+
+The reasoning for removing it: strip away what the build already enforces and almost nothing
+is left. A Go file importing something absent from `deps` fails to compile, and a package with
+no BUILD file surfaces the moment anything depends on it. What the gate uniquely caught was
+canonicalisation -- sorted `srcs`, shortened labels, attribute ordering -- which is tidiness,
+not correctness. Against that it was `no-cache` so it ran every invocation, it could not
+distinguish "Gazelle is right" from "Gazelle is wrong" (three `# keep` markers and two
+`# gazelle:ignore` directives exist precisely because it was wrong), and under `--config=ci`
+it could not run on macOS at all: that config builds the gazelle binary for the Linux exec
+platform while `no-remote-exec` runs it on the host.
+
+`bazel run //:gazelle` stays, to be run by hand when Go files move.
+
+**What survives from the migration attempt, and must not be reverted:** the exclusions and
+`# keep` markers below. They are not artifacts of the deleted test -- they are what stops
+`bazel run //:gazelle` from breaking the build.
 
 The root cause of the old narrow scoping was not policy, it was that Gazelle was walking
 `//third_party/crates` and erroring on vendored crates holding multiple proto packages. Three
@@ -151,9 +167,9 @@ Three packages are marked `# gazelle:ignore` because Gazelle cannot model them:
 `build/native_addons` (release gate, mostly py_test/sh_test/genquery/macros).
 `go/pkg/models` keeps a `# keep` on its `srcs` glob.
 
-Verified: drift is zero and stable across repeated runs, `//:gazelle_diff_test` passes,
-`//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build, and the renamed
-test targets pass.
+Verified: drift is zero and stable across repeated runs of `bazel run //:gazelle`, and
+`//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build with the renamed test
+targets passing.
 
 **11. netprobe libpcap-free assertion — DONE**
 

@@ -10,8 +10,8 @@ go_library(
     #
     #   go/pkg/models/BUILD.bazel:5.12-8.6: could not merge expression
     #
-    # That warning is non-fatal but it is the one thing standing between //:gazelle_diff_test
-    # and a clean run, so the attribute is pinned rather than left to argue with every build.
+    # The warning is non-fatal, but without `# keep` Gazelle would replace the glob with an
+    # explicit list on the next `bazel run //:gazelle`, and the churn would come back.
     srcs = glob(
         ["*.go"],
         exclude = ["*_test.go"],

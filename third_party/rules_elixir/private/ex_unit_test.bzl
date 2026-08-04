@@ -25,10 +25,31 @@ def _package_relative_path(ctx, p):
     return p.removeprefix(ctx.label.package + "/")
 
 def _impl(ctx):
+    # TEST_TMPDIR, not TEST_UNDECLARED_OUTPUTS_DIR.
+    #
+    # This is scratch space: every srcs and data file is copied here so the test runs against
+    # a writable tree with the repo's directory layout. None of it is an OUTPUT.
+    #
+    # Upstream staged into TEST_UNDECLARED_OUTPUTS_DIR, which Bazel defines as "artifacts this
+    # test produced" and therefore walks when the test finishes -- stat + `file --mime-type`
+    # per entry to build TEST_UNDECLARED_OUTPUTS_MANIFEST, then uploads the lot. For
+    # //elixir/serviceradar_core that tree is config/**, priv/repo/** and the whole :srcs glob,
+    # so every Elixir test target was mime-typing and uploading a few thousand of its own
+    # INPUTS on every run.
+    #
+    # On the RBE executor, which carries no file(1), that also produced ~2,150 lines of
+    #   test-setup.sh: line 331: file: command not found
+    # in each test log -- 2,197-line logs that were ~98% that one message. Non-fatal (Bazel's
+    # test-setup.sh has a `|| echo` fallback) but it buried the real output.
+    #
+    # Nothing was collected from there deliberately: the only file the script itself writes is
+    # test.log, and it `rm`s it after the pass/fail grep below. Switching to TEST_TMPDIR keeps
+    # the same layout and writability, and leaves undeclared outputs meaning what Bazel says it
+    # means -- whatever a test chooses to write there.
     copy_srcs_and_data_commands = [
         'mkdir -p $(dirname "{dst}") && cp "{src}" "{dst}"'.format(
             src = s.path,
-            dst = path_join("${TEST_UNDECLARED_OUTPUTS_DIR}", s.path),
+            dst = path_join("${TEST_TMPDIR}", s.path),
         )
         for s in ctx.files.srcs + ctx.files.data
     ]
@@ -74,7 +95,7 @@ export PATH="$ABS_ELIXIR_HOME"/bin:"{erlang_home}"/bin:${{PATH}}
 
 export ERL_LIBS="$TEST_SRCDIR/$TEST_WORKSPACE/{erl_libs_path}"
 
-cd "${{TEST_UNDECLARED_OUTPUTS_DIR}}/{package}"
+cd "${{TEST_TMPDIR}}/{package}"
 
 export HOME=${{PWD}}
 
