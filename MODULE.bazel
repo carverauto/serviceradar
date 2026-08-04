@@ -39,11 +39,7 @@ bazel_dep(name = "rules_cc", version = "0.2.16")
 bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(
-    name = "toolchains_buildbuddy",
-    version = "0.0.4",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
-)
+bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
 # first so CI does not fail analysis when GitHub releases transiently returns 502.
