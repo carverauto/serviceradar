@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
 
   def handle_event("validate_profile", %{"form" => params}, socket) do
     target_query = Map.get(params, "target_query")
-    params = Data.normalize_agent_ids_param(params)
+    params = params |> Data.normalize_agent_ids_param() |> Data.normalize_credential_secret_param()
     ash_form = Form.validate(socket.assigns.ash_form, params)
 
     {:noreply,
@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
 
     # Drop the hidden empty agent_ids placeholder so unchecking every box
     # persists [] (legacy all-agents) rather than [""].
-    params = Data.normalize_agent_ids_param(params)
+    params = params |> Data.normalize_agent_ids_param() |> Data.normalize_credential_secret_param()
 
     # Include selected OID template IDs
     params = Map.put(params, "oid_template_ids", socket.assigns.selected_template_ids)
