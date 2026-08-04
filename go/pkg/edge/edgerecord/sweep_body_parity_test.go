@@ -118,9 +118,11 @@ type sweepFamilyVector struct {
 // mapping claim needs. Enumerating every branch that can reach a family belongs to the
 // correctness suite, not here.
 //
-// The family strings are duplicated across the two runtimes for now. The shared cross-
-// language corpus (slice 3b) is what removes that duplication; until it lands, this proves
-// Go's side of each pair and the Elixir suite proves its own.
+// The family strings are duplicated across the two runtimes, and the sweep-join corpus does
+// NOT remove that: it carries CORRELATION labels, not the body-family -> Go-sentinel
+// mapping, which is a different vocabulary answering a different question. Removing this
+// duplication needs a body-family corpus of its own; until one exists, this proves Go's side
+// of each pair and the Elixir suite proves its own.
 func TestSweepBodyFamilySentinelsAreBehavioural(t *testing.T) {
 	vectors := []sweepFamilyVector{
 		{

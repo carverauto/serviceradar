@@ -40,10 +40,42 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.Edge.WireValidate
 
+  # The workspace-relative location, which `ex_unit_test` reproduces because it mirrors the
+  # layout -- provided `//proto/edge/v1:edge_testdata` is a declared input, which it now is.
   @testdata Path.expand("../../../../../proto/edge/v1/testdata", __DIR__)
   @fixed_millis 1_784_000_000_000
 
-  defp load(name), do: File.read!(Path.join(@testdata, name))
+  # Runfiles-aware: prefer the mirrored layout, fall back to the runfiles tree. A bare
+  # relative path is the failure mode where a required Bazel shard silently reads nothing.
+  defp load(name) do
+    case fixture_path(name) do
+      {:ok, path} -> File.read!(path)
+      :error -> raise "shared fixture #{name} not found under #{@testdata} or TEST_SRCDIR"
+    end
+  end
+
+  defp fixture_path(name) do
+    direct = Path.join(@testdata, name)
+
+    cond do
+      File.exists?(direct) ->
+        {:ok, direct}
+
+      dir = System.get_env("TEST_SRCDIR") ->
+        [System.get_env("TEST_WORKSPACE"), "_main"]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(&Path.join([dir, &1, "proto/edge/v1/testdata", name]))
+        |> Enum.find(&File.exists?/1)
+        |> case do
+          nil -> :error
+          p -> {:ok, p}
+        end
+
+      true ->
+        :error
+    end
+  end
+
   defp encode_varint(n) when n < 0x80, do: <<n>>
   defp encode_varint(n), do: <<(n &&& 0x7F) ||| 0x80>> <> encode_varint(n >>> 7)
   defp uuid_millis(<<ts::big-48, _::binary>>), do: ts
@@ -2229,5 +2261,74 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
         HashGrammar.compiled_assignment_body_digest(Map.put(carrier, :digest_version, -1))
       end
     end
+  end
+
+  # ==========================================================================================
+  # THE SHARED SWEEP-JOIN CORPUS (task 1.3-f)
+  # ==========================================================================================
+
+  test "the shared sweep-join corpus: Go's bytes, Elixir's verdict, the SAME (label, gate)" do
+    # An in-memory mutation inside one runtime proves only that runtime's opinion. These are
+    # BYTES authored by Go, and the expectation travels WITH them in the manifest, so this
+    # side derives it instead of restating it -- two hand-written expectation tables would
+    # let the runtimes drift while both stayed green.
+    manifest =
+      "sweep_join_corpus.txt"
+      |> load()
+      |> String.split("\n", trim: true)
+      |> Enum.map(fn line ->
+        [file, label, gate] = String.split(line)
+        {file, label, gate}
+      end)
+
+    # DERIVED, not counted. A hand-written total does not notice a vector file added
+    # without a manifest line -- Elixir would simply never load it, and the corpus would
+    # silently shrink to whatever the manifest happened to list.
+    on_disk =
+      @testdata
+      |> Path.join("sweep_join_*.bin")
+      |> Path.wildcard()
+      |> MapSet.new(&Path.basename/1)
+
+    assert MapSet.new(manifest, fn {file, _, _} -> file end) == on_disk,
+           "manifest and vector files disagree: " <>
+             inspect(MapSet.symmetric_difference(MapSet.new(manifest, &elem(&1, 0)), on_disk))
+
+    for {file, label, gate} <- manifest do
+      record = EdgeRecordV1.decode(load(file))
+      got = ServiceRadar.Edge.SweepCorrelate.ingest_own_payload(record)
+
+      expected =
+        case {gate, label} do
+          {"accept", "-"} -> :ok
+          {"enum_admission", "-"} -> {:error, {:enum_admission, :source}}
+          {"recovery_lane", "-"} -> {:error, {:recovery_lane, :kind}}
+          {g, l} -> {:error, {String.to_existing_atom(g), String.to_existing_atom(l)}}
+        end
+
+      assert got == expected,
+             "#{file}: Elixir returned #{inspect(got)}, Go's manifest says #{inspect(expected)}"
+    end
+  end
+
+  test "the corpus covers every frozen label that has a vector, and names no others" do
+    labelled =
+      "sweep_join_corpus.txt"
+      |> load()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&(&1 |> String.split() |> Enum.at(1)))
+      |> Enum.reject(&(&1 == "-"))
+      |> MapSet.new()
+
+    frozen = MapSet.new(ServiceRadar.Edge.SweepMatrix.labels(), &Atom.to_string/1)
+
+    # EXACT, both directions. The corpus cannot invent a label, and -- the stronger half --
+    # every FROZEN label has a shared cross-language vector. A frozen label with no vector
+    # would be a name the two runtimes never have to agree on.
+    assert labelled == frozen,
+           "corpus-only: #{inspect(MapSet.difference(labelled, frozen))}, " <>
+             "frozen-only: #{inspect(MapSet.difference(frozen, labelled))}"
+
+    assert MapSet.size(frozen) == 15
   end
 end

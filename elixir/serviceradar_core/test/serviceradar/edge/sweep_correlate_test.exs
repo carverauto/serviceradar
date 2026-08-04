@@ -795,4 +795,133 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
       refute :body_validation in [:body, :correlation, :enum_admission, :recovery_lane]
     end
   end
+
+  describe "ingest_own_payload/1 -- the composed ingress (1.2-c step 3)" do
+    alias ServiceRadar.Edge.SweepBodyValidate
+
+    # The correlation `control/0` batch carries ONLY what correlation reads -- no plan id,
+    # no policy, no checks -- so it is not a valid BODY. That is not a defect in either
+    # fixture: before step 3 the two stages were reached separately, and nothing required one
+    # batch to satisfy both. The composed ingress does, so this adds the body-required fields
+    # WITHOUT touching any field correlation compares.
+    defp ingestable do
+      {_record, batch} = control()
+
+      %{
+        batch
+        | execution_plan_id: u(0x21),
+          availability_policy_id: "policy-1",
+          batch_sequence: 1,
+          tested_checks: [
+            %V1.SweepTestV1{mode: :SWEEP_MODE_ICMP, protocol: :TRANSPORT_PROTOCOL_ICMP}
+          ],
+          configured_mode_bits: 1,
+          hosts: []
+      }
+    end
+
+    defp record_with_payload(batch) do
+      {record, _} = control()
+      payload = V1.SweepObservationBatchV1.encode(batch)
+
+      %{
+        record
+        | payload: payload,
+          payload_sha256: :crypto.hash(:sha256, payload)
+      }
+    end
+
+    test "a valid record ingests end to end from bytes" do
+      assert SweepCorrelate.ingest_own_payload(record_with_payload(ingestable())) == :ok
+    end
+
+    test "a BODY defect and a CORRELATION defect now come from ONE call" do
+      batch = ingestable()
+
+      # Body: the batch is missing identity the correlation never looks at. Before step 3
+      # this reached callers only if they remembered to run the body validator first.
+      body_broken = %{batch | execution_plan_sha256: ""}
+
+      assert SweepCorrelate.ingest_own_payload(record_with_payload(body_broken)) ==
+               {:error, {:body_validation, {:identity, :plan_range_digest}}}
+
+      # Correlation: the body is fine, the signed context disagrees.
+      assert SweepCorrelate.ingest_own_payload(
+               record_with_payload(%{batch | execution_shard: 99})
+             ) ==
+               {:error, {:correlation, :execution_shard}}
+    end
+
+    test "the two SHARED rules keep their FROZEN shapes, not the body validator's" do
+      batch = ingestable()
+
+      # Disposition: SCHEDULED_CHECK requires a canonical source_run_id. The body validator
+      # calls this {:source_run_id, _}; the frozen correlate outcome is {:body, _}.
+      assert SweepCorrelate.ingest_own_payload(record_with_payload(%{batch | source_run_id: ""})) ==
+               {:error, {:body, :source_run_id_disposition}}
+
+      # Unknown source: the body validator calls this {:source, :unknown}.
+      assert SweepCorrelate.ingest_own_payload(
+               record_with_payload(%{batch | source: :SWEEP_EXECUTION_SOURCE_UNSPECIFIED})
+             ) == {:error, {:enum_admission, :source}}
+    end
+
+    test "it runs the CURATED decoder, which the old path did not" do
+      payload = V1.SweepObservationBatchV1.encode(ingestable()) <> <<0xFA, 0xF0, 0x04, 0x00>>
+
+      record = %{
+        elem(control(), 0)
+        | payload: payload,
+          payload_sha256: :crypto.hash(:sha256, payload)
+      }
+
+      # An unknown field is retained by the generated decoder and REJECTED by the curated
+      # one. `correlate_own_payload/1` accepts this record; the composed ingress does not.
+      assert SweepCorrelate.ingest_own_payload(record) == {:error, {:wire, :poison}}
+      assert SweepCorrelate.correlate_own_payload(record) == :ok
+    end
+
+    test "decoder reasons keep their classification instead of collapsing to :decode" do
+      # :poison (malformed) and :systemic (caller fault) are deliberately distinct; folding
+      # both into {:payload, :decode} would discard the classification the curated decoder
+      # exists to make.
+      {record, _} = control()
+
+      assert SweepCorrelate.ingest_own_payload(%{
+               record
+               | payload: <<0xFF, 0xFF, 0xFF>>,
+                 payload_sha256: :crypto.hash(:sha256, <<0xFF, 0xFF, 0xFF>>)
+             }) == {:error, {:wire, :poison}}
+    end
+
+    test "it is TOTAL, and payload plumbing still refuses before the body runs" do
+      assert SweepCorrelate.ingest_own_payload(:not_a_record) ==
+               {:error, {:payload, :not_a_record}}
+
+      # A digest that does not match the payload is refused BEFORE decoding it.
+      assert SweepCorrelate.ingest_own_payload(%{
+               record_with_payload(ingestable())
+               | payload_sha256: :binary.copy(<<0>>, 32)
+             }) == {:error, {:payload, :digest_mismatch}}
+    end
+
+    test "every body family reaches the union through the frozen translation" do
+      # The composed path must not invent shapes: whatever the body validator returns is
+      # translated, never passed through raw.
+      batch = ingestable()
+
+      for {mutate, family} <- [
+            {&%{&1 | execution_plan_sha256: ""}, :identity},
+            {&%{&1 | tested_checks: []}, :checks},
+            {&%{&1 | configured_mode_bits: 999}, :mode_bits}
+          ] do
+        got = SweepCorrelate.ingest_own_payload(record_with_payload(mutate.(batch)))
+        assert {:error, {:body_validation, {^family, _}}} = got
+
+        # ...and it is EXACTLY what translate_body_reason/1 would have produced.
+        {:error, raw} = SweepBodyValidate.validate(mutate.(batch))
+        assert got == SweepCorrelate.translate_body_reason(raw)
+      end
+    end
+  end
 end
