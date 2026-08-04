@@ -2,9 +2,42 @@ suite: web-ng deployed release version
 templates:
   - templates/web.yaml
 tests:
-  - it: exposes the global immutable image tag to the product status UI
+  # The regression this suite exists for. Immutable rollouts pin
+  # global.imageTag to a sha-<gitsha>, and no Forgejo release is ever named
+  # that. While SERVICERADAR_RELEASE_VERSION was derived from the image tag,
+  # NativeAddonSyncWorker and FirstPartySyncWorker discarded permanently with
+  # "Release tag sha-... was not found", and the status UI showed a 40-character
+  # sha as the deployed version.
+  - it: does not follow an immutable sha image tag
     set:
-      global.imageTag: v9.8.7
+      global.imageTag: sha-c4a7ba28bbf10d91c908d224434908a8fed4eccd
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v1.4.29
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: defaults to the chart appVersion
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RELEASE_VERSION
+            value: v1.4.29
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: can be pinned to a different release than the chart
+    set:
+      global.releaseVersion: v9.8.7
+      global.imageTag: sha-c4a7ba28bbf10d91c908d224434908a8fed4eccd
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
