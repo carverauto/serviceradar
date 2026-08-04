@@ -1,0 +1,96 @@
+build/release/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 2,35,38,47
+  s_0eda1e1f71cc86::t_96a2c53e683f02 4-16
+go/pkg/config/kvnats/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 11
+go/pkg/spireadmin/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 12-22
+tools/go/BUILD.bazel
+  s_0eda1e1f71cc86::t_1446cebb5e765b 1-14
+go/pkg/logger/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 10,24,31
+go/cmd/data-services/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 10-14
+proto/profiler/BUILD.bazel
+  s_0eda1e1f71cc86::t_5ffed23bb69db7 13-23
+docker/images/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 18,97,105,118,120,129,138-139,147,160-161,166-180,189,199-200,212-218,220-221,226-232,238,245-246,251-263,271,280-281,291-301,307,314-315,325-338,343,349-350,367-377,379-380,390-402,409,417-418,428-432,439-445,447-448,458-462,467,473-474,481-484,490-497,508,515-518,534-539,541-549
+build/native_addons/BUILD.bazel
+  s_0eda1e1f71cc86::t_8614154cdd9b43 7-19
+tools/go/derive_agent_release_public_key/BUILD.bazel
+  s_0eda1e1f71cc86::t_1446cebb5e765b 1-14
+go/pkg/sysmon/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 23-27
+go/pkg/edgeonboarding/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 16
+proto/rperf/BUILD.bazel
+  s_0eda1e1f71cc86::t_b79bafef3ebaf7 13-16
+go/pkg/remoteaccess/sshca/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 15
+integration_tests/srql/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 43-46
+build/rpm_toolchain/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 10,20-21,29-30
+build/toolchains/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 21-22,36-37,129-130,144-145,158-159
+go/cmd/faker/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 14-15
+go/pkg/db/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 14,23-24,41
+go/cmd/tools/mapper-baseline/BUILD.bazel
+  s_0eda1e1f71cc86::t_77ed20056a9a4d 3-6,8,20,24-26
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 28,30-31
+build/wasm_plugins/BUILD.bazel
+  s_0eda1e1f71cc86::t_5ee98fa7f91c68 62
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 1,4-5,17,50-61
+go/pkg/cpufreq/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 25-28,30-56,59-66,84-89,108
+  s_0eda1e1f71cc86::t_90cc07596033a7 10-11,13
+go/cmd/tools/sshca-signer/BUILD.bazel
+  s_0eda1e1f71cc86::t_ae9b21ebf80312 3-15,17,29
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 34,36
+go/cmd/cli/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 8
+go/pkg/grpc/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 49
+build/rust/proto_toolchain/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 9
+.forgejo/workflows/main.yml
+  s_0eda1e1f71cc86::t_7bc279a4d246a8 126-131
+go/cmd/tools/waitforport/BUILD.bazel
+  s_0eda1e1f71cc86::t_5ee98fa7f91c68 14
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 1,5,8-13
+go/cmd/agent-updater/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 9
+go/internal/fastsum/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 19
+go/pkg/models/BUILD.bazel
+  s_0eda1e1f71cc86::t_5709601488582b 5-14
+go/cmd/agent/BUILD.bazel
+  s_0eda1e1f71cc86::t_6f7bd4bf7a956a 11-14
+BUILD.bazel
+  s_0eda1e1f71cc86::t_e91e170d6f1c38 81
+  s_0eda1e1f71cc86::t_1446cebb5e765b 3
+  s_0eda1e1f71cc86::t_1e7bf9b6a34421 38-39,41-50,52-53
+  s_0eda1e1f71cc86::t_ba89d7ce9c98b1 37,40,51,59-80,82-83
+  s_0eda1e1f71cc86::t_f0d9f6b5e3ee5f 90-91
+  s_0eda1e1f71cc86::t_886f4781821459 1
+  s_0eda1e1f71cc86::t_be63b4ac455983 21-36
+  s_0eda1e1f71cc86::t_2f05461eb8f96b 84-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "600d99d5400f75da4f6e53b81240110ec6eafd6e",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
