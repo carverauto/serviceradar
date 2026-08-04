@@ -155,16 +155,32 @@ Verified: drift is zero and stable across repeated runs, `//:gazelle_diff_test` 
 `//go/...`, `//proto/...`, `//tools/...` and `//build/release:all` build, and the renamed
 test targets pass.
 
-**11. netprobe libpcap-free assertion**
+**11. netprobe libpcap-free assertion — DONE**
 
-Today: `rust-musl.yml` runs `bazel build`, then `scripts/ci/assert-netprobe-libpcap-free.sh`
-against the output path.
+Now `//rust/netprobe:static_linkage_test`. `scripts/ci/assert-netprobe-libpcap-free.sh` is
+deleted, and `rust-musl.yml` lost its two-architecture matrix, its `Build` step and its
+`Verify static linkage` step in favour of one `bazel test`.
 
-This is a property of a built binary, which is the textbook case for an `sh_test` with the
-binary as `data`. Once it is a target it rides `bazel test //...` for free and
-`rust-musl.yml` disappears completely. The only open question is whether the musl build
-needs a platform flag that a plain `//...` build does not supply. Check before deleting the
-workflow.
+The open question in the original note was real: a plain `//...` build does not produce a
+musl artifact. `platform_transition_filegroup` from `@aspect_bazel_lib` answers it. The test
+depends on the binary twice, once transitioned to each musl platform, so no `--platforms`
+on the command line and no `bazel cquery --output=files | tail -n 1` to rediscover the path.
+
+It is a `go_test`, not the `sh_test` this note predicted. The `sh_test` was written first
+and failed on the executor with `file(1) is required to assert static linkage`: the RBE
+image does not carry `file`, and `.bazelrc` deliberately withholds `PATH` from test actions,
+so a test sees only `/bin:/usr/bin:/usr/local/bin`. Go's `debug/elf` is stdlib and
+architecture-neutral, which removes the host-tool dependency and lets one test on an x86_64
+executor check the aarch64 artifact too. `DT_NEEDED` is read as a list rather than grepped
+out of `readelf` prose, and the check extends to `DT_RPATH`, `DT_RUNPATH` and `DT_SONAME`.
+
+Verified both directions. Against the real musl artifacts both subtests pass. Pointed at the
+glibc build it fails with exactly the expected findings: a `PT_INTERP` and five `DT_NEEDED`
+entries (`libgcc_s`, `libm`, `libc`, `ld-linux-x86-64`, `libstdc++`).
+
+`rust-musl.yml` is now a single `bazel test` and is a deletion candidate once the master
+workflow lands, since the target rides `bazel test //...`. Confirmed it is selected by the
+existing sweep query.
 
 ## Part 2: Workflow inventory
 
