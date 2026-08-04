@@ -4,7 +4,7 @@
 
 startup --max_idle_secs=60
 
-common --announce_rc
+common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
 common --curses=yes
@@ -224,6 +224,30 @@ build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
 build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
 build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
+# This flag is why `bazel run //docker/images:*_push` fails on macOS with
+# `aspect_bazel_lib++toolchains+jq_linux_amd64/jq: cannot execute binary file`. The generated
+# launcher resolves crane/jq against the host platform at analysis time, and then `bazel run`
+# executes that launcher LOCALLY -- so declaring the host to be Linux hands a macOS developer
+# Linux binaries. Measured on //docker/images:core_elx_image_amd64_push, only this differing:
+#
+#     --config=remote                                  -> jq_linux_amd64,  crane_linux_amd64
+#     --config=remote --host_platform=@platforms//host -> jq_darwin_arm64, crane_darwin_arm64
+#
+# That difference is real but does NOT fix the push: `bazel run --config=remote
+# --host_platform=@platforms//host //docker/images:core_elx_image_amd64_push` still dies on
+# jq_linux_amd64, because the runfiles tree it executes against was still populated with the
+# Linux toolchain. Overriding the flag per invocation has been tried and does not work.
+#
+# Do not chase this further with flags. Two known-good options:
+#   1. Push from Linux -- the BuildBuddy runner or any Linux box. Also the right answer for
+#      WAN cost, since the executors and registry.carverauto.dev are in the same DC.
+#   2. On macOS, use scripts/push_all_images.sh, which builds the target and then patches
+#      CRANE=/JQ= in the generated launcher to darwin binaries. That is what it is for.
+#
+# Also note removing this pin is NOT free even in principle: //build/rbe:rbe_platform is the
+# only platform carrying the erlang_internal/elixir_internal constraints the Erlang/Elixir
+# toolchains resolve through, and @platforms//host carries neither. Remote execution itself
+# does not depend on this flag -- that comes from --extra_execution_platforms below.
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
 build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
@@ -240,6 +264,21 @@ build:remote_base --java_runtime_version=remotejdk_11
 build:remote_base --tool_java_runtime_version=remotejdk_11
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
+# Outputs stay in the CAS unless a local action or `bazel run` actually needs them. Bazel 9's
+# default is `toplevel`, which materialises every top-level output -- on this repo that means
+# dragging entire image layer tars out of the BuildBuddy cache in GCP onto a machine that
+# does nothing with them. The executors already hold those bytes; the download is pure WAN
+# cost. This is the single biggest client-side lever on a `//...` build.
+#
+# CONSEQUENCE: after a `--config=remote` build the outputs are NOT on local disk. Anything
+# that reads artifacts back out of `bazel info bazel-bin` -- scripts/push_all_images.sh,
+# scripts/push_all_wasm_plugins.sh, scripts/sign-oci-publish.sh, and the native-addon
+# publish/verify scripts -- has to append `--remote_download_outputs=all` to its OWN bazel
+# invocation. Append it as a flag on the command line, where a later flag wins over the one
+# the config sets.
+#
+# Do NOT instead add a publish-only config that duplicates remote_base with this one flag
+# changed. That was `remote_push`; it drifted out of sync with remote_base and was deleted.
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=100
@@ -275,17 +314,6 @@ build:remote --config=remote_base
 build:remote --noenable_platform_specific_config
 # Cache/executor/BES come from remote_base. Do not re-point them here.
 build:remote --remote_timeout=10m
-
-# Remote image publish profile.
-# rules_oci push flows need descriptor/config artifacts available locally; using
-# minimal downloads can fail later with "Lost inputs no longer available remotely"
-# when BuildBuddy evicts intermediate CAS entries before the local push step runs.
-build:remote_push --config=remote
-build:remote_push --noenable_platform_specific_config
-build:remote_push --remote_download_outputs=all
-run:remote_push --config=remote
-run:remote_push --noenable_platform_specific_config
-run:remote_push --remote_download_outputs=all
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
 build:clang-tidy --features=clang_tidy

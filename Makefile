@@ -136,7 +136,7 @@ verify-agent-ebpf: ## Verify checked-in agent eBPF probe artifacts are current
 
 .PHONY: push-web-ng
 push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI registry (remote)
-	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
+	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
 push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
@@ -167,7 +167,7 @@ push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
 		./scripts/push_all_images.sh --tag "$${effective_tag}"; \
 	else \
-		bazel run --config=remote_push --stamp //:push -- --tag "$${effective_tag}"; \
+		bazel run --config=remote --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
 	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
 		./scripts/sign-oci-publish.sh; \

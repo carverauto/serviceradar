@@ -652,7 +652,7 @@ Restart the checker using the persisted config:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - If a single image needs republishing, run `bazel run --config=remote //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
