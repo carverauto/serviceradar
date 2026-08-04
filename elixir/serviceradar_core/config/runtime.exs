@@ -1421,7 +1421,11 @@ if config_env() == :prod do
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
-            queue: :maintenance}
+            queue: :maintenance},
+           # Kept in step with the same entry in serviceradar_core_elx's
+           # runtime.exs -- that one is what the release actually loads.
+           {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
+            ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
