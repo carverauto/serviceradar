@@ -17,9 +17,6 @@ Build all of the repo via a Bazel and migrate CI to Bazel RBE and remote cache.
 
 A Bazel CI Workflow would look like this:
 
-# Setup Docker Authenticate
-bazel run -c opt //:buildbuddy_setup_docker_auth --verbose_failures
-
 # 1 Build
 bazel build -c opt //... --config=remote
 
