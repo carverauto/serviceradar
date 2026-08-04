@@ -1517,7 +1517,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     :boolean_fields,
     :array_fields
   ]
-  @completion_control_tokens ~w(limit: sort: time: status: type: tag: site: where group: by:)
+  # Reserved control tokens. The editor accepts `["in:", "where" | control_tokens]` and
+  # underlines anything else as unknown, so a downsample/stats token missing here renders
+  # a valid query as invalid. Keep in sync with `CONTROL_PREFIXES` in
+  # assets/js/lib/srql/tokenizer.js.
+  @completion_control_tokens ~w(limit: sort: time: status: type: tag: site: where group: by: bucket: agg: value_field: series: stats:)
   @completion_tokens (
                        entity_tokens = Enum.map(@entities, &"in:#{&1.id}")
 
