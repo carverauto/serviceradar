@@ -1079,3 +1079,100 @@ fn translate_hourly_max_downsample_reads_cagg_max_value_column() {
         response.sql
     );
 }
+
+// A `bucket:` chart always renders oldest-first, but `sort:time:desc limit:N` is asking
+// which END of the window survives the LIMIT. The ordering used to be hardcoded ascending
+// and `plan.order` was discarded, so a 30-day chart at `bucket:5m limit:100` silently
+// returned the OLDEST 100 buckets and stopped two weeks short of now.
+#[test]
+fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query:
+            "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 sort:time:desc limit:100"
+                .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("order by 1 desc, 2 asc nulls first"),
+        "sort:time:desc must truncate from the newest bucket: {sql}"
+    );
+    assert!(
+        sql.trim_end()
+            .ends_with("order by 1 asc, 2 asc nulls first"),
+        "rows must still come back oldest-first for charting: {sql}"
+    );
+}
+
+// No `sort:` means no opinion about which end to keep, so the pre-existing ascending
+// truncation is preserved -- this change only reacts to an explicit descending sort.
+#[test]
+fn translate_downsample_without_sort_keeps_ascending_truncation() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 limit:100"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        !sql.contains("order by 1 desc"),
+        "an unsorted downsample must not flip the truncation direction: {sql}"
+    );
+    assert!(
+        !sql.contains(") windowed"),
+        "an unsorted downsample must not grow the truncation wrapper: {sql}"
+    );
+    assert!(
+        sql.contains("order by 1 asc, 2 asc nulls first"),
+        "expected the plain ascending tail: {sql}"
+    );
+}
+
+// The flow CAGG union path and the rate path build their SQL separately from the standard
+// aggregation path, so each needs its own proof that `sort:` reaches the tail.
+#[test]
+fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for query in [
+        // Routes to flow_traffic_1h via build_flow_cagg_union_sql (no filters, no series).
+        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total sort:time:desc limit:25",
+        // Routes to the rate CTE path.
+        "in:snmp time:last_1h bucket:5m agg:rate series:if_index sort:time:desc limit:25",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("order by 1 desc, 2 asc nulls first"),
+            "{query} must truncate from the newest bucket: {sql}"
+        );
+        assert!(
+            sql.trim_end()
+                .ends_with("order by 1 asc, 2 asc nulls first"),
+            "{query} must still return rows oldest-first: {sql}"
+        );
+    }
+}
