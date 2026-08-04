@@ -1,0 +1,33 @@
+.forgejo/workflows/ci-master.yml
+  s_0eda1e1f71cc86::t_7d7f30ffd2a570 131-141,143-161
+  s_0eda1e1f71cc86::t_b373d89190d0e5 1-2,5,9-25,28-31,33-37,43-45,50-76,79-86,88,91-96,101,103-105,107-109,111-112,114,118,120-130,162,180-181,186-188,191-193,198,203-204,209,212-213,218,221,226,237,240-241,246
+  s_0eda1e1f71cc86::t_8f1b699a45bca4 173-179,182-185
+  s_0eda1e1f71cc86::t_7519750fdff08b 214-217,219-220,222-225,227-236
+  s_0eda1e1f71cc86::t_03708efc15256f 205-208
+  s_0eda1e1f71cc86::t_e535ce69487692 242-245
+  s_0eda1e1f71cc86::t_157deacf626444 142
+  s_0eda1e1f71cc86::t_a7b57f63d260b2 247
+  s_0eda1e1f71cc86::t_afa3cc9f8fc499 194-197
+  s_0eda1e1f71cc86::t_8de1ee6129efd0 3-4,6-8,26-27,38-42,46-47,77-78,87,89-90,97-100,102,106,113,115-117,119,163-172,189-190,199-202,210-211,238-239,248-250
+  s_0eda1e1f71cc86::t_7686a90f27a880 48-49
+  s_0eda1e1f71cc86::t_4b1fea61395619 32
+  s_0eda1e1f71cc86::t_45ef1b5d817088 110
+openspec/notes/bazel-bb-ci.md
+  s_0eda1e1f71cc86::t_d97f8b3d82e99f 36-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "6e6ffa42f3dc2e5ae621d1146a29ece0cedfb8bf",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
