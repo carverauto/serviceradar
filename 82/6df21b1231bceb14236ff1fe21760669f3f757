@@ -1,0 +1,39 @@
+Makefile
+  s_d2089df286db69::t_b434f849101792 139,170
+.bazelrc
+  s_d2089df286db69::t_6002cea5047e7d 267-281
+  s_d2089df286db69::t_be4f3da0592bcd 236-239,241-245,247-250
+  s_d2089df286db69::t_9d1a2df3423825 227-235,240,246
+  s_d2089df286db69::t_4b3e528cc71c4d 7
+docs/GHCR_PUBLISHING.md
+  s_d2089df286db69::t_b434f849101792 43,66,95
+.agents/skills/demo-local-rollout/SKILL.md
+  s_d2089df286db69::t_b434f849101792 121-124
+k8s/buildbuddy/values.yaml
+  s_d2089df286db69::t_6f7edaba063a40 126,128,130-138,140
+  s_d2089df286db69::t_948e48a0562f53 122-125,127,129,139
+scripts/demo-staging-web.sh
+  s_d2089df286db69::t_b434f849101792 7
+scripts/demo-staging-core.sh
+  s_d2089df286db69::t_b434f849101792 7
+AGENTS.md
+  s_d2089df286db69::t_b434f849101792 651
+docker/LOCAL_BUILD.md
+  s_d2089df286db69::t_b434f849101792 149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "826df21b1231bceb14236ff1fe21760669f3f757",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
