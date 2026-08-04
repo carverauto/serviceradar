@@ -1,4 +1,5 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -77,10 +78,7 @@ rust_library(
 
 rust_binary(
     name = "rdp_adapter",
-    exec_properties = {
-        "EstimatedCPU": "4",
-        "EstimatedMemory": "8Gi",
-    },
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_lib"],
@@ -88,10 +86,7 @@ rust_binary(
 
 rust_binary(
     name = "rdp_adapter_ironrdp",
-    exec_properties = {
-        "EstimatedCPU": "4",
-        "EstimatedMemory": "8Gi",
-    },
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_ironrdp_lib"],
@@ -99,10 +94,7 @@ rust_binary(
 
 rust_binary(
     name = "rdp_adapter_ironrdp_connector_experimental",
-    exec_properties = {
-        "EstimatedCPU": "4",
-        "EstimatedMemory": "8Gi",
-    },
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],

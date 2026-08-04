@@ -1,6 +1,7 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "crate_deps")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -67,7 +68,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.25"
+NETPROBE_VERSION = "0.2.26"
 
 cargo_build_script(
     name = "build_script",
@@ -96,10 +97,7 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
-    exec_properties = {
-        "EstimatedCPU": "4",
-        "EstimatedMemory": "8Gi",
-    },
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "p0f-corpus/p0f.fp",
