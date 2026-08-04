@@ -48,26 +48,39 @@ replicas: 1
 autoscaler:
   enabled: false
 
-# Sized for the runner, with the action requesting 32GB.
+# Sized for the runner, with the action in //buildbuddy.yaml requesting 28GB (= 28 GiB).
 #
-# `requests` is the number that matters twice over: the kube scheduler reserves it, AND the
-# BuildBuddy scheduler advertises capacity from it. A task larger than requests is
-# unschedulable rather than slow -- that is the failure this whole change came from:
+# THE TWO FIELDS DO DIFFERENT JOBS, AND IT IS `limits` THAT SIZES TASKS.
 #
-#   no registered executors in pool "" ... can fit a task with milli_cpu=3000,
-#   memory_bytes=25769803776
+#   requests -> what the kube scheduler reserves on a node. Governs whether the POD schedules.
+#   limits   -> what BuildBuddy advertises as assignable, MINUS a flat 10 GB reserve.
+#               Governs whether a TASK can be placed on it.
 #
-# 36Gi of request against a 32GB (= 32e9 bytes = 29.8GiB) action leaves ~6Gi of headroom for
-# the executor process itself and for page cache, which is where the runner's real pressure
-# showed up: an invocation reported 31.24GB used of 15.03GB total and did NOT get OOM-killed,
-# so most of it was reclaimable cache from disk-cache writes and input uploads, not resident
-# demand.
+# Confirmed from this executor's own startup line:
 #
-# BEFORE DEPLOYING, confirm a node can actually hold this:
+#   Initialized task scheduler: CPU: 0 of 16,000 milliCPU allocated,
+#   Memory: 0 of 32,949,672,960 bytes allocated
+#
+#   limits.memory 40Gi = 42,949,672,960
+#   advertised         = 32,949,672,960   <- exactly 10,000,000,000 less
+#   limits.cpu "16"   -> 16,000 milliCPU  <- CPU is the limit, not reduced
+#
+# So assignable here is 30.69 GiB. Raising `requests` alone does nothing for task placement;
+# raise `limits` to give the runner more, then re-read the log line above. The rule also
+# explains ./values.yaml: limits 32Gi - 10e9 = 22.7 GiB assignable, which is why a 24 GiB task
+# was rejected by the build fleet.
+#
+# Why 36Gi/40Gi rather than something tighter: requests must exceed what the runner actually
+# touches or the kubelet can evict it under node pressure, and the runner's real usage is high
+# -- an invocation at 14 GiB reported "31.24GB used of 15.03GB total" without being
+# OOM-killed, so most of that was reclaimable page cache from disk-cache writes and
+# --jobs=100 input uploads. 36Gi of guarantee against 30.69 GiB of advertised capacity means
+# the runner can never be promised more than the node actually holds for it.
+#
+# BEFORE DEPLOYING, confirm a node can hold `requests`:
 #   kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'
-# A 36Gi request no node can satisfy leaves the pod Pending, and the workflow then fails with
-# the same "no registered executors" message it does today -- only after a helm deploy rather
-# than before one.
+# A request no node satisfies leaves the pod Pending, and the workflow then fails with the
+# same "no registered executors" message -- only after a helm deploy rather than before one.
 resources:
   requests:
     cpu: "8"

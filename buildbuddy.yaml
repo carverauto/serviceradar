@@ -42,19 +42,41 @@ actions:
     # member was large enough. The two messages differ by those two words and nothing else --
     # see the README table.
     #
-    # 32GB against the workflow fleet's 36Gi request. BuildBuddy reads GB as 10^9, so this is
-    # 29.8GiB and leaves ~6Gi for the executor process and page cache.
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9. This cost two scheduling failures to establish.
     #
-    # Sized from evidence, not guesswork: at 14GB an invocation reported "31.24GB used of
-    # 15.03GB total" and was NOT OOM-killed. Surviving 2x over cgroup limit means most of it
-    # was reclaimable page cache -- disk-cache writes and --jobs=100 input uploads -- rather
-    # than resident demand. Hence generous headroom rather than a tight fit.
+    #   "14GB" -> BuildBuddy reported the VM as "15.03GB total"  (14 GiB = 15,032,385,536)
+    #   "32GB" -> scheduler asked for memory_bytes=34359738368   (= 32 GiB exactly)
     #
-    # If this still will not schedule, the executor advertises less than its `requests`
-    # (BuildBuddy reserves some for itself). Check what the fleet actually offers:
-    #   kubectl get pods -n buildbuddy -l pool=workflows -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].resources.requests.memory}{"\n"}{end}'
+    # So the number here is GiB and must be compared against the executor's advertisement in
+    # GiB. Do not convert.
+    #
+    # THE CEILING IS `limits` MINUS A FLAT 10 GB, NOT `requests`. From the executor's own
+    # startup line:
+    #
+    #   Initialized task scheduler: CPU: 0 of 16,000 milliCPU allocated,
+    #   Memory: 0 of 32,949,672,960 bytes allocated
+    #
+    #   limits.memory 40Gi   = 42,949,672,960
+    #   assignable           = 32,949,672,960   <- difference is exactly 10,000,000,000
+    #   limits.cpu    "16"   -> 16,000 milliCPU  <- CPU is the limit, unreduced
+    #
+    # The rule explains every failure so far. Build fleet: limits 32Gi - 10e9 = 22.7 GiB
+    # assignable, so 24 GiB was rejected there while 14 GiB fit. This fleet: 30.69 GiB
+    # assignable, so 32 GiB was rejected by ~1.3 GiB.
+    #
+    # 28 GiB leaves ~2.9 GB against the 30.69 GiB advertised. To go higher, raise
+    # `limits.memory` in //k8s/buildbuddy/values-workflows.yaml -- assignable tracks limits, so
+    # trimming this number is the wrong lever once it is close to the cap.
+    #
+    # Re-read the advertisement after any change to that file:
+    #   kubectl logs -n buildbuddy <workflow-pod> | grep "Initialized task scheduler"
+    #
+    # The floor is evidence-based: at 14 GiB an invocation reported "31.24GB used of 15.03GB
+    # total" and was NOT OOM-killed. Surviving 2x over the cgroup limit means most of that was
+    # reclaimable page cache -- disk-cache writes and --jobs=100 input uploads -- rather than
+    # resident demand. So this wants generous headroom, but 14 GiB is demonstrably too tight.
     resource_requests:
-      memory: "32GB"
+      memory: "28GB"
       disk: "40GB"
 
     steps:

@@ -311,8 +311,27 @@ Read the two apart carefully, because they are diagnosed completely differently:
 | `... in pool "X" ... **can fit** a task with ...` | the pool was found; no member is large enough |
 
 The second is a sizing problem, and `25769803776` is exactly 24 GiB — the action's
-`resource_requests`. The ceiling is the executor pod's **`requests`** (16Gi), not its `limits`
-(32Gi), because that is what the BuildBuddy scheduler advertises.
+`resource_requests`.
+
+**The ceiling is `limits` minus a flat 10 GB, not `requests`.** Read it off the executor's own
+startup line rather than inferring it:
+
+```bash
+kubectl logs -n buildbuddy <pod> | grep "Initialized task scheduler"
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 32,949,672,960 bytes allocated
+```
+
+| fleet | `limits.memory` | advertised (limits − 10e9) | largest task |
+|---|---|---|---|
+| build | 32Gi = 34,359,738,368 | 24,359,738,368 (22.7 GiB) | 22 GiB |
+| workflows | 40Gi = 42,949,672,960 | 32,949,672,960 (30.69 GiB) | 28 GiB |
+
+CPU is the limit unreduced: `limits.cpu: "16"` → 16,000 milliCPU.
+
+Two consequences. `resource_requests` in `buildbuddy.yaml` is in **GiB** despite the `GB`
+suffix — `"14GB"` produced a VM BuildBuddy described as "15.03GB total", which is 14 GiB in
+decimal. And raising `requests` alone never helps task placement; raise `limits`, then re-read
+the log line.
 
 The runner genuinely needs ~32GB, so the fix was the second-deployment alternative rather than
 a pool rename: `pool: "workflows"` in `buildbuddy.yaml` against the dedicated fleet in
