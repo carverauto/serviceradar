@@ -1,0 +1,19 @@
+MODULE.bazel
+  s_0eda1e1f71cc86::t_3720911f2d0f7b 10-11,16,20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e36fa889037e406c9bccd0d57f196bbd88b87874",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
