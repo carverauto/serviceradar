@@ -16,12 +16,37 @@ actions:
         branches:
           - "staging"
 
-    # Runner sizing. Defaults are 2 CPU / 8 GB / 20 GB. Values are byte counts or numeric
-    # strings with an IEC abbreviation; cpu also accepts an `m` suffix for thousandths of a core
-    # ("8000m" = 8 cores). The runner competes with build actions for the same three executors,
-    # so raise this if it starves the fan-out rather than lowering --jobs.
+    # Runner sizing. Values are byte counts or numeric strings with an IEC abbreviation; cpu
+    # also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
+    #
+    # THE CEILING IS THE EXECUTOR POD'S `requests`, NOT ITS `limits`.
+    # //k8s/buildbuddy/values.yaml requests 8 CPU / 16Gi and limits 16 CPU / 32Gi, and the
+    # scheduler places tasks against the advertised capacity, which tracks requests. Asking for
+    # more than that is unschedulable rather than slow -- there is no executor it can ever land
+    # on, so the run fails before a single step executes:
+    #
+    #   no registered executors in pool "" with os "linux" with arch "amd64" can fit a task
+    #   with milli_cpu=3000, memory_bytes=25769803776
+    #
+    # 25769803776 is 24 GiB, the value that used to be here. Note that message is NOT the
+    # pool-misconfiguration one the README describes: pool "" is correct and `pool: "default"`
+    # resolves to it. "can fit" means the pool was found and no member is large enough.
+    #
+    # 14GB, not the 8GB default and not the 16Gi ceiling. This runner does real local work --
+    # a Bazel server over ~2,000 targets, plus every `no-remote-exec` target, which includes
+    # two //integration_tests/srql suites that each start their own Postgres.
+    #
+    # This sits close to the ceiling on purpose, and the trade is explicit: 14GB against a
+    # 16Gi advertisement leaves ~2Gi, so an executor hosting the runner has almost nothing left
+    # for build actions and effectively drops out of the fan-out pool of three. That is
+    # acceptable while the runner is the long pole. If the fan-out starves, come down rather
+    # than up -- there is no headroom above this.
+    #
+    # If it still will not schedule, the advertisement is lower than requests (BuildBuddy
+    # reserves some for its own overhead). Check what the executors actually offer:
+    #   kubectl get pods -n buildbuddy -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].resources.requests.memory}{"\n"}{end}'
     resource_requests:
-      memory: "24GB"
+      memory: "14GB"
       disk: "40GB"
 
     steps:
