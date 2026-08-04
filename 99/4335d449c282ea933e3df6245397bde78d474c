@@ -1,0 +1,30 @@
+scripts/push_all_images.sh
+  s_d2089df286db69::t_72068b64ee6f77 154,158-168
+  s_d2089df286db69::t_1970c278f79e82 211-217,222-223
+  s_d2089df286db69::t_2a8e57c96e0e5e 133-138
+  s_d2089df286db69::t_b434f849101792 6,58
+  s_d2089df286db69::t_c2c346c431dd8e 17-28
+  s_d2089df286db69::t_7791dfa60e5a0d 155-157
+  s_d2089df286db69::t_f2322577671046 197-206,218-221
+scripts/push_all_wasm_plugins.sh
+  s_d2089df286db69::t_b434f849101792 33
+  s_d2089df286db69::t_4d6ce5d14f7d32 61-66
+MODULE.bazel.lock
+  s_d2089df286db69::t_abf7bec8908907 72,275-276,1326,1354,1359-1386,1517,1543,1569,1582,1959,2063,2102,2531,2557,2570,2622,2739,2765,3051,3077,3233,3298,3649,3662,3701,3805,3896,3948,4052,4078,4104,4351,4403,4702,4741,4767,4780,4793,5001,5014,5027,5040,5053,5066,5079,5092,5118,5222,5339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "994335d449c282ea933e3df6245397bde78d474c",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
