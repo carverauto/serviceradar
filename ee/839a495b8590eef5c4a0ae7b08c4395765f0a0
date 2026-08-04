@@ -1,0 +1,36 @@
+.forgejo/workflows/elixir-integration-sr-core.yml
+  s_0eda1e1f71cc86::t_cc598887dbc7c8 219,228,235,242,247,255
+  s_0eda1e1f71cc86::t_f8f6749423e171 195-206,215
+  s_0eda1e1f71cc86::t_611afd6d71469b 207-214
+elixir/serviceradar_core/BUILD.bazel
+  s_0eda1e1f71cc86::t_8d1ec5fd19097d 379-388
+  s_0eda1e1f71cc86::t_706b25c9b73ecf 337
+  s_0eda1e1f71cc86::t_8902d796357e9e 339
+rust/integration-db/BUILD.bazel
+  s_0eda1e1f71cc86::t_a5cf196490647c 64-72
+elixir/web-ng/BUILD.bazel
+  s_0eda1e1f71cc86::t_2ee1043a4cba8a 17-28
+.forgejo/workflows/main.yml
+  s_0eda1e1f71cc86::t_eac502c5562cee 104-106
+  s_0eda1e1f71cc86::t_342eaed3a3d412 206-221
+  s_0eda1e1f71cc86::t_845b05e10b72d2 86-96,98,100-103,107-111,116-119
+openspec/notes/bazel-ci.md
+  s_0eda1e1f71cc86::t_fb3f7791dd1f8a 332,334-338,340-356
+  s_0eda1e1f71cc86::t_55e3c0fb084b48 400-416,418-422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "ee839a495b8590eef5c4a0ae7b08c4395765f0a0",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
