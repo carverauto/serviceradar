@@ -360,6 +360,15 @@ const (
 	wideExpires   = int64(9_000_000_000_000_000_000)
 )
 
+// widenEnvelope makes the capability's own validity envelope STRICTLY WIDER than the
+// collection window it carries, so an observation on a collection endpoint is unambiguously
+// inside the envelope.
+func widenEnvelope(r *edgev1.EdgeRecordV1) {
+	cap := r.GetSourceAuthorization().GetCapability()
+	cap.NotBeforeUnixNano = winNotBefore - 3_600_000_000_000
+	cap.ExpiresAtUnixNano = winExpires + 3_600_000_000_000
+}
+
 func widenWindow(r *edgev1.EdgeRecordV1) {
 	c := r.GetSourceAuthorization().GetCapability().GetSource()
 	c.CollectionNotBeforeUnixNano = wideNotBefore
@@ -413,16 +422,23 @@ func sweepCorpusRelationVectors() []corpusVector {
 			})},
 
 		// --- TIME: eight negatives, BOTH sides of all three windows ---
+		// THE HOST DELTA IS COUNTER-ADJUSTED. The host absolute time is batch time PLUS the
+		// delta, so moving the batch time with a zero delta moves the host time with it and
+		// breaks TWO comparisons: delete the batch predicate and the host predicate still
+		// rejects, so the vector would prove neither. Holding the host absolute time at the
+		// canonical instant leaves exactly one comparison different.
 		{"sweep_join_batch_time_before.bin", string(edgerecord.SweepLabelBatchTimeWindow), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.ObservedAtUnixNano = winNotBefore - 1
+					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
 				})
 			})},
 		{"sweep_join_batch_time_after.bin", string(edgerecord.SweepLabelBatchTimeWindow), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.ObservedAtUnixNano = winExpires + 1
+					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
 				})
 			})},
 		// A NEGATIVE delta is what reaches the before-start side.
@@ -476,17 +492,54 @@ func sweepCorpusRelationVectors() []corpusVector {
 				})
 			})},
 
-		// --- ENDPOINT CONTROLS: both signed collection endpoints are INSIDE ---
-		{"sweep_join_positive_at_not_before.bin", "", "accept",
+		// --- ENDPOINT CONTROLS: both collection endpoints are INSIDE, on ALL THREE paths ---
+		//
+		// Each widens the CAPABILITY ENVELOPE strictly beyond the collection window. With
+		// the two equal, an observation exactly on a collection endpoint also sits exactly
+		// on an envelope endpoint, so the control cannot show which window admitted it --
+		// and a half-open envelope would refuse the expiry case for the wrong reason.
+		{"sweep_join_positive_batch_at_not_before.bin", "", "accept",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.ObservedAtUnixNano = winNotBefore
+					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
 				})
 			})},
-		{"sweep_join_positive_at_expires.bin", "", "accept",
+		{"sweep_join_positive_batch_at_expires.bin", "", "accept",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
 					b.ObservedAtUnixNano = winExpires
+					b.GetHosts()[0].ObservedAtDeltaNano = fixedNanos - b.GetObservedAtUnixNano()
+				})
+			})},
+		{"sweep_join_positive_host_at_not_before.bin", "", "accept",
+			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
+				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+					b.GetHosts()[0].ObservedAtDeltaNano = winNotBefore - fixedNanos
+				})
+			})},
+		{"sweep_join_positive_host_at_expires.bin", "", "accept",
+			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
+				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+					b.GetHosts()[0].ObservedAtDeltaNano = winExpires - fixedNanos
+				})
+			})},
+		{"sweep_join_positive_trace_at_not_before.bin", "", "accept",
+			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
+				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winNotBefore/1_000_000, 0x30)
+				})
+			})},
+		{"sweep_join_positive_trace_at_expires.bin", "", "accept",
+			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
+				widenEnvelope(r)
+				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+					b.GetHosts()[0].GetMtr().TraceId = uuidv7At(winExpires/1_000_000, 0x30)
 				})
 			})},
 

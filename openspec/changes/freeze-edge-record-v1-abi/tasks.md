@@ -381,7 +381,7 @@ here.
                 spanning the negative range, and differs from THAT control in exactly one
                 comparison -- the delta -- which satisfies both SHALLs rather than trading
                 one off against the other.
-          (iii) DONE, and REQUIREMENT-complete rather than label-complete. FORTY-FIVE shared
+          (iii) DONE, and REQUIREMENT-complete rather than label-complete. FORTY-NINE shared
                 vectors under `proto/edge/v1/testdata/`, written by Go and consumed by
                 Elixir through `ingest_own_payload/1`, with the expectation travelling
                 beside the bytes in `sweep_join_corpus.txt` so Elixir DERIVES it.
@@ -396,11 +396,19 @@ here.
                 vectors (two forbidden-presence, three required-absence, three malformed --
                 per row, not sampled); UNSPECIFIED and absent-authority; six
                 source-independent relations on one representative row; the EIGHT time
-                negatives (batch two, host three, trace three); both endpoint controls; the
-                wide-window control; and the NONCANONICAL payload -- a duplicate known
+                negatives (batch two, host three, trace three); SIX endpoint controls --
+                batch, host and trace at BOTH ends, each inside a capability envelope
+                widened strictly beyond the collection window, since an observation sitting
+                on a collection endpoint that is also an envelope endpoint cannot show which
+                window admitted it; the wide-window control; and the NONCANONICAL payload -- a duplicate known
                 singular field, 243 carried bytes against 233 re-encoded -- which both
                 runtimes must ACCEPT, proving `payload_sha256` is checked against the exact
                 carried bytes.
+                THE BATCH-TIME NEGATIVES COUNTER-ADJUST THE HOST DELTA. Host absolute time
+                is batch time plus the delta, so moving the batch time with a zero delta
+                breaks TWO comparisons and proves neither -- delete the batch predicate and
+                the host one still rejects. Holding the host instant fixed leaves exactly
+                one comparison different, and deleting the batch predicate now ACCEPTS.
                 Go asserts the OWNING GATE before writing it to the manifest, including
                 not-the-other-gate. A gate name written unchecked is a claim Elixir then
                 derives its expectation from.
