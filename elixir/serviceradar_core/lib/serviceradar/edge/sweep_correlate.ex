@@ -47,6 +47,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
 
   alias ServiceRadar.Edge.CapabilityClaims
   alias ServiceRadar.Edge.SweepMatrix
+  alias ServiceRadar.Edge.SweepOutcomePolicy
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.EdgeSignedCapabilityV1
@@ -85,6 +86,46 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   non-record argument -- so `outcome()` alone would understate what it returns.
   """
   @type result :: outcome() | {:error, payload_failure()}
+
+  @typedoc """
+  A full-body-validator rejection that is NOT one of the two frozen outcomes below.
+
+  Its own gate, deliberately. `{:body, label}` is frozen to carry a `SweepMatrix.label()`,
+  so routing arbitrary body families through it would break that invariant for every
+  existing caller; and these rejections are body-owned, so `:correlation` would misattribute
+  them. This is the ONE gate task 1.2-c adds to the union.
+  """
+  @type body_validation_failure :: {:body_validation, {atom(), atom()}}
+
+  @typedoc "The union once the full body validator is routed in (task 1.2-c step 3)."
+  @type combined_result :: result() | {:error, body_validation_failure()}
+
+  @doc """
+  Translates a `SweepBodyValidate` reason into this module's union. Settled BEFORE step 3
+  wires the call, because the mapping is a contract, not an implementation detail.
+
+  TWO families are TRANSLATED, not passed through, because this module already froze an
+  outcome for the same rejection and a caller matching on it must keep working:
+
+      {:source_run_id, label}  ->  {:body, label}            (the frozen disposition outcome)
+      {:source, :unknown}      ->  {:enum_admission, :source} (the frozen enum-admission one)
+
+  Both are the SAME rule decided in both places -- the disposition is a function of two
+  fields of the batch, and source admission is `SweepMatrix`'s -- so they must not surface
+  under two different shapes depending on which validator ran.
+
+  EVERY OTHER family enters under `:body_validation`, including `:shape` and `:width`, which
+  have no Go peer. The mapping is TOTAL over the family set: a family added to the validator
+  without a decision here fails `SweepCorrelateTest`, rather than silently arriving as an
+  unmatched shape.
+  """
+  @spec translate_body_reason({atom(), atom()}) ::
+          {:error, failure() | body_validation_failure()}
+  def translate_body_reason({:source_run_id, label}), do: {:error, {:body, label}}
+  def translate_body_reason({:source, :unknown}), do: {:error, {:enum_admission, :source}}
+
+  def translate_body_reason({family, detail}) when is_atom(family) and is_atom(detail),
+    do: {:error, {:body_validation, {family, detail}}}
 
   # Validate the body-decidable half: the `source_run_id` disposition.
   #
@@ -542,19 +583,14 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
 
   defp uuid_v7_nanos(_), do: :error
 
-  # EXACTLY Go's `mtrOutcomeAllocated`. These four outcomes allocate a trace id, and
-  # only those four carry a trace time the signed window applies to.
-  @trace_allocating [
-    :MTR_OUTCOME_REACHED,
-    :MTR_OUTCOME_TARGET_UNREACHABLE,
-    :MTR_OUTCOME_PROBE_FAILED,
-    :MTR_OUTCOME_TIMED_OUT
-  ]
-
+  # The trace-allocation policy lives in `SweepOutcomePolicy`, which depends on neither this
+  # module nor the body validator. Holding it here would make the body validator depend on
+  # the correlation module, and step 3 routes the body validator INTO this one -- a mutual
+  # edge, and not the one-way edge the ledger records.
   @doc false
-  def trace_allocating_outcomes, do: @trace_allocating
+  defdelegate trace_allocating_outcomes(), to: SweepOutcomePolicy
 
-  defp trace_allocated?(o), do: o in @trace_allocating
+  defp trace_allocated?(o), do: SweepOutcomePolicy.trace_allocated?(o)
 
   defp bin(nil, _key), do: <<>>
   defp bin(m, key), do: Map.get(m, key) || <<>>

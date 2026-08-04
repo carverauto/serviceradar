@@ -1,3 +1,82 @@
+## 0. REVIEW SCOPE AND STOPPING RULE (normative for this change)
+
+This section governs what may BLOCK a task or a PR in this change. It exists because the
+review loop stopped converging: rounds began finding proof-surface gaps faster than defects,
+and a proof surface has no natural end -- there is always one more axis nothing pins.
+
+### A rejection BLOCKS only when it is one of these
+
+  B1  DISAGREEMENT WITH THE NORMATIVE CONTRACT BY EITHER RUNTIME -- on acceptance, on a
+      digest, on a (label, gate) pair, or on wire meaning. Cross-runtime disagreement is
+      ONE case of this, not the definition. Two runtimes that AGREE on the wrong frozen
+      transcript, or that both reject bytes the spec requires be accepted, are a B1: the
+      contract is the authority, and "Go and Elixir match" is evidence, not the standard.
+      This is what a naive parity rule misses, and a frozen ABI is exactly where it
+      matters -- agreement locks the error in.
+  B2  A CRASH, a FAIL-OPEN path, or UNBOUNDED WORK -- including a ceiling enforced after
+      the work it is meant to bound.
+  B3  A REQUIRED TEST MISSING FROM CI OR BAZEL -- a suite no required job runs proves
+      nothing about what CI accepts.
+  B4  GENUINE NORMATIVE AMBIGUITY -- the spec does not decide something an implementer
+      must decide.
+
+### A rejection does NOT block when it is one of these
+
+  N1  AN EQUIVALENT REWRITE -- a different structure with the same observable behaviour.
+  N2  MUTATION-SCORE COMPLETION -- "this mutation survives" is not itself a defect unless
+      the surviving mutation is a B1-B4 class change.
+  N3  REASON ORDERING BETWEEN STATES PROTOBUF CANNOT PRODUCE -- precedence between two
+      hand-built-only shapes.
+  N4  MORE FORENSIC PROSE -- history belongs in PR bodies and `design.md`, never in the
+      ledger or in code comments.
+
+A non-blocking finding is recorded as a follow-up, not held against the checkbox.
+
+### Proof surface: what is DONE being expanded
+
+TOTALITY over `term()` inputs is KEPT -- the public validators accept `term()`, so they must
+return `{:error, reason}` rather than raise. What is CLOSED to further expansion is the
+proof investment around states PROTOBUF CANNOT PRODUCE: out-of-width integers, improper
+lists, arbitrary scalar types, forged struct maps, and precedence between impossible shapes.
+Those checks STAY; their mutation coverage does not grow.
+
+THE RULE IS BEHAVIOURAL, NOT AN API SHAPE. This change freezes BEHAVIOUR, so it does not
+get to freeze module topology. What is required is: ONLY A RAW-BYTE PATH MAY CLAIM WIRE
+HYGIENE OR A PHYSICAL CEILING. A decoded-struct helper may be public, but it SHALL state
+what it does not see -- it cannot know what the wire carried, so it cannot claim unknown-
+field rejection or a received-byte bound. Exposing a raw ingress is the usual way to satisfy
+that; it is not the only one.
+
+### Re-opening a closed area
+
+The CONCRETE-REPRODUCER requirement applies ONLY to the closed area above -- expanding proof
+around impossible shapes and mutation-proof completion. There, re-opening needs a wire input
+or a production-path trace; "a mutation survives" is not a reproducer.
+
+IT DOES NOT APPLY TO B1-B4. A missing CI or Bazel registration (B3) and ambiguous normative
+text (B4) are reported and fixed on sight, with no reproducer, in any area -- a rule that
+suppressed them would suppress exactly the findings that keep being right.
+
+### What #4780 finishes, and what it does NOT
+
+#4780 CLOSES with: the current review corrections (Bazel registration, the error-only decode
+propagation helper, exact mode-bit membership, the sentinel claim narrowed to ONE
+REPRESENTATIVE PER FAMILY rather than an exhaustive branch matrix); 1.2-c step 3 integration
+under the translation frozen in that subtask; the five remaining time pairs; non-vacuous
+overflow fixtures; 1.3-c's trace vector; and the shared corpus. The transitive golden
+changes are reviewed ATOMICALLY, the required gates run, and it merges.
+
+#4780 does NOT wait for 1.5-f. The critical path is `1.5-f -> 1.2-c -> 1.3-f -> 1.15-b`, and
+the blocked checkboxes stay UNCHECKED rather than dragging compression admission into this
+PR. Compression is the NEXT PR.
+
+### Estimate discipline
+
+The remaining freeze is NOT one to two weeks. Eight open parents and twenty-eight unchecked
+named subtasks remain (1.17 is closed and does not count), including all ELEVEN of 1.5's obligations, and compression admission
+is substantive and unstarted. Three to six focused weeks is the honest range, depending on
+how much of 1.5 proves already implemented during closeout.
+
 ## 1. Freeze the edge record v1 wire ABI
 
 Scope: the wire contract and the grammars that identify it. Everything runtime --
@@ -93,22 +172,51 @@ here.
   - LANDED: `SweepObservationBatchV1` and the mergeable summary shapes are frozen and
     generated in both runtimes, carry golden fixtures consumed byte-for-byte by the Elixir
     golden test, and have a full Go body validator (`ValidateSweepObservationBatch`).
-    ELIXIR NOW HAS A RELATIONAL PEER for the CORRELATION -- `SweepCorrelate`, landed by
-    1.3-f -- but still has NO FULL BODY VALIDATOR for this message: shape, bounds,
-    extracted-body work ceiling, recursive wire hygiene and unknown-field rejection have
-    LANDED for the raw stage -- `WireDecode.decode_sweep_batch/1` -- so what remains Go-only
-    is the DECODED body validation: exact shapes, per-width bounds, enum/domain checks. The two are different obligations and only the first is met.
+    ELIXIR NOW HAS BOTH PEERS: the CORRELATION relation (`SweepCorrelate`, landed by 1.3-f)
+    and, as of 1.2-c, the RAW stage (`WireDecode.decode_sweep_batch/1` -- extracted-body
+    work ceiling, recursive wire hygiene, unknown-field rejection) plus the DECODED BODY
+    VALIDATOR (`SweepBodyValidate` -- exact shapes, per-width bounds, enum/domain checks).
+    What remains for 1.2-c is INTEGRATION: nothing yet calls the body validator on the
+    correlation path, so the two run as separate gates rather than one ingress.
   - REMAINING: see subtasks 1.2-a..c below; not restated here.
   - DEPENDS ON: TASK 1.5-f, at CLOSURE ONLY -- see 1.5-f for the ownership and the reason.
     NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
-  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`, and for the raw
+  - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`; for the raw
     stage `WireDecode.decode_sweep_batch/1` with
-    `test/serviceradar/edge/sweep_batch_decode_test.exs`. Claim-variant structure is
+    `test/serviceradar/edge/sweep_batch_decode_test.exs`; for the decoded body
+    `ServiceRadar.Edge.SweepBodyValidate` with
+    `test/serviceradar/edge/sweep_body_validate_test.exs`.
+    BOUNDS EVIDENCE is per protobuf integer width -- `uint32`, `uint64`, `int64`, `sint64`
+    and `int32` -- each with its own table and its own reported width. COVERAGE IS
+    DESCRIPTOR-DERIVED, so the counts live in the test, not here: all EIGHT sweep message
+    inventories are pinned against `__message_props__/0` by field number, name, type and
+    cardinality, and every integer field in them must appear in exactly one width table
+    (`sweep_body_validate_test.exs`). int32 is reachable ONLY through enums, since proto3
+    enums are open. `sint64` keeps a helper separate from `int64` despite the shared range.
+    The shape/width pass has NO Go peer: Go's generated struct makes those states
+    unrepresentable.
+    FAMILY -> GO SENTINEL is pinned exactly as data, and BEHAVIOURALLY on the Go side by
+    `TestSweepBodyFamilySentinelsAreBehavioural`, which fails if a Go branch changes which
+    sentinel it returns. The family strings are duplicated across runtimes until the shared
+    corpus (slice 3b) absorbs them.
+    ORDER: batch-level and per-host precedence, and the two structure/semantics
+    interleavings, are each pinned by multi-invalid vectors.
+    DOMAINS ARE BORROWED, never restated: admitted enum members from
+    `SemanticValidate.enum_field_policy/0`, the allocated-MTR subset from the NEUTRAL
+    `SweepOutcomePolicy`, the source set from `SweepMatrix`, mode-bit NUMBERS from the
+    generated `SweepModeBit` (with `TestSweepModeBitTableIsExact` pinning Go's own switch),
+    and each enum's atom domain from its own generated `mapping/0`. `SweepOutcomePolicy`
+    depends on neither consumer, which is what keeps the 1.2-c <-> 1.3-f edge one-way once
+    step 3 routes the body validator into the correlation path.
+    INGRESS: `SweepBodyValidate.validate_bytes/1` composes the curated decoder with the body
+    validator and returns the validated batch. Claim-variant structure is
     `ServiceRadar.Edge.CapabilityClaims` -- the ONE predicate shared by capability signature
     verification and the sweep recovery-lane preflight, pinned against
     `EdgeSignedCapabilityV1.__message_props__/0` in BOTH directions by
     `test/serviceradar/edge/capability_claims_test.exs`, so a proto-side variant addition
-    fails loudly instead of being classified as malformed everywhere. The CORRELATION half
+    fails loudly instead of being classified as malformed everywhere. That is the
+    ELIXIR-SIDE drift gate; Go pins the same oneof in `TestFrozenSchemaInventories`. The
+    CORRELATION half
     is 1.3-f's; its evidence is listed under task 1.3, not duplicated here.
 
   SUBTASKS (parent stays unchecked until all close)
@@ -136,6 +244,23 @@ here.
         fields. `SweepCorrelate` names this as a PRECONDITION
         and does not substitute for it, so 1.3-f's last-gate proof is incomplete until
         this lands -- see 1.3-f's DEPENDS-ON note
+        STEPS
+        - [x] step 1 RAW DECODER -- `WireDecode.decode_sweep_batch/1`: the work ceiling,
+              recursive wire hygiene, unknown fields and groups
+        - [x] step 2 DECODED BODY VALIDATOR -- `SweepBodyValidate`: exact shapes, per-width
+              bounds, enum/domain checks, in Go's rejection ORDER; see the parent EVIDENCE
+        - [ ] step 3 INTEGRATION -- call the validator on the correlation path so a body
+              rejection and a correlation rejection come from ONE ingress, then the shared
+              cross-language vectors. NO corpus regeneration until the semantics settle.
+              THE RESULT TRANSLATION IS SETTLED IN ADVANCE, as
+              `SweepCorrelate.translate_body_reason/1`: `{:source_run_id, label}` ->
+              `{:body, label}` and `{:source, :unknown}` -> `{:enum_admission, :source}`,
+              because both rules are decided in BOTH validators and a caller matching the
+              frozen outcomes must keep working. Every OTHER family enters under the ONE
+              added gate, `{:body_validation, {family, detail}}` -- `{:body, label}` is
+              frozen to carry a `SweepMatrix.label()`, so routing arbitrary families through
+              it would break that invariant. The mapping is TOTAL over the validator's
+              family set, so a new family cannot reach the union undecided
 
 - [ ] 1.3 Add `SweepExecutionEventV1` start, progress/watermark, completion, and
   aborted evidence per assignment attempt; an immutable scheduler plan that
@@ -947,6 +1072,62 @@ here.
   known domain/version/kind/mode), a `ValidateHeaderSet` trust-context validator,
   and Go/Elixir vectors covering every mode, raw preimages, values above 2^32,
   sequence exhaustion, and the shared malformed-header reject battery.
+
+- [x] 1.17 ONE BOUNDED BODY-PIPELINE BENCHMARK, as NON-GATING evidence for this change.
+  CLOSED. It stays unchecked at its peril: 1.7 carries every OPEN local task, so an open
+  1.17 would make a benchmark an ABI-freeze prerequisite -- the exact opposite of
+  "non-gating". Re-running the harness after step 3 is optional PR evidence, NOT an open
+  task, and adding a stage or fixture later does not reopen this.
+  NUMBERED 1.17, NOT 1.16: downstream `unify-sweep-results-proto` owns 1.16 and 1.16a, and
+  this file already references both. A second local 1.16 made every one of those references
+  ambiguous.
+  STATUS
+  - SCOPE IS WIRE-ONLY, like the rest of this change. CI trending, an SLA, a capacity
+    budget and the JetStream -> EventWriter -> CNPG soak are RUNTIME concerns and belong to
+    the downstream change -- they are NOT ABI-freeze prerequisites, and making 1.7 carry
+    them would contradict this change's stated split.
+  - WHY IT EXISTS HERE: informal timings varied by an order of magnitude for the same input,
+    so no number was citable. The harness makes the SHAPE of the cost reproducible; it does
+    not establish capacity.
+  - WHAT IT MEASURES is the BODY PIPELINE, not production ingress: protobuf decode, decoded
+    body validation, the correlation RELATION, and those three composed. It performs NO
+    extraction, NO record validation, NO trust resolution, NO signature verification and NO
+    decompression. Any capacity claim needs the authenticated/compression path, which does
+    not exist yet.
+  - [x] 1.17-a FOUR STAGES over seven fixtures (1 / 100 / 1000 / 2000 hosts; 2000 mixed
+        ICMP/TCP/MTR with nested ports and errors; invalidity on host 2000; 2001 for bounded
+        rejection). Hosts and nested messages are DISTINCT -- reusing one term shares an
+        allocation and understates memory. The 32 MiB and 32 MiB + 1 DECODER-CEILING cases
+        stay in the correctness suites, which pin them exactly; generating 64 MiB per run
+        buys nothing here
+  - [x] 1.17-b FIXTURES ARE SHARED: both runtimes build the bytes from one documented
+        algorithm and verify them against `proto/edge/v1/testdata/sweep_bench_manifest.txt`
+  - [x] 1.17-c A TIMING-FREE VERIFIER runs in the REQUIRED workflow, in BOTH runtimes: exact
+        manifest membership, digest equality, and every fixture checked against an EXPLICIT
+        expected outcome. Without it the evidence fails open -- a valid fixture degrading
+        into an early rejection reads as a speedup, which had already happened twice.
+        APPLICABLE STAGES ONLY: correlation has a VALID-BODY precondition, so it is NOT
+        benchmarked for body-invalid fixtures. Timing an early refusal there would be
+        cheaper and unnoticed, and the verifier cannot pin an outcome for it without
+        blessing behaviour outside that precondition. TIMING ITSELF IS NEVER A GATE
+  - [x] 1.17-d METRICS, PER RUNTIME, narrowed to what each actually reports. ELIXIR: p50 and
+        p95 wall time, REDUCTIONS, and DIAGNOSTIC HEAP GROWTH -- a `total_heap_size` delta,
+        i.e. occasional capacity growth of the process heap, frequently zero after reuse,
+        and NOT words allocated. GO: `ns/op`, `B/op` and `allocs/op` from `-benchmem`;
+        reductions are BEAM-only and have no Go peer. Wall time moved 2-3x between runs on
+        identical input while reductions held within 1%, which is why reductions are the
+        signal worth reading. The 1000 -> 2000 scaling check is REPORT-ONLY and gates
+        NOTHING; the nightly policy that could act on it belongs downstream
+  - [x] 1.17-e REPOSITORY SHAPE: `go/pkg/edge/edgerecord/sweep_ingress_benchmark_test.go`
+        (listed in `edgerecord_test.srcs`) and `elixir/serviceradar_core/bench/sweep_ingress.exs`,
+        following the existing dependency-free `ServiceRadar.Bench.*` scripts
+  - EVIDENCE, 2000 hosts (141 KB), BODY PIPELINE ONLY and NOT a capacity figure: work scales
+    LINEARLY -- doubling the hosts doubles the work in every stage of both runtimes, 2.0x
+    REDUCTIONS in Elixir and ~2.1x `ns/op` in Go, since reductions are BEAM-only and have no
+    Go peer -- and
+    DECODE DOMINATES while body validation is a small fraction of it. Absolute wall time is
+    not yet stable across machines and is deliberately not quoted here; see the PR and
+    `design.md` for the raw runs.
 
 - [ ] 1.15 Add Go and Elixir cross-language vector fixtures for the frozen
   completion-leaf disposition enum. The inventory is NOT "one per value": VALID
