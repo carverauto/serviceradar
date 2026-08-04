@@ -31,11 +31,12 @@ bazel test -c opt //rust/integration-db:sweep_stale_dbs   --config=remote --test
 
 bazel test -c opt //elixir/serviceradar_core:migrate_template --config=remote --test_tag_filters= --//build:enable_integration_tests
 
-# Integration run tests
 bazel test -c opt //rust/integration-db:provision_db   --config=remote --test_tag_filters= --//build:enable_integration_tests
 
-// Disabled 
-//bazel test -c opt //... --config=remote --test_tag_filters=integration_test,-acceptance_test --//build:enable_integration_tests
+# Integration run tests
+bazel test -c opt //... --config=remote --test_tag_filters=integration_test,-acceptance_test --//build:enable_integration_tests
+
+// Add more integration tests here that require the DB fixture
 
 # Integration teardown 
 bazel test -c opt //rust/integration-db:teardown_db --config=remote --test_tag_filters= --//build:enable_integration_tests
