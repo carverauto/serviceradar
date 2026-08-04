@@ -691,4 +691,108 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
     {:ok, row} = ServiceRadar.Edge.SweepMatrix.fetch(source)
     row.kind
   end
+
+  describe "the body-validator result translation (settled before 1.2-c step 3)" do
+    alias ServiceRadar.Edge.SweepBodyValidate
+
+    test "the two overlapping rules keep the FROZEN correlate outcomes" do
+      # Both are decided in BOTH validators -- the disposition from two fields of the batch,
+      # source admission from SweepMatrix -- so they must not surface under two different
+      # shapes depending on which one ran. A caller matching the frozen outcomes keeps
+      # working after step 3 routes the body validator in.
+      assert SweepCorrelate.translate_body_reason({:source_run_id, :source_run_id_disposition}) ==
+               {:error, {:body, :source_run_id_disposition}}
+
+      assert SweepCorrelate.translate_body_reason({:source, :unknown}) ==
+               {:error, {:enum_admission, :source}}
+    end
+
+    test "the two translations agree with what THIS module already returns" do
+      # The non-vacuity control: the frozen outcomes above are the ones the correlation path
+      # actually produces today, not shapes invented for the translation.
+      {record, batch} = control()
+
+      assert SweepCorrelate.validate(%{record | payload: record.payload}, %{
+               batch
+               | source: :SWEEP_EXECUTION_SOURCE_AD_HOC,
+                 source_run_id: ""
+             }) ==
+               SweepCorrelate.translate_body_reason({:source_run_id, :source_run_id_disposition})
+
+      assert SweepCorrelate.validate(record, %{
+               batch
+               | source: :SWEEP_EXECUTION_SOURCE_UNSPECIFIED
+             }) ==
+               SweepCorrelate.translate_body_reason({:source, :unknown})
+    end
+
+    test "every OTHER family enters under its own gate" do
+      for family <- [
+            :shape,
+            :width,
+            :identity,
+            :checks,
+            :bounds,
+            :mode_bits,
+            :mode_summary,
+            :address,
+            :check_index,
+            :summary
+          ] do
+        assert SweepCorrelate.translate_body_reason({family, :whatever}) ==
+                 {:error, {:body_validation, {family, :whatever}}}
+      end
+    end
+
+    test "the mapping is TOTAL over the validator's family set, with REAL details" do
+      # Each family with the detail it actually carries. A synthetic detail would send
+      # `:source` down the catch-all instead of its own branch, so the assertion would pass
+      # while proving nothing about the translation that matters.
+      expected = %{
+        shape: :body_validation,
+        width: :body_validation,
+        source: :enum_admission,
+        source_run_id: :body,
+        identity: :body_validation,
+        checks: :body_validation,
+        bounds: :body_validation,
+        mode_bits: :body_validation,
+        mode_summary: :body_validation,
+        address: :body_validation,
+        check_index: :body_validation,
+        summary: :body_validation
+      }
+
+      details = %{source: :unknown, source_run_id: :source_run_id_disposition}
+
+      # A family added to the body validator without a decision here fails HERE, rather than
+      # arriving at the combined union as an unmatched shape.
+      assert MapSet.new(Map.keys(expected)) ==
+               MapSet.new(Map.keys(SweepBodyValidate.family_to_go_sentinel()))
+
+      for {family, want_gate} <- expected do
+        detail = Map.get(details, family, :some_detail)
+        {:error, translated} = SweepCorrelate.translate_body_reason({family, detail})
+
+        assert elem(translated, 0) == want_gate,
+               "#{family} translated to #{inspect(translated)}, want gate #{want_gate}"
+      end
+    end
+
+    test "a :source reason OTHER than :unknown is not silently given the frozen outcome" do
+      # The validator emits only `{:source, :unknown}`. Anything else is a shape it never
+      # produces, and mapping it onto the frozen enum-admission outcome would be a guess.
+      assert SweepCorrelate.translate_body_reason({:source, :something_else}) ==
+               {:error, {:body_validation, {:source, :something_else}}}
+    end
+
+    test "the new gate does not collide with the frozen ones" do
+      # `{:body, label}` is frozen to carry a SweepMatrix label; routing arbitrary families
+      # through it would break that invariant for existing callers.
+      assert {:error, {:body_validation, _}} =
+               SweepCorrelate.translate_body_reason({:summary, :x})
+
+      refute :body_validation in [:body, :correlation, :enum_admission, :recovery_lane]
+    end
+  end
 end

@@ -33,6 +33,10 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      # The SHARED benchmark fixture generator. Without this the verifier that guards it
+      # does not run on the change that breaks it -- a required test absent from the very
+      # edit it exists to catch.
+      - 'elixir/serviceradar_core/bench/sweep_ingress_fixtures.exs'
       - 'scripts/patch_edge_enum_negatives.exs'
       - 'scripts/test_patch_edge_enum_negatives.exs'
       - 'elixir/serviceradar_core/mix.exs'
@@ -56,6 +60,10 @@ on:
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
       - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      # The SHARED benchmark fixture generator. Without this the verifier that guards it
+      # does not run on the change that breaks it -- a required test absent from the very
+      # edit it exists to catch.
+      - 'elixir/serviceradar_core/bench/sweep_ingress_fixtures.exs'
       - 'scripts/patch_edge_enum_negatives.exs'
       - 'scripts/test_patch_edge_enum_negatives.exs'
       - 'elixir/serviceradar_core/mix.exs'
@@ -168,9 +176,11 @@ jobs:
       - name: Edge compiled-assignment carrier parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
-      # The claim-variant freeze, pinned against GENERATED oneof metadata. Gated because it
-      # is the only place a proto-side variant addition fails loudly; every gate that asks
-      # "is this a claim body?" shares the predicate it guards.
+      # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
+      # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
+      # so a proto-side variant addition already fails there; this is the peer that keeps
+      # the Elixir predicate from drifting away from it. Gated because every Elixir gate
+      # asking "is this a claim body?" shares the predicate it guards.
       - name: Edge capability claim variants (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/capability_claims_test.exs
@@ -181,6 +191,20 @@ jobs:
       - name: Edge sweep body decode (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/sweep_batch_decode_test.exs
+      # The benchmark FIXTURE verifier (task 1.17-c). Timing-free, and gated because the
+      # benchmark evidence fails open without it: a fixture that degrades into an early
+      # rejection gets CHEAPER, so it reads as a speedup rather than a broken measurement.
+      # The benchmark itself is NOT gated -- shared-runner milliseconds are too noisy.
+      - name: Edge benchmark fixture verifier (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/sweep_bench_fixture_test.exs
+      # The sweep BODY VALIDATOR (task 1.2-c). Gated because it is the Elixir peer of
+      # ValidateSweepObservationBatch, and a peer no required job runs proves nothing about
+      # what CI accepts. It also carries the per-WIDTH bounds Go gets from its generated
+      # struct: those states are unrepresentable in Go and reachable in Elixir.
+      - name: Edge sweep body validator (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/sweep_body_validate_test.exs
       # The sweep CORRELATION peer: the Elixir half of the matrix. Gated because the
       # (label, gate) PAIR is only proven if BOTH runtimes assert it, and a peer no
       # required job runs proves nothing about what CI accepts.
