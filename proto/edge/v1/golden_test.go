@@ -30,7 +30,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2617,47 +2616,13 @@ func sweepJoinCases() []sweepJoinCase {
 		{"assignment epoch", edgerecord.SweepLabelAssignmentEpoch, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
 			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
 		}},
-		// THE FIVE TIME LABELS. Until now these were asserted for their LABEL alone, with
-		// no vector pinning the owning gate -- so a time rejection could have been emitted
-		// from the body gate and stayed green.
-		{"batch time window", edgerecord.SweepLabelBatchTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
-			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-				b.ObservedAtUnixNano = winExpires + 1
-			})
-		}},
-		// A delta that moves the host's ABSOLUTE time out of the window WITHOUT overflowing,
-		// so this vector cannot be satisfied by the overflow branch.
-		{"host time window", edgerecord.SweepLabelHostTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
-			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-				b.GetHosts()[0].ObservedAtDeltaNano = 2 * (winExpires - fixedNanos)
-			})
-		}},
-		// NON-VACUITY, stated exactly: a wrapped int64 sum CANNOT be made to land inside
-		// this window. The base is ~1.78e18 ns, so an overflowing sum wraps to roughly
-		// -7.4e18, and reaching +1.78e18 again would need a delta near 2^64 -- outside
-		// int64. So the vector's force is in the LABEL, not in the accept/reject verdict:
-		// drop the overflow check and the wrapped value is refused as `host_time_window`
-		// instead, which this assertion catches. That is mutation-proven, not assumed.
-		{"host time overflow", edgerecord.SweepLabelHostTimeOverflow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
-			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-				b.GetHosts()[0].ObservedAtDeltaNano = math.MaxInt64
-			})
-		}},
-		// A trace timestamp two hours past the window: in range for the ns conversion, so
-		// the overflow branch cannot claim it.
-		{"trace time window", edgerecord.SweepLabelTraceTimeWindow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
-			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-				b.GetHosts()[0].GetMtr().TraceId = uuidv7At(fixedMillis+7_200_000, 0x30)
-			})
-		}},
-		// A 48-bit timestamp ABOVE the ms ceiling the ns conversion can carry. Same
-		// non-vacuity argument as the host case: dropping the check reports
-		// `trace_time_window` instead, and the label is what distinguishes them.
-		{"trace time overflow", edgerecord.SweepLabelTraceTimeOverflow, edgerecord.ErrSweepJoin, func(r *edgev1.EdgeRecordV1) {
-			mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
-				b.GetHosts()[0].GetMtr().TraceId = uuidv7At(9_300_000_000_000, 0x30)
-			})
-		}},
+		// THE FIVE TIME LABELS ARE NOT HERE. They live in the SHARED corpus
+		// (sweep_corpus_test.go), which asserts the same label/gate/not-other-gate triple
+		// AND constructs them as the spec requires: both window sides on all three paths,
+		// overflow values that wrap INSIDE the window, and batch-time negatives whose host
+		// delta is counter-adjusted so only one comparison differs. The versions that used
+		// to sit here satisfied none of that, and a second, weaker construction of the same
+		// vectors is worse than none.
 	}
 }
 
