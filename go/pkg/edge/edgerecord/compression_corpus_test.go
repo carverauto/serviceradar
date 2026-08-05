@@ -25,8 +25,8 @@
 // SCOPE, STATED SO IT IS NOT MISREAD AS MORE THAN IT IS. These vectors exercise
 // `ValidateZstdPayload` -- frame structure, window, dictionary, and declared-versus-actual
 // output size. They do NOT exercise RECORD-LEVEL admission, which additionally binds
-// `encoded_size` to the payload length and applies the 100:1 ratio in `validateRecordPayload`
-// BEFORE any of this runs.
+// `encoded_size` to the payload length and applies the 100:1 ratio in
+// `validatePayloadBinding` BEFORE any of this runs.
 //
 // So several vectors here are deliberately unreachable as whole records:
 // `zstd_valid_5k.bin` declares 5000 bytes from a 15-byte frame (333:1) and
@@ -291,6 +291,35 @@ func TestFrozenCompressionCeilings(t *testing.T) {
 	const maxAdmittedEncoded = MaxRecordBytes
 	if got := uint64(maxAdmittedEncoded) * MaxCompressionRatio; got > uint64(^uint32(0)) {
 		t.Fatalf("admitted ratio product %d exceeds 32 bits; the freeze assumes it does not", got)
+	}
+}
+
+// TestZstdInputCeilingIsEnforcedByTheExportedAPI pins the ENCODED-input bound on the
+// exported frame API, which is separate from every work ceiling: it bounds RECEIVED BYTES.
+//
+// The composed path already refuses oversize payloads in validatePayloadBinding, so this is
+// about the exported contract -- a direct caller must not be able to hand the frame walker
+// an arbitrarily large buffer just because it never went through record validation.
+func TestZstdInputCeilingIsEnforcedByTheExportedAPI(t *testing.T) {
+	over := make([]byte, MaxPayloadBytes+1)
+	// A valid magic, so the refusal is the ceiling rather than a bad frame.
+	copy(over, []byte{0x28, 0xB5, 0x2F, 0xFD})
+
+	if err := ValidateZstdPayload(over, 5); !errors.Is(err, ErrZstdInvalid) {
+		t.Fatalf("oversize input = %v, want ErrZstdInvalid", err)
+	}
+
+	if _, err := DecompressZstdPayload(over, 5); !errors.Is(err, ErrZstdInvalid) {
+		t.Fatalf("oversize input to decompress = %v, want ErrZstdInvalid", err)
+	}
+
+	// AT the ceiling the bound is not what decides: this is refused for being a malformed
+	// frame, which is a different reason and proves the ceiling is exclusive of N itself.
+	at := make([]byte, MaxPayloadBytes)
+	copy(at, []byte{0x28, 0xB5, 0x2F, 0xFD})
+
+	if err := ValidateZstdPayload(at, 5); !errors.Is(err, ErrZstdInvalid) {
+		t.Fatalf("at-ceiling input = %v; expected the frame walk to decide", err)
 	}
 }
 
