@@ -1,4 +1,25 @@
-const CONTROL_PREFIXES = ["in:", "limit:", "sort:", "time:", "status:", "type:", "tag:", "site:", "group:", "by:"]
+// Control tokens the engine reserves. A prefix missing from this list falls through to
+// `findOperator`, which splits it on the `:` into a field token -- and since `bucket`,
+// `agg`, `value_field`, `series` and `stats` are not fields on any entity, the editor
+// then underlines them as unknown. Keep in sync with `@completion_control_tokens` in
+// lib/serviceradar_web_ng_web/srql/catalog.ex, which gates the same tokens a second time.
+const CONTROL_PREFIXES = [
+  "in:",
+  "limit:",
+  "sort:",
+  "time:",
+  "status:",
+  "type:",
+  "tag:",
+  "site:",
+  "group:",
+  "by:",
+  "bucket:",
+  "agg:",
+  "value_field:",
+  "series:",
+  "stats:",
+]
 const CLAUSE_CONTROLS = new Set(["where"])
 const OPERATORS = [":contains", ":equals", ">=", "<=", "!=", ":", ">", "<"]
 
@@ -329,8 +350,17 @@ function currentEntity(tokens) {
   return entity?.text || null
 }
 
+// Controls whose remainder is a field name rather than a literal value. Completion after
+// these offers the entity's fields (`value_field:` -> value_fields, `series:` ->
+// series_fields, both already exported in the catalog's `fields` map).
 function fieldBackedControl(control) {
-  return control === "sort:" || control === "group:" || control === "by:"
+  return (
+    control === "sort:" ||
+    control === "group:" ||
+    control === "by:" ||
+    control === "value_field:" ||
+    control === "series:"
+  )
 }
 
 function clamp(value, min, max) {

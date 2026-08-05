@@ -93,6 +93,51 @@ describe("SRQL tokenizer", () => {
     expect(result.tokens).toContainEqual({start: 39, end: 43, kind: "value", text: "desc"})
   })
 
+  // These are reserved control tokens, not fields. When they were missing from
+  // CONTROL_PREFIXES the tokenizer split them on the `:` into a field token, and since
+  // `bucket`/`agg`/`value_field`/`series`/`stats` are fields on no entity, the editor
+  // underlined a perfectly valid chart query as unknown.
+  test("downsample and stats controls are control tokens, not fields", () => {
+    const query =
+      "in:flows time:last_30d bucket:5m agg:avg value_field:bytes_total series:app limit:100"
+    const result = tokenize(query, query.length)
+
+    for (const control of ["bucket:", "agg:", "value_field:", "series:"]) {
+      expect(result.tokens.some(token => token.kind === "control" && token.text === control)).toBe(
+        true,
+      )
+    }
+
+    for (const notAField of ["bucket", "agg", "value_field", "series"]) {
+      expect(result.tokens.some(token => token.kind === "field" && token.text === notAField)).toBe(
+        false,
+      )
+    }
+
+    const stats = tokenize("in:flows stats:sum(bytes_total)", "in:flows stats:sum(bytes_total)".length)
+    expect(stats.tokens).toContainEqual({start: 9, end: 15, kind: "control", text: "stats:"})
+  })
+
+  // `value_field:` / `series:` take a field name, so completion after them must offer the
+  // entity's fields rather than free-text values.
+  test("value_field: and series: remainders are field tokens", () => {
+    const query = "in:flows bucket:5m agg:sum value_field:bytes_total series:app"
+    const result = tokenize(query, query.length)
+
+    const at = (text, kind) => ({
+      start: query.indexOf(text),
+      end: query.indexOf(text) + text.length,
+      kind,
+      text,
+    })
+
+    expect(result.tokens).toContainEqual(at("bytes_total", "field"))
+    expect(result.tokens).toContainEqual(at("app", "field"))
+    // bucket:/agg: take literals, so their remainders stay values.
+    expect(result.tokens).toContainEqual(at("5m", "value"))
+    expect(result.tokens).toContainEqual(at("sum", "value"))
+  })
+
   test("metadata.<key> is a single field token, value follows the colon", () => {
     const query = 'in:devices metadata.gateway_id:"gateway-platform" include_inactive:true'
     const result = tokenize(query, query.length)
