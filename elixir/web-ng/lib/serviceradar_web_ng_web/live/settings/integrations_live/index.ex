@@ -1099,6 +1099,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       <.create_modal
         :if={@show_create_modal}
+        available_credentials={@available_credentials}
         form={@create_form}
         partition_options={@partition_options}
         agent_options={@agent_options}
@@ -1108,6 +1109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       />
       <.edit_modal
         :if={@show_edit_modal}
+        available_credentials={@available_credentials}
         form={@edit_form}
         source={@selected_source}
         partition_options={@partition_options}

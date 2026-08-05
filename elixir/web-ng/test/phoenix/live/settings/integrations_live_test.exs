@@ -520,6 +520,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
       unique = System.unique_integer([:positive])
       source_name = "Unbound Source #{unique}"
 
+      # A credential has to exist for the selector to render at all -- it is
+      # hidden when the inventory is empty, so "blank" is only a meaningful
+      # choice when there is something to choose.
+      _available = shared_secret!(unique)
+
       {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
 
       lv
