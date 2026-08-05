@@ -16,7 +16,8 @@ Typical IR question:
 
 With inventory enabled, the collector maps that VIP to the Forgejo Envoy
 Gateway LoadBalancer, the `ssh` Gateway listener / TCPRoute, and backend
-pod sockets (for later process attribution joins).
+pod sockets. Core joins those hints with NetFlow + netprobe so Attributed
+Flows can show process **and** Service/Gateway owner.
 
 Use this guide with [NetFlow](./netflow.md), [Host Network Visibility
 (netprobe)](./netprobe.md), [Workload Identity](./workload-identity.md), and
@@ -26,9 +27,10 @@ Use this guide with [NetFlow](./netflow.md), [Host Network Visibility
 
 | It is | It is not |
 |---|---|
-| A **cluster-plane** inventory of LoadBalancer / ExternalIP / Gateway API edges | A host-agent feature |
-| Ownership: Service, Gateway, route, backend EndpointSlice targets | Full SSH content inspection |
-| Correlation **hints** (`VIP:port` → `podIP:targetPort`) for DNAT | Automatic NetFlow→process join (still a separate follow-on) |
+| A **cluster-plane API inventory** of public Services / Gateways / ExternalIPs | A traffic sniffer or CNI tap |
+| Ownership: Service, Gateway, route, backend EndpointSlice targets | Full SSH / payload inspection |
+| Correlation hints (`VIP:port` → `podIP:targetPort`) for DNAT | Per-namespace by default (see scope below) |
+| Input to **attributed flow** auto-join when netprobe is present | A host-agent feature |
 | Optional Helm component (`k8sInventory.enabled`) | Enabled by default |
 
 **Security model:** only the in-cluster `serviceradar-k8s-inventory` Deployment
@@ -36,23 +38,191 @@ holds Kubernetes API credentials. Host agents, netprobe, and workload-identity
 **do not** get kube API access for this feature (same split as Datadog Cluster
 Agent / Dynatrace ActiveGate-style designs).
 
+### Scope: what “cluster-wide” means
+
+The collector **does not observe network packets**. It watches the Kubernetes
+API and rebuilds a snapshot of *public edge ownership*.
+
+| Scope question | Default behavior today |
+|---|---|
+| Where does the Deployment run? | ServiceRadar **release namespace** (e.g. `demo`, `serviceradar`) |
+| What API can it list? | **Cluster-wide** `ClusterRole`: Services, EndpointSlices, Gateway API objects in **all namespaces** (unless narrowed) |
+| What is stored? | Only endpoints that look **public/edge** (LoadBalancer ingress, ExternalIP, Gateway listeners)—not every ClusterIP |
+| Does it see pod traffic? | No. Backend `endpoint_targets` are **control-plane** EndpointSlice refs (pod IP:port, name, node)—not flow bytes |
+| Multi-tenant isolation | Rows are tagged with `cluster_id`. Namespace allow-lists are optional (see below) |
+
+**Demo reality check:** with inventory enabled and no namespace filter, the
+collector sees public edges across the whole management cluster (platform
+namespaces such as `envoy-gateway-system`, `forgejo`, customer-ish namespaces,
+etc.). That is correct for *our* shared demo cluster; it is **not** the right
+default for every customer. Treat `clusterId` + optional `namespaces` as part of
+the security design review with the customer platform team.
+
+## Customer deployment (outside our demo)
+
+Today the polished path is **co-located**: install ServiceRadar *into* the
+customer’s Kubernetes cluster (or a dedicated observability namespace in that
+cluster) and enable inventory there. The collector then publishes into that
+cluster’s ServiceRadar NATS → core. That is the supported production shape.
+
+```text
+Customer cluster (or “workload cluster”)
+┌─────────────────────────────────────────────────────────────┐
+│  kube-apiserver  ◄── list/watch (read-only ClusterRole)     │
+│         │                                                   │
+│  serviceradar-k8s-inventory   (release ns, e.g. serviceradar)│
+│         │  NATS mTLS                                        │
+│  serviceradar-nats  →  core EventWriter                     │
+│         │                                                   │
+│  platform.public_endpoints_current  + attributed_flows join │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Decision checklist (hand this to the customer)
+
+1. **Which cluster is the source of truth for public VIPs?**  
+   Only clusters that terminate LoadBalancer / Gateway traffic need inventory.
+2. **Is ServiceRadar installed in that cluster?**  
+   If yes → enable `k8sInventory` in the chart (below).  
+   If no → inventory must still run *in that cluster* (it needs the apiserver);
+   remote publish into a central ServiceRadar is a **planned multi-cluster**
+   pattern, not the default Helm path yet (see [Remote / multi-cluster](#remote--multi-cluster-patterns)).
+3. **Full cluster vs selected namespaces?**  
+   Default: all namespaces (ClusterRole). Restrict with `k8sInventory.namespaces`
+   when the customer only wants edge namespaces (e.g. `ingress-nginx`,
+   `envoy-gateway-system`, `prod-apps`).
+4. **Stable `clusterId`**  
+   Required when enabled. Use a durable ID (`prod-us-east-1`, `acme-eks-prod`),
+   not a random string. Multi-cluster inventory rows are disambiguated by this
+   field in SRQL (`cluster_id:…`).
+5. **Gateway API?**  
+   Keep `gatewayAPI.enabled: true` if the cluster uses Gateway API; disable if
+   only classic Service LoadBalancers matter (smaller RBAC surface).
+
+### Co-located install (supported)
+
+```yaml
+# Customer values overlay — ServiceRadar chart in the customer cluster
+k8sInventory:
+  enabled: true
+  clusterId: acme-prod-eks          # durable; appears in SRQL / UI
+  publishMode: nats
+  # Optional: limit inventory to edge / app namespaces (empty = all)
+  # namespaces:
+  #   - envoy-gateway-system
+  #   - ingress-nginx
+  #   - production
+  gatewayAPI:
+    enabled: true
+  envoyProxyCRD:
+    enabled: false                  # set true only if using Envoy Gateway CRDs
+```
+
+```bash
+helm upgrade --install serviceradar ./helm/serviceradar \
+  --namespace serviceradar --create-namespace \
+  -f values-customer.yaml \
+  --set k8sInventory.enabled=true \
+  --set k8sInventory.clusterId=acme-prod-eks
+```
+
+Also required:
+
+| Dependency | Why |
+|---|---|
+| Image `serviceradar-k8s-inventory` | Same tag/digest family as the rest of the release |
+| Runtime mTLS certs (`k8s-inventory.pem` / key) | NATS client identity; chart cert generator includes them |
+| NATS ACL for `CN=serviceradar-k8s-inventory` → `inventory.k8s.>` | Publish path |
+| Core with EventWriter `K8S_INVENTORY` stream + migration | Persistence into `public_endpoints_current` |
+
+### Namespace scoping
+
+| Config | API visibility | When to use |
+|---|---|---|
+| `namespaces: []` (default) | All namespaces via ClusterRole | Single-tenant platform / full IR coverage |
+| `namespaces: [a, b, …]` | Only those namespaces (env `K8S_INVENTORY_NAMESPACES`) | Customer wants edge-only or app-only inventory |
+
+Notes:
+
+- Public LoadBalancers often live in an **ingress / gateway** namespace while
+  routes and backends live in **app** namespaces. Scoping too tightly (e.g.
+  only `production`) can hide the LB Service that owns the VIP.
+- Prefer: include every namespace that can own a public Service **or** a
+  Gateway route **or** backend EndpointSlices you care about.
+- RBAC today is still a **ClusterRole** even when the collector filters
+  namespaces in software. A future hardening option is Role/RoleBinding per
+  namespace only; until then, document the ClusterRole in the customer change
+  request.
+
+### What customers should *not* expect
+
+- **Not** “install this one binary outside ServiceRadar and get full product UI.”  
+  Inventory is a **sensor** that feeds ServiceRadar core. Without NATS → core →
+  SRQL/web-ng, you only have the collector’s `/snapshot` JSON.
+- **Not** packet-level visibility of “cluster-wide traffic.”  
+  NetFlow/sFlow still come from routers/exporters; process attribution still
+  comes from **netprobe on nodes**. Inventory only answers *who owns the VIP*.
+- **Not** host-agent kube credentials.  
+  Workers never get this ClusterRole.
+
+### Remote / multi-cluster patterns
+
+| Pattern | Status | Notes |
+|---|---|---|
+| **A. Co-located** — full ServiceRadar + inventory in the workload cluster | **Supported** | Default; use chart values above |
+| **B. Central ServiceRadar** — inventory Deployment only in remote clusters, publish to central NATS | **Experimental / manual** | Requires reachable NATS (or gateway), mTLS identity per cluster, unique `clusterId`, and operational ownership of remote chart/manifests. Not automated as a first-class multi-cluster Helm subchart yet |
+| **C. Workstation snapshot** — `k8s-inventory snapshot` with admin kubeconfig | Lab / break-glass | No continuous publish; good for proving VIP ownership before enabling the Deployment |
+
+For pattern B, treat each remote cluster as:
+
+```text
+remote cluster: inventory SA + Deployment (clusterId=unique)
+        │  mTLS publish inventory.k8s.public_endpoints
+        ▼
+central ServiceRadar NATS / core  (same subject family)
+```
+
+Do **not** reuse one `clusterId` across clusters.
+
+### Platform team FAQ
+
+**Q: Does this give ServiceRadar root on our cluster?**  
+A: No. Read-only list/watch on Services, EndpointSlices, and (optionally)
+Gateway API types. No secrets, no pods/exec, no nodes/proxy, no write verbs.
+
+**Q: Can we run it in a locked-down namespace only?**  
+A: The Deployment runs in the ServiceRadar release namespace. API scope can be
+limited with `namespaces: […]`, but public VIP ownership often requires seeing
+the ingress/gateway namespace as well.
+
+**Q: We only care about one public VIP.**  
+A: Still enable the collector (cheap continuous snapshot). Query
+`in:public_endpoints ip:…` or Attributed Flows for that VIP; inventory cost is
+API watches, not traffic volume.
+
+**Q: Our ServiceRadar is SaaS / another VPC.**  
+A: Prefer co-located core for that cluster, or a deliberate multi-cluster
+publish design (pattern B). Do not open the customer apiserver to ServiceRadar
+Cloud without a written trust model.
+
 ## Architecture
 
 ```text
 kube-apiserver
-    │  get/list/watch (read-only ClusterRole)
+    │  get/list/watch (read-only ClusterRole; optional namespace filter)
     ▼
-serviceradar-k8s-inventory  (Deployment + ServiceAccount)
-    │  snapshot JSON
+serviceradar-k8s-inventory  (Deployment + ServiceAccount in release ns)
+    │  snapshot JSON  (cluster_id stamped)
     ▼
 NATS JetStream  subject inventory.k8s.public_endpoints
     │  (stream k8s_inventory)
     ▼
 core EventWriter  →  platform.public_endpoints_current
     │
-    ▼
-SRQL / web-ng  in:public_endpoints
-               UI: /inventory/public-endpoints
+    ├─► SRQL / web-ng  in:public_endpoints
+    │                  UI: /inventory/public-endpoints
+    └─► FlowAttribution.Correlation  (VIP → backend → process)
+                       attribution.public_endpoint on attributed_flows
 ```
 
 You can:
@@ -64,7 +234,7 @@ You can:
 
    ```text
    in:public_endpoints ip:23.138.124.7 port:22
-   in:public_endpoints cluster_id:demo exposure_class:Gateway
+   in:public_endpoints cluster_id:acme-prod-eks exposure_class:Gateway
    ```
 
    Rows land in `platform.public_endpoints_current` (soft-delete on reassignment).
@@ -78,6 +248,9 @@ You can:
 
    Submitting `in:public_endpoints …` from the global SRQL bar on other pages
    navigates here (catalog route is `/inventory/public-endpoints`).
+
+5. Prefer **Attributed Flows** for IR when netprobe is enabled—owner is joined
+   automatically (`service_name:…`, `exposure_class:…`).
 
 ## Helm: ServiceAccount and RBAC
 
@@ -114,8 +287,9 @@ cluster objects.
 k8sInventory:
   enabled: false
   replicaCount: 1
-  clusterId: ""                 # required when enabled; demo uses "demo"
+  clusterId: ""                 # required when enabled; durable per cluster
   publishMode: nats             # nats | stdout | none
+  namespaces: []                # empty = all namespaces; else allow-list
   gatewayAPI:
     enabled: true
   envoyProxyCRD:
@@ -128,16 +302,8 @@ k8sInventory:
     port: 9109
 ```
 
-Demo overlay (`values-demo.yaml`) sets `enabled: true` and `clusterId: demo`.
-
-Also required for a healthy in-cluster run:
-
-- Image: `serviceradar-k8s-inventory` (tag from `image.tags.k8sInventory` /
-  `global.imageTag`)
-- Runtime mTLS certs: `k8s-inventory.pem` / `k8s-inventory-key.pem` in the
-  chart runtime cert secret (cert generator includes them)
-- NATS ACL for user `CN=serviceradar-k8s-inventory` publishing `inventory.k8s.>`
-  (chart NATS config includes this when updated)
+Demo overlay (`values-demo.yaml`) sets `enabled: true` and `clusterId: demo`
+(no namespace filter—full management-cluster edges).
 
 ## Enable on a cluster
 
