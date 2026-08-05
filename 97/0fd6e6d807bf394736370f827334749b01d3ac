@@ -1,0 +1,14 @@
+k8s/buildbuddy/values-workflows.yaml
+  h_080fb89ca1f0c4 98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "970fd6e6d807bf394736370f827334749b01d3ac",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
