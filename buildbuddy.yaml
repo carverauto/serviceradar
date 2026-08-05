@@ -1,3 +1,20 @@
+execution_config:
+  platform_properties:
+    container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
+    OSFamily: "linux"
+    Arch: "amd64"
+  default_exec_properties:
+    dockerNetwork: "host"
+    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
+    # build executors in values.yaml. Those advertise 16Gi and this runner wants ~32GB, so it
+    # could never be placed there; and sizing them up would reserve it on all three and let one
+    # runner squeeze out the remote-execution fan-out it is itself driving.
+    #
+    # The two must be changed together: this string is matched against the executor's
+    # `poolName`. If the fleet is not deployed yet, this fails before any step runs with
+    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
+    pool: "workflows"
+
 actions:
   - name: "BazelCI"
     # Both fields are required together. `self_hosted: true` alone defaults the pool to the
@@ -28,15 +45,6 @@ actions:
       OCI_REGISTRY: "registry.carverauto.dev"
 
     self_hosted: true
-    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
-    # build executors in values.yaml. Those advertise 16Gi and this runner wants ~32GB, so it
-    # could never be placed there; and sizing them up would reserve it on all three and let one
-    # runner squeeze out the remote-execution fan-out it is itself driving.
-    #
-    # The two must be changed together: this string is matched against the executor's
-    # `poolName`. If the fleet is not deployed yet, this fails before any step runs with
-    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
-    pool: "workflows"
     triggers:
       pr:
         branches:
@@ -61,7 +69,7 @@ actions:
     #    = 42,949,672,960, i.e. exactly 10,000,000,000 more)
     #
     resource_requests:
-      memory: "48GB"
+      memory: "56GB"
       disk: "40GB"
 
     steps:
@@ -171,43 +179,52 @@ actions:
       - run: |
           set -euo pipefail
 
-          FLAG=--//build:enable_integration_tests
           export GITHUB_OUTPUT="$(mktemp)"
 
           # Collect databases leaked by cancelled runs, before this one adds to the fixture.
-          bazel test -c opt --config=ci //rust/integration-db:sweep_stale_dbs
+          bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:sweep_stale_dbs
 
           # Drop the per-run database even when the suite is red. A cancelled run never reaches
           # this at all, which is what the sweep above exists for.
           teardown() {
-            bazel test -c opt --config=ci //rust/integration-db:teardown_db || true
+            bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:teardown_db || true
           }
           trap teardown EXIT
 
           # Creates sr_core_template if absent -- with extensions, AGE graphs and grants -- and
           # reports whether it is behind the migrations on disk.
-          bazel run -c opt --config=ci //rust/integration-db:prepare_template
+          bazel run -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:prepare_template
 
           # The one step that needs the BEAM, and the reason the previous one exists: on a
           # branch adding no migrations nothing starts an Erlang VM. Running it against a
           # current template is a documented no-op, so this is an optimisation rather than a
           # correctness requirement.
           if grep -q '^needs_migration=true$' "$GITHUB_OUTPUT"; then
-            bazel test -c opt --config=ci //elixir/serviceradar_core:migrate_template
+            bazel test -c opt --config=ci --//build:enable_integration_tests //elixir/serviceradar_core:migrate_template
           fi
 
-          # Clones a per-run database from the template. 
-          bazel test -c opt --config=ci  //rust/integration-db:provision_db
+          # Clones a per-run database from the template.
+          bazel test -c opt --config=ci --//build:enable_integration_tests //rust/integration-db:provision_db
 
           # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 and nothing
           # else: `manual` keeps banner_grab and //integration_tests/srql out of //... expansion
           # whatever the tag filter says.
-          bazel test -c opt --config=ci --test_tag_filters=integration_test,-acceptance_test //...
+          #
+          # The flag matters MORE here than on the named targets above, not less. An
+          # incompatible target under a wildcard is SKIPPED, not an error -- so without it this
+          # line exits 0 having run zero integration shards and the step reads green. The named
+          # calls at least fail loudly.
+          bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters=integration_test,-acceptance_test //...
           
           # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
-          # `manual`, which removes a target from //... expansion before tag filters are considered,
-          # and the empty --test_tag_filters= clears the repo default so a manual target named on the
-          # command line is not filtered back out.
+          # `manual`, which removes a target from //... expansion before tag filters are considered.
+          #
+          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These two carry only `manual`
+          # and `no-remote-exec` -- neither `integration_test` nor `acceptance_test` -- so any
+          # tag filter naming those two tags would select neither and the step would fail with
+          # "no test targets were found". And they have no requires_shared_fixture() guard,
+          # because they never touch the shared CNPG fixture: their `data` carries
+          # //docker/images:cnpg_image_amd64_tar, so each one starts its own Postgres.
           bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 
