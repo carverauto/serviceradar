@@ -706,8 +706,9 @@ here.
     `WireDecode` / `WireValidate` gates.
   - REMAINING: every obligation named in this task's body -- see the subtask list, which is
     now exhaustive against it -- see the EXHAUSTIVENESS note under the subtasks.
-  - DEPENDS ON: nothing open. #4734 is CLOSED UNMERGED, so compression admission has no
-    in-flight delivery.
+  - DEPENDS ON: nothing open. Compression admission (1.5-f) IS in flight now, on
+    `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
+    delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
     `elixir/serviceradar_core/lib/serviceradar/edge/semantic_validate.ex`.
 
@@ -718,15 +719,45 @@ here.
         canonicalization before identity/order comparison
   - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
   - [ ] 1.5-e ASN RANGE admission
-  - [ ] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, recursion, and
-        trailing-frame rejection. #4734 was the candidate and is CLOSED UNMERGED, so this
-        is unstarted work, not a review-pending one.
-        1.5-f OWNS THE NORMATIVE FREEZE OF THE EXTRACTED-BODY BOUNDS and SHALL state them
-        in the spec's frozen bounds table: `MaxUncompressedBytes = 32 MiB` and
-        `MaxCompressionRatio = 100`, mirroring `go/pkg/edge/edgerecord/validate.go:38-39`,
-        with cross-language parity vectors. Neither value appears in a normative
-        requirement or the bounds table today -- both live only in Go source and, since
-        1.2-c step 1, in an Elixir constant.
+  - [ ] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, RECURSIVE COMPRESSION
+        (exactly one compression LAYER), and trailing-frame rejection. "Recursion" unqualified
+        collides with protobuf MESSAGE recursion, whose 10_000-message ceiling is 1.5-a's. IN FLIGHT on `usp-32-compression-admission`; #4734 is
+        closed unmerged and is prior art, not delivery.
+        AN AUDIT/FREEZE/PARITY SLICE, NOT GREENFIELD -- `compression.go` already implements
+        the Go side, so the requirement DESCRIBES it rather than inventing rules the code
+        would be dragged toward. The audit findings are in `design.md`, not restated here.
+        - [x] slice 1 NORMATIVE FREEZE -- the requirement "Compression admission is frozen
+              by value, stage, and frame shape" is the normative source for
+              `MaxUncompressedBytes = 33_554_432` and `MaxCompressionRatio = 100`, and
+              freezes the enforcement STAGE, the denominator binding, the declared-versus-
+              actual rule, the single-frame/trailing-data rule, the RECURSIVE-COMPRESSION rule and
+              overflow-safe ratio arithmetic. Until it landed both values lived only in
+              runtime source, so every consumer asserting them -- 1.2-c's decoder among
+              them -- pinned a number with nothing behind it. It freezes THREE independent
+              limits, not two: decoded output <= 32 MiB, expansion ratio <= 100:1, and
+              advertised Zstd WINDOW <= 32 MiB. The window ceiling was enforced by Go all
+              along -- `WithDecoderMaxMemory` is the maximum WINDOW for streaming decoders --
+              but was never normative, so a peer could have accepted a 64 MiB-window frame
+              emitting 1 MiB and diverged on a record both runtimes call otherwise valid.
+              v1 giving the window and output ceilings the same VALUE is a coincidence, not
+              a rule; they bound different things
+        - [ ] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
+              ELIXIR PEER, and add shared boundary/rejection vectors.
+              THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
+              the other way round. An Elixir zstd binding is admissible only if it supports,
+              or permits a project-owned preflight to enforce, ALL of: a bounded maximum
+              WINDOW size; DICTIONARY REFUSAL; exact FRAME EXTENT (the frame ends at exactly
+              the payload length); rejection of TRAILING, CONCATENATED, EMPTY-CONCATENATED
+              and SKIPPABLE frames; and BOUNDED decoding that never reserves the full output.
+              Availability is not the test -- a binding that decodes correctly but cannot
+              express these cannot implement the freeze, and picking it first would leave
+              the rules to be bent toward what it happens to offer.
+              WINDOW VECTORS ARE ISOLATED: the largest representable window at or below
+              32 MiB ACCEPTED, and the smallest representable window above it REJECTED, both
+              with output size and ratio otherwise valid, so neither vector can be satisfied
+              by the output check or the ratio check
+        - [ ] slice 3 COMPOSED REACHABILITY -- a valid body larger than 512 KiB surviving
+              physical admission under 100:1, CI/Bazel registration, ledger closure
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
         applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
         32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is
@@ -1016,7 +1047,13 @@ here.
   cross-language N/N+1 vectors exist for ALL FOUR frozen raw bounds
   (`MaxRecordBytes`, `MaxDeliveryEnvelopeBytes`, `MaxFrameBytes`,
   `MaxClientMessageBytes`) AND for the relational envelope budget -- each accepted
-  at N and rejected at N+1, on RAW received bytes, before unmarshal. This change
+  at N and rejected at N+1, on RAW received bytes, before unmarshal.
+  THE CANONICAL BOUNDS INVENTORY IS `design.md` -- its raw-bounds table and its
+  work-ceilings table. This gate states the OBLIGATION and does not restate the values;
+  a second inventory would be one more thing to keep in sync. What matters here is that
+  the two KINDS are not interchangeable: an N/N+1 vector on RECEIVED BYTES cannot
+  exercise a work ceiling, and the extracted-body ceilings are owned by 1.5-f rather
+  than by this gate. This change
   claims ownership of the cross-language freeze gates, so it cannot rely on
   downstream task 1.16 to execute its own bound tests; otherwise the ABI can be
   declared frozen without its bounds ever being exercised.

@@ -60,6 +60,30 @@ decompression:
 | `MaxCompiledAssignmentBytes` | 64 KiB | one raw `CompiledSweepAssignmentV1` (fetched standalone by digest) |
 | `MaxExecutionGrantBytes` | 16 KiB | one raw `EdgeSignedCapabilityV1` carrying an ASSIGNMENT_EXECUTION claim (travels standalone) |
 
+THIS DOCUMENT IS THE CANONICAL BOUNDS INVENTORY -- both this table and the WORK CEILINGS
+below. The task list states the GATE (which vectors must exist before 1.7 may be checked)
+and points here for the values, so there is one place to change a bound and one place to
+read one.
+
+## 2b. Extracted-body work ceilings (frozen)
+
+A DIFFERENT KIND OF BOUND, and not interchangeable with the table above. The raw bounds are
+PHYSICAL limits on received bytes. These bound the COST OF EXPANDING those bytes, so they are
+checked at a different stage and cannot be exercised by an N/N+1 vector on received bytes.
+Applying a physical bound to an extracted body would permanently reject valid records.
+
+| Ceiling | Value | Bounds |
+| --- | --- | --- |
+| `MaxUncompressedBytes` | 32 MiB (33_554_432) | the extracted body's decoded size |
+| `MaxCompressionRatio` | 100 | decoded size divided by encoded size |
+| `MaxZstdWindowBytes` | 32 MiB (33_554_432) | the Zstd WINDOW a frame may advertise |
+
+The window and output ceilings SHARING A VALUE in v1 is a coincidence, not a rule: one bounds
+what the body costs to hold, the other what the decoder must retain as history while
+producing it. A frame advertising a 64 MiB window while emitting 1 MiB of output passes the
+output ceiling and the ratio and is still refused. Frozen normatively by the requirement
+"Compression admission is frozen by value, stage, and frame shape"; owned by task 1.5-f.
+
 The `+ 8` is CONSERVATIVE HEADROOM, not an exact derivation. The oneof framing at
 the maximum frame size is 1 tag byte plus a 3-byte varint length (528 KiB <
 2^21), so 4 bytes are actually required; an earlier revision of this table claimed
@@ -749,3 +773,59 @@ with no edit to either runtime:
 The second is why both test kinds exist: a swap preserves the set and moves only the meaning
 at each number, so a closed-set test cannot see it. Every existing completion golden vector
 stayed byte-identical under both, confirming the digest grammar did not move.
+
+## The 1.5-f compression audit (2026-08-04)
+
+Recorded here rather than in the ledger, which states rules and evidence, not findings.
+
+`compression.go` and `validate.go` already implemented Go compression admission before 1.5-f
+began, so slice 1 is a FREEZE of what the audit found rather than a specification the code
+then has to be dragged toward. What the audit established:
+
+- The ratio is enforced at `validate.go:716` on DECLARED sizes, BEFORE decompression, so a
+  decompression bomb is refused without ever being expanded.
+- `encoded_size` is bound to the actual payload length at `validate.go:690`. This is what
+  stops the ratio's DENOMINATOR from being inflated: without it, a record declaring a large
+  encoded size passes the ratio trivially and only the absolute ceiling still applies. The
+  binding existed; the freeze makes the ORDER a rule rather than an implementation accident.
+- The ACTUAL decoded output must equal the declaration (`compression.go`), so the bounds
+  apply to a body rather than to a claim.
+- `zstdFrameLen` parses frame STRUCTURE and requires the frame to end at exactly the payload
+  length, rejecting trailing bytes, a second frame, an empty concatenated frame and a
+  skippable frame. A decode-side output-size check cannot see these: klauspost consumes
+  no-output trailing frames transparently, so the declared byte count is produced from a
+  payload carrying more than one frame.
+- Validation streams through a 64 KiB scratch buffer and never reserves the full output.
+  That buffer bounds the CALLER'S output buffering only -- the decoder still retains O(window)
+  of history, which is what the window ceiling exists to bound.
+- Every decoder is constructed with `WithDecoderMaxMemory(MaxUncompressedBytes)`. klauspost
+  documents that option as "maximum decoded size for in-memory non-streaming operations OR
+  MAXIMUM WINDOW SIZE FOR STREAMING OPERATIONS", and this code streams -- so Go has been
+  enforcing a 32 MiB WINDOW ceiling all along, as a third limit nothing had frozen. Verified
+  empirically: a hand-built frame advertising 1<<25 (32 MiB) is accepted and 1<<26 (64 MiB)
+  is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
+  refused it.
+
+TWO CLAIMS IN AN EARLIER DRAFT WERE FALSE AND ARE CORRECTED.
+
+"Decompression happens exactly once" was wrong: an accepted payload is decompressed TWICE --
+`ValidateZstdPayload` drains a decoder to verify the output length, and `innerPayload` later
+calls `decompressZstdValidated`, which constructs and drains a second one to materialize the
+protobuf bytes. (`decompressZstdValidated`'s own comment says it avoids a "second and third"
+decode, which is what misled the draft: it removes the third, not the second.) The ABI rule
+worth freezing is about LAYERS -- exactly one compression layer is admitted, and the extracted
+bytes are a contract message rather than another envelope. How many passes a runtime takes
+over that layer is implementation topology, and refactoring Go to reuse the first output is a
+separate question from the freeze.
+
+"Recursion" unqualified was ambiguous: protobuf MESSAGE recursion has its own 10_000-message
+ceiling owned by 1.5-a. The compression rule is now stated as RECURSIVE COMPRESSION.
+
+ON THE RATIO ARITHMETIC. An earlier draft of the freeze mandated a 64-bit accumulator. That
+overstated the requirement: because `encoded_size` is bound to a payload already under the
+512 KiB physical ceiling, the admitted denominator is at most 524_288 and the product at most
+52_428_800, which a 32-bit accumulator holds. The property worth freezing is
+OVERFLOW-SAFETY plus the ORDER -- an unbound `uint32` denominator times 100 does exceed 32
+bits, so a runtime evaluating the ratio before the binding would need a wider accumulator to
+stay correct. Freezing a width would have frozen an implementation detail and missed the
+reason it is safe.
