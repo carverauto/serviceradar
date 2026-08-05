@@ -5,16 +5,19 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  attr :schema, :map, default: %{}
-  attr :params, :map, default: %{}
-  attr :base_name, :string, default: "params"
-  attr :docs_url, :string, default: nil
+  alias ServiceRadar.Plugins.SecretRefs
 
-  attr :credential_coverage, :map,
+  attr(:schema, :map, default: %{})
+  attr(:params, :map, default: %{})
+  attr(:base_name, :string, default: "params")
+  attr(:docs_url, :string, default: nil)
+
+  attr(:credential_coverage, :map,
     default: nil,
     doc:
       "Matching-rule status for credential-materialized fields: " <>
         "%{state: :covered | :uncovered, provider:, purpose:, rules: [names]} or nil when unknown."
+  )
 
   def plugin_config_fields(assigns) do
     schema = normalize_schema(assigns.schema)
@@ -103,9 +106,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     """
   end
 
-  attr :name, :string, required: true
-  attr :prop, :map, required: true
-  attr :coverage, :map, default: nil
+  attr(:name, :string, required: true)
+  attr(:prop, :map, required: true)
+  attr(:coverage, :map, default: nil)
 
   def credential_materialized_field(assigns) do
     assigns = assign(assigns, :description, Map.get(assigns.prop, "description"))
@@ -141,11 +144,16 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     """
   end
 
-  attr :name, :string, required: true
-  attr :prop, :map, required: true
-  attr :required, :list, default: []
-  attr :params, :map, default: %{}
-  attr :base_name, :string, default: "params"
+  attr(:name, :string, required: true)
+  attr(:prop, :map, required: true)
+  attr(:required, :list, default: [])
+  attr(:params, :map, default: %{})
+  attr(:base_name, :string, default: "params")
+
+  attr(:credentials, :list,
+    default: [],
+    doc: "Reusable credentials offered for secretRef fields. Empty renders raw entry only."
+  )
 
   def config_field(assigns) do
     ~H"""
@@ -161,6 +169,29 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
       <%= case input_type(@prop) do %>
         <% :secret -> %>
+          <%= if @credentials != [] do %>
+            <select
+              name={input_name(@base_name, SecretRefs.credential_select_key(@name))}
+              class={ui_field_class(class: "w-full")}
+            >
+              <option value="">— enter a value below —</option>
+              <option
+                :for={secret <- compatible_credentials(@credentials, @prop)}
+                value={SecretRefs.network_credential_ref(secret.id)}
+                selected={SecretRefs.network_credential_ref(secret.id) == value_for(@params, @name)}
+              >
+                {secret.name} ({secret.provider})
+              </option>
+            </select>
+            <p class="text-xs text-sr-muted">
+              <%= if credential_kind(@prop) do %>
+                Reusable {credential_kind(@prop)} credentials from the shared inventory.
+              <% else %>
+                Reusable credentials from the shared inventory. This field declares no
+                credential kind, so all are listed.
+              <% end %>
+            </p>
+          <% end %>
           <input
             type="password"
             name={input_name(@base_name, @name)}
@@ -320,7 +351,10 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp coverage_scope_label(_coverage), do: ""
 
   defp docs_url(explicit_url, schema) do
-    Enum.find([explicit_url, Map.get(schema, "x-serviceradar-docs-url"), fallback_docs_url(schema)], &safe_docs_url?/1)
+    Enum.find(
+      [explicit_url, Map.get(schema, "x-serviceradar-docs-url"), fallback_docs_url(schema)],
+      &safe_docs_url?/1
+    )
   end
 
   defp safe_docs_url?(value) when is_binary(value) do
@@ -358,6 +392,26 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp truthy?(_), do: false
 
   defp secret_ref?(prop), do: Map.get(prop, "secretRef") == true
+
+  # The optional `credentialKind` hint from the package's config schema. Absent
+  # on the 17 packages already shipping `secretRef`, so nil means "unfiltered"
+  # rather than "nothing matches" -- filtering an unhinted field to zero options
+  # would hide the inventory from exactly the fields that predate the hint.
+  defp credential_kind(prop) when is_map(prop) do
+    case Map.get(prop, "credentialKind") do
+      kind when is_binary(kind) and kind != "" -> kind
+      _ -> nil
+    end
+  end
+
+  defp credential_kind(_prop), do: nil
+
+  defp compatible_credentials(credentials, prop) do
+    case credential_kind(prop) do
+      nil -> credentials
+      kind -> Enum.filter(credentials, &(to_string(&1.credential_kind) == kind))
+    end
+  end
 
   defp current_secret_ref(params, name) do
     case Map.get(params, name) do
