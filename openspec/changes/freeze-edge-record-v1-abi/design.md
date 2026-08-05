@@ -782,9 +782,10 @@ Recorded here rather than in the ledger, which states rules and evidence, not fi
 began, so slice 1 is a FREEZE of what the audit found rather than a specification the code
 then has to be dragged toward. What the audit established:
 
-- The ratio is enforced at `validate.go:716` on DECLARED sizes, BEFORE decompression, so a
-  decompression bomb is refused without ever being expanded.
-- `encoded_size` is bound to the actual payload length at `validate.go:690`. This is what
+- The ratio is enforced inside `validatePayloadBinding` on DECLARED sizes, BEFORE
+  decompression, so a decompression bomb is refused without ever being expanded.
+- `encoded_size` is bound to the actual payload length by the FIRST check in that same
+  function, ahead of the ratio that consumes it as a denominator. This is what
   stops the ratio's DENOMINATOR from being inflated: without it, a record declaring a large
   encoded size passes the ratio trivially and only the absolute ceiling still applies. The
   binding existed; the freeze makes the ORDER a rule rather than an implementation accident.
@@ -814,8 +815,9 @@ TWO CLAIMS IN AN EARLIER DRAFT WERE FALSE AND ARE CORRECTED.
 "Decompression happens exactly once" was wrong: an accepted payload is decompressed TWICE --
 `ValidateZstdPayload` drains a decoder to verify the output length, and `innerPayload` later
 calls `decompressZstdValidated`, which constructs and drains a second one to materialize the
-protobuf bytes. (`decompressZstdValidated`'s own comment says it avoids a "second and third"
-decode, which is what misled the draft: it removes the third, not the second.) The ABI rule
+protobuf bytes. (`decompressZstdValidated`'s comment HISTORICALLY said it avoided a "second and
+third" decode, which is what misled the draft: it removes the third, not the second. The
+comment was corrected during the Go reconciliation to say it IS the second decode.) The ABI rule
 worth freezing is about LAYERS -- exactly one compression layer is admitted, and the extracted
 bytes are a contract message rather than another envelope. How many passes a runtime takes
 over that layer is implementation topology, and refactoring Go to reuse the first output is a

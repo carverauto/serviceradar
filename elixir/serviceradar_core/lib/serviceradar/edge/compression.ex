@@ -275,8 +275,11 @@ defmodule ServiceRadar.Edge.Compression do
   # encoded length. It does not decompress; it walks the frame header and block headers to
   # find the frame's end offset. A skippable-frame magic, a reserved bit, a reserved block
   # type and truncation are all refused.
+  # PRIVATE deliberately: an exported frame walk would be a SECOND entry point taking raw
+  # bytes, and it would not carry the encoded-input ceiling that `validate_payload/2`
+  # applies before calling it. One bounded public boundary, not two.
   @spec frame_length(binary()) :: {:ok, non_neg_integer()} | {:error, :invalid}
-  def frame_length(<<magic::little-32, fhd, rest::binary>>) when magic == @zstd_magic do
+  defp frame_length(<<magic::little-32, fhd, rest::binary>>) when magic == @zstd_magic do
     fcs_flag = fhd >>> 6
     single_seg = (fhd &&& 0x20) != 0
     reserved = (fhd &&& 0x08) != 0
@@ -297,7 +300,7 @@ defmodule ServiceRadar.Edge.Compression do
     end
   end
 
-  def frame_length(_), do: {:error, :invalid}
+  defp frame_length(_), do: {:error, :invalid}
 
   defp fcs_len(0, true), do: 1
   defp fcs_len(0, false), do: 0

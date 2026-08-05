@@ -34,9 +34,9 @@
 // refuses both. That is not a defect in the vectors -- it is the stage they belong to -- but
 // this corpus MUST NOT be described as proving compression admission.
 //
-// SLICE 3 OWES THE RECORD-LEVEL SHARED VECTORS: the `encoded_size` binding; exactly 100:1
-// accepted with the first value over it refused; and 32 MiB accepted with N+1 refused, ratio
-// otherwise valid.
+// SLICE 3 OWES THE RECORD-LEVEL SHARED VECTORS. The canonical checklist is task 1.5-f slice
+// 3 in openspec/changes/freeze-edge-record-v1-abi/tasks.md -- restating it here produced a
+// SECOND inventory that then fell out of date, missing the recursive-compression negative.
 package edgerecord
 
 import (
@@ -297,29 +297,45 @@ func TestFrozenCompressionCeilings(t *testing.T) {
 // TestZstdInputCeilingIsEnforcedByTheExportedAPI pins the ENCODED-input bound on the
 // exported frame API, which is separate from every work ceiling: it bounds RECEIVED BYTES.
 //
-// The composed path already refuses oversize payloads in validatePayloadBinding, so this is
-// about the exported contract -- a direct caller must not be able to hand the frame walker
-// an arbitrarily large buffer just because it never went through record validation.
+// THE INPUT IS A VALID FRAME PLUS PADDING, not a malformed buffer. An earlier version padded
+// a magic with zeros, so the parser returned ErrZstdInvalid whether or not the ceiling
+// existed -- deleting the guard left the test passing, and `>` versus `>=` was invisible
+// because the at-limit case expected the same reason. With a VALID frame followed by
+// padding the two sides give DIFFERENT reasons, and each mutation moves one of them:
+//
+//	exactly MaxPayloadBytes -> ErrZstdTrailing  (admitted, so the FRAME WALK decides)
+//	MaxPayloadBytes + 1     -> ErrZstdInvalid   (the CEILING decides first)
+//
+// The bytes are constructed rather than committed: 512 KiB of padding whose content is
+// irrelevant would be a megabyte of fixtures to say what a recipe says exactly.
 func TestZstdInputCeilingIsEnforcedByTheExportedAPI(t *testing.T) {
-	over := make([]byte, MaxPayloadBytes+1)
-	// A valid magic, so the refusal is the ceiling rather than a bad frame.
-	copy(over, []byte{0x28, 0xB5, 0x2F, 0xFD})
+	frame := zframe(t, []byte("hello"))
 
-	if err := ValidateZstdPayload(over, 5); !errors.Is(err, ErrZstdInvalid) {
-		t.Fatalf("oversize input = %v, want ErrZstdInvalid", err)
+	pad := func(total int) []byte {
+		out := make([]byte, total)
+		copy(out, frame)
+
+		return out
 	}
 
-	if _, err := DecompressZstdPayload(over, 5); !errors.Is(err, ErrZstdInvalid) {
-		t.Fatalf("oversize input to decompress = %v, want ErrZstdInvalid", err)
+	atLimit := pad(MaxPayloadBytes)
+	overLimit := pad(MaxPayloadBytes + 1)
+
+	if err := ValidateZstdPayload(atLimit, 5); !errors.Is(err, ErrZstdTrailing) {
+		t.Fatalf("at the ceiling: %v, want ErrZstdTrailing -- the frame walk should decide", err)
 	}
 
-	// AT the ceiling the bound is not what decides: this is refused for being a malformed
-	// frame, which is a different reason and proves the ceiling is exclusive of N itself.
-	at := make([]byte, MaxPayloadBytes)
-	copy(at, []byte{0x28, 0xB5, 0x2F, 0xFD})
+	if err := ValidateZstdPayload(overLimit, 5); !errors.Is(err, ErrZstdInvalid) {
+		t.Fatalf("over the ceiling: %v, want ErrZstdInvalid -- the ceiling should decide", err)
+	}
 
-	if err := ValidateZstdPayload(at, 5); !errors.Is(err, ErrZstdInvalid) {
-		t.Fatalf("at-ceiling input = %v; expected the frame walk to decide", err)
+	// The same two verdicts through the materializing entry point.
+	if _, err := DecompressZstdPayload(atLimit, 5); !errors.Is(err, ErrZstdTrailing) {
+		t.Fatalf("decompress at the ceiling: %v, want ErrZstdTrailing", err)
+	}
+
+	if _, err := DecompressZstdPayload(overLimit, 5); !errors.Is(err, ErrZstdInvalid) {
+		t.Fatalf("decompress over the ceiling: %v, want ErrZstdInvalid", err)
 	}
 }
 

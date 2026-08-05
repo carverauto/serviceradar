@@ -57,7 +57,7 @@ func ValidateZstdPayload(payload []byte, declaredUncompressed uint32) error {
 	// Reported as ErrZstdInvalid rather than a new sentinel: the frame stage's reason
 	// vocabulary is shared with the Elixir peer through the corpus manifest, and adding a
 	// fourth reason would change a frozen taxonomy to describe a case the composed path
-	// already refuses earlier, with ErrRecordTooLarge.
+	// already refuses earlier, with ErrPayloadTooLarge.
 	if len(payload) > MaxPayloadBytes {
 		return ErrZstdInvalid
 	}
