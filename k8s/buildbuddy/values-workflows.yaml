@@ -95,7 +95,7 @@ autoscaler:
 resources:
   requests:
     cpu: "12"
-    memory: "48GGi"
+    memory: "56GGi"
     ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
