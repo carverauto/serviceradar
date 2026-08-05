@@ -115,6 +115,51 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
+  @doc """
+  Browser-safe SSH console options for a device (policy account names only).
+
+  Does not return opaque principals, CA material, or private keys.
+  """
+  def ssh_options(conn, %{"device_uid" => device_uid}) do
+    with :ok <- require_remote_access_ssh_enabled(),
+         :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_access_ssh_permission),
+         :ok <- require_device_visible(conn, device_uid),
+         {:ok, options} <-
+           remote_access_session_manager().ssh_console_options(device_uid, scope: get_scope(conn)) do
+      json(conn, %{data: options})
+    else
+      {:error, :remote_access_ssh_disabled} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found", message: "SSH remote access is not enabled"})
+
+      {:error, :unauthorized} ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(%{error: "unauthorized", message: "Authentication is required"})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "Remote access permission is required"})
+
+      {:error, reason} when reason in [:device_not_found, :not_found] ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "device_not_found", message: "Device was not found"})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  def ssh_options(conn, _params) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "invalid_request", message: "device_uid is required"})
+  end
+
   defp requested_create_protocol(params) when is_map(params) do
     normalize_optional_string(Map.get(params, "protocol")) ||
       if normalize_optional_string(Map.get(params, "desktop_target_id") || Map.get(params, "target_id")) do
@@ -1103,6 +1148,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       fn device_uid, opts -> Device.get_by_uid(device_uid, false, opts) end
     )
   end
+
+  defp require_device_visible(conn, device_uid) when is_binary(device_uid) do
+    scope = get_scope(conn)
+
+    case remote_access_device_visibility_fetcher().(device_uid, scope: scope) do
+      {:ok, %Device{}} -> :ok
+      {:ok, device} when is_map(device) and map_size(device) > 0 -> :ok
+      {:ok, nil} -> {:error, :device_not_found}
+      {:error, _} -> {:error, :device_not_found}
+      _ -> {:error, :device_not_found}
+    end
+  end
+
+  defp require_device_visible(_conn, _device_uid), do: {:error, :device_not_found}
 
   defp get_scope(conn), do: conn.assigns[:current_scope]
 
