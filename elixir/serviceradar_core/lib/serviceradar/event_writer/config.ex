@@ -310,7 +310,9 @@ defmodule ServiceRadar.EventWriter.Config do
       %{
         name: "K8S_INVENTORY",
         stream_name: "k8s_inventory",
-        subject: "inventory.k8s.>",
+        # Must overlap stream subjects from k8s-inventory publisher
+        # (inventory.k8s.public_endpoints[+.>] — not the broader inventory.k8s.>).
+        subject: "inventory.k8s.public_endpoints",
         processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
         # Full-cluster snapshots; process one message at a time.
         batch_size: 1,
