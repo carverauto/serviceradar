@@ -54,10 +54,16 @@ Today you can:
 
 1. Run **`k8s-inventory snapshot`** from a workstation (uses your kubeconfig).
 2. Run the **in-cluster collector** (uses the Helm ServiceAccount) and publish
-   to NATS or `stdout` for validation.
+   to NATS JetStream (`inventory.k8s.public_endpoints`).
+3. Query current ownership via SRQL once core has migrated and is running a
+   build that includes the EventWriter processor:
 
-Core database / SRQL surfaces are still landing; ownership discovery and
-publish path are usable now.
+   ```text
+   in:public_endpoints ip:23.138.124.7 port:22
+   in:public_endpoints cluster_id:demo exposure_class:Gateway
+   ```
+
+   Rows land in `platform.public_endpoints_current` (soft-delete on reassignment).
 
 ## Helm: ServiceAccount and RBAC
 

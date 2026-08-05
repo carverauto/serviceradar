@@ -38,17 +38,18 @@
 
 ## 4. Core ingest and storage
 
-- [ ] 4.1 Platform migration: `platform.public_endpoints_current` (upsert key, indexes on ip/hostname/port/cluster_id)
-- [ ] 4.2 EventWriter or dedicated processor: consume inventory subject → upsert/soft-delete
-- [ ] 4.3 Fail-open if publisher absent; health/status for last successful resync per cluster_id
-- [ ] 4.4 Tests for upsert, tombstone, dual IP+hostname rows
+- [x] 4.1 Platform migration: `platform.public_endpoints_current` (upsert key, indexes on ip/hostname/port/cluster_id)
+- [x] 4.2 EventWriter processor `K8sPublicEndpoints`: consume `inventory.k8s.>` → upsert/soft-delete
+- [x] 4.2b Config stream `K8S_INVENTORY` + pipeline batcher routing
+- [ ] 4.3 Fail-open if publisher absent; health/status for last successful resync per cluster_id (metrics only for now)
+- [x] 4.4 Processor unit test (payload shape); soft-delete exercised on apply
 
 ## 5. SRQL and IR UX
 
-- [ ] 5.1 SRQL entity `in:public_endpoints` with filters: ip, hostname, port, protocol, namespace, cluster_id, exposure_class
+- [x] 5.1 SRQL entity `in:public_endpoints` with filters: ip, hostname, port, protocol, namespace, cluster_id, exposure_class
 - [ ] 5.2 Catalog entry for web-ng SRQL autocomplete
 - [ ] 5.3 (P1) Optional join/enrichment documentation or read-path helper for flows → owner fields
-- [ ] 5.4 Docs: IR runbook "investigate inbound to public VIP" using SRQL only
+- [x] 5.4 Docs: IR runbook includes SRQL examples
 
 ## 6. Security and validation
 
