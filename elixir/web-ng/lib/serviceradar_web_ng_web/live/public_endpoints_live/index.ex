@@ -28,8 +28,11 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
   def handle_params(params, uri, socket) do
     params =
       case Map.get(params, "q") do
-        q when is_binary(q) and String.trim(q) != "" -> params
-        _ -> Map.put(params, "q", @default_query)
+        q when is_binary(q) ->
+          if String.trim(q) != "", do: params, else: Map.put(params, "q", @default_query)
+
+        _ ->
+          Map.put(params, "q", @default_query)
       end
 
     {:noreply,
