@@ -297,18 +297,27 @@ func TestFrozenCompressionCeilings(t *testing.T) {
 // TestZstdInputCeilingIsEnforcedByTheExportedAPI pins the ENCODED-input bound on the
 // exported frame API, which is separate from every work ceiling: it bounds RECEIVED BYTES.
 //
-// THE INPUT IS A VALID FRAME PLUS PADDING, not a malformed buffer. An earlier version padded
-// a magic with zeros, so the parser returned ErrZstdInvalid whether or not the ceiling
-// existed -- deleting the guard left the test passing, and `>` versus `>=` was invisible
-// because the at-limit case expected the same reason. With a VALID frame followed by
-// padding the two sides give DIFFERENT reasons, and each mutation moves one of them:
+// THE INPUT IS A VALID FRAME PLUS PADDING, so the two sides give DIFFERENT reasons and each
+// mutation moves one of them:
 //
-//	exactly MaxPayloadBytes -> ErrZstdTrailing  (admitted, so the FRAME WALK decides)
-//	MaxPayloadBytes + 1     -> ErrZstdInvalid   (the CEILING decides first)
+//	exactly 524_288 bytes -> ErrZstdTrailing  (admitted, so the FRAME WALK decides)
+//	524_289 bytes         -> ErrZstdInvalid   (the CEILING decides first)
+//
+// THE BOUND IS THE LITERAL, NOT THE CONSTANT: a frozen value is asserted against a number
+// this test states itself, so raising MaxPayloadBytes fails HERE instead of moving the
+// vectors with it and letting Go drift from the peer, which pins the same literal.
 //
 // The bytes are constructed rather than committed: 512 KiB of padding whose content is
 // irrelevant would be a megabyte of fixtures to say what a recipe says exactly.
 func TestZstdInputCeilingIsEnforcedByTheExportedAPI(t *testing.T) {
+	// The frozen physical ceiling on RECEIVED payload bytes, stated here rather than read
+	// from the production constant, so a change to the constant fails this test.
+	const wantMaxPayload = 524_288
+
+	if MaxPayloadBytes != wantMaxPayload {
+		t.Fatalf("MaxPayloadBytes = %d, frozen at %d", MaxPayloadBytes, wantMaxPayload)
+	}
+
 	frame := zframe(t, []byte("hello"))
 
 	pad := func(total int) []byte {
@@ -318,8 +327,8 @@ func TestZstdInputCeilingIsEnforcedByTheExportedAPI(t *testing.T) {
 		return out
 	}
 
-	atLimit := pad(MaxPayloadBytes)
-	overLimit := pad(MaxPayloadBytes + 1)
+	atLimit := pad(wantMaxPayload)
+	overLimit := pad(wantMaxPayload + 1)
 
 	if err := ValidateZstdPayload(atLimit, 5); !errors.Is(err, ErrZstdTrailing) {
 		t.Fatalf("at the ceiling: %v, want ErrZstdTrailing -- the frame walk should decide", err)

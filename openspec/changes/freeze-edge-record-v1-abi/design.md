@@ -810,6 +810,24 @@ then has to be dragged toward. What the audit established:
   is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
   refused it.
 
+THREE DEFECTS IN THE SLICE-2 VECTORS ARE WORTH RECORDING, because each was a test that
+looked like proof and was not.
+
+The encoded-input boundary vectors first padded a bare zstd magic with zeros. That is a
+MALFORMED buffer, so the parser returned the rejection whether or not the ceiling existed --
+deleting the guard left the suite green -- and because the at-limit case expected that SAME
+reason, `>` versus `>=` was invisible too. A VALID frame plus padding fixes it: the two sides
+then give DIFFERENT reasons, so each mutation moves one of them.
+
+Those vectors were then built from `MaxPayloadBytes` itself, which made them SELF-ADJUSTING:
+raising the constant moved the vectors with it, so Go would admit 524_289 bytes to the frame
+walk with every Go test passing while the Elixir peer, which states the literal, refused
+them. A frozen value has to be asserted against a number the test states itself.
+
+Elixir's `frame_length/1` was exported. It was a second entry point taking raw bytes, and it
+did not carry the encoded-input ceiling that `validate_payload/2` applies before calling it,
+so bounding one public frame walk left an unbounded one beside it.
+
 TWO CLAIMS IN AN EARLIER DRAFT WERE FALSE AND ARE CORRECTED.
 
 "Decompression happens exactly once" was wrong: an accepted payload is decompressed TWICE --
