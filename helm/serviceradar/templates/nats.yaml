@@ -228,6 +228,9 @@ spec:
                       "signals.analytics.>",
                       "events.>",
                       "config.>",
+                      "inventory.k8s.>",
+                      "trivy.report.>",
+                      "falco.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
