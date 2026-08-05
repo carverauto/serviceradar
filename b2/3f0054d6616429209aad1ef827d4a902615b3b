@@ -1,0 +1,30 @@
+elixir/web-ng/BUILD.bazel
+  s_0eda1e1f71cc86::t_97421705bd6d44 247
+  s_0eda1e1f71cc86::t_06de558e77e90e 215-237
+elixir/serviceradar_agent_gateway/BUILD.bazel
+  s_0eda1e1f71cc86::t_97421705bd6d44 112
+  s_0eda1e1f71cc86::t_992e5469ee6734 37-58,85-103,109,120
+elixir/serviceradar_core_elx/BUILD.bazel
+  s_0eda1e1f71cc86::t_992e5469ee6734 19-40,103
+elixir/datasvc/BUILD.bazel
+  s_0eda1e1f71cc86::t_476c47d44ae3c0 32-36
+elixir/serviceradar_core/BUILD.bazel
+  s_0eda1e1f71cc86::t_97421705bd6d44 232
+  s_0eda1e1f71cc86::t_9bdfdfc1d1ce05 200-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b23f0054d6616429209aad1ef827d4a902615b3b",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
