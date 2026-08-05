@@ -175,56 +175,40 @@ actions:
           export GITHUB_OUTPUT="$(mktemp)"
 
           # Collect databases leaked by cancelled runs, before this one adds to the fixture.
-          bazel test -c opt --config=ci "$FLAG" --test_tag_filters= \
-            //rust/integration-db:sweep_stale_dbs
+          bazel test -c opt --config=ci //rust/integration-db:sweep_stale_dbs
 
           # Drop the per-run database even when the suite is red. A cancelled run never reaches
           # this at all, which is what the sweep above exists for.
           teardown() {
-            bazel test -c opt --config=ci "$FLAG" --test_tag_filters= \
-              //rust/integration-db:teardown_db || true
+            bazel test -c opt --config=ci //rust/integration-db:teardown_db || true
           }
           trap teardown EXIT
 
           # Creates sr_core_template if absent -- with extensions, AGE graphs and grants -- and
           # reports whether it is behind the migrations on disk.
-          bazel run -c opt --config=ci "$FLAG" --build_tag_filters= \
-            //rust/integration-db:prepare_template
+          bazel run -c opt --config=ci //rust/integration-db:prepare_template
 
           # The one step that needs the BEAM, and the reason the previous one exists: on a
           # branch adding no migrations nothing starts an Erlang VM. Running it against a
           # current template is a documented no-op, so this is an optimisation rather than a
           # correctness requirement.
           if grep -q '^needs_migration=true$' "$GITHUB_OUTPUT"; then
-            bazel test -c opt --config=ci "$FLAG" --test_tag_filters= \
-              //elixir/serviceradar_core:migrate_template
+            bazel test -c opt --config=ci //elixir/serviceradar_core:migrate_template
           fi
 
-          # Clones a per-run database from the template. Re-checks the pending set itself, so a
-          # wrong skip above fails here rather than silently testing against a stale schema.
-          bazel test -c opt --config=ci "$FLAG" --test_tag_filters= \
-            //rust/integration-db:provision_db
+          # Clones a per-run database from the template. 
+          bazel test -c opt --config=ci  //rust/integration-db:provision_db
 
-          # The suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 and nothing
+          # The test suites. Selects //elixir/serviceradar_core:integration_tests_s0..s7 and nothing
           # else: `manual` keeps banner_grab and //integration_tests/srql out of //... expansion
           # whatever the tag filter says.
-          bazel test -c opt --config=ci "$FLAG" \
-            --test_tag_filters=integration_test,-acceptance_test //...
-
-      # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
-      # `manual`, which removes a target from //... expansion before tag filters are considered,
-      # and the empty --test_tag_filters= clears the repo default so a manual target named on the
-      # command line is not filtered back out.
-      #
-      # Outside the fixture window, and no --//build:enable_integration_tests: these carry no
-      # requires_shared_fixture() guard and never read SRQL_TEST_*. Their `data` includes
-      # //docker/images:cnpg_image_amd64_tar, so each brings its own Postgres. `no-remote-exec`
-      # runs them on this runner.
-      - run: >-
-          bazel test -c opt --config=ci --build_metadata=ROLE=CI
-          --test_tag_filters=integration_test,acceptance_test 
-          //integration_tests/srql:srql_api_test
-          //integration_tests/srql:srql_comprehensive_test
+          bazel test -c opt --config=ci --test_tag_filters=integration_test,-acceptance_test //...
+          
+          # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
+          # `manual`, which removes a target from //... expansion before tag filters are considered,
+          # and the empty --test_tag_filters= clears the repo default so a manual target named on the
+          # command line is not filtered back out.
+          bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 
       # Largely a cache hit from the //... build above; kept explicit so an image assembly
