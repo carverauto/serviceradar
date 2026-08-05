@@ -6,6 +6,15 @@ metadata:
 spec:
   description: Shared CNPG instance for SRQL API tests (Timescale + Apache AGE + PostGIS + pgvector)
   instances: 2
+  # Always pin by digest as well as tag. A tag alone is mutable: 18.3.0-sr5 was
+  # overwritten in place once, and Harbor then garbage-collected the manifest this
+  # cluster was running, which is what caused the ImagePullBackOff outage.
+  #
+  # Deliberately NOT moved to 18.4.0-sr1. That image was built from
+  # //docker/images:cnpg_image_amd64 and its timescaledb.so / age.so require
+  # GLIBC_2.38, which the bookworm runtime (2.36) cannot provide -- Postgres dies
+  # with "could not load library". See docker/images/cnpg_image.bzl for why, and
+  # do not repin this cluster until an image built from that target actually starts.
   imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9
   imagePullSecrets:
     - name: registry-carverauto-dev-cred

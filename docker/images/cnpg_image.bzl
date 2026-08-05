@@ -2,6 +2,40 @@
 
 This remains the explicit exception path while the rest of docker/images
 converges on shared service/release image macros.
+
+KNOWN DEFECT -- images built from this graph do not currently start
+-------------------------------------------------------------------
+The extension layers below compile against the *executor's* libc, not the
+runtime's. //build/rbe:rbe_platform runs actions in rbe-executor (Ubuntu 24.04,
+glibc 2.39); the CNPG base is Debian bookworm (glibc 2.36). glibc gained
+`strlcpy` in 2.38, so on the executor the compiler resolves TimescaleDB's and
+AGE's calls to `strlcpy@GLIBC_2.38` instead of letting them fall through to the
+copy PostgreSQL exports from its own port. The runtime cannot supply that
+version, and Postgres exits immediately:
+
+    FATAL: could not load library "/usr/lib/postgresql/18/lib/timescaledb.so":
+           /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+
+Both affected libraries are in shared_preload_libraries, so this is not a
+degraded image -- the database does not come up at all. Confirmed against the
+18.4.0-sr1 build: timescaledb.so and age.so require GLIBC_2.38, while the same
+libraries in the last known-good image require 2.17. The prebuilt extensions
+(postgis, pgvector) are unaffected; only the compile-from-source layers are.
+
+This is independent of the base pin -- it is the executor image that changed --
+and it is the same failure that broke the c70e6cf6 image earlier.
+
+Two consequences worth knowing before touching this file:
+
+  * Verifying that an extension is PRESENT in the layout proves nothing. The
+    .so must be checked against the base's glibc, or loaded.
+  * Do NOT publish over an existing tag. A broken build pushed over
+    serviceradar-cnpg:18.3.0-sr5 let Harbor garbage-collect the manifests two
+    live clusters were pinned to, which is what caused the srql-fixtures outage.
+
+The fix is to build these layers against the runtime's libc (the base rootfs is
+already extracted to $ROOT_DIR here, so it can serve as a --sysroot once
+libc6-dev and linux-libc-dev are overlaid into it) rather than the executor's.
 """
 
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
