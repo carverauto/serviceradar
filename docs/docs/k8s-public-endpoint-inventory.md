@@ -46,17 +46,21 @@ serviceradar-k8s-inventory  (Deployment + ServiceAccount)
     │  snapshot JSON
     ▼
 NATS JetStream  subject inventory.k8s.public_endpoints
+    │  (stream k8s_inventory)
+    ▼
+core EventWriter  →  platform.public_endpoints_current
     │
-    ▼  (future) core ingest → public_endpoints_current → SRQL
+    ▼
+SRQL / web-ng  in:public_endpoints
+               UI: /inventory/public-endpoints
 ```
 
-Today you can:
+You can:
 
 1. Run **`k8s-inventory snapshot`** from a workstation (uses your kubeconfig).
 2. Run the **in-cluster collector** (uses the Helm ServiceAccount) and publish
    to NATS JetStream (`inventory.k8s.public_endpoints`).
-3. Query current ownership via SRQL once core has migrated and is running a
-   build that includes the EventWriter processor:
+3. Query current ownership via SRQL (core EventWriter + migration):
 
    ```text
    in:public_endpoints ip:23.138.124.7 port:22
@@ -64,6 +68,16 @@ Today you can:
    ```
 
    Rows land in `platform.public_endpoints_current` (soft-delete on reassignment).
+
+4. Open the dedicated list page in web-ng:
+
+   ```text
+   /inventory/public-endpoints
+   /inventory/public-endpoints?q=in:public_endpoints+ip:23.138.124.7
+   ```
+
+   Submitting `in:public_endpoints …` from the global SRQL bar on other pages
+   navigates here (catalog route is `/inventory/public-endpoints`).
 
 ## Helm: ServiceAccount and RBAC
 
@@ -182,25 +196,53 @@ helm upgrade --install serviceradar ./helm/serviceradar \
 
 ## Incident response workflow
 
-1. **Alert / flow:** external source → public `IP` or LB hostname + port.
-2. **Ownership (today):**
-   ```bash
-   # From a machine with cluster API access (kubeconfig)
-   k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+1. **Alert / flow:** external source → public `IP` or LB hostname + port
+   (for example NetFlow `dst_ip=23.138.124.7 dst_port=22` from a geo-tagged peer).
+2. **Ownership (cluster-plane inventory):**
+
+   Preferred in the product UI / SRQL:
+
+   ```text
+   in:public_endpoints ip:23.138.124.7 port:22
    ```
-   Or, once the Deployment is up:
+
+   Open `/inventory/public-endpoints` or submit that query from the SRQL bar
+   (it routes to the inventory page).
+
+   CLI / lab alternatives:
+
    ```bash
+   # Workstation with kubeconfig
+   k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+
+   # Live collector snapshot API
    kubectl -n demo port-forward svc/serviceradar-k8s-inventory 9109:9109
    curl -s localhost:9109/snapshot | jq '.endpoints[] | select(.ip=="23.138.124.7")'
    ```
+
 3. **Interpret:**
    - `exposure_class: LoadBalancer` + Service name → edge proxy / LB Service
+     (demo: Envoy Gateway LB in `envoy-gateway-system`, MetalLB pool)
    - `exposure_class: Gateway` + `route_kind` / `route_name` → Gateway API path
-   - `endpoint_targets` / correlation_hints → post-DNAT pod IP:port (what
-     netprobe may attribute, e.g. `envoy` on `:10022`)
-4. **Process attribution (separate):** enable netprobe on the worker that hosts
-   the backend pod; join is not automatic until VIP/DNAT correlation is wired
-   in core.
+     (demo: `TCPRoute/forgejo-ssh` → Service `forgejo-ssh`)
+   - `endpoint_targets` / correlation hints → post-DNAT pod IP:port
+     (what netprobe attributes on the worker, e.g. `envoy` on `:10022`,
+     `gitea` on `:2222`)
+
+4. **Process attribution (separate layer today):** enable netprobe on the
+   worker that hosts the backend pod. Look up attributed flows / process
+   attribution by **pod IP:targetPort**, not by the public VIP:
+
+   ```text
+   # After inventory points at 10.42.x.y:10022 (envoy) or :2222 (gitea)
+   in:attributed_flows …
+   ```
+
+   The **Attributed Flows** page (`/observability/flows/attributed`) does
+   **not** automatically rewrite public VIP destinations to Service/Gateway
+   owners yet. That VIP/DNAT correlation join in core is a follow-on; inventory
+   is the ownership answer for “what is this public IP:port?” while netprobe
+   remains the process answer for “what binary owns the post-DNAT socket?”
 
 ## Build and test (Bazel)
 
