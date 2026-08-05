@@ -2908,6 +2908,7 @@ register_toolchains(
 
 # web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+
 #
 # pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
 # to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a

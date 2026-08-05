@@ -64,6 +64,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -98,7 +99,7 @@ rust_library(
     version = "0.18.1",
     deps = [
         "//third_party/crates/asn1-rs-0.7.2:asn1_rs",
-        "//third_party/crates/data-encoding-2.11.0:data_encoding",
+        "//third_party/crates/data-encoding-2.11.1:data_encoding",
         "//third_party/crates/der-parser-10.0.0:der_parser",
         "//third_party/crates/lazy_static-1.5.0:lazy_static",
         "//third_party/crates/nom-7.1.3:nom",

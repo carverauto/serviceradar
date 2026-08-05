@@ -92,11 +92,6 @@ actions:
           fi
 
           # NAME BRIDGE. The secret store holds HARBOR_*, buildbuddy_setup_docker_auth.sh reads
-          # OCI_* -- the script's "primary / push registry" pair, whose host comes from
-          # OCI_REGISTRY above. Mapped here rather than in the action's `env:` block because
-          # that takes static values only and cannot interpolate a secret; inside a step the
-          # secrets are already ordinary environment variables.
-          #
           # Do NOT rename the secrets to OCI_* instead. The Forgejo workflows read
           # HARBOR_ROBOT_USERNAME/HARBOR_ROBOT_SECRET from their own store and map the same
           # way, so the credential keeps one name per store and the mapping stays visible at
@@ -130,7 +125,7 @@ actions:
       # test_helper.exs files treat blank as absent. Do not "simplify" either half: Bazel can set
       # a variable for an action but never unset one, so "" is the only lever, and without
       # blank-means-absent the pinning forces the wrong branch instead of preventing it.
-      - run: "bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test"
+      - run: "bazel test -c opt --config=ci --build_metadata=ROLE=CI //... --test_tag_filters=-integration_test,-acceptance_test"
 
       # A different configuration from the sweep above (race on, pure off), so it shares no
       # cached actions with it -- but it does share the loading and analysis phase, which is
@@ -138,7 +133,7 @@ actions:
       # --flaky_test_attempts=1 overrides the repo default of 2; a flake hunt that retries is not
       # a flake hunt.
       - run: >-
-          bazel test -c opt --config=ci //go/...
+          bazel test -c opt --config=ci --build_metadata=ROLE=CI //go/...
           --@io_bazel_rules_go//go/config:pure=false
           --@io_bazel_rules_go//go/config:race
           --test_tag_filters=-integration_test,-acceptance_test
@@ -147,21 +142,6 @@ actions:
           --test_arg=-test.count=5
           --test_arg=-test.short
           --test_arg=-test.shuffle=on
-
-      # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
-      # `manual`, which removes a target from //... expansion before tag filters are considered,
-      # and the empty --test_tag_filters= clears the repo default so a manual target named on the
-      # command line is not filtered back out.
-      #
-      # Outside the fixture window, and no --//build:enable_integration_tests: these carry no
-      # requires_shared_fixture() guard and never read SRQL_TEST_*. Their `data` includes
-      # //docker/images:cnpg_image_amd64_tar, so each brings its own Postgres. `no-remote-exec`
-      # runs them on this runner.
-      - run: >-
-          bazel test -c opt --config=ci
-          --test_tag_filters=
-          //integration_tests/srql:srql_api_test
-          //integration_tests/srql:srql_comprehensive_test
 
       # The database lifecycle, deliberately ONE step.
       #
@@ -230,6 +210,22 @@ actions:
           # whatever the tag filter says.
           bazel test -c opt --config=ci "$FLAG" \
             --test_tag_filters=integration_test,-acceptance_test //...
+
+      # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
+      # `manual`, which removes a target from //... expansion before tag filters are considered,
+      # and the empty --test_tag_filters= clears the repo default so a manual target named on the
+      # command line is not filtered back out.
+      #
+      # Outside the fixture window, and no --//build:enable_integration_tests: these carry no
+      # requires_shared_fixture() guard and never read SRQL_TEST_*. Their `data` includes
+      # //docker/images:cnpg_image_amd64_tar, so each brings its own Postgres. `no-remote-exec`
+      # runs them on this runner.
+      - run: >-
+          bazel test -c opt --config=ci --build_metadata=ROLE=CI
+          --test_tag_filters=integration_test,acceptance_test 
+          //integration_tests/srql:srql_api_test
+          //integration_tests/srql:srql_comprehensive_test
+
 
       # Largely a cache hit from the //... build above; kept explicit so an image assembly
       # failure is attributable without reading a sweep log.
