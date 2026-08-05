@@ -1,0 +1,201 @@
+third_party/bumblebee/upstream/internal/ecosystem/mcp/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+third_party/hex/gnat.BUILD
+  s_aef6bd1a0fb200::t_48fd0a90af5d8e 34
+third_party/netprobe_corpora/BUILD.bazel
+  s_aef6bd1a0fb200::t_59e83220e14e96 1-33
+third_party/bumblebee/upstream/internal/output/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+elixir/web-ng/mix.exs
+  s_aef6bd1a0fb200::t_10ab0bc582b360 70
+third_party/bumblebee/upstream/internal/scanner/scanner.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-533
+third_party/bumblebee/upstream/internal/walk/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+go/pkg/scan/banner_grab/BUILD.bazel
+  s_aef6bd1a0fb200::t_6f515da9a31807 49-50
+elixir/serviceradar_core_elx/BUILD.bazel
+  s_aef6bd1a0fb200::t_10ab0bc582b360 29,103-104,107
+  s_aef6bd1a0fb200::t_6623848d3aef8f 102
+  s_aef6bd1a0fb200::t_e52a8d3fad6882 31
+third_party/bumblebee/upstream/internal/ecosystem/yarn/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/bumblebee/upstream/internal/endpoint/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+third_party/bumblebee/upstream/internal/ecosystem/editorext/editorext.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-158
+.gitattributes
+  s_aef6bd1a0fb200::t_1604cf00d43d9a 5
+third_party/netprobe_corpora/recog/CONTRIBUTING.md
+  s_aef6bd1a0fb200::t_6f515da9a31807 1-85
+third_party/bumblebee/upstream/internal/ecosystem/npm/npm.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-315
+rust/netprobe/src/p0f_corpus.rs
+  s_aef6bd1a0fb200::t_6e9c24c74f735d 503,511
+third_party/bumblebee/upstream/internal/ecosystem/pnpm/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/bumblebee/upstream/internal/ecosystem/editorext/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+third_party/bumblebee/upstream/internal/model/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-8
+elixir/serviceradar_agent_gateway/BUILD.bazel
+  s_aef6bd1a0fb200::t_10ab0bc582b360 101-102,105
+third_party/bumblebee/upstream/internal/ecosystem/pypi/pypi.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-221
+rust/netprobe/BUILD.bazel
+  s_aef6bd1a0fb200::t_a03140502d089f 87-91,106-110,123
+third_party/netprobe_corpora/recog/README.md
+  s_aef6bd1a0fb200::t_6f515da9a31807 1-67
+third_party/bumblebee/upstream/internal/ecosystem/rubygems/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+third_party/bumblebee/upstream/internal/exposure/exposure.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-330
+third_party/bumblebee/upstream/internal/ecosystem/gomod/gomod.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-193
+BUILD.md
+  s_aef6bd1a0fb200::t_5d95174ac0c0ee 92,94-95,115-116,121,134-135,158,160,162,167
+  s_aef6bd1a0fb200::t_6f515da9a31807 96,98-99,187,189-190,196,203,220-221,245-247,250,259
+third_party/netprobe_corpora/README.md
+  s_aef6bd1a0fb200::t_6fd2c656159ffd 1-9,13-18,28-36
+  s_aef6bd1a0fb200::t_60daa1069e009a 10-12,19-27
+third_party/bumblebee/upstream/internal/ecosystem/browserext/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+third_party/bumblebee/upstream/internal/ecosystem/bun/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/bumblebee/upstream/internal/ecosystem/pypi/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/bumblebee/upstream/internal/ecosystem/browserext/browserext.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-274
+scripts/lint-recog-additions.sh
+  s_aef6bd1a0fb200::t_6e87b784683871 19
+elixir/serviceradar_core/BUILD.bazel
+  s_aef6bd1a0fb200::t_10ab0bc582b360 106-107,109
+elixir/web-ng/BUILD.bazel
+  s_aef6bd1a0fb200::t_10ab0bc582b360 138,232,234,237
+elixir/README.md
+  s_aef6bd1a0fb200::t_60256262b11996 58-67
+  s_aef6bd1a0fb200::t_a6dd36764fdfaa 68
+third_party/bumblebee/upstream/internal/output/output.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-162
+third_party/bumblebee/README.md
+  s_aef6bd1a0fb200::t_b86c2be495cdeb 1-31
+scripts/check-netprobe-fingerprint-licenses.sh
+  s_aef6bd1a0fb200::t_6e87b784683871 36-38,41-44,50-54,72-76,129,134,137,140
+third_party/hex_vendored/boombox/BUILD.bazel
+  s_aef6bd1a0fb200::t_e5e580452d2c85 25-31
+third_party/bumblebee/upstream/internal/ecosystem/composer/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+rust/netprobe/ebpf/BUILD.bazel
+  s_aef6bd1a0fb200::t_8583064102b4ba 5-8,15-16
+  s_aef6bd1a0fb200::t_28c3c5c6ad290a 42,50-52
+third_party/bumblebee/upstream/internal/ecosystem/gomod/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-9
+rust/netprobe/src/satori.rs
+  s_aef6bd1a0fb200::t_3928306b0a9e7f 633-634,643-644,655
+third_party/bumblebee/upstream/internal/ecosystem/mcp/mcp.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-793
+third_party/bumblebee/upstream/internal/ecosystem/yarn/yarn.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-266
+rust/netprobe/build.rs
+  s_aef6bd1a0fb200::t_a03140502d089f 22-25,76-78,80
+  s_aef6bd1a0fb200::t_21dc6f77eac7f1 18-21
+  s_aef6bd1a0fb200::t_092687654a392d 306-309,311,313-318
+scripts/gen_hex_bazel.exs
+  s_aef6bd1a0fb200::t_10ab0bc582b360 43-45
+third_party/bumblebee/upstream/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-15
+third_party/bumblebee/upstream/internal/ecosystem/composer/composer.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-136
+third_party/bumblebee/upstream/internal/exposure/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/hex/bundlex.BUILD
+  s_aef6bd1a0fb200::t_48fd0a90af5d8e 27
+third_party/hex/ex_ice.BUILD
+  s_aef6bd1a0fb200::t_48fd0a90af5d8e 34
+elixir/serviceradar_core_elx/mix.exs
+  s_aef6bd1a0fb200::t_e52a8d3fad6882 71
+third_party/netprobe_corpora/satori/README.md
+  s_aef6bd1a0fb200::t_6f515da9a31807 1-58
+third_party/bumblebee/upstream/internal/ecosystem/rubygems/rubygems.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-315
+third_party/bumblebee/upstream/internal/ecosystem/npm/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-12
+third_party/bumblebee/upstream/internal/ecosystem/bun/bun.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-330
+third_party/hex_vendored/README.md
+  s_aef6bd1a0fb200::t_29a3efd0cbd1e7 1-33
+third_party/bumblebee/upstream/runner.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-166
+elixir/serviceradar_core/mix.exs
+  s_aef6bd1a0fb200::t_10ab0bc582b360 85,112,125
+third_party/hex/ex_sdp.BUILD
+  s_aef6bd1a0fb200::t_48fd0a90af5d8e 35
+third_party/bumblebee/upstream/internal/normalize/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-8
+rust/netprobe/src/ipc/match_banner.rs
+  s_aef6bd1a0fb200::t_b5452aa331c0ee 275-280
+  s_aef6bd1a0fb200::t_4988a3a8f1ab23 168,171-173
+go/pkg/bumblebee/runner.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 35
+third_party/bumblebee/upstream/internal/scanner/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-25
+third_party/bumblebee/upstream/internal/endpoint/endpoint.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-34
+.forgejo/workflows/tests-fingerprint-licensing.yml
+  s_aef6bd1a0fb200::t_5c9d19fb0c1a44 9,18
+third_party/netprobe_ebpf_vendor/README.md
+  s_aef6bd1a0fb200::t_568b90f5c31260 1-36
+third_party/bumblebee/upstream/internal/ecosystem/pnpm/pnpm.go
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 1-689
+third_party/netprobe_corpora/p0f/CONTRIBUTING.md
+  s_aef6bd1a0fb200::t_6e9c24c74f735d 1-50
+build/mix_release.bzl
+  s_aef6bd1a0fb200::t_10ab0bc582b360 638
+third_party/netprobe_ebpf_vendor/BUILD.bazel
+  s_aef6bd1a0fb200::t_b7c12cdd67d5f8 1-27
+rust/netprobe/src/p0f_matcher.rs
+  s_aef6bd1a0fb200::t_6e9c24c74f735d 61,63
+go/pkg/bumblebee/BUILD.bazel
+  s_aef6bd1a0fb200::t_f6f7be45dbe325 16
+docs/docs/fingerprint-architecture.md
+  s_aef6bd1a0fb200::t_6e9c24c74f735d 73,77,79,113
+  s_aef6bd1a0fb200::t_6f515da9a31807 99-100,104
+.bazelrc
+  s_aef6bd1a0fb200::t_b7aee0170bb733 282
+third_party/netprobe_corpora/satori/xml/browser.xml
+  s_aef6bd1a0fb200::t_f86c08a452dddb 1-118
+third_party/netprobe_corpora/satori/xml/dhcp.xml
+  s_aef6bd1a0fb200::t_0c22d28a4b5ce9 1-4716
+third_party/netprobe_corpora/satori/xml/dns.xml
+  s_aef6bd1a0fb200::t_4c6240e082dd9e 1-262
+third_party/netprobe_corpora/satori/xml/ntp.xml
+  s_aef6bd1a0fb200::t_c13f97531b10f4 1-185
+third_party/netprobe_corpora/satori/xml/smb.xml
+  s_aef6bd1a0fb200::t_047acab9d7b319 1-611
+third_party/netprobe_corpora/satori/xml/ssh.xml
+  s_aef6bd1a0fb200::t_76deb48ad50b73 1-342
+third_party/netprobe_corpora/satori/xml/ssl.xml
+  s_aef6bd1a0fb200::t_321501ccc55c6c 1-387
+third_party/netprobe_corpora/satori/xml/tcp.xml
+  s_aef6bd1a0fb200::t_708a45c214141d 1-1393
+third_party/netprobe_corpora/satori/xml/web.xml
+  s_aef6bd1a0fb200::t_eba683e4c8c5e8 1-397
+third_party/netprobe_corpora/satori/xml/webuseragent.xml
+  s_aef6bd1a0fb200::t_111e027eb6efe9 1-7715
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "80c1c0fa452683e1de804addc0f43f37292b264d",
+  "prompts": {},
+  "sessions": {
+    "s_aef6bd1a0fb200": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8ceac35-f414-4f25-baae-9b76661132ea",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
