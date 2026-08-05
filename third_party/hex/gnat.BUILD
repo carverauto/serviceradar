@@ -31,7 +31,7 @@ mix_app(
     # to it explicitly. See //build:hex_compile_env.bzl.
     extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
-        "@serviceradar//elixir/connection:erlang_app",
+        "@serviceradar//third_party/hex_vendored/connection:erlang_app",
         "@hex_jason//:erlang_app",
         "@hex_nimble_parsec//:erlang_app",
         "@hex_nkeys//:erlang_app",

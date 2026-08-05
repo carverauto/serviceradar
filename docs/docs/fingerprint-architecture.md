@@ -70,13 +70,13 @@ metadata so operators can curate additions or investigate middleboxes.
 ## Licensing Boundaries
 
 The upstream `p0f.fp` corpus remains a separate LGPL-2.1 data file under
-`rust/netprobe/p0f-corpus/p0f.fp`. ServiceRadar does not relicense it. Operators
+`third_party/netprobe_corpora/p0f/p0f.fp`. ServiceRadar does not relicense it. Operators
 can replace or inspect it independently of the Apache-2.0 ServiceRadar code.
 
 ServiceRadar-owned additions live in
-`rust/netprobe/p0f-corpus/serviceradar-additions.fp` and default to CC0-1.0.
+`third_party/netprobe_corpora/p0f/serviceradar-additions.fp` and default to CC0-1.0.
 The curation workflow is documented in
-`rust/netprobe/p0f-corpus/CONTRIBUTING.md`.
+`third_party/netprobe_corpora/p0f/CONTRIBUTING.md`.
 
 MuonFP is included as an audited format/reference input. The pinned upstream
 tree does not contain a standalone signature corpus, so ServiceRadar does not
@@ -96,12 +96,12 @@ HASSH is included from Corelight's maintained BSD-3-Clause fork:
 preserved in `rust/netprobe/LICENSE-HASSH`.
 
 Recog is included from Rapid7's BSD-2-Clause XML corpus under
-`rust/netprobe/recog-corpus/xml/`. ServiceRadar additions live in
-`rust/netprobe/recog-corpus/serviceradar-recog-additions.xml`, default to
+`third_party/netprobe_corpora/recog/xml/`. ServiceRadar additions live in
+`third_party/netprobe_corpora/recog/serviceradar-recog-additions.xml`, default to
 CC0-1.0, and are reviewed with `make lint-recog-additions`.
 
 Satori is included only as GPLv2 XML data under
-`rust/netprobe/satori-corpus/xml/`. The Python runtime, pcap integration, and
+`third_party/netprobe_corpora/satori/xml/`. The Python runtime, pcap integration, and
 SSL / JA4 implementation are not copied. Netprobe runtime-loads the XML files
 from a replaceable corpus directory and must not embed them with
 `include_str!`, `include_bytes!`, generated Rust constants, or translated code.
@@ -110,7 +110,7 @@ from a replaceable corpus directory and must not embed them with
 
 - Do not add `huginn-net`, `ja4t`, `ja4h`, `ja4s`, `ja4ssh`, `ja4x`, or a
   FoxIO-1.1-licensed crate to netprobe.
-- Do not edit `rust/netprobe/p0f-corpus/p0f.fp` for local signatures. Use
+- Do not edit `third_party/netprobe_corpora/p0f/p0f.fp` for local signatures. Use
   `serviceradar-additions.fp`.
 - Do not edit Rapid7 Recog XML files for local signatures. Use
   `serviceradar-recog-additions.xml`.

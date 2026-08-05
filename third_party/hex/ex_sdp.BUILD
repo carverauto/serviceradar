@@ -32,7 +32,7 @@ mix_app(
     extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
         "@hex_bunch//:erlang_app",
-        "@serviceradar//elixir/elixir_uuid:erlang_app",
+        "@serviceradar//third_party/hex_vendored/elixir_uuid:erlang_app",
         "@rules_elixir//elixir",
     ],
 )

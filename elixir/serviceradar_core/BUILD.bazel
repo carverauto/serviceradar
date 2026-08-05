@@ -103,10 +103,10 @@ CORE_NATIVE_LIBS = {
 }
 
 CORE_DEPS = [
-        "//elixir/connection:erlang_app",
-        "//elixir/elixir_uuid:erlang_app",
+        "//third_party/hex_vendored/connection:erlang_app",
+        "//third_party/hex_vendored/elixir_uuid:erlang_app",
         "//elixir/serviceradar_srql:erlang_app",
-        "//elixir/vendor/opentelemetry_oban:erlang_app",
+        "//third_party/hex_vendored/opentelemetry_oban:erlang_app",
         "@hex_ash//:erlang_app",
         "@hex_ash_admin//:erlang_app",
         "@hex_ash_cloak//:erlang_app",

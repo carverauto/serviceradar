@@ -2,19 +2,18 @@ package(default_visibility = ["//visibility:public"])
 
 # Crate sources + the committed vendored dependency tree (app deps + the std
 # `-Z build-std` deps) consumed by the hermetic eBPF object build.
+#
+# The vendor tree lives in //third_party/netprobe_ebpf_vendor, with every other
+# committed third-party source tree, so it must be a dep rather than a glob --
+# a glob never crosses a package boundary.
 filegroup(
     name = "netprobe_ebpf_srcs",
     srcs = [
         "Cargo.lock",
         "Cargo.toml",
         "include/vmlinux.h",
-    ] + glob([
-        "src/**/*.rs",
-        # Vendored deps (app + std `-Z build-std` deps). Regenerate with:
-        #   cargo vendor --sync <nightly-rust-src>/library/Cargo.toml
-        # See openspec/changes/add-hermetic-netprobe-ebpf-build/design.md.
-        "vendor/**",
-    ]),
+        "//third_party/netprobe_ebpf_vendor:vendor_srcs",
+    ] + glob(["src/**/*.rs"]),
 )
 
 # Hermetic netprobe eBPF object.
@@ -40,6 +39,7 @@ genrule(
         "@netprobe_ebpf_rust_std//:install.sh",
         "@netprobe_ebpf_rust_src//:all",
         "@netprobe_ebpf_rust_src//:install.sh",
+        "//third_party/netprobe_ebpf_vendor:README.md",
     ],
     outs = ["netprobe_ebpf.o"],
     cmd = " ".join([
@@ -47,7 +47,9 @@ genrule(
         "--output $@",
         "--bpf-linker $(location @netprobe_ebpf_bpf_linker//:bpf-linker)",
         "--crate \"$$(dirname $(location Cargo.toml))\"",
-        "--vendor \"$$(dirname $(location Cargo.toml))/vendor\"",
+        # The vendor tree has no single location to point at, so derive the
+        # directory from a file that package owns. See its BUILD.bazel.
+        "--vendor \"$$(dirname $(location //third_party/netprobe_ebpf_vendor:README.md))\"",
         "--install $(location @netprobe_ebpf_rustc//:install.sh)",
         "--install $(location @netprobe_ebpf_cargo//:install.sh)",
         "--install $(location @netprobe_ebpf_rust_std//:install.sh)",

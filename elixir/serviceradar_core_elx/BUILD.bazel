@@ -26,9 +26,9 @@ filegroup(
 
 
 CORE_ELX_DEPS = [
-    "//elixir/elixir_uuid:erlang_app",
+    "//third_party/hex_vendored/elixir_uuid:erlang_app",
     "//elixir/serviceradar_core:erlang_app_prod",
-    "//elixir/vendor/boombox:erlang_app",
+    "//third_party/hex_vendored/boombox:erlang_app",
     "@hex_bandit//:erlang_app",
     "@hex_boundary//:erlang_app",
     "@hex_bundlex//:erlang_app",
@@ -99,13 +99,12 @@ elixir_release(
     srcs = [
         ":release_recipe",
         # Mix reads each PATH dependency's mix.exs to learn its app name and version.
-        # vendor/boombox lives inside this project, so :release_recipe does not cover it.
-        "vendor/boombox/mix.exs",
-        "//elixir/connection:mix.exs",
-        "//elixir/elixir_uuid:mix.exs",
+        "//third_party/hex_vendored/boombox:mix.exs",
+        "//third_party/hex_vendored/connection:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
-        "//elixir/vendor/opentelemetry_oban:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
     app = ":erlang_app_prod",
     out = "serviceradar-core-elx-release.tar.gz",
