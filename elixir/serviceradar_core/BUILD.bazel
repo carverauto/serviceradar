@@ -36,6 +36,49 @@ filegroup(
     ),
 )
 
+# What `mix compile` actually needs -- :srcs minus the 599 *_test.exs files.
+#
+# THIS IS THE SINGLE BIGGEST INCREMENTAL-BUILD LEVER IN THE ELIXIR TREE.
+#
+# mix.exs:48 says `elixirc_paths(:test), do: ["lib", "test/support"]`, so of the 623 files
+# under test/ exactly 20 are ever compiled into the application. The other 603 were still
+# declared inputs of the compile action, which meant editing ONE unrelated test file
+# invalidated:
+#
+#   :erlang_app (53s) -> :erlang_app_prod (53s) -> //elixir/web-ng:erlang_app (62s)
+#   -> agent_gateway, core_elx, every ex_unit_test target, all 8 integration shards
+#
+# i.e. the entire ~190s critical chain for a one-line change to a file the application never
+# compiles. Bazel was correct to rebuild -- a declared input changed. The input was wrong.
+#
+# The test files still reach the tests: //build:elixir_tests.bzl passes each *_test.exs as
+# the `srcs` of its own ex_unit_test target, and the runtime fixtures come through `data`
+# below. Nothing loses an input; the compile stops claiming inputs it does not read.
+#
+# Deliberately a SEPARATE filegroup rather than a narrower :srcs. :srcs means "the whole
+# package" and //elixir/web-ng/assets:BUILD.bazel documents relying on that breadth; giving
+# the compile its own, honestly-scoped input set keeps both meanings available.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "native/**/target/**",
+            "tmp/**",
+            "**/*.swp",
+            "**/*~",
+            # The exclusion that matters. test/support is added back below.
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
 # The migration files, as an input to //rust/integration-db.
 #
 # That crate decides whether the template database is current by comparing the versions in
@@ -67,7 +110,7 @@ filegroup(
 
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 CORE_SRCS = [
-    ":srcs",
+    ":compile_srcs",
         # Read at compile time, from outside this package. The *_addon_package_seeder
         # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
         # and bake the result in with @external_resource, so these have to be declared

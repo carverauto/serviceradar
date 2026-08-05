@@ -60,6 +60,36 @@ filegroup(
     ] + glob(["config/**"]),
 )
 
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs:54 is `elixirc_paths(:test), do: ["lib", "test/support"]`, so 324 of the 343 files
+# under test/ were declared inputs that the application never reads, and touching any one of
+# them rebuilt this app plus everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "assets/**",
+            "deps/**",
+            "native/**/target/**",
+            "node_modules/**",
+            "tmp/**",
+            ".git/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ) + [
+        # Same reason as :srcs -- assets/ is its own package and a glob cannot cross the
+        # boundary, so the label is named explicitly.
+        "//elixir/web-ng/assets:all_srcs",
+    ],
+)
+
 # The release RECIPE, as opposed to the release CONTENTS: mix.exs supplies releases/0,
 # config/ and rel/ supply what `mix release` renders. Compiled code is not here -- it
 # reaches the release through the ErlangAppInfo closure of :erlang_app_prod.
@@ -110,7 +140,7 @@ filegroup(
 
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 WEB_NG_SRCS = [
-    ":srcs",
+    ":compile_srcs",
         # Signal display contracts, read at compile time and baked in with
         # @external_resource (lib/serviceradar_web_ng/observability/signal_display.ex).
         # It resolves them against Path.expand("../..", File.cwd!()), i.e. the repo root,

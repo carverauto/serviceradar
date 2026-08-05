@@ -177,21 +177,72 @@ def _impl(ctx):
     # repo. Flattening every src to the root of the invocation dir would put it one level
     # off, and the read would fail with a File.Error naming a path that does not exist.
     # For a Hex package (an external repo) the label package is "", so this is a no-op.
-    copy_srcs_commands = []
+    # BATCHED BY DESTINATION DIRECTORY, which is a measured cost and not a micro-optimisation.
+    #
+    # This loop used to emit, per source file, `mkdir -p "$(dirname ...)"` followed by `cp`.
+    # serviceradar_core stages 2242 files and web-ng 2663, so that was ~4500 and ~5300 process
+    # spawns -- and the `$(dirname ...)` command substitution forks a subshell on top of each
+    # mkdir. Timed inside the action:
+    #
+    #   SRDIAG serviceradar_core/test   stage_in_s=7
+    #   SRDIAG serviceradar_web_ng/test stage_in_s=11
+    #
+    # entirely before `mix compile` starts, and paid four times over (each app is compiled in
+    # both the test and prod env).
+    #
+    # Every path here is known at ANALYSIS time, so the grouping is done in Starlark and the
+    # shell just runs it: one `mkdir -p` for all directories at once, then one `cp` per
+    # destination directory rather than per file. ~200 directories instead of ~2500 files.
+    #
+    # `cp a b c destdir/` is POSIX, unlike GNU `cp -t`, so this stays correct on a developer's
+    # macOS machine as well as the Linux executors.
+    #
+    # A file whose destination BASENAME differs from its source basename cannot join a batch
+    # (the batch form preserves basenames), and neither can a TreeArtifact, which needs -r.
+    # Both fall back to an individual cp. Directories are also emitted after the batches so a
+    # recursive copy cannot race a batch writing into the same place.
+    batched = {}
+    individual = []
+    dest_dirs = {}
+
     for src in ctx.attr.srcs:
         for src_file in src[DefaultInfo].files.to_list():
             dest = path_join(
                 src.label.package,
                 additional_file_dest_relative_path(src.label, src_file),
             )
-            copy_srcs_commands.extend([
-                'mkdir -p "$(dirname ${{MIX_INVOCATION_DIR}}/{dest})"'.format(dest = dest),
-                'cp {flags}"{src}" "${{MIX_INVOCATION_DIR}}/{dest}"'.format(
-                    flags = "-r " if src_file.is_directory else "",
-                    src = src_file.path,
-                    dest = dest,
-                ),
-            ])
+            dest_dir = dest.rpartition("/")[0]
+            dest_dirs[dest_dir] = True
+            if src_file.is_directory or src_file.basename != dest.rpartition("/")[2]:
+                individual.append((src_file, dest, src_file.is_directory))
+            else:
+                batched.setdefault(dest_dir, []).append(src_file.path)
+
+    copy_srcs_commands = []
+
+    # One mkdir for the whole tree. Chunked because a package with thousands of directories
+    # would otherwise overflow ARG_MAX and fail with "Argument list too long".
+    dirs = sorted([d for d in dest_dirs if d])
+    for i in range(0, len(dirs), 400):
+        copy_srcs_commands.append("mkdir -p {}".format(" ".join([
+            '"${{MIX_INVOCATION_DIR}}/{}"'.format(d)
+            for d in dirs[i:i + 400]
+        ])))
+
+    for dest_dir in sorted(batched):
+        paths = batched[dest_dir]
+        for i in range(0, len(paths), 400):
+            copy_srcs_commands.append('cp {srcs} "${{MIX_INVOCATION_DIR}}/{dir}/"'.format(
+                srcs = " ".join(['"{}"'.format(p) for p in paths[i:i + 400]]),
+                dir = dest_dir,
+            ))
+
+    for src_file, dest, is_dir in individual:
+        copy_srcs_commands.append('cp {flags}"{src}" "${{MIX_INVOCATION_DIR}}/{dest}"'.format(
+            flags = "-r " if is_dir else "",
+            src = src_file.path,
+            dest = dest,
+        ))
 
     # Bundlex reads its dependencies' SOURCE, not their compiled output.
     #
@@ -215,10 +266,51 @@ def _impl(ctx):
         if dep[ErlangAppInfo].app_name == "bundlex":
             uses_bundlex = True
 
+    # ONLY the dependencies that actually DECLARE natives, not the whole closure.
+    #
+    # This loop used to be `for dep in all_deps`, which staged the full source tree AND the
+    # entire mix_tree -- staged sources plus _build -- of every package in the flattened
+    # dependency graph, for any package that merely had bundlex somewhere beneath it.
+    #
+    # //elixir/serviceradar_core_elx is 41 modules and 8.5k LOC. The fitted cost of a mix
+    # action in this repo is 4.7s + 0.19s/kLOC, i.e. ~6s. It took 74 SECONDS and was the
+    # single largest action in the build, at the head of the critical path:
+    #
+    #   bundlex -> qex -> shmex -> unifex -> bunch_native -> membrane_common_c
+    #     -> membrane_transcoder_plugin -> boombox -> membrane_ffmpeg_swscale_plugin
+    #     -> serviceradar_core_elx (1m14s) -> OTP release (36s) -> rootfs (30s) -> OCI
+    #
+    # Nearly all of it was staging and uploading inputs it never opened. Repo-wide,
+    # "Uploading missing inputs" was 10m32s of a 28m30s remote-execution total -- 24% --
+    # and this path is the bulk of it, because each link in that chain re-stages its
+    # predecessors' whole trees.
+    #
+    # The precise requirement is narrow: Bundlex.Project.load/1 does
+    # Code.require_file("deps/<app>/bundlex.exs"), so the only dependencies whose sources are
+    # ever read are the ones that ship a bundlex.exs. That is directly observable from the
+    # dependency's own srcs, so it is detected rather than declared -- the same reasoning as
+    # `uses_bundlex` above, and it keeps the 55 generated third_party/hex BUILD files free of
+    # a hand-maintained list.
+    #
+    # Transitivity is preserved: unifex's bundlex.exs names shmex and shmex's names
+    # bunch_native, but each of those ships its own bundlex.exs, so all three are selected.
+    bundlex_deps = []
+    if uses_bundlex:
+        for dep in all_deps:
+            for dep_file in dep[ErlangAppInfo].srcs:
+                if dep_file.basename == "bundlex.exs":
+                    bundlex_deps.append(dep)
+                    break
+
     dep_source_commands = []
     dep_source_files = []
     if uses_bundlex:
-        for dep in all_deps:
+        # Batched by destination directory for the same reason as the srcs staging above:
+        # a mkdir+cp pair per file, each with a $(dirname) subshell, is thousands of process
+        # spawns before anything compiles.
+        dep_batched = {}
+        dep_dirs = {}
+        for dep in bundlex_deps:
             dep_info = dep[ErlangAppInfo]
             for dep_file in dep_info.srcs:
                 if dep_file.is_directory:
@@ -228,14 +320,36 @@ def _impl(ctx):
                     dep_info.app_name,
                     additional_file_dest_relative_path(dep.label, dep_file),
                 )
+                dest_dir = dest.rpartition("/")[0]
+                dep_dirs[dest_dir] = True
                 dep_source_files.append(dep_file)
-                dep_source_commands.extend([
-                    'mkdir -p "$(dirname ${{MIX_INVOCATION_DIR}}/{dest})"'.format(dest = dest),
-                    'cp "{src}" "${{MIX_INVOCATION_DIR}}/{dest}"'.format(
-                        src = dep_file.path,
-                        dest = dest,
-                    ),
-                ])
+                if dep_file.basename == dest.rpartition("/")[2]:
+                    dep_batched.setdefault(dest_dir, []).append(dep_file.path)
+                else:
+                    dep_source_commands.append(
+                        'cp "{src}" "${{MIX_INVOCATION_DIR}}/{dest}"'.format(
+                            src = dep_file.path,
+                            dest = dest,
+                        ),
+                    )
+
+        ddirs = sorted([d for d in dep_dirs if d])
+        for i in range(0, len(ddirs), 400):
+            dep_source_commands.insert(i // 400, "mkdir -p {}".format(" ".join([
+                '"${{MIX_INVOCATION_DIR}}/{}"'.format(d)
+                for d in ddirs[i:i + 400]
+            ])))
+        for dest_dir in sorted(dep_batched):
+            paths = dep_batched[dest_dir]
+            for i in range(0, len(paths), 400):
+                dep_source_commands.append('cp {srcs} "${{MIX_INVOCATION_DIR}}/{dir}/"'.format(
+                    srcs = " ".join(['"{}"'.format(p) for p in paths[i:i + 400]]),
+                    dir = dest_dir,
+                ))
+
+    if uses_bundlex:
+        for dep in bundlex_deps:
+            dep_info = dep[ErlangAppInfo]
 
             # Then overlay the dependency's POST-COMPILE tree, which is where Unifex left
             # its generated headers (c_src/**/_generated/). Pristine sources alone give a
@@ -260,7 +374,6 @@ def _impl(ctx):
                         ) +
                         "fi",
                     )
-
 
     # Mix does NOT read a Hex dependency's mix.exs to discover its children. Hex registers
     # as Mix.RemoteConverger, and Mix.Dep.Converger asks it instead:
@@ -422,6 +535,60 @@ fi
 
 {setup}
 
+# SIZE THE BEAM TO THE CGROUP, NOT TO THE HOST.
+#
+# DEFENSIVE, NOT A MEASURED WIN -- do not credit a speedup to it. On the current executors
+# the two already agree, measured inside the action:
+#
+#   host_nproc=64  cgroup_cpu_max="3000000 100000"  ->  30 CPU quota
+#   schedulers_online=30
+#
+# (cpu.max is "quota period" in microseconds: 3000000/100000 = 30 CPUs, not 3. Misreading
+# that is easy and sends you looking for a CPU-starvation problem that is not there.)
+#
+# The reason to pin it anyway is that the agreement is a coincidence of this executor's
+# sizing. The BEAM calls sysconf(_SC_NPROCESSORS_ONLN), which reports HOST cores and ignores
+# the cgroup quota entirely; it lands on 30 here because the quota happens to be 30 of the
+# node's 64. Change the executor's CPU limits or give a mix target its own exec_properties
+# and the two diverge silently, leaving schedulers oversubscribed against a smaller quota
+# with no error -- only a slower compile.
+#
+# Derived at runtime rather than hardcoded so it cannot drift out of sync with whatever
+# quota the action is actually granted. cgroup v2 first, then v1, then nproc for a machine
+# with no cgroup at all (a developer's workstation).
+# Deliberately no awk here: this whole script is a Starlark .format() template, so an awk
+# program's braces would be read as format placeholders and fail at ANALYSIS time, across
+# every mix_app target in the repo at once. Shell arithmetic needs no braces.
+_SR_CPUS=""
+_SR_QUOTA=""
+_SR_PERIOD=""
+if [ -r /sys/fs/cgroup/cpu.max ]; then
+    read -r _SR_QUOTA _SR_PERIOD < /sys/fs/cgroup/cpu.max || true
+elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] && [ -r /sys/fs/cgroup/cpu/cpu.cfs_period_us ]; then
+    read -r _SR_QUOTA < /sys/fs/cgroup/cpu/cpu.cfs_quota_us || true
+    read -r _SR_PERIOD < /sys/fs/cgroup/cpu/cpu.cfs_period_us || true
+fi
+# "max" means unlimited; a negative quota is cgroup v1's way of saying the same.
+case "$_SR_QUOTA" in
+    ''|max|-*) ;;
+    *[!0-9]*) ;;
+    *)
+        if [ "${{_SR_PERIOD:-0}}" -gt 0 ] 2>/dev/null; then
+            _SR_CPUS=$(( (_SR_QUOTA + _SR_PERIOD - 1) / _SR_PERIOD ))
+        fi
+        ;;
+esac
+if [ -z "$_SR_CPUS" ] || [ "$_SR_CPUS" -lt 1 ] 2>/dev/null; then
+    _SR_CPUS=$(nproc 2>/dev/null || echo 1)
+fi
+
+# +S <total>:<online> pins the scheduler pool to the quota.
+# +fnu fixes a real defect, not a cosmetic one: the executor image has no UTF-8 locale, so
+# setlocale fails and the VM falls back to latin1 filename encoding, which Elixir itself warns
+# "may cause Elixir to malfunction". Forcing utf8 filename handling makes it independent of
+# the image's locale configuration.
+export ELIXIR_ERL_OPTIONS="+S ${{_SR_CPUS}}:${{_SR_CPUS}} +fnu ${{ELIXIR_ERL_OPTIONS:-}}"
+
 "${{ABS_ELIXIR_HOME}}"/bin/mix compile --no-deps-check
 
 # Do not assume _build/$MIX_ENV/lib/<app>: a project with
@@ -447,6 +614,7 @@ fi
 # The _build symlinks we created point outside this directory, and Bazel
 # rejects dangling symlinks in a declared output tree.
 find . -type l -delete
+
 """.format(
         maybe_install_erlang = maybe_install_erlang(ctx),
         erl_libs_path = erl_libs_path,
