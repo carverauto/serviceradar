@@ -743,6 +743,30 @@ here.
               a rule; they bound different things
         - [ ] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
               ELIXIR PEER, and add shared boundary/rejection vectors.
+              THE PEER AND THE SHARED CORPUS HAVE LANDED. No new dependency: OTP 28 ships
+              `:zstd` in stdlib and the repo already pins 28.x, so no Hex package, no Rust
+              NIF, no Cargo/vendor.sh/crate-universe churn and no new native crash boundary.
+              A project-owned FRAME WALK is still required -- `:zstd.decompress/1` accepts
+              CONCATENATED frames -- and is a port of Go's `zstdFrameLen`.
+              TWENTY-ONE shared vectors under `proto/edge/v1/testdata/zstd_*.bin` with
+              `compression_corpus.txt` carrying the expectation, so Elixir DERIVES its
+              verdict rather than restating it. All 21 agree. That agreement is the whole
+              point: the two runtimes do NOT share a shape -- Go delegates the window and
+              dictionary rules to its DECODER while the peer enforces them in a preflight
+              over the parsed header -- so hand-built bytes are the only thing that shows
+              two different routes reaching one answer.
+              REASON PARITY IS DELIBERATELY COARSE: Go reports both an oversized window and a
+              nonzero dictionary id as `ErrZstdInvalid`, so the peer reports `:invalid` for
+              the same inputs even though its preflight could name them precisely. Making
+              them distinct changes GO's taxonomy and is not a reconcile slice's job.
+              THE CORPUS IS FRAME AND OUTPUT-SIZE ONLY, and is scoped as such in both
+              runtimes rather than described as proving compression admission. It exercises
+              `ValidateZstdPayload`; RECORD-LEVEL admission additionally binds `encoded_size`
+              to the payload length and applies the 100:1 ratio BEFORE that runs. Several
+              vectors are therefore unreachable as whole records -- `zstd_valid_5k.bin`
+              declares 5000 bytes from a 15-byte frame (333:1) -- which is the stage they
+              belong to, not a defect.
+              REMAINING in slice 2: reconcile Go against the frozen text.
               THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
               the other way round. An Elixir zstd binding is admissible only if it supports,
               or permits a project-owned preflight to enforce, ALL of: a bounded maximum
@@ -757,7 +781,16 @@ here.
               with output size and ratio otherwise valid, so neither vector can be satisfied
               by the output check or the ratio check
         - [ ] slice 3 COMPOSED REACHABILITY -- a valid body larger than 512 KiB surviving
-              physical admission under 100:1, CI/Bazel registration, ledger closure
+              physical admission under 100:1, CI/Bazel registration, ledger closure.
+              IT ALSO OWES THE RECORD-LEVEL SHARED VECTORS that slice 2's corpus cannot
+              reach, since that corpus stops at the frame/output stage:
+                - the `encoded_size` BINDING to the actual payload length, which is what
+                  stops the ratio's denominator being inflated;
+                - EXACTLY 100:1 accepted and the first value over it refused;
+                - 32 MiB accepted and N+1 refused, with the ratio otherwise valid so the
+                  ceiling is what decides.
+              These are WHOLE-RECORD vectors, not payload ones, because the binding and the
+              ratio live in record validation rather than in the frame validator
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
         applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
         32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is

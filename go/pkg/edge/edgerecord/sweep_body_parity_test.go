@@ -108,10 +108,15 @@ type sweepFamilyVector struct {
 // TestSweepBodyFamilySentinelsAreBehavioural gives the Elixir family -> Go sentinel mapping
 // BEHAVIOURAL evidence.
 //
-// The Elixir side pins the mapping as data and checks each sentinel NAME is declared in this
-// package. Neither notices if a Go branch is changed to return a different sentinel -- e.g.
-// the host-bound branch returning ErrSweepChecks -- because the name still exists and the
-// mapping still says what it always said. These vectors pin the BRANCH.
+// The Elixir side pins the mapping as DATA. It no longer checks that each sentinel NAME is
+// declared here: that check read Go source from an Elixir test, which Bazel does not stage
+// for the Elixir shard, and it was strictly weaker than this file -- every sentinel below is
+// referenced as an IDENTIFIER, so a name that does not exist fails to COMPILE.
+//
+// What neither the data mapping nor a name check would notice is a Go branch changed to
+// return a DIFFERENT existing sentinel -- the host-bound branch returning ErrSweepChecks,
+// say -- because the name still exists and the mapping still says what it always said.
+// These vectors pin the BRANCH.
 //
 // SCOPE: ONE REPRESENTATIVE PER FAMILY, deliberately. This is not an exhaustive branch
 // matrix -- Go's sentinels are distinct values, so a single input per family is what the

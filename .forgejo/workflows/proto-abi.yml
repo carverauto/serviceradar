@@ -176,6 +176,13 @@ jobs:
       - name: Edge compiled-assignment carrier parity (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
+      # The SHARED compression corpus: Go's bytes, Elixir's verdict. The two runtimes do not
+      # share a shape -- Go delegates the window and dictionary rules to its decoder while
+      # Elixir enforces them in a preflight -- so agreeing on hand-built bytes is the only
+      # thing that shows the two routes reach one answer.
+      - name: Edge compression shared corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/compression_corpus_test.exs
       # The COMPRESSION-ADMISSION peer (task 1.5-f). Gated because it is the Elixir half of
       # a frozen ABI rule: a payload one runtime admits and the other refuses is a wire
       # divergence, and this suite is where that surfaces.
