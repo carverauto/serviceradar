@@ -205,8 +205,32 @@ Customer cluster (no full ServiceRadar)
 Do **not** reuse one `clusterId` across clusters. Host DaemonSet agents never
 receive the inventory ServiceAccount token.
 
-Implementation tracking: OpenSpec change
-`openspec/changes/add-remote-k8s-inventory-via-agent/`.
+##### Helm: sensors-only chart
+
+Use **`helm/serviceradar-k8s-edge`** — not the full `helm/serviceradar` chart.
+
+```bash
+# Enrollment secret from edge package (once)
+kubectl create namespace serviceradar-edge
+kubectl -n serviceradar-edge create secret generic sr-edge-agent-mtls \
+  --from-file=root.pem=./root.pem \
+  --from-file=agent.pem=./agent.pem \
+  --from-file=agent-key.pem=./agent-key.pem
+
+helm upgrade --install acme-edge ./helm/serviceradar-k8s-edge \
+  -n serviceradar-edge --create-namespace \
+  -f values-example.yaml
+# values-example.yaml sets clusterId, agent.gatewayAddress, existingTlsSecret
+```
+
+| Chart | Installs |
+|---|---|
+| `helm/serviceradar` | Full platform (+ optional inventory over NATS) |
+| `helm/serviceradar-k8s-edge` | **Agent + inventory only** → remote agent-gateway |
+
+See `helm/serviceradar-k8s-edge/README.md`. Data plane wiring
+(`PUBLISH_MODE=agent_spool` → agent → gateway) is tracked in OpenSpec
+`add-remote-k8s-inventory-via-agent`.
 
 ### Platform team FAQ
 

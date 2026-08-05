@@ -34,10 +34,10 @@
 
 ## 6. Packaging and install
 
-- [ ] 6.1 Helm values: `k8sInventory.publishMode`, spool volume wiring when `agent_spool`
-- [ ] 6.2 Example values / thin chart for remote “cluster sensors only” (inventory + single agent)
-- [ ] 6.3 NetworkPolicy notes: inventory → apiserver; agent → agent-gateway only
-- [ ] 6.4 Image/certs: remote install uses **agent** enrollment certs, not platform NATS inventory certs
+- [x] 6.1 Helm values: `k8sInventory.publishMode`, spool volume wiring when `agent_spool` (`helm/serviceradar-k8s-edge`)
+- [x] 6.2 Example values / thin chart for remote “cluster sensors only” (inventory + single agent)
+- [ ] 6.3 NetworkPolicy notes: inventory → apiserver; agent → agent-gateway only (optional NetworkPolicy template)
+- [x] 6.4 Image/certs: remote install uses **agent** enrollment certs (`agent.existingTlsSecret`), not platform NATS inventory certs
 
 ## 7. Docs and product narrative
 
