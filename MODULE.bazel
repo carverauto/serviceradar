@@ -7,18 +7,18 @@ module(
 # --- Bazel dependencies  ----------------------------------
 bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
-bazel_dep(name = "rules_rust", version = "0.65.0")
-bazel_dep(name = "rules_rust_prost", version = "0.65.0")
+bazel_dep(name = "rules_rust", version = "0.69.0")
+bazel_dep(name = "rules_rust_prost", version = "0.69.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "rules_nodejs", version = "6.6.0")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
-bazel_dep(name = "rules_oci", version = "2.2.6")
+bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "rules_erlang", version = "3.16.0")
 bazel_dep(name = "rules_elixir", version = "1.1.0")
-bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "bazel_features", version = "1.38.0", repo_name = "bazel_features")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
 bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
@@ -39,11 +39,7 @@ bazel_dep(name = "rules_cc", version = "0.2.16")
 bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(
-    name = "toolchains_buildbuddy",
-    version = "0.0.4",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
-)
+bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
 # first so CI does not fail analysis when GitHub releases transiently returns 502.
@@ -94,50 +90,25 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
-single_version_override(
+# VENDORED, not patched. rabbitmq/rules_erlang is ARCHIVED upstream -- last release 3.16.0,
+# roughly two years ago, and the repository states it is no longer maintained. The six local
+# fixes were therefore never going to land, which made the patch files a permanent tax: they
+# apply by context, break silently, and cannot express a design change.
+#
+# //third_party/rules_erlang is the 3.16.0 source with those six fixes already applied.
+# See //third_party/rules_erlang/VENDORING.md for the per-fix rationale and for how to diff
+# this tree against upstream 3.16.0.
+local_path_override(
     module_name = "rules_erlang",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_erlang:skip_system_erlang.patch",
-        "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
-        # erlang_build extracted the OTP tarball with GNU tar's --transform, which the
-        # bsdtar macOS ships does not implement. Every Elixir/Erlang target therefore failed
-        # on macOS at "tar: Option --transform is not supported" -- before compiling a line --
-        # so no one could build or iterate on //elixir/... locally.
-        "//third_party/patches/rules_erlang:portable_tar_extract.patch",
-        # erlang_app globs include/, priv/, LICENSE* and .appup, any of which a given Hex
-        # package may legitimately lack; empty globs are fatal since Bazel 7.
-        "//third_party/patches/rules_erlang:allow_empty_globs.patch",
-        # erl_libs_contents accepts a tree artifact for ebin but not for priv. A rule that
-        # compiles a whole package in one action cannot enumerate priv in advance, so
-        # without this it must drop priv entirely. See //build:mix_app.bzl.
-        "//third_party/patches/rules_erlang:erl_libs_priv_dir.patch",
-        # An app that -include_lib's its own public header (grpcbox does) cannot resolve it,
-        # because code:lib_dir/1 needs an ebin that this action has not produced yet.
-        "//third_party/patches/rules_erlang:include_lib_self_reference.patch",
-    ],
+    path = "third_party/rules_erlang",
 )
 
-single_version_override(
+# VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
+# is the 1.1.0 source with its six local fixes already applied; the per-fix rationale lives
+# in //third_party/rules_elixir/VENDORING.md.
+local_path_override(
     module_name = "rules_elixir",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_elixir:skip_system_elixir.patch",
-        # Same GNU-tar assumption as rules_erlang; see that patch for the rationale.
-        "//third_party/patches/rules_elixir:portable_tar_extract.patch",
-        # elixir_app hard-failed on any package without a LICENSE file.
-        "//third_party/patches/rules_elixir:allow_empty_license_glob.patch",
-        # elixir_bytecode could not declare compile-time file inputs, so packages doing
-        # File.read!("README.md") or @external_resource failed in the sandbox.
-        "//third_party/patches/rules_elixir:compile_time_data.patch",
-        # ex_unit_test stages its deps without their include/ directories, so a test using
-        # Record.extract(from_lib: ...) dies before running a case. Compilation rules stage
-        # headers; there is no reason tests should not.
-        "//third_party/patches/rules_elixir:ex_unit_test_headers.patch",
-        # ex_unit_test flattens srcs/data by stripping the package prefix, which breaks any
-        # test resolving a repo-relative path off __DIR__ (several read addons/*/config.schema.json).
-        "//third_party/patches/rules_elixir:ex_unit_test_workspace_layout.patch",
-    ],
+    path = "third_party/rules_elixir",
 )
 
 # Hex packages as first-class Bazel repositories, compiled by the Bazel Elixir toolchain.
@@ -2521,7 +2492,7 @@ oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
     name = "ubuntu_jammy",
     digest = "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
-    image = "docker.io/library/ubuntu:22.04",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:22.04",
     platforms = [
         "linux/amd64",
     ],
@@ -2529,7 +2500,13 @@ oci_ext.pull(
 oci_ext.pull(
     name = "actions_runner",
     digest = "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
-    image = "ghcr.io/actions/actions-runner",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). The direct ghcr.io
+    # pull was dropped because actions-runner has a 301.7 MB layer and Harbor expires an upload
+    # session at ~10 min: from outside the datacenter the push restarted from zero every time
+    # (8 expired sessions, 0 blobs pushed, in one hour). arc-runner is layered on it and shares
+    # that blob. The mirror was populated from a host that could complete the transfer.
+    image = "registry.carverauto.dev/mirror/actions/actions-runner",
     platforms = [
         "linux/amd64",
     ],
@@ -2537,7 +2514,10 @@ oci_ext.pull(
 oci_ext.pull(
     name = "arc_runner",
     digest = "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
-    image = "ghcr.io/carverauto/arc-runner",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). See actions_runner
+    # above for why the ghcr.io source was mirrored rather than pulled directly into Harbor.
+    image = "registry.carverauto.dev/mirror/carverauto/arc-runner",
     platforms = [
         "linux/amd64",
     ],
@@ -2545,7 +2525,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "alpine_3_20",
     digest = "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
-    image = "docker.io/library/alpine:3.20",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.20",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -2554,7 +2534,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "alpine_3_24",
     digest = "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
-    image = "docker.io/library/alpine:3.24",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.24",
     platforms = [
         "linux/amd64",
     ],
@@ -2562,7 +2542,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "ubuntu_noble",
     digest = "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
-    image = "docker.io/library/ubuntu:24.04",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:24.04",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -2571,7 +2551,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "debian_bookworm_slim",
     digest = "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
-    image = "docker.io/library/debian:bookworm-slim",
+    image = "registry.carverauto.dev/mirror/library/debian:bookworm-slim",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -2580,7 +2560,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "debian_testing_slim",
     digest = "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
-    image = "docker.io/library/debian:testing-slim",
+    image = "registry.carverauto.dev/mirror/library/debian:testing-slim",
     platforms = [
         "linux/amd64",
     ],
@@ -2588,14 +2568,17 @@ oci_ext.pull(
 oci_ext.pull(
     name = "node_20_alpine",
     digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
-    image = "docker.io/library/node:20-alpine",
+    image = "registry.carverauto.dev/mirror/library/node:20-alpine",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "serviceradar_tools",
-    digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+    # v1.4.29. The previous pin (c9b4e23e...) no longer exists in Harbor -- the artifact was
+    # gone while the tags v1.4.3..v1.4.29 remained, so a fresh checkout failed the loading
+    # phase with NOT_FOUND while cached workspaces kept working.
+    digest = "sha256:dbd070a74d1e3ea67f3d560018080d35adf06415233504d52111bcbbd8d0cd32",
     image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
     platforms = [
         "linux/amd64",
@@ -2623,7 +2606,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
     digest = "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
-    image = "ghcr.io/cloudnative-pg/postgresql",
+    image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
     ],
@@ -3480,88 +3463,161 @@ exports_files(["crane"])
     ],
 )
 
+# Ubuntu .deb dependencies for //third_party/libpcap, twelve rules: six amd64 and six arm64.
+#
+# EVERY ONE CARRIES TWO URLS ON PURPOSE. Bazel tries them in order and every rule pins a
+# sha256, so a mirror is verified exactly like the origin -- there is no trust cost to listing
+# one, only a resilience gain.
+#
+# The amd64 six are mirrored because archive.ubuntu.com is unreachable, full stop -- not just
+# from CI. Six simultaneous "Connect timed out" failures took down the loading phase and, with
+# it, //third_party/libpcap and everything depending on it:
+#
+#   ERROR: loading failure: ... Error downloading
+#   [http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_...deb]: Connect timed out
+#   ERROR: //third_party/libpcap:pcap: analysis failure
+#
+# It is NOT a port-80 block, which was the first guess: the arm64 six are also plain HTTP, on
+# ports.ubuntu.com, and none failed in the same run. The host itself is the problem.
+# archive.ubuntu.com is round-robin DNS across a mirror set, serves no HTTPS at all (curl
+# returns 000, so switching scheme in place is not an option), and currently times out from
+# developer machines too.
+#
+# WHY THIS LOOKED CI-SPECIFIC AND WAS NOT. A local `bazel build --config=ci //...` succeeds
+# while CI fails, which reads like an environment difference. It is a warm repository cache:
+# //.bazelrc sets --repository_cache=third_party/bazel-repo-cache, these files landed there
+# during an older fetch, and nothing has needed to reach the network for them since. The cache
+# is content-addressed -- look for content_addressable/sha256/<sha>/file, not for *.deb -- so
+# it is easy to conclude the files are absent when they are not.
+#
+# So the mirror is not a CI workaround. It repairs a single point of failure that any cold
+# checkout hits: a new machine, a fresh clone, a pruned cache. mirrors.edge.kernel.org carries
+# the same pool over HTTPS and answers in ~0.5s.
+#
+# The arm64 six keep ports.ubuntu.com but lead with its HTTPS endpoint, which does answer.
+# They have not failed, so this is prophylactic rather than a fix.
+#
+# distdir is NOT the answer here. //third_party/distdir is gitignored and documented as a
+# cache rather than vendored source, restored in Forgejo through actions/cache -- a mechanism
+# BuildBuddy Workflows has no equivalent of, so a fresh runner starts empty regardless.
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_amd64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "9007bd2c29216bcee3282f10fb63856899b833a37a77c053be0c1b8bb45c65e9",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_amd64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "62e3379edd4b8cf748f2a1260c96f54dd2074ae4f956bd2b444440d62c0b5d2a",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_arm64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "36af9fe819a2600babd87fb4dd47186bce8c2d856c4938beebece68922242b93",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_arm64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "d1dd3eab09ae527cda36ddb06976ac5ea3d210c4ae03ac6a86cd344d46c2d3c7",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_amd64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
     sha256 = "bbb55111182a44d0fe97a84120407e17bb6e23d41e2670d73aa78f619e29efa2",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_arm64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
     sha256 = "c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_amd64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_amd64.deb",
     sha256 = "731e9d88e498b1a8b03a4eaf6e3ed6227f1c4646b9931256f7e234b42ae618dd",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_arm64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_arm64.deb",
     sha256 = "d5cf6b37c02ccc9609f96ac46b3a823ba087088e98a5f17ff823156c9a765eb0",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_amd64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "0afff6a14f55122757db02ff7e11ad58f128465fd796e2e33a0b0fe5b45a09ed",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_arm64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "dac93582da210a157bc4d9e34c1a55214823ed94adceb43d641912b56e8e5094",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_amd64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "8abfa9a87f78dbba7edc19ef4cfcb16b70dde562bccc3ff7550bdd3a0487e358",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_arm64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "978dc9ba1f36b2813138563776c7640bd6bd86fbe0a3a7da47cb8c93bfcd3807",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(

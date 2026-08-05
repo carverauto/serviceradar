@@ -180,4 +180,184 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
       "payload" => payload
     }
   end
+
+  describe "snmp credential kind" do
+    # SNMP is one kind rather than three because v1/v2c community strings and
+    # v3 auth/priv material are the same credential to an operator -- the SNMP
+    # version decides which fields apply, not which secret is chosen. So a
+    # single JSON payload has to be able to carry either shape, and it has to
+    # be the shape SNMPProfiles.CredentialResolver already reads.
+    defp snmp_profile(fields) do
+      %{
+        "provider" => "snmp",
+        "plugin_id" => "snmp",
+        "plugin_version" => "native",
+        "auth_methods" => [
+          %{
+            "id" => "snmp",
+            "credential_kind" => "snmp",
+            "fields" => fields
+          }
+        ]
+      }
+    end
+
+    test "stores a v2c community string as a json payload" do
+      profile =
+        snmp_profile([
+          %{"id" => "community", "secret" => true, "required" => true}
+        ])
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "snmp",
+                 %{"community" => "s3cret-community"},
+                 %{name: "Core switches v2c", description: nil}
+               )
+
+      assert attrs.credential_kind == :snmp
+      assert attrs.provider == "snmp"
+      assert Jason.decode!(attrs.secret_payload) == %{"community" => "s3cret-community"}
+      assert attrs.public_fingerprint =~ "sha256:"
+      refute inspect(attrs.metadata) =~ "s3cret-community"
+    end
+
+    test "stores v3 auth and privacy material in the same kind" do
+      profile =
+        snmp_profile([
+          %{"id" => "username", "secret" => false, "required" => true, "public" => true},
+          %{"id" => "auth_password", "secret" => true, "required" => true},
+          %{"id" => "priv_password", "secret" => true, "required" => false}
+        ])
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "snmp",
+                 %{
+                   "username" => "monitor",
+                   "auth_password" => "auth-secret",
+                   "priv_password" => "priv-secret"
+                 },
+                 %{name: "Core switches v3", description: nil}
+               )
+
+      assert attrs.credential_kind == :snmp
+
+      # The resolver reads these exact keys out of the decoded payload.
+      assert %{
+               "username" => "monitor",
+               "auth_password" => "auth-secret",
+               "priv_password" => "priv-secret"
+             } = Jason.decode!(attrs.secret_payload)
+
+      refute inspect(attrs.metadata) =~ "auth-secret"
+      refute inspect(attrs.metadata) =~ "priv-secret"
+    end
+
+    test "a required field left blank is rejected rather than stored empty" do
+      profile =
+        snmp_profile([
+          %{"id" => "community", "secret" => true, "required" => true}
+        ])
+
+      assert {:error, _} =
+               CredentialSecretBuilder.build(
+                 profile,
+                 "snmp",
+                 %{"community" => ""},
+                 %{name: "Blank", description: nil}
+               )
+    end
+  end
+
+  describe "native SNMP descriptor" do
+    # SNMP has no package to publish a descriptor, so NativeDescriptors supplies
+    # one in the shape a manifest would. The point of that shape is that the
+    # builder is unchanged -- these assert it really does go through the same
+    # path, and that the field ids match what
+    # SNMPProfiles.CredentialResolver.broker_json_credential/3 reads. Renaming a
+    # field id there would otherwise silently stop the value reaching the poller.
+    alias ServiceRadar.Credentials.NativeDescriptors
+
+    test "the community method builds through the ordinary builder" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "public-ish"},
+                 %{name: "Edge switches", description: nil}
+               )
+
+      assert attrs.provider == "snmp"
+      assert attrs.credential_kind == :snmp
+      assert Jason.decode!(attrs.secret_payload) == %{"community" => "public-ish"}
+      assert attrs.metadata["plugin_id"] == "snmp"
+      assert attrs.metadata["plugin_version"] == "native"
+    end
+
+    test "the v3 method stores the username publicly and the rest encrypted" do
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "v3",
+                 %{
+                   "username" => "monitor",
+                   "auth_protocol" => "sha",
+                   "auth_password" => "auth-secret",
+                   "priv_protocol" => "aes",
+                   "priv_password" => "priv-secret"
+                 },
+                 %{name: "Core switches", description: nil}
+               )
+
+      # Public username is readable without decrypting anything.
+      assert attrs.username == "monitor"
+
+      assert %{
+               "username" => "monitor",
+               "auth_protocol" => "sha",
+               "auth_password" => "auth-secret",
+               "priv_protocol" => "aes",
+               "priv_password" => "priv-secret"
+             } = Jason.decode!(attrs.secret_payload)
+
+      refute inspect(attrs.metadata) =~ "auth-secret"
+    end
+
+    test "v3 privacy is optional but authentication is not" do
+      assert {:ok, _attrs} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "v3",
+                 %{"username" => "monitor", "auth_password" => "auth-secret"},
+                 %{name: "No privacy", description: nil}
+               )
+
+      assert {:error, {:missing_credential_field, "auth_password"}} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "v3",
+                 %{"username" => "monitor"},
+                 %{name: "No auth", description: nil}
+               )
+    end
+
+    test "a field the descriptor does not declare is rejected" do
+      assert {:error, :undeclared_credential_field} =
+               CredentialSecretBuilder.build(
+                 NativeDescriptors.snmp(),
+                 "community",
+                 %{"community" => "public", "smuggled" => "value"},
+                 %{name: "Smuggler", description: nil}
+               )
+    end
+
+    test "native? distinguishes protocols from package-owned providers" do
+      assert NativeDescriptors.native?("snmp")
+      refute NativeDescriptors.native?("proxmox")
+      refute NativeDescriptors.native?(nil)
+    end
+  end
 end

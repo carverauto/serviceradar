@@ -9,8 +9,6 @@ filegroup(
 
 cc_toolchain(
     name = "aarch64_linux_gnu_cc_toolchain",
-    toolchain_identifier = "aarch64-linux-gnu",
-    toolchain_config = ":aarch64_linux_gnu_cc_toolchain_config",
     all_files = ":empty",
     ar_files = ":empty",
     as_files = ":empty",
@@ -20,12 +18,12 @@ cc_toolchain(
     objcopy_files = ":empty",
     strip_files = ":empty",
     supports_param_files = 1,
+    toolchain_config = ":aarch64_linux_gnu_cc_toolchain_config",
+    toolchain_identifier = "aarch64-linux-gnu",
 )
 
 cc_toolchain(
     name = "aarch64_linux_musl_static_cc_toolchain",
-    toolchain_identifier = "aarch64-linux-musl-static",
-    toolchain_config = ":aarch64_linux_musl_static_cc_toolchain_config",
     all_files = ":empty",
     ar_files = ":empty",
     as_files = ":empty",
@@ -35,6 +33,8 @@ cc_toolchain(
     objcopy_files = ":empty",
     strip_files = ":empty",
     supports_param_files = 1,
+    toolchain_config = ":aarch64_linux_musl_static_cc_toolchain_config",
+    toolchain_identifier = "aarch64-linux-musl-static",
 )
 
 cc_toolchain_config(
@@ -118,8 +118,6 @@ cc_toolchain_config(
 
 toolchain(
     name = "rbe_cc_toolchain",
-    toolchain = "@buildbuddy_toolchain//:ubuntu_local_cc_toolchain",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
     exec_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
@@ -128,12 +126,12 @@ toolchain(
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
     ],
+    toolchain = "@buildbuddy_toolchain//:ubuntu_local_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )
 
 toolchain(
     name = "rbe_cc_toolchain_arm64_musl_static",
-    toolchain = ":aarch64_linux_musl_static_cc_toolchain",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
     exec_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
@@ -143,12 +141,12 @@ toolchain(
         "@platforms//os:linux",
         "//build/platforms:linux_musl",
     ],
+    toolchain = ":aarch64_linux_musl_static_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )
 
 toolchain(
     name = "rbe_cc_toolchain_arm64",
-    toolchain = ":aarch64_linux_gnu_cc_toolchain",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
     exec_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
@@ -157,4 +155,6 @@ toolchain(
         "@platforms//cpu:aarch64",
         "@platforms//os:linux",
     ],
+    toolchain = ":aarch64_linux_gnu_cc_toolchain",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )

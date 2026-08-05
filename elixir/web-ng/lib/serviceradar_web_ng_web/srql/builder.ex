@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       "filters" => [
         %{
           "field" => config.default_filter_field,
-          "op" => "contains",
+          "op" => Catalog.default_filter_op(config, config.default_filter_field),
           "value" => ""
         }
       ]
@@ -838,25 +838,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp normalize_filters(entity, filters) when is_list(filters) do
     Enum.map(filters, fn
       %{"field" => field, "op" => op, "value" => value} ->
-        %{
-          "field" => normalize_filter_field(entity, field),
-          "op" => normalize_filter_op(op),
-          "value" => safe_to_string(value)
-        }
+        build_normalized_filter(entity, field, op, value)
 
       %{} = other ->
-        %{
-          "field" => normalize_filter_field(entity, Map.get(other, "field")),
-          "op" => normalize_filter_op(Map.get(other, "op")),
-          "value" => other |> Map.get("value", "") |> safe_to_string()
-        }
+        build_normalized_filter(
+          entity,
+          Map.get(other, "field"),
+          Map.get(other, "op"),
+          Map.get(other, "value", "")
+        )
 
       other ->
-        %{
-          "field" => default_search_field(entity),
-          "op" => "contains",
-          "value" => safe_to_string(other)
-        }
+        build_normalized_filter(entity, default_search_field(entity), nil, other)
     end)
   end
 
@@ -874,6 +867,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_filters(entity, _), do: normalize_filters(entity, [])
 
+  defp build_normalized_filter(entity, field, op, value) do
+    field = normalize_filter_field(entity, field)
+
+    %{
+      "field" => field,
+      "op" => normalize_filter_op(entity, field, op),
+      "value" => safe_to_string(value)
+    }
+  end
+
   defp normalize_filter_field(entity, field) when is_binary(field) do
     field = String.trim(field)
 
@@ -888,8 +891,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_filter_field(entity, _), do: default_search_field(entity)
 
-  defp normalize_filter_op(op) when op in @allowed_filter_ops, do: op
-  defp normalize_filter_op(_), do: "contains"
+  defp normalize_filter_op(_entity, _field, op) when op in @allowed_filter_ops, do: op
+  defp normalize_filter_op(entity, field, _op), do: Catalog.default_filter_op(entity, field)
 
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value

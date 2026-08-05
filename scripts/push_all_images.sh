@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_CONFIG="${BAZEL_CONFIG:-remote_push}"
+BAZEL_CONFIG="${BAZEL_CONFIG:-remote}"
 BAZEL_QUERY='attr(name, ".*_push$", //docker/images:*)'
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
@@ -14,6 +14,18 @@ passthrough_args=()
 bazel_bin_dir=""
 darwin_crane=""
 darwin_jq=""
+patched_scripts=()
+
+# EXIT, not RETURN. The previous `trap cleanup RETURN` sat at top level inside the target
+# loop, and a RETURN trap only fires when a shell function or a sourced script returns -- so
+# it never ran, and any push that failed left its temp file behind. EXIT is POSIX and fires
+# on both a normal exit and a `set -e` abort.
+cleanup_patched_scripts() {
+  if [[ ${#patched_scripts[@]} -gt 0 ]]; then
+    rm -f "${patched_scripts[@]}"
+  fi
+}
+trap cleanup_patched_scripts EXIT
 
 resolve_bazel_info_path() {
   local key="$1"
@@ -43,7 +55,7 @@ Options:
 
 Environment:
   BAZEL_BIN     Bazel executable to use (default: bazel)
-  BAZEL_CONFIG  Bazel config to use for runs (default: remote_push)
+  BAZEL_CONFIG  Bazel config to use for runs (default: remote)
 EOF
 }
 
@@ -118,7 +130,12 @@ resolve_darwin_tools() {
   fi
 }
 
-mapfile -t push_targets < <(
+# `mapfile` is a bash 4.0 builtin and macOS ships bash 3.2, where it does not exist
+# ("mapfile: command not found"). This read loop is the portable stand-in.
+push_targets=()
+while IFS= read -r push_target; do
+  push_targets+=("${push_target}")
+done < <(
   "${BAZEL_BIN}" query "${BAZEL_QUERY}" 2>/dev/null |
     grep '^//docker/images:' |
     LC_ALL=C sort
@@ -134,7 +151,21 @@ for target in "${push_targets[@]}"; do
     resolve_darwin_tools
 
     target_name="${target##*:}"
-    build_cmd=("${BAZEL_BIN}" build "--config=${BAZEL_CONFIG}" --stamp "${target}")
+    # --remote_download_outputs is required on THIS branch and only this branch.
+    # //.bazelrc's remote_base sets --remote_download_minimal, so a plain build leaves outputs
+    # in the CAS -- but this path never `bazel run`s the target. It reads the generated
+    # launcher and the image layout off local disk, so both have to be materialised. Without
+    # it you get "missing generated push launcher", and past that ${IMAGE_DIR}/index.json is
+    # absent and crane has nothing to push.
+    #
+    # `toplevel`, NOT `all`. `all` materialises every output of every action in the graph --
+    # thousands of intermediate artifacts dragged across the WAN to publish one image.
+    # `toplevel` fetches only the requested target's own outputs and runfiles, which is
+    # exactly the launcher plus the OCI layout. Verified: blobs/, index.json and oci-layout
+    # are all present under the launcher's .runfiles with `toplevel`.
+    #
+    # The Linux branch below needs none of this: `bazel run` materialises its own runfiles.
+    build_cmd=("${BAZEL_BIN}" build "--config=${BAZEL_CONFIG}" --remote_download_outputs=toplevel --stamp "${target}")
     script_path="${bazel_bin_dir}/docker/images/push_${target_name}.sh"
     args=()
 
@@ -163,23 +194,34 @@ for target in "${push_targets[@]}"; do
     fi
 
     patched_script="$(mktemp "${TMPDIR:-/tmp}/push.${target_name}.darwin.XXXXXX")"
-    cp "${script_path}" "${patched_script}"
-    cleanup() {
-      rm -f "${patched_script}"
-    }
-    trap cleanup RETURN
-    perl -0pi -e \
-      "s|^readonly CRANE=.*\$|readonly CRANE=\"${darwin_crane}\"|m; s|^readonly JQ=.*\$|readonly JQ=\"${darwin_jq}\"|m" \
-      "${patched_script}"
+    patched_scripts+=("${patched_script}")
+    # sed rather than `perl -0pi`: these are line-oriented substitutions that POSIX sed does
+    # natively, and it drops a perl dependency that is absent from FreeBSD's base system and
+    # from minimal Linux images. Deliberately NOT `sed -i` -- GNU and BSD sed disagree on how
+    # its backup suffix is spelled, so we write to the temp file instead. `|` is the delimiter
+    # because both replacements are absolute paths.
+    sed \
+      -e "s|^readonly CRANE=.*|readonly CRANE=\"${darwin_crane}\"|" \
+      -e "s|^readonly JQ=.*|readonly JQ=\"${darwin_jq}\"|" \
+      "${script_path}" > "${patched_script}"
     chmod +x "${patched_script}"
 
     (
       cd "${bazel_bin_dir}"
-      "${patched_script}" "${args[@]}"
+      # RUNFILES_DIR has to be passed explicitly. The launcher locates its runfiles from $0,
+      # and $0 here is the patched copy in TMPDIR, which has no .runfiles tree beside it -- so
+      # the copy died in runfiles.bash init ("cannot find
+      # bazel_tools/tools/bash/runfiles/runfiles.bash") before reaching any push logic. The
+      # original launcher's tree next to script_path is the one that actually has the image
+      # layout, so point at that.
+      #
+      # `${args[@]+"${args[@]}"}`, not `"${args[@]}"`: bash before 4.4 -- and macOS ships
+      # 3.2 -- treats an empty array expansion as an unbound variable under `set -u`, so a
+      # push with neither --tag nor passthrough args aborted right here. This is the same
+      # idiom rules_oci uses in the launcher being patched.
+      RUNFILES_DIR="${script_path}.runfiles" \
+        "${patched_script}" ${args[@]+"${args[@]}"}
     )
-
-    trap - RETURN
-    cleanup
   else
     cmd=("${BAZEL_BIN}" run "--config=${BAZEL_CONFIG}" --stamp "${target}")
 

@@ -757,16 +757,36 @@ func randSerial() (*big.Int, error) {
 	return serial, nil
 }
 
+// nssLookupTimeout bounds the shell-outs below.
+//
+// `getent` and `id` resolve through NSS, so on a host joined to a directory
+// (SSSD/LDAP/FreeIPA) they are network calls, not local file reads. Passing
+// context.Background() to exec.CommandContext is the same as passing no
+// context at all -- nothing ever cancels it -- so an unreachable directory
+// server hangs the CLI indefinitely rather than falling back.
+//
+// These three callers only ever ask "does this local user exist, and what are
+// its ids". Failing after a few seconds gives the same answer a missing user
+// gives (false / -1), which is the safe direction: cert ownership is skipped
+// rather than the command wedging.
+const nssLookupTimeout = 5 * time.Second
+
 // userExists checks if a user exists.
 func userExists(username string) bool {
-	_, err := exec.CommandContext(context.Background(), "getent", "passwd", username).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), nssLookupTimeout)
+	defer cancel()
+
+	_, err := exec.CommandContext(ctx, "getent", "passwd", username).Output()
 
 	return err == nil
 }
 
 // getUID retrieves user UID.
 func getUID(username string) int {
-	cmd := exec.CommandContext(context.Background(), "id", "-u", username)
+	ctx, cancel := context.WithTimeout(context.Background(), nssLookupTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "id", "-u", username)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -783,7 +803,10 @@ func getUID(username string) int {
 
 // getGID retrieves user GID.
 func getGID(username string) int {
-	cmd := exec.CommandContext(context.Background(), "id", "-g", username)
+	ctx, cancel := context.WithTimeout(context.Background(), nssLookupTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "id", "-g", username)
 
 	output, err := cmd.Output()
 	if err != nil {

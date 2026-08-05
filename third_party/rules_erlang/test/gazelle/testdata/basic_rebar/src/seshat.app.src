@@ -1,0 +1,10 @@
+{application,seshat,
+             [{description,"Counters registry"},
+              {vsn,"0.3.2"},
+              {licenses,["Apache-2.0","MPL-2.0"]},
+              {links,[{"github","https://github.com/rabbitmq/seshat"}]},
+              {modules,[]},
+              {registered,[seshat_sup]},
+              {applications,[kernel,stdlib,sasl,crypto]},
+              {mod,{seshat_app,[]}},
+              {env,[]}]}.

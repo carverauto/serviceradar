@@ -83,52 +83,53 @@ jobs:
       - name: Verify committed Rust vendor snapshot
         run: python3 scripts/check-rust-vendor-tracked.py
 
+      # `bazel-build`, not `service-build`. The extras that profile adds over this one are
+      # rpmbuild, rpm2cpio and psql, and nothing in this job uses any of them: RPM packaging
+      # belongs to release.yml, and configure-srql-fixture.sh talks to CNPG through Bazel
+      # tests rather than a psql client. Every other Bazel workflow already uses bazel-build.
+      #
+      # Whether even this is needed is an open question. It requires gcc, g++, make,
+      # pkg-config, protoc, cmake, flex, bison, file, readelf and libpcap on the RUNNER, but
+      # under --config=ci every compile happens on the executor and remote_base sets
+      # BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1. The only local actions are ExpandTemplate,
+      # CopyDirectory and NpmPackageExtract, none of which want a C compiler. Left in place
+      # because that should be settled by watching a run fail, not by reasoning.
       - name: Install build dependencies
-        run: ./scripts/ci/ensure-forgejo-tools.sh service-build
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
 
-      - name: Setup Beam
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
-        env:
-          ImageOS: ubuntu24
-        with:
-          otp-version: "28.3"
-          elixir-version: "1.19.4"
-
-      - name: Setup Rust
-        run: |
-          set -euo pipefail
-
-          export PATH="${HOME}/.cargo/bin:${PATH}"
-          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
-
-          if ! command -v rustup >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-              | sh -s -- -y --profile minimal --default-toolchain stable
-          fi
-
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustc --version
-          cargo --version
+      # No Setup Beam and no Setup Rust.
+      #
+      # This job used to install OTP 28.3, Elixir 1.19.4 and a rustup stable toolchain on the
+      # runner for a build that compiles entirely on remote executors. The proof they were
+      # dead weight is in the sibling workflows: elixir-unit-tests.yml, rust-tests.yml and
+      # golang-tests.yml build and test the same Elixir, Rust and Go code with none of them.
+      # Bazel supplies every toolchain as declared action inputs --
+      # build/mix_precommit.bzl:13 says so for OTP and Elixir via
+      # @rules_elixir//:toolchain_type, and @rules_rust does the same for cargo and rustc.
+      #
+      # If something here ever genuinely needs a host toolchain, that is a bug in the target,
+      # not a reason to reinstate an OTP install on every CI run.
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
-      - name: Verify Bazel version
-        run: |
-          set -euo pipefail
-          expected="$(tr -d '\r\n' < .bazelversion)"
-          actual="$(bazel --version | awk '{print $NF}')"
-          echo "Expected Bazel: ${expected}"
-          echo "Resolved Bazel: ${actual}"
-          test "${actual}" = "${expected}"
+      # No Bazel version assertion. It compared `bazel --version` against .bazelversion, which
+      # is the file bazelisk just read to decide which Bazel to fetch. It could only fail if
+      # bazelisk itself were broken, and in that case every later step fails anyway with a
+      # message that names the real problem.
 
-      - name: Check Gazelle BUILD drift for changed Go packages
-        run: |
-          set -euo pipefail
-          base_ref="${GITHUB_BASE_REF:-staging}"
-          git fetch --no-tags --depth=1 origin "${base_ref}"
-          scripts/check-gazelle-drift.sh FETCH_HEAD HEAD
+      # No Gazelle drift check. scripts/check-gazelle-drift.sh and its `git fetch` of the base
+      # branch are gone, and the //:gazelle_diff_test that briefly replaced them is gone too.
+      #
+      # It only ever enforced canonicalisation -- sorted srcs, shortened labels, attribute
+      # order. The part that matters is already enforced by the build: a Go file importing
+      # something absent from `deps` fails to compile, and a package with no BUILD file shows
+      # up the moment anything tries to depend on it.
+      #
+      # Run `bazel run //:gazelle` when you add or move Go files. The `# gazelle:exclude`
+      # directives and the `# keep` markers in //BUILD.bazel and elsewhere still matter --
+      # without them that command deletes //proto/dgraph:proto_dgraph and rewrites the proto
+      # compiler lists.
 
       - name: Report unavailable SRQL fixture secrets
         if: ${{ secrets.SRQL_TEST_DATABASE_URL == '' || secrets.SRQL_TEST_ADMIN_URL == '' || secrets.SRQL_TEST_DATABASE_CA_CERT == '' }}
@@ -208,10 +209,22 @@ jobs:
         run: |
           # attr() takes exactly three arguments, so the two excluded tags are one
           # alternation pattern rather than two arguments. Integration tests are excluded
-          # here because rust-tests-integration.yml owns them: they drive real containers on
-          # remote microVMs, and folding them into this sweep makes a container failure and
-          # a compile failure produce the same red X.
-          target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...)) except set(//elixir/web-ng:precommit)'
+          # here because elixir-integration-sr-core.yml owns them: they drive a shared CNPG
+          # fixture, and folding them into this sweep makes a fixture failure and a compile
+          # failure produce the same red X.
+          #
+          # There used to be a third clause, `except set(//elixir/web-ng:precommit)`, keeping
+          # the web-ng precommit on its own red X. That target no longer exists: it was pulled
+          # in 8fb020fb9 because :precommit_check fails `mix format --check-formatted` against
+          # pre-existing HEEx formatting (see the header of //elixir/web-ng:BUILD.bazel).
+          # `set()` hard-errors on an unknown label rather than ignoring it, so the clause was
+          # not merely stale -- it aborted the whole query with exit 7 and this step then died
+          # through its own "refusing to run an empty test sweep" guard. No tests ran at all.
+          #
+          # //elixir/web-ng:BUILD.bazel says to restore the target once the tree is formatted.
+          # Whoever does that should decide again whether it wants its own workflow, and
+          # re-add the exclusion here only if so.
+          target_query='tests(//...) except attr("tags", "manual|integration_test", tests(//...))'
           # These two live in //integration_tests/srql, not //rust/srql -- they were moved and
           # this exclusion was left behind. A stale label here does not degrade gracefully:
           # `set()` hard-errors with "no such target", so on the one path this branch exists to
@@ -278,5 +291,4 @@ jobs:
 
           exit 0
 
-      # //elixir/web-ng:precommit moved to precommit-web-ng.yml.
       # serviceradar_core integration tests moved to elixir-integration-sr-core.yml.

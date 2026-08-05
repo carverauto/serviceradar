@@ -21,6 +21,14 @@ global:
   # appVersion tag; use a sha-* tag or image.digests.* for production
   # rollouts that require immutable image references.
   imageTag: "v1.2.54"
+  # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
+  # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
+  # add-on assets from the Forgejo release with this name, and shows it in the
+  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
+  # no release is ever named that, so the two cannot share one value.
+  # Empty means "use the chart appVersion", which is what you want unless you are
+  # deliberately pulling add-ons from a different release than the chart.
+  releaseVersion: ""
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
   # When true, stamp the pod template with a Helm-managed revision so a normal

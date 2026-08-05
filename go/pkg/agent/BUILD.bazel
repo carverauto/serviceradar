@@ -164,6 +164,21 @@ go_library(
 
 go_test(
     name = "agent_test",
+    # keep
+    #
+    # The largest Go test target in the repo by a wide margin: 77 files, 702 test functions,
+    # ~33k lines. Unsharded it is a single test action, so it is one executor doing all of it
+    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
+    # repeats every function, that is ~3,500 executions serialised into one action.
+    #
+    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
+    # assigns functions to shards by index, so this is not a source-layout change and no test
+    # needs to know about it. Both the plain sweep and the race pass benefit.
+    #
+    # 8 rather than more: each shard loads the whole test binary, so shard count trades
+    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
+    # this size spends more on loading than it saves.
+    shard_count = 8,
     srcs = [
         "addon_activation_test.go",
         "addon_capabilities_test.go",

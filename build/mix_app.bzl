@@ -329,11 +329,30 @@ def _impl(ctx):
         native_lib_commands = ["mkdir -p priv/native"] + native_lib_commands
 
     # Appended last so these win over anything config.exs imports for the env.
+    #
+    # `config/2` has to be in scope for the appended lines, and creating the file when absent
+    # is not enough to guarantee that across third-party packages:
+    #
+    #   * yaml_elixir ships a config/config.exs that is a single newline. It satisfies the -f
+    #     test, so nothing imports Config, and the appended lines fail with
+    #     "undefined function config/2".
+    #   * stream_split ships one using the deprecated `use Mix.Config`. An unconditional
+    #     `import Config` there fails the other way: "function config/2 imported from both
+    #     Config and Mix.Config, call is ambiguous".
+    #
+    # So import only when the file provides neither form.
+    #
+    # A file whose last line has no trailing newline would also splice the first appended
+    # line onto it ("# commentimport Config"), so terminate it before appending anything.
     extra_config_commands = ""
     if ctx.attr.extra_config:
         extra_config_commands = "\n".join([
             "mkdir -p config",
             "[ -f config/config.exs ] || echo 'import Config' > config/config.exs",
+            "if [ -s config/config.exs ] && [ -n \"$(tail -c1 config/config.exs)\" ]; then " +
+            "echo >> config/config.exs; fi",
+            "grep -qE '^[[:space:]]*(import Config|use Mix\\.Config)' config/config.exs || " +
+            "echo 'import Config' >> config/config.exs",
             "cat >> config/config.exs <<'__BAZEL_EXTRA_CONFIG__'",
         ] + ctx.attr.extra_config + [
             "__BAZEL_EXTRA_CONFIG__",

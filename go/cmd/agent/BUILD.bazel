@@ -1,5 +1,6 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 go_library(
     name = "agent_lib",
@@ -8,16 +9,10 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/cmd/agent",
     visibility = ["//visibility:private"],
     deps = [
-        "//go/pkg/agent:agent",
-        "//go/pkg/agentgateway:agentgateway",
-        "//go/pkg/config:config",
-        "//go/pkg/config/bootstrap:bootstrap",
-        "//go/pkg/edgeonboarding:edgeonboarding",
-        "//go/pkg/lifecycle:lifecycle",
-        "//go/pkg/logger:logger",
-        "//go/pkg/models:models",
-        "//proto",
-        "@org_golang_google_grpc//:grpc",
+        "//go/pkg/agent",
+        "//go/pkg/agentgateway",
+        "//go/pkg/lifecycle",
+        "//go/pkg/logger",
     ],
 )
 
@@ -27,10 +22,7 @@ go_binary(
     # GoLink of the agent is large under pure-Go linking. After #4752 switched
     # BuildBuddy executors to Firecracker isolation, default microVM memory
     # (~2.5Gi) OOMs the linker (signal: killed). Ask for a larger task size.
-    exec_properties = {
-        "EstimatedCPU": "4",
-        "EstimatedMemory": "8Gi",
-    },
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     visibility = ["//visibility:public"],
     x_defs = {
         "github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}",

@@ -16,7 +16,6 @@ go_library(
         "//go/pkg/models",
         "//proto",
         "@org_golang_google_grpc//:grpc",
-        "@org_golang_google_grpc//credentials/insecure",
     ],
 )
 

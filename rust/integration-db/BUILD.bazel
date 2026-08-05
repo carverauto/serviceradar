@@ -61,9 +61,23 @@ rust_test(
 # client this whole design assumes. Only execution is pinned: `no-remote-exec` leaves remote
 # CACHING intact (that would be `no-remote`).
 #
+# These read the three SRQL_TEST_* variables from the runner's environment, through the
+# `test --test_env=` list in //.bazelrc. scripts/ci/configure-srql-fixture.sh puts them there
+# in CI; //:buildbuddy_setup_fixture_env does it on a workstation. That is now the only
+# mechanism in the repo: //elixir/serviceradar_core:integration_tests_s* used to get the same
+# three from BuildBuddy's `test.env-secrets` platform property, which was removed because no
+# other remote-execution backend implements it.
+#
+# The path variables described above are the reason this pinning survives even though the
+# Elixir side moved to PEM content -- the Rust side still opens a file.
+#
 # Sequencing lives in the workflow, because Bazel deliberately does not order tests:
 #   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
 #     -> (elixir) integration_tests -> teardown_db
+#
+# NOTE: `prepare_template` in that chain does not exist as a target -- the only tests here
+# are provision_db, sweep_stale_dbs and teardown_db. Either it was never added or it was
+# removed without updating this line; treat the chain as aspirational until that is settled.
 [
     rust_test(
         name = target,

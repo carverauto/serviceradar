@@ -7,16 +7,21 @@ const BOOLEAN_VALUES = ["true", "false"]
 const SORT_DIRECTIONS = ["asc", "desc"]
 const TIME_VALUES = ["last_1h", "last_24h", "last_7d", "last_30d"]
 const CONTROL_DESCRIPTIONS = {
+  "agg:": "Bucket aggregation: avg, min, max, sum, count, or rate.",
+  "bucket:": "Group rows into fixed time buckets for a chart (e.g. 5m, 1h).",
   "by:": "Group or aggregate results by a field.",
   "group:": "Group results by a field.",
   "in:": "Choose the SRQL entity to query.",
   "limit:": "Limit the number of returned rows.",
+  "series:": "Split buckets into one series per distinct value of a field.",
   "site:": "Filter results to a site.",
   "sort:": "Sort results by a field (append :asc or :desc).",
+  "stats:": "Collapse rows into summary values (e.g. sum(bytes_total) as bytes by app).",
   "status:": "Filter results by status.",
   "tag:": "Filter results by tag.",
   "time:": "Choose a relative time window.",
   "type:": "Filter results by type.",
+  "value_field:": "Which numeric field the bucket aggregation reads.",
   where: "Start a field filter clause.",
 }
 let monacoPromise = null

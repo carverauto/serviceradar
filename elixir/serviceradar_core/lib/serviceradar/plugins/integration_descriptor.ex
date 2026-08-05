@@ -40,7 +40,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_metadata_field_keys ~w(key label description format)
   @allowed_documentation_keys ~w(title path url)
 
-  @allowed_credential_kinds ~w(api_token username_password ssh_private_key certificate opaque)
+  @allowed_credential_kinds ~w(api_token username_password ssh_private_key certificate snmp opaque)
   @allowed_credential_controls ~w(text password textarea)
   @allowed_payload_formats ~w(scalar json template)
   @allowed_provisioning_modes ~w(credential_only producer_schedule target_policy)

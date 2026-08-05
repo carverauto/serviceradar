@@ -1,0 +1,10 @@
+{application,myapp,
+             [{description,"A test app"},
+              {vsn,"0.1.0"},
+              {licenses,[]},
+              {links,[]},
+              {registered,[]},
+              {mod,{myapp_app,[]}},
+              {applications,[kernel,stdlib,crypto]},
+              {env,[{enabled,true}]},
+              {modules,[]}]}.

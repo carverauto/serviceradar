@@ -13,6 +13,7 @@ SHELL ["/bin/bash", "-lc"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        file \
         gnupg \
         lsb-release \
         wget \

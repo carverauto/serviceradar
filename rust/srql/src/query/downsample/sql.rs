@@ -5,10 +5,46 @@ use super::{
 };
 use crate::{
     error::{Result, ServiceError},
-    parser::{DownsampleAgg, Entity},
+    parser::{DownsampleAgg, Entity, OrderDirection},
     query::{BindParam, QueryPlan},
     time::TimeRange,
 };
+
+/// Whether `limit:` should keep the newest buckets in the window instead of the oldest.
+///
+/// A chart always *renders* buckets oldest-first, so the returned rows are ordered
+/// ascending no matter what. But when `limit:` is smaller than the number of buckets in
+/// the range, something has to decide which end of the window survives -- and that is
+/// exactly what `sort:time:desc` asks about. The ordering used to be hardcoded ascending
+/// and `plan.order` was dropped on the floor, so `sort:time:desc limit:100` returned the
+/// OLDEST 100 buckets: a 30-day chart at `bucket:5m` silently stopped two weeks back.
+///
+/// `sort:` on a downsample can only mean the bucket timestamp -- the projection is
+/// (timestamp, series, value) and the other two are not orderable in a useful way -- so
+/// the field name is not inspected, only the direction.
+fn downsample_keeps_newest(plan: &QueryPlan) -> bool {
+    plan.order
+        .first()
+        .is_some_and(|clause| matches!(clause.direction, OrderDirection::Desc))
+}
+
+/// Applies the ordering + `LIMIT`/`OFFSET` tail to an aggregated downsample body.
+///
+/// `body` must project exactly `(timestamp, series, value)` and end after its
+/// `GROUP BY`. When the newest buckets are wanted, the body is truncated descending
+/// inside a subquery and re-sorted ascending on the way out, so the caller gets the
+/// requested end of the window in chart order. The `?` placeholders stay in the same
+/// position relative to the `WHERE` binds either way, so `build_bind_values` is
+/// unaffected.
+fn finalize_downsample_sql(body: String, keeps_newest: bool) -> String {
+    if keeps_newest {
+        format!(
+            "SELECT timestamp, series, value FROM (\n{body}\nORDER BY 1 DESC, 2 ASC NULLS FIRST\nLIMIT ? OFFSET ?\n) windowed\nORDER BY 1 ASC, 2 ASC NULLS FIRST"
+        )
+    } else {
+        format!("{body}\nORDER BY 1 ASC, 2 ASC NULLS FIRST\nLIMIT ? OFFSET ?")
+    }
+}
 
 pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let downsample = plan.downsample.as_ref().ok_or_else(|| {
@@ -20,7 +56,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     // the raw hypertable. This keeps the sampling-rate-weighted throughput chart off the raw
     // full-table scan that was timing out (fj #33).
     if let Some(cagg_table) = flow_cagg_route(plan) {
-        return build_flow_cagg_union_sql(downsample, cagg_table);
+        return build_flow_cagg_union_sql(downsample, cagg_table, downsample_keeps_newest(plan));
     }
 
     let use_hourly_cagg = super::super::should_route_plan_to_hourly_cagg(plan)
@@ -229,9 +265,7 @@ SELECT
   AVG(rate_value) AS value
 FROM rate_data
 WHERE rate_value IS NOT NULL  -- Skip NULL rates from counter wraps
-GROUP BY 1, 2
-ORDER BY 1 ASC, 2 ASC NULLS FIRST
-LIMIT ? OFFSET ?"#,
+GROUP BY 1, 2"#,
             ts_col = ts_col,
             series_expr = series_expr,
             value_col = value_col,
@@ -241,7 +275,7 @@ LIMIT ? OFFSET ?"#,
             bucket_secs = bucket_secs
         );
         let _ = time_range;
-        return Ok(sql);
+        return Ok(finalize_downsample_sql(sql, downsample_keeps_newest(plan)));
     }
 
     // Standard aggregation (non-rate). Flow CAGG aggregation (including COUNT(*) ->
@@ -254,10 +288,10 @@ LIMIT ? OFFSET ?"#,
         "SELECT to_timestamp(floor(extract(epoch from {ts_col}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
     );
     sql.push_str(&where_clause);
-    sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC, 2 ASC NULLS FIRST\nLIMIT ? OFFSET ?");
+    sql.push_str("\nGROUP BY 1, 2");
 
     let _ = time_range;
-    Ok(sql)
+    Ok(finalize_downsample_sql(sql, downsample_keeps_newest(plan)))
 }
 
 fn rate_partition_expr(plan: &QueryPlan, display_series_expr: &str) -> String {
@@ -325,6 +359,7 @@ fn flow_cagg_route(plan: &QueryPlan) -> Option<&'static str> {
 fn build_flow_cagg_union_sql(
     downsample: &crate::parser::DownsampleSpec,
     cagg_table: &str,
+    keeps_newest: bool,
 ) -> Result<String> {
     let bucket_secs = downsample.bucket_seconds;
     let field = downsample.value_field.as_deref();
@@ -363,12 +398,10 @@ FROM ocsf_network_activity\n\
 WHERE time >= {boundary} AND time <= ?\n\
 GROUP BY 1, 2\n\
 ) combined\n\
-GROUP BY 1, 2\n\
-ORDER BY 1 ASC, 2 ASC NULLS FIRST\n\
-LIMIT ? OFFSET ?",
+GROUP BY 1, 2",
     );
 
-    Ok(sql)
+    Ok(finalize_downsample_sql(sql, keeps_newest))
 }
 
 /// Strict CAGG-safety: no filters and no series grouping. Used for entities whose

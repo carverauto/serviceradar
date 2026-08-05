@@ -14,6 +14,18 @@ load("//build:elixir_release.bzl", "elixir_release")
 #
 # Restore from git history once the tree is formatted; //build:mix_deps.bzl and
 # //build:mix_precommit.bzl are untouched.
+#
+# Two CI references went with it, and both have to come back deliberately:
+#
+#   * .forgejo/workflows/precommit-web-ng.yml was deleted. Its only substantive step was
+#     `bazel test //elixir/web-ng:precommit`, so with the target gone every run exited 1.
+#   * main.yml's test sweep dropped its `except set(//elixir/web-ng:precommit)` clause. That
+#     was not cosmetic: `set()` hard-errors on an unknown label, so the dangling reference
+#     aborted the entire query with exit 7 and the sweep ran no tests at all.
+#
+# The exclusion existed so a web-ng lint failure produced its own red X rather than one
+# indistinguishable from a compile break. If the target returns, decide again whether that is
+# worth a separate workflow before re-adding either reference.
 
 package(default_visibility = ["//visibility:public"])
 

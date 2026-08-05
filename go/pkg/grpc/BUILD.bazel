@@ -46,6 +46,7 @@ go_test(
     deps = [
         "//go/pkg/logger",
         "//go/pkg/models",
+        "@com_github_spiffe_go_spiffe_v2//spiffeid",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",

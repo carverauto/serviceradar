@@ -30,7 +30,7 @@ Usage: ./scripts/push_all_wasm_plugins.sh [--tag <tag>] [--dry-run]
 Environment:
   BAZEL_BIN          Bazel executable to use (default: bazel)
   BAZEL_BUILD_FLAGS  Optional flags for remote bundle builds, for example:
-                     BAZEL_BUILD_FLAGS='--config=remote_push --stamp'
+                     BAZEL_BUILD_FLAGS='--config=remote --stamp'
 EOF
 }
 
@@ -58,7 +58,12 @@ done
 
 cd "${REPO_ROOT}"
 
-mapfile -t push_targets < <(
+# `mapfile` is a bash 4.0 builtin and macOS ships bash 3.2, where it does not exist
+# ("mapfile: command not found"). This read loop is the portable stand-in.
+push_targets=()
+while IFS= read -r push_target; do
+  push_targets+=("${push_target}")
+done < <(
   "${BAZEL_BIN}" query "${BAZEL_QUERY}" 2>/dev/null |
     grep '^//build/wasm_plugins:' |
     LC_ALL=C sort
