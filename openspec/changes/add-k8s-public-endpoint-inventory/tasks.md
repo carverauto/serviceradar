@@ -6,15 +6,24 @@
 
 ## 2. Go collector (`serviceradar-k8s-inventory`)
 
-- [ ] 2.1 Scaffold `go/cmd/k8s-inventory` + `go/pkg/k8sinventory` with config (cluster_id, namespaces, feature flags, NATS/mTLS)
-- [ ] 2.2 Implement Service informer: LoadBalancer ingress IP/hostname, ExternalIPs, ports, ETP, MetalLB/ExternalDNS annotations
-- [ ] 2.3 Implement EndpointSlice informer join for backend targets (`targetRef`, ports)
-- [ ] 2.4 Implement Gateway API informers (Gateway + HTTPRoute/TCPRoute/UDPRoute/GRPCRoute/TLSRoute as available)
+### Phase A — library + provable local validation (no SR integration)
+
+- [x] 2.1a Scaffold `go/pkg/k8sinventory` pure `BuildSnapshot` + correlation hints (no NATS/core)
+- [x] 2.1b Scaffold `go/cmd/k8s-inventory snapshot` JSON dump (kubeconfig / in-cluster)
+- [x] 2.2 Service ownership: LoadBalancer ingress IP/hostname, ExternalIPs, ports, ETP, MetalLB annotations
+- [x] 2.3 EndpointSlice join for backend targets (`targetRef`, ports) → DNAT hints (`VIP:port → podIP:targetPort`)
+- [x] 2.4 Gateway API list path (Gateway + HTTPRoute/TCPRoute/UDPRoute/GRPCRoute/TLSRoute via dynamic client)
+- [x] 2.8 Unit tests (pure fixtures + fake clientset + unstructured Gateway/TCPRoute) proving Forgejo VIP associations
+- [x] 2.8b Live smoke: `k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22` returns LB + Gateway ownership and envoy DNAT hint
+- [x] 2.9a Bazel BUILD for package + binary (image packaging later)
+
+### Phase B — continuous collector + SR publish (later)
+
+- [ ] 2.1 Scaffold long-running config (cluster_id, namespaces, feature flags, NATS/mTLS)
 - [ ] 2.5 Optional EnvoyProxy CR informer (flag); skip cleanly if CRD absent
-- [ ] 2.6 Normalize to inventory events; full resync + watch; tombestones/soft-delete generations
-- [ ] 2.7 Publish to NATS with existing collector security patterns; metrics (watch lag, object counts, publish errors, CRD missing)
-- [ ] 2.8 Unit tests with fake clientsets for Service/EndpointSlice/Gateway fixtures (including hostname-only LB ingress)
-- [ ] 2.9 Bazel/build packaging for container image `serviceradar-k8s-inventory`
+- [ ] 2.6 Watch/resync loop; tombstones/soft-delete generations
+- [ ] 2.7 Publish to NATS with existing collector security patterns; metrics
+- [ ] 2.9b Container image `serviceradar-k8s-inventory` for Helm
 
 ## 3. Helm (optional component)
 

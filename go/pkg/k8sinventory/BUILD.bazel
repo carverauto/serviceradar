@@ -1,0 +1,45 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "k8sinventory",
+    srcs = [
+        "build.go",
+        "convert.go",
+        "gateway_unstructured.go",
+        "snapshot.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/k8sinventory",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@io_k8s_api//core/v1:core",
+        "@io_k8s_api//discovery/v1:discovery",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1/unstructured",
+        "@io_k8s_apimachinery//pkg/runtime/schema",
+        "@io_k8s_apimachinery//pkg/util/intstr",
+        "@io_k8s_client_go//dynamic",
+        "@io_k8s_client_go//kubernetes",
+    ],
+)
+
+go_test(
+    name = "k8sinventory_test",
+    srcs = [
+        "build_test.go",
+        "convert_test.go",
+        "gateway_unstructured_test.go",
+    ],
+    embed = [":k8sinventory"],
+    deps = [
+        "@io_k8s_api//core/v1:core",
+        "@io_k8s_api//discovery/v1:discovery",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1/unstructured",
+        "@io_k8s_apimachinery//pkg/runtime",
+        "@io_k8s_apimachinery//pkg/util/intstr",
+        "@io_k8s_client_go//dynamic",
+        "@io_k8s_client_go//dynamic/fake",
+        "@io_k8s_client_go//kubernetes/fake",
+    ],
+)
