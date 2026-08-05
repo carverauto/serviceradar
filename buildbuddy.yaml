@@ -1,20 +1,3 @@
-execution_config:
-  platform_properties:
-    container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
-    OSFamily: "linux"
-    Arch: "amd64"
-  default_exec_properties:
-    dockerNetwork: "host"
-    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
-    # build executors in values.yaml. Those advertise 16Gi and this runner wants ~32GB, so it
-    # could never be placed there; and sizing them up would reserve it on all three and let one
-    # runner squeeze out the remote-execution fan-out it is itself driving.
-    #
-    # The two must be changed together: this string is matched against the executor's
-    # `poolName`. If the fleet is not deployed yet, this fails before any step runs with
-    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
-    pool: "workflows"
-
 actions:
   - name: "BazelCI"
     # Both fields are required together. `self_hosted: true` alone defaults the pool to the
@@ -45,6 +28,58 @@ actions:
       OCI_REGISTRY: "registry.carverauto.dev"
 
     self_hosted: true
+
+    # The dedicated workflow fleet in //k8s/buildbuddy/values-workflows.yaml, NOT the three
+    # build executors in values.yaml. Those advertise 22.7 GiB and this runner asks for 50GB,
+    # so it could never be placed there; and sizing them up would reserve it on all three and
+    # let one runner squeeze out the remote-execution fan-out it is itself driving.
+    #
+    # Matched against the executor's `poolName`, so the two change together. If the fleet is
+    # not deployed, this fails before any step runs with
+    #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
+    pool: "workflows"
+
+    # ACTION LEVEL, NOT TOP LEVEL, AND THAT IS LOAD-BEARING.
+    #
+    # BuildBuddy's schema (enterprise/server/workflow/config/config.go) gives BuildBuddyConfig
+    # exactly ONE top-level field: `actions`. `platform_properties` is an Action field. There
+    # is no top-level `execution_config` and no `default_exec_properties` anywhere. Nested
+    # under an unrecognised top-level key the whole block is dropped in silence -- no warning,
+    # no parse error, the run just proceeds on defaults.
+    #
+    # That was tried and measured. Invocation 1e3b19b6 carried the block at top level and the
+    # runner still could not resolve GLIBC_2.28, meaning glibc <= 2.27 -- Ubuntu 18.04, the
+    # BuildBuddy default. Had container-image reached the runner it would have been the
+    # rbe-executor image at glibc 2.39.
+    #
+    # WHY container-image HERE RATHER THAN THE `container_image` FIELD. That field accepts only
+    # the shorthands ubuntu-18.04/20.04/22.04/24.04 and DEFAULTS to 18.04. This is the escape
+    # hatch that names a real image, and it must be THE SAME IMAGE as
+    # //build/rbe:rbe_platform's `container-image` -- not merely a matching Ubuntu version.
+    # //.bazelrc aims both --host_platform and --platforms at rbe_platform, which promises
+    # Bazel that whatever runs exec-config tools and target binaries IS that image. Every
+    # `no-remote-exec` target below runs HERE instead, and an 18.04 userland cannot load a
+    # 24.04 binary:
+    #
+    #   bazel-out/rbe_platform-opt-exec/bin/external/rules_rust+/util/process_wrapper/
+    #     process_wrapper: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found
+    #   ... `GLIBC_2.34' ... `GLIBC_2.33' ... `GLIBC_2.28' not found
+    #
+    # No narrower fix exists. Sending only the compile remote
+    # (--modify_execution_info=Rustc=-no-remote-exec) fails one action later, because
+    # --platforms builds the TEST BINARY for that image too and the test still runs here.
+    #
+    # FALLBACK: if the runner cannot boot in the rbe-executor image -- it is built for Bazel
+    # ACTIONS, not for hosting BuildBuddy's runner -- drop container-image from this map and
+    # set the Action field `container_image: "ubuntu-24.04"` instead. Same glibc 2.39, same
+    # Noble base as //docker/Dockerfile.rbe, without depending on the image being a viable
+    # runner host. That failure looks like the runner dying at startup, not a glibc error.
+    platform_properties:
+      container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "host"
+
     triggers:
       pr:
         branches:
