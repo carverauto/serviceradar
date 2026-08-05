@@ -3,43 +3,64 @@
 Discovers **public / edge Kubernetes endpoint ownership** and builds
 **VIP → backend socket** correlation hints.
 
-This package has **no ServiceRadar core, NATS, or SRQL dependency**. It is
-meant to be validated with unit tests and the standalone CLI before wiring
-publish/ingest.
+## Phases
+
+| Phase | Status | What |
+|---|---|---|
+| A | Done | Pure `BuildSnapshot`, unit tests, `snapshot` CLI (no NATS) |
+| B | Done (collector) | Debounced controller, informers, publish modes, Helm optional |
+| C | Not started | Core ingest, DB, SRQL |
+
+No host-agent kube API access. Cluster-plane Deployment only.
 
 ## What it answers
 
 Given a public flow destination such as `23.138.124.7:22`:
 
-1. **Ownership** — which LoadBalancer Service and/or Gateway API route owns it
-2. **Backends** — EndpointSlice pod/node/port (e.g. envoy `10.42.221.140:10022`)
-3. **Correlation hints** — map public NetFlow tuple → post-DNAT socket that
-   netprobe may attribute (`comm=envoy`)
+1. **Ownership** — LoadBalancer Service and/or Gateway API route
+2. **Backends** — EndpointSlice pod/node/port
+3. **Correlation hints** — public NetFlow tuple → post-DNAT socket
 
-Works from the Kubernetes API only (dataplane-agnostic: IPVS vs iptables vs
-cloud LB controllers).
-
-## Tests
+## Tests (no cluster / no NATS)
 
 ```bash
 go test ./go/pkg/k8sinventory/ -count=1
 ```
 
-Covered without a live cluster:
-
-- Forgejo-style MetalLB VIP + Gateway TCPRoute + EndpointSlice DNAT hint
-- Hostname-only cloud LB ingress (EKS-style)
-- ExternalIP services
-- Unstructured Gateway / TCPRoute parsing
-- Fake client-go Service + EndpointSlice list path
-
-## CLI (live cluster)
+## CLI
 
 ```bash
 go build -o k8s-inventory ./go/cmd/k8s-inventory
 
+# one-shot dump
 ./k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
-./k8s-inventory snapshot --cluster-id demo --hints-only --ip 23.138.124.7
+
+# long-running with stdout publish (validates watch/rebuild without NATS)
+PUBLISH_MODE=stdout CLUSTER_ID=demo K8S_INVENTORY_METRICS_ADDR=:9109 \
+  ./k8s-inventory run
 ```
 
-Requires kubeconfig (or in-cluster config). Does not publish anywhere.
+### Env for `run`
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CLUSTER_ID` | required | |
+| `PUBLISH_MODE` | `nats` | `nats` \| `stdout` \| `none` |
+| `K8S_INVENTORY_SUBJECT` | `inventory.k8s.public_endpoints` | |
+| `NATS_HOSTPORT` | required if nats | e.g. `tls://serviceradar-nats:4222` |
+| `NATS_STREAM` | `k8s_inventory` | |
+| `K8S_INVENTORY_GATEWAY_API` | `true` | soft-fail if CRDs missing |
+| `K8S_INVENTORY_RESYNC` | `5m` | |
+| `K8S_INVENTORY_DEBOUNCE` | `2s` | |
+| `K8S_INVENTORY_METRICS_ADDR` | `:9109` | `/healthz` `/readyz` `/metrics` `/snapshot` |
+
+## Helm
+
+```yaml
+k8sInventory:
+  enabled: false   # default
+  clusterId: demo
+```
+
+Demo enables via `values-demo.yaml`. Requires image `serviceradar-k8s-inventory`
+and runtime certs (`k8s-inventory.pem`). NATS ACL allows `inventory.k8s.>`.

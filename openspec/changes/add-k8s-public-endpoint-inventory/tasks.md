@@ -17,22 +17,23 @@
 - [x] 2.8b Live smoke: `k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22` returns LB + Gateway ownership and envoy DNAT hint
 - [x] 2.9a Bazel BUILD for package + binary (image packaging later)
 
-### Phase B — continuous collector + SR publish (later)
+### Phase B — continuous collector + publish path (no core ingest yet)
 
-- [ ] 2.1 Scaffold long-running config (cluster_id, namespaces, feature flags, NATS/mTLS)
-- [ ] 2.5 Optional EnvoyProxy CR informer (flag); skip cleanly if CRD absent
-- [ ] 2.6 Watch/resync loop; tombstones/soft-delete generations
-- [ ] 2.7 Publish to NATS with existing collector security patterns; metrics
-- [ ] 2.9b Container image `serviceradar-k8s-inventory` for Helm
+- [x] 2.1 Scaffold long-running config (cluster_id, namespaces, feature flags, NATS/mTLS, PUBLISH_MODE)
+- [x] 2.6 Debounced rebuild controller + Service/EndpointSlice informers + resync ticker
+- [x] 2.7 Publish modes: `nats` (JetStream), `stdout`, `none`; metrics/health HTTP; stable content hash skip
+- [x] 2.7b Unit tests for controller publish/skip/debounce without apiserver NATS
+- [ ] 2.5 Optional EnvoyProxy CR informer (RBAC/Helm flag ready; informer not implemented — Service status covers MetalLB pins)
+- [ ] 2.9b Container image `serviceradar-k8s-inventory` for Helm (Bazel/OCI pipeline)
 
 ## 3. Helm (optional component)
 
-- [ ] 3.1 Add `k8sInventory` block to `helm/serviceradar/values.yaml` (`enabled: false` by default)
-- [ ] 3.2 Templates: Deployment, ServiceAccount, ClusterRole/ClusterRoleBinding (or Role when namespaced), ConfigMap, optional NetworkPolicy
-- [ ] 3.3 Wire image tag under `image.tags.k8sInventory` / chart appVersion pattern
-- [ ] 3.4 SPIRE/mTLS service account hooks consistent with flow-collector / trapd
-- [ ] 3.5 Graceful values when Gateway API or EnvoyProxy CRDs disabled
-- [ ] 3.6 Enable in `helm/serviceradar/values-demo.yaml` with `clusterId: demo` and EnvoyProxy CRD on
+- [x] 3.1 Add `k8sInventory` block to `helm/serviceradar/values.yaml` (`enabled: false` by default)
+- [x] 3.2 Templates: Deployment, ServiceAccount, ClusterRole/ClusterRoleBinding, metrics Service
+- [x] 3.3 Wire image tag under `image.tags.k8sInventory`
+- [x] 3.4 mTLS cert generation + NATS ACL for `serviceradar-k8s-inventory` / `inventory.k8s.>`
+- [x] 3.5 Gateway API RBAC gated; EnvoyProxy CRD optional
+- [x] 3.6 Enable in `helm/serviceradar/values-demo.yaml` with `clusterId: demo`
 - [ ] 3.7 Helm unit/template tests for enabled/disabled and RBAC resource list
 
 ## 4. Core ingest and storage

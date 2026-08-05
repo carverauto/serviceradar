@@ -1,11 +1,8 @@
-// Command k8s-inventory lists public Kubernetes endpoint ownership as JSON.
+// Command k8s-inventory lists or continuously publishes public Kubernetes
+// endpoint ownership.
 //
-// This binary is intentionally standalone: no NATS, no ServiceRadar core.
-// Use it to prove VIP → Service/Gateway → backend associations against a
-// live cluster (or fixtures via unit tests in go/pkg/k8sinventory).
-//
-//	k8s-inventory snapshot --cluster-id demo
 //	k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+//	k8s-inventory run   # long-running; config from env (see package docs)
 package main
 
 import (
@@ -13,8 +10,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/k8sinventory"
@@ -35,9 +35,20 @@ func main() {
 			fmt.Fprintf(os.Stderr, "k8s-inventory snapshot: %v\n", err)
 			os.Exit(1)
 		}
+	case "run":
+		if err := runDaemon(os.Args[2:]); err != nil {
+			log.Printf("k8s-inventory run: %v", err)
+			os.Exit(1)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
+		// Allow bare `k8s-inventory` with env as `run` for container entrypoint convenience.
+		if os.Args[1] == "snapshot" || os.Args[1] == "run" {
+			usage()
+			os.Exit(2)
+		}
+		// If first arg looks like a flag, treat as run with flags unsupported — require subcommand.
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		usage()
 		os.Exit(2)
@@ -47,22 +58,47 @@ func main() {
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
   k8s-inventory snapshot [flags]
+  k8s-inventory run
 
-Flags:
-  --cluster-id string   Cluster identifier stored on endpoints (required)
-  --kubeconfig string   Path to kubeconfig (default: KUBECONFIG or ~/.kube/config; in-cluster if empty fails to file)
-  --namespace string    Limit to one namespace (default: all)
-  --ip string           Filter endpoints by public IP
-  --hostname string     Filter endpoints by public hostname
-  --port int            Filter endpoints by port (0 = any)
+snapshot flags:
+  --cluster-id string   Cluster identifier (required)
+  --kubeconfig string   Path to kubeconfig
+  --namespace string    Limit to one namespace
+  --ip string           Filter by public IP
+  --hostname string     Filter by public hostname
+  --port int            Filter by port (0 = any)
   --no-gateway          Skip Gateway API listing
   --hints-only          Print only correlation_hints
   --timeout duration    API timeout (default 30s)
 
+run:
+  Configuration is read from environment variables (CLUSTER_ID required).
+  PUBLISH_MODE=nats|stdout|none (default nats)
+  See go/pkg/k8sinventory/README.md
+
 Examples:
   k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
-  k8s-inventory snapshot --cluster-id demo --hints-only --ip 23.138.124.7
+  PUBLISH_MODE=stdout CLUSTER_ID=demo k8s-inventory run
 `)
+}
+
+func runDaemon(args []string) error {
+	if len(args) > 0 {
+		// optional -h
+		fs := flag.NewFlagSet("run", flag.ContinueOnError)
+		_ = fs.Parse(args)
+	}
+	cfg, err := k8sinventory.LoadConfigFromEnv()
+	if err != nil {
+		return err
+	}
+	rt, err := k8sinventory.NewRuntime(cfg)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return rt.Run(ctx)
 }
 
 func runSnapshot(args []string) error {
@@ -146,7 +182,6 @@ func restConfig(kubeconfig string) (*rest.Config, error) {
 	if kubeconfig != "" {
 		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
-	// Fall back to in-cluster.
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("no kubeconfig and not in-cluster: %w", err)
