@@ -640,6 +640,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
           <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Execution credential</legend>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">AWX execution token</span>
+              <span class="text-xs text-sr-muted">
+                {if @editing_id,
+                  do: "Leave blank to keep the selected encrypted execution token.",
+                  else: "Used to launch, observe, and cancel jobs."}
+              </span>
+            </label>
+            <input
+              type="password"
+              id="controller-execution-awx-api-token"
+              name="controller[execution_awx_api_token]"
+              value=""
+              class={ui_field_class(size: "sm", mono: true)}
+              autocomplete="off"
+              placeholder={
+                if @editing_id, do: "Paste only to rotate execution", else: "Paste execution token"
+              }
+            />
+
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing execution credential</span>
+            </label>
             <select
               id="controller-execution-credential-secret-id"
               name="controller[execution_credential_secret_id]"
@@ -674,6 +697,29 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
           <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Callback credential lifecycle</legend>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">AWX callback token</span>
+              <span class="text-xs text-sr-muted">
+                {if @editing_id,
+                  do: "Leave blank to keep the selected encrypted callback token.",
+                  else: "Creates, fetches, and deletes reviewed ephemeral credentials."}
+              </span>
+            </label>
+            <input
+              type="password"
+              id="controller-callback-awx-api-token"
+              name="controller[callback_awx_api_token]"
+              value=""
+              class={ui_field_class(size: "sm", mono: true)}
+              autocomplete="off"
+              placeholder={
+                if @editing_id, do: "Paste only to rotate callback", else: "Paste callback token"
+              }
+            />
+
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing callback credential</span>
+            </label>
             <select
               id="controller-callback-credential-secret-id"
               name="controller[callback_credential_secret_id]"
@@ -1437,7 +1483,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       with {:ok, credentials} <-
              resolve_controller_credentials(params, controller_credentials(ctrl)),
            {:ok, updated} <-
-             Controller.update_controller(ctrl, controller_attrs(params, credentials), actor: actor()) do
+             Controller.update_controller(ctrl, controller_attrs(params, credentials),
+               actor: actor()
+             ) do
         updated
       else
         {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
@@ -1490,6 +1538,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp resolve_optional_credential(params, param, existing) do
     purpose = optional_credential_purpose(param)
 
+    # A pasted token wins over the select, the same precedence sync already uses:
+    # you only paste when you mean to set or rotate, and the select still holds
+    # whatever was bound before. Without this branch these two purposes could
+    # only be set by pasting a secret UUID, which is the copy-a-UUID step this
+    # change exists to remove -- and the reason execution and callback were
+    # routinely left unset while sync was configured.
+    case nilify_blank(params[optional_credential_token_param(param)]) do
+      token when is_binary(token) ->
+        create_awx_token_secret(params, token, to_string(purpose))
+
+      nil ->
+        resolve_optional_credential_selection(params, param, existing, purpose)
+    end
+  end
+
+  defp resolve_optional_credential_selection(params, param, existing, purpose) do
     if Map.has_key?(params, param) do
       case nilify_blank(params[param]) do
         nil -> {:ok, nil}
@@ -1502,6 +1566,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp optional_credential_purpose("execution_credential_secret_id"), do: :execution
   defp optional_credential_purpose("callback_credential_secret_id"), do: :callback
+
+  defp optional_credential_token_param("execution_credential_secret_id"),
+    do: "execution_awx_api_token"
+
+  defp optional_credential_token_param("callback_credential_secret_id"),
+    do: "callback_awx_api_token"
 
   defp create_awx_token_secret(params, token, purpose) do
     case NetworkCredentialSecret.create_secret(
@@ -1802,9 +1872,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
+    do: PlaybookSchedule.disable(sched, actor: actor())
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
+    do: PlaybookSchedule.enable(sched, actor: actor())
 
   defp validate_and_normalize_schedule(params) do
     with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
@@ -1950,10 +2022,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     %{
       run_detail_days: base.run_detail_days,
       run_summary_days: base.run_summary_days,
-      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      interval_seconds:
+        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds:
+        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
       catalog_base_dir:
         Application.get_env(
           :serviceradar_core,
@@ -2033,7 +2109,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp format_ash_error(other), do: String.slice(inspect(other), 0, 240)
 
-  defp format_ash_error_detail(%{field: field, message: message}) when not is_nil(field) and is_binary(message) do
+  defp format_ash_error_detail(%{field: field, message: message})
+       when not is_nil(field) and is_binary(message) do
     "#{field} #{message}"
   end
 
