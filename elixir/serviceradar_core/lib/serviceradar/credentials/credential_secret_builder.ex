@@ -13,6 +13,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
     "username_password" => :username_password,
     "ssh_private_key" => :ssh_private_key,
     "certificate" => :certificate,
+    # SNMP needs no encoder of its own: a descriptor declares the fields its
+    # version uses (community, or username + auth/priv protocol and password)
+    # and the default `json` payload format stores exactly the map
+    # `SNMPProfiles.CredentialResolver.broker_json_credential/3` already reads.
+    "snmp" => :snmp,
     "opaque" => :opaque
   }
 

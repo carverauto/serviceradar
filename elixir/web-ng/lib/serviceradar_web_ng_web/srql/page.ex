@@ -291,13 +291,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       config = Catalog.entity(entity)
       boolean_fields = Map.get(config, :boolean_fields, [])
 
-      # Use appropriate defaults based on field type
-      {default_op, default_value} =
-        if field in boolean_fields do
-          {"equals", "true"}
-        else
-          {"contains", ""}
-        end
+      # Use appropriate defaults based on field type. `default_filter_op/2` keeps
+      # the seeded operator in step with the operator list the UI offers for the
+      # field -- notably `equals` for addresses, where `contains` would substring
+      # match (10.0.0.1 also matching 110.0.0.1).
+      default_op = Catalog.default_filter_op(config, field)
+      default_value = if field in boolean_fields, do: "true", else: ""
 
       next = %{
         "field" => field,
