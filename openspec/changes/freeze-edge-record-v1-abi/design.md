@@ -810,6 +810,28 @@ then has to be dragged toward. What the audit established:
   is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
   refused it.
 
+SLICE 3 FOUND ONE UNENFORCED PRECONDITION AND TWO CONSTRUCTION CONSTRAINTS.
+
+`admit_declared/2` -- the Elixir ratio gate -- documents that its caller MUST have bound
+`encoded_size` to the actual payload length, because that value is the ratio's DENOMINATOR.
+No caller in that runtime did: the function existed, the precondition was written down, and
+nothing enforced it. A documented precondition with no enforcing composition is not a rule,
+and `Compression.admit_record/1` is what makes it one.
+
+The exactly-100:1 vector cannot be computed directly. The compressed length depends on the
+body, and the body length is defined as ratio times the compressed length, so the two are
+mutually recursive. Setting total = frame * ratio and recompressing converges within a few
+rounds, because the bytes added are zeros and barely move the frame size; failing to converge
+is a hard failure rather than a near miss, since a vector one byte off an inclusive boundary
+proves nothing about it.
+
+The 32 MiB pair is CONSTRUCTED, not committed. To be admitted at exactly the ceiling, the
+frame must genuinely produce 33_554_432 bytes AND stay above 1/100th of that, which puts the
+fixture near 340 KiB -- larger than any existing fixture in the tree. The recipe is
+deterministic in both runtimes, and each asserts the frame landed inside the required size
+window with the ratio slack BEFORE asserting the verdict, so a compressor change fails the
+test rather than silently converting a ceiling vector into a ratio vector.
+
 THREE DEFECTS IN THE SLICE-2 VECTORS ARE WORTH RECORDING, because each was a test that
 looked like proof and was not.
 
