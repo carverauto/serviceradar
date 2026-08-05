@@ -1,0 +1,14 @@
+buildbuddy.yaml
+  h_080fb89ca1f0c4 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "c8290d6d3483340d716b5c1a30aa385b77c898d3",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
