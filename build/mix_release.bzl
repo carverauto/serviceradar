@@ -635,7 +635,7 @@ mkdir -p /tmp/elixir
 rm -rf /tmp/elixir/datasvc
 ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
 rm -rf /tmp/connection
-ln -s "$WORKDIR/elixir/connection" /tmp/connection
+ln -s "$WORKDIR/third_party/hex_vendored/connection" /tmp/connection
 rm -rf /tmp/elixir/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/elixir/serviceradar_core
 rm -rf /tmp/elixir/serviceradar_srql

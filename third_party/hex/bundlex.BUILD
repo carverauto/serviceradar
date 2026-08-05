@@ -24,6 +24,6 @@ mix_app(
         "@rules_elixir//elixir",
         # elixir_uuid is overridden repo-wide by the first-party copy; see @path_deps in
         # scripts/gen_hex_bazel.exs.
-        "@serviceradar//elixir/elixir_uuid:erlang_app",
+        "@serviceradar//third_party/hex_vendored/elixir_uuid:erlang_app",
     ],
 )

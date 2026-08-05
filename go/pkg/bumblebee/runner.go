@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/go/pkg/bumblebee/upstream"
+	"github.com/carverauto/serviceradar/third_party/bumblebee/upstream"
 )
 
 const (

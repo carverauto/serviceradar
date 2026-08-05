@@ -135,7 +135,7 @@ WEB_NG_NATIVE_LIBS = {
 # serviceradar_core is deliberately absent: each mix_app below prepends the build of it
 # that matches its own env. Listing it here too would duplicate the label.
 WEB_NG_DEPS = [
-        "//elixir/connection:erlang_app",
+        "//third_party/hex_vendored/connection:erlang_app",
         "//elixir/datasvc:erlang_app",
         "//elixir/serviceradar_srql:erlang_app",
         "@hex_adbc//:erlang_app",
@@ -229,12 +229,12 @@ elixir_release(
         ":release_recipe",
         # Mix reads each PATH dependency's mix.exs to learn its app name and version,
         # transitively. Only the manifest is needed -- compiled code arrives via `app`.
-        "//elixir/connection:mix.exs",
+        "//third_party/hex_vendored/connection:mix.exs",
         "//elixir/datasvc:mix.exs",
-        "//elixir/elixir_uuid:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
-        "//elixir/vendor/opentelemetry_oban:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
     app = ":erlang_app_prod",
     out = "serviceradar-web-ng-release.tar.gz",

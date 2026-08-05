@@ -60,29 +60,8 @@ actions:
     #   (at the time, //k8s/buildbuddy/values-workflows.yaml limits.memory was 40Gi
     #    = 42,949,672,960, i.e. exactly 10,000,000,000 more)
     #
-    # That rule explains every scheduling failure in this file's history. Build fleet:
-    # 32Gi - 10e9 = 22.7 GiB assignable, so 24 GiB was rejected there while 14 GiB fit. Workflow
-    # fleet at 40Gi: 30.69 GiB assignable, so 32 GiB was rejected by ~1.3 GiB.
-    #
-    # At the current 48Gi the fleet advertises 41,539,607,552 (38.7 GiB), leaving ~7 GB above
-    # this request.
-    #
-    # TO GO HIGHER, RAISE `limits.memory` THERE -- assignable tracks limits, so trimming this
-    # number is the wrong lever once it approaches the cap. Deploy that change BEFORE pushing a
-    # matching bump here; the action's size is read from the repo at push time, so a request the
-    # fleet cannot yet satisfy fails the run outright. Confirm the new figure afterwards:
-    #   kubectl logs -n buildbuddy <workflow-pod> | grep "Initialized task scheduler"
-    #
-    # THE FLOOR IS MEASURED, not chosen. Each size below survived without being OOM-killed
-    # while reporting usage well over its cgroup limit, which means the excess is reclaimable
-    # page cache -- disk-cache writes and --jobs=100 input uploads -- rather than resident
-    # demand. That is why this wants headroom rather than a tight fit:
-    #
-    #   14 GiB -> "31.24GB used of 15.03GB total"   far too tight
-    #   28 GiB -> "35.31GB used of 30.06GB total"   still short
-    #   32 GiB -> current
     resource_requests:
-      memory: "36GB"
+      memory: "48GB"
       disk: "40GB"
 
     steps:

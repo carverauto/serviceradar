@@ -6,6 +6,7 @@ on:
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
+      - 'third_party/netprobe_corpora/**'
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
+      - 'third_party/netprobe_corpora/**'
       - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'

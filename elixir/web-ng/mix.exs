@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNG.MixProject do
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../serviceradar_core"},
       {:gnat, "~> 1.15"},
-      {:connection, path: "../connection", override: true},
+      {:connection, path: "../../third_party/hex_vendored/connection", override: true},
 
       # SRQL shared library for query parsing and execution
       {:serviceradar_srql, path: "../serviceradar_srql", override: true},
