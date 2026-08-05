@@ -2602,10 +2602,15 @@ oci_ext.pull(
 #   tok=$(curl -s "https://ghcr.io/token?scope=repository:cloudnative-pg/postgresql:pull&service=ghcr.io" | jq -r .token)
 #   curl -sI -H "Authorization: Bearer $tok" \
 #     -H "Accept: application/vnd.oci.image.index.v1+json" \
-#     https://ghcr.io/v2/cloudnative-pg/postgresql/manifests/18-bookworm | grep -i docker-content-digest
+#     https://ghcr.io/v2/cloudnative-pg/postgresql/manifests/18.4 | grep -i docker-content-digest
+#
+# Use the 18.x tags, NOT 18-bookworm. Upstream abandoned 18-bookworm at 18~rc1
+# (2025-09-08); it has never moved. Building from it produced a release-candidate
+# image tagged 18.3.0-sr5, which overwrote the real 18.3 image in Harbor and left
+# both demo and srql-fixtures pinned to garbage-collected digests.
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
-    digest = "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
+    digest = "sha256:7af186660aead1b948d827ef1c52c20a8d2cb7b2a4089424b8f612e0a61dc2f9",
     image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
@@ -3106,9 +3111,9 @@ tinygo_host_repository(
 
 http_file(
     name = "postgresql_server_dev_18_deb",
-    sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
+    sha256 = "bb45f27f6072e8109b9a67e390ff0139ab493f681ec05d1cfed139b101187c00",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.3-1.pgdg12%2B1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.4-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
