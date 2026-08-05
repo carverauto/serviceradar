@@ -64,6 +64,16 @@ defmodule ServiceRadar.Edge.CompressionTest do
     end
   end
 
+  test "the ENCODED input is bounded by the exported api, not only by the caller" do
+    # A separate KIND of bound from the three work ceilings: this one bounds RECEIVED BYTES.
+    # Record admission refuses oversize payloads earlier, so this is about the exported
+    # contract -- a direct caller must not be able to hand the frame walker an arbitrarily
+    # large buffer just because it never went through record validation.
+    over = <<0x28, 0xB5, 0x2F, 0xFD>> <> :binary.copy(<<0>>, 524_288)
+    assert Compression.validate_payload(over, 5) == {:error, :invalid}
+    assert Compression.decompress(over, 5) == {:error, :invalid}
+  end
+
   describe "the frame walk" do
     test "a real frame's extent is exactly its byte size" do
       f = real_frame(:binary.copy("A", 5000))

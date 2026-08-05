@@ -732,8 +732,8 @@ here.
               freezes the enforcement STAGE, the denominator binding, the declared-versus-
               actual rule, the single-frame/trailing-data rule, the RECURSIVE-COMPRESSION rule and
               overflow-safe ratio arithmetic. Until it landed both values lived only in
-              runtime source, so every consumer asserting them -- 1.2-c's decoder among
-              them -- pinned a number with nothing behind it. It freezes THREE independent
+              runtime source, so every consumer asserting any of the THREE -- 1.2-c's
+              decoder among them -- pinned a number with nothing behind it. It freezes THREE independent
               limits, not two: decoded output <= 32 MiB, expansion ratio <= 100:1, and
               advertised Zstd WINDOW <= 32 MiB. The window ceiling was enforced by Go all
               along -- `WithDecoderMaxMemory` is the maximum WINDOW for streaming decoders --
@@ -779,9 +779,14 @@ here.
               the trusted domain path uses". Nothing calls it, and it applies the FRAME stage
               only -- no encoded_size binding, no ratio -- which the doc now says.
               Everything else reconciled clean: the ratio runs on DECLARED sizes before
-              decompression, `encoded_size` is bound at validate.go:691 BEFORE the ratio at
-              716, declared-versus-actual holds in both directions, the extent check refuses
-              trailing data, and the product is widened before multiplying.
+              decompression; inside `validatePayloadBinding`, `encoded_size` is bound to the
+              payload length BEFORE the ratio is evaluated, which is the ordering the freeze
+              requires; declared-versus-actual holds in both directions; the extent check
+              refuses trailing data; and the product is widened before multiplying.
+              The EXPORTED frame APIs now bound their ENCODED INPUT too. They are described
+              as bounded, and a direct caller could otherwise hand the frame walker an
+              arbitrarily large buffer -- the composed path refuses it earlier, but the
+              exported contract has to be true on its own.
               SLICE 2 IS COMPLETE.
               THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
               the other way round. An Elixir zstd binding is admissible only if it supports,
@@ -804,7 +809,14 @@ here.
                   stops the ratio's denominator being inflated;
                 - EXACTLY 100:1 accepted and the first value over it refused;
                 - 32 MiB accepted and N+1 refused, with the ratio otherwise valid so the
-                  ceiling is what decides.
+                  ceiling is what decides;
+                - a RECURSIVE-COMPRESSION negative, which is an EXISTING SHALL rather than a
+                  new category: an outer ZSTD payload whose extracted bytes are ANOTHER valid
+                  ZSTD frame wrapping a valid contract message. Correct behaviour decompresses
+                  ONCE and then refuses those bytes AS THE CONTRACT PAYLOAD; a runtime that
+                  interpreted the extracted bytes as another compressed envelope would
+                  wrongly ACCEPT. Nothing currently exercises the one-layer rule, so it is
+                  frozen and unproven until this vector exists.
               These are WHOLE-RECORD vectors, not payload ones, because the binding and the
               ratio live in record validation rather than in the frame validator
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and

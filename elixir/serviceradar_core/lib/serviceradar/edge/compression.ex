@@ -40,6 +40,10 @@ defmodule ServiceRadar.Edge.Compression do
   refused unexpanded. The streaming pass then DISCARDS output as it counts, so validation
   never accumulates the body; the transient peak is bounded by the declared ceiling that has
   already been admitted.
+
+  `@max_window` bounds the frame's HISTORY/WINDOW REQUIREMENT, not total decoder memory --
+  a decoder holds tables and buffers beyond the window, and nothing here bounds the whole
+  of it.
   """
   import Bitwise
 
@@ -47,6 +51,10 @@ defmodule ServiceRadar.Edge.Compression do
   @max_uncompressed 33_554_432
   @max_ratio 100
   @max_window 33_554_432
+
+  # The PHYSICAL ceiling on the encoded payload, mirroring Go's MaxPayloadBytes. Distinct in
+  # kind from the three work ceilings above: this one bounds received bytes.
+  @max_payload 524_288
 
   # 1 << 25 = 33_554_432. Defence in depth only -- see the moduledoc.
   @window_log_max 25
@@ -88,7 +96,8 @@ defmodule ServiceRadar.Edge.Compression do
   """
   @spec validate_payload(term(), term()) :: :ok | {:error, reason()}
   def validate_payload(payload, declared) when is_binary(payload) and is_integer(declared) do
-    with :ok <- declared_in_range(declared),
+    with :ok <- encoded_in_range(payload),
+         :ok <- declared_in_range(declared),
          {:ok, frame_len} <- frame_length(payload),
          :ok <- exact_extent(frame_len, byte_size(payload)),
          :ok <- header_admissible(payload) do
@@ -117,6 +126,14 @@ defmodule ServiceRadar.Edge.Compression do
   def limits, do: %{uncompressed: @max_uncompressed, ratio: @max_ratio, window: @max_window}
 
   # --- declared size ---------------------------------------------------------------------
+
+  # The ENCODED INPUT is bounded before the frame is walked. A caller could otherwise hand
+  # this an arbitrarily large buffer; the peer is described as bounded, so it must be.
+  # Reported as `:invalid` rather than a new reason, because the frame stage's vocabulary is
+  # shared with Go through the corpus manifest and a fourth reason would change a frozen
+  # taxonomy for a case record admission already refuses earlier.
+  defp encoded_in_range(payload) when byte_size(payload) <= @max_payload, do: :ok
+  defp encoded_in_range(_), do: {:error, :invalid}
 
   defp declared_in_range(declared) when declared > 0 and declared <= @max_uncompressed, do: :ok
   defp declared_in_range(_), do: {:error, :output_size}

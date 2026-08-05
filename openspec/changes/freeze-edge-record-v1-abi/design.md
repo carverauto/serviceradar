@@ -798,7 +798,10 @@ then has to be dragged toward. What the audit established:
 - Validation streams through a 64 KiB scratch buffer and never reserves the full output.
   That buffer bounds the CALLER'S output buffering only -- the decoder still retains O(window)
   of history, which is what the window ceiling exists to bound.
-- Every decoder is constructed with `WithDecoderMaxMemory(MaxUncompressedBytes)`. klauspost
+- Every decoder WAS constructed with `WithDecoderMaxMemory(MaxUncompressedBytes)` -- this is
+  the HISTORICAL configuration, corrected during the 1.5-f Go reconciliation, which split the
+  window ceiling out as `MaxZstdWindowBytes` so the two limits stopped moving together.
+  klauspost
   documents that option as "maximum decoded size for in-memory non-streaming operations OR
   MAXIMUM WINDOW SIZE FOR STREAMING OPERATIONS", and this code streams -- so Go has been
   enforcing a 32 MiB WINDOW ceiling all along, as a third limit nothing had frozen. Verified

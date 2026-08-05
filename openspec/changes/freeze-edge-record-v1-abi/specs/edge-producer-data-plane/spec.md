@@ -1859,8 +1859,8 @@ compressed payload under that physical bound may legitimately EXPAND past it -- 
 entire point of the ratio -- so a physical bound applied to the extracted body would
 permanently reject valid records.
 
-THE STAGE IS PART OF THE FREEZE. Both bounds SHALL be evaluated on the DECLARED sizes BEFORE
-the payload is decompressed, so a decompression bomb is refused without ever being expanded.
+THE STAGE IS PART OF THE FREEZE. The DECLARED-OUTPUT and RATIO bounds SHALL be evaluated on
+the DECLARED sizes BEFORE the payload is decompressed, so a decompression bomb is refused without ever being expanded.
 A ratio checked after expansion has already paid the cost it exists to avoid.
 
 THE RATIO IS MEANINGLESS UNLESS `encoded_size` IS BOUND TO THE RECEIVED BYTES FIRST. It is
@@ -1885,9 +1885,10 @@ correct, and one that did neither would wrap.
 
 VALIDATION SHALL NOT RESERVE THE FULL OUTPUT. The frame is validated by streaming through a
 fixed scratch buffer, so refusing a 32 MiB body does not first allocate 32 MiB. That buffer
-bounds the CALLER'S OUTPUT BUFFERING ONLY -- it is not a bound on decoder memory, which
-retains up to O(window) of history regardless. Bounding total decoder memory is what
-`MaxZstdWindowBytes` is for.
+bounds the CALLER'S OUTPUT BUFFERING ONLY. It is not a bound on decoder memory, which retains
+up to O(window) of history regardless -- and `MaxZstdWindowBytes` bounds that HISTORY/WINDOW
+REQUIREMENT, not total decoder memory: a decoder holds tables and buffers beyond the window,
+and neither runtime guarantees a ceiling on the whole of it.
 
 EXACTLY ONE COMPRESSION LAYER IS ADMITTED. Once decoded, the extracted bytes are a CONTRACT
 MESSAGE and SHALL NOT be interpreted as another compressed envelope, so there is no
