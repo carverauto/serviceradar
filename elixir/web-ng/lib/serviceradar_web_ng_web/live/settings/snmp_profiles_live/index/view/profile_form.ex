@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
 
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   attr :form, :any, required: true
@@ -20,17 +21,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   attr :selected_template_ids, :list, default: []
   attr :available_templates, :list, default: []
   attr :agents, :list, default: []
+  attr :snmp_credentials, :list, default: []
 
   def profile_form(assigns) do
     is_default = assigns.selected_profile && assigns.selected_profile.is_default
     config = Catalog.entity("interfaces")
     version = get_form_value(assigns.form, :version, "v2c")
+    credential_secret_id = get_form_value(assigns.form, :credential_secret_id, "")
 
     assigns =
       assigns
       |> assign(:is_default, is_default)
       |> assign(:config, config)
       |> assign(:version, version)
+      |> assign(:credential_secret_id, to_string(credential_secret_id || ""))
+      |> assign(:credential_options, Data.snmp_credential_options(assigns.snmp_credentials))
 
     ~H"""
     <.ui_panel>
@@ -122,8 +127,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             />
           </div>
         </div>
-        
-    <!-- SNMP Credentials Section -->
+
+        <!-- SNMP Credentials Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             SNMP Credentials
@@ -145,142 +150,199 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 ]}
               />
             </div>
-          </div>
 
-          <%= if @version in ["v1", "v2c"] do %>
             <div>
               <label class="flex items-center justify-between gap-2">
-                <span class="text-sm font-medium text-sr-ink">Community String</span>
+                <span class="text-sm font-medium text-sr-ink">Credential</span>
               </label>
               <.input
-                type="password"
-                name="form[community]"
-                value=""
+                type="select"
+                field={@form[:credential_secret_id]}
                 class={ui_field_class(class: "w-full")}
-                placeholder={
-                  if @show_form == :edit_profile,
-                    do: "Leave blank to keep existing",
-                    else: "e.g., public"
-                }
-                autocomplete="off"
+                options={@credential_options}
               />
               <label class="flex items-center justify-between gap-2">
                 <span class="text-xs text-sr-muted">
-                  Credentials are encrypted at rest.
+                  <%= if @credential_secret_id == "" do %>
+                    Stored on this profile only. Choose a reusable credential to share one
+                    secret across profiles.
+                  <% else %>
+                    Reusable credential from the shared inventory. The fields below are
+                    ignored while one is selected.
+                  <% end %>
                 </span>
               </label>
             </div>
-          <% else %>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          </div>
+
+          <%= if @credential_secret_id == "" do %>
+            <%= if @version in ["v1", "v2c"] do %>
               <div>
                 <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Username</span>
+                  <span class="text-sm font-medium text-sr-ink">Community String</span>
+                </label>
+                <.input
+                  type="password"
+                  name="form[community]"
+                  value=""
+                  class={ui_field_class(class: "w-full")}
+                  placeholder={
+                    if @show_form == :edit_profile,
+                      do: "Leave blank to keep existing",
+                      else: "e.g., public"
+                  }
+                  autocomplete="off"
+                />
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs text-sr-muted">
+                    Credentials are encrypted at rest.
+                  </span>
+                </label>
+              </div>
+            <% else %>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Username</span>
+                  </label>
+                  <.input
+                    type="text"
+                    field={@form[:username]}
+                    class={ui_field_class(class: "w-full")}
+                    placeholder="e.g., snmpuser"
+                  />
+                </div>
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Security Level</span>
+                  </label>
+                  <.input
+                    type="select"
+                    field={@form[:security_level]}
+                    class={ui_field_class(class: "w-full")}
+                    options={[
+                      {"No Auth, No Privacy", "no_auth_no_priv"},
+                      {"Auth, No Privacy", "auth_no_priv"},
+                      {"Auth + Privacy", "auth_priv"}
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Auth Protocol</span>
+                  </label>
+                  <.input
+                    type="select"
+                    field={@form[:auth_protocol]}
+                    class={ui_field_class(class: "w-full")}
+                    options={[
+                      {"MD5", "md5"},
+                      {"SHA", "sha"},
+                      {"SHA-224", "sha224"},
+                      {"SHA-256", "sha256"},
+                      {"SHA-384", "sha384"},
+                      {"SHA-512", "sha512"}
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Auth Password</span>
+                  </label>
+                  <.input
+                    type="password"
+                    name="form[auth_password]"
+                    value=""
+                    class={ui_field_class(class: "w-full")}
+                    placeholder={
+                      if @show_form == :edit_profile,
+                        do: "Leave blank to keep existing",
+                        else: "Auth password"
+                    }
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Privacy Protocol</span>
+                  </label>
+                  <.input
+                    type="select"
+                    field={@form[:priv_protocol]}
+                    class={ui_field_class(class: "w-full")}
+                    options={[
+                      {"DES", "des"},
+                      {"AES", "aes"},
+                      {"AES-192", "aes192"},
+                      {"AES-256", "aes256"}
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-medium text-sr-ink">Privacy Password</span>
+                  </label>
+                  <.input
+                    type="password"
+                    name="form[priv_password]"
+                    value=""
+                    class={ui_field_class(class: "w-full")}
+                    placeholder={
+                      if @show_form == :edit_profile,
+                        do: "Leave blank to keep existing",
+                        else: "Privacy password"
+                    }
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <p class="text-xs text-sr-muted">
+                Leave password fields blank to keep existing values. Credentials are encrypted at rest.
+              </p>
+            <% end %>
+
+            <div class="rounded-md border border-sr-line/60 p-3 space-y-3">
+              <label class="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  name="form[save_credential_as_reusable]"
+                  value="true"
+                  class="mt-1"
+                />
+                <span class="text-sm text-sr-ink">
+                  Also save this credential for reuse
+                  <span class="block text-xs text-sr-muted">
+                    Stores it in the shared inventory and binds this profile to it, so other
+                    profiles and targets can use the same credential instead of a separate copy.
+                  </span>
+                </span>
+              </label>
+
+              <div>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Credential name</span>
                 </label>
                 <.input
                   type="text"
-                  field={@form[:username]}
-                  class={ui_field_class(class: "w-full")}
-                  placeholder="e.g., snmpuser"
-                />
-              </div>
-              <div>
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Security Level</span>
-                </label>
-                <.input
-                  type="select"
-                  field={@form[:security_level]}
-                  class={ui_field_class(class: "w-full")}
-                  options={[
-                    {"No Auth, No Privacy", "no_auth_no_priv"},
-                    {"Auth, No Privacy", "auth_no_priv"},
-                    {"Auth + Privacy", "auth_priv"}
-                  ]}
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Auth Protocol</span>
-                </label>
-                <.input
-                  type="select"
-                  field={@form[:auth_protocol]}
-                  class={ui_field_class(class: "w-full")}
-                  options={[
-                    {"MD5", "md5"},
-                    {"SHA", "sha"},
-                    {"SHA-224", "sha224"},
-                    {"SHA-256", "sha256"},
-                    {"SHA-384", "sha384"},
-                    {"SHA-512", "sha512"}
-                  ]}
-                />
-              </div>
-              <div>
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Auth Password</span>
-                </label>
-                <.input
-                  type="password"
-                  name="form[auth_password]"
+                  name="form[credential_name]"
                   value=""
                   class={ui_field_class(class: "w-full")}
-                  placeholder={
-                    if @show_form == :edit_profile,
-                      do: "Leave blank to keep existing",
-                      else: "Auth password"
-                  }
+                  placeholder="e.g., Core switches read-only"
                   autocomplete="off"
                 />
               </div>
             </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Privacy Protocol</span>
-                </label>
-                <.input
-                  type="select"
-                  field={@form[:priv_protocol]}
-                  class={ui_field_class(class: "w-full")}
-                  options={[
-                    {"DES", "des"},
-                    {"AES", "aes"},
-                    {"AES-192", "aes192"},
-                    {"AES-256", "aes256"}
-                  ]}
-                />
-              </div>
-              <div>
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-sm font-medium text-sr-ink">Privacy Password</span>
-                </label>
-                <.input
-                  type="password"
-                  name="form[priv_password]"
-                  value=""
-                  class={ui_field_class(class: "w-full")}
-                  placeholder={
-                    if @show_form == :edit_profile,
-                      do: "Leave blank to keep existing",
-                      else: "Privacy password"
-                  }
-                  autocomplete="off"
-                />
-              </div>
-            </div>
-
-            <p class="text-xs text-sr-muted">
-              Leave password fields blank to keep existing values. Credentials are encrypted at rest.
-            </p>
           <% end %>
         </div>
-        
-    <!-- Agent Targeting Section -->
+
+        <!-- Agent Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Agent Targeting
@@ -320,8 +382,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </label>
           </div>
         </div>
-        
-    <!-- Interface Targeting Section -->
+
+        <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Interface Targeting
@@ -340,8 +402,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </div>
               </div>
             </div>
-            
-    <!-- Query Input with Builder Toggle -->
+
+            <!-- Query Input with Builder Toggle -->
             <div>
               <label class="flex items-center justify-between gap-2">
                 <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
@@ -371,8 +433,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </span>
               </label>
             </div>
-            
-    <!-- Visual Query Builder -->
+
+            <!-- Visual Query Builder -->
             <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
@@ -473,8 +535,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 </div>
               </form>
             </div>
-            
-    <!-- Target Count Preview -->
+
+            <!-- Target Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
               <.icon name="hero-signal" class="size-4 text-sr-muted" />
               <span class="text-sm">
@@ -495,8 +557,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 {if @target_entity == "interfaces", do: "Interfaces", else: "Devices"}
               </.ui_badge>
             </div>
-            
-    <!-- Priority -->
+
+            <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="flex items-center justify-between gap-2">
@@ -518,8 +580,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             </div>
           </div>
         </div>
-        
-    <!-- OID Templates Section -->
+
+        <!-- OID Templates Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             OID Templates
@@ -527,8 +589,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           <p class="text-sm text-sr-muted">
             Select OID templates to define what metrics are polled from devices matched by this profile.
           </p>
-          
-    <!-- Selected Templates -->
+
+          <!-- Selected Templates -->
           <div :if={@selected_template_ids != []} class="flex flex-wrap gap-2">
             <%= for template_id <- @selected_template_ids do %>
               <% template = Enum.find(@available_templates, &(&1.id == template_id)) %>
@@ -549,8 +611,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
               </div>
             <% end %>
           </div>
-          
-    <!-- Template Dropdown -->
+
+          <!-- Template Dropdown -->
           <.ui_dropdown
             align="start"
             class="w-full max-w-md"
@@ -594,8 +656,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             interface traffic, CPU/memory, environment sensors, or other vendor-specific metrics.
           </p>
         </div>
-        
-    <!-- Actions -->
+
+        <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/snmp"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
@@ -605,8 +667,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
           </.ui_button>
         </div>
       </.form>
-      
-    <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
+
+      <!-- Legacy SNMP Targets Section (deprecated, only shown when existing targets present) -->
       <div
         :if={@show_form == :edit_profile && @targets != []}
         class="mt-6 pt-6 border-t border-sr-line"

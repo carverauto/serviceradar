@@ -1,0 +1,15 @@
+build --registry=https://bcr.bazel.build/
+build --registry=https://raw.githubusercontent.com/rabbitmq/bazel-central-registry/erlang-packages/
+
+# build --incompatible_strict_action_env
+
+build --bes_results_url=https://app.buildbuddy.io/invocation/
+build --bes_backend=grpcs://remote.buildbuddy.io
+
+build:ie --host_platform=//:erlang_internal_platform
+
+build:ie-26 --config=ie
+build:ie-26 --platforms=//:erlang_linux_26_platform
+
+build:ie-26_2 --config=ie
+build:ie-26_2 --platforms=//:erlang_linux_26_2_platform

@@ -951,6 +951,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     value_fields = Map.get(config, :value_fields, [])
     boolean_fields = Map.get(config, :boolean_fields, [])
     numeric_fields = Map.get(config, :numeric_fields, [])
+    address_fields = Catalog.address_fields(config)
 
     assigns =
       assigns
@@ -961,6 +962,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:value_fields, value_fields)
       |> assign(:boolean_fields, boolean_fields)
       |> assign(:numeric_fields, numeric_fields)
+      |> assign(:address_fields, address_fields)
 
     ~H"""
     <.ui_panel>
@@ -1109,6 +1111,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                       <% is_bool_field = (filter["field"] || "") in @boolean_fields %>
                       <% is_numeric_field = (filter["field"] || "") in @numeric_fields %>
+                      <% is_address_field = (filter["field"] || "") in @address_fields %>
                       <div class="flex items-center gap-3">
                         <.query_builder_pill label="Filter">
                           <%= if @config.filter_fields == [] do %>
@@ -1180,27 +1183,60 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                                 </option>
                               </.ui_inline_select>
                             <% else %>
-                              <.ui_inline_select
-                                name={"builder[filters][#{idx}][op]"}
-                                disabled={not @supported}
-                                class="text-xs text-sr-muted"
-                              >
-                                <option
-                                  value="contains"
-                                  selected={(filter["op"] || "contains") == "contains"}
+                              <%= if is_address_field do %>
+                                <%!-- Addresses match exactly by default; `contains` on an
+                                      address is a substring match (10.0.0.1 also matching
+                                      110.0.0.1), so it stays available but is not first. --%>
+                                <.ui_inline_select
+                                  name={"builder[filters][#{idx}][op]"}
+                                  disabled={not @supported}
+                                  class="text-xs text-sr-muted"
                                 >
-                                  contains
-                                </option>
-                                <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                                  does not contain
-                                </option>
-                                <option value="equals" selected={filter["op"] == "equals"}>
-                                  equals
-                                </option>
-                                <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                                  does not equal
-                                </option>
-                              </.ui_inline_select>
+                                  <option
+                                    value="equals"
+                                    selected={(filter["op"] || "equals") == "equals"}
+                                  >
+                                    equals
+                                  </option>
+                                  <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                    does not equal
+                                  </option>
+                                  <option value="contains" selected={filter["op"] == "contains"}>
+                                    contains
+                                  </option>
+                                  <option
+                                    value="not_contains"
+                                    selected={filter["op"] == "not_contains"}
+                                  >
+                                    does not contain
+                                  </option>
+                                </.ui_inline_select>
+                              <% else %>
+                                <.ui_inline_select
+                                  name={"builder[filters][#{idx}][op]"}
+                                  disabled={not @supported}
+                                  class="text-xs text-sr-muted"
+                                >
+                                  <option
+                                    value="contains"
+                                    selected={(filter["op"] || "contains") == "contains"}
+                                  >
+                                    contains
+                                  </option>
+                                  <option
+                                    value="not_contains"
+                                    selected={filter["op"] == "not_contains"}
+                                  >
+                                    does not contain
+                                  </option>
+                                  <option value="equals" selected={filter["op"] == "equals"}>
+                                    equals
+                                  </option>
+                                  <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                    does not equal
+                                  </option>
+                                </.ui_inline_select>
+                              <% end %>
                             <% end %>
                           <% end %>
 

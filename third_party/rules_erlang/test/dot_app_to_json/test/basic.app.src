@@ -1,0 +1,14 @@
+{application, basic,
+ [{description, "Basic App"},
+  {id, "basic"},
+  {vsn, {cmd, "git describe --tags --always"}},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {env, []},
+  {licenses, ["Apache-2.0"]},
+  {maintainers, ["RabbitMQ <info@rabbitmq.com>"]},
+  {links, [{"Homepage", "https://rabbitmq.com/"},
+           {"Github", "https://github.com/rabbitmq/rules_erlang"}
+          ]}
+ ]}.

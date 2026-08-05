@@ -232,11 +232,19 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? false
       public? true
 
+      # The bounded platform vocabulary of credential primitives. `:snmp` is one
+      # kind rather than three because v1/v2c community strings and v3 auth/priv
+      # material are the same credential to an operator -- which one applies is
+      # decided by the profile's SNMP version, not by picking a different
+      # secret. The payload is JSON so a single secret can carry whichever
+      # fields its version needs; `SNMPProfiles.CredentialResolver` already
+      # reads exactly that shape.
       constraints one_of: [
                     :api_token,
                     :username_password,
                     :ssh_private_key,
                     :certificate,
+                    :snmp,
                     :opaque
                   ]
     end

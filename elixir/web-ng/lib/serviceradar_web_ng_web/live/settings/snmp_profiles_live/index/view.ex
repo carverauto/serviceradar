@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
               selected_template_ids={@selected_template_ids}
               available_templates={@available_templates}
               agents={@agents}
+              snmp_credentials={@snmp_credentials}
             />
           <% else %>
             <.profiles_panel
@@ -48,8 +49,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
             />
           <% end %>
         </div>
-        
-    <!-- Target Modal -->
+
+        <!-- Target Modal -->
         <.target_modal
           :if={@show_target_modal}
           form={@target_form}
@@ -59,16 +60,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
           test_connection_result={@test_connection_result}
           test_connection_loading={@test_connection_loading}
         />
-        
-    <!-- Template Browser Modal -->
+
+        <!-- Template Browser Modal -->
         <.template_browser_modal
           :if={@show_template_browser}
           search={@template_search}
           selected_vendor={@selected_vendor}
           custom_templates={@custom_templates}
         />
-        
-    <!-- Custom Template Modal -->
+
+        <!-- Custom Template Modal -->
         <.custom_template_modal
           :if={@show_custom_template_modal}
           form={@custom_template_form}

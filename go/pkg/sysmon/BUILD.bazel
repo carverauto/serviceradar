@@ -20,11 +20,11 @@ go_library(
         "//go/pkg/agent/core",
         "//go/pkg/cpufreq",
         "//go/pkg/logger",
-        "@com_github_shirou_gopsutil_v3//cpu:go_default_library",
-        "@com_github_shirou_gopsutil_v3//disk:go_default_library",
-        "@com_github_shirou_gopsutil_v3//mem:go_default_library",
-        "@com_github_shirou_gopsutil_v3//net:go_default_library",
-        "@com_github_shirou_gopsutil_v3//process:go_default_library",
+        "@com_github_shirou_gopsutil_v3//cpu",
+        "@com_github_shirou_gopsutil_v3//disk",
+        "@com_github_shirou_gopsutil_v3//mem",
+        "@com_github_shirou_gopsutil_v3//net",
+        "@com_github_shirou_gopsutil_v3//process",
     ],
 )
 
@@ -46,8 +46,4 @@ go_test(
     # Scoping the exception to the one target that needs it keeps this test honest without
     # paying for it everywhere.
     env = {"PATH": "/usr/sbin:/usr/local/bin:/usr/bin:/bin"},
-    deps = [
-        "//go/pkg/cpufreq",
-        "//go/pkg/logger",
-    ],
 )

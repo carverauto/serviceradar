@@ -1,0 +1,66 @@
+load("@rules_elixir//:elixir_app.bzl", "elixir_app")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_erlang//:escript.bzl", "escript_archive")
+
+elixir_app(
+    app_name = "basic",
+)
+
+escript_archive(
+    name = "basic",
+    app = ":erlang_app",
+    headers = [
+        "shebang",
+        '{emu_args, "-escript main Elixir.Basic -hidden"}',
+    ],
+)
+
+ex_unit_test(
+    name = "assertion_test",
+    srcs = [
+        "test/assertion_test.exs",
+    ],
+    env = {
+        "ERL_COMPILER_OPTIONS": "deterministic",
+        "ELIXIR_ERL_OPTIONS": "+fnu",
+    },
+)
+
+ex_unit_test(
+    name = "helped_test",
+    srcs = [
+        "test/test_helper.exs",
+        "test/helped_test.exs",
+    ],
+    env = {
+        "ERL_COMPILER_OPTIONS": "deterministic",
+        "ELIXIR_ERL_OPTIONS": "+fnu",
+    },
+)
+
+platform(
+    name = "erlang_internal_platform",
+    constraint_values = [
+        "@erlang_config//:erlang_internal",
+        "@elixir_config//:elixir_internal",
+    ],
+    parents = ["@local_config_platform//:host"],
+)
+
+platform(
+    name = "erlang_linux_26_platform",
+    constraint_values = [
+        "@erlang_config//:erlang_26",
+        "@elixir_config//:elixir_1_16",
+    ],
+    parents = ["@local_config_platform//:host"],
+)
+
+platform(
+    name = "erlang_linux_26_2_platform",
+    constraint_values = [
+        "@erlang_config//:erlang_26_2",
+        "@elixir_config//:elixir_1_16",
+    ],
+    parents = ["@local_config_platform//:host"],
+)

@@ -1,0 +1,70 @@
+module(
+    name = "rules_erlang_test",
+    version = "0.1.0",
+)
+
+bazel_dep(
+    name = "platforms",
+    version = "0.0.7",
+)
+bazel_dep(
+    name = "rules_go",
+    version = "0.41.0",
+    repo_name = "io_bazel_rules_go",
+)
+bazel_dep(
+    name = "gazelle",
+    version = "0.33.0",
+    repo_name = "bazel_gazelle",
+)
+bazel_dep(
+    name = "rules_erlang",
+    version = "3.0.0",
+)
+local_path_override(
+    module_name = "rules_erlang",
+    path = "..",
+)
+
+go_deps = use_extension("@bazel_gazelle//:extensions.bzl", "go_deps")
+go_deps.from_file(go_mod = "@rules_erlang_test//:go.mod")
+use_repo(
+    go_deps,
+    "com_github_bazelbuild_buildtools",
+    "com_github_emirpasic_gods",
+    "com_github_ghodss_yaml",
+    "com_github_onsi_ginkgo_v2",
+    "com_github_onsi_gomega",
+)
+
+erlang_config_extension = use_extension(
+    "@rules_erlang//bzlmod:extensions.bzl",
+    "erlang_config",
+    dev_dependency = True,
+)
+erlang_config_extension.internal_erlang_from_github_release()
+use_repo(
+    erlang_config_extension,
+    "erlang_config",
+)
+
+register_toolchains(
+    "@erlang_config//internal:toolchain_major",
+    "@erlang_config//internal:toolchain_major_minor",
+)
+
+erlang_package = use_extension(
+    "@rules_erlang//bzlmod:extensions.bzl",
+    "erlang_package",
+    dev_dependency = True,
+)
+erlang_package.hex_package(
+    name = "thoas",
+    build_file = "@//:BUILD.thoas",
+    sha256 = "fc763185b932ecb32a554fb735ee03c3b6b1b31366077a2427d2a97f3bd26735",
+    version = "1.0.0",
+)
+use_repo(
+    erlang_package,
+    "thoas",
+)

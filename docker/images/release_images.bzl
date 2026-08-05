@@ -35,7 +35,33 @@ def elixir_build_info_layer_amd64(
         target_path = "app/priv/static/build-info.json",
         visibility = None,
         target_compatible_with = None):
-    """Emit a build-info JSON file and wrap it as a layer tar."""
+    """Emit a build-info JSON file and wrap it as a layer tar.
+
+    CONTENT IS A PURE FUNCTION OF DECLARED INPUTS. This layer goes INSIDE the image, so
+    anything non-deterministic here changes the layer tar, the image config, and therefore
+    the image digest -- on every build, for an image whose code did not change. That defeats
+    the whole point of addressing images by digest.
+
+    Two volatile sources were removed:
+
+      * `buildTime`, from `${BUILD_TIMESTAMP:-$(date -u ...)}`. BUILD_TIMESTAMP is a
+        WORKSPACE STATUS KEY, not an environment variable -- scripts/workspace_status.sh
+        emits it without a STABLE_ prefix, so it lands in volatile-status.txt and never in
+        an action's env. The `:-` fallback therefore always fired and the field was simply
+        `date` at execution time, making the digest change on EVERY build. Reading the
+        volatile key properly would have been no better: Bazel keeps volatile keys out of
+        action keys precisely so they cannot invalidate anything, and baking one into an
+        output defeats that.
+
+      * STABLE_COMMIT_SHA, read out of `bazel-out/stable-status.txt` by hardcoded path.
+        That moved the digest on every commit even when no input changed, and the path is
+        not a declared input -- when absent the script silently substituted "dev" rather
+        than failing, so a wrong value looked like a correct one.
+
+    What remains is derived from declared inputs only: VERSION (a source file) and the base
+    image digest. `webBuildId` is now the DIGEST short form, which is what it should have
+    been -- it identifies the artifact rather than the commit that happened to produce it.
+    """
 
     if target_compatible_with == None:
         target_compatible_with = []
@@ -49,13 +75,11 @@ def elixir_build_info_layer_amd64(
             version_file,
         ],
         outs = ["{}.json".format(name)],
-        stamp = True,
         cmd = """
 set -euo pipefail
 
 web_digest_file="$(location ___WEB_DIGEST___)"
 version_file="$(location ___VERSION_FILE___)"
-info_file="bazel-out/stable-status.txt"
 
 web_digest=$$(cat "$$web_digest_file")
 if [[ "$$web_digest" != sha256:* ]]; then
@@ -66,28 +90,12 @@ fi
 web_short=$${web_digest#sha256:}
 web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
 
-commit_sha="dev"
-if [[ -f "$$info_file" ]]; then
-  commit_sha=$$(grep -m1 '^STABLE_COMMIT_SHA ' "$$info_file" | awk '{print $$2}')
-  if [[ -z "$$commit_sha" ]]; then
-    commit_sha="dev"
-  fi
-fi
-commit_short=$$(printf '%s' "$$commit_sha" | cut -c1-12)
-
-if [[ -f "$$version_file" ]]; then
-  version=$$(tr -d '\\n' < "$$version_file")
-else
-  version="dev"
-fi
-
-build_time="$${BUILD_TIMESTAMP:-$$(date -u +"%Y-%m-%dT%H:%M:%SZ")}"
+version=$$(tr -d '\\n' < "$$version_file")
 
 cat > "$@" <<EOF
 {
   "version": "$$version",
-  "buildTime": "$$build_time",
-  "webBuildId": "sha-$$commit_short",
+  "webBuildId": "sha-$$web_short",
   "webImageDigest": "$$web_digest"
 }
 EOF
@@ -123,6 +131,12 @@ ROOT=$(@D)/rootfs
 rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}/app"
 tar -xzf "$${TAR}" -C "$${ROOT}/app"
+# Normalise mtimes before tarring. //build:elixir_release.bzl already normalises the release
+# tar it produces, but that is not enough: `mkdir -p "$${ROOT}/app"` creates two fresh
+# directories here whose wall-clock mtimes land in this layer, and `.` alone is enough to
+# move the image digest. 200001010000.00 matches rules_pkg's PORTABLE_MTIME.
+find "$${ROOT}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${ROOT}" -exec touch -t 200001010000.00 {} +
 tar -czf "$@" --owner=10001 --group=10001 -C "$${ROOT}" .
 """.replace("___RELEASE_TAR___", release_tar),
         visibility = visibility,
@@ -158,7 +172,13 @@ ROOT=$(@D)/rootfs
 rm -rf "$${{ROOT}}"
 mkdir -p "$${{ROOT}}/app"
 tar -xzf "$${{TAR}}" -C "$${{ROOT}}/app"
-{deb_args}tar -czf "$@" --owner=10001 --group=10001 -C "$${{ROOT}}" .
+# Normalise mtimes before tarring, after the deb overlay has run. Same `mkdir -p` problem as
+# elixir_release_rootfs_amd64 above, plus overlay_deb_packages.py writes every file,
+# directory and symlink without reading the deb member's mtime, so the overlaid tree carries
+# build time throughout. The `-h` form matters for the symlinks the overlay creates.
+{deb_args}find "$${{ROOT}}" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
+  find "$${{ROOT}}" -exec touch -t 200001010000.00 {{}} +
+tar -czf "$@" --owner=10001 --group=10001 -C "$${{ROOT}}" .
 """.format(
             deb_args = deb_args,
         ).replace("___RELEASE_TAR___", release_tar),

@@ -10,6 +10,10 @@ proto_library(
 
 go_proto_library(
     name = "rperf_go_proto",
+    # keep
+    #
+    # BOTH compilers. go_grpc_v2 emits only the service stubs; go_proto emits the message
+    # types they reference. See //proto/profiler:BUILD.bazel for the failure this prevents.
     compilers = [
         "@io_bazel_rules_go//proto:go_proto",
         "@io_bazel_rules_go//proto:go_grpc_v2",

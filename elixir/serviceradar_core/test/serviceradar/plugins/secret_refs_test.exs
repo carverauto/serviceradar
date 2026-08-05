@@ -203,4 +203,77 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
       ]
     }
   end
+
+  describe "credential selection" do
+    # The settings form renders the credential select AND the raw-entry input
+    # together. Two controls sharing one name means the last submitted wins, so
+    # the empty password box would clobber a chosen credential every time. The
+    # select therefore posts to a sidecar key that gets folded in here.
+
+    defp secret_schema do
+      %{
+        "type" => "object",
+        "properties" => %{
+          "api_key_secret_ref" => %{"type" => "string", "secretRef" => true}
+        }
+      }
+    end
+
+    test "a selected credential becomes the field value" do
+      ref = SecretRefs.network_credential_ref("11111111-1111-1111-1111-111111111111")
+
+      stored =
+        SecretRefs.prepare_params_for_storage(
+          secret_schema(),
+          %{SecretRefs.credential_select_key("api_key_secret_ref") => ref}
+        )
+
+      assert stored["api_key_secret_ref"] == ref
+    end
+
+    test "the sidecar key never reaches stored params" do
+      ref = SecretRefs.network_credential_ref("22222222-2222-2222-2222-222222222222")
+
+      stored =
+        SecretRefs.prepare_params_for_storage(
+          secret_schema(),
+          %{SecretRefs.credential_select_key("api_key_secret_ref") => ref}
+        )
+
+      refute Map.has_key?(stored, SecretRefs.credential_select_key("api_key_secret_ref"))
+    end
+
+    test "a blank selection does not clobber an existing value" do
+      # This is the regression the sidecar exists to prevent: submitting the form
+      # without touching the credential select must leave the field alone.
+      existing = %{
+        "api_key_secret_ref" =>
+          SecretRefs.network_credential_ref("33333333-3333-3333-3333-333333333333")
+      }
+
+      stored =
+        SecretRefs.prepare_params_for_storage(
+          secret_schema(),
+          %{SecretRefs.credential_select_key("api_key_secret_ref") => ""},
+          existing
+        )
+
+      assert stored["api_key_secret_ref"] == existing["api_key_secret_ref"]
+    end
+
+    test "a selected credential wins over a blank raw entry" do
+      ref = SecretRefs.network_credential_ref("44444444-4444-4444-4444-444444444444")
+
+      stored =
+        SecretRefs.prepare_params_for_storage(
+          secret_schema(),
+          %{
+            "api_key_secret_ref" => "",
+            SecretRefs.credential_select_key("api_key_secret_ref") => ref
+          }
+        )
+
+      assert stored["api_key_secret_ref"] == ref
+    end
+  end
 end

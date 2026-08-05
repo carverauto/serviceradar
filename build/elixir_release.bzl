@@ -289,6 +289,36 @@ cp -RL "$RELEASE_DIR"/. "$PACKAGED"/
 {dedupe}
 
 mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
+
+# DETERMINISM. `tar -czf ... .` on its own produced a different archive every time this
+# action executed, for two reasons, and that made the image digest of every Elixir service
+# change on a cache miss even when nothing had changed:
+#
+#   * MTIMES. `mix release` writes files at wall-clock time, and tar records them. A measured
+#     release_tar held 2026-08-04T02:47:29Z and :30Z -- two values, because the tar crossed a
+#     second boundary mid-run. rules_pkg wraps this tar with preserve_tar_mtimes=True, so the
+#     timestamps propagate straight into the layer and then into the image config.
+# Fixed here rather than in rules_pkg: the mtimes originate in this action, and patching a
+# dependency to paper over our own output would leave the raw tar wrong for every other
+# consumer.
+#
+# 200001010000.00 = 2000-01-01T00:00:00Z, the same instant rules_pkg uses for PORTABLE_MTIME,
+# so a layer built from this tar agrees with one built from declared files. `touch -h` sets
+# the link itself rather than following it, which matters because the dedupe pass above
+# creates many symlinks.
+#
+# Deliberately POSIX-portable: no --sort/--mtime/--owner/--no-recursion, which are GNU tar
+# extensions absent from the bsdtar a macOS developer would run. The `-h` fallback covers
+# the same split.
+#
+# NOT addressed: `tar .` serialises in readdir order, which is in principle
+# filesystem-dependent. That is unmeasured here -- PACKAGED is built by a deterministic copy
+# sequence, so entry order has been stable in practice. Fix it only with evidence, and note
+# that the portable spelling is awkward (`-T` with a file list re-descends directories unless
+# --no-recursion, which bsdtar spells differently).
+find "$PACKAGED" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
+  find "$PACKAGED" -exec touch -t 200001010000.00 {{}} +
+
 tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED" .
 """.format(
         dedupe = _DEDUPE_SCRIPT,

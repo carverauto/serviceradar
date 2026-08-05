@@ -187,4 +187,49 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
     %{conn: log_in_user(conn, user), user: user, scope: scope}
   end
+
+  describe "reusable SNMP credential selection" do
+    # A profile can bind a shared credential instead of holding its own encrypted
+    # copy. SNMPProfile already carried `credential_secret_id` and
+    # SNMPProfiles.CredentialResolver already branched on it; until now nothing
+    # in the UI could set it, so every profile was necessarily profile-local.
+
+    test "the form offers a credential selector defaulting to profile-local", %{conn: conn} do
+      {:ok, lv, html} = live(conn, ~p"/settings/snmp/new")
+
+      assert has_element?(lv, "select[name='form[credential_secret_id]']")
+      assert html =~ "Store on this profile"
+      # Nothing selected, so the profile-local fields are still the ones to fill in.
+      assert has_element?(lv, "input[name='form[community]']")
+    end
+
+    test "blank selection persists as nil rather than failing to cast", %{
+      conn: conn,
+      scope: scope
+    } do
+      # The empty option submits "", and credential_secret_id is a :uuid. Ash does
+      # not cast "" to nil for that type, so without normalization this errors
+      # instead of meaning "no shared credential".
+      unique = System.unique_integer([:positive])
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+      lv
+      |> form("form[phx-submit='save_profile']", %{
+        "form" => %{
+          "name" => "Blank Credential #{unique}",
+          "credential_secret_id" => "",
+          "agent_ids" => [""]
+        }
+      })
+      |> render_submit()
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Query.for_read(:by_name, %{name: "Blank Credential #{unique}"})
+        |> Ash.read_one(scope: scope)
+
+      assert profile.credential_secret_id == nil
+    end
+  end
 end

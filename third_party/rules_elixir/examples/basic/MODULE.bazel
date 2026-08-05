@@ -1,0 +1,17 @@
+module(
+    name = "basic",
+    version = "0.1.0",
+)
+
+bazel_dep(
+    name = "rules_erlang",
+    version = "3.16.0",
+)
+bazel_dep(
+    name = "rules_elixir",
+    version = "0.1.0",
+)
+local_path_override(
+    module_name = "rules_elixir",
+    path = "../..",
+)

@@ -13,6 +13,19 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 # binaries from an extracted Debian rootfs), so these targets are automatically skipped
 # as incompatible on non-Linux hosts (see docker/images/cnpg_image.bzl).
 #
+# That incompatibility guard only covers a LOCAL build. Under --config=remote the target
+# platform is //build/rbe:rbe_platform, i.e. Linux, whatever the host is -- so these stay
+# compatible on a macOS workstation and Bazel will happily try to build them there. They
+# are therefore tagged like the rest of the DB-backed tier (`manual` + `no-remote-exec`,
+# matching //rust/integration-db and //elixir/serviceradar_core:migrate_template): they
+# need a real Postgres, so they cannot run on RBE, and `manual` keeps them out of the
+# //... wildcard sweep. A step that WANTS them must name them explicitly AND pass an
+# empty --test_tag_filters=.
+#
+# Do NOT tag these `local`. On a *_test rule that applies to the compile actions too, so
+# rustc gets invoked on the host with the Linux exec-platform process_wrapper and dies
+# with "cannot execute binary file" (Exit 126).
+#
 # `all_crate_deps(package_name = "integration_tests/srql")` resolves this crate's own
 # dev-dependencies from //integration_tests/srql/Cargo.toml.
 
@@ -27,7 +40,10 @@ SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
     normal_dev = True,
 )
 
-SRQL_IT_PROC_MACROS = all_crate_deps(proc_macro = True, proc_macro_dev = True)
+SRQL_IT_PROC_MACROS = all_crate_deps(
+    proc_macro = True,
+    proc_macro_dev = True,
+)
 
 rust_test(
     name = "srql_api_test",
@@ -41,7 +57,10 @@ rust_test(
     data = SRQL_IT_DATA,
     edition = "2021",
     proc_macro_deps = SRQL_IT_PROC_MACROS,
-    tags = ["local"],
+    tags = [
+        "manual",
+        "no-remote-exec",
+    ],
     deps = SRQL_IT_DEPS,
 )
 
@@ -57,6 +76,9 @@ rust_test(
     data = SRQL_IT_DATA,
     edition = "2021",
     proc_macro_deps = SRQL_IT_PROC_MACROS,
-    tags = ["local"],
+    tags = [
+        "manual",
+        "no-remote-exec",
+    ],
     deps = SRQL_IT_DEPS,
 )

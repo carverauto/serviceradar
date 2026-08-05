@@ -155,6 +155,7 @@ defmodule GenHexBazel do
     all_deps = dep_labels(deps, "        ") <> "\n        \"@rules_elixir//elixir\","
 
     """
+    load("@serviceradar//build:hex_compile_env.bzl", "HEX_COMPILE_ENV_CONFIG")
     load("@serviceradar//build:mix_app.bzl", "mix_app")
 
     package(default_visibility = ["//visibility:public"])
@@ -181,6 +182,11 @@ defmodule GenHexBazel do
             ["include/**/*.hrl"],
             allow_empty = True,
         ),
+        # A dependency reading a key with Application.compile_env/3 records what it saw,
+        # and the release refuses to boot if that disagrees with the sys.config it applies.
+        # Each package compiles in its own sandbox here, so the root config has to be handed
+        # to it explicitly. See //build:hex_compile_env.bzl.
+        extra_config = HEX_COMPILE_ENV_CONFIG,
         deps = [#{all_deps}
         ],
     )

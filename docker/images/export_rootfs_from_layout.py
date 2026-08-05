@@ -84,9 +84,40 @@ def _layout_layers(layout_dir: str) -> list[str]:
     return layers
 
 
+# 2000-01-01T00:00:00Z, the same value rules_pkg uses for PORTABLE_MTIME, so layers built
+# here agree with layers built from declared files.
+_PORTABLE_MTIME = 946684800
+
+
+def _normalize_tarinfo(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    info.mtime = _PORTABLE_MTIME
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    return info
+
+
 def _write_tarball(src_dir: str, tarball: str) -> None:
+    # DETERMINISM. `archive.add(src_dir, arcname=".")` recursed in os.listdir order and
+    # copied filesystem mtimes off the extracted layers, so the same OCI layout produced
+    # different tar bytes -- and therefore a different image digest -- on every cache miss.
+    # Both causes are removed here: the walk is sorted, and every entry is stamped with a
+    # fixed mtime and owner.
+    #
+    # Entry order is fixed in Python rather than with `tar --sort=name` because that flag is
+    # GNU-only and this tree also builds on macOS.
     with tarfile.open(tarball, "w") as archive:
-        archive.add(src_dir, arcname=".")
+        archive.add(src_dir, arcname=".", recursive=False, filter=_normalize_tarinfo)
+        for root, dirs, files in os.walk(src_dir):
+            dirs.sort()
+            files.sort()
+            for entry in dirs + files:
+                path = os.path.join(root, entry)
+                arcname = os.path.join(".", os.path.relpath(path, src_dir))
+                archive.add(
+                    path, arcname=arcname, recursive=False, filter=_normalize_tarinfo
+                )
 
 
 def main() -> None:

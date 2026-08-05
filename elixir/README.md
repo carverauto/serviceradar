@@ -185,6 +185,65 @@ Two consequences that bite:
 `bundlex` is pinned from git rather than Hex, so it is a hand-written `git_repository` in
 `MODULE.bazel` and appears in `@path_deps` for the same reason.
 
+### Compile-time config a dependency reads
+
+`Application.compile_env/3` bakes a value into a module attribute at compile time and records
+what it saw. At boot, `Config.Provider` compares every recorded value against the release's
+`sys.config` and refuses to start if they disagree:
+
+```text
+ERROR! the application :ash has a different value set for key
+:include_embedded_source_by_default? during runtime compared to compile time.
+  * Compile time value was not set
+  * Runtime value was set to: false
+Runtime terminating during boot
+```
+
+Mix satisfies that invariant for free: one `mix compile` evaluates the root config once, and
+every dependency is compiled under it. Here each Hex package is its own `mix_app` target in
+its own sandbox, so a dependency reading a key with `compile_env` sees **only its own
+default** -- while the assembled release still applies our `config/config.exs` at runtime.
+
+`//build:hex_compile_env.bzl` exists for exactly this. Its `HEX_COMPILE_ENV_CONFIG` list is
+emitted by `gen_hex_bazel.exs` into every Mix-built package's `extra_config`, so dependencies
+record the same value the release will supply. Add a key there when both are true:
+
+- our `config/config.exs` sets it, and
+- a Hex dependency reads it through `Application.compile_env/2,3`
+
+**Do not "fix" this with `validate_compile_env: false`.** The release would boot while the
+dependency keeps its own compiled-in default -- for the current entry, `ash` would behave as
+`true` when we mean `false`. That turns a loud boot failure into a silent behavioural change.
+
+Keep the list short: every entry invalidates the cached build of all ~249 Mix-built packages.
+
+Two things `extra_config` has to tolerate, both real:
+
+- a package whose `config/config.exs` exists but is empty (`yaml_elixir`'s is a single
+  newline), so nothing imports `Config` and the appended lines fail with
+  `undefined function config/2`
+- a package still using the deprecated `use Mix.Config` (`stream_split`), where an
+  unconditional `import Config` fails the other way with
+  `function config/2 imported from both Config and Mix.Config, call is ambiguous`
+
+`mix_app` therefore imports `Config` only when the file provides neither form.
+
+### Inspecting build outputs locally
+
+`--config=remote` sets `--remote_download_minimal`, so **build outputs are not downloaded**.
+An `oci_image` layout will appear to contain only `blobs/` with no `index.json`, a `.digest`
+file will be empty, and a release tarball simply will not be there. None of that means the
+build failed -- the artifacts are on the remote.
+
+To inspect anything locally, ask for it:
+
+```sh
+bazel build --config=remote --remote_download_outputs=all //some:target
+```
+
+`--config=remote_push` already sets this, which is why pushing works while poking at
+`bazel-out` by hand does not.
+
 ## How tests work
 
 ### The `ex_unit_tests` macro
@@ -755,6 +814,10 @@ reads Rust sources.
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
 | `template ... is behind by N migration(s)` | Run `//elixir/serviceradar_core:migrate_template`. |
+| `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
+| `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
+| `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |
+| An `oci_image` layout has only `blobs/`, a `.digest` is empty, a release tar is missing | Nothing failed. `--config=remote` implies `--remote_download_minimal`. Rebuild with `--remote_download_outputs=all` to inspect locally. |
 
 ## See also
 

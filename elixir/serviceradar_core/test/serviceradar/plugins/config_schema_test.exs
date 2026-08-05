@@ -242,4 +242,84 @@ defmodule ServiceRadar.Plugins.ConfigSchemaTest do
       assert ConfigSchema.coerce_params(%{"type" => "object"}, params) == params
     end
   end
+
+  describe "credentialKind" do
+    # Optional hint naming which credential primitive belongs in a secretRef
+    # field, so the settings UI can offer only credentials that will work there.
+    # Without it the UI has nothing to filter on and must offer everything,
+    # which lets an SSH key be bound to an API-token field and fail when the
+    # plugin runs -- reported as a credential resolution failure, which points
+    # at the credential rather than at the binding.
+
+    defp schema_with(prop) do
+      %{
+        "type" => "object",
+        "properties" => %{"api_key_secret_ref" => prop}
+      }
+    end
+
+    test "a known kind on a secretRef field is accepted" do
+      for kind <- ~w(api_token username_password ssh_private_key certificate snmp opaque) do
+        assert :ok =
+                 ConfigSchema.validate_schema(
+                   schema_with(%{
+                     "type" => "string",
+                     "secretRef" => true,
+                     "credentialKind" => kind
+                   })
+                 )
+      end
+    end
+
+    test "the 17 packages already shipping secretRef without it stay valid" do
+      assert :ok =
+               ConfigSchema.validate_schema(
+                 schema_with(%{"type" => "string", "secretRef" => true})
+               )
+    end
+
+    test "an unknown kind is rejected rather than silently unfilterable" do
+      # A kind accepted here but unknown to NetworkCredentialSecret would match
+      # no credential in the inventory, leaving a field that can never be filled.
+      assert {:error, errors} =
+               ConfigSchema.validate_schema(
+                 schema_with(%{
+                   "type" => "string",
+                   "secretRef" => true,
+                   "credentialKind" => "totally_made_up"
+                 })
+               )
+
+      assert Enum.any?(errors, &String.contains?(&1, "credentialKind"))
+    end
+
+    test "it is rejected on a field that is not a secret reference" do
+      # Otherwise the field reads as credential-backed while nothing treats it
+      # that way.
+      assert {:error, errors} =
+               ConfigSchema.validate_schema(
+                 schema_with(%{"type" => "string", "credentialKind" => "api_token"})
+               )
+
+      assert Enum.any?(errors, &String.contains?(&1, "requires secretRef"))
+
+      assert {:error, _} =
+               ConfigSchema.validate_schema(
+                 schema_with(%{
+                   "type" => "string",
+                   "secretRef" => false,
+                   "credentialKind" => "api_token"
+                 })
+               )
+    end
+
+    test "a non-string kind is rejected" do
+      assert {:error, errors} =
+               ConfigSchema.validate_schema(
+                 schema_with(%{"type" => "string", "secretRef" => true, "credentialKind" => 42})
+               )
+
+      assert Enum.any?(errors, &String.contains?(&1, "credentialKind"))
+    end
+  end
 end

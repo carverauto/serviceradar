@@ -1079,3 +1079,252 @@ fn translate_hourly_max_downsample_reads_cagg_max_value_column() {
         response.sql
     );
 }
+
+// A `bucket:` chart always renders oldest-first, but `sort:time:desc limit:N` is asking
+// which END of the window survives the LIMIT. The ordering used to be hardcoded ascending
+// and `plan.order` was discarded, so a 30-day chart at `bucket:5m limit:100` silently
+// returned the OLDEST 100 buckets and stopped two weeks short of now.
+#[test]
+fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query:
+            "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 sort:time:desc limit:100"
+                .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("order by 1 desc, 2 asc nulls first"),
+        "sort:time:desc must truncate from the newest bucket: {sql}"
+    );
+    assert!(
+        sql.trim_end()
+            .ends_with("order by 1 asc, 2 asc nulls first"),
+        "rows must still come back oldest-first for charting: {sql}"
+    );
+}
+
+// No `sort:` means no opinion about which end to keep, so the pre-existing ascending
+// truncation is preserved -- this change only reacts to an explicit descending sort.
+#[test]
+fn translate_downsample_without_sort_keeps_ascending_truncation() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_30d bucket:5m agg:sum value_field:bytes_total series:app dst_ip:34.98.126.170 limit:100"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        !sql.contains("order by 1 desc"),
+        "an unsorted downsample must not flip the truncation direction: {sql}"
+    );
+    assert!(
+        !sql.contains(") windowed"),
+        "an unsorted downsample must not grow the truncation wrapper: {sql}"
+    );
+    assert!(
+        sql.contains("order by 1 asc, 2 asc nulls first"),
+        "expected the plain ascending tail: {sql}"
+    );
+}
+
+// The flow CAGG union path and the rate path build their SQL separately from the standard
+// aggregation path, so each needs its own proof that `sort:` reaches the tail.
+#[test]
+fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for query in [
+        // Routes to flow_traffic_1h via build_flow_cagg_union_sql (no filters, no series).
+        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total sort:time:desc limit:25",
+        // Routes to the rate CTE path.
+        "in:snmp time:last_1h bucket:5m agg:rate series:if_index sort:time:desc limit:25",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("order by 1 desc, 2 asc nulls first"),
+            "{query} must truncate from the newest bucket: {sql}"
+        );
+        assert!(
+            sql.trim_end()
+                .ends_with("order by 1 asc, 2 asc nulls first"),
+            "{query} must still return rows oldest-first: {sql}"
+        );
+    }
+}
+
+// `ip:` / `cidr:` match EITHER flow endpoint, mirroring the bare `near:` form
+// (`NearSide::Either`). Without them "all traffic for host X" needs two queries,
+// because SRQL has no cross-field OR and every other IP filter is one-sided.
+#[test]
+fn translate_flows_bidirectional_ip_matches_either_endpoint() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_30d ip:34.98.126.170 sort:time:desc limit:100".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip") && sql.contains(" or "),
+        "ip: must OR both endpoints: {sql}"
+    );
+    // The bind must be collected once per side or the LIMIT/OFFSET binds shift.
+    assert_eq!(
+        response
+            .params
+            .iter()
+            .filter(|param| matches!(param, BindParam::Text(v) if v == "34.98.126.170"))
+            .count(),
+        2,
+        "expected one bind per endpoint: {:?}",
+        response.params
+    );
+    assert_eq!(
+        super::max_dollar_placeholder(&response.sql),
+        response.params.len(),
+        "sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+// "Neither endpoint is X" is the AND of the two per-side negatives (De Morgan).
+// ORing them would match every row whose two endpoints merely differ.
+#[test]
+fn translate_flows_negated_bidirectional_ip_requires_both_sides_to_miss() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_1h !ip:10.0.0.1 limit:10".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains(" and "),
+        "negated ip: must AND the per-side negatives, not OR them: {sql}"
+    );
+    assert!(
+        sql.contains("is null"),
+        "each side must stay NULL-safe: {sql}"
+    );
+}
+
+#[test]
+fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    // Raw path: CIDR literals are inlined (validated by normalize_cidr_literal), no binds.
+    let request = QueryRequest {
+        query: "in:flows time:last_1h cidr:203.0.113.0/24 limit:10".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+    assert!(
+        sql.contains("try_inet(nullif(src_endpoint_ip, '')) <<= '203.0.113.0/24'::cidr")
+            && sql.contains("try_inet(nullif(dst_endpoint_ip, '')) <<= '203.0.113.0/24'::cidr"),
+        "cidr: must test containment on both endpoints: {sql}"
+    );
+
+    // Stats path binds the literal instead, once per side.
+    let request = QueryRequest {
+        query: "in:flows time:last_24h cidr:203.0.113.0/24 stats:sum(bytes_total) as bytes by app"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    let response = translate_request(&config, request).expect("translation should succeed");
+    assert_eq!(
+        response
+            .params
+            .iter()
+            .filter(|param| matches!(param, BindParam::Text(v) if v == "203.0.113.0/24"))
+            .count(),
+        2,
+        "stats cidr: needs one bind per endpoint: {:?}",
+        response.params
+    );
+    assert_eq!(
+        super::max_dollar_placeholder(&response.sql),
+        response.params.len(),
+        "sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+// `ip` is already on the parser's implicit-LIKE allowlist, so the wildcard form has to
+// work on the chart path too -- that path builds its filters independently.
+#[test]
+fn translate_flows_bidirectional_ip_works_on_stats_and_downsample_paths() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for query in [
+        "in:flows time:last_24h ip:34.98.126.170 stats:sum(bytes_total) as bytes by app",
+        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total ip:34.98.126.170 limit:1000",
+        "in:flows time:last_30d bucket:1h agg:sum value_field:bytes_total ip:%34.98.126.% limit:1000",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request).expect("translation should succeed");
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip"),
+            "{query} must reference both endpoints: {sql}"
+        );
+        assert_eq!(
+            super::max_dollar_placeholder(&response.sql),
+            response.params.len(),
+            "{query}: sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
+            response.sql,
+            response.params
+        );
+    }
+}
