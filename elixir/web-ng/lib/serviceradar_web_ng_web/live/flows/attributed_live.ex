@@ -375,6 +375,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     payload = map_value(row, "ocsf_payload") || %{}
     attribution = map_value(payload, "attribution") || %{}
     workload = map_value(attribution, "workload_identity") || %{}
+    public_endpoint = map_value(attribution, "public_endpoint") || %{}
     pid = attribution |> map_value("pid") |> parse_int()
     uid = attribution |> map_value("uid") |> parse_int()
     protocol_num = row |> map_value("protocol_num") |> parse_int()
@@ -409,9 +410,28 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       runtime_source: workload |> map_value("runtime_source") |> clean_string(),
       context_name: workload |> map_value("context_name") |> clean_string(),
       workload_identity: workload,
+      public_endpoint: public_endpoint,
+      public_endpoint_service: public_endpoint |> map_value("service_name") |> clean_string(),
+      public_endpoint_gateway: public_endpoint |> map_value("gateway_name") |> clean_string(),
+      public_endpoint_class: public_endpoint |> map_value("exposure_class") |> clean_string(),
+      public_endpoint_route: public_endpoint_route_label(public_endpoint),
+      public_endpoint_namespace: public_endpoint |> map_value("namespace") |> clean_string(),
       raw_payload: payload
     }
   end
+
+  defp public_endpoint_route_label(pe) when is_map(pe) do
+    kind = pe |> map_value("route_kind") |> clean_string()
+    name = pe |> map_value("route_name") |> clean_string()
+
+    cond do
+      present?(kind) and present?(name) -> "#{kind}/#{name}"
+      present?(name) -> name
+      true -> nil
+    end
+  end
+
+  defp public_endpoint_route_label(_), do: nil
 
   defp refresh_selected_flow(nil, _rows_by_id), do: nil
   defp refresh_selected_flow(%{id: id} = selected, rows_by_id), do: Map.get(rows_by_id, id, selected)
@@ -626,7 +646,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                     {process_label(row)}
                   </div>
                   <div class="mt-0.5 truncate font-mono text-[11px] text-sr-muted">
-                    {display(workload_label(row) || row.agent_id)}
+                    {display(public_endpoint_label(row) || workload_label(row) || row.agent_id)}
                   </div>
                 </div>
 
@@ -853,6 +873,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
           <.detail_item
+            label="Public endpoint"
+            value={display(public_endpoint_label(@flow))}
+            subvalue={public_endpoint_sublabel(@flow)}
+          />
+          <.detail_item
             label="Workload"
             value={display(workload_label(@flow))}
             subvalue={@flow.image}
@@ -911,6 +936,30 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp process_label(%{pid: pid}) when is_integer(pid), do: "PID #{pid}"
   defp process_label(_), do: "No process match"
+
+  defp public_endpoint_label(%{
+         public_endpoint_service: service,
+         public_endpoint_class: class
+       })
+       when is_binary(service) and service != "" do
+    if is_binary(class) and class != "", do: "#{class}: #{service}", else: service
+  end
+
+  defp public_endpoint_label(%{public_endpoint_gateway: gateway})
+       when is_binary(gateway) and gateway != "",
+       do: gateway
+
+  defp public_endpoint_label(_), do: nil
+
+  defp public_endpoint_sublabel(flow) do
+    [
+      flow.public_endpoint_route,
+      flow.public_endpoint_namespace && flow.public_endpoint_service &&
+        "#{flow.public_endpoint_namespace}/#{flow.public_endpoint_service}",
+      flow.public_endpoint_gateway
+    ]
+    |> Enum.find(&(is_binary(&1) and &1 != ""))
+  end
 
   defp workload_label(%{pod_namespace: ns, pod_name: pod} = flow) when is_binary(ns) and is_binary(pod) do
     [workload_context_label(flow), "#{ns}/#{pod}"]

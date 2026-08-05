@@ -48,7 +48,7 @@
 
 - [x] 5.1 SRQL entity `in:public_endpoints` with filters: ip, hostname, port, protocol, namespace, cluster_id, exposure_class
 - [ ] 5.2 Catalog entry for web-ng SRQL autocomplete
-- [ ] 5.3 (P1) Optional join/enrichment documentation or read-path helper for flows → owner fields
+- [x] 5.3 (P1) Optional join/enrichment documentation or read-path helper for flows → owner fields
 - [x] 5.4 Docs: IR runbook includes SRQL examples
 
 ## 6. Security and validation
@@ -60,7 +60,7 @@
 
 ## 7. Explicitly deferred (track, do not block P0)
 
-- [ ] 7.1 DNAT-aware process correlation using VIP→backend maps (experimental; separate issue if large)
+- [x] 7.1 DNAT-aware process correlation using VIP→backend maps (core FlowAttribution.Correlation + SRQL owner filters + attributed-flows UI)
 - [ ] 7.2 Multi-replica leader election
 - [ ] 7.3 Ingress resource informer
 - [ ] 7.4 GitOps pin drift detection

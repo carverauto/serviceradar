@@ -14,11 +14,12 @@ streams and exposes the result through `in:attributed_flows`, flow details, and 
 dashboard NetFlow map.
 
 When investigating **public VIP or cloud LB destinations** (for example
-`dst_ip` is a MetalLB or cloud load balancer address), use
-[Kubernetes Public Endpoint Inventory](./k8s-public-endpoint-inventory.md) to
-map IP/hostname:port → Service / Gateway API owner and backend pods. That
-control-plane inventory is separate from process attribution and does not
-require host agents to hold Kubernetes API credentials.
+`dst_ip` is a MetalLB or cloud load balancer address), the central correlator
+joins [Kubernetes Public Endpoint Inventory](./k8s-public-endpoint-inventory.md)
+with netprobe so **Attributed Flows** carry process *and* Service/Gateway owner
+fields (`attribution.public_endpoint`). Inventory remains queryable via
+`in:public_endpoints` and does not require host agents to hold Kubernetes API
+credentials.
 
 ## Architecture Overview
 

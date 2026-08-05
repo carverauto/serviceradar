@@ -31,7 +31,10 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "attribution_status" | "status" | "pid" | "process_pid" | "uid" | "comm" | "process"
         | "process_name" | "cmdline" | "redacted_cmdline" | "container_id" | "agent_id"
         | "pod_name" | "pod_namespace" | "namespace" | "pod_uid" | "container_name" | "image"
-        | "image_ref" | "runtime_source" => collect_text_params(params, filter),
+        | "image_ref" | "runtime_source" | "service_name" | "public_endpoint_service"
+        | "k8s_service" | "gateway_name" | "public_endpoint_gateway" | "exposure_class"
+        | "public_endpoint_class" | "public_endpoint_namespace" | "route_name"
+        | "public_endpoint_route" => collect_text_params(params, filter),
         // `ip:` matches either endpoint, so `apply_bidirectional_ip_filter` binds the value
         // once per side. Collect the same pair or the LIMIT/OFFSET binds shift.
         "ip" | "endpoint_ip" => {

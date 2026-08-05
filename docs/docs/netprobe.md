@@ -168,9 +168,14 @@ that matches the traffic and NetFlow visibility available to ServiceRadar.
 - Agent/device details through process listener and add-on status surfaces.
 
 The central join uses the flow tuple, protocol, agent/host ownership, process
-metadata, optional container ID, and workload identity metadata. TCP, UDP, and ICMP
-rows may appear in attributed flows; ICMP uses protocol-specific matching because it
-does not have TCP/UDP ports.
+metadata, optional container ID, and workload identity metadata. When a flow
+endpoint is a Kubernetes public VIP (LoadBalancer / Gateway / ExternalIP), core
+also consults [public endpoint inventory](./k8s-public-endpoint-inventory.md)
+to map `VIP:port → podIP:targetPort` and match netprobe on the **post-DNAT**
+backend socket, then stamps `attribution.public_endpoint` (Service, Gateway,
+route, namespace) onto the attributed flow. TCP, UDP, and ICMP rows may appear
+in attributed flows; ICMP uses protocol-specific matching because it does not
+have TCP/UDP ports.
 
 The normal data path is:
 
@@ -178,19 +183,23 @@ The normal data path is:
 netprobe -> base agent -> agent-gateway -> core -> attributed flow current state
 NetFlow collector -> core ------------------------------------------^
 Workload Identity -> base agent -> agent-gateway -> core -----------^
+k8s-inventory -> NATS -> EventWriter -> public_endpoints_current ---^
 ```
 
 The join happens centrally so ServiceRadar can retain enough host evidence for
 delayed NetFlow batches and can enrich the same flow record with workload identity,
-reverse DNS, service-port mapping, threat intelligence, and future investigation
-signals. The edge collector should suppress duplicate observations and keep queues
-bounded, but it should not be responsible for fleet-wide joins.
+public VIP ownership, reverse DNS, service-port mapping, threat intelligence, and
+future investigation signals. The edge collector should suppress duplicate
+observations and keep queues bounded, but it should not be responsible for
+fleet-wide joins. Host agents never need Kubernetes API credentials for VIP
+ownership—that stays on the in-cluster inventory Deployment.
 
 Common SRQL entry points:
 
 ```text
 in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
 in:attributed_flows time:last_1h protocol_name:udp sort:time:desc limit:50
+in:attributed_flows time:last_1h service_name:forgejo-ssh sort:time:desc limit:50
 in:attributed_flows time:last_1h stats:"count(*) as total by agent_id, attribution_status" sort:total:desc
 in:addon_statuses addon_id:netprobe sort:reported_at:desc limit:50
 ```

@@ -253,3 +253,23 @@ pub(in crate::query) const ATTRIBUTION_RUNTIME_SOURCE_EXPR: &str =
     "ocsf_payload #>> '{attribution,workload_identity,runtime_source}'";
 pub(in crate::query) const ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED: &str =
     "f.ocsf_payload #>> '{attribution,workload_identity,runtime_source}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,public_endpoint,service_name}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,public_endpoint,service_name}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR: &str =
+    "ocsf_payload #>> '{attribution,public_endpoint,gateway_name}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,public_endpoint,gateway_name}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,public_endpoint,exposure_class}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,public_endpoint,exposure_class}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,public_endpoint,namespace}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,public_endpoint,namespace}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,public_endpoint,route_name}'";
+pub(in crate::query) const ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,public_endpoint,route_name}'";

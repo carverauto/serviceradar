@@ -229,20 +229,23 @@ helm upgrade --install serviceradar ./helm/serviceradar \
      (what netprobe attributes on the worker, e.g. `envoy` on `:10022`,
      `gitea` on `:2222`)
 
-4. **Process attribution (separate layer today):** enable netprobe on the
-   worker that hosts the backend pod. Look up attributed flows / process
-   attribution by **pod IP:targetPort**, not by the public VIP:
+4. **Attributed flows (auto-joined):** with inventory and netprobe both live,
+   core’s flow correlator expands public VIP:port → backend pod sockets and
+   stamps process + owner onto `attributed_flow` rows. Prefer:
 
    ```text
-   # After inventory points at 10.42.x.y:10022 (envoy) or :2222 (gitea)
-   in:attributed_flows …
+   in:attributed_flows dst_ip:23.138.124.7 dst_port:22 time:last_24h
+   in:attributed_flows service_name:forgejo-ssh time:last_24h
+   in:attributed_flows exposure_class:Gateway process:gitea time:last_24h
    ```
 
-   The **Attributed Flows** page (`/observability/flows/attributed`) does
-   **not** automatically rewrite public VIP destinations to Service/Gateway
-   owners yet. That VIP/DNAT correlation join in core is a follow-on; inventory
-   is the ownership answer for “what is this public IP:port?” while netprobe
-   remains the process answer for “what binary owns the post-DNAT socket?”
+   Open **Observability → Attributed Flows**. Rows show process (e.g. `envoy`,
+   `gitea`) and public endpoint owner (`Gateway: forgejo-ssh`, route, namespace).
+   The payload field is `attribution.public_endpoint`.
+
+   Inventory (`in:public_endpoints`) remains the control-plane source of truth
+   and drill-down surface; you should not need a second ad-hoc query for the
+   common IR path once correlation has run (correlator interval is ~2 minutes).
 
 ## Build and test (Bazel)
 

@@ -191,6 +191,23 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "runtime_source" => {
             build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
         }
+        "service_name" | "public_endpoint_service" | "k8s_service" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR_ALIASED, filter, binds)
+        }
+        "gateway_name" | "public_endpoint_gateway" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR_ALIASED, filter, binds)
+        }
+        "exposure_class" | "public_endpoint_class" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR_ALIASED, filter, binds)
+        }
+        "public_endpoint_namespace" => build_stats_text_filter(
+            ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR_ALIASED,
+            filter,
+            binds,
+        ),
+        "route_name" | "public_endpoint_route" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR_ALIASED, filter, binds)
+        }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
         "input_snmp" | "in_if_index" => {
             build_stats_bigint_filter(FLOW_INPUT_SNMP_EXPR, filter, binds, "input_snmp")

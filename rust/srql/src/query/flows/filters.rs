@@ -218,6 +218,26 @@ pub(super) fn apply_filter<'a>(
             let expr = sql::<Text>(ATTRIBUTION_RUNTIME_SOURCE_EXPR);
             query = apply_text_filter!(query, filter, expr)?;
         }
+        "service_name" | "public_endpoint_service" | "k8s_service" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "gateway_name" | "public_endpoint_gateway" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "exposure_class" | "public_endpoint_class" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "public_endpoint_namespace" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "route_name" | "public_endpoint_route" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
         "protocol_group" | "proto_group" => {
             let expr = sql::<Text>(FLOW_PROTOCOL_GROUP_EXPR);
             match filter.op {
