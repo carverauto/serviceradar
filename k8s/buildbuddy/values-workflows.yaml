@@ -1,6 +1,16 @@
 # Executor fleet dedicated to BuildBuddy Workflow runners. Deployed as a SEPARATE helm
 # release from ./values.yaml -- see "Two fleets" in ./README.md for the deploy command.
 #
+# THE RELEASE NAME AND THE `-f` MUST MATCH, AND NOTHING ENFORCES IT.
+# `helm upgrade buildbuddy-workflows ... -f values.yaml` is accepted silently and turns this
+# release into a second copy of the build fleet: no poolName (so it registers into the DEFAULT
+# pool and `workflows` goes empty), replicas 3, and the shared cache hostPath. No error at any
+# layer -- the next staging push just fails with `no registered executors in pool "workflows"`,
+# which reads like the fleet was never deployed. This has happened once. Check what is actually
+# deployed rather than what the file says:
+#
+#   helm get values buildbuddy-workflows -n buildbuddy | grep -E 'poolName|replicas'
+#
 # WHY A SECOND FLEET RATHER THAN A BIGGER FIRST ONE.
 #
 # The workflow runner in //buildbuddy.yaml is one long-lived task that wants ~32GB: it holds a
@@ -56,25 +66,24 @@ autoscaler:
 #   limits   -> what BuildBuddy advertises as assignable, MINUS a flat 10 GB reserve.
 #               Governs whether a TASK can be placed on it.
 #
-# Confirmed from this executor's own startup line:
+# Confirmed from this executor's own startup line at the settings below:
 #
 #   Initialized task scheduler: CPU: 0 of 16,000 milliCPU allocated,
-#   Memory: 0 of 32,949,672,960 bytes allocated
+#   Memory: 0 of 58,719,476,736 bytes allocated
 #
-#   limits.memory 40Gi = 42,949,672,960
-#   advertised         = 32,949,672,960   <- exactly 10,000,000,000 less
+#   limits.memory 64Gi = 68,719,476,736
+#   advertised         = 58,719,476,736   <- exactly 10,000,000,000 less
 #   limits.cpu "16"   -> 16,000 milliCPU  <- CPU is the limit, not reduced
 #
 # The rule also explains ./values.yaml: limits 32Gi - 10e9 = 22.7 GiB assignable, which is why
 # a 24 GiB task was rejected by the build fleet while 14 GiB fit.
 #
-# At 48Gi:  51,539,607,552 - 10,000,000,000 = 41,539,607,552  (38.7 GiB assignable)
-# which leaves ~7 GB of headroom above the 32 GiB the action asks for.
-#
-# SIZING HISTORY -- every step measured, none guessed:
-#   14 GiB action -> "31.24GB used of 15.03GB total", survived, far too tight
-#   28 GiB action -> "35.31GB used of 30.06GB total", survived, still short
-#   32 GiB action -> this configuration
+# SIZING HISTORY -- every step measured, none guessed. Each quoted line is BuildBuddy's own
+# low-memory notice, whose "total" is the ASSIGNABLE figure, not the cgroup limit:
+#   14 GiB action, 24Gi limits -> "31.24GB used of 15.03GB total", survived, far too tight
+#   28 GiB action, 40Gi limits -> "35.31GB used of 30.06GB total", survived, still short
+#   32 GiB action, 48Gi limits -> 38.7 GiB assignable, only ~6 GB over that 35.31GB peak
+#   32 GiB action, 64Gi limits -> this configuration, 54.7 GiB assignable
 #
 # Surviving well over the cgroup limit each time means most of that usage is reclaimable page
 # cache -- disk-cache writes and --jobs=100 input uploads -- rather than resident demand. That
@@ -84,10 +93,11 @@ autoscaler:
 # The action reads its size from the repo at push time, so raising it before the fleet has the
 # capacity fails the run outright with "can fit a task with ...". After deploying, confirm the
 # new advertisement rather than trusting the arithmetic:
-#   kubectl logs -n buildbuddy <workflow-pod> | grep "Initialized task scheduler"
+#   kubectl logs -n buildbuddy -l app.kubernetes.io/instance=buildbuddy-workflows --tail=200 \
+#     | grep "Initialized task scheduler"
 #
-# `requests` stays at 36Gi, already proven to schedule on a node here, and above the 32.9 GiB
-# the runner was last measured touching. requests < limits makes this Burstable rather than
+# `requests` at 56Gi schedules comfortably: each cp2/cp3 worker has ~168 GiB allocatable and
+# was 13-24% requested when this was set. requests < limits makes this Burstable rather than
 # Guaranteed QoS: if the kubelet ever evicts the runner under node pressure, raising requests
 # is the fix -- but check node allocatable first, because a request nothing satisfies leaves
 # the pod Pending and the workflow then fails exactly as if the fleet were absent:
@@ -95,7 +105,7 @@ autoscaler:
 resources:
   requests:
     cpu: "12"
-    memory: "56GGi"
+    memory: "56Gi"
     ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
