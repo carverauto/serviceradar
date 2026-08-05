@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:page_title, "Integration Sources")
         |> assign(:settings_tab, "crm_ipam")
         |> assign(:sources, list_sources(actor))
+        |> assign(:available_credentials, list_available_credentials(actor))
         |> assign(:partitions, partitions)
         |> assign(:partition_options, build_partition_options(partitions))
         |> assign(:agents, agents)
@@ -208,7 +209,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:form_network_blacklist, "")
        |> assign(:form_custom_fields, "")}
     else
-      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply,
+       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -236,7 +238,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
          |> assign(:mapbox_form, mapbox_settings_to_form(updated))}
 
       {:error, err} ->
-        {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
     end
   end
 
@@ -404,7 +407,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       # Add network_blacklist from textarea
       blacklist =
-        parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+        parse_network_blacklist(
+          Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
+        )
 
       params = Map.put(params, "network_blacklist", blacklist)
 
@@ -412,7 +417,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         Map.put(
           params,
           "custom_fields",
-          parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+          parse_custom_fields(
+            Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
+          )
         )
 
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
@@ -434,7 +441,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> put_flash(:error, "Failed to create integration source")}
       end
     else
-      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply,
+       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -454,7 +462,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
     # Add network_blacklist from textarea
     blacklist =
-      parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
+      parse_network_blacklist(
+        Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
+      )
 
     params = Map.put(params, "network_blacklist", blacklist)
 
@@ -462,7 +472,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       Map.put(
         params,
         "custom_fields",
-        parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
+        parse_custom_fields(
+          Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
+        )
       )
 
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
@@ -534,7 +546,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> push_navigate(to: ~p"/settings/networks/integrations")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
         end
 
       {:error, _} ->
@@ -559,11 +572,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> assign(:sources, list_sources(actor, active_filters(socket)))}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
+            {:noreply,
+             put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
         end
 
       {:ok, _source} ->
-        {:noreply, put_flash(socket, :error, "Northbound run is only available for Armis sources")}
+        {:noreply,
+         put_flash(socket, :error, "Northbound run is only available for Armis sources")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Integration source not found")}
@@ -1226,6 +1241,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             source_type={@form[:source_type].value || :armis}
             mode={:create}
             credentials={%{}}
+            available_credentials={@available_credentials}
+            selected_credential_id={nil}
           />
 
           <.armis_northbound_fields
@@ -1430,6 +1447,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             source_type={(@source && @source.source_type) || :armis}
             mode={:edit}
             credentials={source_credentials(@source)}
+            available_credentials={@available_credentials}
+            selected_credential_id={@source && @source.credential_secret_id}
           />
 
           <.armis_northbound_fields
@@ -2107,6 +2126,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     Map.new(agents, fn agent -> {agent.uid, agent} end)
   end
 
+  # Credentials an integration source can bind instead of holding its own
+  # encrypted copy. IntegrationSource has carried `credential_secret_id` and
+  # sync_config_generator has branched on it for some time; nothing in this UI
+  # could set it, so in practice every source stored a private copy and the
+  # shared inventory was unreachable from here.
+  #
+  # Unfiltered: an integration source's credential shape is provider-specific
+  # (Armis v1 key+secret, Armis v3 OAuth, NetBox token) and is not expressed as
+  # one credential_kind, so there is nothing to filter on without guessing. A
+  # failed load leaves the list empty, which renders per-source entry exactly as
+  # before rather than breaking the page.
+  defp list_available_credentials(actor) do
+    ServiceRadar.Credentials.NetworkCredentialSecret
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, secrets} -> secrets
+      _ -> []
+    end
+  end
+
   defp list_sources(actor, filters \\ %{}) do
     case Map.get(filters, :source_type) do
       nil ->
@@ -2250,12 +2291,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       "cred_netbox_url",
       "cred_netbox_token",
       "cred_netbox_verify_ssl",
+      "cred_credential_secret_id",
       "credentials_json"
     ])
     |> Map.merge(form_params)
   end
 
   defp parse_credentials_json(params, existing_credentials \\ %{}) do
+    params = apply_selected_integration_credential(params)
     existing_credentials = stringify_credentials(existing_credentials)
 
     cond do
@@ -2302,6 +2345,30 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       # Fallback to JSON parsing for custom/other types
       true ->
         parse_json_field(params, "credentials_json", "credentials")
+    end
+  end
+
+  # Folds the reusable-credential select into the attribute the source actually
+  # persists, and drops the form-only key so it never reaches the changeset.
+  #
+  # A blank selection clears the binding rather than being ignored: the select is
+  # the only control for it, so leaving it blank has to mean "not using a shared
+  # credential" -- otherwise a source could never be unbound once bound. The
+  # per-source encrypted fields are left untouched either way, so clearing the
+  # binding falls back to whatever was already stored.
+  defp apply_selected_integration_credential(params) do
+    case Map.pop(params, "cred_credential_secret_id") do
+      {nil, params} ->
+        params
+
+      {value, params} when is_binary(value) ->
+        case String.trim(value) do
+          "" -> Map.put(params, "credential_secret_id", nil)
+          id -> Map.put(params, "credential_secret_id", id)
+        end
+
+      {_other, params} ->
+        params
     end
   end
 
@@ -2446,12 +2513,25 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   attr(:mode, :atom, default: :create)
   attr(:credentials, :map, default: %{})
 
+  attr(:available_credentials, :list,
+    default: [],
+    doc: "Reusable credentials from the shared inventory. Empty renders per-source entry only."
+  )
+
+  attr(:selected_credential_id, :any, default: nil)
+
   defp dynamic_credentials_fields(assigns) do
     assigns =
       assigns
       |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
-      |> assign(:v3_client_id_value, credential_value(assigns.credentials, ["client_id", "v3_client_id"]))
-      |> assign(:v3_vendor_id_value, credential_value(assigns.credentials, ["vendor_id", "v3_vendor_id"]))
+      |> assign(
+        :v3_client_id_value,
+        credential_value(assigns.credentials, ["client_id", "v3_client_id"])
+      )
+      |> assign(
+        :v3_vendor_id_value,
+        credential_value(assigns.credentials, ["vendor_id", "v3_vendor_id"])
+      )
       |> assign(
         :api_secret_present?,
         credential_present?(assigns.credentials, ["api_secret", "secret_key"])
@@ -2462,6 +2542,33 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       )
 
     ~H"""
+    <div :if={@available_credentials != []} class="space-y-1.5 mb-3">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">Reusable credential</span>
+      </label>
+      <select name="cred_credential_secret_id" class={ui_field_class(class: "w-full")}>
+        <option value="" selected={@selected_credential_id in [nil, ""]}>
+          — enter credentials below —
+        </option>
+        <option
+          :for={secret <- @available_credentials}
+          value={secret.id}
+          selected={to_string(secret.id) == to_string(@selected_credential_id)}
+        >
+          {secret.name} ({secret.provider})
+        </option>
+      </select>
+      <p class="text-xs text-sr-muted">
+        <%= if @selected_credential_id in [nil, ""] do %>
+          Stored on this source only. Choose a reusable credential to share one secret
+          across sources.
+        <% else %>
+          Resolved through the credential broker. The fields below are ignored while one
+          is selected.
+        <% end %>
+      </p>
+    </div>
+
     <%= case @source_type do %>
       <% :armis -> %>
         <div class="space-y-3">
@@ -2758,7 +2865,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
 
-  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+  defp credential_placeholder(:netbox),
+    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
 
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
