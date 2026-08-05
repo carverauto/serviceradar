@@ -1103,9 +1103,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "public_endpoints",
       label: "Public Endpoints",
-      # No dedicated page yet; catalog is for autocomplete / builder only.
-      route: "",
-
+      route: "/inventory/public-endpoints",
       default_time: "",
       default_sort_field: "ip",
       default_sort_dir: "asc",

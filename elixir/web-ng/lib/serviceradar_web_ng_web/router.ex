@@ -843,6 +843,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Gateways
       live("/gateways", GatewayLive.Index, :index)
       live("/gateways/:gateway_id", GatewayLive.Show, :show)
+
+      # Kubernetes public VIP / Gateway ownership inventory
+      live("/inventory/public-endpoints", PublicEndpointsLive.Index, :index)
       live("/events", EventLive.Index, :index)
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)
