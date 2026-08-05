@@ -1,5 +1,9 @@
 import Config
 
+# phoenix_live_view optionally depends on lazy_html. When that app is present in
+# the release, its compile-time env must match at boot or Config.Provider aborts.
+config :lazy_html, :inspect_extra_newline, true
+
 alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
