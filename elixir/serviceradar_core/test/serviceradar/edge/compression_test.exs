@@ -70,10 +70,9 @@ defmodule ServiceRadar.Edge.CompressionTest do
     # contract -- a direct caller must not be able to hand the frame walker an arbitrarily
     # large buffer just because it never went through record validation.
     #
-    # THE INPUT IS A VALID FRAME PLUS PADDING. An earlier version padded a bare magic with
-    # zeros, so the parser returned `:invalid` whether or not the ceiling existed, and the
-    # at-limit case expected that SAME reason -- deleting the guard passed, and `>` versus
-    # `>=` was invisible. A valid frame makes the two sides give DIFFERENT reasons:
+    # THE INPUT IS A VALID FRAME PLUS PADDING, so the two sides give DIFFERENT reasons: at
+    # the ceiling the frame walk decides, one byte above it the ceiling does. The bound is
+    # the LITERAL rather than the module's attribute, so the runtimes cannot drift apart.
     @max_payload 524_288
 
     defp padded(total) do

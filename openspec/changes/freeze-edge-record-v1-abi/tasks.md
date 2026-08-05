@@ -767,18 +767,13 @@ here.
               vectors are therefore unreachable as whole records -- `zstd_valid_5k.bin`
               declares 5000 bytes from a 15-byte frame (333:1) -- which is the stage they
               belong to, not a defect.
-              GO RECONCILIATION IS DONE, and found one real divergence. The freeze states
-              three INDEPENDENT ceilings, but Go named only two: the decoder was configured
-              with `WithDecoderMaxMemory(MaxUncompressedBytes)` at three sites, so the code
-              said "the window ceiling IS the output ceiling" -- exactly the coincidence the
-              spec says is not a rule. `MaxZstdWindowBytes` is now its own constant and the
-              three sites use it. Mutation-proven independent: changing the OUTPUT ceiling
-              leaves the window vectors untouched, and changing the WINDOW ceiling flips
-              `zstd_window_above_ceiling.bin` to `accept`. Before the split, one edit moved
-              both.
-              Also corrected: `DecompressZstdPayload`'s doc claimed to be "the bounded decode
-              the trusted domain path uses". Nothing calls it, and it applies the FRAME stage
-              only -- no encoded_size binding, no ratio -- which the doc now says.
+              GO IS RECONCILED. The three ceilings are three constants: `MaxZstdWindowBytes`
+              is its own, and the decoder sites use it, so the window ceiling and the output
+              ceiling can be changed independently. Mutation-proven independent -- changing
+              the OUTPUT ceiling leaves the window vectors untouched, and changing the WINDOW
+              ceiling flips `zstd_window_above_ceiling.bin` to `accept`. `DecompressZstdPayload`
+              applies the FRAME stage only -- no encoded_size binding, no ratio -- which its
+              doc says. The audit narrative is in `design.md`, not here.
               Everything else reconciled clean: the ratio runs on DECLARED sizes before
               decompression; inside `validatePayloadBinding`, `encoded_size` is bound to the
               payload length BEFORE the ratio is evaluated, which is the ordering the freeze
@@ -787,8 +782,14 @@ here.
               The EXPORTED frame APIs now bound their ENCODED INPUT too. They are described
               as bounded, and a direct caller could otherwise hand the frame walker an
               arbitrarily large buffer -- the composed path refuses it earlier, but the
-              exported contract has to be true on its own.
-              SLICE 2 IS COMPLETE.
+              exported contract has to be true on its own. Elixir's frame walk is PRIVATE for
+              the same reason: a second exported raw-bytes entry point beside a bounded one
+              is not a bound.
+              CEILING VECTORS PIN THE LITERAL, NOT THE CONSTANT, in BOTH runtimes. A vector
+              built from the production constant self-adjusts when the constant moves, so one
+              runtime can start admitting bytes the other refuses with every test still
+              green. The frozen number is stated by the test and the constant asserted
+              against it.
               THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
               the other way round. An Elixir zstd binding is admissible only if it supports,
               or permits a project-owned preflight to enforce, ALL of: a bounded maximum
