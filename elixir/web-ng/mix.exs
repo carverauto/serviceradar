@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.MixProject do
       compilers: boundary_compilers() ++ [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
       usage_rules: usage_rules(),
+      releases: releases(),
       # Keep Hex's advisory gate aligned with the documented, temporary
       # exceptions in .deps_audit_ignore. See that file for mitigations and
       # removal criteria for each advisory.
@@ -23,6 +24,19 @@ defmodule ServiceRadarWebNG.MixProject do
           "EEF-CVE-2026-43966",
           "GHSA-g2wm-735q-3f56"
         ]
+      ]
+    ]
+  end
+
+  # Explicit release so we can disable validate_compile_env. Bazel builds bake
+  # host temp paths into phoenix_react_ng Application.compile_env keys, which
+  # then abort Config.Provider boot when runtime config differs.
+  defp releases do
+    [
+      serviceradar_web_ng: [
+        include_executables_for: [:unix],
+        validate_compile_env: false,
+        steps: [:assemble]
       ]
     ]
   end
