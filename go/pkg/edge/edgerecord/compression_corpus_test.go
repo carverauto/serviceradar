@@ -263,6 +263,37 @@ func TestCompressionSharedCorpus(t *testing.T) {
 	goldenBytesLocal(t, compressionManifest, []byte(strings.Join(lines, "\n")+"\n"))
 }
 
+// TestFrozenCompressionCeilings pins the three frozen values against the spec requirement
+// "Compression admission is frozen by value, stage, and frame shape", which is their
+// normative source.
+//
+// THE WINDOW CEILING IS SPELLED SEPARATELY ON PURPOSE. Before this reconciliation the
+// decoder was configured with MaxUncompressedBytes, so Go expressed "the window ceiling IS
+// the output ceiling" -- which the freeze explicitly calls a coincidence of VALUE rather
+// than a rule. Editing one would silently have moved the other, and the two would have
+// stopped being independent limits.
+func TestFrozenCompressionCeilings(t *testing.T) {
+	if MaxUncompressedBytes != 33_554_432 {
+		t.Fatalf("MaxUncompressedBytes = %d, frozen at 33_554_432", MaxUncompressedBytes)
+	}
+
+	if MaxCompressionRatio != 100 {
+		t.Fatalf("MaxCompressionRatio = %d, frozen at 100", MaxCompressionRatio)
+	}
+
+	if MaxZstdWindowBytes != 33_554_432 {
+		t.Fatalf("MaxZstdWindowBytes = %d, frozen at 33_554_432", MaxZstdWindowBytes)
+	}
+
+	// The ratio product must not overflow the width it is evaluated in. With encoded_size
+	// bound to a payload already under the 512 KiB physical ceiling, the admitted
+	// denominator is at most 524_288 and the product at most 52_428_800.
+	const maxAdmittedEncoded = MaxRecordBytes
+	if got := uint64(maxAdmittedEncoded) * MaxCompressionRatio; got > uint64(^uint32(0)) {
+		t.Fatalf("admitted ratio product %d exceeds 32 bits; the freeze assumes it does not", got)
+	}
+}
+
 // TestCompressionCorpusManifestMatchesDisk keeps the manifest and the vector files in step,
 // so a fixture added without a manifest line is never silently unread by the peer.
 func TestCompressionCorpusManifestMatchesDisk(t *testing.T) {

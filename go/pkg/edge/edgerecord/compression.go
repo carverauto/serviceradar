@@ -62,7 +62,7 @@ func ValidateZstdPayload(payload []byte, declaredUncompressed uint32) error {
 		return ErrZstdTrailing
 	}
 	r, err := zstd.NewReader(bytes.NewReader(payload),
-		zstd.WithDecoderMaxMemory(MaxUncompressedBytes),
+		zstd.WithDecoderMaxMemory(MaxZstdWindowBytes),
 		zstd.WithDecoderConcurrency(1))
 	if err != nil {
 		return ErrZstdInvalid
@@ -93,15 +93,22 @@ func ValidateZstdPayload(payload []byte, declaredUncompressed uint32) error {
 	return nil
 }
 
-// DecompressZstdPayload validates the frame (via ValidateZstdPayload) and returns
-// the exact declaredUncompressed decoded bytes. It is the bounded decode the
-// trusted domain path uses before decoding an inner contract body.
+// DecompressZstdPayload validates the frame (via ValidateZstdPayload) and returns the exact
+// declaredUncompressed decoded bytes.
+//
+// IT IS THE FRAME STAGE ONLY. It does NOT apply record-level admission -- the encoded_size
+// binding and the 100:1 ratio live in validateRecordPayload and run BEFORE this in the
+// composed path. A caller reaching for this directly gets no ratio gate, so a bomb whose
+// frame is well formed is refused only by the 32 MiB output ceiling.
+//
+// Nothing in the tree calls it today; the composed path uses decompressZstdValidated, which
+// skips re-running validation that ValidateRecord already did.
 func DecompressZstdPayload(payload []byte, declaredUncompressed uint32) ([]byte, error) {
 	if err := ValidateZstdPayload(payload, declaredUncompressed); err != nil {
 		return nil, err
 	}
 	r, err := zstd.NewReader(bytes.NewReader(payload),
-		zstd.WithDecoderMaxMemory(MaxUncompressedBytes),
+		zstd.WithDecoderMaxMemory(MaxZstdWindowBytes),
 		zstd.WithDecoderConcurrency(1))
 	if err != nil {
 		return nil, ErrZstdInvalid
@@ -120,7 +127,7 @@ func DecompressZstdPayload(payload []byte, declaredUncompressed uint32) ([]byte,
 // composed validators do not decompress the same body a second and third time.
 func decompressZstdValidated(payload []byte, declaredUncompressed uint32) ([]byte, error) {
 	r, err := zstd.NewReader(bytes.NewReader(payload),
-		zstd.WithDecoderMaxMemory(MaxUncompressedBytes),
+		zstd.WithDecoderMaxMemory(MaxZstdWindowBytes),
 		zstd.WithDecoderConcurrency(1))
 	if err != nil {
 		return nil, ErrZstdInvalid

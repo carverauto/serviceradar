@@ -37,6 +37,14 @@ const (
 	uuidLen              = 16
 	MaxCompressionRatio  = 100
 	MaxUncompressedBytes = 32 * 1024 * 1024
+	// MaxZstdWindowBytes bounds the WINDOW a Zstd frame may advertise -- what the decoder
+	// must retain as history while producing output, as distinct from how much output there
+	// is. v1 gives it the SAME VALUE as MaxUncompressedBytes, and that is a coincidence
+	// rather than a rule: they answer different questions, and a frame advertising a 64 MiB
+	// window while emitting 1 MiB passes the output ceiling and the ratio and is still
+	// refused. Spelling it separately is what stops a change to one silently moving the
+	// other.
+	MaxZstdWindowBytes = 32 * 1024 * 1024
 
 	// Hard caps applied when a caller passes a non-positive limit, so an ack byte
 	// or count budget is ALWAYS enforced (a zero max never disables the limit).

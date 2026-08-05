@@ -741,7 +741,7 @@ here.
               emitting 1 MiB and diverged on a record both runtimes call otherwise valid.
               v1 giving the window and output ceilings the same VALUE is a coincidence, not
               a rule; they bound different things
-        - [ ] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
+        - [x] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
               ELIXIR PEER, and add shared boundary/rejection vectors.
               THE PEER AND THE SHARED CORPUS HAVE LANDED. No new dependency: OTP 28 ships
               `:zstd` in stdlib and the repo already pins 28.x, so no Hex package, no Rust
@@ -766,7 +766,23 @@ here.
               vectors are therefore unreachable as whole records -- `zstd_valid_5k.bin`
               declares 5000 bytes from a 15-byte frame (333:1) -- which is the stage they
               belong to, not a defect.
-              REMAINING in slice 2: reconcile Go against the frozen text.
+              GO RECONCILIATION IS DONE, and found one real divergence. The freeze states
+              three INDEPENDENT ceilings, but Go named only two: the decoder was configured
+              with `WithDecoderMaxMemory(MaxUncompressedBytes)` at three sites, so the code
+              said "the window ceiling IS the output ceiling" -- exactly the coincidence the
+              spec says is not a rule. `MaxZstdWindowBytes` is now its own constant and the
+              three sites use it. Mutation-proven independent: changing the OUTPUT ceiling
+              leaves the window vectors untouched, and changing the WINDOW ceiling flips
+              `zstd_window_above_ceiling.bin` to `accept`. Before the split, one edit moved
+              both.
+              Also corrected: `DecompressZstdPayload`'s doc claimed to be "the bounded decode
+              the trusted domain path uses". Nothing calls it, and it applies the FRAME stage
+              only -- no encoded_size binding, no ratio -- which the doc now says.
+              Everything else reconciled clean: the ratio runs on DECLARED sizes before
+              decompression, `encoded_size` is bound at validate.go:691 BEFORE the ratio at
+              716, declared-versus-actual holds in both directions, the extent check refuses
+              trailing data, and the product is widened before multiplying.
+              SLICE 2 IS COMPLETE.
               THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
               the other way round. An Elixir zstd binding is admissible only if it supports,
               or permits a project-owned preflight to enforce, ALL of: a bounded maximum
