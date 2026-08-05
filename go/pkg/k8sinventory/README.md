@@ -3,6 +3,9 @@
 Discovers **public / edge Kubernetes endpoint ownership** and builds
 **VIP → backend socket** correlation hints.
 
+**Operator documentation:** [docs/docs/k8s-public-endpoint-inventory.md](../../../docs/docs/k8s-public-endpoint-inventory.md)
+(ServiceAccount/RBAC via Helm, Argo CD notes, IR workflow).
+
 ## Phases
 
 | Phase | Status | What |

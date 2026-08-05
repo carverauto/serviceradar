@@ -28,6 +28,11 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'docker-setup', label: 'Docker Compose'},
         {type: 'doc', id: 'helm-configuration', label: 'Kubernetes (Helm)'},
         {type: 'doc', id: 'kubernetes-ingestion', label: 'Kubernetes Ingestion'},
+        {
+          type: 'doc',
+          id: 'k8s-public-endpoint-inventory',
+          label: 'Public Endpoint Inventory',
+        },
         {type: 'doc', id: 'service-ports', label: 'Kubernetes Ingress'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
         {
