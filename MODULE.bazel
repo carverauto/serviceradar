@@ -2766,6 +2766,7 @@ use_repo(
     "com_github_swaggo_swag",
     "com_github_tetratelabs_wazero",
     "in_gopkg_yaml_v3",
+    "io_k8s_api",
     "io_k8s_apimachinery",
     "io_k8s_client_go",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",

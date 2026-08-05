@@ -196,12 +196,36 @@ helm upgrade --install serviceradar ./helm/serviceradar \
    the backend pod; join is not automatic until VIP/DNAT correlation is wired
    in core.
 
+## Build and test (Bazel)
+
+Prefer Bazel (see `Bazel.md` / `BUILD.md`). From the repo root:
+
+```bash
+# Unit tests (no cluster)
+bazel test //go/pkg/k8sinventory:k8sinventory_test
+
+# Binary
+bazel build //go/cmd/k8s-inventory:k8s-inventory
+
+# OCI image (linux/amd64 — use remote from macOS)
+bazel build //docker/images:k8s_inventory_image_amd64 --config=remote
+
+# Push (on macOS use scripts/push_all_images.sh or the crane/jq patch path
+# documented in that script; plain `bazel run //docker/images:k8s_inventory_image_amd64_push --config=remote` fails on Darwin)
+```
+
+`MODULE.bazel` exposes `io_k8s_api` for typed core/discovery APIs. The image is
+registered in `docker/images/image_inventory.bzl` as
+`serviceradar-k8s-inventory`.
+
 ## Workstation CLI (no ServiceAccount)
 
 Build from source (or use a released binary when available):
 
 ```bash
+# go (dev) or bazel-built binary
 go build -o k8s-inventory ./go/cmd/k8s-inventory
+# or: bazel build //go/cmd/k8s-inventory:k8s-inventory
 
 k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
 k8s-inventory snapshot --cluster-id demo --hints-only --ip 23.138.124.7

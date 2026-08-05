@@ -27,6 +27,10 @@ Given a public flow destination such as `23.138.124.7:22`:
 ## Tests (no cluster / no NATS)
 
 ```bash
+# Preferred (CI / monorepo)
+bazel test //go/pkg/k8sinventory:k8sinventory_test
+
+# Local go (optional)
 go test ./go/pkg/k8sinventory/ -count=1
 ```
 

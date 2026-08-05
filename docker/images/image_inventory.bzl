@@ -4,6 +4,7 @@ PUBLISHABLE_IMAGES = [
     {"image": "core_elx_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent"},
     {"image": "trivy_sidecar_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar"},
+    {"image": "k8s_inventory_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-k8s-inventory"},
     {"image": "datasvc_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-datasvc"},
     {"image": "log_collector_image_amd64", "push_image": "log_collector_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-log-collector"},
     {"image": "trapd_image_amd64", "push_image": "trapd_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-trapd"},
