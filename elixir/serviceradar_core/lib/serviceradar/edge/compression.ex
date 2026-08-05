@@ -47,6 +47,8 @@ defmodule ServiceRadar.Edge.Compression do
   """
   import Bitwise
 
+  alias Serviceradar.Edge.V1.EdgeRecordV1
+
   # The frozen values. Their normative source is the spec requirement, not this module.
   @max_uncompressed 33_554_432
   @max_ratio 100
@@ -67,6 +69,21 @@ defmodule ServiceRadar.Edge.Compression do
   `:trailing` = `ErrZstdTrailing`.
   """
   @type reason :: :invalid | :output_size | :trailing
+
+  @typedoc """
+  Record-stage rejection reasons, matching Go's sentinels: `:payload_too_large` =
+  `ErrPayloadTooLarge`, `:encoded_size` = `ErrEncodedSize`, `:payload_digest` =
+  `ErrPayloadDigest`, `:compression` = `ErrCompression`, `:uncompressed_size` =
+  `ErrUncompressedSize`. A frame reason may also surface, unchanged.
+  """
+  @type record_reason ::
+          :payload_too_large
+          | :encoded_size
+          | :payload_digest
+          | :compression
+          | :uncompressed_size
+          | :record
+          | reason()
 
   @doc """
   The DECLARED-SIZE admission: nonzero, within the output ceiling, and within the ratio of
@@ -120,6 +137,53 @@ defmodule ServiceRadar.Edge.Compression do
       materialize(payload, declared)
     end
   end
+
+  @doc """
+  RECORD-LEVEL compression admission -- the peer of Go's `validatePayloadBinding`.
+
+  `admit_declared/2` is the ratio gate, but it takes `encoded_size` on trust; its own doc
+  says the caller MUST have bound that value to the payload length first. Until this
+  function existed nothing in this runtime did, so the precondition was documented and
+  never enforced -- and an unbound `encoded_size` buys arbitrary ratio headroom, because it
+  is the DENOMINATOR.
+
+  The ORDER is the frozen part, and it is Go's order exactly:
+
+    1. the payload fits the PHYSICAL ceiling;
+    2. `encoded_size` is BOUND to the actual payload length;
+    3. `payload_sha256` covers those same bytes;
+    4. the codec is one of the admitted set;
+    5. per codec -- NONE requires `uncompressed_size == encoded_size`; ZSTD applies the
+       declared-size and ratio gate BEFORE decoding, then validates the frame.
+
+  Step 2 before step 5 is what makes the ratio meaningful; a runtime that checked the ratio
+  first would compare against a number the sender chose.
+
+  ## Reasons
+
+  One-for-one with Go's sentinels: `:payload_too_large`, `:encoded_size`, `:payload_digest`,
+  `:compression`, `:uncompressed_size`, plus the frame reasons from `validate_payload/2`.
+
+  `admit_declared/2` reports `:output_size` because at the FRAME stage that is Go's
+  `ErrZstdOutputSize`. At the RECORD stage the same condition is Go's `ErrUncompressedSize`,
+  so it is translated here rather than leaking a frame reason into a record verdict.
+
+  `:record` has no Go counterpart -- Go's signature makes a non-record unrepresentable. It
+  keeps this boundary total, and no shared vector can produce it.
+  """
+  @spec admit_record(term()) :: :ok | {:error, record_reason()}
+  def admit_record(%EdgeRecordV1{} = r) do
+    payload = r.payload || <<>>
+
+    with :ok <- payload_in_range(payload),
+         :ok <- encoded_size_bound(r.encoded_size, payload),
+         :ok <- payload_digest(r.payload_sha256, payload),
+         :ok <- admitted_codec(r.compression) do
+      admit_codec(r.compression, r.uncompressed_size, r.encoded_size, payload)
+    end
+  end
+
+  def admit_record(_), do: {:error, :record}
 
   @doc "The frozen ceilings, so callers and vectors read them from one place."
   @spec limits() :: %{uncompressed: pos_integer(), ratio: pos_integer(), window: pos_integer()}
@@ -268,6 +332,44 @@ defmodule ServiceRadar.Edge.Compression do
   catch
     _, _ -> {:error, :invalid}
   end
+
+  # --- record-stage admission ------------------------------------------------------------
+
+  defp payload_in_range(p) when byte_size(p) <= @max_payload, do: :ok
+  defp payload_in_range(_), do: {:error, :payload_too_large}
+
+  defp encoded_size_bound(declared, payload) when declared == byte_size(payload), do: :ok
+  defp encoded_size_bound(_, _), do: {:error, :encoded_size}
+
+  defp payload_digest(<<digest::binary-size(32)>>, payload) do
+    if :crypto.hash(:sha256, payload) == digest, do: :ok, else: {:error, :payload_digest}
+  end
+
+  defp payload_digest(_, _), do: {:error, :payload_digest}
+
+  # The admitted SET lives here alone, ahead of the per-codec logic, so the switch below
+  # only decides HOW to validate an accepted codec -- Go's structure, for the same reason.
+  defp admitted_codec(c) when c in [:EDGE_RECORD_COMPRESSION_NONE, :EDGE_RECORD_COMPRESSION_ZSTD],
+    do: :ok
+
+  defp admitted_codec(_), do: {:error, :compression}
+
+  defp admit_codec(:EDGE_RECORD_COMPRESSION_NONE, uncompressed, encoded, _payload) do
+    if uncompressed == encoded, do: :ok, else: {:error, :uncompressed_size}
+  end
+
+  defp admit_codec(:EDGE_RECORD_COMPRESSION_ZSTD, uncompressed, encoded, payload) do
+    case admit_declared(uncompressed, encoded) do
+      :ok -> validate_payload(payload, uncompressed)
+      {:error, :output_size} -> {:error, :uncompressed_size}
+    end
+  end
+
+  # FAIL-CLOSED, mirroring Go's `default:` arm. `admitted_codec/1` already guarantees the
+  # codec, so this is unreachable -- which is the point: without it, removing that gate turns
+  # an unlisted codec into a FunctionClauseError instead of a rejection, and this boundary is
+  # documented as total. Go fails closed twice here; so does the peer.
+  defp admit_codec(_codec, _uncompressed, _encoded, _payload), do: {:error, :compression}
 
   # --- the frame walk --------------------------------------------------------------------
 

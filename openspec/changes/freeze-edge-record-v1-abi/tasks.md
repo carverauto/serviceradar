@@ -742,7 +742,7 @@ here.
               emitting 1 MiB and diverged on a record both runtimes call otherwise valid.
               v1 giving the window and output ceilings the same VALUE is a coincidence, not
               a rule; they bound different things
-        - [ ] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
+        - [x] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
               ELIXIR PEER, and add shared boundary/rejection vectors.
               THE PEER AND THE SHARED CORPUS HAVE LANDED. No new dependency: OTP 28 ships
               `:zstd` in stdlib and the repo already pins 28.x, so no Hex package, no Rust
@@ -820,7 +820,35 @@ here.
                   wrongly ACCEPT. Nothing currently exercises the one-layer rule, so it is
                   frozen and unproven until this vector exists.
               These are WHOLE-RECORD vectors, not payload ones, because the binding and the
-              ratio live in record validation rather than in the frame validator
+              ratio live in record validation rather than in the frame validator.
+              IMPLEMENTED, PENDING SIGN-OFF. Eight committed vectors under
+              `proto/edge/v1/testdata/record_admit_*.bin` with `record_admit_corpus.txt`
+              carrying the expectation, so the peer DERIVES its verdict. The stage under test
+              is `validatePayloadBinding` -- record-level payload/compression admission, not
+              the full envelope -- and its Elixir peer is `Compression.admit_record/1`.
+              THE PEER CLOSES A GAP THE LEDGER HAD NOT NAMED: `admit_declared/2` is the ratio
+              gate, and its own doc says the caller MUST have bound `encoded_size` to the
+              payload length first, but NOTHING in this runtime did. The precondition was
+              documented and unenforced, which is the same as absent -- an unbound
+              `encoded_size` is arbitrary ratio headroom, because it is the denominator.
+              TWO VECTORS ARE CONSTRUCTED RATHER THAN COMMITTED, from a shared deterministic
+              recipe (sha256 over a counter, then zeros). The 32 MiB pair needs a frame that
+              really produces 33_554_432 bytes while staying above 1/100th of it -- ~340 KiB,
+              larger than every committed vector in this corpus combined and larger than any
+              existing fixture in the tree. Both runtimes ASSERT the size window and the
+              ratio slack before asserting the verdict, so a compressor change fails the test
+              instead of quietly turning the ceiling vector into a ratio vector.
+              THE RECURSIVE NEGATIVE CARRIES A CONTROL, because a negative vector whose inner
+              content was invalid anyway would prove nothing about recursion: the doubly
+              wrapped message is asserted to be one that VALIDATES when unwrapped twice, so a
+              recursive runtime would WRONGLY ACCEPT exactly this input. Admission itself
+              accepts the record -- the outer frame is well formed, and one-layer is not an
+              admission-stage property; the refusal is the contract stage, `ErrRecordDecode`
+              in Go and `:poison` in the peer.
+              NO SPEC CHANGE. Slice 3 proves existing SHALLs; it does not add or move a rule.
+              NOT COVERED, deliberately: a `payload_too_large` whole-record vector, which
+              would need a >512 KiB fixture to say what slice 2's constructed ceiling vectors
+              already say at the frame API
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
         applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
         32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is
