@@ -169,20 +169,44 @@ Notes:
 
 | Pattern | Status | Notes |
 |---|---|---|
-| **A. Co-located** — full ServiceRadar + inventory in the workload cluster | **Supported** | Default; use chart values above |
-| **B. Central ServiceRadar** — inventory Deployment only in remote clusters, publish to central NATS | **Experimental / manual** | Requires reachable NATS (or gateway), mTLS identity per cluster, unique `clusterId`, and operational ownership of remote chart/manifests. Not automated as a first-class multi-cluster Helm subchart yet |
-| **C. Workstation snapshot** — `k8s-inventory snapshot` with admin kubeconfig | Lab / break-glass | No continuous publish; good for proving VIP ownership before enabling the Deployment |
+| **A. Co-located** — full ServiceRadar + inventory in the workload cluster | **Supported today** | Direct NATS publish; use chart values above |
+| **B. Sensors only** — inventory + **cluster agent** → agent-gateway → central/SaaS | **Designed (in progress)** | Intended SaaS / multi-cluster path; no NATS/core in the customer cluster. See OpenSpec `add-remote-k8s-inventory-via-agent` |
+| **C. Direct remote NATS** — inventory publishes to central JetStream | **Not preferred** | Exposes NATS / leaf topology; weaker alignment with edge onboarding |
+| **D. Workstation snapshot** — `k8s-inventory snapshot` with admin kubeconfig | Lab / break-glass | No continuous publish |
 
-For pattern B, treat each remote cluster as:
+#### Pattern B (target for SaaS and 50-cluster fleets)
+
+Customers should **not** need ServiceRadar running everywhere. The product shape is
+the same as other edge sensors:
 
 ```text
-remote cluster: inventory SA + Deployment (clusterId=unique)
-        │  mTLS publish inventory.k8s.public_endpoints
-        ▼
-central ServiceRadar NATS / core  (same subject family)
+Customer cluster (no full ServiceRadar)
+┌──────────────────────────────────────────────┐
+│  k8s-inventory  (ClusterRole, watches API)   │
+│         │ spool (local volume)                 │
+│  serviceradar-agent  (Deployment, replicas=1)│
+│         │ outbound mTLS gRPC                   │
+└─────────┼──────────────────────────────────────┘
+          ▼
+   agent-gateway  (central or serviceradar.cloud)
+          │ JetStream inventory.k8s.public_endpoints
+          ▼
+   core EventWriter → public_endpoints_current
+          │
+          └─► SRQL / Attributed Flows (cluster_id disambiguates)
 ```
 
-Do **not** reuse one `clusterId` across clusters.
+| Component in customer cluster | Role |
+|---|---|
+| `serviceradar-k8s-inventory` | Only process with kube API inventory RBAC |
+| `serviceradar-agent` (cluster agent) | Enrolled edge identity; reads spool; pushes to gateway |
+| Host DaemonSet agents (optional) | Netprobe / workload-identity on nodes—**no** inventory ClusterRole |
+
+Do **not** reuse one `clusterId` across clusters. Host DaemonSet agents never
+receive the inventory ServiceAccount token.
+
+Implementation tracking: OpenSpec change
+`openspec/changes/add-remote-k8s-inventory-via-agent/`.
 
 ### Platform team FAQ
 
