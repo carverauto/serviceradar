@@ -1,0 +1,31 @@
+elixir/serviceradar_core/BUILD.bazel
+  s_0eda1e1f71cc86::t_e53d5277db60d6 113
+  s_0eda1e1f71cc86::t_5d5c3b1c8011cf 39-81
+elixir/web-ng/BUILD.bazel
+  s_0eda1e1f71cc86::t_21d7a57bc14bbf 143
+  s_0eda1e1f71cc86::t_c6f1a7c97afced 63-92
+build/mix_app.bzl
+  s_0eda1e1f71cc86::t_84d45dc5224b35 559-561,563-564,566,568-569,571-581
+  s_0eda1e1f71cc86::t_db3a7bda6306aa 617
+  s_0eda1e1f71cc86::t_b9e524ca29f8f9 540-558
+  s_0eda1e1f71cc86::t_43c947ebded821 180-207,214-245
+  s_0eda1e1f71cc86::t_d81f7bcb000387 269-304,308-313,323-324,326-351
+  s_0eda1e1f71cc86::t_d6f07385f989ba 538-539,562,565,567,570,582-591
+  s_0eda1e1f71cc86::t_6b3a05428060f3 352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c559023bf5a6e669031867d0afec73c346f3d956",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
