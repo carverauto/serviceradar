@@ -169,31 +169,22 @@ WEB_NG_DEPS = [
         "//elixir/datasvc:erlang_app",
         "//elixir/serviceradar_srql:erlang_app",
         "@hex_adbc//:erlang_app",
-        "@hex_ash_credo//:erlang_app",
         "@hex_ash_phoenix//:erlang_app",
         "@hex_bandit//:erlang_app",
         "@hex_bcrypt_elixir//:erlang_app",
         "@hex_boundary//:erlang_app",
         "@hex_broadway_dashboard//:erlang_app",
         "@hex_castore//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
         "@hex_dns_cluster//:erlang_app",
         "@hex_ecto_sql//:erlang_app",
         "@hex_elixlsx//:erlang_app",
         "@hex_esbuild//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
         "@hex_gen_smtp//:erlang_app",
         "@hex_gettext//:erlang_app",
         "@hex_gnat//:erlang_app",
         "@hex_guardian//:erlang_app",
-        "@hex_igniter//:erlang_app",
         "@hex_jason//:erlang_app",
-        "@hex_jump_credo_checks//:erlang_app",
-        "@hex_lazy_html//:erlang_app",
         "@hex_mdex//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
         "@hex_oban_web//:erlang_app",
         "@hex_open_api_spex//:erlang_app",
         "@hex_permit//:erlang_app",
@@ -203,7 +194,6 @@ WEB_NG_DEPS = [
         "@hex_phoenix_ecto//:erlang_app",
         "@hex_phoenix_html//:erlang_app",
         "@hex_phoenix_live_dashboard//:erlang_app",
-        "@hex_phoenix_live_reload//:erlang_app",
         "@hex_phoenix_live_view//:erlang_app",
         "@hex_phoenix_react_ng//:erlang_app",
         "@hex_postgrex//:erlang_app",
@@ -211,9 +201,7 @@ WEB_NG_DEPS = [
         "@hex_redoc_ui_plug//:erlang_app",
         "@hex_req//:erlang_app",
         "@hex_samly//:erlang_app",
-        "@hex_sobelow//:erlang_app",
         "@hex_stream_data//:erlang_app",
-        "@hex_styler//:erlang_app",
         "@hex_swoosh//:erlang_app",
         "@hex_tailwind//:erlang_app",
         "@hex_telemetry_metrics//:erlang_app",
@@ -222,6 +210,29 @@ WEB_NG_DEPS = [
         "@hex_ueberauth//:erlang_app",
     "@hex_ueberauth_oidcc//:erlang_app",
     "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+WEB_NG_DEV_DEPS = [
+        "@hex_ash_credo//:erlang_app",
+        "@hex_credo//:erlang_app",
+        "@hex_dialyxir//:erlang_app",
+        "@hex_ex_dna//:erlang_app",
+        "@hex_ex_slop//:erlang_app",
+        "@hex_igniter//:erlang_app",
+        "@hex_jump_credo_checks//:erlang_app",
+        "@hex_lazy_html//:erlang_app",
+        "@hex_mix_audit//:erlang_app",
+        "@hex_phoenix_live_reload//:erlang_app",
+        "@hex_sobelow//:erlang_app",
+        "@hex_styler//:erlang_app",
 ]
 
 # Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
@@ -233,7 +244,7 @@ mix_app(
     extra_config = WEB_NG_EXTRA_CONFIG,
     mix_env = "test",
     native_libs = WEB_NG_NATIVE_LIBS,
-    deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS,
+    deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )
 
 # The release build. Under :prod, elixirc_paths drops test/support and every

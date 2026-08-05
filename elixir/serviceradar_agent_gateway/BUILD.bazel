@@ -34,6 +34,28 @@ filegroup(
     ),
 )
 
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs declares `elixirc_paths(:test), do: ["lib", "test/support"]`, so every other file
+# under test/ was a declared input of a compile that does not read it, and touching one
+# rebuilt this app and everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
 filegroup(
     name = "deps_srcs",
     srcs = [
@@ -46,26 +68,37 @@ filegroup(
 # them -- each env must see serviceradar_core built for the SAME env, or a release ends up
 # with test-compiled configuration baked into a dependency.
 GATEWAY_DEPS = [
-    "@hex_ash_credo//:erlang_app",
         "@hex_bandit//:erlang_app",
         "@hex_boundary//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
         "@hex_grpc_server//:erlang_app",
         "@hex_gun//:erlang_app",
         "@hex_jason//:erlang_app",
         "@hex_libcluster//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
-        "@hex_mox//:erlang_app",
         "@hex_plug//:erlang_app",
         "@hex_protobuf//:erlang_app",
         "@hex_req//:erlang_app",
-        "@hex_styler//:erlang_app",
         "@hex_telemetry_metrics//:erlang_app",
     "@hex_telemetry_metrics_prometheus_core//:erlang_app",
     "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+GATEWAY_DEV_DEPS = [
+    "@hex_ash_credo//:erlang_app",
+        "@hex_credo//:erlang_app",
+        "@hex_dialyxir//:erlang_app",
+        "@hex_ex_dna//:erlang_app",
+        "@hex_ex_slop//:erlang_app",
+        "@hex_mix_audit//:erlang_app",
+        "@hex_mox//:erlang_app",
+        "@hex_styler//:erlang_app",
 ]
 
 # Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
@@ -73,10 +106,10 @@ GATEWAY_DEPS = [
 # need those support modules on the code path.
 mix_app(
     name = "erlang_app",
-    srcs = [":srcs"],
+    srcs = [":compile_srcs"],
     app_name = "serviceradar_agent_gateway",
     mix_env = "test",
-    deps = ["//elixir/serviceradar_core:erlang_app"] + GATEWAY_DEPS,
+    deps = ["//elixir/serviceradar_core:erlang_app"] + GATEWAY_DEPS + GATEWAY_DEV_DEPS,
 )
 
 # The release build. See //elixir/serviceradar_core:erlang_app_prod for why the env
@@ -84,7 +117,7 @@ mix_app(
 # of serviceradar_core, so no test-only application reaches the image.
 mix_app(
     name = "erlang_app_prod",
-    srcs = [":srcs"],
+    srcs = [":compile_srcs"],
     app_name = "serviceradar_agent_gateway",
     mix_env = "prod",
     deps = ["//elixir/serviceradar_core:erlang_app_prod"] + GATEWAY_DEPS,

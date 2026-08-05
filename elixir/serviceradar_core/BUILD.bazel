@@ -153,7 +153,6 @@ CORE_DEPS = [
         "@hex_ash//:erlang_app",
         "@hex_ash_admin//:erlang_app",
         "@hex_ash_cloak//:erlang_app",
-        "@hex_ash_credo//:erlang_app",
         "@hex_ash_json_api//:erlang_app",
         "@hex_ash_oban//:erlang_app",
         "@hex_ash_paper_trail//:erlang_app",
@@ -165,12 +164,8 @@ CORE_DEPS = [
         "@hex_broadway_dashboard//:erlang_app",
         "@hex_castore//:erlang_app",
         "@hex_cloak//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
         "@hex_ecto_sql//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
         "@hex_ex_json_schema//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
         "@hex_file_system//:erlang_app",
         "@hex_geolix_adapter_mmdb2//:erlang_app",
         "@hex_gnat//:erlang_app",
@@ -179,7 +174,6 @@ CORE_DEPS = [
         "@hex_horde//:erlang_app",
         "@hex_jason//:erlang_app",
         "@hex_libcluster//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
         "@hex_oban//:erlang_app",
         "@hex_open_api_spex//:erlang_app",
         "@hex_opentelemetry//:erlang_app",
@@ -196,13 +190,30 @@ CORE_DEPS = [
         "@hex_req//:erlang_app",
         "@hex_rustler//:erlang_app",
         "@hex_simple_sat//:erlang_app",
-        "@hex_sourceror//:erlang_app",
-        "@hex_styler//:erlang_app",
         "@hex_swoosh//:erlang_app",
         "@hex_telemetry//:erlang_app",
         "@hex_telemetry_metrics//:erlang_app",
     "@hex_yaml_elixir//:erlang_app",
     "@rules_elixir//elixir",
+]
+
+# Declared `only: [:dev, :test]` in mix.exs, most with `runtime: false`. Mix therefore
+# excludes every one of them under MIX_ENV=prod -- but the Bazel :erlang_app_prod target was
+# declaring them anyway, which staged them into the prod compile's ERL_LIBS and, more
+# importantly, carried them through ErlangAppInfo into the OTP release closure that becomes
+# the shipped image. Lint and static-analysis tooling has no business in a production
+# release.
+#
+# Kept on the :test target, which is the env that actually resolves them.
+CORE_DEV_DEPS = [
+        "@hex_ash_credo//:erlang_app",
+        "@hex_credo//:erlang_app",
+        "@hex_dialyxir//:erlang_app",
+        "@hex_ex_dna//:erlang_app",
+        "@hex_ex_slop//:erlang_app",
+        "@hex_mix_audit//:erlang_app",
+        "@hex_sourceror//:erlang_app",
+        "@hex_styler//:erlang_app",
 ]
 
 # serviceradar_core compiled by Mix inside a single hermetic Bazel action.
@@ -218,7 +229,7 @@ mix_app(
     extra_config = CORE_EXTRA_CONFIG,
     mix_env = "test",
     native_libs = CORE_NATIVE_LIBS,
-    deps = CORE_DEPS,
+    deps = CORE_DEPS + CORE_DEV_DEPS,
 )
 
 # The same application compiled for release. This is not a duplicate of :erlang_app --

@@ -16,6 +16,28 @@ filegroup(
     ),
 )
 
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs declares `elixirc_paths(:test), do: ["lib", "test/support"]`, so every other file
+# under test/ was a declared input of a compile that does not read it, and touching one
+# rebuilt this app and everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
 filegroup(
     name = "deps_srcs",
     srcs = [
@@ -78,7 +100,7 @@ filegroup(
 # second env would compile the entire Membrane stack twice.
 mix_app(
     name = "erlang_app_prod",
-    srcs = [":srcs"],
+    srcs = [":compile_srcs"],
     app_name = "serviceradar_core_elx",
     # Bazel builds the cdylibs; Mix must not shell out to cargo. The libraries reach the
     # release through serviceradar_core's own priv.

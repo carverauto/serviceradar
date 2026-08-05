@@ -29,21 +29,20 @@ filegroup(
 )
 
 # Compiled by Mix inside a single hermetic Bazel action. See //build:mix_app.bzl.
+# NOTE: this target has no mix_env, so it compiles under the rule default of "prod", and the
+# package has no tests. It previously declared credo, dialyxir, ex_dna, ex_slop, mix_audit and
+# styler -- all `only: [:dev, :test]` in mix.exs, so Mix excludes them here -- and because
+# //elixir/web-ng depends on this app, they were dragged into web-ng's PROD release closure
+# too. Removed; nothing in this package or its consumers resolves them.
 mix_app(
     name = "erlang_app",
     srcs = [":srcs"],
     app_name = "datasvc",
     deps = [
         "@hex_boundary//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
         "@hex_grpc//:erlang_app",
         "@hex_gun//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
         "@hex_protobuf//:erlang_app",
-        "@hex_styler//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )
