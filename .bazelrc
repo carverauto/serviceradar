@@ -279,7 +279,7 @@ build:remote_base --incompatible_strict_action_env
 # changed. That was `remote_push`; it drifted out of sync with remote_base and was deleted.
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
-build:remote_base --jobs=50
+build:remote_base --jobs=75
 build:remote_base --strategy=ExpandTemplate=local
 # NpmPackageExtract is deliberately NOT pinned local. It runs aspect_bazel_lib's `tar`,
 # which comes from a toolchain resolved for the EXEC platform -- and this config pins
