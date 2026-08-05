@@ -94,12 +94,12 @@ autoscaler:
 #   kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'
 resources:
   requests:
-    cpu: "8"
-    memory: "36Gi"
+    cpu: "12"
+    memory: "48GGi"
     ephemeral-storage: "45Gi"
   limits:
-    cpu: "8"
-    memory: "48Gi"
+    cpu: "16"
+    memory: "64Gi"
     ephemeral-storage: "50Gi"
 
 # Same exclusion as the build fleet.
