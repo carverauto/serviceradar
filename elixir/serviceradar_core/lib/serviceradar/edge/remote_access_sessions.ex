@@ -205,16 +205,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         _ -> ""
       end
 
-    if name != "" do
-      [%{"name" => name}]
-    else
+    if name == "" do
       []
+    else
+      [%{"name" => name}]
     end
   end
 
   defp public_ssh_account(name) when is_binary(name) do
     trimmed = String.trim(name)
-    if trimmed != "", do: [%{"name" => trimmed}], else: []
+    if trimmed == "", do: [], else: [%{"name" => trimmed}]
   end
 
   defp public_ssh_account(_account), do: []
