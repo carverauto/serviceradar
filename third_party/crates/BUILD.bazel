@@ -277,8 +277,8 @@ alias(
 )
 
 alias(
-    name = "clap-4.6.4",
-    actual = "//third_party/crates/clap-4.6.4:clap",
+    name = "clap-4.6.5",
+    actual = "//third_party/crates/clap-4.6.5:clap",
     tags = ["manual"],
 )
 
@@ -571,14 +571,14 @@ alias(
 )
 
 alias(
-    name = "http-1.4.2",
-    actual = "//third_party/crates/http-1.4.2:http",
+    name = "http-1.5.0",
+    actual = "//third_party/crates/http-1.5.0:http",
     tags = ["manual"],
 )
 
 alias(
     name = "http",
-    actual = "//third_party/crates/http-1.4.2:http",
+    actual = "//third_party/crates/http-1.5.0:http",
     tags = ["manual"],
 )
 
@@ -979,14 +979,14 @@ alias(
 )
 
 alias(
-    name = "regex-automata-0.4.16",
-    actual = "//third_party/crates/regex-automata-0.4.16:regex_automata",
+    name = "regex-automata-0.4.18",
+    actual = "//third_party/crates/regex-automata-0.4.18:regex_automata",
     tags = ["manual"],
 )
 
 alias(
     name = "regex-automata",
-    actual = "//third_party/crates/regex-automata-0.4.16:regex_automata",
+    actual = "//third_party/crates/regex-automata-0.4.18:regex_automata",
     tags = ["manual"],
 )
 
@@ -1063,14 +1063,14 @@ alias(
 )
 
 alias(
-    name = "rustls-0.23.42",
-    actual = "//third_party/crates/rustls-0.23.42:rustls",
+    name = "rustls-0.23.43",
+    actual = "//third_party/crates/rustls-0.23.43:rustls",
     tags = ["manual"],
 )
 
 alias(
     name = "rustls",
-    actual = "//third_party/crates/rustls-0.23.42:rustls",
+    actual = "//third_party/crates/rustls-0.23.43:rustls",
     tags = ["manual"],
 )
 

@@ -104,6 +104,12 @@ rust_library(
             "executor",  # arm-unknown-linux-gnueabi
             "futures-executor",  # arm-unknown-linux-gnueabi
         ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "async-await",  # arm-unknown-linux-musleabi
+            "default",  # arm-unknown-linux-musleabi
+            "executor",  # arm-unknown-linux-musleabi
+            "futures-executor",  # arm-unknown-linux-musleabi
+        ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "async-await",  # armv7-linux-androideabi
             "default",  # armv7-linux-androideabi
@@ -277,6 +283,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -349,6 +356,9 @@ rust_library(
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "//third_party/crates/futures-executor-0.3.33:futures_executor",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/futures-executor-0.3.33:futures_executor",  # arm-unknown-linux-musleabi
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "//third_party/crates/futures-executor-0.3.33:futures_executor",  # armv7-linux-androideabi
