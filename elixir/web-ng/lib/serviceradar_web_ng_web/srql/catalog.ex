@@ -1099,6 +1099,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       downsample: false
     },
+    # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
+    %{
+      id: "public_endpoints",
+      label: "Public Endpoints",
+      # No dedicated page yet; catalog is for autocomplete / builder only.
+      route: "",
+
+      default_time: "",
+      default_sort_field: "ip",
+      default_sort_dir: "asc",
+      default_filter_field: "ip",
+      filter_fields: [
+        "ip",
+        "hostname",
+        "port",
+        "protocol",
+        "namespace",
+        "cluster_id",
+        "exposure_class",
+        "service_name",
+        "gateway_name",
+        "route_name",
+        "route_kind",
+        "metallb_pool"
+      ],
+      known_values: %{
+        "exposure_class" => ["LoadBalancer", "Gateway", "ExternalIP"],
+        "protocol" => ["TCP", "UDP", "SCTP"]
+      },
+      downsample: false
+    },
     %{
       id: "service_availability",
       label: "Service Availability",
