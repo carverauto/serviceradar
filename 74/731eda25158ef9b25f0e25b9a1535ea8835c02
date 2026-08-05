@@ -1,0 +1,18 @@
+k8s/buildbuddy/scaledobject.yaml
+  h_080fb89ca1f0c4 47
+k8s/buildbuddy/values-workflows.yaml
+  h_080fb89ca1f0c4 97-98,101-102
+k8s/buildbuddy/values.yaml
+  h_080fb89ca1f0c4 35,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "74731eda25158ef9b25f0e25b9a1535ea8835c02",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
