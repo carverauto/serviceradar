@@ -1,0 +1,14 @@
+.bazelrc
+  h_080fb89ca1f0c4 282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "57d457c6e875ba75d0629e1372979f16ad7b0037",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
