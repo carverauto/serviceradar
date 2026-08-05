@@ -64,21 +64,43 @@ defmodule ServiceRadar.Edge.CompressionTest do
     end
   end
 
-  test "the ENCODED input is bounded by the exported api, not only by the caller" do
+  describe "the ENCODED-input ceiling on the public boundary" do
     # A separate KIND of bound from the three work ceilings: this one bounds RECEIVED BYTES.
     # Record admission refuses oversize payloads earlier, so this is about the exported
     # contract -- a direct caller must not be able to hand the frame walker an arbitrarily
     # large buffer just because it never went through record validation.
-    over = <<0x28, 0xB5, 0x2F, 0xFD>> <> :binary.copy(<<0>>, 524_288)
-    assert Compression.validate_payload(over, 5) == {:error, :invalid}
-    assert Compression.decompress(over, 5) == {:error, :invalid}
+    #
+    # THE INPUT IS A VALID FRAME PLUS PADDING. An earlier version padded a bare magic with
+    # zeros, so the parser returned `:invalid` whether or not the ceiling existed, and the
+    # at-limit case expected that SAME reason -- deleting the guard passed, and `>` versus
+    # `>=` was invisible. A valid frame makes the two sides give DIFFERENT reasons:
+    @max_payload 524_288
+
+    defp padded(total) do
+      f = real_frame("hello")
+      f <> :binary.copy(<<0>>, total - byte_size(f))
+    end
+
+    test "exactly at the ceiling the FRAME WALK decides" do
+      # Admitted by the ceiling, so the walk runs and reports the padding as trailing bytes.
+      assert Compression.validate_payload(padded(@max_payload), 5) == {:error, :trailing}
+      assert Compression.decompress(padded(@max_payload), 5) == {:error, :trailing}
+    end
+
+    test "one byte above the ceiling the CEILING decides first" do
+      assert Compression.validate_payload(padded(@max_payload + 1), 5) == {:error, :invalid}
+      assert Compression.decompress(padded(@max_payload + 1), 5) == {:error, :invalid}
+    end
   end
 
   describe "the frame walk" do
     test "a real frame's extent is exactly its byte size" do
+      # Observed through the public boundary rather than by calling the walk directly: the
+      # frame alone is admitted, and ONE more byte is trailing, which is what "the extent is
+      # exactly the payload length" means to a caller.
       f = real_frame(:binary.copy("A", 5000))
-      assert Compression.frame_length(f) == {:ok, byte_size(f)}
       assert Compression.validate_payload(f, 5000) == :ok
+      assert Compression.validate_payload(f <> <<0>>, 5000) == {:error, :trailing}
     end
 
     test "CONCATENATED frames are refused, which the OTP decoder alone would accept" do

@@ -728,10 +728,11 @@ here.
         would be dragged toward. The audit findings are in `design.md`, not restated here.
         - [x] slice 1 NORMATIVE FREEZE -- the requirement "Compression admission is frozen
               by value, stage, and frame shape" is the normative source for
-              `MaxUncompressedBytes = 33_554_432` and `MaxCompressionRatio = 100`, and
+              `MaxUncompressedBytes = 33_554_432`, `MaxCompressionRatio = 100` and
+              `MaxZstdWindowBytes = 33_554_432`, and
               freezes the enforcement STAGE, the denominator binding, the declared-versus-
               actual rule, the single-frame/trailing-data rule, the RECURSIVE-COMPRESSION rule and
-              overflow-safe ratio arithmetic. Until it landed both values lived only in
+              overflow-safe ratio arithmetic. Until it landed all three lived only in
               runtime source, so every consumer asserting any of the THREE -- 1.2-c's
               decoder among them -- pinned a number with nothing behind it. It freezes THREE independent
               limits, not two: decoded output <= 32 MiB, expansion ratio <= 100:1, and
@@ -741,7 +742,7 @@ here.
               emitting 1 MiB and diverged on a record both runtimes call otherwise valid.
               v1 giving the window and output ceilings the same VALUE is a coincidence, not
               a rule; they bound different things
-        - [x] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
+        - [ ] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
               ELIXIR PEER, and add shared boundary/rejection vectors.
               THE PEER AND THE SHARED CORPUS HAVE LANDED. No new dependency: OTP 28 ships
               `:zstd` in stdlib and the repo already pins 28.x, so no Hex package, no Rust
