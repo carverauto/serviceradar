@@ -1,0 +1,27 @@
+k8s/buildbuddy/values-workflows.yaml
+  s_0eda1e1f71cc86::t_df90954ec0e4eb 96-97,99-100
+  s_0eda1e1f71cc86::t_91fda24c27f751 69,72,74-75,81-86
+  s_0eda1e1f71cc86::t_51916c0bb73e85 4-13
+  s_0eda1e1f71cc86::t_69c82d109cd3f9 108
+k8s/buildbuddy/README.md
+  s_0eda1e1f71cc86::t_e57bf68ad05790 256-259,265-269
+  s_0eda1e1f71cc86::t_4f629cc076aa6a 240,242-243
+  s_0eda1e1f71cc86::t_3ff3c671b1e91d 219,224
+  s_0eda1e1f71cc86::t_836238ee789033 330,336,338-340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "fd5e3fc9817f5ce548b22008e36ccb2d10823392",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
