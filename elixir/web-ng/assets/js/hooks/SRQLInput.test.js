@@ -255,11 +255,12 @@ describe("SRQLInput hook", () => {
     ])
   })
 
-  test("prepends matching history while retyping a recent query", () => {
+  test("prepends matching history while retyping before a known entity is chosen", () => {
     const storage = memoryStorage()
     pushHistory("in:devices hostname:edge", storage)
     pushHistory("in:events time:last_1h", storage)
 
+    // Partial entity token is not a known catalog entity, so history may merge.
     const query = "in:dev"
     const state = tokenize(query, query.length)
     const hook = hookFor(state, {value: query, storage})
@@ -275,17 +276,35 @@ describe("SRQLInput hook", () => {
     )
   })
 
-  test("only shows history when the typed query is a substring of a recent entry", () => {
+  test("does not interleave history once a known entity is active", () => {
     const storage = memoryStorage()
-    pushHistory("in:devices hostname:edge", storage)
+    pushHistory("in:devices include_inactive:true time:last_24h hostname:edge", storage)
+    pushHistory("in:devices include_inactive:true time:last_24h", storage)
 
-    // Full query no longer matches the stored history entry as a substring.
-    const query = "in:devices hostname:other"
+    // Same shape as the live Devices bar: entity chosen, field/value completions.
+    const query = "in:devices include_inactive:true time:last_24h"
     const state = tokenize(query, query.length)
     const hook = hookFor(state, {value: query, storage})
     const candidates = hook.buildCandidates(state)
 
     expect(candidates.every(candidate => candidate.slot !== "history")).toBe(true)
+  })
+
+  test("does not list the current bar text as a history row while retyping", () => {
+    const storage = memoryStorage()
+    pushHistory("in:devices hostname:edge", storage)
+    pushHistory("in:dev", storage)
+
+    const query = "in:dev"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state, {value: query, storage})
+    const candidates = hook.buildCandidates(state)
+
+    expect(candidates.map(candidate => candidate.value)).not.toContain("in:dev")
+    expect(candidates[0]).toMatchObject({
+      value: "in:devices hostname:edge",
+      slot: "history",
+    })
   })
 
   test("accepting a history row replaces the whole query", () => {

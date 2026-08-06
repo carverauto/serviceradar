@@ -223,11 +223,19 @@ export default {
       candidates = state.entity ? [...this.fieldSlotCandidates(state), ...controls] : controls
     }
 
-    // Address-bar style: if the full typed query is a substring of a recent
-    // query, surface those first (works while retyping a prior search).
-    const history = this.historyCandidates(fullQuery)
-    if (history.length > 0) {
-      candidates = [...history, ...candidates]
+    // Once a known entity is in play (e.g. `in:devices …`), keep the dropdown
+    // pure token autocomplete — do not interleave Recent rows with Field lists.
+    // History only merges while the user is still choosing/retyping before that
+    // (empty bar is handled above; partials like `in:dev` still match).
+    const hasKnownEntity = Boolean(state.entity && this.catalog.entities?.[state.entity])
+    if (!hasKnownEntity) {
+      const history = this.historyCandidates(fullQuery).filter(
+        // Bar already equals a recent entry — no point listing it above tokens.
+        candidate => candidate.value !== fullQuery
+      )
+      if (history.length > 0) {
+        candidates = [...history, ...candidates]
+      }
     }
 
     if (!raw || this.forceAllCandidates) return candidates
