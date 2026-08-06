@@ -1,0 +1,27 @@
+Makefile
+  s_0eda1e1f71cc86::t_92e5357ae8fcad 448-451
+build/elixir_tests.bzl
+  s_0eda1e1f71cc86::t_da15a5fc2499f5 93,117-120,232,246,250-256
+elixir/serviceradar_core/BUILD.bazel
+  s_0eda1e1f71cc86::t_63c684837e145c 290-303
+elixir/web-ng/BUILD.bazel
+  s_0eda1e1f71cc86::t_473e178a5d5449 320-329
+scripts/check.sh
+  s_0eda1e1f71cc86::t_3dc77d79017291 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "049be8fd5cabd80971d8eeb918b6c1803988813d",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
