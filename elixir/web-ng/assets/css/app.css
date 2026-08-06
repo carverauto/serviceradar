@@ -1950,10 +1950,10 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-shell-bg: radial-gradient(circle at 28% 10%, rgba(62, 207, 135, 0.1), transparent 26rem),
     radial-gradient(circle at 80% 0%, rgba(11, 130, 77, 0.08), transparent 24rem), #0a1114;
   --sr-ops-shell-text: #edf5f1;
-  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(10, 17, 20, 0.98), rgba(16, 25, 29, 0.96));
+  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(10, 17, 20, 0.92), rgba(16, 25, 29, 0.88));
   --sr-ops-border: rgba(38, 54, 58, 0.95);
   --sr-ops-border-soft: rgba(38, 54, 58, 0.75);
-  --sr-ops-topbar-bg: rgba(16, 25, 29, 0.9);
+  --sr-ops-topbar-bg: rgba(16, 25, 29, 0.82);
   --sr-ops-query-bg: rgba(10, 17, 20, 0.78);
   --sr-ops-querybuilder-bg: rgba(16, 25, 29, 0.94);
   --sr-ops-title: #edf5f1;
@@ -1964,10 +1964,19 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-avatar-border: rgba(59, 76, 80, 0.9);
   --sr-ops-brand-mark-bg: rgba(17, 28, 32, 0.96);
   --sr-ops-brand-mark-border: rgba(59, 76, 80, 0.9);
+  /* Floating chrome insets — keeps rail/topbar pinned while reading as floating cards */
+  --sr-ops-chrome-inset: 0.75rem;
+  --sr-ops-chrome-gap: 0.75rem;
+  --sr-ops-chrome-radius: 1rem;
+  --sr-ops-rail-width: 3.75rem;
 
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-columns: 4.25rem minmax(0, 1fr);
+  grid-template-columns: var(--sr-ops-rail-width) minmax(0, 1fr);
+  gap: var(--sr-ops-chrome-gap);
+  padding: var(--sr-ops-chrome-inset);
+  box-sizing: border-box;
   background: var(--sr-ops-shell-bg);
   color: var(--sr-ops-shell-text);
   font-family: var(--sr-font-sans);
@@ -1979,10 +1988,10 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-shell-bg: radial-gradient(circle at 25% 8%, rgba(11, 130, 77, 0.08), transparent 28rem),
     radial-gradient(circle at 82% 0%, rgba(13, 154, 92, 0.06), transparent 26rem), #f7f9f8;
   --sr-ops-shell-text: #0b1720;
-  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(252, 253, 253, 0.98), rgba(239, 244, 241, 0.96));
+  --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 249, 248, 0.86));
   --sr-ops-border: rgba(200, 211, 206, 0.9);
   --sr-ops-border-soft: rgba(221, 228, 225, 0.95);
-  --sr-ops-topbar-bg: rgba(252, 253, 253, 0.92);
+  --sr-ops-topbar-bg: rgba(255, 255, 255, 0.86);
   --sr-ops-query-bg: rgba(255, 255, 255, 0.86);
   --sr-ops-querybuilder-bg: rgba(247, 249, 248, 0.96);
   --sr-ops-title: #0b1720;
@@ -2002,20 +2011,28 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
 
 .sr-ops-sidebar {
   position: sticky;
-  top: 0;
+  top: var(--sr-ops-chrome-inset);
   z-index: 20;
-  height: 100vh;
+  align-self: start;
+  width: var(--sr-ops-rail-width);
+  height: calc(100vh - (var(--sr-ops-chrome-inset) * 2));
+  height: calc(100dvh - (var(--sr-ops-chrome-inset) * 2));
   display: flex;
   flex-direction: column;
   align-items: center;
-  border-right: 1px solid var(--sr-ops-border);
+  border: 1px solid var(--sr-ops-border);
+  border-radius: var(--sr-ops-chrome-radius);
   background: var(--sr-ops-sidebar-bg);
-  padding: 0.75rem 0.5rem;
+  box-shadow: var(--sr-shadow-nav, 0 8px 24px rgb(0 0 0 / 0.2));
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  padding: 0.75rem 0.45rem;
 }
 
 [data-theme="light"] .sr-ops-sidebar {
-  border-right-color: rgba(148, 163, 184, 0.45);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.94));
+  border-color: rgba(148, 163, 184, 0.45);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 248, 0.88));
+  box-shadow: var(--sr-shadow-nav, 0 8px 24px rgb(23 48 38 / 0.07));
 }
 
 .sr-ops-logo,
@@ -2112,37 +2129,40 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
 
 .sr-ops-main {
   min-width: 0;
-  min-height: 100vh;
+  min-height: calc(100vh - (var(--sr-ops-chrome-inset, 0.75rem) * 2));
+  min-height: calc(100dvh - (var(--sr-ops-chrome-inset, 0.75rem) * 2));
   display: flex;
   flex-direction: column;
+  gap: var(--sr-ops-chrome-gap, 0.75rem);
 }
 
 .sr-ops-topbar {
-  /* Sticky + explicit z-index lifts the topbar's stacking context above the
-     dashboard content below it. Without a real z-index the backdrop-filter
-     alone only creates a z-index:auto stacking context, so dashboard widgets
-     (map/charts via transform/filter/z-index, which come later in the DOM)
-     paint over the topbar — hiding the profile dropdown and the topbar SRQL
-     completions dropdown. Stays below daisyUI modals/drawers/dropdowns (z 999)
-     and native <dialog> top-layer, so overlays still cover the topbar. */
+  /* Floating + sticky: stays pinned while scrolling, inset card chrome so it
+     reads as a shell surface rather than a full-bleed strip. Explicit z-index
+     lifts the topbar above dashboard widgets (maps/charts/transforms) so
+     profile + SRQL dropdowns stay usable. Stays below daisyUI modals/drawers. */
   position: sticky;
-  top: 0;
+  top: var(--sr-ops-chrome-inset, 0.75rem);
   z-index: var(--sr-z-shell);
-  min-height: 4rem;
+  min-height: 3.75rem;
   height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-bottom: 1px solid var(--sr-ops-border-soft);
+  border: 1px solid var(--sr-ops-border-soft);
+  border-radius: var(--sr-ops-chrome-radius, 1rem);
   background: var(--sr-ops-topbar-bg);
-  padding: 0.5rem 1.25rem;
-  backdrop-filter: blur(12px);
+  box-shadow: var(--sr-shadow-nav, 0 8px 24px rgb(0 0 0 / 0.2));
+  padding: 0.5rem 1.1rem;
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
 }
 
 [data-theme="light"] .sr-ops-topbar {
-  border-bottom-color: rgba(148, 163, 184, 0.4);
-  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--sr-shadow-nav, 0 8px 24px rgb(23 48 38 / 0.07));
 }
 
 .sr-ops-topbar-title {
@@ -2303,36 +2323,40 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   color: var(--sr-ops-hover-text);
 }
 
-/* Public / standard shell topbar — marketing-aligned sticky chrome */
+/* Public / standard shell topbar — floating sticky chrome */
 .sr-public-topbar {
   position: sticky;
-  top: 0;
+  top: 0.75rem;
   z-index: var(--sr-z-shell);
-  border-bottom: 1px solid var(--sr-color-line);
-  background: color-mix(in srgb, var(--sr-color-surface) 90%, transparent);
-  backdrop-filter: blur(12px);
+  margin: 0.75rem 0.75rem 0;
+  border: 1px solid var(--sr-color-line);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--sr-color-surface) 86%, transparent);
+  box-shadow: var(--sr-shadow-nav, 0 8px 24px rgb(0 0 0 / 0.16));
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
 }
 
 .sr-public-topbar-inner {
   display: flex;
-  min-height: 4rem;
+  min-height: 3.75rem;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 1rem;
 }
 
 @media (min-width: 640px) {
   .sr-public-topbar-inner {
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
 }
 
 @media (min-width: 1024px) {
   .sr-public-topbar-inner {
-    padding-left: 2rem;
-    padding-right: 2rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
   }
 }
 
@@ -2457,7 +2481,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   min-width: 0;
   max-width: 100%;
   overflow-x: clip;
-  padding: 0.5rem 0.65rem;
+  /* Horizontal inset comes from shell padding; keep content flush under topbar */
+  padding: 0.15rem 0.15rem 0.5rem;
 }
 
 /* Log detail viewer: keep stream column inside main, never under the ops rail */
@@ -6625,14 +6650,25 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 @media (max-width: 760px) {
   .sr-ops-shell {
+    --sr-ops-chrome-inset: 0.5rem;
+    --sr-ops-chrome-gap: 0.5rem;
     grid-template-columns: 1fr;
+    padding: var(--sr-ops-chrome-inset);
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .sr-ops-main {
+    min-height: 0;
+    gap: var(--sr-ops-chrome-gap);
   }
 
   .sr-ops-topbar {
+    top: var(--sr-ops-chrome-inset);
     height: auto;
     min-height: 3.25rem;
     gap: 0.5rem;
-    padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+    padding: 0.45rem 0.55rem 0.45rem 0.7rem;
+    border-radius: 0.875rem;
   }
 
   .sr-ops-topbar-title {
@@ -6665,17 +6701,17 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
   .sr-ops-sidebar {
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: var(--sr-ops-chrome-inset);
+    right: var(--sr-ops-chrome-inset);
+    bottom: calc(var(--sr-ops-chrome-inset) + env(safe-area-inset-bottom, 0px));
     top: auto;
     z-index: 40;
-    height: 4rem;
+    width: auto;
+    height: 3.75rem;
     flex-direction: row;
     justify-content: center;
-    border-right: 0;
-    border-top: 1px solid var(--sr-ops-border);
-    padding: 0.45rem;
+    border-radius: 1rem;
+    padding: 0.4rem 0.55rem;
   }
 
   .sr-ops-logo,
@@ -6691,7 +6727,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   }
 
   .sr-ops-content {
-    padding: 0.5rem 0.5rem 4.5rem;
+    padding: 0.15rem 0 0.35rem;
   }
 
   .sr-camera-toolbar {
