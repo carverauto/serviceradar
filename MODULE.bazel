@@ -2835,7 +2835,7 @@ register_toolchains(
 # //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
 # splicing step. See openspec migrate-bazel-rust-crate-vendoring.
 
-rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+rdp_connector_crates = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 rdp_connector_crates.from_cargo(
     name = "rdp_connector_crates",
     cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
