@@ -770,9 +770,33 @@ impl ProcfsEnricher {
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
+        // Structural gate: only userspace processes own sockets we care about.
+        // Kernel tasks (no address space / no exe) are not process owners —
+        // never invent identity from idle/softirq context by name denylist.
+        if !is_userspace_process(&self.root, record.tgid)
+            && !is_userspace_process(&self.root, record.pid)
+        {
+            return ProcessDetails {
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                comm: String::new(),
+                cmdline: Vec::new(),
+                container_id: None,
+                last_seen_ns: record.last_seen_ns,
+                process_generation_ns: 0,
+            };
+        }
+
+        let resolve_pid = if is_userspace_process(&self.root, record.tgid) {
+            record.tgid
+        } else {
+            record.pid
+        };
         let comm =
-            read_comm(&self.root, record.tgid).unwrap_or_else(|| comm_from_bytes(&record.comm));
-        let container_id = container_id(&self.root, record.tgid);
+            read_comm(&self.root, resolve_pid).unwrap_or_else(|| comm_from_bytes(&record.comm));
+        let container_id = container_id(&self.root, resolve_pid);
 
         ProcessDetails {
             pid: record.pid,
@@ -780,7 +804,7 @@ impl ProcfsEnricher {
             uid: record.uid,
             gid: record.gid,
             comm,
-            cmdline: redacted_cmdline(&self.root, record.tgid),
+            cmdline: redacted_cmdline(&self.root, resolve_pid),
             container_id,
             last_seen_ns: record.last_seen_ns,
             process_generation_ns: record.process_generation_ns,
@@ -792,9 +816,16 @@ impl ProcfsEnricher {
         pid: u32,
         process_info: &HashMap<u32, ProcessInfoRecord>,
     ) -> Option<ProcessDetails> {
+        if !is_userspace_process(&self.root, pid) {
+            return None;
+        }
+
         if let Some(record) = process_info.get(&pid) {
             let mut details = self.process_details(record);
             details.pid = pid;
+            if details.tgid == 0 {
+                return None;
+            }
             return Some(details);
         }
 
@@ -867,6 +898,7 @@ impl ProcfsEnricher {
 /// socket inode. Specificity beats recency: any non-empty container_id wins
 /// over host-only; ties break on lower pid for stability.
 fn preferred_process_owner(mut candidates: Vec<ProcessDetails>) -> Option<ProcessDetails> {
+    candidates.retain(|c| c.pid != 0 && c.tgid != 0 && !c.comm.is_empty());
     if candidates.is_empty() {
         return None;
     }
@@ -2324,6 +2356,40 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
+/// True when `pid` is a userspace process that can own sockets we attribute.
+///
+/// Structural only — no process-name denylists. Kernel threads (idle/softirq
+/// workers, etc.) have no executable mapping and no `VmSize` address space.
+/// Pid 0 is the idle task (`swapper/*`) and is never a valid owner.
+fn is_userspace_process(proc_root: &Path, pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let dir = proc_root.join(pid.to_string());
+    if !dir.is_dir() {
+        return false;
+    }
+    // Userspace processes almost always have a resolvable exe link.
+    if fs::read_link(dir.join("exe")).is_ok() {
+        return true;
+    }
+    // Fallback: kernel threads omit Vm* lines; userspace processes report VmSize.
+    let Ok(status) = fs::read_to_string(dir.join("status")) else {
+        return false;
+    };
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmSize:") {
+            let kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+            return kb > 0;
+        }
+    }
+    false
+}
+
 /// Joins `parts` with a single space and truncates the result to
 /// [`REDACTED_CMDLINE_MAX_BYTES`] bytes on a UTF-8 codepoint boundary.
 ///
@@ -2396,7 +2462,12 @@ fn flow_attribution_event(
 ) -> Option<FlowAttributionEvent> {
     let (local_ip, local_port, remote_ip, remote_port) =
         endpoints(&flow.flow, flow.pid.local_endpoint)?;
-    let process = flow.process.as_ref();
+    // Never emit process name without a userspace pid. Kernel idle/softirq
+    // paths previously produced comm=swapper/* with pid=0 ("Unmatched" rows).
+    let process = flow.process.as_ref().filter(|details| {
+        details.pid != 0 && details.tgid != 0 && !details.comm.is_empty()
+    });
+    let has_process = process.is_some() && flow.pid.pid != 0 && flow.pid.tgid != 0;
 
     Some(FlowAttributionEvent {
         local_ip: local_ip.to_string(),
@@ -2404,10 +2475,18 @@ fn flow_attribution_event(
         remote_ip: remote_ip.to_string(),
         remote_port: u32::from(remote_port),
         transport_protocol: transport_protocol(flow.flow.transport_protocol),
-        pid: flow.pid.pid,
-        tgid: flow.pid.tgid,
-        uid: process.map_or(flow.pid.uid, |details| details.uid),
-        gid: process.map_or(flow.pid.gid, |details| details.gid),
+        pid: if has_process { flow.pid.pid } else { 0 },
+        tgid: if has_process { flow.pid.tgid } else { 0 },
+        uid: if has_process {
+            process.map_or(flow.pid.uid, |details| details.uid)
+        } else {
+            0
+        },
+        gid: if has_process {
+            process.map_or(flow.pid.gid, |details| details.gid)
+        } else {
+            0
+        },
         comm: process
             .map(|details| details.comm.clone())
             .unwrap_or_default(),
@@ -2470,6 +2549,20 @@ fn transport_protocol(value: u16) -> String {
 
 #[cfg(target_os = "linux")]
 fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
+    // Without procfs, still refuse zero-pid identities (idle task).
+    if record.pid == 0 || record.tgid == 0 {
+        return ProcessDetails {
+            pid: 0,
+            tgid: 0,
+            uid: 0,
+            gid: 0,
+            comm: String::new(),
+            cmdline: Vec::new(),
+            container_id: None,
+            last_seen_ns: record.last_seen_ns,
+            process_generation_ns: 0,
+        };
+    }
     ProcessDetails {
         pid: record.pid,
         tgid: record.tgid,
@@ -2696,8 +2789,8 @@ mod tests {
         AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
         ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_tuple, preferred_process_owner, redacted_cmdline,
-        trim_to_utf8_boundary,
+        is_userspace_process, likely_service_side_tuple, preferred_process_owner,
+        redacted_cmdline, trim_to_utf8_boundary,
     };
     #[cfg(target_os = "linux")]
     use super::{
@@ -3667,6 +3760,71 @@ mod tests {
             snapshot.observed_at_unix_nano,
             snapshot_again.observed_at_unix_nano
         );
+    }
+
+    #[test]
+    fn is_userspace_process_rejects_missing_and_kernel_like_status() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!is_userspace_process(root.path(), 0));
+        assert!(!is_userspace_process(root.path(), 999_999));
+
+        let kthread = root.path().join("42");
+        fs::create_dir_all(&kthread).unwrap();
+        fs::write(kthread.join("comm"), "swapper/0\n").unwrap();
+        // Kernel threads: no exe, no VmSize.
+        fs::write(kthread.join("status"), "Name:\tswapper/0\nPid:\t42\n").unwrap();
+        assert!(!is_userspace_process(root.path(), 42));
+
+        let app = root.path().join("99");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join("comm"), "gitea\n").unwrap();
+        fs::write(app.join("status"), "Name:\tgitea\nPid:\t99\nVmSize:\t1234 kB\n").unwrap();
+        std::os::unix::fs::symlink("/usr/bin/gitea", app.join("exe")).unwrap();
+        assert!(is_userspace_process(root.path(), 99));
+    }
+
+    #[test]
+    fn flow_event_strips_process_identity_without_userspace_pid() {
+        let flow = AttributedFlow {
+            flow: crate::af_xdp_classifier::FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 443,
+                endpoint_b_port: 50000,
+                endpoint_a_addr: [10, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                endpoint_b_addr: [1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: 2,
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                socket_address: 0,
+                last_seen_ns: 0,
+                process_generation_ns: 0,
+                old_state: 0,
+                new_state: 0,
+                local_endpoint: 1,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                comm: "swapper/20".into(),
+                cmdline: Vec::new(),
+                container_id: None,
+                last_seen_ns: 0,
+                process_generation_ns: 0,
+            }),
+        };
+        let event = flow_attribution_event(&flow, 1).unwrap();
+        assert_eq!(event.pid, 0);
+        assert_eq!(event.tgid, 0);
+        assert!(event.comm.is_empty(), "must not emit kernel comm without pid");
     }
 
     #[test]
