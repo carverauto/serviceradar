@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -88,6 +89,159 @@ func zstdRecord(t testing.TB, body []byte) *edgev1.EdgeRecordV1 {
 	}
 }
 
+// stableUUID is a deterministic UUIDv7 whose 48-bit timestamp is a REAL one.
+//
+// fixedUUIDv7 fills all sixteen bytes with the seed, so its timestamp is ~89 billion
+// seconds and `ms * 1_000_000` overflows int64 when the authority window is computed. That
+// is invisible until a record is validated as a WHOLE, which is exactly what these vectors
+// added -- the payload-binding stage never looks at the event id.
+func stableUUID(seed byte) []byte {
+	ms := uint64(benchObservedUnixNano / 1_000_000)
+
+	b := make([]byte, 16)
+	for i := 6; i < 16; i++ {
+		b[i] = seed
+	}
+
+	b[0] = byte(ms >> 40)
+	b[1] = byte(ms >> 32)
+	b[2] = byte(ms >> 24)
+	b[3] = byte(ms >> 16)
+	b[4] = byte(ms >> 8)
+	b[5] = byte(ms)
+	b[6] = 0x70
+	b[8] = 0x80
+
+	return b
+}
+
+// validRecordFixed is the canonical valid record with DETERMINISTIC identities, so a
+// committed vector does not change on every regeneration.
+func validRecordFixed(t *testing.T) *edgev1.EdgeRecordV1 {
+	t.Helper()
+
+	r := validRecord(t)
+	r.EventId = stableUUID(0x51)
+	r.NetworkScopeId = stableUUID(0x52)
+	r.ProducerContext.ProducerAssignmentId = stableUUID(0x53)
+	r.ProducerContext.RunId = stableUUID(0x54)
+	r.ProducerContext.ScopeId = stableUUID(0x55)
+
+	// The capability and the envelope digest are BOUND to the identities above, and
+	// validRecord computed both from the random ones it minted. Overwriting the ids without
+	// rebinding leaves a record whose committed bytes still carry a random capability -- the
+	// vector then drifts on every regeneration even though every id it names is fixed.
+	r.ProductionCapability = productionCap(t, r)
+	r.SemanticEnvelopeSha256 = SemanticEnvelopeDigest(r)
+
+	return r
+}
+
+// composedSweepRecord is a COMPLETE record -- one that passes ValidateRecord -- carrying a
+// real, valid SweepObservationBatchV1 compressed with ZSTD.
+//
+// The earlier version of this corpus carried arbitrary filler in an otherwise incomplete
+// record, which admission accepted because admission never looks at the envelope or decodes
+// the body. That proved payload binding and nothing about the composed path.
+func composedSweepRecord(t *testing.T, body []byte) *edgev1.EdgeRecordV1 {
+	t.Helper()
+
+	payload := zstdOf(t, body)
+	sum := sha256.Sum256(payload)
+
+	r := validRecordFixed(t)
+	r.Compression = edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD
+	r.Payload = payload
+	r.PayloadSha256 = sum[:]
+	r.EncodedSize = uint32(len(payload))
+	r.UncompressedSize = uint32(len(body))
+	r.ProductionCapability = productionCap(t, r)
+	r.SemanticEnvelopeSha256 = SemanticEnvelopeDigest(r)
+
+	return r
+}
+
+// sweepBody marshals a valid batch of the given size. Deterministic: benchBatch uses fixed
+// identities throughout.
+func sweepBody(t *testing.T, hosts int, mixed bool) []byte {
+	t.Helper()
+
+	b := benchBatch(hosts, mixed)
+	if err := ValidateSweepObservationBatch(b); err != nil {
+		t.Fatalf("the corpus body must be VALID, not merely well formed: %v", err)
+	}
+
+	raw, err := proto.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal batch: %v", err)
+	}
+
+	return raw
+}
+
+// noncanonicalBodyOfSize builds a body of EXACTLY total bytes that decodes to the canonical
+// maximal sweep batch.
+//
+// This ABI ACCEPTS NONCANONICAL ENCODINGS -- unmarshalPayload deliberately does not impose a
+// decode/re-encode equality, because payload identity is payload_sha256 over the EXACT
+// received bytes. So a body may carry a DUPLICATE encoding of a singular field, and
+// last-one-wins means the canonical value appended afterwards is the one the decoder keeps.
+//
+// That is what makes a body above the 512 KiB physical ceiling reachable while every family
+// bounds its own CANONICAL size far below it. The padding rides in a duplicate of singular
+// bytes field 13 (availability_policy_id); the real value follows and wins.
+func noncanonicalBodyOfSize(t *testing.T, total, entropy int) []byte {
+	t.Helper()
+
+	canonical := sweepBody(t, MaxSweepHostsPerBatch, true)
+
+	// total = tag(1) + varint(len(junk)) + len(junk) + len(canonical). The varint's own
+	// width depends on the value it encodes, so solve for the fixed point.
+	junkLen := total - len(canonical) - 1
+	for range 8 {
+		next := total - len(canonical) - 1 - protowire.SizeVarint(uint64(junkLen))
+		if next == junkLen {
+			break
+		}
+
+		junkLen = next
+	}
+
+	if junkLen <= 0 {
+		t.Fatalf("total %d leaves no room for padding beside a %d-byte body", total, len(canonical))
+	}
+
+	var out []byte
+	out = protowire.AppendTag(out, 13, protowire.BytesType)
+	out = protowire.AppendBytes(out, tunedBody(junkLen, entropy))
+	out = append(out, canonical...)
+
+	if len(out) != total {
+		t.Fatalf("built %d bytes, want exactly %d", len(out), total)
+	}
+
+	return out
+}
+
+// assertDecodesToCanonicalBatch is the whole point of the noncanonical vectors: the bytes are
+// oversized, and what they MEAN is the ordinary bounded batch.
+func assertDecodesToCanonicalBatch(t *testing.T, body []byte) {
+	t.Helper()
+
+	var got edgev1.SweepObservationBatchV1
+	if err := unmarshalPayload(body, &got); err != nil {
+		t.Fatalf("the noncanonical body must decode: %v", err)
+	}
+
+	if err := ValidateSweepObservationBatch(&got); err != nil {
+		t.Fatalf("the decoded body must VALIDATE: %v", err)
+	}
+
+	if !proto.Equal(&got, benchBatch(MaxSweepHostsPerBatch, true)) {
+		t.Fatalf("last-one-wins did not yield the canonical batch")
+	}
+}
+
 // exactRatioBody finds a body whose length is EXACTLY ratio times its compressed length.
 //
 // It cannot be computed directly: the compressed length depends on the body, and the body
@@ -127,15 +281,25 @@ type recordVector struct {
 func recordAdmitVectors() []recordVector {
 	return []recordVector{
 		{
-			// COMPOSED REACHABILITY: a body well above the 512 KiB PHYSICAL ceiling on
-			// received bytes, carried by a record that itself fits under it. This is the
-			// vector proving such a body is transport-reachable at all; 1.2-c's decoder
-			// vectors assert nothing about whether a record carrying one survives
-			// admission.
-			file:    "record_admit_reachable_body.bin",
+			// THE COMPOSED VECTOR: a COMPLETE record carrying a real, maximal, VALID sweep
+			// body. Everything downstream of admission is exercised by
+			// TestComposedRecordExtractionAndBodyValidation against these same bytes.
+			file:    "record_admit_composed_sweep.bin",
 			outcome: "accept",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				return zstdRecord(t, tunedBody(600*1024, 9000))
+				return composedSweepRecord(t, sweepBody(t, MaxSweepHostsPerBatch, true))
+			},
+		},
+		{
+			// COMPOSED REACHABILITY: a body ABOVE the 512 KiB physical ceiling that is a
+			// VALID contract body, carried by a record far below it. See
+			// noncanonicalBodyOfSize -- the ABI accepts noncanonical encodings, so the
+			// padding rides in a duplicate of a singular field and last-one-wins yields the
+			// ordinary bounded batch.
+			file:    "record_admit_oversize_body.bin",
+			outcome: "accept",
+			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				return composedSweepRecord(t, noncanonicalBodyOfSize(t, 700*1024, 10_000))
 			},
 		},
 		{
@@ -144,7 +308,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_encoded_size_unbound.bin",
 			outcome: "encoded_size",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				r := zstdRecord(t, tunedBody(600*1024, 9000))
+				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.EncodedSize = uint32(len(r.GetPayload()) + 1)
 
 				return r
@@ -154,7 +318,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_digest_mismatch.bin",
 			outcome: "payload_digest",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				r := zstdRecord(t, tunedBody(600*1024, 9000))
+				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.PayloadSha256 = make([]byte, sha256Len)
 
 				return r
@@ -162,6 +326,10 @@ func recordAdmitVectors() []recordVector {
 		},
 		{
 			// EXACTLY 100:1 is ADMITTED -- the ratio ceiling is inclusive.
+			//
+			// FILLER, not a contract body, and deliberately so: hitting an EXACT ratio
+			// requires tuning the body's compressibility byte by byte, which no real
+			// message affords. The stage under test does not decode the payload.
 			file:    "record_admit_ratio_at_ceiling.bin",
 			outcome: "accept",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
@@ -188,16 +356,10 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_none_size_mismatch.bin",
 			outcome: "uncompressed_size",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				payload := []byte("an uncompressed contract payload")
-				sum := sha256.Sum256(payload)
+				r := validRecordFixed(t)
+				r.UncompressedSize = r.GetEncodedSize() + 1
 
-				return &edgev1.EdgeRecordV1{
-					Compression:      edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE,
-					Payload:          payload,
-					PayloadSha256:    sum[:],
-					EncodedSize:      uint32(len(payload)),
-					UncompressedSize: uint32(len(payload) + 1),
-				}
+				return r
 			},
 		},
 		{
@@ -215,7 +377,7 @@ func recordAdmitVectors() []recordVector {
 			file:    "record_admit_codec_unspecified.bin",
 			outcome: "compression",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				r := zstdRecord(t, tunedBody(600*1024, 9000))
+				r := composedSweepRecord(t, sweepBody(t, 20, false))
 				r.Compression = edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_UNSPECIFIED
 
 				return r
@@ -225,32 +387,34 @@ func recordAdmitVectors() []recordVector {
 			// RECURSIVE COMPRESSION, at the admission stage: the outer frame is a perfectly
 			// well-formed single frame, so admission ACCEPTS it. The one-compression-LAYER
 			// rule is not an admission rule -- it is decided one stage later, and
-			// TestRecursiveCompressionIsRefusedAsAContractPayload is where that is proven.
-			// Committing it here pins the half of the behaviour this stage owns.
+			// TestRecursiveCompressionIsRefusedAsAContractPayload is where that is proven,
+			// on a COMPLETE record so the refusal is reached the way a real one would be.
 			file:    "record_admit_recursive_outer.bin",
 			outcome: "accept",
 			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
-				return zstdRecord(t, recursiveInnerFrame(t))
+				return composedSweepRecord(t, recursiveInnerFrame(t))
+			},
+		},
+		{
+			// THE 32 MiB OUTPUT CEILING, COMMITTED rather than constructed.
+			//
+			// It costs ~340 KiB, which buys the one thing a shared recipe cannot: both
+			// runtimes admit the SAME BYTES. Compressing the recipe independently in Go and
+			// OTP produces two different frames, so "the ceiling is inclusive" would have
+			// been asserted about two different inputs and neither runtime would have seen
+			// the other's. There is no cheaper vector: admitting exactly 33_554_432 bytes
+			// of output while staying within 100:1 REQUIRES at least 335_545 encoded bytes.
+			//
+			// The over-ceiling half is derived from these same bytes in both runtimes
+			// rather than committed twice.
+			file:    "record_admit_output_ceiling.bin",
+			outcome: "accept",
+			build: func(t *testing.T) *edgev1.EdgeRecordV1 {
+				return composedSweepRecord(t,
+					noncanonicalBodyOfSize(t, MaxUncompressedBytes, 400_000))
 			},
 		},
 	}
-}
-
-// deterministicSweepBatch is validSweepBatch with FIXED identifiers. The shared batch helper
-// mints a fresh UUIDv7 per call, which is right for behavioural tests and fatal for a
-// committed fixture: the bytes would differ on every run, so the vector would drift rather
-// than pin anything.
-func deterministicSweepBatch(t *testing.T) *edgev1.SweepObservationBatchV1 {
-	t.Helper()
-
-	b := validSweepBatch(t)
-	b.ExecutionId = fixedUUIDv7(0x41)
-	b.ExecutionPlanId = fixedUUIDv7(0x42)
-	b.TargetRangeId = fixedUUIDv7(0x43)
-	b.SourceRunId = fixedUUIDv7(0x44)
-	b.Hosts[0].Mtr.TraceId = fixedUUIDv7(0x45)
-
-	return b
 }
 
 // recursiveInnerFrame is a VALID zstd frame wrapping a VALID contract message -- the bytes a
@@ -349,25 +513,35 @@ func TestRecordAdmitManifestMatchesDisk(t *testing.T) {
 	}
 }
 
-// TestBodyAboveThePhysicalCeilingIsTransportReachable is the composed-reachability claim
-// stated as an assertion rather than as prose.
-//
-// The two bounds are different KINDS, and this is where that stops being a taxonomy note:
-// 512 KiB bounds RECEIVED BYTES, 32 MiB bounds EXTRACTED WORK. A 600 KiB body exceeds the
-// first and is still admissible, because what crosses the wire is the 9 KiB frame. The
-// record as a whole must still fit MaxRecordBytes, which is asserted here -- a "reachable"
-// body carried by a record too large to accept would not be reachable at all.
-func TestBodyAboveThePhysicalCeilingIsTransportReachable(t *testing.T) {
-	const bodySize = 600 * 1024
+// TestComposedRecordExtractionAndBodyValidation walks the REAL path a record takes:
+// whole-record validation, extraction, contract decode, body validation. Admission alone
+// looks at neither the envelope nor the decoded body, so a vector that stops there can be
+// satisfied by an incomplete record carrying arbitrary filler -- which is what an earlier
+// version of this corpus did.
+func TestComposedRecordExtractionAndBodyValidation(t *testing.T) {
+	body := sweepBody(t, MaxSweepHostsPerBatch, true)
+	rec := composedSweepRecord(t, body)
 
-	rec := zstdRecord(t, tunedBody(bodySize, 9000))
-
-	if bodySize <= MaxPayloadBytes {
-		t.Fatalf("body of %d does not exceed the physical ceiling %d", bodySize, MaxPayloadBytes)
+	if err := ValidateRecord(rec); err != nil {
+		t.Fatalf("the composed record must pass WHOLE-RECORD validation: %v", err)
 	}
 
-	if err := validatePayloadBinding(rec); err != nil {
-		t.Fatalf("a %d-byte body must be admissible: %v", bodySize, err)
+	inner, err := innerPayload(rec)
+	if err != nil {
+		t.Fatalf("extraction: %v", err)
+	}
+
+	if string(inner) != string(body) {
+		t.Fatalf("extracted %d bytes, want the original %d", len(inner), len(body))
+	}
+
+	var got edgev1.SweepObservationBatchV1
+	if err := unmarshalPayload(inner, &got); err != nil {
+		t.Fatalf("the extracted bytes must decode as the contract: %v", err)
+	}
+
+	if err := ValidateSweepObservationBatch(&got); err != nil {
+		t.Fatalf("the decoded body must VALIDATE: %v", err)
 	}
 
 	encoded, err := proto.Marshal(rec)
@@ -376,26 +550,74 @@ func TestBodyAboveThePhysicalCeilingIsTransportReachable(t *testing.T) {
 	}
 
 	if len(encoded) > MaxRecordBytes {
-		t.Fatalf("record of %d exceeds MaxRecordBytes %d; the body is not reachable after all",
-			len(encoded), MaxRecordBytes)
+		t.Fatalf("record of %d exceeds MaxRecordBytes %d", len(encoded), MaxRecordBytes)
 	}
+}
+
+// TestBodyAboveThePhysicalCeilingIsTransportReachable is the composed-reachability
+// obligation, met with a VALID contract body rather than filler.
+//
+// An earlier version of this file claimed the obligation was unsatisfiable, on the grounds
+// that every family bounds its own body below 512 KiB -- a maximal sweep batch is ~116 KiB,
+// MTR is capped at MaxMtrBatchBytes. That measured CANONICAL marshals and generalized to all
+// bytes, which this ABI does not permit: unmarshalPayload deliberately imposes no
+// decode/re-encode equality, so a body may carry a duplicate encoding of a singular field
+// and still mean exactly the bounded batch. The canonical bound is a bound on MEANING, not
+// on received bytes, and the physical ceiling bounds received bytes.
+//
+// The two ceilings are different KINDS, and this is where that stops being a taxonomy note:
+// 512 KiB bounds RECEIVED BYTES, 32 MiB bounds EXTRACTED WORK. The body below exceeds the
+// first, is a valid contract body, and rides in a record far under the first.
+func TestBodyAboveThePhysicalCeilingIsTransportReachable(t *testing.T) {
+	rec := decodeVector(t, "record_admit_oversize_body.bin")
+
+	if err := ValidateRecord(rec); err != nil {
+		t.Fatalf("the carrying record must pass WHOLE-RECORD validation: %v", err)
+	}
+
+	if rec.GetUncompressedSize() <= MaxPayloadBytes {
+		t.Fatalf("body of %d does not exceed the physical ceiling %d",
+			rec.GetUncompressedSize(), MaxPayloadBytes)
+	}
+
+	raw, err := proto.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	if len(raw) > MaxRecordBytes {
+		t.Fatalf("record of %d exceeds MaxRecordBytes %d; the body is not reachable after all",
+			len(raw), MaxRecordBytes)
+	}
+
+	inner, err := innerPayload(rec)
+	if err != nil {
+		t.Fatalf("extraction: %v", err)
+	}
+
+	if len(inner) != int(rec.GetUncompressedSize()) {
+		t.Fatalf("extracted %d bytes, declared %d", len(inner), rec.GetUncompressedSize())
+	}
+
+	assertDecodesToCanonicalBatch(t, inner)
 }
 
 // TestOutputCeilingBoundaryIsWholeRecord pins the 32 MiB ceiling as an INCLUSIVE bound at
 // record scope, with the ratio deliberately slack so the CEILING is what decides.
 //
-// Constructed, not committed. The accepted side needs a frame that really does produce
-// 33_554_432 bytes while staying above 1/100th of it, which is ~340 KiB of fixture -- larger
-// than every existing vector in this corpus combined. The recipe is deterministic, and the
-// size window it has to land in is ASSERTED rather than assumed, so a compressor change
-// fails here instead of quietly making the vector prove something weaker.
+// Both halves come from the COMMITTED vector, so the peer admits the same bytes rather than
+// its own compressor's rendering of the same recipe.
 func TestOutputCeilingBoundaryIsWholeRecord(t *testing.T) {
-	body := tunedBody(MaxUncompressedBytes, 400_000)
-	rec := zstdRecord(t, body)
+	rec := decodeVector(t, "record_admit_output_ceiling.bin")
 
 	encoded := len(rec.GetPayload())
 	if encoded > MaxPayloadBytes {
 		t.Fatalf("frame of %d exceeds the physical ceiling; the vector cannot be admitted", encoded)
+	}
+
+	if rec.GetUncompressedSize() != MaxUncompressedBytes {
+		t.Fatalf("the vector declares %d, not the ceiling %d",
+			rec.GetUncompressedSize(), uint32(MaxUncompressedBytes))
 	}
 
 	// The ratio must be SLACK, or a rejection below would be the ratio's doing.
@@ -404,14 +626,36 @@ func TestOutputCeilingBoundaryIsWholeRecord(t *testing.T) {
 			encoded)
 	}
 
+	raw, err := proto.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	if len(raw) > MaxRecordBytes {
+		t.Fatalf("the COMPLETE record is %d, over MaxRecordBytes %d", len(raw), MaxRecordBytes)
+	}
+
 	if err := validatePayloadBinding(rec); err != nil {
 		t.Fatalf("exactly MaxUncompressedBytes must be admitted: %v", err)
 	}
 
-	// One byte more. The ratio still passes, so only the ceiling can refuse it -- and the
-	// EXACT reason is what separates the two: without the ceiling the frame stage would
-	// refuse the same record as output_size, because the frame produces one byte fewer.
-	over := zstdRecord(t, body)
+	// And it is a REAL contract body at the ceiling, not filler: the same noncanonical
+	// construction that makes the oversize vector reachable scales to exactly 32 MiB.
+	if err := ValidateRecord(rec); err != nil {
+		t.Fatalf("the ceiling vector must pass WHOLE-RECORD validation: %v", err)
+	}
+
+	inner, err := innerPayload(rec)
+	if err != nil {
+		t.Fatalf("extraction: %v", err)
+	}
+
+	assertDecodesToCanonicalBatch(t, inner)
+
+	// One byte more, same payload bytes. The ratio still passes, so only the ceiling can
+	// refuse it -- and the EXACT reason is what separates the two: without the ceiling the
+	// frame stage would refuse it as output_size, because the frame produces one byte fewer.
+	over := decodeVector(t, "record_admit_output_ceiling.bin")
 	over.UncompressedSize = MaxUncompressedBytes + 1
 
 	if uint64(over.GetUncompressedSize()) > uint64(encoded)*MaxCompressionRatio {
@@ -423,26 +667,40 @@ func TestOutputCeilingBoundaryIsWholeRecord(t *testing.T) {
 	}
 }
 
+// decodeVector reads a committed vector back, so a test asserts against the bytes the peer
+// will read rather than against an in-memory value that happened to produce them.
+func decodeVector(t *testing.T, name string) *edgev1.EdgeRecordV1 {
+	t.Helper()
+
+	raw, err := os.ReadFile(goldenPath(name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+
+	var rec edgev1.EdgeRecordV1
+	if err := proto.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("decode %s: %v", name, err)
+	}
+
+	return &rec
+}
+
 // TestRecursiveCompressionIsRefusedAsAContractPayload proves the ONE-COMPRESSION-LAYER rule,
 // which was frozen with nothing exercising it.
 //
-// The record carries a valid zstd frame whose extracted bytes are ANOTHER valid zstd frame
-// wrapping a valid contract message. Correct behaviour decompresses exactly once and then
-// refuses those bytes AS THE CONTRACT PAYLOAD. A runtime that treated the extracted bytes as
-// another envelope would unwrap them and find a message that passes every body rule -- which
-// is asserted here as the CONTROL, because a negative vector whose inner content was invalid
-// anyway would prove nothing about recursion.
+// The record is COMPLETE, so the refusal is reached the way a real one would be: whole-record
+// validation passes, extraction runs, and the contract stage is what says no. Its payload is a
+// valid zstd frame whose extracted bytes are ANOTHER valid zstd frame wrapping a valid contract
+// message. Correct behaviour decompresses exactly once and refuses those bytes AS THE CONTRACT
+// PAYLOAD.
 func TestRecursiveCompressionIsRefusedAsAContractPayload(t *testing.T) {
 	inner := recursiveInnerFrame(t)
-	rec := zstdRecord(t, inner)
+	rec := composedSweepRecord(t, inner)
 
-	// Stage 1: admission accepts. The outer frame is well formed; recursion is not an
-	// admission-stage property.
-	if err := validatePayloadBinding(rec); err != nil {
-		t.Fatalf("the outer frame is valid and must be admitted: %v", err)
+	if err := ValidateRecord(rec); err != nil {
+		t.Fatalf("the outer record is well formed and must validate: %v", err)
 	}
 
-	// Stage 2: exactly one decompression, and the result is NOT a contract message.
 	extracted, err := innerPayload(rec)
 	if err != nil {
 		t.Fatalf("innerPayload: %v", err)
@@ -458,8 +716,10 @@ func TestRecursiveCompressionIsRefusedAsAContractPayload(t *testing.T) {
 	}
 
 	// THE CONTROL: unwrapping a second time yields a message that would pass. Without this,
-	// the test above could be satisfied by an inner payload that was junk to begin with.
-	unwrapped, err := DecompressZstdPayload(inner, uint32(len(mustMarshal(t, deterministicSweepBatch(t)))))
+	// the assertion above could be satisfied by an inner payload that was junk to begin with.
+	body := mustMarshal(t, deterministicSweepBatch(t))
+
+	unwrapped, err := DecompressZstdPayload(inner, uint32(len(body)))
 	if err != nil {
 		t.Fatalf("control: the inner frame is meant to be valid: %v", err)
 	}
@@ -482,6 +742,22 @@ func mustMarshal(t *testing.T, m proto.Message) []byte {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
+	return b
+}
+
+// deterministicSweepBatch is validSweepBatch with FIXED identifiers. The shared batch helper
+// mints a fresh UUIDv7 per call, which is right for behavioural tests and fatal for a
+// committed fixture: the bytes would differ on every run.
+func deterministicSweepBatch(t *testing.T) *edgev1.SweepObservationBatchV1 {
+	t.Helper()
+
+	b := validSweepBatch(t)
+	b.ExecutionId = stableUUID(0x41)
+	b.ExecutionPlanId = stableUUID(0x42)
+	b.TargetRangeId = stableUUID(0x43)
+	b.SourceRunId = stableUUID(0x44)
+	b.Hosts[0].Mtr.TraceId = stableUUID(0x45)
 
 	return b
 }

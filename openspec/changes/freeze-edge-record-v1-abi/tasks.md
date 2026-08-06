@@ -72,10 +72,13 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. Eight open parents and twenty-eight unchecked
-named subtasks remain (1.17 is closed and does not count), including all ELEVEN of 1.5's obligations, and compression admission
-is substantive and unstarted. Three to six focused weeks is the honest range, depending on
-how much of 1.5 proves already implemented during closeout.
+The remaining freeze is NOT one to two weeks. Eight open parents and TWENTY-SEVEN unchecked
+named subtasks remain (1.17 is closed and does not count), including all ELEVEN of 1.5's
+obligations -- 1.5-f among them, because a task stays unchecked until it is signed off even
+when its work has landed. Compression admission is no longer unstarted: 1.5-f's three slices
+are implemented on `usp-32-compression-admission`, with slices 1 and 2 signed off. Three to
+six focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
+already implemented during closeout.
 
 ## 1. Freeze the edge record v1 wire ABI
 
@@ -680,7 +683,8 @@ here.
   discriminants; `u64` repeated-element counts; recursive field-by-field nested
   framing; NO `proto.Marshal` at any depth),
   streaming
-  compression expansion, recursion, and trailing-frame rejection. The candidate PR for the
+  compression expansion, COMPRESSION recursion (a frame wrapping a frame -- not protobuf
+  MESSAGE recursion, which is 1.5-a's), and trailing-frame rejection. The candidate PR for the
   compression-admission half, **#4734** (base `usp-01-proposal`), is CLOSED WITHOUT BEING
   MERGED -- so that obligation is still OPEN and owns no landed code. Read it as prior art,
   not as delivery. Define the
@@ -711,6 +715,15 @@ here.
     delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
     `elixir/serviceradar_core/lib/serviceradar/edge/semantic_validate.ex`.
+    COMPRESSION ADMISSION (1.5-f): the frozen values and stages are the spec requirement
+    "Compression admission is frozen by value, stage, and frame shape"; the runtimes are
+    `go/pkg/edge/edgerecord/compression.go` + `validatePayloadBinding` in `validate.go` and
+    `elixir/serviceradar_core/lib/serviceradar/edge/compression.ex`
+    (`validate_payload/2`, `admit_declared/2`, `admit_record/1`); the cross-runtime evidence
+    is `proto/edge/v1/testdata/zstd_*.bin` + `compression_corpus.txt` at the FRAME stage and
+    `record_admit_*.bin` + `record_admit_corpus.txt` at the RECORD stage, both written by Go
+    and derived by the peer, and all four suites are gated in
+    `.forgejo/workflows/proto-abi.yml`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
@@ -804,51 +817,44 @@ here.
               with output size and ratio otherwise valid, so neither vector can be satisfied
               by the output check or the ratio check
         - [ ] slice 3 COMPOSED REACHABILITY -- a valid body larger than 512 KiB surviving
-              physical admission under 100:1, CI/Bazel registration, ledger closure.
-              IT ALSO OWES THE RECORD-LEVEL SHARED VECTORS that slice 2's corpus cannot
-              reach, since that corpus stops at the frame/output stage:
-                - the `encoded_size` BINDING to the actual payload length, which is what
-                  stops the ratio's denominator being inflated;
-                - EXACTLY 100:1 accepted and the first value over it refused;
-                - 32 MiB accepted and N+1 refused, with the ratio otherwise valid so the
-                  ceiling is what decides;
-                - a RECURSIVE-COMPRESSION negative, which is an EXISTING SHALL rather than a
-                  new category: an outer ZSTD payload whose extracted bytes are ANOTHER valid
-                  ZSTD frame wrapping a valid contract message. Correct behaviour decompresses
-                  ONCE and then refuses those bytes AS THE CONTRACT PAYLOAD; a runtime that
-                  interpreted the extracted bytes as another compressed envelope would
-                  wrongly ACCEPT. Nothing currently exercises the one-layer rule, so it is
-                  frozen and unproven until this vector exists.
-              These are WHOLE-RECORD vectors, not payload ones, because the binding and the
-              ratio live in record validation rather than in the frame validator.
-              IMPLEMENTED, PENDING SIGN-OFF. Eight committed vectors under
-              `proto/edge/v1/testdata/record_admit_*.bin` with `record_admit_corpus.txt`
-              carrying the expectation, so the peer DERIVES its verdict. The stage under test
-              is `validatePayloadBinding` -- record-level payload/compression admission, not
-              the full envelope -- and its Elixir peer is `Compression.admit_record/1`.
-              THE PEER CLOSES A GAP THE LEDGER HAD NOT NAMED: `admit_declared/2` is the ratio
-              gate, and its own doc says the caller MUST have bound `encoded_size` to the
-              payload length first, but NOTHING in this runtime did. The precondition was
-              documented and unenforced, which is the same as absent -- an unbound
-              `encoded_size` is arbitrary ratio headroom, because it is the denominator.
-              TWO VECTORS ARE CONSTRUCTED RATHER THAN COMMITTED, from a shared deterministic
-              recipe (sha256 over a counter, then zeros). The 32 MiB pair needs a frame that
-              really produces 33_554_432 bytes while staying above 1/100th of it -- ~340 KiB,
-              larger than every committed vector in this corpus combined and larger than any
-              existing fixture in the tree. Both runtimes ASSERT the size window and the
-              ratio slack before asserting the verdict, so a compressor change fails the test
-              instead of quietly turning the ceiling vector into a ratio vector.
-              THE RECURSIVE NEGATIVE CARRIES A CONTROL, because a negative vector whose inner
-              content was invalid anyway would prove nothing about recursion: the doubly
-              wrapped message is asserted to be one that VALIDATES when unwrapped twice, so a
-              recursive runtime would WRONGLY ACCEPT exactly this input. Admission itself
-              accepts the record -- the outer frame is well formed, and one-layer is not an
-              admission-stage property; the refusal is the contract stage, `ErrRecordDecode`
-              in Go and `:poison` in the peer.
+              physical admission under 100:1, the record-stage vectors slice 2's corpus
+              cannot reach, the composed record -> extraction -> body path, CI/Bazel
+              registration, ledger closure. IMPLEMENTED, PENDING SIGN-OFF.
+              TEN committed vectors under `proto/edge/v1/testdata/record_admit_*.bin` with
+              `record_admit_corpus.txt` carrying the expectation, so the peer DERIVES its
+              verdict. The admission stage is `validatePayloadBinding`; its Elixir peer is
+              `Compression.admit_record/1`. Covered: the `encoded_size` BINDING, the payload
+              digest, the codec gate, EXACTLY 100:1 admitted with the first value over it
+              refused, 32 MiB admitted with N+1 refused on a slack ratio, the
+              RECURSIVE-COMPRESSION negative (a ZSTD frame wrapping a ZSTD frame, distinct
+              from protobuf MESSAGE recursion, whose ceiling is 1.5-a's), and the
+              above-ceiling body.
+              REACHABILITY RESTS ON NONCANONICAL ADMISSIBILITY, which is a property this ABI
+              states deliberately: `unmarshalPayload` imposes no decode/re-encode equality,
+              because payload identity is `payload_sha256` over the EXACT received bytes. A
+              body may therefore carry a DUPLICATE encoding of a singular field, with
+              last-one-wins yielding the canonical value appended after it. The padding rides
+              in a duplicate of `availability_policy_id`, so the extracted body exceeds
+              512 KiB while MEANING the ordinary bounded batch, and the carrying record stays
+              far below the physical ceiling. The per-family limits bound MEANING; the
+              physical ceiling bounds RECEIVED BYTES, and the first does not bound the second.
+              The same construction makes the 32 MiB vector a valid contract body.
+              THE PEER CLOSED A GAP NOTHING HAD NAMED. `admit_declared/2` documents that its
+              caller MUST have bound `encoded_size` to the payload length -- it is the
+              ratio's DENOMINATOR -- and no caller in that runtime did. A documented
+              precondition with no enforcing composition is not a rule.
+              THE 32 MiB PAIR IS COMMITTED, not constructed per runtime, so both admit the
+              SAME BYTES; admitting exactly 33_554_432 bytes of output within 100:1 requires
+              at least 335_545 encoded bytes, so there is no cheaper vector. The
+              over-ceiling half derives from the same committed bytes.
+              THE RECURSIVE NEGATIVE CARRIES A CONTROL: the doubly wrapped message VALIDATES
+              when unwrapped twice, so a recursive runtime would WRONGLY ACCEPT it. Admission
+              accepts the record -- one-layer is not an admission-stage property; the refusal
+              is the contract stage, `ErrRecordDecode` in Go and `:poison` in the peer.
               NO SPEC CHANGE. Slice 3 proves existing SHALLs; it does not add or move a rule.
               NOT COVERED, deliberately: a `payload_too_large` whole-record vector, which
               would need a >512 KiB fixture to say what slice 2's constructed ceiling vectors
-              already say at the frame API
+              already say at the frame API. The audit narrative is in `design.md`
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
         applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
         32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is
