@@ -286,10 +286,11 @@ fn ca_pem_from_env() -> Result<Option<Vec<u8>>> {
     }
 
     match env::var("PGSSLROOTCERT") {
-        Ok(path) if !path.is_empty() => Ok(Some(
-            std::fs::read(&path)
-                .with_context(|| format!("failed to open PGSSLROOTCERT {path:?}"))?,
-        )),
+        Ok(path) if !path.is_empty() => {
+            Ok(Some(std::fs::read(&path).with_context(|| {
+                format!("failed to open PGSSLROOTCERT {path:?}")
+            })?))
+        }
         _ => Ok(None),
     }
 }
@@ -383,7 +384,91 @@ pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()
             .with_context(|| format!("failed to grant on ag_catalog: {statement}"))?;
     }
 
-    create_graphs(&client).await
+    create_graphs(&client).await?;
+    own_graph_schemas(&client, owner).await
+}
+
+/// Hand the per-graph schemas, and everything AGE created inside them, to `owner`.
+///
+/// `ag_catalog.create_graph` makes a SCHEMA per graph and puts each label's table in it. The
+/// grants above cover `ag_catalog` only, so the schemas stayed owned by the admin role that
+/// ran `create_graph` and the application user could not even look inside one:
+///
+///   ERROR 42501 (insufficient_privilege) permission denied for schema platform_graph
+///
+/// raised by `SELECT to_regclass('platform_graph."Device"')` in migration
+/// 20260622210000_add_age_platform_graph_property_indexes.
+///
+/// GRANT is not sufficient here. That migration goes on to CREATE INDEX on the label table,
+/// and index creation requires OWNERSHIP -- no combination of GRANT confers it. So ownership
+/// is transferred rather than privileges widened.
+///
+/// Applied after create_graphs rather than by creating the graphs under `SET ROLE`, because
+/// this also has to repair a template whose graphs predate this function. It is idempotent:
+/// re-running against already-correct ownership is a no-op, and a graph that does not exist
+/// is skipped.
+async fn own_graph_schemas(client: &Client, owner: &str) -> Result<()> {
+    let graphs = REQUIRED_GRAPHS
+        .iter()
+        .map(|graph| quote_literal(graph))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let owner_literal = quote_literal(owner);
+
+    client
+        .batch_execute(&format!(
+            "DO $$
+             DECLARE
+               graph_name text;
+               obj record;
+             BEGIN
+               FOREACH graph_name IN ARRAY ARRAY[{graphs}] LOOP
+                 IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = graph_name) THEN
+                   EXECUTE format('ALTER SCHEMA %I OWNER TO %I', graph_name, {owner_literal});
+                   FOR obj IN
+                     SELECT c.relname AS name, c.relkind AS kind
+                     FROM pg_class c
+                     JOIN pg_namespace n ON n.oid = c.relnamespace
+                     WHERE n.nspname = graph_name
+                       AND c.relkind IN ('r', 'p', 'S')
+                       -- A sequence OWNED BY a column cannot be reowned on its own:
+                       --   cannot change owner of sequence \"_ag_label_edge_id_seq\"
+                       --   DETAIL: Sequence is linked to table \"_ag_label_edge\"
+                       -- It follows its table's owner, so the ALTER TABLE below already
+                       -- moves it. Only free-standing sequences need handling here.
+                       AND NOT (
+                         c.relkind = 'S'
+                         AND EXISTS (
+                           SELECT 1
+                           FROM pg_depend d
+                           WHERE d.classid = 'pg_class'::regclass
+                             AND d.objid = c.oid
+                             AND d.deptype IN ('a', 'i')
+                         )
+                       )
+                     -- Tables before sequences, so a sequence is already carried by its
+                     -- table by the time the sequence branch could look at it.
+                     ORDER BY (c.relkind = 'S'), c.relname
+                   LOOP
+                     IF obj.kind = 'S' THEN
+                       EXECUTE format(
+                         'ALTER SEQUENCE %I.%I OWNER TO %I',
+                         graph_name, obj.name, {owner_literal}
+                       );
+                     ELSE
+                       EXECUTE format(
+                         'ALTER TABLE %I.%I OWNER TO %I',
+                         graph_name, obj.name, {owner_literal}
+                       );
+                     END IF;
+                   END LOOP;
+                 END IF;
+               END LOOP;
+             END
+             $$;"
+        ))
+        .await
+        .context("failed to transfer AGE graph schema ownership")
 }
 
 /// Create the AGE graphs, tolerating ones that already exist.
