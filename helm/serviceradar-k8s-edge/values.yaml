@@ -59,7 +59,11 @@ agent:
     caFile: "root.pem"
     certFile: "agent.pem"
     keyFile: "agent-key.pem"
-  # Optional path to k8s-inventory spool (shared emptyDir with inventory container).
+  # DEPRECATED, and honoured only so existing values files keep working. Set
+  # k8sInventory.spoolDir instead: the collector owns the data, and this path names the same
+  # shared emptyDir. If both are set they must be equal -- rendering fails otherwise, because a
+  # mismatch is invisible at runtime (the collector writes, the agent watches an empty
+  # directory, and every container stays healthy).
   k8sInventorySpoolDir: "/var/lib/serviceradar/k8s-inventory/spool"
   resources:
     requests:
@@ -93,6 +97,9 @@ k8sInventory:
   metrics:
     addr: ":9109"
     port: 9109
+  # Authoritative shared spool path: the collector writes snapshots here and the agent's spool
+  # reader consumes them from the same emptyDir. Both containers' mounts and the agent's config
+  # file are rendered from this one value.
   spoolDir: "/var/lib/serviceradar/k8s-inventory/spool"
   resources:
     requests:

@@ -317,16 +317,6 @@ ex_unit_tests(
         "SERVICERADAR_ALLOW_DB_FREE_TESTS": "1",
         "CI": "",
     },
-    # QUARANTINED, not fixed. One assertion in test/phoenix/components/srql_components_test.exs
-    # still expects the native <datalist id="query-completions">, which acfd9eec72
-    # ("fix(srql): stop native datalist from covering query history") deliberately replaced
-    # with a custom <ul class="srql-dropdown">. Removing the datalist WAS the fix, so the
-    # assertion is what is stale -- it needs to check the new dropdown markup instead.
-    #
-    # `manual` keeps the group out of //... expansion so the unit tier is green, at the cost
-    # of parking the other 328 tests in it. Drop this entry once that assertion is updated,
-    # and run the group by label in the meantime.
-    group_tags = {"phoenix_other": ["manual"]},
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )

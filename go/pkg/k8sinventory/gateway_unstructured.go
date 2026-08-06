@@ -9,7 +9,7 @@ import (
 // GatewayFromUnstructured normalizes a Gateway API Gateway object.
 func GatewayFromUnstructured(obj *unstructured.Unstructured) (GatewayView, error) {
 	if obj == nil {
-		return GatewayView{}, fmt.Errorf("nil gateway")
+		return GatewayView{}, errNilGateway
 	}
 	gw := GatewayView{
 		Namespace:   obj.GetNamespace(),
@@ -56,7 +56,7 @@ func GatewayFromUnstructured(obj *unstructured.Unstructured) (GatewayView, error
 // RouteFromUnstructured normalizes HTTPRoute/TCPRoute/UDPRoute/GRPCRoute/TLSRoute.
 func RouteFromUnstructured(obj *unstructured.Unstructured) (RouteView, error) {
 	if obj == nil {
-		return RouteView{}, fmt.Errorf("nil route")
+		return RouteView{}, errNilRoute
 	}
 	kind := obj.GetKind()
 	r := RouteView{

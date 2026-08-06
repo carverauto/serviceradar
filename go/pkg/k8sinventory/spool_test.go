@@ -64,14 +64,14 @@ func TestSpoolPublisherRejectsOversized(t *testing.T) {
 
 func TestConfigAcceptsAgentSpool(t *testing.T) {
 	t.Setenv("CLUSTER_ID", "demo")
-	t.Setenv("PUBLISH_MODE", "agent_spool")
+	t.Setenv("PUBLISH_MODE", publishModeAgentSpool)
 	t.Setenv("K8S_INVENTORY_SPOOL_DIR", t.TempDir())
 	t.Setenv("NATS_HOSTPORT", "")
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
 		t.Fatalf("LoadConfigFromEnv: %v", err)
 	}
-	if cfg.PublishMode != "agent_spool" {
+	if cfg.PublishMode != publishModeAgentSpool {
 		t.Fatalf("mode=%s", cfg.PublishMode)
 	}
 	pub, err := NewPublisherFromConfig(cfg)

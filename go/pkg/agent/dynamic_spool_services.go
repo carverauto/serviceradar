@@ -73,31 +73,20 @@ func (s *Server) ensureEndpointInventorySpoolService(cfg *EndpointInventoryStatu
 	s.services = append(s.services, NewEndpointInventorySpoolService(agentID, cfg))
 }
 
-func (s *Server) ensureK8sPublicEndpointsSpoolService(cfg *K8sPublicEndpointsStatusConfig) {
-	if s == nil {
-		return
-	}
-	if cfg == nil {
-		cfg = &K8sPublicEndpointsStatusConfig{}
-	}
-	cfg.Enabled = true
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.config != nil {
-		s.config.K8sPublicEndpoints = cfg
-	}
-	if s.hasStatusServiceLocked(K8sPublicEndpointsServiceName, K8sPublicEndpointsServiceType) {
-		return
-	}
-
-	agentID := ""
-	if s.config != nil {
-		agentID = s.config.AgentID
-	}
-	s.services = append(s.services, NewK8sPublicEndpointsSpoolService(agentID, cfg))
-}
+// There is deliberately NO ensureK8sPublicEndpointsSpoolService here, unlike the two above.
+//
+// Bumblebee and endpoint inventory arrive as pushed config sections (monitoring.proto's
+// bumblebee_config / endpoint_inventory_config), so they need a runtime path that starts the
+// spool reader when config shows up after boot. K8s public endpoints has no such section, and
+// core never emits one: it is configured in the agent's own config file, which
+// helm/serviceradar-k8s-edge renders into a ConfigMap. That deployment rolls the pod whenever
+// the ConfigMap changes (the checksum/agent-config annotation), and the agent does not watch
+// its config file, so "config changed" and "process restarted" are the same event. server.go
+// creating the service at boot is therefore the whole story.
+//
+// A helper for the runtime path existed here and was unreachable; it is removed rather than
+// silenced so nobody mistakes it for a wired feature. If K8s public endpoints ever becomes a
+// pushed section, add it back together with the applyConfigSection call that invokes it.
 
 func (s *Server) hasStatusServiceLocked(name, serviceType string) bool {
 	for _, svc := range s.services {

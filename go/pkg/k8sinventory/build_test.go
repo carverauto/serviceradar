@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// Fixture values reused across the Forgejo VIP cases below.
+const (
+	testEnvoyPodIP    = "10.42.221.140"
+	testForgejoSSHSvc = "forgejo-ssh"
+)
+
 func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 	t.Parallel()
 
@@ -24,9 +30,9 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 				Type:                  "LoadBalancer",
 				ExternalTrafficPolicy: "Local",
 				Annotations: map[string]string{
-					"metallb.io/loadBalancerIPs":          "23.138.124.7",
-					"metallb.universe.tf/address-pool":    "k3s-pool",
-					"metallb.io/ip-allocated-from-pool":   "k3s-pool",
+					"metallb.io/loadBalancerIPs":                "23.138.124.7",
+					"metallb.universe.tf/address-pool":          "k3s-pool",
+					"metallb.io/ip-allocated-from-pool":         "k3s-pool",
 					"external-dns.alpha.kubernetes.io/hostname": "",
 				},
 				Ports: []ServicePortView{
@@ -40,7 +46,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 			// Backend ClusterIP service for forgejo-ssh (no public exposure itself).
 			{
 				Namespace: "forgejo",
-				Name:      "forgejo-ssh",
+				Name:      testForgejoSSHSvc,
 				UID:       "svc-uid-ssh",
 				Type:      "ClusterIP",
 				Ports: []ServicePortView{
@@ -55,7 +61,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 				Labels:    map[string]string{"kubernetes.io/service-name": "envoy-forgejo-forgejo-gateway-6a27ab25"},
 				Endpoints: []SliceEndpointView{
 					{
-						Addresses:    []string{"10.42.221.140"},
+						Addresses:    []string{testEnvoyPodIP},
 						Ready:        &ready,
 						NodeName:     "k8s-cp3-worker3",
 						PodNamespace: "envoy-gateway-system",
@@ -70,7 +76,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 			{
 				Namespace: "forgejo",
 				Name:      "forgejo-ssh-xyz",
-				Labels:    map[string]string{"kubernetes.io/service-name": "forgejo-ssh"},
+				Labels:    map[string]string{"kubernetes.io/service-name": testForgejoSSHSvc},
 				Endpoints: []SliceEndpointView{
 					{
 						Addresses:    []string{"10.42.68.186"},
@@ -106,13 +112,13 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 		Routes: []RouteView{
 			{
 				Namespace: "forgejo",
-				Name:      "forgejo-ssh",
+				Name:      testForgejoSSHSvc,
 				Kind:      "TCPRoute",
 				ParentRefs: []ParentRefView{
 					{Name: "forgejo-gateway", Namespace: "forgejo", SectionName: "ssh"},
 				},
 				Backends: []BackendRef{
-					{Kind: "Service", Name: "forgejo-ssh", Namespace: "forgejo", Port: 22},
+					{Kind: "Service", Name: testForgejoSSHSvc, Namespace: "forgejo", Port: 22},
 				},
 			},
 		},
@@ -147,19 +153,19 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 				t.Fatalf("expected 1 endpoint target for LB service, got %+v", ep.EndpointTargets)
 			}
 			t0 := ep.EndpointTargets[0]
-			if t0.IP != "10.42.221.140" || t0.Port != 10022 {
+			if t0.IP != testEnvoyPodIP || t0.Port != 10022 {
 				t.Errorf("envoy target: got %s:%d", t0.IP, t0.Port)
 			}
 			if t0.PodName == "" || t0.NodeName != "k8s-cp3-worker3" {
 				t.Errorf("pod/node: got pod=%q node=%q", t0.PodName, t0.NodeName)
 			}
 		}
-		if ep.ExposureClass == ExposureGateway && ep.RouteKind == "TCPRoute" && ep.RouteName == "forgejo-ssh" {
+		if ep.ExposureClass == ExposureGateway && ep.RouteKind == "TCPRoute" && ep.RouteName == testForgejoSSHSvc {
 			foundGatewayRoute = true
 			if ep.ListenerName != "ssh" {
 				t.Errorf("listener: got %q", ep.ListenerName)
 			}
-			if len(ep.BackendRefs) != 1 || ep.BackendRefs[0].Name != "forgejo-ssh" {
+			if len(ep.BackendRefs) != 1 || ep.BackendRefs[0].Name != testForgejoSSHSvc {
 				t.Errorf("backend refs: %+v", ep.BackendRefs)
 			}
 			// Gateway path should associate forgejo-ssh EndpointSlice backends.
@@ -182,7 +188,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 	}
 	var sawEnvoyDNAT bool
 	for _, h := range hints {
-		if h.BackendIP == "10.42.221.140" && h.BackendPort == 10022 {
+		if h.BackendIP == testEnvoyPodIP && h.BackendPort == 10022 {
 			sawEnvoyDNAT = true
 			if h.PublicPort != 22 {
 				t.Errorf("hint public port: %d", h.PublicPort)

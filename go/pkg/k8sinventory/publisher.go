@@ -124,13 +124,13 @@ type NATSPublisher struct {
 // NewPublisherFromConfig selects a publisher based on cfg.PublishMode.
 func NewPublisherFromConfig(cfg Config) (Publisher, error) {
 	switch cfg.PublishMode {
-	case "none":
+	case publishModeNone:
 		return NoopPublisher{}, nil
-	case "stdout":
+	case publishModeStdout:
 		return &StdoutPublisher{}, nil
-	case "agent_spool":
+	case publishModeAgentSpool:
 		return NewSpoolPublisher(cfg.SpoolDir)
-	case "nats":
+	case publishModeNATS:
 		return NewNATSPublisher(cfg)
 	default:
 		return nil, errInvalidPublishMode

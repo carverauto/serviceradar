@@ -22,7 +22,7 @@ data:
       "sync_runtime_enabled": false,
       "k8s_public_endpoints": {
         "enabled": {{ .Values.k8sInventory.enabled }},
-        "spool_dir": {{ .Values.agent.k8sInventorySpoolDir | quote }},
+        "spool_dir": {{ include "sr-edge.k8sInventorySpoolDir" . | quote }},
         "cluster_id": {{ include "sr-edge.clusterId" . | quote }}
       },
       "security": {

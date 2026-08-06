@@ -287,20 +287,6 @@ ex_unit_tests(
         # asserts on their text.
         "//helm/serviceradar:values",
     ],
-    # QUARANTINED, not fixed. Two tests in test/serviceradar/event_writer/ fail, both from the
-    # k8s public-endpoint inventory work:
-    #
-    #   internal_events_excluded_test.exs -- "Stream K8S_INVENTORY has subject
-    #     inventory.k8s.public_endpoints which may not be for external data". The guard
-    #     predates the feature and its allowlist was never extended.
-    #   processors/k8s_public_endpoints_test.exs -- function_exported?(K8sPublicEndpoints,
-    #     :process_batch, 1) is false. The function DOES exist; function_exported?/3 reports
-    #     false for a module nobody has loaded, and the test never calls Code.ensure_loaded?/1.
-    #
-    # `manual` keeps them out of //... expansion so the unit tier is green. It also parks the
-    # other 283 tests in this group, so this is a stopgap: remove the entry once those two are
-    # fixed.
-    group_tags = {"serviceradar_event_writer": ["manual"]},
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
 )
