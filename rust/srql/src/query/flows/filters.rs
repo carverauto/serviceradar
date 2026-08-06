@@ -18,6 +18,11 @@ pub(super) fn apply_filter<'a>(
         "ip" | "endpoint_ip" => {
             query = apply_bidirectional_ip_filter(query, filter)?;
         }
+        // Bidirectional port: either side of the 5-tuple (same role as `ip:`).
+        // Prefer this over unsupported `(dst_port:N OR src_port:N)` boolean OR.
+        "port" | "endpoint_port" => {
+            query = apply_bidirectional_port_filter(query, filter)?;
+        }
         "protocol_name" => {
             query = apply_text_filter!(query, filter, protocol_name)?;
         }
@@ -218,6 +223,26 @@ pub(super) fn apply_filter<'a>(
             let expr = sql::<Text>(ATTRIBUTION_RUNTIME_SOURCE_EXPR);
             query = apply_text_filter!(query, filter, expr)?;
         }
+        "service_name" | "public_endpoint_service" | "k8s_service" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "gateway_name" | "public_endpoint_gateway" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "exposure_class" | "public_endpoint_class" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "public_endpoint_namespace" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "route_name" | "public_endpoint_route" => {
+            let expr = sql::<Text>(ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
         "protocol_group" | "proto_group" => {
             let expr = sql::<Text>(FLOW_PROTOCOL_GROUP_EXPR);
             match filter.op {
@@ -398,6 +423,91 @@ pub(super) fn apply_filter<'a>(
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
             )));
+        }
+    }
+
+    Ok(query)
+}
+
+/// `port:` matches either flow endpoint port, mirroring `ip:`.
+///
+/// Prefer `port:22` over unsupported boolean OR across fields
+/// (`(dst_port:22 OR src_port:22)` is not SRQL).
+fn apply_bidirectional_port_filter<'a>(
+    mut query: FlowsQuery<'a>,
+    filter: &Filter,
+) -> Result<FlowsQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                ServiceError::InvalidRequest("port must be an integer".into())
+            })?;
+            query = query.filter(
+                src_endpoint_port
+                    .eq(value)
+                    .or(dst_endpoint_port.eq(value)),
+            );
+        }
+        FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                ServiceError::InvalidRequest("port must be an integer".into())
+            })?;
+            query = query.filter(
+                src_endpoint_port
+                    .is_null()
+                    .or(src_endpoint_port.ne(value))
+                    .and(dst_endpoint_port.is_null().or(dst_endpoint_port.ne(value))),
+            );
+        }
+        FilterOp::In => {
+            let values = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|item| {
+                    item.parse::<i32>().map_err(|_| {
+                        ServiceError::InvalidRequest("port list values must be integers".into())
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = query.filter(
+                src_endpoint_port
+                    .eq_any(values.clone())
+                    .or(dst_endpoint_port.eq_any(values)),
+            );
+        }
+        FilterOp::NotIn => {
+            let values = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|item| {
+                    item.parse::<i32>().map_err(|_| {
+                        ServiceError::InvalidRequest("port list values must be integers".into())
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            query = query.filter(
+                src_endpoint_port
+                    .is_null()
+                    .or(src_endpoint_port.ne_all(values.clone()))
+                    .and(
+                        dst_endpoint_port
+                            .is_null()
+                            .or(dst_endpoint_port.ne_all(values)),
+                    ),
+            );
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "port filter only supports equality or list matching".into(),
+            ));
         }
     }
 

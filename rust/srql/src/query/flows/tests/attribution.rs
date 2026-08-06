@@ -51,6 +51,50 @@ fn attributed_flows_translation_adds_event_type_and_attribution_filters() {
 }
 
 #[test]
+fn attributed_flows_can_filter_by_public_endpoint_owner() {
+    let plan = QueryPlan {
+        entity: Entity::AttributedFlows,
+        filters: vec![
+            Filter {
+                field: "service_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("forgejo-ssh".into()),
+            },
+            Filter {
+                field: "exposure_class".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("Gateway".into()),
+            },
+            Filter {
+                field: "gateway_name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("forgejo-gateway".into()),
+            },
+        ],
+        order: vec![],
+        limit: 20,
+        offset: 0,
+        time_range: Some(TimeRange {
+            start: Utc.with_ymd_and_hms(2026, 8, 5, 0, 0, 0).unwrap(),
+            end: Utc.with_ymd_and_hms(2026, 8, 6, 0, 0, 0).unwrap(),
+        }),
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+    assert!(sql.contains("ocsf_payload #>> '{attribution,public_endpoint,service_name}'"));
+    assert!(sql.contains("ocsf_payload #>> '{attribution,public_endpoint,exposure_class}'"));
+    assert!(sql.contains("ocsf_payload #>> '{attribution,public_endpoint,gateway_name}'"));
+    // time range (2) + three text filters (3) + limit/offset (2)
+    assert_eq!(params.len(), 7);
+}
+
+#[test]
 fn attributed_flow_stats_stay_on_raw_table() {
     let plan = QueryPlan {
         entity: Entity::AttributedFlows,

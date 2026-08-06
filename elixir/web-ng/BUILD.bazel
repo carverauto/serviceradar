@@ -288,9 +288,8 @@ elixir_release(
         "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
-    # No release_name: web-ng's mix.exs declares no `releases:` block, so Mix assembles the
-    # implicit release named after the app. Naming it explicitly fails with
-    # "Unknown release :serviceradar_web_ng. The available releases are: []".
+    # Named release matches mix.exs releases/0 (validate_compile_env: false).
+    release_name = "serviceradar_web_ng",
     overlays = {
         "//elixir/web-ng/assets:static": "priv",
     },

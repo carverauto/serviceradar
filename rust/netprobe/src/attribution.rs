@@ -319,6 +319,8 @@ impl SocketInventory {
             return;
         };
         let process = flow.process.as_ref();
+        // Key by local listen endpoint only — not PID — so host/container dual
+        // ownership of the same socket collapses to one inventory row.
         let key = SocketInventoryKey {
             address_family: flow.flow.address_family,
             transport_protocol: flow.flow.transport_protocol,
@@ -328,9 +330,6 @@ impl SocketInventory {
                 _ => return,
             },
             local_port,
-            pid: flow.pid.pid,
-            tgid: flow.pid.tgid,
-            process_generation_ns: flow.pid.process_generation_ns,
         };
 
         let entry = ProcessSnapshotEntry {
@@ -361,9 +360,11 @@ impl SocketInventory {
                 cached.last_seen = now;
             }
             Some(cached) => {
-                cached.entry = entry;
+                if prefer_snapshot_entry(&entry, &cached.entry) {
+                    cached.entry = entry;
+                    self.dirty = true;
+                }
                 cached.last_seen = now;
-                self.dirty = true;
             }
             None => {
                 self.entries.insert(
@@ -469,9 +470,6 @@ struct SocketInventoryKey {
     transport_protocol: u16,
     local_addr: [u8; 16],
     local_port: u16,
-    pid: u32,
-    tgid: u32,
-    process_generation_ns: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -484,11 +482,20 @@ impl SocketInventoryKey {
             transport_protocol: flow.transport_protocol,
             local_addr: local_addr.unwrap_or(flow.endpoint_a_addr),
             local_port: flow.endpoint_a_port,
-            pid: record.pid,
-            tgid: record.tgid,
-            process_generation_ns: record.process_generation_ns,
         })
     }
+}
+
+/// True when `candidate` is a better socket owner than `current` (container
+/// over host-only; otherwise accept any identity change).
+#[cfg(target_os = "linux")]
+fn prefer_snapshot_entry(candidate: &ProcessSnapshotEntry, current: &ProcessSnapshotEntry) -> bool {
+    let candidate_container = !candidate.container_id.is_empty();
+    let current_container = !current.container_id.is_empty();
+    if candidate_container != current_container {
+        return candidate_container;
+    }
+    candidate != current
 }
 
 #[cfg(target_os = "linux")]
@@ -763,9 +770,33 @@ impl ProcfsEnricher {
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
+        // Structural gate: only userspace processes own sockets we care about.
+        // Kernel tasks (no address space / no exe) are not process owners —
+        // never invent identity from idle/softirq context by name denylist.
+        if !is_userspace_process(&self.root, record.tgid)
+            && !is_userspace_process(&self.root, record.pid)
+        {
+            return ProcessDetails {
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                comm: String::new(),
+                cmdline: Vec::new(),
+                container_id: None,
+                last_seen_ns: record.last_seen_ns,
+                process_generation_ns: 0,
+            };
+        }
+
+        let resolve_pid = if is_userspace_process(&self.root, record.tgid) {
+            record.tgid
+        } else {
+            record.pid
+        };
         let comm =
-            read_comm(&self.root, record.tgid).unwrap_or_else(|| comm_from_bytes(&record.comm));
-        let container_id = container_id(&self.root, record.tgid);
+            read_comm(&self.root, resolve_pid).unwrap_or_else(|| comm_from_bytes(&record.comm));
+        let container_id = container_id(&self.root, resolve_pid);
 
         ProcessDetails {
             pid: record.pid,
@@ -773,7 +804,7 @@ impl ProcfsEnricher {
             uid: record.uid,
             gid: record.gid,
             comm,
-            cmdline: redacted_cmdline(&self.root, record.tgid),
+            cmdline: redacted_cmdline(&self.root, resolve_pid),
             container_id,
             last_seen_ns: record.last_seen_ns,
             process_generation_ns: record.process_generation_ns,
@@ -785,9 +816,16 @@ impl ProcfsEnricher {
         pid: u32,
         process_info: &HashMap<u32, ProcessInfoRecord>,
     ) -> Option<ProcessDetails> {
+        if !is_userspace_process(&self.root, pid) {
+            return None;
+        }
+
         if let Some(record) = process_info.get(&pid) {
             let mut details = self.process_details(record);
             details.pid = pid;
+            if details.tgid == 0 {
+                return None;
+            }
             return Some(details);
         }
 
@@ -820,24 +858,30 @@ impl ProcfsEnricher {
             let Some(pids) = owners.get(&socket.inode) else {
                 continue;
             };
+            // One owner per socket inode: prefer a container-scoped process over
+            // host dual-views of the same fd (e.g. k3s-agent vs app in pod netns).
+            let mut candidates = Vec::with_capacity(pids.len());
             for pid in pids {
-                let Some(process) = self.process_details_for_pid(*pid, process_info) else {
-                    continue;
-                };
-                entries.push(ProcessSnapshotEntry {
-                    local_ip: socket.local_ip.to_string(),
-                    local_port: u32::from(socket.local_port),
-                    transport_protocol: socket.transport_protocol.clone(),
-                    pid: process.pid,
-                    tgid: process.tgid,
-                    uid: process.uid,
-                    gid: process.gid,
-                    comm: process.comm,
-                    redacted_cmdline: process.cmdline,
-                    container_id: process.container_id.unwrap_or_default(),
-                    workload_identity: None,
-                });
+                if let Some(process) = self.process_details_for_pid(*pid, process_info) {
+                    candidates.push(process);
+                }
             }
+            let Some(process) = preferred_process_owner(candidates) else {
+                continue;
+            };
+            entries.push(ProcessSnapshotEntry {
+                local_ip: socket.local_ip.to_string(),
+                local_port: u32::from(socket.local_port),
+                transport_protocol: socket.transport_protocol.clone(),
+                pid: process.pid,
+                tgid: process.tgid,
+                uid: process.uid,
+                gid: process.gid,
+                comm: process.comm,
+                redacted_cmdline: process.cmdline,
+                container_id: process.container_id.unwrap_or_default(),
+                workload_identity: None,
+            });
         }
 
         sort_snapshot_entries(&mut entries);
@@ -848,6 +892,24 @@ impl ProcfsEnricher {
             entries,
         }
     }
+}
+
+/// Prefer container-scoped process details when multiple PIDs hold the same
+/// socket inode. Specificity beats recency: any non-empty container_id wins
+/// over host-only; ties break on lower pid for stability.
+fn preferred_process_owner(mut candidates: Vec<ProcessDetails>) -> Option<ProcessDetails> {
+    candidates.retain(|c| c.pid != 0 && c.tgid != 0 && !c.comm.is_empty());
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|left, right| {
+        let left_container = left.container_id.as_ref().is_some_and(|id| !id.is_empty());
+        let right_container = right.container_id.as_ref().is_some_and(|id| !id.is_empty());
+        right_container
+            .cmp(&left_container)
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+    candidates.into_iter().next()
 }
 
 #[cfg(target_os = "linux")]
@@ -2294,6 +2356,40 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
+/// True when `pid` is a userspace process that can own sockets we attribute.
+///
+/// Structural only — no process-name denylists. Kernel threads (idle/softirq
+/// workers, etc.) have no executable mapping and no `VmSize` address space.
+/// Pid 0 is the idle task (`swapper/*`) and is never a valid owner.
+fn is_userspace_process(proc_root: &Path, pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let dir = proc_root.join(pid.to_string());
+    if !dir.is_dir() {
+        return false;
+    }
+    // Userspace processes almost always have a resolvable exe link.
+    if fs::read_link(dir.join("exe")).is_ok() {
+        return true;
+    }
+    // Fallback: kernel threads omit Vm* lines; userspace processes report VmSize.
+    let Ok(status) = fs::read_to_string(dir.join("status")) else {
+        return false;
+    };
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmSize:") {
+            let kb = rest
+                .split_whitespace()
+                .next()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+            return kb > 0;
+        }
+    }
+    false
+}
+
 /// Joins `parts` with a single space and truncates the result to
 /// [`REDACTED_CMDLINE_MAX_BYTES`] bytes on a UTF-8 codepoint boundary.
 ///
@@ -2366,7 +2462,12 @@ fn flow_attribution_event(
 ) -> Option<FlowAttributionEvent> {
     let (local_ip, local_port, remote_ip, remote_port) =
         endpoints(&flow.flow, flow.pid.local_endpoint)?;
-    let process = flow.process.as_ref();
+    // Never emit process name without a userspace pid. Kernel idle/softirq
+    // paths previously produced comm=swapper/* with pid=0 ("Unmatched" rows).
+    let process = flow.process.as_ref().filter(|details| {
+        details.pid != 0 && details.tgid != 0 && !details.comm.is_empty()
+    });
+    let has_process = process.is_some() && flow.pid.pid != 0 && flow.pid.tgid != 0;
 
     Some(FlowAttributionEvent {
         local_ip: local_ip.to_string(),
@@ -2374,10 +2475,18 @@ fn flow_attribution_event(
         remote_ip: remote_ip.to_string(),
         remote_port: u32::from(remote_port),
         transport_protocol: transport_protocol(flow.flow.transport_protocol),
-        pid: flow.pid.pid,
-        tgid: flow.pid.tgid,
-        uid: process.map_or(flow.pid.uid, |details| details.uid),
-        gid: process.map_or(flow.pid.gid, |details| details.gid),
+        pid: if has_process { flow.pid.pid } else { 0 },
+        tgid: if has_process { flow.pid.tgid } else { 0 },
+        uid: if has_process {
+            process.map_or(flow.pid.uid, |details| details.uid)
+        } else {
+            0
+        },
+        gid: if has_process {
+            process.map_or(flow.pid.gid, |details| details.gid)
+        } else {
+            0
+        },
         comm: process
             .map(|details| details.comm.clone())
             .unwrap_or_default(),
@@ -2440,6 +2549,20 @@ fn transport_protocol(value: u16) -> String {
 
 #[cfg(target_os = "linux")]
 fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
+    // Without procfs, still refuse zero-pid identities (idle task).
+    if record.pid == 0 || record.tgid == 0 {
+        return ProcessDetails {
+            pid: 0,
+            tgid: 0,
+            uid: 0,
+            gid: 0,
+            comm: String::new(),
+            cmdline: Vec::new(),
+            container_id: None,
+            last_seen_ns: record.last_seen_ns,
+            process_generation_ns: 0,
+        };
+    }
     ProcessDetails {
         pid: record.pid,
         tgid: record.tgid,
@@ -2660,11 +2783,14 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
 
+    use std::collections::HashMap;
+
     use super::{
         AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
         ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary,
+        is_userspace_process, likely_service_side_tuple, preferred_process_owner,
+        redacted_cmdline, trim_to_utf8_boundary,
     };
     #[cfg(target_os = "linux")]
     use super::{
@@ -3634,6 +3760,155 @@ mod tests {
             snapshot.observed_at_unix_nano,
             snapshot_again.observed_at_unix_nano
         );
+    }
+
+    #[test]
+    fn is_userspace_process_rejects_missing_and_kernel_like_status() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!is_userspace_process(root.path(), 0));
+        assert!(!is_userspace_process(root.path(), 999_999));
+
+        let kthread = root.path().join("42");
+        fs::create_dir_all(&kthread).unwrap();
+        fs::write(kthread.join("comm"), "swapper/0\n").unwrap();
+        // Kernel threads: no exe, no VmSize.
+        fs::write(kthread.join("status"), "Name:\tswapper/0\nPid:\t42\n").unwrap();
+        assert!(!is_userspace_process(root.path(), 42));
+
+        let app = root.path().join("99");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join("comm"), "gitea\n").unwrap();
+        fs::write(app.join("status"), "Name:\tgitea\nPid:\t99\nVmSize:\t1234 kB\n").unwrap();
+        std::os::unix::fs::symlink("/usr/bin/gitea", app.join("exe")).unwrap();
+        assert!(is_userspace_process(root.path(), 99));
+    }
+
+    #[test]
+    fn flow_event_strips_process_identity_without_userspace_pid() {
+        let flow = AttributedFlow {
+            flow: crate::af_xdp_classifier::FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 443,
+                endpoint_b_port: 50000,
+                endpoint_a_addr: [10, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                endpoint_b_addr: [1, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: 2,
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                socket_address: 0,
+                last_seen_ns: 0,
+                process_generation_ns: 0,
+                old_state: 0,
+                new_state: 0,
+                local_endpoint: 1,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 0,
+                tgid: 0,
+                uid: 0,
+                gid: 0,
+                comm: "swapper/20".into(),
+                cmdline: Vec::new(),
+                container_id: None,
+                last_seen_ns: 0,
+                process_generation_ns: 0,
+            }),
+        };
+        let event = flow_attribution_event(&flow, 1).unwrap();
+        assert_eq!(event.pid, 0);
+        assert_eq!(event.tgid, 0);
+        assert!(event.comm.is_empty(), "must not emit kernel comm without pid");
+    }
+
+    #[test]
+    fn preferred_process_owner_prefers_container_over_host() {
+        let host = ProcessDetails {
+            pid: 10,
+            tgid: 10,
+            uid: 0,
+            gid: 0,
+            comm: "k3s-agent".to_string(),
+            cmdline: vec!["/usr/local/bin/k3s".to_string()],
+            container_id: None,
+            last_seen_ns: 0,
+            process_generation_ns: 0,
+        };
+        let container = ProcessDetails {
+            pid: 99,
+            tgid: 99,
+            uid: 1000,
+            gid: 1000,
+            comm: "beam.smp".to_string(),
+            cmdline: vec![],
+            container_id: Some("a".repeat(64)),
+            last_seen_ns: 0,
+            process_generation_ns: 0,
+        };
+
+        let winner = preferred_process_owner(vec![host.clone(), container.clone()]).unwrap();
+        assert_eq!(winner.pid, 99);
+        assert_eq!(winner.comm, "beam.smp");
+
+        let winner_reversed = preferred_process_owner(vec![container, host]).unwrap();
+        assert_eq!(winner_reversed.pid, 99);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn process_snapshot_prefers_container_owner_when_inode_shared() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("net")).unwrap();
+        fs::write(
+            root.path().join("net/tcp"),
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 4242 1 0000000000000000 100 0 0 10 0\n",
+        )
+        .unwrap();
+
+        // Host dual-view: no container id in cgroup.
+        let host_dir = root.path().join("10");
+        fs::create_dir_all(host_dir.join("fd")).unwrap();
+        fs::write(host_dir.join("cmdline"), b"/usr/local/bin/k3s\0agent\0").unwrap();
+        fs::write(host_dir.join("cgroup"), "0::/system.slice/k3s.service\n").unwrap();
+        fs::write(host_dir.join("comm"), "k3s-agent\n").unwrap();
+        fs::write(
+            host_dir.join("status"),
+            "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("socket:[4242]", host_dir.join("fd/3")).unwrap();
+
+        // Container process: 64-hex container id in cgroup path.
+        let cid = "a".repeat(64);
+        let app_dir = root.path().join("99");
+        fs::create_dir_all(app_dir.join("fd")).unwrap();
+        fs::write(app_dir.join("cmdline"), b"/app/bin/server\0").unwrap();
+        fs::write(
+            app_dir.join("cgroup"),
+            format!("0::/kubepods.slice/cri-containerd-{cid}.scope\n"),
+        )
+        .unwrap();
+        fs::write(app_dir.join("comm"), "beam.smp\n").unwrap();
+        fs::write(
+            app_dir.join("status"),
+            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("socket:[4242]", app_dir.join("fd/3")).unwrap();
+
+        let snapshot =
+            ProcfsEnricher::with_root(root.path()).process_snapshot(&HashMap::new(), 1);
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].pid, 99);
+        assert_eq!(snapshot.entries[0].comm, "beam.smp");
+        assert_eq!(snapshot.entries[0].container_id, cid);
     }
 
     #[test]

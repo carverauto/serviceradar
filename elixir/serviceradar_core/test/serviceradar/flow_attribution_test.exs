@@ -1177,11 +1177,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       params.local_ip,
       params.local_port,
       params.remote_ip,
-      params.remote_port,
-      params.pid,
-      Map.get(params, :uid, 1000),
-      Map.get(params, :container_id),
-      params.comm
+      params.remote_port
     ]
     |> Enum.map_join(<<31>>, &key_part/1)
     |> then(&:crypto.hash(:md5, &1))

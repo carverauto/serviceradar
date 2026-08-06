@@ -104,6 +104,9 @@ defmodule ServiceRadarCoreElx.MixProject do
     [
       serviceradar_core_elx: [
         include_executables_for: [:unix],
+        # Avoid boot abort when optional deps (e.g. lazy_html via phoenix_live_view)
+        # bake compile-time env that is unset in some runtime paths.
+        validate_compile_env: false,
         applications: [
           runtime_tools: :permanent,
           serviceradar_core: :permanent,

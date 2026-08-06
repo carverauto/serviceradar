@@ -223,6 +223,29 @@ declare_service_container_amd64(
 )
 
 declare_service_container_amd64(
+    name = "k8s_inventory_image_amd64",
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-k8s-inventory"],
+    # Container entrypoint convention: binary + subcommand for long-running mode.
+    cmd = ["run"],
+    exposed_ports = ["9109/tcp"],
+    files = {
+        "//go/cmd/k8s-inventory:k8s-inventory": "usr/local/bin/serviceradar-k8s-inventory",
+    },
+    image_title = "serviceradar-k8s-inventory",
+    modes = {
+        "usr/local/bin/serviceradar-k8s-inventory": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-k8s-inventory:local"],
+    runtime = "alpine_netutils",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_service_container_amd64(
     name = "datasvc_image_amd64",
     cmd = ["/usr/local/bin/serviceradar-datasvc"],
     empty_dirs = [

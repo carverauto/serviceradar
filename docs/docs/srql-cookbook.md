@@ -185,10 +185,12 @@ in:flows ip:8.8.8.8 time:last_24h sort:bytes_total:desc
 
 `ip:` matches **either** endpoint, so this is everything the host sent *and*
 received. `src_ip:` / `dst_ip:` are the directional forms. There is no cross-field
-`OR` in SRQL, so without `ip:` this question needs two separate queries.
+`OR` in SRQL; without `ip:` you would need two separate queries (or invent invalid
+`(src_ip:… OR dst_ip:…)` syntax).
 
 Same idea for a whole block — `cidr:` matches either endpoint, `src_cidr:` /
-`dst_cidr:` are directional:
+`dst_cidr:` are directional. For **ports**, use `port:` the same way (`port:22`
+instead of directional `src_port` / `dst_port` only):
 
 ```srql
 in:flows cidr:203.0.113.0/24 time:last_24h stats:sum(bytes_total) as bytes by app
@@ -222,13 +224,35 @@ in:flows bytes_total:>10000000 time:last_1h sort:bytes_total:desc
 
 Flows that moved more than 10 MB.
 
-### Traffic on a specific port
+### Traffic on a specific port (one direction)
 
 ```srql
 in:flows dst_port:(443,8443) time:last_1h
 ```
 
-HTTPS-style traffic; the list form matches either port.
+Destination is 443 or 8443. The list form is OR **on one field** only.
+
+### Traffic on a port either direction (SSH, DNS, …)
+
+```srql
+in:flows time:last_24h port:22 sort:time:desc limit:50
+```
+
+`port:` (alias `endpoint_port:`) matches **either** endpoint port — the right
+answer for “show me SSH” when netflow direction flips between client→server and
+server→client. Directional forms remain `src_port:` / `dst_port:`.
+
+```srql
+in:flows time:last_24h port:(22,2222) sort:time:desc limit:50
+```
+
+List form works with `port:` as well (either side is 22 **or** 2222).
+
+> **Do not write** `(dst_port:22 OR src_port:22)`. SRQL has no cross-field `OR`
+> keyword; that parenthesized form tokenizes incorrectly and yields empty or
+> invalid queries. Prefer `port:22` (or two separate queries). Full boolean
+> groups are tracked in
+> [issue #4851](https://code.carverauto.dev/carverauto/serviceradar/issues/4851).
 
 ### Traffic from a subnet
 
@@ -290,6 +314,107 @@ in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 ```
 
 Five-minute buckets suitable for a time-series chart.
+
+> **UI note:** On the NetFlow **Traffic Analysis** overview, summary cards
+> (Total Flows, TCP/UDP, bytes) honor `port:` and `ip:` filters. The stacked
+> **Ports** series chart may still show “No ports samples” for some filtered
+> queries while the cards are non-zero — open **Flow Explorer** for the raw
+> row table, or switch SERIES to **Talkers**.
+
+---
+
+## Attributed flows and public endpoints
+
+Attributed flows are NetFlow rows joined with host process context (netprobe)
+and, when the 5-tuple hits a known public VIP, Kubernetes ownership from
+`public_endpoints`. Use `in:attributed_flows` when you care about process,
+pod, or Gateway/Service owner — not only the 5-tuple.
+
+### Inventory: who owns this public VIP / port?
+
+```srql
+in:public_endpoints port:22 limit:50
+```
+
+```srql
+in:public_endpoints ip:23.138.124.7
+```
+
+```srql
+in:public_endpoints exposure_class:Gateway sort:ip:asc limit:50
+```
+
+Current snapshot of LoadBalancer / Gateway exposures (no `time:` required).
+
+### All attributed traffic involving a public VIP
+
+```srql
+in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+```
+
+Same bidirectional `ip:` helper as raw flows. In the UI, rows show **PROCESS**
+(e.g. `gitea`, `anubis`) and **PUBLIC ENDPOINT** (e.g. `Gateway: forgejo-http`)
+when the correlator stamped ownership.
+
+### Filter by public endpoint owner
+
+```srql
+in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+```
+
+```srql
+in:attributed_flows time:last_24h service_name:anubis-forgejo sort:time:desc limit:50
+```
+
+```srql
+in:attributed_flows time:last_24h exposure_class:Gateway sort:time:desc limit:50
+```
+
+`service_name:` / `exposure_class:` / `gateway_name:` / `route_name:` filter
+`attribution.public_endpoint` fields — only present after VIP join.
+
+### SSH: raw vs attributed
+
+```srql
+in:flows time:last_24h port:22 sort:time:desc limit:50
+```
+
+Raw SSH 5-tuples (works even without process join). Summary cards should match
+DB counts.
+
+```srql
+in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
+```
+
+Only rows that also have host process attribution on port 22. This can be
+**empty** while `in:flows port:22` is busy — that means netflow saw SSH but
+netprobe did not join a process (or no SSH hit a joined socket yet), not that
+`port:` is broken.
+
+```srql
+in:attributed_flows time:last_24h service_name:forgejo-ssh sort:time:desc limit:50
+```
+
+SSH that was stamped with the public endpoint owner `forgejo-ssh`. Requires
+inventory + correlator VIP join on `:22`.
+
+### Process-focused attributed traffic
+
+```srql
+in:attributed_flows time:last_1h process:gitea sort:time:desc limit:50
+```
+
+```srql
+in:attributed_flows time:last_1h process:anubis attribution_status:attributed
+```
+
+### When PUBLIC ENDPOINT is blank
+
+A blank public endpoint on an attributed row is expected when **neither** side
+of the 5-tuple is a catalogued VIP:port (for example node IP + ephemeral port
+talking to the internet). Process join can still succeed (`rspamd` on a
+worker). Ownership of a public listener is a different question from “did a
+host process touch this socket?”
 
 ---
 
