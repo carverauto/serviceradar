@@ -6106,7 +6106,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-netprobe"
-version = "0.2.25"
+version = "0.2.27"
 dependencies = [
  "anyhow",
  "aya 0.13.1",
