@@ -1,8 +1,0 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
-
-go_library(
-    name = "model",
-    srcs = ["model.go"],
-    importpath = "github.com/carverauto/serviceradar/go/pkg/bumblebee/upstream/internal/model",
-    visibility = ["//go/pkg/bumblebee/upstream:__subpackages__"],
-)

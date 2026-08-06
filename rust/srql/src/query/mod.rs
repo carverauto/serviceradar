@@ -35,6 +35,7 @@ mod memory_metrics;
 mod otel_metric_points;
 mod otel_metrics;
 mod process_metrics;
+mod public_endpoints;
 mod services;
 mod timeseries_metrics;
 mod trace_summaries;

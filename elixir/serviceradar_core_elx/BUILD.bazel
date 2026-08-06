@@ -16,6 +16,28 @@ filegroup(
     ),
 )
 
+# What `mix compile` actually needs -- :srcs minus the test files it never compiles.
+# See the long note on //elixir/serviceradar_core:compile_srcs; the reasoning is identical.
+# mix.exs declares `elixirc_paths(:test), do: ["lib", "test/support"]`, so every other file
+# under test/ was a declared input of a compile that does not read it, and touching one
+# rebuilt this app and everything downstream of it.
+filegroup(
+    name = "compile_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+            "test/**",
+        ],
+    ) + glob(
+        ["test/support/**"],
+        allow_empty = True,
+    ),
+)
+
 filegroup(
     name = "deps_srcs",
     srcs = [
@@ -26,9 +48,9 @@ filegroup(
 
 
 CORE_ELX_DEPS = [
-    "//elixir/elixir_uuid:erlang_app",
+    "//third_party/hex_vendored/elixir_uuid:erlang_app",
     "//elixir/serviceradar_core:erlang_app_prod",
-    "//elixir/vendor/boombox:erlang_app",
+    "//third_party/hex_vendored/boombox:erlang_app",
     "@hex_bandit//:erlang_app",
     "@hex_boundary//:erlang_app",
     "@hex_bundlex//:erlang_app",
@@ -78,7 +100,7 @@ filegroup(
 # second env would compile the entire Membrane stack twice.
 mix_app(
     name = "erlang_app_prod",
-    srcs = [":srcs"],
+    srcs = [":compile_srcs"],
     app_name = "serviceradar_core_elx",
     # Bazel builds the cdylibs; Mix must not shell out to cargo. The libraries reach the
     # release through serviceradar_core's own priv.
@@ -99,13 +121,12 @@ elixir_release(
     srcs = [
         ":release_recipe",
         # Mix reads each PATH dependency's mix.exs to learn its app name and version.
-        # vendor/boombox lives inside this project, so :release_recipe does not cover it.
-        "vendor/boombox/mix.exs",
-        "//elixir/connection:mix.exs",
-        "//elixir/elixir_uuid:mix.exs",
+        "//third_party/hex_vendored/boombox:mix.exs",
+        "//third_party/hex_vendored/connection:mix.exs",
+        "//third_party/hex_vendored/elixir_uuid:mix.exs",
         "//elixir/serviceradar_core:mix.exs",
         "//elixir/serviceradar_srql:mix.exs",
-        "//elixir/vendor/opentelemetry_oban:mix.exs",
+        "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
     app = ":erlang_app_prod",
     out = "serviceradar-core-elx-release.tar.gz",

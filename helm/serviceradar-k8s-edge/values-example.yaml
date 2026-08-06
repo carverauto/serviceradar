@@ -1,0 +1,43 @@
+# Example customer values for a remote EKS/GKE/AKS cluster (no full ServiceRadar).
+#
+# Prerequisites:
+#   1. Enroll an edge agent package against central/SaaS agent-gateway
+#   2. Create Secret with mTLS materials from the package:
+#        kubectl -n serviceradar-edge create secret generic sr-edge-agent-mtls \
+#          --from-file=root.pem=./root.pem \
+#          --from-file=agent.pem=./agent.pem \
+#          --from-file=agent-key.pem=./agent-key.pem
+#
+# Install:
+#   helm upgrade --install acme-prod ./helm/serviceradar-k8s-edge \
+#     -n serviceradar-edge --create-namespace \
+#     -f values-example.yaml
+
+global:
+  imageTag: "v1.4.29"
+  # imagePullSecrets:
+  #   - name: harbor-pull
+
+clusterId: acme-prod-eks-us-east-1
+
+agent:
+  enabled: true
+  agentId: "acme-prod-eks-edge"
+  partitionId: "acme-prod"
+  gatewayAddress: "agent-gateway.serviceradar.cloud:443"
+  gatewayServerName: "serviceradar-agent-gateway"
+  existingTlsSecret: "sr-edge-agent-mtls"
+
+k8sInventory:
+  enabled: true
+  publishMode: agent_spool
+  # Optional: tighten API visibility (include gateway + app namespaces)
+  # namespaces:
+  #   - envoy-gateway-system
+  #   - ingress-nginx
+  #   - production
+  gatewayAPI:
+    enabled: true
+
+networkPolicy:
+  enabled: false

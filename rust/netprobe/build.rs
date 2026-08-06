@@ -15,10 +15,14 @@ mod p0f_corpus;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=ebpf/Cargo.toml");
     println!("cargo:rerun-if-changed=ebpf/src/lib.rs");
-    println!("cargo:rerun-if-changed=p0f-corpus/p0f.fp");
-    println!("cargo:rerun-if-changed=p0f-corpus/serviceradar-additions.fp");
-    println!("cargo:rerun-if-changed=recog-corpus/xml");
-    println!("cargo:rerun-if-changed=recog-corpus/serviceradar-recog-additions.xml");
+    println!("cargo:rerun-if-changed=../../third_party/netprobe_corpora/p0f/p0f.fp");
+    println!(
+        "cargo:rerun-if-changed=../../third_party/netprobe_corpora/p0f/serviceradar-additions.fp"
+    );
+    println!("cargo:rerun-if-changed=../../third_party/netprobe_corpora/recog/xml");
+    println!(
+        "cargo:rerun-if-changed=../../third_party/netprobe_corpora/recog/serviceradar-recog-additions.xml"
+    );
     println!("cargo:rerun-if-changed=src/p0f_corpus.rs");
     println!("cargo:rerun-if-env-changed=SERVICERADAR_NETPROBE_BUILD_EBPF");
 
@@ -69,10 +73,11 @@ struct RecogParam {
 }
 
 fn generate_recog_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let recog_root = if Path::new("recog-corpus").exists() {
-        PathBuf::from("recog-corpus")
+    // Cargo path first (cwd = this crate dir), Bazel path second (cwd = execroot).
+    let recog_root = if Path::new("../../third_party/netprobe_corpora/recog").exists() {
+        PathBuf::from("../../third_party/netprobe_corpora/recog")
     } else {
-        PathBuf::from("rust/netprobe/recog-corpus")
+        PathBuf::from("third_party/netprobe_corpora/recog")
     };
     let xml_dir = recog_root.join("xml");
     let mut paths = fs::read_dir(&xml_dir)?
@@ -298,16 +303,19 @@ fn parse_recog_param(
 }
 
 fn generate_p0f_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let corpus_path = if Path::new("p0f-corpus/p0f.fp").exists() {
-        "p0f-corpus/p0f.fp"
+    // The corpus lives in //third_party/netprobe_corpora/p0f. First branch is the
+    // cargo path (cwd = this crate dir), second the Bazel one (cwd = execroot).
+    let corpus_path = if Path::new("../../third_party/netprobe_corpora/p0f/p0f.fp").exists() {
+        "../../third_party/netprobe_corpora/p0f/p0f.fp"
     } else {
-        "rust/netprobe/p0f-corpus/p0f.fp"
+        "third_party/netprobe_corpora/p0f/p0f.fp"
     };
-    let additions_path = if Path::new("p0f-corpus/serviceradar-additions.fp").exists() {
-        "p0f-corpus/serviceradar-additions.fp"
-    } else {
-        "rust/netprobe/p0f-corpus/serviceradar-additions.fp"
-    };
+    let additions_path =
+        if Path::new("../../third_party/netprobe_corpora/p0f/serviceradar-additions.fp").exists() {
+            "../../third_party/netprobe_corpora/p0f/serviceradar-additions.fp"
+        } else {
+            "third_party/netprobe_corpora/p0f/serviceradar-additions.fp"
+        };
     let mut corpus = std::fs::read_to_string(corpus_path)?;
     let additions = std::fs::read_to_string(additions_path)?;
     p0f_corpus::parse(&additions)?;

@@ -44,7 +44,7 @@ spec:
   scaleTargetRef:
     name: buildbuddy-buildbuddy-executor
   minReplicaCount: 3
-  maxReplicaCount: 10
+  maxReplicaCount: 5
   # Executors hold warm state: a local CAS cache under /cache and, with snapshot sharing,
   # prepared VM snapshots. Scaling in aggressively throws that away and the replacement pays
   # the image pull again (image_pull_timeout is 15m), so cool down slowly.

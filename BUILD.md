@@ -89,14 +89,14 @@ sha256sum /path/to/serviceradar/rust/netprobe/ebpf/include/vmlinux.h
 
 The license-clean fingerprint stack uses:
 
-* Frozen upstream p0f signatures in `rust/netprobe/p0f-corpus/p0f.fp`.
+* Frozen upstream p0f signatures in `third_party/netprobe_corpora/p0f/p0f.fp`.
 * ServiceRadar-curated p0f additions in
-  `rust/netprobe/p0f-corpus/serviceradar-additions.fp`.
-* MuonFP TCP SYN format/reference files in `rust/netprobe/muonfp-corpus/`.
-* Rapid7 Recog banner fingerprints in `rust/netprobe/recog-corpus/xml/`.
+  `third_party/netprobe_corpora/p0f/serviceradar-additions.fp`.
+* MuonFP TCP SYN format/reference files in `third_party/netprobe_corpora/muonfp/`.
+* Rapid7 Recog banner fingerprints in `third_party/netprobe_corpora/recog/xml/`.
 * ServiceRadar-curated Recog additions in
-  `rust/netprobe/recog-corpus/serviceradar-recog-additions.xml`.
-* Satori XML fingerprints in `rust/netprobe/satori-corpus/xml/`.
+  `third_party/netprobe_corpora/recog/serviceradar-recog-additions.xml`.
+* Satori XML fingerprints in `third_party/netprobe_corpora/satori/xml/`.
 * JA4 base TLS ClientHello fingerprinting pinned by `rust/netprobe/LICENSE-JA4`
   and the `JA4_BASE_SPEC_REVISION` constant.
 * HASSH SSH KEXINIT fingerprinting pinned by `rust/netprobe/LICENSE-HASSH`.
@@ -112,13 +112,13 @@ curl -L https://lcamtuf.coredump.cx/p0f3/releases/p0f-3.09b.tgz \
   -o "$tmpdir/p0f-3.09b.tgz"
 sha256sum "$tmpdir/p0f-3.09b.tgz"
 tar -C "$tmpdir" -xzf "$tmpdir/p0f-3.09b.tgz"
-cp "$tmpdir/p0f-3.09b/p0f.fp" rust/netprobe/p0f-corpus/p0f.fp
-sha256sum rust/netprobe/p0f-corpus/p0f.fp
+cp "$tmpdir/p0f-3.09b/p0f.fp" third_party/netprobe_corpora/p0f/p0f.fp
+sha256sum third_party/netprobe_corpora/p0f/p0f.fp
 ```
 
 After changing the corpus:
 
-1. Update `rust/netprobe/p0f-corpus/README.md` with the source URL, timestamp,
+1. Update `third_party/netprobe_corpora/p0f/README.md` with the source URL, timestamp,
    tarball hash, corpus hash, and license notes.
 2. Update `P0F_CORPUS_REVISION` in `rust/netprobe/src/fingerprint.rs`.
 3. Run:
@@ -131,8 +131,8 @@ bazel test //rust/netprobe:netprobe_test
 ### Curate ServiceRadar additions
 
 Do not patch the upstream corpus for local signatures. Add ServiceRadar-owned
-entries to `rust/netprobe/p0f-corpus/serviceradar-additions.fp` following
-`rust/netprobe/p0f-corpus/CONTRIBUTING.md`.
+entries to `third_party/netprobe_corpora/p0f/serviceradar-additions.fp` following
+`third_party/netprobe_corpora/p0f/CONTRIBUTING.md`.
 
 Before merge:
 
@@ -155,16 +155,16 @@ git clone https://github.com/sundruid/muonfp "$tmpdir/muonfp"
 cd "$tmpdir/muonfp"
 git checkout <pinned-commit>
 cp "MuonFP Fingerprint Specification.md" \
-  /path/to/serviceradar/rust/netprobe/muonfp-corpus/SPEC.md
+  /path/to/serviceradar/third_party/netprobe_corpora/muonfp/SPEC.md
 cp src/fingerprint.rs \
-  /path/to/serviceradar/rust/netprobe/muonfp-corpus/reference-fingerprint.rs
+  /path/to/serviceradar/third_party/netprobe_corpora/muonfp/reference-fingerprint.rs
 cp LICENSE \
-  /path/to/serviceradar/rust/netprobe/muonfp-corpus/LICENSE-MIT.txt
+  /path/to/serviceradar/third_party/netprobe_corpora/muonfp/LICENSE-MIT.txt
 ```
 
 After changing the reference files:
 
-1. Update `rust/netprobe/muonfp-corpus/README.md` with the commit, source
+1. Update `third_party/netprobe_corpora/muonfp/README.md` with the commit, source
    paths, sha256 values, and the no-standalone-corpus audit finding.
 2. Confirm no FoxIO / JA4+ references were introduced.
 3. Update `MUONFP_CORPUS_REVISION` in `rust/netprobe/src/fingerprint.rs`.
@@ -184,23 +184,23 @@ tmpdir=$(mktemp -d)
 git clone https://github.com/rapid7/recog "$tmpdir/recog"
 cd "$tmpdir/recog"
 git checkout <release-tag>
-rsync -a --delete xml/ /path/to/serviceradar/rust/netprobe/recog-corpus/xml/
+rsync -a --delete xml/ /path/to/serviceradar/third_party/netprobe_corpora/recog/xml/
 rsync -a --delete identifiers/ \
-  /path/to/serviceradar/rust/netprobe/recog-corpus/identifiers/
-cp COPYING LICENSE /path/to/serviceradar/rust/netprobe/recog-corpus/
+  /path/to/serviceradar/third_party/netprobe_corpora/recog/identifiers/
+cp COPYING LICENSE /path/to/serviceradar/third_party/netprobe_corpora/recog/
 ```
 
 Then regenerate manifests:
 
 ```bash
-cd /path/to/serviceradar/rust/netprobe/recog-corpus
+cd /path/to/serviceradar/third_party/netprobe_corpora/recog
 shasum -a 256 xml/*.xml > SHA256SUMS
 shasum -a 256 identifiers/*.txt > IDENTIFIER_SHA256SUMS
 ```
 
 After changing Recog:
 
-1. Update `rust/netprobe/recog-corpus/README.md` with the release tag, commit,
+1. Update `third_party/netprobe_corpora/recog/README.md` with the release tag, commit,
    dates, top-level checksums, and license notes.
 2. Keep `serviceradar-recog-additions.xml` intact; do not overwrite it during
    upstream bumps.
@@ -217,8 +217,8 @@ bazel test //rust/netprobe:netprobe_test
 
 Do not patch the upstream Recog XML files for local signatures. Add
 ServiceRadar-owned entries to
-`rust/netprobe/recog-corpus/serviceradar-recog-additions.xml` following
-`rust/netprobe/recog-corpus/CONTRIBUTING.md`.
+`third_party/netprobe_corpora/recog/serviceradar-recog-additions.xml` following
+`third_party/netprobe_corpora/recog/CONTRIBUTING.md`.
 
 Before merge:
 
@@ -242,12 +242,12 @@ git clone https://github.com/xnih/satori "$tmpdir/satori"
 cd "$tmpdir/satori"
 git checkout <pinned-commit>
 rsync -a --delete fingerprints/ \
-  /path/to/serviceradar/rust/netprobe/satori-corpus/xml/
-cp LICENSE /path/to/serviceradar/rust/netprobe/satori-corpus/LICENSE-GPL-2.0.txt
-cp README.md /path/to/serviceradar/rust/netprobe/satori-corpus/UPSTREAM-README.md
+  /path/to/serviceradar/third_party/netprobe_corpora/satori/xml/
+cp LICENSE /path/to/serviceradar/third_party/netprobe_corpora/satori/LICENSE-GPL-2.0.txt
+cp README.md /path/to/serviceradar/third_party/netprobe_corpora/satori/UPSTREAM-README.md
 ```
 
-Then regenerate the manifest from `rust/netprobe/satori-corpus`:
+Then regenerate the manifest from `third_party/netprobe_corpora/satori`:
 
 ```bash
 shasum -a 256 README.md LICENSE-GPL-2.0.txt UPSTREAM-README.md xml/*.xml \
@@ -256,7 +256,7 @@ shasum -a 256 README.md LICENSE-GPL-2.0.txt UPSTREAM-README.md xml/*.xml \
 
 After changing Satori:
 
-1. Update `rust/netprobe/satori-corpus/README.md` with the commit, source
+1. Update `third_party/netprobe_corpora/satori/README.md` with the commit, source
    paths, sha256 values, license boundary, and fingerprint counts.
 2. Confirm the directory still contains only `README.md`,
    `LICENSE-GPL-2.0.txt`, `UPSTREAM-README.md`, `SHA256SUMS`, and `xml/*.xml`.

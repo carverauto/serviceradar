@@ -228,6 +228,9 @@ spec:
                       "signals.analytics.>",
                       "events.>",
                       "config.>",
+                      "inventory.k8s.>",
+                      "trivy.report.>",
+                      "falco.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -409,6 +412,17 @@ spec:
                 permissions: {
                   publish: {
                     allow: ["trivy.report.>", "\$JS.API.STREAM.INFO.trivy_reports", "\$JS.API.STREAM.CREATE.trivy_reports", "\$JS.API.>"]
+                  }
+                  subscribe: {
+                    allow: ["\$JS.API.>", "_INBOX.>"]
+                  }
+                }
+              },
+              {
+                user: "CN=serviceradar-k8s-inventory,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["inventory.k8s.>", "\$JS.API.STREAM.INFO.k8s_inventory", "\$JS.API.STREAM.CREATE.k8s_inventory", "\$JS.API.>"]
                   }
                   subscribe: {
                     allow: ["\$JS.API.>", "_INBOX.>"]

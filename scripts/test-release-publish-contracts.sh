@@ -414,7 +414,10 @@ for fragment in (
 ):
     if fragment not in publish_images_step:
         raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
-if 'mapfile -t image_targets' in publish_images_step or 'bazel build --config=remote_push --stamp "${image_targets[@]}"' in publish_images_step:
+# Config-agnostic on purpose. This used to name `--config=remote_push`, a config that has
+# since been deleted -- so the guard could never fire again and would have let a rebuild step
+# back in under any other config. Match on the rebuild's shape instead.
+if 'mapfile -t image_targets' in publish_images_step or '--stamp "${image_targets[@]}"' in publish_images_step:
     raise SystemExit("release retry must not rebuild image digests after registry equality is proven")
 
 for fragment in (

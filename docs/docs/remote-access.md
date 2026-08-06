@@ -34,24 +34,60 @@ Before enabling remote access, make sure these pieces are in place:
 
 ServiceRadar supports several credential paths, but they are not equal.
 
-Preferred path:
+### Preferred path: Teleport-style SSO certificates (default in the UI)
 
-1. The user signs in through ServiceRadar with OIDC or SAML SSO. A local password login is deliberately ineligible for SSH certificate issuance, even if the account previously used SSO.
-2. ServiceRadar evaluates RBAC and the remote access target policy.
-3. ServiceRadar signs a short-lived OpenSSH user certificate with allowed principals, target restrictions, key ID, and TTL.
-4. The browser session and edge path use the short-lived certificate for this one remote access session.
-5. The target host trusts the ServiceRadar user CA and maps the certificate principal to a local or LDAP-backed Linux account.
+This is the enterprise default. The browser SSH console no longer asks operators to
+paste private keys for certificate sessions.
 
-Transitional paths:
+1. The user signs in through ServiceRadar with OIDC or SAML SSO (Authentik in the
+   demo/lab environment). A local password login is deliberately ineligible for
+   SSH certificate issuance, even if the account previously used SSO.
+2. The operator opens **Devices → Remote Access → SSH**. The form defaults to
+   **SSO certificate** mode. Unix account names come from certificate policy via
+   `GET /api/remote-access/devices/:device_uid/ssh-options` (account names only;
+   opaque principals are never sent to the browser). The preferred account is
+   remembered per browser profile (Teleport-like default account pick).
+3. On Connect, the browser generates a one-session Ed25519 keypair with WebCrypto
+   (`crypto.subtle`). The private key stays in tab memory only. The public key is
+   sent with the session attach credential after RBAC and target policy succeed.
+4. ServiceRadar signs a short-lived OpenSSH user certificate with allowed
+   principals, target restrictions, key ID, and TTL.
+5. Traffic still follows the edge path (never direct from the operator laptop to
+   the host):
 
-- User-present password or key material can be used for a session when the operator allows it. The material should remain memory-only for that session.
-- Centrally brokered reusable credentials can be used for tightly scoped break-glass or legacy Proxmox host shell workflows. They must be encrypted centrally, released only for one approved session, and bound to the target, agent, gateway, protocol, and TTL.
+   ```text
+   browser → web-ng → agent-gateway → edge agent → target sshd
+   ```
 
-Avoid:
+6. The target host trusts the ServiceRadar user CA and maps the certificate
+   principal to a local Unix account, FreeIPA/LDAP account, or other NSS-backed
+   identity. See [Unix identity (FreeIPA)](#unix-identity-freeipa).
+
+### Why browser-mediated keys (not pasted keys)
+
+Teleport and similar products generate short-lived keys client-side so operators
+never handle long-lived SSH private keys. ServiceRadar follows the same pattern
+for certificate mode: the private key is ephemeral, never written to disk by the
+product UI, and never returned from the control plane. Policy principals remain
+server-side only.
+
+### Transitional paths
+
+- User-present password or key material can be used for a session when the
+  operator expands **Show advanced / legacy**. The material should remain
+  memory-only for that session.
+- Centrally brokered reusable credentials can be used for tightly scoped
+  break-glass or legacy Proxmox host shell workflows. They must be encrypted
+  centrally, released only for one approved session, and bound to the target,
+  agent, gateway, protocol, and TTL.
+
+### Avoid
 
 - Agent-local reusable SSH private keys.
 - Shared master accounts that can log in to every target.
 - Long-lived private keys stored in plugin parameters or local agent config.
+- Asking operators to paste CA private keys or session private keys for normal SSO
+  certificate login.
 
 ## SSH CA Setup
 
@@ -275,6 +311,116 @@ printf "srp_v1_6d8b1e49fbe24ad487ce2c5c\n" | \
   sudo tee /etc/ssh/serviceradar/current/authorized-principals/mfreeman
 sudo chmod 0644 /etc/ssh/serviceradar/current/authorized-principals/mfreeman
 ```
+
+## Unix identity (FreeIPA)
+
+SSH certificates authenticate the *session*. They do not create Unix accounts.
+The account named in the browser form (for example `mfreeman`) must already
+exist on the target through FreeIPA (preferred), a local user, or another
+NSS/PAM source.
+
+**Decision:** FreeIPA is the fleet Unix IdM. It owns POSIX users/groups,
+**centralized sudo rules**, HBAC, host enrollment, and Kerberos. Prefer
+**2 VMs outside Kubernetes** for production FreeIPA (not Synology LDAP, not
+Authentik LDAP outpost as the sudo plane). Platform runbook:
+platform gitops `k8s/freeipa/README.md` (VM-primary; k8s StatefulSet is lab-only).
+
+### Division of labor
+
+| System | Role |
+|--------|------|
+| **Authentik** | Human SSO into ServiceRadar (OIDC/SAML). RBAC groups for who may open remote access. Already deployed at `https://auth.carverauto.dev`. Optional LDAP Source from FreeIPA for user/group sync. |
+| **ServiceRadar SSH CA** | Issues short-lived OpenSSH user certificates bound to opaque principals and certificate policy accounts. |
+| **FreeIPA** | Enterprise Unix identity: POSIX accounts, **sudo rules**, HBAC, host enrollment. Hosts join FreeIPA and resolve `mfreeman` via SSSD. |
+| **Edge agent path** | All interactive traffic still tunnels browser → web-ng → agent-gateway → edge agent → target. FreeIPA does not open a second path around the agent. |
+
+Authentik is not a FreeIPA replacement for sudo/HBAC/host join. Certificate
+policy still maps ServiceRadar opaque principals → the same POSIX account names
+FreeIPA provides.
+
+Until FreeIPA is online, lab hosts may use local accounts (as on `dusk01` /
+`192.168.2.22`) with the same CA + `AuthorizedPrincipalsFile` layout.
+
+
+### Authentik groups (Model A)
+
+Authentik is the source of truth for people. FreeIPA only receives users who are
+explicitly gated:
+
+| Authentik group | Meaning |
+|-----------------|---------|
+| `unix-users` | May have a FreeIPA POSIX account and host login (HBAC). |
+| `unix-sudo` | Subset of Unix users who receive FreeIPA sudo rules. |
+
+Operator flow: create/invite user in Authentik → add to `unix-users` (and
+`unix-sudo` if needed) → run the provisioner in platform gitops
+`k8s/freeipa/PROVISIONING.md`. Username must match FreeIPA `uid` and the
+ServiceRadar certificate policy account name.
+
+### FreeIPA + sudo (summary)
+
+Manage privilege in IPA after clients enroll (`ipa sudorule-*`, `ipa hbacrule-*`,
+host groups / user groups). Do not scatter permanent sudoers on each host for
+fleet operators. See the platform FreeIPA README for install topology, client
+enrollment, Authentik LDAP Source, and example sudo/HBAC commands.
+
+### FreeIPA platform docs
+
+```text
+# platform gitops repo
+k8s/freeipa/README.md          # VM topology, sudo/HBAC, Authentik, checklist
+k8s/freeipa/argocd-application.yaml
+k8s/freeipa/base/              # optional lab StatefulSet only
+```
+
+## Lab target: dusk01 (192.168.2.22)
+
+Use a disposable lab host for end-to-end SSH certificate tests. Prefer
+**dusk01** (`192.168.2.22`) over Kubernetes worker nodes so enrollment mistakes
+cannot break the control plane.
+
+Demo certificate policy already includes target keys `192.168.2.22`, `dusk01`,
+and the inventory device UID when present, with Unix account `mfreeman` and an
+opaque principal of the form `srp_v1_...`.
+
+Enrollment (once per host, with the **public** CA key only):
+
+```bash
+# On an operator workstation with SSH to dusk01 as a sudo user:
+CA_PUB='ssh-ed25519 AAAA... serviceradar-demo-remote-access-ca-...'
+PRINCIPAL='srp_v1_...'   # from certificate-policy for this target/account
+
+ssh mfreeman@192.168.2.22 bash -s <<EOF
+set -euo pipefail
+sudo install -d -o root -g root -m 0755 /etc/ssh/serviceradar/current/authorized-principals
+printf '%s\n' "\$CA_PUB" | sudo tee /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub >/dev/null
+printf '%s\n' "\$PRINCIPAL" | sudo tee /etc/ssh/serviceradar/current/authorized-principals/mfreeman >/dev/null
+sudo tee /etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf >/dev/null <<'CONF'
+PubkeyAuthentication yes
+TrustedUserCAKeys /etc/ssh/serviceradar/current/trusted-user-ca-keys.pub
+AuthorizedPrincipalsFile /etc/ssh/serviceradar/current/authorized-principals/%u
+CONF
+sudo sshd -t && sudo systemctl reload ssh
+EOF
+```
+
+Derive the public key from the demo CA secret only in a secure temporary
+workspace (never commit the private key):
+
+```bash
+kubectl get secret -n demo serviceradar-ssh-ca -o jsonpath='{.data.ca-key}' \
+  | base64 -d > /tmp/sr-ca && chmod 600 /tmp/sr-ca
+ssh-keygen -y -f /tmp/sr-ca
+shred -u /tmp/sr-ca
+```
+
+UI test path after enrollment:
+
+1. Sign in to demo web-ng with Authentik SSO.
+2. Open the dusk01 inventory device → Remote Access → SSH.
+3. Confirm default mode is SSO certificate, account `mfreeman` (or policy
+   dropdown), no private-key paste fields.
+4. Connect. Expect a short-lived certificate session through the agent path.
 
 ## Ansible Enrollment
 

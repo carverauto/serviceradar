@@ -73,6 +73,32 @@ func (s *Server) ensureEndpointInventorySpoolService(cfg *EndpointInventoryStatu
 	s.services = append(s.services, NewEndpointInventorySpoolService(agentID, cfg))
 }
 
+func (s *Server) ensureK8sPublicEndpointsSpoolService(cfg *K8sPublicEndpointsStatusConfig) {
+	if s == nil {
+		return
+	}
+	if cfg == nil {
+		cfg = &K8sPublicEndpointsStatusConfig{}
+	}
+	cfg.Enabled = true
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.config != nil {
+		s.config.K8sPublicEndpoints = cfg
+	}
+	if s.hasStatusServiceLocked(K8sPublicEndpointsServiceName, K8sPublicEndpointsServiceType) {
+		return
+	}
+
+	agentID := ""
+	if s.config != nil {
+		agentID = s.config.AgentID
+	}
+	s.services = append(s.services, NewK8sPublicEndpointsSpoolService(agentID, cfg))
+}
+
 func (s *Server) hasStatusServiceLocked(name, serviceType string) bool {
 	for _, svc := range s.services {
 		if svc == nil || svc.Name() != name {

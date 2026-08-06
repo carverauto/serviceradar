@@ -45,11 +45,107 @@ rust_library(
         "pe",
         "read_core",
         "std",
-        "write",
-        "write_core",
-        "write_std",
         "xcoff",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "archive",  # aarch64-apple-darwin
+            "read",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "archive",  # aarch64-pc-windows-msvc
+            "read",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "archive",  # aarch64-unknown-linux-gnu
+            "read",  # aarch64-unknown-linux-gnu
+            "write",  # aarch64-unknown-linux-gnu
+            "write_core",  # aarch64-unknown-linux-gnu
+            "write_std",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "archive",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "read",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write_core",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write_std",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "archive",  # arm-unknown-linux-gnueabi
+            "read",  # arm-unknown-linux-gnueabi
+            "write",  # arm-unknown-linux-gnueabi
+            "write_core",  # arm-unknown-linux-gnueabi
+            "write_std",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "write",  # arm-unknown-linux-musleabi
+            "write_core",  # arm-unknown-linux-musleabi
+            "write_std",  # arm-unknown-linux-musleabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "write",  # armv7-unknown-linux-gnueabi
+            "write_core",  # armv7-unknown-linux-gnueabi
+            "write_std",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "archive",  # i686-pc-windows-msvc
+            "read",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "archive",  # i686-unknown-linux-gnu
+            "read",  # i686-unknown-linux-gnu
+            "write",  # i686-unknown-linux-gnu
+            "write_core",  # i686-unknown-linux-gnu
+            "write_std",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "archive",  # powerpc-unknown-linux-gnu
+            "read",  # powerpc-unknown-linux-gnu
+            "write",  # powerpc-unknown-linux-gnu
+            "write_core",  # powerpc-unknown-linux-gnu
+            "write_std",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "archive",  # riscv64gc-unknown-linux-gnu
+            "read",  # riscv64gc-unknown-linux-gnu
+            "write",  # riscv64gc-unknown-linux-gnu
+            "write_core",  # riscv64gc-unknown-linux-gnu
+            "write_std",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "archive",  # s390x-unknown-linux-gnu
+            "read",  # s390x-unknown-linux-gnu
+            "write",  # s390x-unknown-linux-gnu
+            "write_core",  # s390x-unknown-linux-gnu
+            "write_std",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "archive",  # x86_64-apple-darwin
+            "read",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "archive",  # x86_64-pc-windows-msvc
+            "read",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "archive",  # x86_64-unknown-freebsd
+            "read",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "archive",  # x86_64-unknown-linux-gnu
+            "read",  # x86_64-unknown-linux-gnu
+            "write",  # x86_64-unknown-linux-gnu
+            "write_core",  # x86_64-unknown-linux-gnu
+            "write_std",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "archive",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "read",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write_core",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write_std",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2018",
     rustc_env_files = [
@@ -77,6 +173,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -110,12 +207,66 @@ rust_library(
     }),
     version = "0.39.1",
     deps = [
-        "//third_party/crates/crc32fast-1.5.0:crc32fast",
-        "//third_party/crates/hashbrown-0.17.1:hashbrown",
-        "//third_party/crates/indexmap-2.14.0:indexmap",
         "//third_party/crates/memchr-2.8.3:memchr",
         "//third_party/crates/object-0.39.1:build_script_build",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # aarch64-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # aarch64-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # arm-unknown-linux-gnueabi
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # arm-unknown-linux-gnueabi
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # arm-unknown-linux-musleabi
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # arm-unknown-linux-musleabi
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # arm-unknown-linux-musleabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # armv7-unknown-linux-gnueabi
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # armv7-unknown-linux-gnueabi
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # i686-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # i686-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # powerpc-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # powerpc-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # riscv64gc-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # riscv64gc-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # s390x-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # s390x-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # x86_64-unknown-linux-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # x86_64-unknown-linux-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "//third_party/crates/crc32fast-1.5.0:crc32fast",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "//third_party/crates/hashbrown-0.17.1:hashbrown",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "//third_party/crates/indexmap-2.14.0:indexmap",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cargo_build_script(
@@ -144,11 +295,107 @@ cargo_build_script(
         "pe",
         "read_core",
         "std",
-        "write",
-        "write_core",
-        "write_std",
         "xcoff",
-    ],
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "archive",  # aarch64-apple-darwin
+            "read",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
+            "archive",  # aarch64-pc-windows-msvc
+            "read",  # aarch64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
+            "archive",  # aarch64-unknown-linux-gnu
+            "read",  # aarch64-unknown-linux-gnu
+            "write",  # aarch64-unknown-linux-gnu
+            "write_core",  # aarch64-unknown-linux-gnu
+            "write_std",  # aarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
+            "archive",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "read",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write_core",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+            "write_std",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "archive",  # arm-unknown-linux-gnueabi
+            "read",  # arm-unknown-linux-gnueabi
+            "write",  # arm-unknown-linux-gnueabi
+            "write_core",  # arm-unknown-linux-gnueabi
+            "write_std",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "write",  # arm-unknown-linux-musleabi
+            "write_core",  # arm-unknown-linux-musleabi
+            "write_std",  # arm-unknown-linux-musleabi
+        ],
+        "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
+            "write",  # armv7-unknown-linux-gnueabi
+            "write_core",  # armv7-unknown-linux-gnueabi
+            "write_std",  # armv7-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:i686-pc-windows-msvc": [
+            "archive",  # i686-pc-windows-msvc
+            "read",  # i686-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
+            "archive",  # i686-unknown-linux-gnu
+            "read",  # i686-unknown-linux-gnu
+            "write",  # i686-unknown-linux-gnu
+            "write_core",  # i686-unknown-linux-gnu
+            "write_std",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
+            "archive",  # powerpc-unknown-linux-gnu
+            "read",  # powerpc-unknown-linux-gnu
+            "write",  # powerpc-unknown-linux-gnu
+            "write_core",  # powerpc-unknown-linux-gnu
+            "write_std",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
+            "archive",  # riscv64gc-unknown-linux-gnu
+            "read",  # riscv64gc-unknown-linux-gnu
+            "write",  # riscv64gc-unknown-linux-gnu
+            "write_core",  # riscv64gc-unknown-linux-gnu
+            "write_std",  # riscv64gc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
+            "archive",  # s390x-unknown-linux-gnu
+            "read",  # s390x-unknown-linux-gnu
+            "write",  # s390x-unknown-linux-gnu
+            "write_core",  # s390x-unknown-linux-gnu
+            "write_std",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "archive",  # x86_64-apple-darwin
+            "read",  # x86_64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
+            "archive",  # x86_64-pc-windows-msvc
+            "read",  # x86_64-pc-windows-msvc
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
+            "archive",  # x86_64-unknown-freebsd
+            "read",  # x86_64-unknown-freebsd
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
+            "archive",  # x86_64-unknown-linux-gnu
+            "read",  # x86_64-unknown-linux-gnu
+            "write",  # x86_64-unknown-linux-gnu
+            "write_core",  # x86_64-unknown-linux-gnu
+            "write_std",  # x86_64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
+            "archive",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "read",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write_core",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+            "write_std",  # x86_64-unknown-linux-gnu, x86_64-unknown-nixos-gnu
+        ],
+        "//conditions:default": [],
+    }),
     crate_name = "build_script_build",
     crate_root = "build.rs",
     data = glob(

@@ -16,7 +16,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADDITIONS_FILE="${REPO_ROOT}/rust/netprobe/recog-corpus/serviceradar-recog-additions.xml"
+ADDITIONS_FILE="${REPO_ROOT}/third_party/netprobe_corpora/recog/serviceradar-recog-additions.xml"
 
 cd "${REPO_ROOT}"
 

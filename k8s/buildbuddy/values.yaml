@@ -32,11 +32,11 @@ autoscaler:
 
 resources:
   requests:
-    cpu: "8"
+    cpu: "16"
     memory: "16Gi"
     ephemeral-storage: "45Gi"
   limits:
-    cpu: "16"
+    cpu: "32"
     memory: "32Gi"
     ephemeral-storage: "50Gi"
 

@@ -100,6 +100,9 @@ defmodule ServiceRadarAgentGateway.MixProject do
           runtime_tools: :permanent,
           serviceradar_agent_gateway: :permanent
         ],
+        # Bazel OCI builds can bake host compile_env keys (e.g. ash) that differ
+        # at runtime; match core-elx/web-ng and skip release compile_env validation.
+        validate_compile_env: false,
         steps: [:assemble],
         rel_templates_path: "rel"
       ]

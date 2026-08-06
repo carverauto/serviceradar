@@ -53,6 +53,10 @@ rust_library(
             "elf",  # arm-unknown-linux-gnueabi
             "errno",  # arm-unknown-linux-gnueabi
         ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "elf",  # arm-unknown-linux-musleabi
+            "errno",  # arm-unknown-linux-musleabi
+        ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
             "elf",  # armv7-unknown-linux-gnueabi
             "errno",  # armv7-unknown-linux-gnueabi
@@ -102,6 +106,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],

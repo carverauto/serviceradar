@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "upstream",
+    srcs = ["runner.go"],
+    importpath = "github.com/carverauto/serviceradar/third_party/bumblebee/upstream",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//third_party/bumblebee/upstream/internal/endpoint",
+        "//third_party/bumblebee/upstream/internal/exposure",
+        "//third_party/bumblebee/upstream/internal/model",
+        "//third_party/bumblebee/upstream/internal/output",
+        "//third_party/bumblebee/upstream/internal/scanner",
+    ],
+)
