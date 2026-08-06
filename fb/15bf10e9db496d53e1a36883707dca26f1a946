@@ -1,0 +1,26 @@
+go/pkg/k8sinventory/publisher.go
+  s_0eda1e1f71cc86::t_49fd60abc3fbb7 57-62,65-66,78-79,82-111
+buildbuddy.yaml
+  s_0eda1e1f71cc86::t_f4d81a7981e8ef 148-153
+go/pkg/k8sinventory/controller_test.go
+  s_0eda1e1f71cc86::t_1e8ca79b1e78e9 42-43,53-54,65-66,70,76-77,115,120,125-134,139
+go/pkg/k8sinventory/snapshot.go
+  s_0eda1e1f71cc86::t_d5b280daac2e5b 6,206-207,211-212,216-217
+  s_0eda1e1f71cc86::t_fa576196181f0b 178-184,186,193-199,201-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "fb15bf10e9db496d53e1a36883707dca26f1a946",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
