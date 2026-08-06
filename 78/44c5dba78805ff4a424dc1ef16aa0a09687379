@@ -1,0 +1,39 @@
+.forgejo/workflows/rust-tests.yml
+  s_0eda1e1f71cc86::t_7b076c896de6aa 146,153
+.forgejo/workflows/elixir-integration-sr-core.yml
+  s_0eda1e1f71cc86::t_7b076c896de6aa 216,225,232,239,244,252
+.forgejo/workflows/rust-musl.yml
+  s_0eda1e1f71cc86::t_7b076c896de6aa 104
+scripts/test-release-publish-contracts.sh
+  s_0eda1e1f71cc86::t_39341439a6fad7 417-420
+.forgejo/workflows/golang-tests.yml
+  s_0eda1e1f71cc86::t_7b076c896de6aa 141,172
+.forgejo/workflows/native-addons.yml
+  s_0eda1e1f71cc86::t_7b076c896de6aa 179
+  s_0eda1e1f71cc86::t_05836101962482 206,253
+.forgejo/workflows/release.yml
+  s_0eda1e1f71cc86::t_54ee26aedabe00 418-423,425
+  s_0eda1e1f71cc86::t_c14758183208e7 438
+  s_0eda1e1f71cc86::t_f2b21169f2e420 568-570,579
+.forgejo/workflows/publish-oci.yml
+  s_0eda1e1f71cc86::t_1cf5fd309da794 169,173
+  s_0eda1e1f71cc86::t_637e4d4cacf755 184-187
+.forgejo/workflows/main.yml
+  s_0eda1e1f71cc86::t_a4a89013d271d9 246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "7844c5dba78805ff4a424dc1ef16aa0a09687379",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
