@@ -101,6 +101,11 @@ idempotent transaction per source event or bounded compatible source-event group
 Every event in a group SHALL retain independent ledger/slot semantics and an
 explicit post-commit JetStream ACK. ASN values SHALL be represented without
 signed overflow, and absent measurements SHALL remain distinguishable from zero.
+The hop ASN column SHALL be wide enough to hold the FULL `uint32` domain the ABI
+admits -- a signed 32-bit column cannot, and would silently make the whole
+32-bit private-use range unrepresentable -- and a zero ASN, which the ABI defines
+as unavailable or not supplied, SHALL be persisted as SQL `NULL` rather than as
+`0`, which would otherwise read as an observation of AS 0.
 V1 `trace_id` SHALL be an RFC 9562 UUIDv7 allocated and durably recorded before
 probing. `trace_identity_time` SHALL be derived only from that UUIDv7 timestamp
 and used as the Timescale partition key. The consumer SHALL validate the trace's
@@ -125,6 +130,17 @@ conversion while retaining original nanoseconds where required.
 - **AND** its hop/path-variant rows SHALL preserve full MPLS labels, ASN,
   hostname, counts, loss, RTT, jitter, and reachability semantics
 - **AND** JetStream SHALL be acknowledged only after the transaction commits
+
+#### Scenario: A zero hop ASN is persisted as NULL
+- **WHEN** a hop's `asn` is zero, whether omitted on the wire or explicitly encoded
+- **THEN** the persisted column SHALL be SQL `NULL`
+- **AND** it SHALL NOT be stored as `0`, which would read as an observation of AS 0
+
+#### Scenario: The full uint32 ASN domain survives projection
+- **WHEN** a hop carries `asn = 4294967295`, or any value above 2147483647 such as the
+  32-bit private-use range 4200000000-4294967294
+- **THEN** the persisted value SHALL equal the value the ABI admitted
+- **AND** it SHALL NOT be truncated, wrapped, or rejected by the column's width
 
 #### Scenario: Trace event is redelivered
 - **WHEN** the same `(network_scope_id, event_id)` is delivered repeatedly with a

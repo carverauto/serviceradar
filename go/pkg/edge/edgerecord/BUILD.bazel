@@ -35,6 +35,7 @@ go_test(
     srcs = [
         "assignment_test.go",
         "capability_test.go",
+        "asn_corpus_test.go",
         "compression_corpus_test.go",
         "record_admit_corpus_test.go",
         "domain_test.go",
