@@ -810,6 +810,43 @@ then has to be dragged toward. What the audit established:
   is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
   refused it.
 
+AN EARLIER DRAFT OF THIS SECTION CLAIMED THE COMPOSED-REACHABILITY OBLIGATION WAS
+UNSATISFIABLE. IT IS NOT, AND THE ERROR IS INSTRUCTIVE.
+
+The reasoning was: every admitted family bounds its own body below the physical ceiling -- a
+maximal sweep batch marshals to ~116 KiB because the contract stops at
+MaxSweepHostsPerBatch, and MTR is capped at MaxMtrBatchBytes -- therefore no valid body above
+512 KiB exists. That measured CANONICAL marshals and generalized to all byte strings, which
+this ABI does not permit.
+
+`unmarshalPayload` deliberately imposes no decode/re-encode equality: the payload's identity
+is `payload_sha256` over the EXACT received bytes, so requiring canonical form would reject a
+conforming encoder that emits equivalent but non-identical bytes. NONCANONICAL BODIES ARE
+ADMISSIBLE BY DESIGN. A body may therefore carry a duplicate encoding of a singular field,
+and protobuf's last-one-wins means a canonical value appended afterwards is what the decoder
+keeps.
+
+So the padding rides inside a duplicate of singular bytes field 13
+(`availability_policy_id`), sized to put the body above 512 KiB, with enough deterministic
+entropy that the frame stays within 100:1 and the record stays far below the physical
+ceiling. The extracted body exceeds 512 KiB; what it MEANS is the ordinary bounded batch.
+The same construction scales to exactly 33_554_432 bytes, so the 32 MiB ceiling vector is a
+valid contract body rather than filler.
+
+The lesson is about which quantity a bound bounds. The per-family limits bound MEANING -- how
+many hosts, how many bytes a canonical encoding needs. The physical ceiling bounds RECEIVED
+BYTES. Concluding one from the other was the mistake, and a measurement of one canonical
+marshal plus one constant was never evidence for a universal claim about every admissible
+encoding.
+
+A related trap sits one layer down. `fixedUUIDv7` fills all sixteen bytes with its seed, so
+the resulting timestamp is ~89 billion seconds and overflows int64 when the authority window
+is computed in nanoseconds. Nothing noticed, because the payload-binding stage never looks at
+the event id -- it only surfaced once a vector was validated as a WHOLE record. Committed
+vectors also need their capability and envelope digest REBOUND after identities are fixed;
+overwriting the ids alone leaves a record still carrying a randomly-minted capability, which
+drifts on every regeneration.
+
 SLICE 3 FOUND ONE UNENFORCED PRECONDITION AND TWO CONSTRUCTION CONSTRAINTS.
 
 `admit_declared/2` -- the Elixir ratio gate -- documents that its caller MUST have bound

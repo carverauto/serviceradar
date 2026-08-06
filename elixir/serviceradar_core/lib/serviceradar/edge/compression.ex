@@ -47,6 +47,7 @@ defmodule ServiceRadar.Edge.Compression do
   """
   import Bitwise
 
+  alias ServiceRadar.Edge.SemanticValidate
   alias Serviceradar.Edge.V1.EdgeRecordV1
 
   # The frozen values. Their normative source is the spec requirement, not this module.
@@ -60,6 +61,13 @@ defmodule ServiceRadar.Edge.Compression do
 
   # 1 << 25 = 33_554_432. Defence in depth only -- see the moduledoc.
   @window_log_max 25
+
+  # DERIVED, not restated. `SemanticValidate` already owns the admitted set as the enum
+  # policy for this exact field, and Go reads its own from one place for the same reason. A
+  # second literal list here would agree on the day it was written and drift silently after.
+  @admitted_codecs Map.fetch!(SemanticValidate.enum_field_policy(), {EdgeRecordV1, :compression})
+
+  @record_keys EdgeRecordV1.__struct__() |> Map.keys() |> Enum.sort()
 
   @zstd_magic 0xFD2FB528
 
@@ -172,17 +180,39 @@ defmodule ServiceRadar.Edge.Compression do
   keeps this boundary total, and no shared vector can produce it.
   """
   @spec admit_record(term()) :: :ok | {:error, record_reason()}
-  def admit_record(%EdgeRecordV1{} = r) do
-    payload = r.payload || <<>>
-
-    with :ok <- payload_in_range(payload),
-         :ok <- encoded_size_bound(r.encoded_size, payload),
-         :ok <- payload_digest(r.payload_sha256, payload),
-         :ok <- admitted_codec(r.compression) do
-      admit_codec(r.compression, r.uncompressed_size, r.encoded_size, payload)
+  def admit_record(
+        %EdgeRecordV1{
+          payload: payload,
+          payload_sha256: digest,
+          encoded_size: encoded,
+          uncompressed_size: uncompressed,
+          compression: codec
+        } = rec
+      )
+      when is_binary(payload) and is_binary(digest) and is_integer(encoded) and
+             is_integer(uncompressed) do
+    with :ok <- exact_record_shape(rec),
+         :ok <- payload_in_range(payload),
+         :ok <- encoded_size_bound(encoded, payload),
+         :ok <- payload_digest(digest, payload),
+         :ok <- admitted_codec(codec) do
+      admit_codec(codec, uncompressed, encoded, payload)
     end
   end
 
+  # EVERYTHING ELSE IS REFUSED, not normalized. Three ways this was unsound before:
+  #
+  #   * `%EdgeRecordV1{} = r` matches a bare `%{__struct__: EdgeRecordV1}` -- a map with no
+  #     other keys -- and `r.payload` then RAISES rather than returning a reason;
+  #   * `payload || <<>>` turned a nil or false payload into empty bytes, so a record with
+  #     no payload was admitted as one carrying zero bytes;
+  #   * `==` is value equality across numeric types, so `uncompressed_size: 5.0` compared
+  #     equal to `encoded_size: 5` on the NONE path and a float size was admitted.
+  #
+  # The head above requires a binary payload and digest and INTEGER sizes, so all three land
+  # here. It is NOT sufficient on its own: matching five named keys plus `__struct__` admits
+  # a hand-built map carrying only those six, so `exact_record_shape/1` compares the FULL key
+  # inventory against the generated struct.
   def admit_record(_), do: {:error, :record}
 
   @doc "The frozen ceilings, so callers and vectors read them from one place."
@@ -335,6 +365,14 @@ defmodule ServiceRadar.Edge.Compression do
 
   # --- record-stage admission ------------------------------------------------------------
 
+  # A struct pattern checks `__struct__` and the keys it NAMES; nothing stops a tagged map
+  # from carrying six keys where the generated record has twenty. Comparing the whole
+  # inventory rejects both a forged map that is missing fields and one that carries extra
+  # ones, and it is derived from the generated struct so it tracks the proto.
+  defp exact_record_shape(rec) do
+    if Enum.sort(Map.keys(rec)) == @record_keys, do: :ok, else: {:error, :record}
+  end
+
   defp payload_in_range(p) when byte_size(p) <= @max_payload, do: :ok
   defp payload_in_range(_), do: {:error, :payload_too_large}
 
@@ -349,8 +387,7 @@ defmodule ServiceRadar.Edge.Compression do
 
   # The admitted SET lives here alone, ahead of the per-codec logic, so the switch below
   # only decides HOW to validate an accepted codec -- Go's structure, for the same reason.
-  defp admitted_codec(c) when c in [:EDGE_RECORD_COMPRESSION_NONE, :EDGE_RECORD_COMPRESSION_ZSTD],
-    do: :ok
+  defp admitted_codec(c) when c in @admitted_codecs, do: :ok
 
   defp admitted_codec(_), do: {:error, :compression}
 
