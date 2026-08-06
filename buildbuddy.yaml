@@ -145,6 +145,12 @@ actions:
       # exactly why it belongs in this action rather than its own.
       # --flaky_test_attempts=1 overrides the repo default of 2; a flake hunt that retries is not
       # a flake hunt.
+      #
+      # `>-` is required, and backslash continuations are wrong here. YAML folds a plain
+      # multi-line scalar onto one line but does NOT consume a trailing `\`, so the backslashes
+      # survive into the command string; bash then reads `\ ` as an escaped space and hands
+      # bazel arguments with a leading space -- ' --@io_bazel_rules_go//go/config:pure=false'
+      # -- which it rejects as unrecognized. The folded scalar does the joining on its own.
       - run: >-
           bazel test -c opt --config=ci  //go/...
           --@io_bazel_rules_go//go/config:pure=false
