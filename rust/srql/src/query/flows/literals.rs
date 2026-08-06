@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn normalize_cidr_literal(input: &str) -> Result<String> {
+/// Normalize and validate a CIDR string (e.g. `10.0.0.0/8`).
+///
+/// Shared by the row, stats, and downsample filter paths.
+pub(crate) fn normalize_cidr_literal(input: &str) -> Result<String> {
     let s = input.trim();
     let (ip_raw, prefix_raw) = s
         .split_once('/')
