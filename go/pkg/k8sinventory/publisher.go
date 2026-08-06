@@ -54,10 +54,16 @@ func (*StdoutPublisher) Close()            {}
 func (*StdoutPublisher) IsConnected() bool { return true }
 
 // RecordingPublisher stores payloads for tests.
+//
+// The slices are unexported on purpose. Publish runs on the Controller's goroutine while the
+// test asserts from its own, so a read has to hold the same mutex the append does. While
+// these were exported the tests read `len(rec.Payloads)` directly and `-race` caught it
+// against Publish's append: the mutex was already here and was simply bypassed. Routing every
+// read through an accessor is what stops that recurring.
 type RecordingPublisher struct {
 	mu       sync.Mutex
-	Payloads [][]byte
-	Subjects []string
+	payloads [][]byte
+	subjects []string
 	closed   atomic.Bool
 }
 
@@ -69,9 +75,39 @@ func (p *RecordingPublisher) Publish(_ context.Context, subject string, payload 
 	defer p.mu.Unlock()
 	clone := make([]byte, len(payload))
 	copy(clone, payload)
-	p.Payloads = append(p.Payloads, clone)
-	p.Subjects = append(p.Subjects, subject)
+	p.payloads = append(p.payloads, clone)
+	p.subjects = append(p.subjects, subject)
 	return nil
+}
+
+// Len reports how many payloads have been published.
+func (p *RecordingPublisher) Len() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.payloads)
+}
+
+// PayloadAt returns a copy of the i-th payload, or nil when i is out of range. The copy keeps
+// a caller from mutating recorded bytes that Publish may hand out again.
+func (p *RecordingPublisher) PayloadAt(i int) []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.payloads) {
+		return nil
+	}
+	clone := make([]byte, len(p.payloads[i]))
+	copy(clone, p.payloads[i])
+	return clone
+}
+
+// SubjectAt returns the subject of the i-th payload, or "" when i is out of range.
+func (p *RecordingPublisher) SubjectAt(i int) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i < 0 || i >= len(p.subjects) {
+		return ""
+	}
+	return p.subjects[i]
 }
 func (p *RecordingPublisher) Close()            { p.closed.Store(true) }
 func (p *RecordingPublisher) IsConnected() bool { return !p.closed.Load() }

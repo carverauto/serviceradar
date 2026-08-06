@@ -3,6 +3,7 @@ package k8sinventory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -174,22 +175,45 @@ func SnapshotFromLister(ctx context.Context, lister Lister, opts SnapshotOptions
 }
 
 // MemoryLister is a test double that returns fixed objects.
+//
+// A Controller lists from its own goroutine, so a test that changes what the lister returns
+// while the Controller runs is a concurrent writer. Mutating an element in place --
+// `lister.Services[0].Ports[0].Port = 8080` -- races the read in endpointsFromService, because
+// ListServices hands back the stored slice and both sides then touch the same backing array.
+// Use SetServices for that: it swaps the whole slice under the lock, so a reader already
+// holding the previous one keeps observing a value nobody writes to again.
 type MemoryLister struct {
+	mu             sync.RWMutex
 	Services       []ServiceView
 	EndpointSlices []EndpointSliceView
 	Gateways       []GatewayView
 	Routes         []RouteView
 }
 
+// SetServices replaces the service list. Safe to call while a Controller is running.
+func (m *MemoryLister) SetServices(services []ServiceView) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Services = services
+}
+
 func (m *MemoryLister) ListServices(context.Context, string) ([]ServiceView, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.Services, nil
 }
 func (m *MemoryLister) ListEndpointSlices(context.Context, string) ([]EndpointSliceView, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.EndpointSlices, nil
 }
 func (m *MemoryLister) ListGateways(context.Context, string) ([]GatewayView, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.Gateways, nil
 }
 func (m *MemoryLister) ListRoutes(context.Context, string) ([]RouteView, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.Routes, nil
 }

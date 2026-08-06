@@ -458,6 +458,10 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 .PHONY: test-all
 test-all: test test-toolchains test-integration ## Bazel unit tests + per-language tests + integration tests
 
+.PHONY: check
+check: ## Pre-push gate: pull, then build + test + race-test everything on the remote cache
+	@./scripts/check.sh
+
 .PHONY: check-coverage
 # Depends on test-toolchains, not test: the thresholds are checked against the
 # cover.*.profile files that only the Go leg of test-toolchains writes.
