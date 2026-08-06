@@ -15,12 +15,10 @@ mod stats;
 mod tests;
 
 pub(super) use self::expressions::*;
+pub(crate) use self::literals::normalize_cidr_literal;
 use self::{
     filters::apply_filter,
-    literals::{
-        NearSide, near_exists_sql, normalize_cidr_literal, normalize_device_uid_literal,
-        normalize_near_literal,
-    },
+    literals::{NearSide, near_exists_sql, normalize_device_uid_literal, normalize_near_literal},
     order::apply_ordering,
     params::collect_filter_params,
     query::build_query,
