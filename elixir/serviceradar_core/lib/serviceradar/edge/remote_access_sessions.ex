@@ -123,6 +123,103 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   end
 
   @doc """
+  Returns browser-safe SSH console options for a device.
+
+  Account names come from the configured certificate policy. Opaque principals
+  are never returned to the client.
+  """
+  @spec ssh_console_options(String.t() | map() | Device.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def ssh_console_options(device_or_uid, opts \\ [])
+
+  def ssh_console_options(device_uid, opts) when is_binary(device_uid) do
+    case resolve_device(device_uid) do
+      {:ok, %Device{} = device} ->
+        ssh_console_options(device, opts)
+
+      {:ok, nil} ->
+        {:error, :device_not_found}
+
+      {:error, error} = result ->
+        if not_found_error?(error), do: {:error, :device_not_found}, else: result
+
+      other ->
+        other
+    end
+  end
+
+  def ssh_console_options(%Device{} = device, _opts) do
+    policy = configured_ssh_certificate_policy(device)
+
+    accounts =
+      policy
+      |> policy_value("accounts")
+      |> account_list()
+      |> List.wrap()
+      |> Enum.flat_map(&public_ssh_account/1)
+
+    {:ok,
+     %{
+       "default_credential_mode" => "ssh_certificate",
+       "accounts" => accounts,
+       "ttl_seconds" => positive_int(policy_value(policy, "ttl_seconds")),
+       "device_uid" => value_string(device, [:uid, "uid"])
+     }}
+  end
+
+  def ssh_console_options(device, opts) when is_map(device) do
+    case value_string(device, [:uid, "uid"]) do
+      uid when is_binary(uid) and uid != "" ->
+        ssh_console_options(uid, opts)
+
+      _ ->
+        # Allow tests/stubs to pass a map shaped like a device without a DB round-trip.
+        policy = configured_ssh_certificate_policy(device)
+
+        accounts =
+          policy
+          |> policy_value("accounts")
+          |> account_list()
+          |> List.wrap()
+          |> Enum.flat_map(&public_ssh_account/1)
+
+        {:ok,
+         %{
+           "default_credential_mode" => "ssh_certificate",
+           "accounts" => accounts,
+           "ttl_seconds" => positive_int(policy_value(policy, "ttl_seconds")),
+           "device_uid" => nil
+         }}
+    end
+  end
+
+  def ssh_console_options(_device, _opts), do: {:error, :device_not_found}
+
+  defp public_ssh_account(account) when is_map(account) do
+    name =
+      account
+      |> normalize_policy_map()
+      |> policy_value("name")
+      |> case do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    if name == "" do
+      []
+    else
+      [%{"name" => name}]
+    end
+  end
+
+  defp public_ssh_account(name) when is_binary(name) do
+    trimmed = String.trim(name)
+    if trimmed == "", do: [], else: [%{"name" => trimmed}]
+  end
+
+  defp public_ssh_account(_account), do: []
+
+  @doc """
   Consumes a single-use browser attach ticket and marks the session attached.
   """
   @spec attach_with_ticket(String.t(), keyword()) ::

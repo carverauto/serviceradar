@@ -399,6 +399,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/app-sessions", RemoteAccessTargetIntentController, :create_app)
     post("/remote-access/tcp-sessions", RemoteAccessTargetIntentController, :create_tcp)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
+    get("/remote-access/devices/:device_uid/ssh-options", RemoteAccessSessionController, :ssh_options)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
     post("/remote-access/sessions/:id/webrtc/session", RemoteDesktopWebRTCController, :create_session)
