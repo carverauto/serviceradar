@@ -780,6 +780,19 @@ cnpg:
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.
   imageName: ""
+  # Pre-upgrade convergence of extension catalogs to the version the incoming CNPG
+  # image ships. Leave enabled: a `helm upgrade` that changes the CNPG image needs no
+  # manual ALTER EXTENSION steps with this on, and the job refuses to let an image
+  # through that would strand a database it cannot open. See
+  # templates/cnpg-extension-update-job.yaml for the invariant it enforces.
+  #
+  # Disabling it does not make an upgrade safer -- it only moves the failure from a
+  # hook (Cluster untouched, database still serving) to the rollout itself.
+  extensionUpdate:
+    enabled: true
+    # Extensions to converge. Defaults to the set this chart installs; the job skips
+    # any that are not present in a given database.
+    extensions: []
   sharedPreloadLibraries:
     - timescaledb
     - age

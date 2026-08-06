@@ -62,6 +62,19 @@ Usage: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "service
 {{- end -}}
 
 {{/*
+The default ServiceRadar CNPG image tag, as tag@digest.
+
+SINGLE SOURCE OF TRUTH. Two templates render a CNPG Cluster -- cnpg-cluster.yaml and
+spire-postgres.yaml (which, despite the name, is the cluster definition demo-staging
+uses) -- and both used to carry their own copy of this string. They drifted: the main
+cluster was bumped while the other stayed on an older pin, so an environment silently
+kept running a different PostgreSQL. Both now call this.
+*/}}
+{{- define "serviceradar.cnpgDefaultImageTag" -}}
+18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910
+{{- end -}}
+
+{{/*
 Build the default ServiceRadar CNPG image name. cnpg.imageName can still override
 the full ref when a deployment needs a bespoke database image.
 */}}
@@ -70,10 +83,21 @@ the full ref when a deployment needs a bespoke database image.
 {{- if $cnpg.imageName -}}
 {{- $cnpg.imageName -}}
 {{- else -}}
-{{- /* Default to the known-good 18.3.0-sr5 build (digest c349a1d). The c70e6cf6
-       re-push of 18.3.0-sr5 is a BROKEN build (timescaledb needs GLIBC_2.38; it
-       crash-loops) — the 2026-06-17 demo CNPG outage. Do NOT repin to c70e6cf6. */ -}}
-{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default "18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9" $cnpg.imageTag) -}}
+{{- /* PostgreSQL 18.4 + TimescaleDB 2.24.0 / PostGIS 3.6.2 / AGE 1.7.0 / pgvector 0.8.2.
+       Always pin a digest as well as a tag: a tag alone is mutable, and a broken
+       re-push over 18.3.0-sr5 (c70e6cf6, timescaledb needing GLIBC_2.38) let Harbor
+       garbage-collect the manifests two live clusters were pinned to -- the
+       2026-06-17 demo CNPG outage. Do NOT repin to c70e6cf6, and do not publish
+       over an existing tag.
+
+       BEFORE BUMPING THIS, read the extension-version invariant in
+       templates/cnpg-extension-update-job.yaml. Briefly: an image ships one
+       timescaledb-<version>.so, and Postgres cannot open a database whose catalog
+       names a version the image does not carry. The pre-upgrade job converges
+       catalogs while the OLD image is still running, so the incoming image's
+       TimescaleDB version must be one the outgoing image can update a catalog TO
+       (i.e. the outgoing image's default_version). Skipping a release breaks that. */ -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default (include "serviceradar.cnpgDefaultImageTag" .) $cnpg.imageTag) -}}
 {{- end -}}
 {{- end -}}
 
