@@ -105,12 +105,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
         </span>
       </:title>
 
-      <form phx-change="breakdown_search">
+      <form id="device_breakdown_search_form" phx-change="breakdown_search" phx-submit="breakdown_search">
+        <%!--
+          Stable id keeps LiveView from remounting this input on every keystroke
+          (which was dropping focus after one character). data-dialog-autofocus
+          makes DialogTopLayer focus the field when showModal() runs — otherwise
+          the close button (earlier in the DOM) steals initial focus.
+        --%>
         <input
+          id="device_breakdown_search"
           type="search"
           name="q"
           value={@search}
           placeholder="Filter"
+          autocomplete="off"
+          phx-debounce="150"
+          data-dialog-autofocus
           class={ui_field_class(size: "sm", class: "w-full")}
         />
       </form>
