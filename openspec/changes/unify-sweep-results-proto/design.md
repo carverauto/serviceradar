@@ -667,11 +667,19 @@ Routing and producer identity come from the agent sink's trusted
 EventWriter; neither payload-body claims nor broker headers are authoritative.
 
 The wire preserves Unix nanoseconds, including signed host deltas, while CNPG
-`timestamptz` stores microseconds. Before hashing, identity comparison, ordering,
-or persistence, every implementation canonically truncates nanoseconds toward
-negative infinity to the containing PostgreSQL microsecond and separately stores
-the original signed `observed_at_unix_nano` wherever sub-microsecond fidelity is
-part of the domain/audit contract. Negative delta arithmetic is checked for
+`timestamptz` stores microseconds. THE CANONICALIZATION IS PROJECTION-DOMAIN ONLY: before
+any PROJECTION-DOMAIN key, hash, identity comparison, ordering, or persistence, every
+implementation canonically truncates nanoseconds toward negative infinity to the containing
+PostgreSQL microsecond, and separately stores the original signed `observed_at_unix_nano`
+wherever sub-microsecond fidelity is part of the domain/audit contract.
+
+IT SHALL NEVER FEED EITHER CONTRACT HASH. `payload_sha256` is taken over the EXACT CARRIED
+PAYLOAD BYTES -- the decoder imposes no decode/re-encode equality for exactly that reason --
+and `semantic_envelope_sha256` is taken over the frozen FIELD-FRAMED TRANSCRIPT, which commits
+`payload_sha256` and the RAW NANOSECOND values rather than any canonicalized form.
+Canonicalization is what the database-derived keys and ordering are computed from, AFTER both
+hashes exist. Feeding it into either would make the contract depend on a normalization step
+instead of on what was received. Negative delta arithmetic is checked for
 overflow. Golden fixtures cover the +/-999 ns boundaries so Go, Elixir, and SQL
 cannot disagree about replay or ordering.
 

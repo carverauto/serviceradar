@@ -810,6 +810,19 @@ then has to be dragged toward. What the audit established:
   is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
   refused it.
 
+THE HOP ASN FIELD STAYS NON-OPTIONAL IN V1, AND ZERO CARRIES "UNAVAILABLE".
+
+That is an overload, and it is chosen rather than overlooked. `MtrTraceHopV1.asn` is
+diagnostic enrichment supplied by the producer; v1 has no requirement to tell an OBSERVED
+AS 0 apart from an unknown one, and nothing in the product acts differently on the two. Given
+that, presence tracking would add a wire-visible distinction no consumer reads.
+
+If that requirement ever appears -- something must record that a hop genuinely reported AS 0,
+distinctly from having no answer -- the field becomes `optional uint32`, so presence carries
+"observed" and the value carries the ASN. It SHALL NOT be resolved by giving zero a second
+meaning, because the two readings are not distinguishable after decode and every consumer
+would have to guess which was intended.
+
 AN EARLIER DRAFT OF THIS SECTION CLAIMED THE COMPOSED-REACHABILITY OBLIGATION WAS
 UNSATISFIABLE. IT IS NOT, AND THE ERROR IS INSTRUCTIVE.
 

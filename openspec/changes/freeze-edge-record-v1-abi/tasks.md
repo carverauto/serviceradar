@@ -593,7 +593,7 @@ here.
         two `uuidTimeWithin` calls are independently removable
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
-  versions, timestamp units, optional zero-valued measurements, ASN range,
+  versions, timestamp units, optional zero-valued measurements, ASN observation semantics,
   ASSIGNED HERE BY TASK 1.3 (see its ledger): the PAYLOAD FAMILY <-> OUTPUT CONTRACT
   admission relation. `dispatchContract` compares only the four `EdgeOutputContractRef`
   members and never reads `payload_family`, so a record may carry a family the contract does
@@ -675,7 +675,7 @@ here.
   as the destructive `:poison`. This too is a PREREQUISITE of task 1.16.
   Also cover unsupported versions,
   timestamp units, optional zero-valued
-  measurements, ASN range,
+  measurements, ASN observation semantics,
   string/count/byte/relational-row bounds, the FROZEN field-framed
   semantic-envelope digest grammar (NO domain tag; leads with the committed `u64`
   constant `semanticDigestVersion = 3` -- not a wire field, fixed by the record-schema
@@ -692,14 +692,18 @@ here.
   immutable semantic-envelope digest separately from gateway receipt, physical
   placement, spool coordinates, and renewable delivery proof; define broker
   publication identity separately. Make projected row cost cover every
-  synchronous ledger/domain/outbox/work/current-state mutation and canonicalize
-  nanoseconds to PostgreSQL microseconds before identity/order comparison.
+  synchronous ledger/domain/outbox/work/current-state mutation, and canonicalize
+  nanoseconds to PostgreSQL microseconds ONLY for DATABASE-DERIVED keys, hashes, identity
+  comparison and ordering, and only AFTER the two contract hashes are taken. `payload_sha256`
+  hashes the EXACT CARRIED PAYLOAD BYTES; `semantic_envelope_sha256` hashes the frozen
+  FIELD-FRAMED TRANSCRIPT, which commits `payload_sha256` and the RAW NANOSECOND values.
+  Neither may see a canonicalized timestamp.
   CURRENT STATE: the negative-enum divergence this task exists for IS closed --
   `WireValidate` structural preflight then `SemanticValidate.disposition/2`
   mapping to `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`, with the LAST-ONE-WINS case covered by the
   SHARED fixture `lane_open_negative_then_valid.bin` referenced from both
   runtimes. The residual clauses (timestamp units, optional zero-valued
-  measurements, ASN range, unsupported-version handling) were NOT verified
+  measurements, ASN observation semantics, unsupported-version handling) were NOT verified
   clause-by-clause and remain open. The exact-received-bytes rule also applies here,
   and for `ScheduledPlanPageV1` it is now SATISFIED: `ValidatePlanFromRaw` (Go)
   and `WireDecode.decode_plan_page/1` (Elixir) bound the RECEIVED bytes before
@@ -729,10 +733,41 @@ here.
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
   - [ ] 1.5-b unsupported-version compatibility rules
-  - [ ] 1.5-c TIMESTAMP UNITS, including the nanosecond -> PostgreSQL microsecond
-        canonicalization before identity/order comparison
+  - [ ] 1.5-c TIMESTAMP UNITS -- projection-domain canonicalization. DEFERRED.
+        LANDED: nothing.
+        REMAINING: freeze the ORDER. `payload_sha256` hashes the exact carried payload bytes.
+        `semantic_envelope_sha256` hashes the frozen field-framed transcript, committing
+        `payload_sha256` and the RAW NANOSECOND values. Canonicalization to microseconds
+        happens only AFTERWARD, for database-derived keys and ordering, and never feeds either
+        hash.
+        OWNER NOTE: prior art `CanonicalMicros` (`go/pkg/edge/projection/projection.go:47`) is
+        inert -- nothing imports that package -- and its negative branch overflows at MinInt64.
   - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
-  - [ ] 1.5-e ASN RANGE admission
+  - [ ] 1.5-e ASN OBSERVATION SEMANTICS (renamed from "ASN RANGE admission").
+        LANDED: the requirement "An MTR hop's ASN is diagnostic enrichment, not an allocation
+        claim". Implementations SHALL NOT apply allocation-status filtering; zero means
+        unavailable; every other uint32 value is carried through unchanged.
+        REMAINING -- the shared vector slice, pinned:
+          (a) BYTE-LEVEL zero proof: one fixture with field 6 ABSENT from the payload, and a
+              separately identified one with field 6 encoded EXACTLY ONCE as varint zero.
+              Asserted on the bytes, not only on the decoded value.
+          (b) VALUES: 1, 23456, 64512, 65534, 65535, 2147483647 and 2147483648 (bracketing
+              signed-32-bit storage), 4200000000, 4294967294, 4294967295.
+          (c) `asn_org` INDEPENDENCE: an ordinarily valid string alongside each of a zero and a
+              nonzero `asn`, neither affecting the other.
+          (d) THE SAME COMMITTED BYTES consumed by both runtimes, and BOTH must compare the
+              decoded values, not merely run their validator. `ValidateMtrTraceBatch`
+              deliberately ignores ASN, so a decode substitution or truncation would pass it
+              unnoticed. Go: decode -> assert the exact ASN/asn_org values -> ValidateMtrTraceBatch.
+              Elixir: decode -> assert the same values -> `SemanticValidate.validate_message/1`.
+          (e) BAZEL AND WORKFLOW REGISTRATION for both suites. A vector unreachable from CI is
+              the recurring defect in this change; it has bitten five times.
+        SCOPE OF THE PARITY CLAIM: Elixir has no raw MTR admission entrypoint and no full MTR
+        body validator. Its vectors can prove generated decode, the recursive semantic
+        traversal, and numeric preservation -- and nothing beyond that. Full record-ingress
+        admission belongs to `unify-sweep-results-proto` tasks 5.1/5.4 and is NOT claimed here.
+        OWNER NOTE: projection (SQL representation and column width) is owned by
+        `unify-sweep-results-proto`'s "TimescaleDB Storage" requirement and task 5.4.
   - [x] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, RECURSIVE COMPRESSION
         (exactly one compression LAYER), and trailing-frame rejection. "Recursion" unqualified
         collides with protobuf MESSAGE recursion, whose 10_000-message ceiling is 1.5-a's. CLOSED --
