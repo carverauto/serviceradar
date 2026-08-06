@@ -19,13 +19,13 @@ const (
 	defaultPublishRetryMax   = 10 * time.Second
 	defaultResync            = 5 * time.Minute
 	defaultDebounce          = 2 * time.Second
-	defaultPublishMode       = "nats" // nats | stdout | none
+	defaultPublishMode       = "nats" // nats | agent_spool | stdout | none
 )
 
 var (
 	errClusterIDRequired     = errors.New("CLUSTER_ID is required")
 	errNATSURLRequired       = errors.New("NATS_HOSTPORT is required when PUBLISH_MODE=nats")
-	errInvalidPublishMode    = errors.New("PUBLISH_MODE must be nats, stdout, or none")
+	errInvalidPublishMode    = errors.New("PUBLISH_MODE must be nats, agent_spool, stdout, or none")
 	errResyncNonPositive     = errors.New("K8S_INVENTORY_RESYNC must be > 0")
 	errDebounceNonPositive   = errors.New("K8S_INVENTORY_DEBOUNCE must be > 0")
 	errPublishTimeoutInvalid = errors.New("K8S_INVENTORY_PUBLISH_TIMEOUT must be > 0")
@@ -38,8 +38,9 @@ type Config struct {
 	Namespaces     []string // empty = all
 
 	EnableGatewayAPI bool
-	PublishMode      string // nats | stdout | none
+	PublishMode      string // nats | agent_spool | stdout | none
 	Subject          string // full subject for snapshot publish
+	SpoolDir         string // required for agent_spool
 
 	NATSHostPort   string
 	NATSStreamName string
@@ -67,6 +68,7 @@ func LoadConfigFromEnv() (Config, error) {
 		EnableGatewayAPI:     parseBoolEnv("K8S_INVENTORY_GATEWAY_API", true),
 		PublishMode:          strings.ToLower(strings.TrimSpace(os.Getenv("PUBLISH_MODE"))),
 		Subject:              strings.TrimSpace(os.Getenv("K8S_INVENTORY_SUBJECT")),
+		SpoolDir:             strings.TrimSpace(os.Getenv("K8S_INVENTORY_SPOOL_DIR")),
 		NATSHostPort:         strings.TrimSpace(os.Getenv("NATS_HOSTPORT")),
 		NATSStreamName:       strings.TrimSpace(os.Getenv("NATS_STREAM")),
 		NATSCredsFile:        strings.TrimSpace(os.Getenv("NATS_CREDSFILE")),
@@ -88,9 +90,12 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.PublishMode = defaultPublishMode
 	}
 	switch cfg.PublishMode {
-	case "nats", "stdout", "none":
+	case "nats", "agent_spool", "stdout", "none":
 	default:
 		return Config{}, errInvalidPublishMode
+	}
+	if cfg.SpoolDir == "" {
+		cfg.SpoolDir = DefaultSpoolDir
 	}
 
 	if cfg.Subject == "" {
@@ -170,6 +175,12 @@ func (c Config) Validate() error {
 	}
 	if c.PublishMode == "nats" && strings.TrimSpace(c.NATSHostPort) == "" {
 		return errNATSURLRequired
+	}
+	if c.PublishMode == "agent_spool" {
+		dir := strings.TrimSpace(c.SpoolDir)
+		if dir == "" || dir == "." {
+			return errSpoolDirRequired
+		}
 	}
 	return nil
 }

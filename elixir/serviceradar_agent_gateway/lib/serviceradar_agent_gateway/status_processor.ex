@@ -19,6 +19,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   """
 
   alias ServiceRadarAgentGateway.IcmpMetricsPublisher
+  alias ServiceRadarAgentGateway.K8sPublicEndpointsPublisher
   alias ServiceRadarAgentGateway.MtrMetricsPublisher
   alias ServiceRadarAgentGateway.OtlpRelayPublisher
   alias ServiceRadarAgentGateway.PluginMetricsPublisher
@@ -71,7 +72,20 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           {:error, :otlp_relay_publisher_disabled}
 
         :not_otlp_relay ->
-          publish_then_forward(status, opts)
+          case maybe_publish_k8s_public_endpoints(status) do
+            :not_k8s_public_endpoints ->
+              publish_then_forward(status, opts)
+
+            :disabled ->
+              {:error, :k8s_public_endpoints_publisher_disabled}
+
+            :ok ->
+              track_agent(status)
+              :ok
+
+            {:error, _reason} = error ->
+              error
+          end
 
         :ok ->
           track_agent(status)
@@ -151,6 +165,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :serviceradar_agent_gateway,
       :otlp_relay_publisher_module,
       OtlpRelayPublisher
+    )
+  end
+
+  defp maybe_publish_k8s_public_endpoints(status) do
+    k8s_public_endpoints_publisher().publish(status)
+  end
+
+  defp k8s_public_endpoints_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :k8s_public_endpoints_publisher_module,
+      K8sPublicEndpointsPublisher
     )
   end
 

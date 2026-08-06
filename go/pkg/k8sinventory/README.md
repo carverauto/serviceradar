@@ -57,8 +57,9 @@ PUBLISH_MODE=stdout CLUSTER_ID=demo K8S_INVENTORY_METRICS_ADDR=:9109 \
 | Variable | Default | Notes |
 |---|---|---|
 | `CLUSTER_ID` | required | Durable per cluster (SRQL / multi-cluster key) |
-| `PUBLISH_MODE` | `nats` | `nats` \| `stdout` \| `none` |
-| `K8S_INVENTORY_SUBJECT` | `inventory.k8s.public_endpoints` | |
+| `PUBLISH_MODE` | `nats` | `nats` \| `agent_spool` \| `stdout` \| `none` |
+| `K8S_INVENTORY_SUBJECT` | `inventory.k8s.public_endpoints` | Used for NATS subject; informational for agent_spool |
+| `K8S_INVENTORY_SPOOL_DIR` | `/var/lib/serviceradar/k8s-inventory/spool` | Required for `agent_spool` (shared with agent) |
 | `NATS_HOSTPORT` | required if nats | e.g. `tls://serviceradar-nats:4222` |
 | `NATS_STREAM` | `k8s_inventory` | |
 | `K8S_INVENTORY_NAMESPACES` | empty = all | Comma-separated allow-list |

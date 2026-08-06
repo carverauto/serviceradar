@@ -116,14 +116,17 @@ in:public_endpoints cluster_id:acme-prod-eks limit:20
 | Layer | Status |
 |---|---|
 | Helm sensors-only install | **This chart** |
-| Inventory `PUBLISH_MODE=agent_spool` writer | OpenSpec / implementation in progress |
-| Agent spool reader → StreamStatus | OpenSpec / implementation in progress |
-| Gateway → JetStream `inventory.k8s.*` | OpenSpec / implementation in progress |
-| Co-located full chart + NATS inventory | **Supported today** (`helm/serviceradar`) |
+| Inventory `PUBLISH_MODE=agent_spool` writer | **Implemented** (`go/pkg/k8sinventory` SpoolPublisher) |
+| Agent spool reader → status push | **Implemented** (`k8s_public_endpoints` agent config) |
+| Gateway → JetStream `inventory.k8s.*` | **Implemented** (`K8sPublicEndpointsPublisher`) |
+| Co-located full chart + NATS inventory | **Supported** (`helm/serviceradar`, `publishMode: nats`) |
 
-You can deploy this chart now to establish RBAC, images, and gateway
-connectivity; ownership rows appear in SRQL once the spool→agent→gateway path
-is enabled on the same image tag.
+Deploy this chart with images that include the above code, enroll the agent,
+and query:
+
+```text
+in:public_endpoints cluster_id:<your-clusterId> limit:20
+```
 
 ## Related
 

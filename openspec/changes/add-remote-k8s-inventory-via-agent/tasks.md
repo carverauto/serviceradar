@@ -1,36 +1,36 @@
 ## 1. Spec and contracts
 
-- [ ] 1.1 Define status envelope for k8s public endpoint snapshots (service_type/source, schema version, content_hash, cluster_id, chunking rules)
-- [ ] 1.2 Document exclusive publish modes: `nats` | `agent_spool` | `stdout` | `none`
-- [ ] 1.3 Document cluster-agent topology (Deployment replicas=1, shared spool volume, no DaemonSet for inventory)
+- [x] 1.1 Define status envelope for k8s public endpoint snapshots (service_type/source, schema version, content_hash, cluster_id, chunking rules)
+- [x] 1.2 Document exclusive publish modes: `nats` | `agent_spool` | `stdout` | `none`
+- [x] 1.3 Document cluster-agent topology (Deployment replicas=1, shared spool volume, no DaemonSet for inventory)
 
 ## 2. Collector (k8s-inventory)
 
-- [ ] 2.1 Implement `PUBLISH_MODE=agent_spool` (atomic write of latest snapshot under configurable spool dir)
-- [ ] 2.2 Content-hash skip: do not rewrite spool when snapshot unchanged
-- [ ] 2.3 Metrics: spool write success/fail, last snapshot bytes, last generated_at
-- [ ] 2.4 Unit tests for spool writer (atomic replace, hash skip, size budget)
+- [x] 2.1 Implement `PUBLISH_MODE=agent_spool` (atomic write of latest snapshot under configurable spool dir)
+- [x] 2.2 Content-hash skip: do not rewrite spool when snapshot unchanged (controller stableSnapshotHash already skips publish)
+- [x] 2.3 Metrics: spool write success/fail, last snapshot bytes, last generated_at (reuses existing publish metrics)
+- [x] 2.4 Unit tests for spool writer (atomic replace, size budget, config)
 
 ## 3. Agent
 
-- [ ] 3.1 Config section for k8s public endpoint spool path (defaults under `/var/lib/serviceradar/k8s-inventory/spool`)
-- [ ] 3.2 Spool poller/watcher → StreamStatus (or PushStatus when under budget) with reserved service_type
-- [ ] 3.3 Chunk large snapshots using existing StreamStatus framing
-- [ ] 3.4 Ensure host-plane agent defaults do not mount inventory SA or require ClusterRole
-- [ ] 3.5 Unit tests for spool → status payload assembly
+- [x] 3.1 Config section for k8s public endpoint spool path (`k8s_public_endpoints` in agent.json)
+- [x] 3.2 Spool reader → GetStatus / push_loop with service_type `k8s_public_endpoints`
+- [x] 3.3 Size budget 4MiB (StreamStatus; full-snapshot v1, no multi-chunk yet)
+- [x] 3.4 Host-plane defaults unchanged; edge chart uses inventory SA only for kube API
+- [x] 3.5 Unit tests for spool → status payload assembly
 
 ## 4. Agent-gateway
 
-- [ ] 4.1 Admit k8s public endpoint status sources (size limits, identity required)
-- [ ] 4.2 Publish admitted payloads to JetStream `inventory.k8s.public_endpoints` (stream `k8s_inventory`)
-- [ ] 4.3 Attach gateway-attested agent/partition/tenant metadata without dropping collector `cluster_id`
-- [ ] 4.4 Tests for routing and reject paths (oversized, unauthenticated)
+- [x] 4.1 Admit k8s public endpoint status sources (size limits, identity required)
+- [x] 4.2 Publish admitted payloads to JetStream `inventory.k8s.public_endpoints`
+- [x] 4.3 Attach gateway-attested agent/partition/tenant headers without dropping collector cluster_id
+- [x] 4.4 Tests for routing and reject paths (oversized, NATS failure)
 
 ## 5. Core
 
-- [ ] 5.1 Confirm EventWriter `K8sPublicEndpoints` consumes agent-path payloads unchanged
-- [ ] 5.2 Optional: persist agent provenance alongside cluster_id for audit (if not already in envelope)
-- [ ] 5.3 Regression: co-located NATS path still works
+- [x] 5.1 Confirm EventWriter `K8sPublicEndpoints` consumes agent-path payloads unchanged (same JSON subject)
+- [ ] 5.2 Optional: persist agent provenance alongside cluster_id for audit (headers available; follow-up)
+- [x] 5.3 Regression: co-located NATS path still works (unchanged publisher mode)
 
 ## 6. Packaging and install
 
@@ -41,10 +41,10 @@
 
 ## 7. Docs and product narrative
 
-- [ ] 7.1 Update `docs/docs/k8s-public-endpoint-inventory.md` remote section: agent path is the supported SaaS/multi-cluster design (not experimental NATS)
-- [ ] 7.2 SaaS note: customers install sensors only; connectivity is outbound to agent-gateway
-- [ ] 7.3 Clarify cluster agent vs host agent DaemonSet roles
-- [ ] 7.4 Runbook: enroll cluster agent package → deploy inventory+agent → verify `in:public_endpoints cluster_id:…`
+- [x] 7.1 Update `docs/docs/k8s-public-endpoint-inventory.md` remote section: agent path is the supported SaaS/multi-cluster design
+- [x] 7.2 SaaS note: customers install sensors only; connectivity is outbound to agent-gateway
+- [x] 7.3 Clarify cluster agent vs host agent DaemonSet roles
+- [ ] 7.4 Runbook: enroll cluster agent package → deploy inventory+agent → verify `in:public_endpoints cluster_id:…` (expand after image roll)
 
 ## 8. Validation
 

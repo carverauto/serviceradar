@@ -92,6 +92,8 @@ func NewPublisherFromConfig(cfg Config) (Publisher, error) {
 		return NoopPublisher{}, nil
 	case "stdout":
 		return &StdoutPublisher{}, nil
+	case "agent_spool":
+		return NewSpoolPublisher(cfg.SpoolDir)
 	case "nats":
 		return NewNATSPublisher(cfg)
 	default:
