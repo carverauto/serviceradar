@@ -296,9 +296,8 @@ actions:
           bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 
-      # Largely a cache hit from the //... build above; kept explicit so an image assembly
-      # failure is attributable without reading a sweep log.
-      - run: "bazel build -c opt --config=ci //:images"
+      # Largely a cache hit from the //... build above;
+      # - run: "bazel build -c opt --config=ci //:images"
 
       # //:push is rules_multirun over the per-image push targets. The //.bazelrc note about it
       # failing on macOS does not apply; this runner is Linux.
