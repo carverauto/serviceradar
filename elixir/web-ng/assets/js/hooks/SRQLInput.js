@@ -55,6 +55,10 @@ export default {
     this.dropdownOpen = false
     this.historyStorage = globalThis.localStorage
 
+    // Native <datalist> (list=) races the custom dropdown: empty-bar history flashes
+    // then a browser suggestion list of every field token paints over it.
+    this.detachNativeDatalist()
+
     this.onInput = () => {
       this.forceAllCandidates = false
       this.updateState({open: true})
@@ -98,9 +102,13 @@ export default {
     // Revalidate periodically so newly-added catalog fields (e.g. events.id)
     // are picked up after a hot reload without requiring a full page refresh.
     const fresh = cache.data && cache.freshUntil && Date.now() < cache.freshUntil
+    // Keep the dropdown open across catalog load if the bar is focused so empty-bar
+    // history does not flash and then get closed when the catalog arrives.
+    const keepOpen = () => this.input === document.activeElement
+
     if (!force && fresh) {
       this.catalog = cache.data
-      this.updateState()
+      this.updateState({open: keepOpen()})
       return
     }
 
@@ -109,7 +117,7 @@ export default {
       await cache.inflight
       this.catalog = cache.data
 
-      this.updateState()
+      this.updateState({open: keepOpen()})
     } catch (_error) {
       this.catalog = null
       this.close()
@@ -176,6 +184,14 @@ export default {
 
   recordHistory(query) {
     pushHistory(query, this.historyStorage)
+  },
+
+  detachNativeDatalist() {
+    const listId = this.input.getAttribute("list")
+    this.input.removeAttribute("list")
+    if (!listId) return
+
+    document.getElementById(listId)?.remove()
   },
 
   historyCandidates(filter = this.input?.value || "") {
