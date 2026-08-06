@@ -13,39 +13,16 @@ common --distdir=third_party/distdir
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
 
-# Bazel 9 removed the top-level CcInfo symbol; rules_nodejs still references it in
-# nodejs/toolchain.bzl (checked through 6.6.0, the newest release), so loading the Node
-# toolchain fails with "The CcInfo symbol has been removed". That toolchain is a
-# transitive requirement of aspect_rules_js, which //elixir/web-ng/assets uses to build
-# the Tailwind and esbuild bundles -- so without this every web-ng build fails, not just
-# the JS ones.
-#
-# This is Bazel's own documented migration shim, not a workaround: it re-enables the
-# legacy autoload for one symbol. Remove it when rules_nodejs loads CcInfo from
-# @rules_cc//cc/common:cc_info.bzl.
-common --incompatible_autoload_externally=+CcInfo
+# Detailed profiling in BuildBuddy
+# common --noslim_profile
+# common --experimental_profile_include_target_label
+# common --experimental_profile_include_primary_output
 
 build --keep_going
 build --jobs=auto
 build --show_timestamps
-# The SRQL_* and NATS_* fixture variables are declared once, further down, as
-# `test --test_env=`, and deliberately not here as `build --action_env=`.
-#
-# They are test fixture DSNs and credentials, and nothing reads them at compile time: no
-# build.rs or env!() in //rust, no Bazel rule in //build/*.bzl, and the Elixir config that does
-# read them at compile time (elixir/serviceradar_core/config/test.exs) is reached only by
-# integration-core.yml and elixir-quality.yml, which run `mix test` directly, never through
-# Bazel. --test_env reaches test actions, which is the only place they were ever needed.
-#
-# Scope, honestly: this is hygiene, not a cache fix. It keeps credentials out of action
-# environments and off any action that uses the default shell env (genrules, shell actions),
-# where an inherited value would become part of the key. It measurably did NOT affect Go or
-# Rust compiles -- rules_go and rules_rust both declare fixed action environments, so a
-# valueless --action_env never entered those keys. Verified with `bazel aquery --output=text`
-# against GoCompilePkg and Rustc actions: the sentinel value never appears.
-#
-# The NEXT_*/TURBOPACK entries below stay: they carry explicit values, so they are the same on
-# every machine and cost nothing.
+
+# The NEXT_*/TURBOPACK entries below stay: they are the same on every machine
 build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
 build --action_env=NEXT_SKIP_TURBO=1

@@ -39,43 +39,35 @@ actions:
     #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
     pool: "workflows"
 
-    # ACTION LEVEL, NOT TOP LEVEL, AND THAT IS LOAD-BEARING.
+    # THE RUNNER IMAGE IS THE `container_image`.
     #
-    # BuildBuddy's schema (enterprise/server/workflow/config/config.go) gives BuildBuddyConfig
-    # exactly ONE top-level field: `actions`. `platform_properties` is an Action field. There
-    # is no top-level `execution_config` and no `default_exec_properties` anywhere. Nested
-    # under an unrecognised top-level key the whole block is dropped in silence -- no warning,
-    # no parse error, the run just proceeds on defaults.
+    # This was `platform_properties: container-image: docker://.../rbe-executor:v1.0.24.1`, to
+    # make the runner byte-identical to //build/rbe:rbe_platform and so guarantee the glibc
+    # match that `no-remote-exec` targets need. It reached the executor correctly and then
+    # failed on every single attempt, before creating an invocation:
     #
-    # That was tried and measured. Invocation 1e3b19b6 carried the block at top level and the
-    # runner still could not resolve GLIBC_2.28, meaning glibc <= 2.27 -- Ubuntu 18.04, the
-    # BuildBuddy default. Had container-image reached the runner it would have been the
-    # rbe-executor image at glibc 2.39.
+    #   create OCI bundle: create spec: get container user:
+    #     lookup user "buildbuddy" in /etc/passwd: user not found
     #
-    # WHY container-image HERE RATHER THAN THE `container_image` FIELD. That field accepts only
-    # the shorthands ubuntu-18.04/20.04/22.04/24.04 and DEFAULTS to 18.04. This is the escape
-    # hatch that names a real image, and it must be THE SAME IMAGE as
-    # //build/rbe:rbe_platform's `container-image` -- not merely a matching Ubuntu version.
-    # //.bazelrc aims both --host_platform and --platforms at rbe_platform, which promises
-    # Bazel that whatever runs exec-config tools and target binaries IS that image. Every
-    # `no-remote-exec` target below runs HERE instead, and an 18.04 userland cannot load a
-    # 24.04 binary:
+    # BuildBuddy runs the workflow runner as the user in the `user` field, which defaults to a
+    # provisioned non-root user named `buildbuddy`. rbe-executor is built to run Bazel ACTIONS
+    # and has no such user, so the OCI spec cannot be built. Because the failure is upstream of
+    # the invocation, NOTHING appears in the BuildBuddy UI -- the run looks like it was never
+    # triggered, while the executor retries several times a second and re-enqueues forever.
     #
-    #   bazel-out/rbe_platform-opt-exec/bin/external/rules_rust+/util/process_wrapper/
-    #     process_wrapper: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.39' not found
-    #   ... `GLIBC_2.34' ... `GLIBC_2.33' ... `GLIBC_2.28' not found
+    # ubuntu-24.04 is Noble, the same base as //docker/Dockerfile.rbe, so it carries the same
+    # glibc 2.39 that motivated pinning the image in the first place. It is one of the four
+    # shorthands the field accepts (18.04/20.04/22.04/24.04) and the DEFAULT IS 18.04 -- glibc
+    # 2.27 -- so this line is load-bearing, not decoration. Omit it and the `no-remote-exec`
+    # Rust targets fail with `GLIBC_2.28' not found again.
     #
-    # No narrower fix exists. Sending only the compile remote
-    # (--modify_execution_info=Rustc=-no-remote-exec) fails one action later, because
-    # --platforms builds the TEST BINARY for that image too and the test still runs here.
-    #
-    # FALLBACK: if the runner cannot boot in the rbe-executor image -- it is built for Bazel
-    # ACTIONS, not for hosting BuildBuddy's runner -- drop container-image from this map and
-    # set the Action field `container_image: "ubuntu-24.04"` instead. Same glibc 2.39, same
-    # Noble base as //docker/Dockerfile.rbe, without depending on the image being a viable
-    # runner host. That failure looks like the runner dying at startup, not a glibc error.
+    # Do not "restore" the rbe-executor image here without first adding a `buildbuddy` user to
+    # it, or the identical retry loop comes back.
+    container_image: "ubuntu-24.04"
+
+    # container-image deliberately absent: see above. The rest still applies -- dockerNetwork
+    # host is what lets the database tier resolve srql-fixture-rw.srql-fixtures.svc.
     platform_properties:
-      container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
       OSFamily: "linux"
       Arch: "amd64"
       dockerNetwork: "host"
@@ -88,32 +80,12 @@ actions:
     # Runner sizing. Values are byte counts or numeric strings with an IEC abbreviation; cpu
     # also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     #
-    # UNITS: `GB` HERE MEANS GiB, NOT 10^9. Established twice, the hard way:
-    #
-    #   "14GB" -> BuildBuddy reported the VM as "15.03GB total"  (14 GiB = 15,032,385,536)
-    #   "28GB" -> reported "30.06GB total"                       (28 GiB = 30,064,771,072)
-    #   "32GB" -> scheduler asked for memory_bytes=34359738368   (= 32 GiB exactly)
-    #
-    # So compare this number against the executor's advertisement in GiB. Do not convert.
-    #
-    # THE CEILING IS THE EXECUTOR'S `limits` MINUS A FLAT 10 GB -- not its `requests`, which is
-    # only what the kube scheduler reserves. Read off the executor's own startup line:
-    #
-    #   Initialized task scheduler: Memory: 0 of 32,949,672,960 bytes allocated
-    #   (at the time, //k8s/buildbuddy/values-workflows.yaml limits.memory was 40Gi
-    #    = 42,949,672,960, i.e. exactly 10,000,000,000 more)
-    #
+    # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
     resource_requests:
       memory: "50GB"
       disk: "40GB"
 
     steps:
-      # Guarded, because buildbuddy_setup_docker_auth.sh FAILS SILENTLY in exactly the state
-      # this workflow starts in. Its first branch is:
-      #
-      #   if [[ -f "${config_path}" && -z "${OCI_USERNAME:-}" && -z "${OCI_TOKEN:-}" && ... ]];
-      #     echo "Docker config already present ...; nothing to do." >&2; exit 0
-      #
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three
       # more minutes and dies in the LOADING phase of the next step, on a target that has
@@ -122,8 +94,7 @@ actions:
       #   401 Unauthorized ... no such package '@@rules_oci++oci+cloudnativepg_postgresql_18...'
       #
       # The assertion below turns that into a five-second failure naming the missing secret. The
-      # grep afterwards is the other half: it proves the entry landed under OCI_REGISTRY rather
-      # than under the script's `ghcr.io` default, which is a separate way to get the same 401.
+      # grep afterwards is the other half: it proves the entry landed under OCI_REGISTRY.
       - run: |
           set -euo pipefail
 
@@ -156,8 +127,7 @@ actions:
 
       - run: "bazel build -c opt --config=ci //..."
 
-      # This sweep runs with the fixture secrets in scope, and that is safe only because it was
-      # fixed in Bazel rather than worked around here.
+      # This sweep runs with the fixture secrets in scope.
       #
       # //elixir/serviceradar_core:unit_tests_* are directory-named groups, not tag-derived, so
       # `unit_tests_integration` and `unit_tests_external` are selected by this filter and carry
@@ -296,9 +266,8 @@ actions:
           bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 
-      # Largely a cache hit from the //... build above; kept explicit so an image assembly
-      # failure is attributable without reading a sweep log.
-      - run: "bazel build -c opt --config=ci //:images"
+      # Largely a cache hit from the //... build above;
+      # - run: "bazel build -c opt --config=ci //:images"
 
       # //:push is rules_multirun over the per-image push targets. The //.bazelrc note about it
       # failing on macOS does not apply; this runner is Linux.
