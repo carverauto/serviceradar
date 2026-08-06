@@ -183,7 +183,8 @@ here.
     correlation rejection no longer reach callers from two places. What keeps 1.2 open is
     1.2-a's closeout audit -- not missing work. 1.2-c's 1.5-f dependency is satisfied.
   - REMAINING: see subtasks 1.2-a..c below; not restated here.
-  - DEPENDS ON: TASK 1.5-f, at CLOSURE ONLY -- see 1.5-f for the ownership and the reason.
+  - DEPENDS ON: nothing open. The 1.5-f CLOSURE dependency is DISCHARGED -- 1.5-f is closed
+    and 1.2-c is checked; see 1.5-f for the ownership and the original reason.
     NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
   - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`; for the raw
     stage `WireDecode.decode_sweep_batch/1` with
@@ -315,10 +316,10 @@ here.
   separate HOST `ASSIGNMENT_EXECUTION` grant. Both compiled-assignment digest grammars and
   both claim tables are frozen in Appendix A, with shared Go-authored vectors.
 
-  STILL OPEN in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX. It is DESIGNED and
-  merged (#4779); what remains is BUILDING it. The canonical list of that work is the
-  1.3-a..1.3-f checklist below, which is CANONICAL. No other passage in this file restates
-  it: one list has one place to edit.
+  LANDED in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX. It was DESIGNED and
+  merged (#4779) and is now BUILT -- the 1.3-a..1.3-f checklist below is CANONICAL and every
+  item on it is checked. No other passage in this file restates it: one list has one place
+  to edit.
 
   Both Elixir peers have landed. `CompiledAssignmentValidate` covers the CARRIER: structure,
   both self digests, the attestation's binding across every member it commits, the record
@@ -361,7 +362,7 @@ here.
         runtimes -- every LABELLED vector asserts the portable label AND the owning gate's
         typed outcome in ONE assertion, so neither can be changed alone. UNLABELLED vectors
         (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate.
-        (i), (ii) and (iii) HAVE LANDED. THE ONLY REMAINDER IS (iv).
+        (i), (ii), (iii) AND (iv) HAVE ALL LANDED. NO REMAINDER.
           (i)   DONE -- the FIVE time-label pairs (`batch_time_window`, both host labels,
                 both trace labels) now pin label AND gate in one assertion, in both
                 runtimes. `uuidv7At/2` was added so a vector can place a trace time outside
@@ -416,12 +417,13 @@ here.
                 derives its expectation from.
           (iv)  task 1.2-c, under task 1.2 -- LANDED and CHECKED; its 1.5-f closure is done
                 dependency, which is what keeps 1.3-f unchecked too.
-        STILL BLOCKED ON 1.2-c, but NOT for the original reason. That reason -- a vector
-        cannot satisfy a last-gate proof by stating an UNENFORCED precondition occurred --
-        is OBSOLETE: `ingest_own_payload/1` now runs the body validator on the correlation
-        path, so the corpus consumes an ingress that enforces it. What remains is the
-        ordinary dependency, now DISCHARGED: 1.2-c was unchecked on its 1.5-f closure, and 1.3-f SHALL NOT be
-        checked before it. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
+        NO LONGER BLOCKED. It was blocked on 1.2-c, and NOT for the original reason -- that
+        reason (a vector cannot satisfy a last-gate proof by stating an UNENFORCED
+        precondition occurred) went obsolete once `ingest_own_payload/1` began running the
+        body validator on the correlation path, so the corpus consumes an ingress that
+        enforces it. What remained was the ordinary ordering dependency, now DISCHARGED:
+        1.2-c was unchecked on its 1.5-f closure, 1.5-f is closed, and 1.2-c is checked
+        ahead of 1.3-f as required. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
         matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c.
         The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
@@ -479,10 +481,10 @@ here.
     1.3-b, with the shared `UUIDv7Nanos` helper -- matrix slice 2, 1.3-d and 1.3-e, and
     slice 3a's Elixir correlation peer (`SweepCorrelate`).
     THE JOINT (label, gate) PROOF IS COMPLETE, and the shared corpus has landed.
-  - REMAINING: 1.3-f in the checklist ABOVE, which is CANONICAL for this task -- and its
-    only open item is (iv). No other passage restates it, and this line does not either.
-  - DEPENDS ON: task 1.2-c, the Elixir full body validator, which blocks 1.3-f. The durable
-    assignment mapping is task 2.20 downstream and SHALL NOT gate this.
+  - REMAINING: nothing. The 1.3-a..1.3-f checklist ABOVE is CANONICAL for this task and is
+    fully checked.
+  - DEPENDS ON: nothing open. 1.2-c, the Elixir full body validator that blocked 1.3-f, is
+    checked. The durable assignment mapping is task 2.20 downstream and SHALL NOT gate this.
   - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`;
     `elixir/serviceradar_core/lib/serviceradar/edge/sweep_correlate.ex` and its
     `test/serviceradar/edge/sweep_correlate_test.exs` (slice 3a correlation peer);
@@ -707,8 +709,8 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: every obligation named in this task's body -- see the subtask list, which is
-    now exhaustive against it -- see the EXHAUSTIVENESS note under the subtasks.
+  - REMAINING: 1.5-a..1.5-e and 1.5-g..1.5-k. 1.5-f is CLOSED. The subtask list is
+    exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
@@ -1412,8 +1414,9 @@ here.
     byte-for-byte by the Elixir golden test.
   - REMAINING: see subtasks 1.15-a..b below; not restated here. The matrix's cross-language
     vectors are OWNED BY 1.3-f, not by this task; 1.15 ACKNOWLEDGES them as parity evidence.
-  - DEPENDS ON: 1.3-f, which OWNS the matrix vectors -- 1.15-b cannot start until they
-    exist. The matrix SHAPE is already merged (#4779) and is not the blocker.
+  - DEPENDS ON: nothing open. 1.3-f OWNS the matrix vectors and is checked, so 1.15-b's
+    dependency is DISCHARGED and 1.15-b is checked. The matrix SHAPE was already merged
+    (#4779) and was never the blocker.
   - EVIDENCE: `proto/edge/v1/testdata/`, `edge_v1_golden_test.exs`.
 
   SUBTASKS (parent stays unchecked until all close)

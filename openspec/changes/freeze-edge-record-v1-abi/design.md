@@ -866,7 +866,8 @@ The 32 MiB pair is COMMITTED, as `record_admit_output_ceiling.bin`, and both run
 those same bytes. An intermediate version had each runtime compress a shared RECIPE instead,
 which is not cross-language evidence at all: Go and OTP produce different frames from the
 same input, so "the ceiling is inclusive" would have been asserted about two different
-payloads and neither runtime would ever have seen the other's. The fixture is ~415 KiB,
+payloads and neither runtime would ever have seen the other's. The fixture is 424_102
+bytes (~414 KiB),
 larger than anything else in the tree, and there is no cheaper one -- admitting exactly
 33_554_432 bytes of output within 100:1 REQUIRES at least 335_545 encoded bytes. The
 over-ceiling half is derived from the same committed bytes rather than committed twice, and
