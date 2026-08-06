@@ -86,6 +86,20 @@ export default {
     this.loadCatalog()
   },
 
+  // LiveView re-morphs the input and can reattach list=/datalist from server HTML;
+  // re-strip on every patch so the browser suggestion list cannot return.
+  updated() {
+    this.input = this.el
+    this.frame = this.input.closest("[data-srql-input-frame]")
+    this.overlay = this.frame?.querySelector("[data-srql-input-overlay]")
+    this.dropdown = this.frame?.querySelector("[data-srql-input-dropdown]")
+    this.hint = this.frame?.querySelector("[data-srql-input-hint]")
+    this.detachNativeDatalist()
+    if (this.input === document.activeElement) {
+      this.updateState({open: true})
+    }
+  },
+
   destroyed() {
     this.input.removeEventListener("input", this.onInput)
     this.input.removeEventListener("click", this.onClick)
@@ -159,6 +173,9 @@ export default {
   },
 
   updateState({open = false} = {}) {
+    // LiveView patches (and some browsers) re-bind list=; strip before every open.
+    this.detachNativeDatalist()
+
     const value = this.input.value
     const selection = this.input.selectionStart ?? value.length
 
@@ -187,11 +204,21 @@ export default {
   },
 
   detachNativeDatalist() {
-    const listId = this.input.getAttribute("list")
-    this.input.removeAttribute("list")
-    if (!listId) return
+    if (!this.input) return
 
-    document.getElementById(listId)?.remove()
+    const listId = this.input.getAttribute("list") || (this.input.id ? `${this.input.id}-completions` : null)
+    this.input.removeAttribute("list")
+    // Also disable browser autocomplete chrome that can look like our dropdown.
+    this.input.setAttribute("autocomplete", "off")
+    this.input.setAttribute("autocapitalize", "off")
+    this.input.setAttribute("autocorrect", "off")
+    this.input.setAttribute("spellcheck", "false")
+
+    if (listId) document.getElementById(listId)?.remove()
+    // Sweep any leftover datalists near the frame (LiveView may reinsert them).
+    this.frame?.parentElement?.querySelectorAll("datalist")?.forEach(node => {
+      if (node.id?.endsWith("-completions")) node.remove()
+    })
   },
 
   historyCandidates(filter = this.input?.value || "") {
