@@ -69,7 +69,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           type="text"
           name={@name}
           value={@value}
-          list={"#{@id}-completions"}
           phx-hook="SRQLInput"
           phx-debounce="150"
           autocomplete="off"
@@ -96,9 +95,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </ul>
         <div class="srql-hint hidden" data-srql-input-hint aria-hidden="true"></div>
       </div>
-      <datalist :if={@compact} id={"#{@id}-completions"}>
-        <option :for={completion <- @completion_values} value={completion}></option>
-      </datalist>
       <textarea
         :if={!@compact and !@rich}
         id={@id}

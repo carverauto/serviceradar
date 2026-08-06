@@ -249,9 +249,21 @@
   background: var(--color-sr-subtle, var(--color-base-200));
 }
 
+.srql-dropdown__item span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .srql-dropdown__item span:last-child {
+  flex-shrink: 0;
   color: var(--color-sr-muted, color-mix(in srgb, var(--color-base-content) 55%, transparent));
   font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.srql-dropdown__item--history span:first-child {
   font-size: 0.75rem;
 }
 
