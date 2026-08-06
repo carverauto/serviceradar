@@ -138,7 +138,7 @@ actions:
       # test_helper.exs files treat blank as absent. Do not "simplify" either half: Bazel can set
       # a variable for an action but never unset one, so "" is the only lever, and without
       # blank-means-absent the pinning forces the wrong branch instead of preventing it.
-      - run: "bazel test -c opt --config=ci --build_metadata=ROLE=CI //... --test_tag_filters=-integration_test,-acceptance_test"
+      - run: "bazel test -c opt --config=ci  //... --test_tag_filters=-integration_test,-acceptance_test"
 
       # A different configuration from the sweep above (race on, pure off), so it shares no
       # cached actions with it -- but it does share the loading and analysis phase, which is
@@ -146,7 +146,7 @@ actions:
       # --flaky_test_attempts=1 overrides the repo default of 2; a flake hunt that retries is not
       # a flake hunt.
       - run: >-
-          bazel test -c opt --config=ci --build_metadata=ROLE=CI //go/...
+          bazel test -c opt --config=ci  //go/...
           --@io_bazel_rules_go//go/config:pure=false
           --@io_bazel_rules_go//go/config:race
           --test_tag_filters=-integration_test,-acceptance_test

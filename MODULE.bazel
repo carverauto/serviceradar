@@ -3947,7 +3947,29 @@ filegroup(
 """,
     sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
     strip_prefix = "apache-age-1.7.0",
+    # ARCHIVE FIRST, downloads.apache.org SECOND, and that order is the fix.
+    #
+    # downloads.apache.org carries only the CURRENT release of a project. AGE 1.8.0 shipped,
+    # 1.7.0 was rotated off, and the pinned URL began returning 404 -- breaking `bazel build
+    # //...` in the LOADING phase with an error that names neither Apache nor a network:
+    #
+    #   ERROR: no such package '@@+http_archive+age_src//': ... GET returned 404 Not Found
+    #   ERROR: database/age/BUILD.bazel:6:18: //database/age:source_tree depends on
+    #          @@+http_archive+age_src//:all_srcs ... which failed to fetch
+    #
+    # It stayed invisible on any machine whose repository cache still held the tarball from
+    # before the rotation, so it looked like a CI-only fault for as long as one developer's
+    # cache was warm. Nothing about the build changed; the artifact moved.
+    #
+    # archive.apache.org is the permanent home -- every Apache release stays there forever,
+    # which is exactly the property a pinned dependency needs. Verified byte-identical to the
+    # sha256 above (5,529,925 bytes) before being listed, so this is the same artifact by a
+    # durable URL, not a version bump. Moving to 1.8.0 is a separate, deliberate change.
+    #
+    # downloads.apache.org is kept second: it is faster and mirror-backed while a version is
+    # current, and harmless once it 404s because Bazel simply tries the next URL.
     urls = [
+        "https://archive.apache.org/dist/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
         "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
     ],
 )

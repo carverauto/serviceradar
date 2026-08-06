@@ -18,6 +18,9 @@ elixir/web-ng/assets/component/node_modules
 dist
 target
 third_party/vendor/tools_opam
+third_party/bazel-disk-cache
+third_party/bazel-repo-cache
+third_party/distdir
 third_party/rules_erlang
 third_party/rules_elixir
 vendor
