@@ -445,6 +445,10 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 .PHONY: test-all
 test-all: test test-integration ## Run the full test suite including serviceradar_core integration tests
 
+.PHONY: check
+check: ## Pre-push gate: pull, then build + test + race-test everything on the remote cache
+	@./scripts/check.sh
+
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
