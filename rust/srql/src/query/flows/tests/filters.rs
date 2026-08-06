@@ -308,6 +308,33 @@ fn builds_query_with_port_filter() {
 }
 
 #[test]
+fn builds_query_with_bidirectional_port_filter() {
+    let plan = QueryPlan {
+        entity: Entity::AttributedFlows,
+        filters: vec![Filter {
+            field: "port".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("22".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("bidirectional port filter should build");
+    assert!(
+        sql.contains("src_endpoint_port") && sql.contains("dst_endpoint_port"),
+        "expected either-side port match in SQL: {sql}"
+    );
+}
+
+#[test]
 fn builds_query_with_wildcard_port_filter() {
     let plan = QueryPlan {
         entity: Entity::Flows,

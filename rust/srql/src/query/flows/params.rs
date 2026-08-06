@@ -41,6 +41,11 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
             collect_text_params(params, filter)?;
             collect_text_params(params, filter)
         }
+        // `port:` matches either endpoint port (same double-bind pattern as `ip:`).
+        "port" | "endpoint_port" => {
+            collect_port_params(params, filter, "port")?;
+            collect_port_params(params, filter, "port")
+        }
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
         "input_snmp" | "in_if_index" | "output_snmp" | "out_if_index" => Ok(()),
@@ -77,6 +82,27 @@ fn collect_port_params(params: &mut Vec<BindParam>, filter: &Filter, label: &str
         }
         FilterOp::Like | FilterOp::NotLike => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter
+                .value
+                .as_list()?
+                .iter()
+                .map(|item| {
+                    item.parse::<i32>().map_err(|_| {
+                        ServiceError::InvalidRequest(format!(
+                            "{label} list values must be integers"
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::IntArray(
+                values.into_iter().map(|v| v as i64).collect(),
+            ));
             Ok(())
         }
         _ => Err(ServiceError::InvalidRequest(format!(
