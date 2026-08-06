@@ -431,6 +431,24 @@ async fn own_graph_schemas(client: &Client, owner: &str) -> Result<()> {
                      JOIN pg_namespace n ON n.oid = c.relnamespace
                      WHERE n.nspname = graph_name
                        AND c.relkind IN ('r', 'p', 'S')
+                       -- A sequence OWNED BY a column cannot be reowned on its own:
+                       --   cannot change owner of sequence \"_ag_label_edge_id_seq\"
+                       --   DETAIL: Sequence is linked to table \"_ag_label_edge\"
+                       -- It follows its table's owner, so the ALTER TABLE below already
+                       -- moves it. Only free-standing sequences need handling here.
+                       AND NOT (
+                         c.relkind = 'S'
+                         AND EXISTS (
+                           SELECT 1
+                           FROM pg_depend d
+                           WHERE d.classid = 'pg_class'::regclass
+                             AND d.objid = c.oid
+                             AND d.deptype IN ('a', 'i')
+                         )
+                       )
+                     -- Tables before sequences, so a sequence is already carried by its
+                     -- table by the time the sequence branch could look at it.
+                     ORDER BY (c.relkind = 'S'), c.relname
                    LOOP
                      IF obj.kind = 'S' THEN
                        EXECUTE format(
