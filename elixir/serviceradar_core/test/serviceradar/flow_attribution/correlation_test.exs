@@ -34,5 +34,11 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
       assert sql =~ "2 AS match_rank"
       assert sql =~ "a.remote_ip IN ('0.0.0.0', '::')"
     end
+
+    test "prefers container-scoped process owners when ranks tie" do
+      sql = Correlation.correlation_sql()
+
+      assert sql =~ "(container_id IS NULL) ASC"
+    end
   end
 end

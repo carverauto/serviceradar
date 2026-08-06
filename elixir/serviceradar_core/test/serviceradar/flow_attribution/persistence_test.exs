@@ -5,6 +5,72 @@ defmodule ServiceRadar.FlowAttribution.PersistenceTest do
   alias ServiceRadar.FlowAttribution
   alias ServiceRadar.FlowAttribution.Persistence
 
+  test "prepare_current_rows prefers container-scoped owner for the same socket key" do
+    now = ~U[2026-07-11 05:48:00Z]
+    later = DateTime.add(now, 5, :second)
+
+    host = %{
+      observed_at: later,
+      partition: "default",
+      attribution_key: "socket-key",
+      agent_id: "agent-a",
+      proto: 6,
+      local_ip: "10.42.0.1",
+      local_port: 4000,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 1787,
+      comm: "k3s-agent",
+      cmdline: "/usr/local/bin/k3s agent",
+      uid: 0,
+      container_id: nil,
+      workload_identity: nil
+    }
+
+    container = %{
+      observed_at: now,
+      partition: "default",
+      attribution_key: "socket-key",
+      agent_id: "agent-a",
+      proto: 6,
+      local_ip: "10.42.0.1",
+      local_port: 4000,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 99,
+      comm: "beam.smp",
+      cmdline: nil,
+      uid: 1000,
+      container_id: "abc123",
+      workload_identity: nil
+    }
+
+    prepared = Persistence.prepare_current_rows([host, container])
+    assert length(prepared) == 1
+    assert hd(prepared).comm == "beam.smp"
+    assert hd(prepared).container_id == "abc123"
+    assert hd(prepared).pid == 99
+
+    # Order of arrival should not matter.
+    prepared_rev = Persistence.prepare_current_rows([container, host])
+    assert hd(prepared_rev).comm == "beam.smp"
+  end
+
+  test "upsert SQL prefers container_id over host-only dual emit" do
+    query = fn sql, [_payload] ->
+      send(self(), {:sql, sql})
+      {:ok, %Postgrex.Result{num_rows: 0}}
+    end
+
+    assert {:ok, _} =
+             Persistence.insert_current_rows([row("default", "key-a")], query: query)
+
+    assert_receive {:sql, sql}
+    assert sql =~ "container_id IS NULL"
+    assert sql =~ "EXCLUDED.container_id IS NOT NULL AND"
+    assert sql =~ "pid = CASE"
+  end
+
   test "concurrent callers submit conflict keys in the same deterministic order" do
     now = ~U[2026-07-11 05:48:00Z]
 

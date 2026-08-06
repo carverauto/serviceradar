@@ -319,6 +319,8 @@ impl SocketInventory {
             return;
         };
         let process = flow.process.as_ref();
+        // Key by local listen endpoint only — not PID — so host/container dual
+        // ownership of the same socket collapses to one inventory row.
         let key = SocketInventoryKey {
             address_family: flow.flow.address_family,
             transport_protocol: flow.flow.transport_protocol,
@@ -328,9 +330,6 @@ impl SocketInventory {
                 _ => return,
             },
             local_port,
-            pid: flow.pid.pid,
-            tgid: flow.pid.tgid,
-            process_generation_ns: flow.pid.process_generation_ns,
         };
 
         let entry = ProcessSnapshotEntry {
@@ -361,9 +360,11 @@ impl SocketInventory {
                 cached.last_seen = now;
             }
             Some(cached) => {
-                cached.entry = entry;
+                if prefer_snapshot_entry(&entry, &cached.entry) {
+                    cached.entry = entry;
+                    self.dirty = true;
+                }
                 cached.last_seen = now;
-                self.dirty = true;
             }
             None => {
                 self.entries.insert(
@@ -469,9 +470,6 @@ struct SocketInventoryKey {
     transport_protocol: u16,
     local_addr: [u8; 16],
     local_port: u16,
-    pid: u32,
-    tgid: u32,
-    process_generation_ns: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -484,11 +482,20 @@ impl SocketInventoryKey {
             transport_protocol: flow.transport_protocol,
             local_addr: local_addr.unwrap_or(flow.endpoint_a_addr),
             local_port: flow.endpoint_a_port,
-            pid: record.pid,
-            tgid: record.tgid,
-            process_generation_ns: record.process_generation_ns,
         })
     }
+}
+
+/// True when `candidate` is a better socket owner than `current` (container
+/// over host-only; otherwise accept any identity change).
+#[cfg(target_os = "linux")]
+fn prefer_snapshot_entry(candidate: &ProcessSnapshotEntry, current: &ProcessSnapshotEntry) -> bool {
+    let candidate_container = !candidate.container_id.is_empty();
+    let current_container = !current.container_id.is_empty();
+    if candidate_container != current_container {
+        return candidate_container;
+    }
+    candidate != current
 }
 
 #[cfg(target_os = "linux")]
@@ -820,24 +827,30 @@ impl ProcfsEnricher {
             let Some(pids) = owners.get(&socket.inode) else {
                 continue;
             };
+            // One owner per socket inode: prefer a container-scoped process over
+            // host dual-views of the same fd (e.g. k3s-agent vs app in pod netns).
+            let mut candidates = Vec::with_capacity(pids.len());
             for pid in pids {
-                let Some(process) = self.process_details_for_pid(*pid, process_info) else {
-                    continue;
-                };
-                entries.push(ProcessSnapshotEntry {
-                    local_ip: socket.local_ip.to_string(),
-                    local_port: u32::from(socket.local_port),
-                    transport_protocol: socket.transport_protocol.clone(),
-                    pid: process.pid,
-                    tgid: process.tgid,
-                    uid: process.uid,
-                    gid: process.gid,
-                    comm: process.comm,
-                    redacted_cmdline: process.cmdline,
-                    container_id: process.container_id.unwrap_or_default(),
-                    workload_identity: None,
-                });
+                if let Some(process) = self.process_details_for_pid(*pid, process_info) {
+                    candidates.push(process);
+                }
             }
+            let Some(process) = preferred_process_owner(candidates) else {
+                continue;
+            };
+            entries.push(ProcessSnapshotEntry {
+                local_ip: socket.local_ip.to_string(),
+                local_port: u32::from(socket.local_port),
+                transport_protocol: socket.transport_protocol.clone(),
+                pid: process.pid,
+                tgid: process.tgid,
+                uid: process.uid,
+                gid: process.gid,
+                comm: process.comm,
+                redacted_cmdline: process.cmdline,
+                container_id: process.container_id.unwrap_or_default(),
+                workload_identity: None,
+            });
         }
 
         sort_snapshot_entries(&mut entries);
@@ -848,6 +861,23 @@ impl ProcfsEnricher {
             entries,
         }
     }
+}
+
+/// Prefer container-scoped process details when multiple PIDs hold the same
+/// socket inode. Specificity beats recency: any non-empty container_id wins
+/// over host-only; ties break on lower pid for stability.
+fn preferred_process_owner(mut candidates: Vec<ProcessDetails>) -> Option<ProcessDetails> {
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|left, right| {
+        let left_container = left.container_id.as_ref().is_some_and(|id| !id.is_empty());
+        let right_container = right.container_id.as_ref().is_some_and(|id| !id.is_empty());
+        right_container
+            .cmp(&left_container)
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+    candidates.into_iter().next()
 }
 
 #[cfg(target_os = "linux")]
@@ -2660,11 +2690,14 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
 
+    use std::collections::HashMap;
+
     use super::{
         AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
         ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary,
+        likely_service_side_tuple, preferred_process_owner, redacted_cmdline,
+        trim_to_utf8_boundary,
     };
     #[cfg(target_os = "linux")]
     use super::{
@@ -3634,6 +3667,90 @@ mod tests {
             snapshot.observed_at_unix_nano,
             snapshot_again.observed_at_unix_nano
         );
+    }
+
+    #[test]
+    fn preferred_process_owner_prefers_container_over_host() {
+        let host = ProcessDetails {
+            pid: 10,
+            tgid: 10,
+            uid: 0,
+            gid: 0,
+            comm: "k3s-agent".to_string(),
+            cmdline: vec!["/usr/local/bin/k3s".to_string()],
+            container_id: None,
+            last_seen_ns: 0,
+            process_generation_ns: 0,
+        };
+        let container = ProcessDetails {
+            pid: 99,
+            tgid: 99,
+            uid: 1000,
+            gid: 1000,
+            comm: "beam.smp".to_string(),
+            cmdline: vec![],
+            container_id: Some("a".repeat(64)),
+            last_seen_ns: 0,
+            process_generation_ns: 0,
+        };
+
+        let winner = preferred_process_owner(vec![host.clone(), container.clone()]).unwrap();
+        assert_eq!(winner.pid, 99);
+        assert_eq!(winner.comm, "beam.smp");
+
+        let winner_reversed = preferred_process_owner(vec![container, host]).unwrap();
+        assert_eq!(winner_reversed.pid, 99);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn process_snapshot_prefers_container_owner_when_inode_shared() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("net")).unwrap();
+        fs::write(
+            root.path().join("net/tcp"),
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 4242 1 0000000000000000 100 0 0 10 0\n",
+        )
+        .unwrap();
+
+        // Host dual-view: no container id in cgroup.
+        let host_dir = root.path().join("10");
+        fs::create_dir_all(host_dir.join("fd")).unwrap();
+        fs::write(host_dir.join("cmdline"), b"/usr/local/bin/k3s\0agent\0").unwrap();
+        fs::write(host_dir.join("cgroup"), "0::/system.slice/k3s.service\n").unwrap();
+        fs::write(host_dir.join("comm"), "k3s-agent\n").unwrap();
+        fs::write(
+            host_dir.join("status"),
+            "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("socket:[4242]", host_dir.join("fd/3")).unwrap();
+
+        // Container process: 64-hex container id in cgroup path.
+        let cid = "a".repeat(64);
+        let app_dir = root.path().join("99");
+        fs::create_dir_all(app_dir.join("fd")).unwrap();
+        fs::write(app_dir.join("cmdline"), b"/app/bin/server\0").unwrap();
+        fs::write(
+            app_dir.join("cgroup"),
+            format!("0::/kubepods.slice/cri-containerd-{cid}.scope\n"),
+        )
+        .unwrap();
+        fs::write(app_dir.join("comm"), "beam.smp\n").unwrap();
+        fs::write(
+            app_dir.join("status"),
+            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("socket:[4242]", app_dir.join("fd/3")).unwrap();
+
+        let snapshot =
+            ProcfsEnricher::with_root(root.path()).process_snapshot(&HashMap::new(), 1);
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].pid, 99);
+        assert_eq!(snapshot.entries[0].comm, "beam.smp");
+        assert_eq!(snapshot.entries[0].container_id, cid);
     }
 
     #[test]

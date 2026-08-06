@@ -555,7 +555,13 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
               )
             )
         ) AS ranked
-        ORDER BY match_rank, time_delta_seconds, observed_at DESC
+        ORDER BY
+          match_rank,
+          -- Prefer container-scoped socket owners over host-only dual emits
+          -- (e.g. beam/anubis with container_id over k3s-agent without).
+          (container_id IS NULL) ASC,
+          time_delta_seconds,
+          observed_at DESC
         LIMIT 1
       ) AS picked ON true
       LEFT JOIN LATERAL (
