@@ -1,0 +1,95 @@
+# BuildBuddy Enterprise Cache Proxy.
+#
+# A read-through / write-through gRPC cache sitting in front of the BuildBuddy remote cache.
+# The point of running it here: the backing cache is in GCP while the executors are in this
+# datacenter, so today every cache read crosses the WAN, and each executor keeps its own
+# private filecache -- a hit on one node does nothing for the other two. This proxy is SHARED,
+# replacing three private caches with one warm cache on the LAN.
+#
+# Deployed by ./deploy-cache.sh, which injects the API key from the buildbuddy-api-key secret.
+
+# image: deliberately NOT overridden. The chart default is
+# buildbuddy.bbcr.io/public/buildbuddy-proxy-enterprise. This image is NOT on Docker Hub, so
+# `buildbuddy/buildbuddy-enterprise-cache-proxy` resolves to docker.io and ImagePullBackOffs.
+# Pinning the tag is also unnecessary -- the chart already defaults to enterprise-v2.290.0,
+# matching the executor fleet.
+
+# THE most important value in this file. The chart default is grpcs://remote.buildbuddy.io --
+# BuildBuddy's SHARED cloud, a different instance from ours. Pointed there, the proxy reads
+# through to a cache our builds never write to, so every request misses and the proxy is worse
+# than useless. Exactly the failure mode //k8s/buildbuddy/values.yaml warns about for the
+# executor's app_target: one instance, named consistently everywhere.
+cacheTarget: grpcs://carverauto.buildbuddy.io
+
+# One per worker node, matching the executor fleet. Prove the hit rate before scaling: this is
+# a distributed cache, so adding replicas reshards it and discards existing warmth.
+replicas: 3
+
+resources:
+  requests:
+    cpu: "2"
+    memory: "16Gi"
+  limits:
+    cpu: "4"
+    memory: "32Gi"
+
+# A LAN LoadBalancer, pinned to a fixed address.
+#
+# ClusterIP was the first attempt and it only worked from inside the cluster. //.bazelrc has to
+# name ONE cache endpoint for every consumer, and a `*.svc.cluster.local` name is meaningless
+# on a workstation:
+#     UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local
+# An IP from MetalLB's LAN pool is reachable both from pods and from a Mac on the VPN, and
+# being an IP it needs no DNS resolution anywhere -- which also sidesteps the open question of
+# whether cluster DNS reaches inside a workflow runner's isolated environment.
+#
+# BOTH annotations matter. This cluster has TWO auto-assigning MetalLB pools:
+#     k3s-lan-pool   192.168.6.80-95    LAN
+#     k3s-pool       23.138.124.x       PUBLIC
+# so a bare `type: LoadBalancer` is a coin flip that can put the build cache on a public IP.
+# address-pool pins the pool; loadBalancerIPs pins the address, because //.bazelrc hardcodes
+# it and a reassignment on redeploy would break every build until someone noticed.
+#
+# 192.168.6.86 chosen as free at the time of writing: .80 crm-pg-rw-lb, .82 cnpg-rw-internal-lb,
+# .83 awx-tls-proxy, .84 powerdns-admin, .85 plausible.
+service:
+  type: LoadBalancer
+  annotations:
+    metallb.universe.tf/address-pool: k3s-lan-pool
+    metallb.universe.tf/loadBalancerIPs: 192.168.6.86
+
+# hostPath, not the chart's default emptyDir. With emptyDir the whole cache dies on every pod
+# restart, and a cold shared cache is strictly worse than the per-node filecaches it replaces.
+# Deliberately a DIFFERENT path from the executor's /var/lib/buildbuddy/cache so the two never
+# contend for one directory.
+cacheProxyDataVolumeHostPath: /var/lib/buildbuddy/cache-proxy
+
+# hostPath plus multiple replicas is only safe if no two pods share a node -- otherwise they
+# corrupt each other's pebble directory. This pins one proxy per node.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - buildbuddy-enterprise-cache-proxy
+        topologyKey: kubernetes.io/hostname
+
+config:
+  cache:
+    # 100 GB per node. This is the THIRD BuildBuddy cache on these disks, so the budget is not
+    # obvious -- 589 GB total, ~180 GB non-cache baseline, then:
+    #     /var/lib/buildbuddy/cache             100 GB   build fleet (was 150, cut for this)
+    #     /var/lib/buildbuddy/cache-workflows    50 GB   workflow fleet, 1 replica only
+    #     /var/lib/buildbuddy/cache-proxy       100 GB   here, 1 per node via anti-affinity
+    # Worst case is the node hosting the workflow runner: ~430 GB used, ~160 GB free; every
+    # other node ~380 GB. Both clear the kubelet DiskPressure threshold (10% free, ~530 GB).
+    #
+    # The chart default is 10 GB, which would evict constantly and defeat the purpose.
+    max_size_bytes: 100000000000
+    distributed_cache:
+      # Must match `replicas` above. Pods discover each other through the Kubernetes API
+      # (kubernetes_discovery, on by default in the chart together with rbac.create).
+      cluster_size: 3

@@ -268,6 +268,141 @@ The scheduler line is the second half, because the right pool at the wrong size 
 way. Memory is `limits.memory` minus a flat 10 GB; CPU is `limits.cpu` unreduced. Both must
 clear what `resource_requests` in `buildbuddy.yaml` asks for.
 
+## Cache proxy
+
+A **third** release in this namespace, from a different chart:
+
+| release | chart | values | deploy | hostPath cache |
+|---|---|---|---|---|
+| `bb-cache-proxy` | `buildbuddy-enterprise-cache-proxy` | `values-cache.yaml` | `./deploy-cache.sh` | `/var/lib/buildbuddy/cache-proxy` |
+
+### What it is for
+
+The backing cache is BuildBuddy Cloud, in GCP; the executors are in this datacenter. So every
+cache read crosses the WAN, and each executor keeps a *private* filecache — a hit on one node
+does nothing for the other two. The proxy is a read-through/write-through gRPC cache that is
+**shared**, replacing three private caches with one warm cache on the LAN. Reads become local
+on a hit; writes still go upstream, because the scheduler and the results UI read from the
+canonical cache.
+
+This is also why it does not hit the split-CAS problem that rules out a standalone cache like
+`bazel-remote`. A proxy is not a separate store — a miss forwards upstream, so a digest
+resolves no matter which side asks for it. See the note above `--host_platform` in `//.bazelrc`
+for the general shape of that failure.
+
+### Deploying
+
+```bash
+export KUBECONFIG=~/.kube/carverauto-oidc.yaml
+./deploy-cache.sh --dry-run    # renders only, applies nothing
+./deploy-cache.sh
+```
+
+### Checking it
+
+The chart makes a **StatefulSet**, not a Deployment, so `kubectl get deploy` shows nothing:
+
+```bash
+kubectl get statefulset,pods,svc -n buildbuddy -l app.kubernetes.io/instance=bb-cache-proxy
+
+kubectl rollout status statefulset/bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
+  -n buildbuddy --timeout=10m
+
+# The one thing worth verifying by hand: that it reads through to OUR instance.
+kubectl get secret -n buildbuddy \
+  bb-cache-proxy-buildbuddy-enterprise-cache-proxy-config \
+  -o jsonpath='{.data.config\.yaml}' | base64 -d | grep -A2 cache_proxy
+#   must show carverauto.buildbuddy.io, NOT remote.buildbuddy.io
+```
+
+That last check matters because the chart's default `cacheTarget` is
+`grpcs://remote.buildbuddy.io` — BuildBuddy's *shared* cloud, a different instance from ours.
+Pointed there the proxy comes up perfectly healthy and misses every single request. It is the
+same instance-mismatch trap `values.yaml` warns about for the executor's `app_target`, and it
+fails silently rather than loudly.
+
+### Gotchas
+
+- **The release name may not exceed 20 characters.** The chart derives a headless Service named
+  `<release>-buildbuddy-enterprise-cache-proxy-headless`; the chart contributes 33 characters
+  and the suffix 9, against Kubernetes' 63-character Service name limit. `buildbuddy-cache-proxy`
+  (22) fails with `metadata.name: Invalid value: ... must be no more than 63 characters`, and it
+  fails *after* helm has created the ServiceAccount, Role, PDB and Secret — so the release looks
+  half-installed and needs `helm uninstall` before retrying. `deploy-cache.sh` now checks this
+  before calling helm.
+- **hostPath plus replicas needs anti-affinity.** Two proxy pods on one node would corrupt each
+  other's pebble directory. `values-cache.yaml` pins one per node.
+- **`cacheProxyDataVolumeHostPath` is not optional.** The chart defaults to an emptyDir, which
+  destroys the whole cache on every pod restart. A cold shared cache is strictly worse than the
+  per-node filecaches it replaces.
+- **`config.cache.max_size_bytes` defaults to 10 GB**, which would evict constantly.
+- **`distributed_cache.cluster_size` must match `replicas`.** It defaults to 1.
+
+### Disk budget: three caches, one disk
+
+Nodes are 589 GB with roughly 180 GB of non-cache baseline. All three BuildBuddy caches can
+land on the same node, on three deliberately separate hostPaths:
+
+| path | cap | owner |
+|---|---|---|
+| `/var/lib/buildbuddy/cache` | 100 GB | `buildbuddy`, 3 replicas |
+| `/var/lib/buildbuddy/cache-workflows` | 50 GB | `buildbuddy-workflows`, 1 replica |
+| `/var/lib/buildbuddy/cache-proxy` | 100 GB | `bb-cache-proxy`, 1 per node |
+
+Worst case is whichever node hosts the workflow runner: ~430 GB used, ~160 GB free. Every other
+node sits near ~380 GB. Both clear the kubelet DiskPressure threshold (10% free, ~530 GB used).
+
+The build fleet's cache was cut 150 → 100 GB to make room, which is the right trade *only once
+the proxy is serving*: a private per-node cache is worth much less with a shared LAN cache in
+front of it. Do not apply that reduction before the proxy is healthy — on its own it is simply
+33% less cache absorbing the same WAN misses.
+
+### Routing traffic to it
+
+Deploying the proxy changes nothing by itself; nothing points at it. Two separate steps, and
+both executor fleets need doing:
+
+1. **Executors** — set `config.executor.cache_target` in `values.yaml` *and*
+   `values-workflows.yaml`, then redeploy each (`./deploy.sh`, and the hand-typed helm command
+   in "Two fleets" above). Batch this with any `local_cache_size_bytes` change so you pay one
+   cold start rather than two: every executor rollout mints fresh filecache UUIDs.
+2. **Bazel clients** — `--remote_cache=grpc://192.168.6.86:1985` in `//.bazelrc` (already set on
+   `build:remote_base` and, separately, on `build:el9`), plus
+   `--remote_bytestream_uri_prefix=grpcs://carverauto.buildbuddy.io` so BES artifact links in
+   the results UI still resolve. Leave `--remote_executor` alone: the scheduler stays on
+   BuildBuddy Cloud, and that is what keeps the CAS consistent.
+
+### The address, and why it is an IP
+
+`192.168.6.86` is a MetalLB LoadBalancer IP from the `k3s-lan-pool`, pinned in
+`values-cache.yaml`.
+
+The first attempt used a ClusterIP, and it only worked from inside the cluster. `//.bazelrc`
+names one cache endpoint for every consumer, and `*.svc.cluster.local` means nothing on a
+workstation — a local `--config=ci` build died at once with
+`UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local`. A LAN LoadBalancer
+IP is reachable from pods *and* from a Mac on the VPN, and being an IP it needs no DNS at all,
+which also removes the question of whether cluster DNS reaches inside a workflow runner's
+isolated environment.
+
+Both MetalLB annotations are load-bearing. The cluster has two auto-assigning pools —
+`k3s-lan-pool` (192.168.6.80-95) and `k3s-pool` (23.138.124.x, **public**) — so a bare
+`type: LoadBalancer` is a coin flip that can put the build cache on a public address.
+`address-pool` pins the pool, `loadBalancerIPs` pins the address, because `//.bazelrc`
+hardcodes it and a reassignment would break every build until someone noticed.
+
+If you ever need to move it, check what is free first:
+
+```bash
+kubectl get svc -A --field-selector spec.type=LoadBalancer \
+  -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,IP:.status.loadBalancer.ingress[0].ip' \
+  --no-headers | grep '192\.168\.6\.' | sort -t. -k4 -n
+```
+
+`grpc://`, not `grpcs://`: the chart runs with `ssl.enable_ssl: false` and publishes only the
+plaintext ports. Note this means cache traffic crosses the LAN unencrypted — acceptable inside
+the datacenter and over the VPN, but it is a reason not to move this onto `k3s-pool`.
+
 ## Workflows (`buildbuddy.yaml`)
 
 The repo-root `buildbuddy.yaml` drives CI. Four things about it are easy to get wrong.

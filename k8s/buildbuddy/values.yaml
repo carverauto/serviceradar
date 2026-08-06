@@ -119,24 +119,34 @@ config:
             - rbind
             - rw
     local_cache_directory: /cache
-    # Read-through cache OF the remote CAS named by app_target above. Every eviction here
-    # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
-    # tolerates rather than as small as it can get away with.
+    # PRIVATE per-node read-through cache of the remote CAS named by app_target above. Every
+    # eviction here used to mean a re-fetch across the WAN, which is why this went 50 -> 150 GB
+    # (at 50 GB, two of three executors sat pinned exactly at the cap -- 48 GB and 53 GB
+    # measured -- while their disks had 275-340 GB free).
     #
-    # Raised 50 -> 150 GB: at 50 GB two of the three executors sat pinned exactly at the cap
-    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was
-    # paying for GCP round trips it had the local capacity to avoid.
+    # Now 150 -> 100 GB, because the cache proxy in //k8s/buildbuddy/values-cache.yaml changed
+    # what a miss costs. A miss here no longer crosses the WAN; it goes to a SHARED cache on
+    # the LAN that all three executors and the workflow runners warm together. A private
+    # per-node cache is worth much less against that: three copies of the same 150 GB, where a
+    # hit on one node did nothing for the other two.
     #
-    # Sizing, per node: 589 GB total, of which ~170-230 GB is non-cache baseline (containerd
-    # images, kubelet, other pods). 150 GB of filecache puts the worst node at ~345 GB used,
-    # leaving ~240 GB -- well clear of the kubelet DiskPressure eviction threshold (10% free,
-    # i.e. ~530 GB used). There is room to go to 200 GB later; raise it only while watching
-    # `kubectl get nodes` for DiskPressure, because `root_directory` below shares this
-    # filesystem and is NOT counted against this budget -- concurrent action working dirs
-    # spike outside it.
+    # Disk budget per node: 589 GB total, ~180 GB non-cache baseline (containerd images,
+    # kubelet, other pods). THREE BuildBuddy caches can land on one node's disk, on three
+    # deliberately separate hostPaths -- see "Two fleets" and "Cache proxy" in ./README.md:
+    #     /var/lib/buildbuddy/cache             100 GB   this fleet
+    #     /var/lib/buildbuddy/cache-workflows    50 GB   buildbuddy-workflows, 1 replica
+    #     /var/lib/buildbuddy/cache-proxy       100 GB   bb-cache-proxy, 1 per node
+    # Worst case is whichever node hosts the workflow runner: ~430 GB used, ~160 GB free.
+    # Every other node sits near ~380 GB. Both clear the kubelet DiskPressure threshold
+    # (10% free, i.e. ~530 GB used). The paths differ precisely so no cache evicts another's
+    # entries while believing itself under budget.
     #
-    # Plain int64 byte count, not a k8s quantity: "150Gi" does not parse here. It also does
+    # Watch `kubectl get nodes` for DiskPressure after any change here: `root_directory` below
+    # shares this filesystem and is NOT counted against this budget, so concurrent action
+    # working dirs spike outside it.
+    #
+    # Plain int64 byte count, not a k8s quantity: "100Gi" does not parse here. It also does
     # NOT draw against the ephemeral-storage limit above, because /cache is a hostPath.
-    local_cache_size_bytes: 150000000000
+    local_cache_size_bytes: 100000000000
     root_directory: /cache/remotebuilds/
     api_key: ""
