@@ -1007,6 +1007,18 @@
   the same fenced transaction. Implement a stop-expand/fence/drain-or-atomic-
   migrate barrier for owner-map changes; retain map history through repair/prune/
   rollback and never let old/new owners mutate one identity concurrently.
+  HOP ASN PROJECTION IS OWNED HERE, assigned by `freeze-edge-record-v1-abi` task 1.5-e. The
+  admitted semantics are defined by that change's requirement "An MTR hop's ASN is diagnostic
+  enrichment, not an allocation claim" and are NOT restated here. This task owns only how the
+  admitted values are stored:
+  - `mtr_hops.asn` is currently `INTEGER` (signed 32-bit), created at
+    `elixir/serviceradar_core/priv/repo/migrations/20260228090000_create_mtr_traces_hypertables.exs:104`.
+    It cannot hold the upper half of `uint32`, which includes the ENTIRE 32-bit private-use
+    range (4200000000-4294967294). Projection SHALL use a 64-bit integer column, or the
+    storage width silently narrows the frozen ABI.
+  - Zero means unavailable, so it SHALL be projected as SQL `NULL` rather than as `0`, which
+    would otherwise read as a real observation of AS 0.
+
 - [ ] 5.5 Reconcile execution progress/completion from unique committed batch
   sequences, immutable plans, and authoritative attempt terminal state/evidence;
   expose scanner, delivery, projection, MTR pending/missing/quarantined, partial,

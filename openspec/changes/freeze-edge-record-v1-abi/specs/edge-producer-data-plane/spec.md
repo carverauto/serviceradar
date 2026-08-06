@@ -2485,3 +2485,69 @@ cannot distinguish a checked conversion from an unchecked one.
 - **THEN** the record SHALL be rejected, not accepted on the wrapped value
 - **AND** the conversion SHALL be performed by ONE checked helper shared by every call site
   that compares a UUIDv7 time against a signed window
+
+### Requirement: An MTR hop's ASN is diagnostic enrichment, not an allocation claim
+`MtrTraceHopV1.asn` SHALL be admitted for EVERY value the generated `uint32` can carry, and
+its NUMERIC VALUE SHALL be preserved through decode. Implementations SHALL NOT apply
+allocation-status filtering: admission SHALL NOT consult whether a value is allocated,
+transitional, private-use, reserved, or unassigned. A **zero** value SHALL mean UNAVAILABLE
+OR NOT SUPPLIED.
+
+THE FIELD IS PRODUCER-SUPPLIED DIAGNOSTIC ENRICHMENT associated with a hop address. It is
+frequently lookup-derived today, but this ABI fixes NO provenance: no invariant requires any
+particular dataset, cache, or lookup path, and a producer may supply it from any source or
+leave it zero.
+
+ALLOCATION AND ROUTING POLICY DO NOT GOVERN ADMISSION OF DIAGNOSTIC ENRICHMENT. That is the
+whole rule, and it is narrower than "these ASNs are special":
+
+- Private-use status alone (RFC 6996) is not an admission error. Such ASNs are ordinary
+  inside the operator networks this product is deployed in. Downstream analysis MAY still
+  flag one contextually; that is a judgement about what was observed, not a reason to refuse
+  the record carrying it.
+- The Last ASNs (RFC 7300) are reserved, and RFC 7300 asks that they not be treated as BGP
+  PROTOCOL ERRORS. Recording one as an observation is not a protocol action at all.
+
+Rejecting a value on either ground would fail a whole record over one enrichment field,
+discarding the sweep or trace observations that are the record's actual purpose.
+
+WHAT IS FROZEN IS THE SEMANTICS -- zero means absent, every other value is carried through
+unchanged -- and it is pinned by shared vectors rather than by a rejection path. The generated
+`uint32` already supplies the wire domain: there is no value a conforming decoder can produce
+that this rule would reject, so a filter could only NARROW the contract below what the type
+admits.
+
+`asn_org` IS ADMITTED INDEPENDENTLY, subject to the ordinary UTF-8, string-length, batch and
+wire bounds that apply to any hop string. It is NOT a second source of truth for the number.
+Disagreement between the two SHALL NOT affect admission of either, and neither SHALL be
+altered on account of the other.
+
+OMITTED AND EXPLICITLY-ENCODED ZERO ARE THE SAME OBSERVATION. `asn` is not `optional`, so a
+field absent from the wire and a field encoded as `0` decode to the same value and mean the
+same thing. The two encodings produce DIFFERENT PAYLOAD BYTES, and therefore a different
+`payload_sha256` and semantic envelope. Each encoding SHALL be INDEPENDENTLY ADMISSIBLE. This
+does not make them two logical records: carried under the same `(network_scope_id, event_id)`
+they are conflicting encodings of one record, not a pair.
+
+HOW THIS IS STORED IS NOT THIS TASK'S TO DECIDE. Projection -- how "unavailable" is
+represented in SQL, and how wide the column must be to hold `uint32` -- is owned by
+`unify-sweep-results-proto`'s "TimescaleDB Storage" requirement and its task 5.4. This
+requirement constrains the ABI; it SHALL NOT be read as specifying DDL.
+
+#### Scenario: Zero is admitted whether omitted or explicitly encoded
+- **WHEN** one record omits `asn` entirely and a SEPARATELY IDENTIFIED record encodes it
+  explicitly as `0`
+- **THEN** each record is independently admitted
+- **AND** both decode to `0`, meaning unavailable or not supplied
+
+#### Scenario: Allocation status does not affect admission
+- **WHEN** a hop carries `asn` = 23456, 64512, 65534, 65535, 4200000000, 4294967294, or
+  4294967295
+- **THEN** the record is admitted
+- **AND** the numeric value survives decode with no substitution and no clamping
+
+#### Scenario: asn_org is admitted independently of the number
+- **WHEN** a hop carries any `asn` value together with an `asn_org` that is ordinarily valid
+  under the UTF-8, string-length, batch and wire bounds
+- **THEN** both fields are admitted on their own terms
+- **AND** neither is altered or refused on account of the other's content
