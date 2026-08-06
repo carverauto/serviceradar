@@ -1,0 +1,39 @@
+third_party/rules_elixir/VENDORING.md
+  s_0eda1e1f71cc86::t_05597ce719d945 9,30,41
+third_party/rules_elixir/ex_unit_test.bzl
+  s_0eda1e1f71cc86::t_bd73b023c83ad8 9
+third_party/rules_erlang/VENDORING.md
+  s_0eda1e1f71cc86::t_c2894faa5da80e 9,32,43
+third_party/rules_erlang/ct.bzl
+  s_0eda1e1f71cc86::t_e56c837c4f6a45 80,111
+third_party/rules_erlang/dialyze.bzl
+  s_0eda1e1f71cc86::t_4eb1d2bbe467b2 37
+third_party/rules_erlang/eunit.bzl
+  s_0eda1e1f71cc86::t_00a3f8e75b8ec7 40
+third_party/rules_erlang/eunit2.bzl
+  s_0eda1e1f71cc86::t_dc1936f34c52b9 11
+third_party/rules_erlang/shell.bzl
+  s_0eda1e1f71cc86::t_1573ae6274995a 9
+third_party/rules_erlang/xref.bzl
+  s_0eda1e1f71cc86::t_d9621832ca9871 15
+third_party/rules_erlang/xref2.bzl
+  s_0eda1e1f71cc86::t_abc6962ad3ff8a 23,35
+buildbuddy.yaml
+  s_0eda1e1f71cc86::t_0c5192551fe4d1 43,58,72,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "35032f987d587d7c52586a4365b170fa827fd0d2",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
