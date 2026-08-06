@@ -9,17 +9,10 @@ common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
 common --curses=yes
-
-common --repository_cache=third_party/bazel-repo-cache
-common --repo_contents_cache=
-common --disk_cache=third_party/bazel-disk-cache
-common --distdir=third_party/distdir
-
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
-
 # Detailed profiling in BuildBuddy
-# common --noslim_profile
+common --noslim_profile
 # common --experimental_profile_include_target_label
 # common --experimental_profile_include_primary_output
 

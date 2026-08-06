@@ -64,17 +64,8 @@ jobs:
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
-          # bazel-disk-cache is deliberately NOT here. actions/cache only writes an entry when
-          # the primary key missed, and this key is a hash of .bazelversion/.bazelrc/MODULE.*
-          # -- files that change far more rarely than the build outputs. So the entry was
-          # written once and then frozen: every later run paid to restore a disk cache that
-          # could never be updated. The remote cache on BuildBuddy already serves that role
-          # and is keyed by action, not by a file hash. --disk_cache stays set in .bazelrc, so
-          # a run still gets a local cache; it just is not carried between runs.
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
