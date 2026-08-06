@@ -334,10 +334,10 @@ here.
   Neither peer VERIFIES a signature or AUTHORIZES collection: those need key material, a trust
   resolver, an attested caller and the authoritative record, and belong to the composed
   boundary Go implements as `AuthorizeCollectionNow`. No Elixir peer of that is claimed.
-  The remaining 1.3 work is therefore the correlation matrix alone -- which is SIX
-  deliverables. This is the TRACKING copy: 1.3 stays
-  unchecked until all six are, but the six are checked AS THEY LAND, so the ledger stops
-  reading as if none of 1.3 had shipped.
+  The last 1.3 work was the correlation matrix alone -- SIX deliverables. This is the
+  TRACKING copy: 1.3 was held unchecked until all six were, and the six were checked AS THEY
+  LANDED so the ledger never read as if none of 1.3 had shipped. All six are checked, and so
+  is 1.3.
   - [x] 1.3-a Go OPERAND SELECTION in `joinSweepAuthority`, consuming the pinned mapping as
         its SOLE kind lookup
   - [x] 1.3-b Go DISPOSITION ENFORCEMENT in `ValidateSweepObservationBatch` (`source_run_id`
@@ -415,8 +415,8 @@ here.
                 Go asserts the OWNING GATE before writing it to the manifest, including
                 not-the-other-gate. A gate name written unchecked is a claim Elixir then
                 derives its expectation from.
-          (iv)  task 1.2-c, under task 1.2 -- LANDED and CHECKED; its 1.5-f closure is done
-                dependency, which is what keeps 1.3-f unchecked too.
+          (iv)  task 1.2-c, under task 1.2 -- LANDED and CHECKED. Its 1.5-f closure
+                dependency is DISCHARGED, so it no longer holds 1.3-f either.
         NO LONGER BLOCKED. It was blocked on 1.2-c, and NOT for the original reason -- that
         reason (a vector cannot satisfy a last-gate proof by stating an UNENFORCED
         precondition occurred) went obsolete once `ingest_own_payload/1` began running the
