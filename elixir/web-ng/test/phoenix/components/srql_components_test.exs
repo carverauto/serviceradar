@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
 
   @moduletag :db_free
 
-  test "compact editor keeps the SRQLInput hook and datalist fallback" do
+  test "compact editor keeps the SRQLInput hook and its own dropdown" do
     html =
       render_component(&SRQLComponents.srql_editor/1,
         id: "query",
@@ -21,10 +21,16 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     # The compact frame drives its own type scale through custom properties, which is what
     # the overlay and the input have to agree on. The exact value is a design decision that
     # has already moved once (0.75rem -> 0.875rem); pinning it made this test fail on a
-    # restyle while saying nothing about the hook or the datalist it is named for.
+    # restyle while saying nothing about the hook it is named for.
     assert html =~ "--srql-font-size:"
     assert html =~ ~s(data-srql-input-overlay)
-    assert html =~ ~s(<datalist id="query-completions">)
+    # Completions render into the component's own dropdown, which the SRQLInput hook owns.
+    assert html =~ ~s(data-srql-input-dropdown)
+    # And explicitly NOT into a native <datalist>. The browser renders a datalist popup
+    # above everything the page draws, so it covered the Recent-history list on an empty
+    # focus; it was removed for that reason. Asserting its absence keeps it from coming
+    # back as an innocent-looking "fallback".
+    refute html =~ ~s(<datalist)
     refute html =~ ~s(phx-hook="SRQLEditor")
   end
 
