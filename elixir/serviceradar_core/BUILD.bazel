@@ -215,6 +215,11 @@ ex_unit_tests(
         # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
         # what puts it where that relative path resolves.
         "//addons/anomaly-addon:anomaly_manifest",
+        # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs, which calls
+        # Code.require_file on it OUTSIDE any test -- so an unstaged generator aborts the
+        # whole shard with :enoent before a single test in it runs, not just its own. It
+        # lives under bench/, which the glob above does not cover.
+        "bench/sweep_ingress_fixtures.exs",
         # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the
         # SHARED cross-language fixtures -- the sweep-join corpus among them -- through
         # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the

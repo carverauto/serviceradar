@@ -1831,6 +1831,106 @@ it, and an implementation that skips it lets one role's key validate another.
 - **WHEN** a resolution does not echo the requested purpose
 - **THEN** it SHALL be treated as unavailable, never as authorizing
 
+### Requirement: Compression admission is frozen by value, stage, and frame shape
+A ZSTD-compressed `EdgeRecordV1` payload SHALL be admitted only under the frozen
+EXTRACTED-BODY BOUNDS, enforced BEFORE any decompression, and only when the payload is
+exactly ONE standard Zstd frame.
+
+THE THREE VALUES ARE FROZEN HERE, and this is their normative source. Until now they existed
+only in runtime source, so every consumer asserting them -- including the Elixir sweep body
+decoder -- pinned a number with nothing behind it:
+
+- `MaxUncompressedBytes` = **33_554_432** bytes (32 MiB). The EXTRACTED-BODY output ceiling.
+- `MaxCompressionRatio` = **100**. The maximum ratio of extracted output to encoded input.
+- `MaxZstdWindowBytes` = **33_554_432** bytes (32 MiB). The maximum Zstd WINDOW a frame may
+  advertise.
+
+THE WINDOW CEILING IS A THIRD, INDEPENDENT LIMIT, and v1 assigning it the same value as the
+output ceiling is a COINCIDENCE OF VALUE, not a rule. They bound different things: output
+size is what the body costs to hold, window size is what the DECODER must retain as history
+while producing it. A frame advertising a 64 MiB window while emitting 1 MiB of output
+passes both the output ceiling and the ratio, and SHALL still be rejected. Without this
+frozen, a runtime that admitted such a frame would diverge from one that did not, on a
+record both agree is otherwise valid.
+
+THESE ARE WORK CEILINGS ON THE EXTRACTED BODY, not physical bounds on the record. The record
+and its encoded payload remain bounded by `MaxRecordBytes` (512 KiB) on RECEIVED BYTES. A
+compressed payload under that physical bound may legitimately EXPAND past it -- that is the
+entire point of the ratio -- so a physical bound applied to the extracted body would
+permanently reject valid records.
+
+THE STAGE IS PART OF THE FREEZE. The DECLARED-OUTPUT and RATIO bounds SHALL be evaluated on
+the DECLARED sizes BEFORE the payload is decompressed, so a decompression bomb is refused without ever being expanded.
+A ratio checked after expansion has already paid the cost it exists to avoid.
+
+THE RATIO IS MEANINGLESS UNLESS `encoded_size` IS BOUND TO THE RECEIVED BYTES FIRST. It is
+the denominator, so an unbound `encoded_size` buys arbitrary ratio headroom: declare a large
+encoded size, pass the ratio trivially, and only the absolute ceiling still applies. The
+implementation SHALL therefore reject a record whose `encoded_size` differs from the actual
+payload length before evaluating the ratio.
+
+THE DECLARATION SHALL NOT BE TRUSTED AS THE OUTCOME. `uncompressed_size` is what the bounds
+are evaluated against, so the ACTUAL decoded output SHALL be required to equal it exactly. A
+validator that bounds the declaration and never checks the real output has bounded a claim,
+not a body.
+
+RATIO ARITHMETIC SHALL BE OVERFLOW-SAFE. A wrapped product admits exactly the bombs the
+ratio excludes, so the comparison SHALL NOT be evaluated in a width the product can exceed.
+This is a property, not an accumulator width: once `encoded_size` is bound to a payload
+already under the 512 KiB physical ceiling, the denominator is at most 524_288 and the
+product at most 52_428_800, which any 32-bit or wider accumulator holds. The freeze is that
+the binding happens FIRST -- an unbound `uint32` denominator times 100 exceeds 32 bits, so a
+runtime evaluating the ratio before the binding would need a wider accumulator to stay
+correct, and one that did neither would wrap.
+
+VALIDATION SHALL NOT RESERVE THE FULL OUTPUT. The frame is validated by streaming through a
+fixed scratch buffer, so refusing a 32 MiB body does not first allocate 32 MiB. That buffer
+bounds the CALLER'S OUTPUT BUFFERING ONLY. It is not a bound on decoder memory, which retains
+up to O(window) of history regardless -- and `MaxZstdWindowBytes` bounds that HISTORY/WINDOW
+REQUIREMENT, not total decoder memory: a decoder holds tables and buffers beyond the window,
+and neither runtime guarantees a ceiling on the whole of it.
+
+EXACTLY ONE COMPRESSION LAYER IS ADMITTED. Once decoded, the extracted bytes are a CONTRACT
+MESSAGE and SHALL NOT be interpreted as another compressed envelope, so there is no
+RECURSIVE COMPRESSION to bound and no runtime may introduce one. This is a rule about LAYERS,
+not about passes: a runtime MAY validate the frame and materialize the body in separate
+decode passes, which is implementation topology rather than an ABI property. (Protobuf
+MESSAGE recursion is a different limit entirely and is owned by 1.5-a.)
+
+Decoding SHALL use no dictionary.
+
+#### Scenario: The extracted-body bounds are refused before expansion
+- **WHEN** a record declares an `uncompressed_size` of zero, above 33_554_432, or above
+  `encoded_size` times 100
+- **THEN** it SHALL be rejected WITHOUT decompressing the payload
+- **AND** the same rejection SHALL apply whether or not the frame would have decoded
+
+#### Scenario: A declared size that the frame does not produce is refused
+- **WHEN** a payload decodes to a byte count different from `uncompressed_size`
+- **THEN** it SHALL be rejected
+- **AND** this SHALL hold in both directions -- fewer bytes and more bytes
+
+#### Scenario: The payload is exactly one Zstd frame
+- **WHEN** a payload carries trailing bytes after a valid frame, a second concatenated frame,
+  an empty concatenated frame, or a skippable frame
+- **THEN** it SHALL be rejected as trailing data
+- **AND** the check SHALL parse the FRAME STRUCTURE and require the frame to end at exactly
+  the payload length, because a decode-side output-size check cannot see these: a conforming
+  decoder consumes no-output trailing frames transparently, producing the declared byte count
+  from a payload that carries more than one frame
+
+#### Scenario: An oversized advertised window is refused on its own
+- **WHEN** a frame advertises a required window ABOVE 33_554_432 bytes
+- **THEN** it SHALL be rejected BEFORE expansion
+- **AND** this SHALL hold even when the decoded output size and the compression ratio are
+  both within their ceilings, since the window bounds decoder history rather than output
+- **AND** a frame advertising exactly 33_554_432 bytes SHALL be accepted, so the boundary is
+  inclusive and the two vectors sit either side of it
+
+#### Scenario: The ratio denominator is bound to received bytes
+- **WHEN** `encoded_size` differs from the actual payload length
+- **THEN** the record SHALL be rejected before the ratio is evaluated
+
 ### Requirement: Only a raw-byte plan boundary may claim physical enforcement
 A plan's PHYSICAL ceilings and wire hygiene SHALL be claimed ONLY by a boundary that sees
 the RECEIVED BYTES and bounds them BEFORE decoding. The plan header's ceiling SHALL be

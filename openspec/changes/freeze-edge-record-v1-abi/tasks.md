@@ -72,10 +72,12 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. Eight open parents and twenty-eight unchecked
-named subtasks remain (1.17 is closed and does not count), including all ELEVEN of 1.5's obligations, and compression admission
-is substantive and unstarted. Three to six focused weeks is the honest range, depending on
-how much of 1.5 proves already implemented during closeout.
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-THREE unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including TEN of 1.5's
+eleven obligations. COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
+chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
+focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
+already implemented during closeout.
 
 ## 1. Freeze the edge record v1 wire ABI
 
@@ -179,9 +181,10 @@ here.
     INTEGRATION HAS LANDED TOO: `SweepCorrelate.ingest_own_payload/1` composes the curated
     decode, the full body validator and correlation into ONE call, so a body rejection and a
     correlation rejection no longer reach callers from two places. What keeps 1.2 open is
-    1.2-a's closeout audit and 1.2-c's 1.5-f CLOSURE dependency -- not missing work.
+    1.2-a's closeout audit -- not missing work. 1.2-c's 1.5-f dependency is satisfied.
   - REMAINING: see subtasks 1.2-a..c below; not restated here.
-  - DEPENDS ON: TASK 1.5-f, at CLOSURE ONLY -- see 1.5-f for the ownership and the reason.
+  - DEPENDS ON: nothing open. The 1.5-f CLOSURE dependency is DISCHARGED -- 1.5-f is closed
+    and 1.2-c is checked; see 1.5-f for the ownership and the original reason.
     NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
   - EVIDENCE: `proto/edge/v1/sweep.proto`, `ValidateSweepObservationBatch`; for the raw
     stage `WireDecode.decode_sweep_batch/1` with
@@ -227,7 +230,7 @@ here.
   - [x] 1.2-b DECIDED: the CORRELATION peer belongs to 1.3-f and has landed
         (`SweepCorrelate`); the Elixir FULL BODY VALIDATOR belongs to 1.2. This item is
         the DECISION, and it is closed
-  - [ ] 1.2-c the Elixir FULL BODY VALIDATOR for `SweepObservationBatchV1`: shape, bounds,
+  - [x] 1.2-c the Elixir FULL BODY VALIDATOR for `SweepObservationBatchV1`: shape, bounds,
         recursive wire hygiene and unknown-field rejection via a curated `WireDecode` entry
         point, under the EXTRACTED-BODY WORK CEILING (32 MiB, mirroring Go's
         `MaxUncompressedBytes`).
@@ -269,7 +272,7 @@ here.
               without touching any field correlation compares.
               THE SHARED CORPUS IS NOT A 1.2-c REMAINDER -- 1.3-f owns it exclusively, and
               1.2-c does not depend on 1.3-f (that edge runs the other way). With step 3
-              landed, the ONLY thing holding 1.2-c open is its 1.5-f CLOSURE dependency.
+              landed, and its 1.5-f CLOSURE dependency is now satisfied -- 1.5-f is closed.
               THE RESULT TRANSLATION IS SETTLED IN ADVANCE, as
               `SweepCorrelate.translate_body_reason/1`: `{:source_run_id, label}` ->
               `{:body, label}` and `{:source, :unknown}` -> `{:enum_admission, :source}`,
@@ -280,7 +283,7 @@ here.
               it would break that invariant. The mapping is TOTAL over the validator's
               family set, so a new family cannot reach the union undecided
 
-- [ ] 1.3 Add `SweepExecutionEventV1` start, progress/watermark, completion, and
+- [x] 1.3 Add `SweepExecutionEventV1` start, progress/watermark, completion, and
   aborted evidence per assignment attempt; an immutable scheduler plan that
   uses a bounded header plus content-addressed range pages for arbitrary target
   sets and contains ranges/checks but not future attempts; and append-only authoritative
@@ -313,10 +316,10 @@ here.
   separate HOST `ASSIGNMENT_EXECUTION` grant. Both compiled-assignment digest grammars and
   both claim tables are frozen in Appendix A, with shared Go-authored vectors.
 
-  STILL OPEN in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX. It is DESIGNED and
-  merged (#4779); what remains is BUILDING it. The canonical list of that work is the
-  1.3-a..1.3-f checklist below, which is CANONICAL. No other passage in this file restates
-  it: one list has one place to edit.
+  LANDED in 1.3: the `SweepObservationBatchV1` CORRELATION MATRIX. It was DESIGNED and
+  merged (#4779) and is now BUILT -- the 1.3-a..1.3-f checklist below is CANONICAL and every
+  item on it is checked. No other passage in this file restates it: one list has one place
+  to edit.
 
   Both Elixir peers have landed. `CompiledAssignmentValidate` covers the CARRIER: structure,
   both self digests, the attestation's binding across every member it commits, the record
@@ -331,10 +334,10 @@ here.
   Neither peer VERIFIES a signature or AUTHORIZES collection: those need key material, a trust
   resolver, an attested caller and the authoritative record, and belong to the composed
   boundary Go implements as `AuthorizeCollectionNow`. No Elixir peer of that is claimed.
-  The remaining 1.3 work is therefore the correlation matrix alone -- which is SIX
-  deliverables. This is the TRACKING copy: 1.3 stays
-  unchecked until all six are, but the six are checked AS THEY LAND, so the ledger stops
-  reading as if none of 1.3 had shipped.
+  The last 1.3 work was the correlation matrix alone -- SIX deliverables. This is the
+  TRACKING copy: 1.3 was held unchecked until all six were, and the six were checked AS THEY
+  LANDED so the ledger never read as if none of 1.3 had shipped. All six are checked, and so
+  is 1.3.
   - [x] 1.3-a Go OPERAND SELECTION in `joinSweepAuthority`, consuming the pinned mapping as
         its SOLE kind lookup
   - [x] 1.3-b Go DISPOSITION ENFORCEMENT in `ValidateSweepObservationBatch` (`source_run_id`
@@ -353,13 +356,13 @@ here.
         vectors: the requirement says vectors SAMPLE, and only an exhaustive inventory shows
         the mapping is total, injective, and excludes the two unreachable kinds. An inventory
         and a vector set prove different things
-  - [ ] 1.3-f the Elixir peer, the SHARED PARITY VECTORS, and any FURTHER fixture changes
+  - [x] 1.3-f the Elixir peer, the SHARED PARITY VECTORS, and any FURTHER fixture changes
         those vectors produce. EXPLICITLY INCLUDES, handed over by 1.3-d: Elixir EMISSION of
         the fourteen correlation labels, and the JOINT (label, gate) vector proof in BOTH
         runtimes -- every LABELLED vector asserts the portable label AND the owning gate's
         typed outcome in ONE assertion, so neither can be changed alone. UNLABELLED vectors
         (UNSPECIFIED, RECOVERY_CONTROL) assert only their owning gate.
-        (i), (ii) and (iii) HAVE LANDED. THE ONLY REMAINDER IS (iv).
+        (i), (ii), (iii) AND (iv) HAVE ALL LANDED. NO REMAINDER.
           (i)   DONE -- the FIVE time-label pairs (`batch_time_window`, both host labels,
                 both trace labels) now pin label AND gate in one assertion, in both
                 runtimes. `uuidv7At/2` was added so a vector can place a trace time outside
@@ -412,14 +415,15 @@ here.
                 Go asserts the OWNING GATE before writing it to the manifest, including
                 not-the-other-gate. A gate name written unchecked is a claim Elixir then
                 derives its expectation from.
-          (iv)  task 1.2-c, under task 1.2 -- LANDED but unchecked on its own 1.5-f closure
-                dependency, which is what keeps 1.3-f unchecked too.
-        STILL BLOCKED ON 1.2-c, but NOT for the original reason. That reason -- a vector
-        cannot satisfy a last-gate proof by stating an UNENFORCED precondition occurred --
-        is OBSOLETE: `ingest_own_payload/1` now runs the body validator on the correlation
-        path, so the corpus consumes an ingress that enforces it. What remains is the
-        ordinary dependency: 1.2-c is unchecked on its 1.5-f closure, and 1.3-f SHALL NOT be
-        checked before it. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
+          (iv)  task 1.2-c, under task 1.2 -- LANDED and CHECKED. Its 1.5-f closure
+                dependency is DISCHARGED, so it no longer holds 1.3-f either.
+        NO LONGER BLOCKED. It was blocked on 1.2-c, and NOT for the original reason -- that
+        reason (a vector cannot satisfy a last-gate proof by stating an UNENFORCED
+        precondition occurred) went obsolete once `ingest_own_payload/1` began running the
+        body validator on the correlation path, so the corpus consumes an ingress that
+        enforces it. What remained was the ordinary ordering dependency, now DISCHARGED:
+        1.2-c was unchecked on its 1.5-f closure, 1.5-f is closed, and 1.2-c is checked
+        ahead of 1.3-f as required. 1.2-c consumes the matrix semantics already landed in #4779, adds no new
         matrix semantics, and does not depend on 1.3-f, so the only edge is 1.3-f -> 1.2-c.
         The BASELINE regeneration is already LANDED: making the
         canonical sweep fixture valid under the matrix forced it in slice 1, and the 22
@@ -477,10 +481,10 @@ here.
     1.3-b, with the shared `UUIDv7Nanos` helper -- matrix slice 2, 1.3-d and 1.3-e, and
     slice 3a's Elixir correlation peer (`SweepCorrelate`).
     THE JOINT (label, gate) PROOF IS COMPLETE, and the shared corpus has landed.
-  - REMAINING: 1.3-f in the checklist ABOVE, which is CANONICAL for this task -- and its
-    only open item is (iv). No other passage restates it, and this line does not either.
-  - DEPENDS ON: task 1.2-c, the Elixir full body validator, which blocks 1.3-f. The durable
-    assignment mapping is task 2.20 downstream and SHALL NOT gate this.
+  - REMAINING: nothing. The 1.3-a..1.3-f checklist ABOVE is CANONICAL for this task and is
+    fully checked.
+  - DEPENDS ON: nothing open. 1.2-c, the Elixir full body validator that blocked 1.3-f, is
+    checked. The durable assignment mapping is task 2.20 downstream and SHALL NOT gate this.
   - EVIDENCE: `sweepSourceMatrix` in `go/pkg/edge/edgerecord/domain.go`;
     `elixir/serviceradar_core/lib/serviceradar/edge/sweep_correlate.ex` and its
     `test/serviceradar/edge/sweep_correlate_test.exs` (slice 3a correlation peer);
@@ -680,10 +684,11 @@ here.
   discriminants; `u64` repeated-element counts; recursive field-by-field nested
   framing; NO `proto.Marshal` at any depth),
   streaming
-  compression expansion, recursion, and trailing-frame rejection. The candidate PR for the
+  compression expansion, COMPRESSION recursion (a frame wrapping a frame -- not protobuf
+  MESSAGE recursion, which is 1.5-a's), and trailing-frame rejection. The candidate PR for the
   compression-admission half, **#4734** (base `usp-01-proposal`), is CLOSED WITHOUT BEING
-  MERGED -- so that obligation is still OPEN and owns no landed code. Read it as prior art,
-  not as delivery. Define the
+  MERGED -- #4734 itself owns no landed code, and is prior art rather than delivery. The
+  obligation is now met by `usp-32-compression-admission`; see 1.5-f. Define the
   immutable semantic-envelope digest separately from gateway receipt, physical
   placement, spool coordinates, and renewable delivery proof; define broker
   publication identity separately. Make projected row cost cover every
@@ -704,12 +709,22 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: every obligation named in this task's body -- see the subtask list, which is
-    now exhaustive against it -- see the EXHAUSTIVENESS note under the subtasks.
-  - DEPENDS ON: nothing open. #4734 is CLOSED UNMERGED, so compression admission has no
-    in-flight delivery.
+  - REMAINING: 1.5-a..1.5-e and 1.5-g..1.5-k. 1.5-f is CLOSED. The subtask list is
+    exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
+  - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
+    `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
+    delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
     `elixir/serviceradar_core/lib/serviceradar/edge/semantic_validate.ex`.
+    COMPRESSION ADMISSION (1.5-f): the frozen values and stages are the spec requirement
+    "Compression admission is frozen by value, stage, and frame shape"; the runtimes are
+    `go/pkg/edge/edgerecord/compression.go` + `validatePayloadBinding` in `validate.go` and
+    `elixir/serviceradar_core/lib/serviceradar/edge/compression.ex`
+    (`validate_payload/2`, `admit_declared/2`, `admit_record/1`); the cross-runtime evidence
+    is `proto/edge/v1/testdata/zstd_*.bin` + `compression_corpus.txt` at the FRAME stage and
+    `record_admit_*.bin` + `record_admit_corpus.txt` at the RECORD stage, both written by Go
+    and derived by the peer, and all four suites are gated in
+    `.forgejo/workflows/proto-abi.yml`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
@@ -718,19 +733,133 @@ here.
         canonicalization before identity/order comparison
   - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
   - [ ] 1.5-e ASN RANGE admission
-  - [ ] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, recursion, and
-        trailing-frame rejection. #4734 was the candidate and is CLOSED UNMERGED, so this
-        is unstarted work, not a review-pending one.
-        1.5-f OWNS THE NORMATIVE FREEZE OF THE EXTRACTED-BODY BOUNDS and SHALL state them
-        in the spec's frozen bounds table: `MaxUncompressedBytes = 32 MiB` and
-        `MaxCompressionRatio = 100`, mirroring `go/pkg/edge/edgerecord/validate.go:38-39`,
-        with cross-language parity vectors. Neither value appears in a normative
-        requirement or the bounds table today -- both live only in Go source and, since
-        1.2-c step 1, in an Elixir constant.
+  - [x] 1.5-f COMPRESSION ADMISSION: streaming expansion bound, RECURSIVE COMPRESSION
+        (exactly one compression LAYER), and trailing-frame rejection. "Recursion" unqualified
+        collides with protobuf MESSAGE recursion, whose 10_000-message ceiling is 1.5-a's. CLOSED --
+        delivered on `usp-32-compression-admission` in three slices; #4734 is closed unmerged
+        and is prior art, not delivery.
+        AN AUDIT/FREEZE/PARITY SLICE, NOT GREENFIELD -- `compression.go` already implements
+        the Go side, so the requirement DESCRIBES it rather than inventing rules the code
+        would be dragged toward. The audit findings are in `design.md`, not restated here.
+        - [x] slice 1 NORMATIVE FREEZE -- the requirement "Compression admission is frozen
+              by value, stage, and frame shape" is the normative source for
+              `MaxUncompressedBytes = 33_554_432`, `MaxCompressionRatio = 100` and
+              `MaxZstdWindowBytes = 33_554_432`, and
+              freezes the enforcement STAGE, the denominator binding, the declared-versus-
+              actual rule, the single-frame/trailing-data rule, the RECURSIVE-COMPRESSION rule and
+              overflow-safe ratio arithmetic. Until it landed all three lived only in
+              runtime source, so every consumer asserting any of the THREE -- 1.2-c's
+              decoder among them -- pinned a number with nothing behind it. It freezes THREE independent
+              limits, not two: decoded output <= 32 MiB, expansion ratio <= 100:1, and
+              advertised Zstd WINDOW <= 32 MiB. The window ceiling was enforced by Go all
+              along -- `WithDecoderMaxMemory` is the maximum WINDOW for streaming decoders --
+              but was never normative, so a peer could have accepted a 64 MiB-window frame
+              emitting 1 MiB and diverged on a record both runtimes call otherwise valid.
+              v1 giving the window and output ceilings the same VALUE is a coincidence, not
+              a rule; they bound different things
+        - [x] slice 2 RUNTIME PARITY -- reconcile Go against the frozen text, implement the
+              ELIXIR PEER, and add shared boundary/rejection vectors.
+              THE PEER AND THE SHARED CORPUS HAVE LANDED. No new dependency: OTP 28 ships
+              `:zstd` in stdlib and the repo already pins 28.x, so no Hex package, no Rust
+              NIF, no Cargo/vendor.sh/crate-universe churn and no new native crash boundary.
+              A project-owned FRAME WALK is still required -- `:zstd.decompress/1` accepts
+              CONCATENATED frames -- and is a port of Go's `zstdFrameLen`.
+              TWENTY-ONE shared vectors under `proto/edge/v1/testdata/zstd_*.bin` with
+              `compression_corpus.txt` carrying the expectation, so Elixir DERIVES its
+              verdict rather than restating it. All 21 agree. That agreement is the whole
+              point: the two runtimes do NOT share a shape -- Go delegates the window and
+              dictionary rules to its DECODER while the peer enforces them in a preflight
+              over the parsed header -- so hand-built bytes are the only thing that shows
+              two different routes reaching one answer.
+              REASON PARITY IS DELIBERATELY COARSE: Go reports both an oversized window and a
+              nonzero dictionary id as `ErrZstdInvalid`, so the peer reports `:invalid` for
+              the same inputs even though its preflight could name them precisely. Making
+              them distinct changes GO's taxonomy and is not a reconcile slice's job.
+              THE CORPUS IS FRAME AND OUTPUT-SIZE ONLY, and is scoped as such in both
+              runtimes rather than described as proving compression admission. It exercises
+              `ValidateZstdPayload`; RECORD-LEVEL admission additionally binds `encoded_size`
+              to the payload length and applies the 100:1 ratio BEFORE that runs. Several
+              vectors are therefore unreachable as whole records -- `zstd_valid_5k.bin`
+              declares 5000 bytes from a 15-byte frame (333:1) -- which is the stage they
+              belong to, not a defect.
+              GO IS RECONCILED. The three ceilings are three constants: `MaxZstdWindowBytes`
+              is its own, and the decoder sites use it, so the window ceiling and the output
+              ceiling can be changed independently. Mutation-proven independent -- changing
+              the OUTPUT ceiling leaves the window vectors untouched, and changing the WINDOW
+              ceiling flips `zstd_window_above_ceiling.bin` to `accept`. `DecompressZstdPayload`
+              applies the FRAME stage only -- no encoded_size binding, no ratio -- which its
+              doc says. The audit narrative is in `design.md`, not here.
+              Everything else reconciled clean: the ratio runs on DECLARED sizes before
+              decompression; inside `validatePayloadBinding`, `encoded_size` is bound to the
+              payload length BEFORE the ratio is evaluated, which is the ordering the freeze
+              requires; declared-versus-actual holds in both directions; the extent check
+              refuses trailing data; and the product is widened before multiplying.
+              The EXPORTED frame APIs now bound their ENCODED INPUT too. They are described
+              as bounded, and a direct caller could otherwise hand the frame walker an
+              arbitrarily large buffer -- the composed path refuses it earlier, but the
+              exported contract has to be true on its own. Elixir's frame walk is PRIVATE for
+              the same reason: a second exported raw-bytes entry point beside a bounded one
+              is not a bound.
+              CEILING VECTORS PIN THE LITERAL, NOT THE CONSTANT, in BOTH runtimes. A vector
+              built from the production constant self-adjusts when the constant moves, so one
+              runtime can start admitting bytes the other refuses with every test still
+              green. The frozen number is stated by the test and the constant asserted
+              against it.
+              THE DECODER RULES ARE SETTLED FIRST, AND A LIBRARY IS CHOSEN AGAINST THEM, not
+              the other way round. An Elixir zstd binding is admissible only if it supports,
+              or permits a project-owned preflight to enforce, ALL of: a bounded maximum
+              WINDOW size; DICTIONARY REFUSAL; exact FRAME EXTENT (the frame ends at exactly
+              the payload length); rejection of TRAILING, CONCATENATED, EMPTY-CONCATENATED
+              and SKIPPABLE frames; and BOUNDED decoding that never reserves the full output.
+              Availability is not the test -- a binding that decodes correctly but cannot
+              express these cannot implement the freeze, and picking it first would leave
+              the rules to be bent toward what it happens to offer.
+              WINDOW VECTORS ARE ISOLATED: the largest representable window at or below
+              32 MiB ACCEPTED, and the smallest representable window above it REJECTED, both
+              with output size and ratio otherwise valid, so neither vector can be satisfied
+              by the output check or the ratio check
+        - [x] slice 3 COMPOSED REACHABILITY -- a valid body larger than 512 KiB surviving
+              physical admission under 100:1, the record-stage vectors slice 2's corpus
+              cannot reach, the composed record -> extraction -> body path, CI/Bazel
+              registration, ledger closure. CLOSED.
+              TEN committed vectors under `proto/edge/v1/testdata/record_admit_*.bin` with
+              `record_admit_corpus.txt` carrying the expectation, so the peer DERIVES its
+              verdict. The admission stage is `validatePayloadBinding`; its Elixir peer is
+              `Compression.admit_record/1`. Covered: the `encoded_size` BINDING, the payload
+              digest, the codec gate, EXACTLY 100:1 admitted with the first value over it
+              refused, 32 MiB admitted with N+1 refused on a slack ratio, the
+              RECURSIVE-COMPRESSION negative (a ZSTD frame wrapping a ZSTD frame, distinct
+              from protobuf MESSAGE recursion, whose ceiling is 1.5-a's), and the
+              above-ceiling body.
+              REACHABILITY RESTS ON NONCANONICAL ADMISSIBILITY, which is a property this ABI
+              states deliberately: `unmarshalPayload` imposes no decode/re-encode equality,
+              because payload identity is `payload_sha256` over the EXACT received bytes. A
+              body may therefore carry a DUPLICATE encoding of a singular field, with
+              last-one-wins yielding the canonical value appended after it. The padding rides
+              in a duplicate of `availability_policy_id`, so the extracted body exceeds
+              512 KiB while MEANING the ordinary bounded batch, and the carrying record stays
+              far below the physical ceiling. The per-family limits bound MEANING; the
+              physical ceiling bounds RECEIVED BYTES, and the first does not bound the second.
+              The same construction makes the 32 MiB vector a valid contract body.
+              `Compression.admit_record/1` is what BINDS `encoded_size` before the ratio
+              consumes it as a denominator; why that mattered is in `design.md`.
+              THE 32 MiB PAIR IS COMMITTED, not constructed per runtime, so both admit the
+              SAME BYTES; admitting exactly 33_554_432 bytes of output within 100:1 requires
+              at least 335_545 encoded bytes, so there is no cheaper vector. The
+              over-ceiling half derives from the same committed bytes.
+              THE RECURSIVE NEGATIVE CARRIES A CONTROL: the doubly wrapped message VALIDATES
+              when unwrapped twice, so a recursive runtime would WRONGLY ACCEPT it. Admission
+              accepts the record -- one-layer is not an admission-stage property; the refusal
+              is the contract stage, `ErrRecordDecode` in Go and `:poison` in the peer.
+              NO SPEC CHANGE. Slice 3 proves existing SHALLs; it does not add or move a rule.
+              NOT COVERED, deliberately: a `payload_too_large` whole-record vector, which
+              would need a >512 KiB fixture to say what slice 2's constructed ceiling vectors
+              already say at the frame API. The audit narrative is in `design.md`
         1.2-c CONSUMES that bound and does NOT re-freeze it. The dependency is ONE-WAY and
         applies at CLOSURE, not at start: 1.2-c's decoder can be built and tested against
         32 MiB now, but 1.2-c SHALL NOT be checked until 1.5-f has frozen the value it is
         asserting. Otherwise the number is pinned by a test with no normative source.
+        DISCHARGED: 1.5-f is closed, so 1.2-c is checked.
         1.5-f ALSO OWNS COMPOSED-RECORD REACHABILITY. 1.2-c's vectors are inputs to the
         extracted-decoder stage and assert nothing about whether a record carrying such a
         body survives compression admission -- highly repetitive padding compresses far
@@ -1016,7 +1145,13 @@ here.
   cross-language N/N+1 vectors exist for ALL FOUR frozen raw bounds
   (`MaxRecordBytes`, `MaxDeliveryEnvelopeBytes`, `MaxFrameBytes`,
   `MaxClientMessageBytes`) AND for the relational envelope budget -- each accepted
-  at N and rejected at N+1, on RAW received bytes, before unmarshal. This change
+  at N and rejected at N+1, on RAW received bytes, before unmarshal.
+  THE CANONICAL BOUNDS INVENTORY IS `design.md` -- its raw-bounds table and its
+  work-ceilings table. This gate states the OBLIGATION and does not restate the values;
+  a second inventory would be one more thing to keep in sync. What matters here is that
+  the two KINDS are not interchangeable: an N/N+1 vector on RECEIVED BYTES cannot
+  exercise a work ceiling, and the extracted-body ceilings are owned by 1.5-f rather
+  than by this gate. This change
   claims ownership of the cross-language freeze gates, so it cannot rely on
   downstream task 1.16 to execute its own bound tests; otherwise the ABI can be
   declared frozen without its bounds ever being exercised.
@@ -1279,13 +1414,14 @@ here.
     byte-for-byte by the Elixir golden test.
   - REMAINING: see subtasks 1.15-a..b below; not restated here. The matrix's cross-language
     vectors are OWNED BY 1.3-f, not by this task; 1.15 ACKNOWLEDGES them as parity evidence.
-  - DEPENDS ON: 1.3-f, which OWNS the matrix vectors -- 1.15-b cannot start until they
-    exist. The matrix SHAPE is already merged (#4779) and is not the blocker.
+  - DEPENDS ON: nothing open. 1.3-f OWNS the matrix vectors and is checked, so 1.15-b's
+    dependency is DISCHARGED and 1.15-b is checked. The matrix SHAPE was already merged
+    (#4779) and was never the blocker.
   - EVIDENCE: `proto/edge/v1/testdata/`, `edge_v1_golden_test.exs`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.15-a shared per-value leaf vectors (blocks 1.4)
-  - [ ] 1.15-b ACKNOWLEDGE 1.3-f's matrix vectors as cross-language parity EVIDENCE for this
+  - [x] 1.15-b ACKNOWLEDGE 1.3-f's matrix vectors as cross-language parity EVIDENCE for this
         task. 1.3-f authors them and owns any fixture change they cause; this subtask records
         that they satisfy 1.15's parity obligation for the sweep correlation surface. It is
         NOT a second pass over the fixtures: this subtask closes by CITING 1.3-f's vectors,

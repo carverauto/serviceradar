@@ -60,6 +60,30 @@ decompression:
 | `MaxCompiledAssignmentBytes` | 64 KiB | one raw `CompiledSweepAssignmentV1` (fetched standalone by digest) |
 | `MaxExecutionGrantBytes` | 16 KiB | one raw `EdgeSignedCapabilityV1` carrying an ASSIGNMENT_EXECUTION claim (travels standalone) |
 
+THIS DOCUMENT IS THE CANONICAL BOUNDS INVENTORY -- both this table and the WORK CEILINGS
+below. The task list states the GATE (which vectors must exist before 1.7 may be checked)
+and points here for the values, so there is one place to change a bound and one place to
+read one.
+
+## 2b. Extracted-body work ceilings (frozen)
+
+A DIFFERENT KIND OF BOUND, and not interchangeable with the table above. The raw bounds are
+PHYSICAL limits on received bytes. These bound the COST OF EXPANDING those bytes, so they are
+checked at a different stage and cannot be exercised by an N/N+1 vector on received bytes.
+Applying a physical bound to an extracted body would permanently reject valid records.
+
+| Ceiling | Value | Bounds |
+| --- | --- | --- |
+| `MaxUncompressedBytes` | 32 MiB (33_554_432) | the extracted body's decoded size |
+| `MaxCompressionRatio` | 100 | decoded size divided by encoded size |
+| `MaxZstdWindowBytes` | 32 MiB (33_554_432) | the Zstd WINDOW a frame may advertise |
+
+The window and output ceilings SHARING A VALUE in v1 is a coincidence, not a rule: one bounds
+what the body costs to hold, the other what the decoder must retain as history while
+producing it. A frame advertising a 64 MiB window while emitting 1 MiB of output passes the
+output ceiling and the ratio and is still refused. Frozen normatively by the requirement
+"Compression admission is frozen by value, stage, and frame shape"; owned by task 1.5-f.
+
 The `+ 8` is CONSERVATIVE HEADROOM, not an exact derivation. The oneof framing at
 the maximum frame size is 1 tag byte plus a 3-byte varint length (528 KiB <
 2^21), so 4 bytes are actually required; an earlier revision of this table claimed
@@ -749,3 +773,146 @@ with no edit to either runtime:
 The second is why both test kinds exist: a swap preserves the set and moves only the meaning
 at each number, so a closed-set test cannot see it. Every existing completion golden vector
 stayed byte-identical under both, confirming the digest grammar did not move.
+
+## The 1.5-f compression audit (2026-08-04)
+
+Recorded here rather than in the ledger, which states rules and evidence, not findings.
+
+`compression.go` and `validate.go` already implemented Go compression admission before 1.5-f
+began, so slice 1 is a FREEZE of what the audit found rather than a specification the code
+then has to be dragged toward. What the audit established:
+
+- The ratio is enforced inside `validatePayloadBinding` on DECLARED sizes, BEFORE
+  decompression, so a decompression bomb is refused without ever being expanded.
+- `encoded_size` is bound to the actual payload length by the FIRST check in that same
+  function, ahead of the ratio that consumes it as a denominator. This is what
+  stops the ratio's DENOMINATOR from being inflated: without it, a record declaring a large
+  encoded size passes the ratio trivially and only the absolute ceiling still applies. The
+  binding existed; the freeze makes the ORDER a rule rather than an implementation accident.
+- The ACTUAL decoded output must equal the declaration (`compression.go`), so the bounds
+  apply to a body rather than to a claim.
+- `zstdFrameLen` parses frame STRUCTURE and requires the frame to end at exactly the payload
+  length, rejecting trailing bytes, a second frame, an empty concatenated frame and a
+  skippable frame. A decode-side output-size check cannot see these: klauspost consumes
+  no-output trailing frames transparently, so the declared byte count is produced from a
+  payload carrying more than one frame.
+- Validation streams through a 64 KiB scratch buffer and never reserves the full output.
+  That buffer bounds the CALLER'S output buffering only -- the decoder still retains O(window)
+  of history, which is what the window ceiling exists to bound.
+- Every decoder WAS constructed with `WithDecoderMaxMemory(MaxUncompressedBytes)` -- this is
+  the HISTORICAL configuration, corrected during the 1.5-f Go reconciliation, which split the
+  window ceiling out as `MaxZstdWindowBytes` so the two limits stopped moving together.
+  klauspost
+  documents that option as "maximum decoded size for in-memory non-streaming operations OR
+  MAXIMUM WINDOW SIZE FOR STREAMING OPERATIONS", and this code streams -- so Go has been
+  enforcing a 32 MiB WINDOW ceiling all along, as a third limit nothing had frozen. Verified
+  empirically: a hand-built frame advertising 1<<25 (32 MiB) is accepted and 1<<26 (64 MiB)
+  is rejected, with a 12-byte output so neither the output ceiling nor the ratio is what
+  refused it.
+
+AN EARLIER DRAFT OF THIS SECTION CLAIMED THE COMPOSED-REACHABILITY OBLIGATION WAS
+UNSATISFIABLE. IT IS NOT, AND THE ERROR IS INSTRUCTIVE.
+
+The reasoning was: every admitted family bounds its own body below the physical ceiling -- a
+maximal sweep batch marshals to ~116 KiB because the contract stops at
+MaxSweepHostsPerBatch, and MTR is capped at MaxMtrBatchBytes -- therefore no valid body above
+512 KiB exists. That measured CANONICAL marshals and generalized to all byte strings, which
+this ABI does not permit.
+
+`unmarshalPayload` deliberately imposes no decode/re-encode equality: the payload's identity
+is `payload_sha256` over the EXACT received bytes, so requiring canonical form would reject a
+conforming encoder that emits equivalent but non-identical bytes. NONCANONICAL BODIES ARE
+ADMISSIBLE BY DESIGN. A body may therefore carry a duplicate encoding of a singular field,
+and protobuf's last-one-wins means a canonical value appended afterwards is what the decoder
+keeps.
+
+So the padding rides inside a duplicate of singular bytes field 13
+(`availability_policy_id`), sized to put the body above 512 KiB, with enough deterministic
+entropy that the frame stays within 100:1 and the record stays far below the physical
+ceiling. The extracted body exceeds 512 KiB; what it MEANS is the ordinary bounded batch.
+The same construction scales to exactly 33_554_432 bytes, so the 32 MiB ceiling vector is a
+valid contract body rather than filler.
+
+The lesson is about which quantity a bound bounds. The per-family limits bound MEANING -- how
+many hosts, how many bytes a canonical encoding needs. The physical ceiling bounds RECEIVED
+BYTES. Concluding one from the other was the mistake, and a measurement of one canonical
+marshal plus one constant was never evidence for a universal claim about every admissible
+encoding.
+
+A related trap sits one layer down. `fixedUUIDv7` fills all sixteen bytes with its seed, so
+the resulting timestamp is ~89 billion seconds and overflows int64 when the authority window
+is computed in nanoseconds. Nothing noticed, because the payload-binding stage never looks at
+the event id -- it only surfaced once a vector was validated as a WHOLE record. Committed
+vectors also need their capability and envelope digest REBOUND after identities are fixed;
+overwriting the ids alone leaves a record still carrying a randomly-minted capability, which
+drifts on every regeneration.
+
+SLICE 3 FOUND ONE UNENFORCED PRECONDITION AND TWO CONSTRUCTION CONSTRAINTS.
+
+`admit_declared/2` -- the Elixir ratio gate -- documents that its caller MUST have bound
+`encoded_size` to the actual payload length, because that value is the ratio's DENOMINATOR.
+No caller in that runtime did: the function existed, the precondition was written down, and
+nothing enforced it. A documented precondition with no enforcing composition is not a rule,
+and `Compression.admit_record/1` is what makes it one.
+
+The exactly-100:1 vector cannot be computed directly. The compressed length depends on the
+body, and the body length is defined as ratio times the compressed length, so the two are
+mutually recursive. Setting total = frame * ratio and recompressing converges within a few
+rounds, because the bytes added are zeros and barely move the frame size; failing to converge
+is a hard failure rather than a near miss, since a vector one byte off an inclusive boundary
+proves nothing about it.
+
+The 32 MiB pair is COMMITTED, as `record_admit_output_ceiling.bin`, and both runtimes read
+those same bytes. An intermediate version had each runtime compress a shared RECIPE instead,
+which is not cross-language evidence at all: Go and OTP produce different frames from the
+same input, so "the ceiling is inclusive" would have been asserted about two different
+payloads and neither runtime would ever have seen the other's. The fixture is 424_102
+bytes (~414 KiB),
+larger than anything else in the tree, and there is no cheaper one -- admitting exactly
+33_554_432 bytes of output within 100:1 REQUIRES at least 335_545 encoded bytes. The
+over-ceiling half is derived from the same committed bytes rather than committed twice, and
+both runtimes assert the ratio slack BEFORE the verdict so the CEILING is demonstrably what
+decides.
+
+THREE DEFECTS IN THE SLICE-2 VECTORS ARE WORTH RECORDING, because each was a test that
+looked like proof and was not.
+
+The encoded-input boundary vectors first padded a bare zstd magic with zeros. That is a
+MALFORMED buffer, so the parser returned the rejection whether or not the ceiling existed --
+deleting the guard left the suite green -- and because the at-limit case expected that SAME
+reason, `>` versus `>=` was invisible too. A VALID frame plus padding fixes it: the two sides
+then give DIFFERENT reasons, so each mutation moves one of them.
+
+Those vectors were then built from `MaxPayloadBytes` itself, which made them SELF-ADJUSTING:
+raising the constant moved the vectors with it, so Go would admit 524_289 bytes to the frame
+walk with every Go test passing while the Elixir peer, which states the literal, refused
+them. A frozen value has to be asserted against a number the test states itself.
+
+Elixir's `frame_length/1` was exported. It was a second entry point taking raw bytes, and it
+did not carry the encoded-input ceiling that `validate_payload/2` applies before calling it,
+so bounding one public frame walk left an unbounded one beside it.
+
+TWO CLAIMS IN AN EARLIER DRAFT WERE FALSE AND ARE CORRECTED.
+
+"Decompression happens exactly once" was wrong: an accepted payload is decompressed TWICE --
+`ValidateZstdPayload` drains a decoder to verify the output length, and `innerPayload` later
+calls `decompressZstdValidated`, which constructs and drains a second one to materialize the
+protobuf bytes. (`decompressZstdValidated`'s comment HISTORICALLY said it avoided a "second and
+third" decode, which is what misled the draft: it removes the third, not the second. The
+comment was corrected during the Go reconciliation to say it IS the second decode.) The ABI rule
+worth freezing is about LAYERS -- exactly one compression layer is admitted, and the extracted
+bytes are a contract message rather than another envelope. How many passes a runtime takes
+over that layer is implementation topology, and refactoring Go to reuse the first output is a
+separate question from the freeze.
+
+"Recursion" unqualified was ambiguous: protobuf MESSAGE recursion has its own 10_000-message
+ceiling owned by 1.5-a. The compression rule is now stated as RECURSIVE COMPRESSION.
+
+ON THE RATIO ARITHMETIC. An earlier draft of the freeze mandated a 64-bit accumulator. That
+overstated the requirement: because `encoded_size` is bound to a payload already under the
+512 KiB physical ceiling, the admitted denominator is at most 524_288 and the product at most
+52_428_800, which a 32-bit accumulator holds. The property worth freezing is
+OVERFLOW-SAFETY plus the ORDER -- an unbound `uint32` denominator times 100 does exceed 32
+bits, so a runtime evaluating the ratio before the binding would need a wider accumulator to
+stay correct. Freezing a width would have frozen an implementation detail and missed the
+reason it is safe.
