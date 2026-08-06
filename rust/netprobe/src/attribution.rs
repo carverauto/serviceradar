@@ -3100,6 +3100,9 @@ mod tests {
             format!("0::/kubepods.slice/cri-containerd-{active_id}.scope\n"),
         )
         .unwrap();
+        // Second pid built by hand rather than through temp_proc, so it needs the same
+        // userspace shape the helper now writes.
+        fs::write(active_dir.join("status"), "VmSize:\t1234 kB\n").unwrap();
 
         let mut low_comm = [0u8; 16];
         low_comm[..3].copy_from_slice(b"low");
@@ -3720,7 +3723,7 @@ mod tests {
         fs::write(pid_dir.join("comm"), "app\n").unwrap();
         fs::write(
             pid_dir.join("status"),
-            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1001\t1001\t1001\t1001\n",
+            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1001\t1001\t1001\t1001\nVmSize:\t1234 kB\n",
         )
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", pid_dir.join("fd/3")).unwrap();
@@ -3879,7 +3882,7 @@ mod tests {
         fs::write(host_dir.join("comm"), "k3s-agent\n").unwrap();
         fs::write(
             host_dir.join("status"),
-            "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n",
+            "Uid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nVmSize:\t2048 kB\n",
         )
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", host_dir.join("fd/3")).unwrap();
@@ -3897,7 +3900,7 @@ mod tests {
         fs::write(app_dir.join("comm"), "beam.smp\n").unwrap();
         fs::write(
             app_dir.join("status"),
-            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\n",
+            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nVmSize:\t4096 kB\n",
         )
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", app_dir.join("fd/3")).unwrap();
@@ -4176,6 +4179,15 @@ mod tests {
         fs::create_dir_all(&pid_dir).unwrap();
         fs::write(pid_dir.join("cmdline"), cmdline).unwrap();
         fs::write(pid_dir.join("cgroup"), cgroup).unwrap();
+        // Gives the fixture a userspace shape. `is_userspace_process` accepts a resolvable
+        // `exe` link or a `VmSize:` line, and rejects everything else -- so without this the
+        // process reads as a kernel task and `process_details` returns an empty record
+        // (comm "", cmdline [], container_id None) before touching the files above.
+        //
+        // VmSize is the only line written on purpose: `status` is also the source for Uid:/Gid:
+        // (see read_process_ids), so adding those here would silently change which value every
+        // test using this helper resolves uid/gid from.
+        fs::write(pid_dir.join("status"), "VmSize:\t1234 kB\n").unwrap();
         dir
     }
 
