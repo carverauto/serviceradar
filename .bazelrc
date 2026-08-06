@@ -154,6 +154,25 @@ build:no_remote --bes_results_url=
 build:ci --noenable_platform_specific_config
 build:ci --config=remote_base
 build:ci --build_metadata=ROLE=CI
+# THE COMPILATION MODE IS PART OF THE CACHE KEY, SO IT BELONGS TO THE CONFIG.
+#
+# The output directory is named after it -- bazel-out/rbe_platform-opt vs
+# rbe_platform-fastbuild -- and output paths are baked into action command lines. So a
+# `--config=ci` call that omits `-c opt` does not merely build differently, it builds into a
+# disjoint cache namespace and shares nothing with one that includes it.
+#
+# That is exactly what happened: twelve invocations across five Forgejo workflows said
+# `--config=ci` with no `-c opt`, while buildbuddy.yaml said `-c opt --config=ci`, so the two
+# CI systems maintained two separate sets of remote cache entries for identical work. The
+# native-addon publish was worse -- native-addons.yml overrode BAZEL_BUILD_FLAGS, and the five
+# publish scripts default that variable to `-c opt`, so the override silently dropped it and
+# CI published from el9-fastbuild while every local run used opt.
+#
+# Stating `-c opt` at each call site is not a fix, it is the thing that failed: it has to be
+# remembered on every new bazel line anyone ever adds. Pinning it here makes the compilation
+# mode a property of the profile. A command line still wins if someone genuinely wants
+# `--config=ci -c dbg`, because command-line flags beat rc-file flags.
+build:ci --compilation_mode=opt
 # Endpoints are NOT re-declared here. remote_base above already names
 # carverauto.buildbuddy.io for execution, cache and BES; these lines used to repeat them
 # purely to override a remote_base that pointed at BuildBuddy's cloud, which meant
@@ -374,6 +393,10 @@ test:macos --config=darwin_local
 # the EL9 platform takes precedence over the default rbe_platform
 build:el9 --remote_executor=grpcs://carverauto.buildbuddy.io
 build:el9 --noenable_platform_specific_config
+# Same reasoning as build:ci above: this is a release-publish profile, so opt is the only
+# mode it should ever produce, and pinning it here is what stops a caller from silently
+# splitting the cache by leaving `-c opt` off.
+build:el9 --compilation_mode=opt
 build:el9 --host_platform=//build/platforms:rbe_linux_el9
 build:el9 --platforms=//build/platforms:rbe_linux_el9
 build:el9 --extra_execution_platforms=//build/platforms:rbe_linux_el9
