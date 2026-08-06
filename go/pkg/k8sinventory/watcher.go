@@ -35,7 +35,7 @@ func StartCoreInformers(
 	onChange func(),
 ) (*WatcherLister, error) {
 	if client == nil {
-		return nil, fmt.Errorf("kubernetes client is nil")
+		return nil, errKubeClientNil
 	}
 	if resync <= 0 {
 		resync = defaultResync
@@ -88,7 +88,7 @@ func StartCoreInformers(
 
 	if !cache.WaitForCacheSync(ctx.Done(), wl.svcInformer.HasSynced, wl.sliceInformer.HasSynced) {
 		close(wl.stopCh)
-		return nil, fmt.Errorf("timed out waiting for service/endpointslice informer sync")
+		return nil, errInformerSyncTimeout
 	}
 	log.Printf("k8s-inventory: core informers synced (namespace=%q)", namespace)
 	return wl, nil

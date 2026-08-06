@@ -67,7 +67,7 @@ spec:
             - name: PUBLISH_MODE
               value: {{ .Values.k8sInventory.publishMode | quote }}
             - name: K8S_INVENTORY_SPOOL_DIR
-              value: {{ .Values.k8sInventory.spoolDir | quote }}
+              value: {{ include "sr-edge.k8sInventorySpoolDir" . | quote }}
             - name: K8S_INVENTORY_METRICS_ADDR
               value: {{ .Values.k8sInventory.metrics.addr | quote }}
             - name: K8S_INVENTORY_RESYNC
@@ -100,7 +100,7 @@ spec:
             {{- toYaml .Values.k8sInventory.resources | nindent 12 }}
           volumeMounts:
             - name: k8s-inventory-spool
-              mountPath: {{ .Values.k8sInventory.spoolDir | quote }}
+              mountPath: {{ include "sr-edge.k8sInventorySpoolDir" . | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -120,7 +120,7 @@ spec:
             - name: LOG_LEVEL
               value: "info"
             - name: K8S_INVENTORY_SPOOL_DIR
-              value: {{ .Values.agent.k8sInventorySpoolDir | quote }}
+              value: {{ include "sr-edge.k8sInventorySpoolDir" . | quote }}
             {{- with .Values.agent.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -133,7 +133,7 @@ spec:
               mountPath: /etc/serviceradar/certs
               readOnly: true
             - name: k8s-inventory-spool
-              mountPath: {{ .Values.agent.k8sInventorySpoolDir | quote }}
+              mountPath: {{ include "sr-edge.k8sInventorySpoolDir" . | quote }}
             - name: agent-tmp
               mountPath: /tmp
             - name: agent-checkers

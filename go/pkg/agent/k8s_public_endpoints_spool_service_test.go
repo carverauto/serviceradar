@@ -43,7 +43,7 @@ func TestK8sPublicEndpointsSpoolServiceGetStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := NewK8sPublicEndpointsSpoolService("agent-1", &K8sPublicEndpointsStatusConfig{
+	svc := NewK8sPublicEndpointsSpoolService(bumblebeeSpoolTestAgentID, &K8sPublicEndpointsStatusConfig{
 		Enabled:   true,
 		SpoolDir:  dir,
 		ClusterID: "acme-prod",
@@ -69,7 +69,7 @@ func TestK8sPublicEndpointsSpoolServiceGetStatus(t *testing.T) {
 	if err := json.Unmarshal(status.Message, &body); err != nil {
 		t.Fatal(err)
 	}
-	if body["agent_id"] != "agent-1" {
+	if body["agent_id"] != bumblebeeSpoolTestAgentID {
 		t.Fatalf("agent_id=%v", body["agent_id"])
 	}
 	if body["cluster_id"] != "acme-prod" {
@@ -82,7 +82,7 @@ func TestK8sPublicEndpointsSpoolServiceGetStatus(t *testing.T) {
 
 func TestK8sPublicEndpointsSpoolServiceMissingSpool(t *testing.T) {
 	t.Parallel()
-	svc := NewK8sPublicEndpointsSpoolService("agent-1", &K8sPublicEndpointsStatusConfig{
+	svc := NewK8sPublicEndpointsSpoolService(bumblebeeSpoolTestAgentID, &K8sPublicEndpointsStatusConfig{
 		Enabled:  true,
 		SpoolDir: filepath.Join(t.TempDir(), "missing"),
 	})

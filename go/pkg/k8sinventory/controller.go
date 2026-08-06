@@ -84,16 +84,16 @@ func (c *Controller) Notify() {
 // debounced rebuilds on Notify and periodic resync.
 func (c *Controller) Run(ctx context.Context) error {
 	if c == nil {
-		return fmt.Errorf("controller is nil")
+		return errControllerNil
 	}
 	if err := c.cfg.Validate(); err != nil {
 		return err
 	}
 	if c.lister == nil {
-		return fmt.Errorf("lister is nil")
+		return errListerNil
 	}
 	if c.pub == nil {
-		return fmt.Errorf("publisher is nil")
+		return errPublisherNil
 	}
 
 	// Initial rebuild (no debounce).

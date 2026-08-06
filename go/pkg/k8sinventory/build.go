@@ -7,10 +7,15 @@ import (
 )
 
 const (
-	annotationMetalLBPool    = "metallb.universe.tf/address-pool"
-	annotationMetalLBIPs     = "metallb.io/loadBalancerIPs"
+	annotationMetalLBPool      = "metallb.universe.tf/address-pool"
+	annotationMetalLBIPs       = "metallb.io/loadBalancerIPs"
 	annotationMetalLBAllocated = "metallb.io/ip-allocated-from-pool"
-	labelServiceName         = "kubernetes.io/service-name"
+	labelServiceName           = "kubernetes.io/service-name"
+
+	// L4 protocols as they are stored. Kubernetes defaults an unset port protocol to TCP,
+	// and every Gateway listener protocol except UDP rides on TCP.
+	protocolTCP = "TCP"
+	protocolUDP = "UDP"
 )
 
 // BuildSnapshot derives public endpoints and correlation hints from an
@@ -192,19 +197,19 @@ func endpointsFromGateway(
 			if len(matchedRoutes) == 0 {
 				// Still record the listener as a public endpoint without route detail.
 				out = append(out, Endpoint{
-					ClusterID:          clusterID,
-					IP:                 ip,
-					Hostname:           hostname,
-					Port:               listener.Port,
-					Protocol:           proto,
-					ExposureClass:      ExposureGateway,
-					MetalLBPool:        pool,
-					Namespace:          gw.Namespace,
-					GatewayName:        gw.Name,
-					GatewayClass:       gw.GatewayClass,
-					ListenerName:       listener.Name,
-					Annotations:        ann,
-					ObservedAt:         now,
+					ClusterID:     clusterID,
+					IP:            ip,
+					Hostname:      hostname,
+					Port:          listener.Port,
+					Protocol:      proto,
+					ExposureClass: ExposureGateway,
+					MetalLBPool:   pool,
+					Namespace:     gw.Namespace,
+					GatewayName:   gw.Name,
+					GatewayClass:  gw.GatewayClass,
+					ListenerName:  listener.Name,
+					Annotations:   ann,
+					ObservedAt:    now,
 				})
 				continue
 			}
@@ -311,13 +316,13 @@ func looksLikeIP(s string) bool {
 
 func gatewayListenerToL4(proto string) string {
 	switch strings.ToUpper(proto) {
-	case "UDP":
-		return "UDP"
-	case "TCP", "TLS", "HTTP", "HTTPS", "GRPC":
-		return "TCP"
+	case protocolUDP:
+		return protocolUDP
+	case protocolTCP, "TLS", "HTTP", "HTTPS", "GRPC":
+		return protocolTCP
 	default:
 		if proto == "" {
-			return "TCP"
+			return protocolTCP
 		}
 		return strings.ToUpper(proto)
 	}
@@ -370,10 +375,9 @@ func matchSliceTargets(slices []EndpointSliceView, port ServicePortView, proto s
 				hits = append(hits, portHit{sp.Port, spProto})
 				continue
 			}
-			// BackendRef-style: Port is the service/backend port; slice may list container port only.
-			if port.Port > 0 && port.TargetPort == port.Port && sp.Port > 0 {
-				// already handled above
-			}
+			// A BackendRef-style port -- Port set, TargetPort equal to it, slice listing only a
+			// container port -- needs no branch here: the `sp.Port == port.Port` case above
+			// already matched it, and the TargetPort sweep below covers the rest.
 		}
 		// If no port filter matched but slice has ports and we have a target port, use all slice ports that equal target.
 		if len(hits) == 0 && port.TargetPort > 0 {
@@ -467,12 +471,12 @@ func indexRoutesByGateway(routes []RouteView) map[string][]RouteView {
 	return out
 }
 
-func serviceKey(ns, name string) string  { return ns + "/" + name }
-func gatewayKey(ns, name string) string  { return ns + "/" + name }
+func serviceKey(ns, name string) string { return ns + "/" + name }
+func gatewayKey(ns, name string) string { return ns + "/" + name }
 
 func normalizeProtocol(p string) string {
 	if p == "" {
-		return "TCP"
+		return protocolTCP
 	}
 	return strings.ToUpper(p)
 }

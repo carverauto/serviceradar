@@ -79,3 +79,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   {{- fail "k8sInventory.publishMode=agent_spool requires agent.enabled=true (or use publishMode=stdout for lab)" -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The one spool directory shared by the k8s-inventory collector and the agent.
+
+These are two containers in one pod writing and reading the SAME emptyDir, so the path has to
+agree. It was configured twice -- k8sInventory.spoolDir for the collector, and
+agent.k8sInventorySpoolDir for the agent's mount and its config file -- with equal defaults and
+nothing tying them together. Overriding one alone mounts the same volume at two paths, which is
+not an error at any layer: the collector writes snapshots, the agent watches an empty directory,
+and the pipeline goes quiet with every container healthy.
+
+k8sInventory.spoolDir is authoritative because the collector owns the data. agent.
+k8sInventorySpoolDir is still honoured so existing values files keep working, but it must agree.
+*/}}
+{{- define "sr-edge.k8sInventorySpoolDir" -}}
+{{- $collector := .Values.k8sInventory.spoolDir | default "" | trim -}}
+{{- $agent := .Values.agent.k8sInventorySpoolDir | default "" | trim -}}
+{{- if eq $collector "" -}}
+  {{- fail "k8sInventory.spoolDir must not be empty: it is the shared spool path the agent reads" -}}
+{{- end -}}
+{{- if and (ne $agent "") (ne $agent $collector) -}}
+  {{- fail (printf "agent.k8sInventorySpoolDir (%s) must equal k8sInventory.spoolDir (%s): both name the same shared emptyDir, and a mismatch silently stops inventory from reaching the agent. Set only k8sInventory.spoolDir." $agent $collector) -}}
+{{- end -}}
+{{- $collector -}}
+{{- end }}

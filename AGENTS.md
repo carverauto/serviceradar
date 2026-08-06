@@ -120,10 +120,20 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 
 ## Build & Test Commands
 
-- General Go lint/test: `make lint`, `make test`.
+- **Every unit test, the way CI runs them: `make test`** — an alias for
+  `bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test`.
+  **Run this before opening a PR and before cutting any release.** It is the only command
+  that covers the whole repo, because the Elixir unit shards exist ONLY as bazel targets
+  (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`) and are
+  invisible to `go test`, `cargo test` and `mix test`. Two broken Elixir suites reached a
+  release tag that way.
+- Per-language tests + Go coverage profiles: `make test-toolchains` (go test / cargo test /
+  vitest / `mix precommit`). Useful for a fast local loop; **not** a substitute for
+  `make test`, and `make check-coverage` depends on it for the `cover.*.profile` files.
+- Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
-- Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
+- Bazel images: `bazel run //docker/images:<target>_push`.
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `scripts/vendor.sh` → `bazel build`. To only regenerate the vendored tree after hand-editing the root `Cargo.toml`: `scripts/vendor.sh`. See [Rust Dependency Management](#rust-dependency-management).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.

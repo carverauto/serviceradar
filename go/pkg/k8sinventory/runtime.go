@@ -67,7 +67,7 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 // Run starts metrics HTTP, core informers, and the rebuild controller.
 func (r *Runtime) Run(ctx context.Context) error {
 	if r == nil || r.controller == nil {
-		return fmt.Errorf("runtime not initialized")
+		return errRuntimeNotInitialized
 	}
 
 	log.Printf("k8s-inventory: metrics on %s publish_mode=%s subject=%s gateway_api=%v",

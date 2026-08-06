@@ -154,13 +154,13 @@ func TestController_RunDebounce(t *testing.T) {
 
 func TestLoadConfigFromEnv_StdoutMode(t *testing.T) {
 	t.Setenv("CLUSTER_ID", "demo")
-	t.Setenv("PUBLISH_MODE", "stdout")
+	t.Setenv("PUBLISH_MODE", publishModeStdout)
 	t.Setenv("NATS_HOSTPORT", "")
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PublishMode != "stdout" {
+	if cfg.PublishMode != publishModeStdout {
 		t.Fatalf("mode: %s", cfg.PublishMode)
 	}
 	pub, err := NewPublisherFromConfig(cfg)

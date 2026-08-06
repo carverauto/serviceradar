@@ -19,7 +19,14 @@ const (
 	defaultPublishRetryMax   = 10 * time.Second
 	defaultResync            = 5 * time.Minute
 	defaultDebounce          = 2 * time.Second
-	defaultPublishMode       = "nats" // nats | agent_spool | stdout | none
+	// The four accepted PUBLISH_MODE values. Named because config.go validates them and
+	// publisher.go switches on them, so the set was spelled out as literals in two files.
+	publishModeNATS       = "nats"
+	publishModeAgentSpool = "agent_spool"
+	publishModeStdout     = "stdout"
+	publishModeNone       = "none"
+
+	defaultPublishMode = publishModeNATS
 )
 
 var (
@@ -90,7 +97,7 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.PublishMode = defaultPublishMode
 	}
 	switch cfg.PublishMode {
-	case "nats", "agent_spool", "stdout", "none":
+	case publishModeNATS, publishModeAgentSpool, publishModeStdout, publishModeNone:
 	default:
 		return Config{}, errInvalidPublishMode
 	}
@@ -173,10 +180,10 @@ func (c Config) Validate() error {
 	if c.PublishTimeout <= 0 {
 		return errPublishTimeoutInvalid
 	}
-	if c.PublishMode == "nats" && strings.TrimSpace(c.NATSHostPort) == "" {
+	if c.PublishMode == publishModeNATS && strings.TrimSpace(c.NATSHostPort) == "" {
 		return errNATSURLRequired
 	}
-	if c.PublishMode == "agent_spool" {
+	if c.PublishMode == publishModeAgentSpool {
 		dir := strings.TrimSpace(c.SpoolDir)
 		if dir == "" || dir == "." {
 			return errSpoolDirRequired

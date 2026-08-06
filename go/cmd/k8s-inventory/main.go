@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -23,6 +24,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+var errClusterIDFlagRequired = errors.New("--cluster-id is required")
 
 func main() {
 	if len(os.Args) < 2 {
@@ -116,7 +119,7 @@ func runSnapshot(args []string) error {
 		return err
 	}
 	if *clusterID == "" {
-		return fmt.Errorf("--cluster-id is required")
+		return errClusterIDFlagRequired
 	}
 
 	cfg, err := restConfig(*kubeconfig)
