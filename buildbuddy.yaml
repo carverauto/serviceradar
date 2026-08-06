@@ -39,10 +39,35 @@ actions:
     #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
     pool: "workflows"
 
-    # BuildBuddy's schema (enterprise/server/workflow/config/config.go) gives BuildBuddyConfig
-    # exactly ONE top-level field: `actions`. `platform_properties` is an Action field.
+    # THE RUNNER IMAGE IS THE `container_image`.
+    #
+    # This was `platform_properties: container-image: docker://.../rbe-executor:v1.0.24.1`, to
+    # make the runner byte-identical to //build/rbe:rbe_platform and so guarantee the glibc
+    # match that `no-remote-exec` targets need. It reached the executor correctly and then
+    # failed on every single attempt, before creating an invocation:
+    #
+    #   create OCI bundle: create spec: get container user:
+    #     lookup user "buildbuddy" in /etc/passwd: user not found
+    #
+    # BuildBuddy runs the workflow runner as the user in the `user` field, which defaults to a
+    # provisioned non-root user named `buildbuddy`. rbe-executor is built to run Bazel ACTIONS
+    # and has no such user, so the OCI spec cannot be built. Because the failure is upstream of
+    # the invocation, NOTHING appears in the BuildBuddy UI -- the run looks like it was never
+    # triggered, while the executor retries several times a second and re-enqueues forever.
+    #
+    # ubuntu-24.04 is Noble, the same base as //docker/Dockerfile.rbe, so it carries the same
+    # glibc 2.39 that motivated pinning the image in the first place. It is one of the four
+    # shorthands the field accepts (18.04/20.04/22.04/24.04) and the DEFAULT IS 18.04 -- glibc
+    # 2.27 -- so this line is load-bearing, not decoration. Omit it and the `no-remote-exec`
+    # Rust targets fail with `GLIBC_2.28' not found again.
+    #
+    # Do not "restore" the rbe-executor image here without first adding a `buildbuddy` user to
+    # it, or the identical retry loop comes back.
+    container_image: "ubuntu-24.04"
+
+    # container-image deliberately absent: see above. The rest still applies -- dockerNetwork
+    # host is what lets the database tier resolve srql-fixture-rw.srql-fixtures.svc.
     platform_properties:
-      container-image: "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1"
       OSFamily: "linux"
       Arch: "amd64"
       dockerNetwork: "host"
