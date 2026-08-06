@@ -10,12 +10,12 @@ spec:
   # overwritten in place once, and Harbor then garbage-collected the manifest this
   # cluster was running, which is what caused the ImagePullBackOff outage.
   #
-  # Deliberately NOT moved to 18.4.0-sr1. That image was built from
-  # //docker/images:cnpg_image_amd64 and its timescaledb.so / age.so require
-  # GLIBC_2.38, which the bookworm runtime (2.36) cannot provide -- Postgres dies
-  # with "could not load library". See docker/images/cnpg_image.bzl for why, and
-  # do not repin this cluster until an image built from that target actually starts.
-  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9
+  # sr1..sr3 are skipped deliberately. sr1 and sr2 do not start at all -- their
+  # extensions were linked against the RBE executor's glibc (GLIBC_2.38 / an
+  # unresolved __isoc23_strtoul). sr3 starts but its base was the bullseye 
+  # tag, so PostGIS cannot load: libldap-2.5.so.0 is missing. sr4 is the first build
+  # on the bookworm base with the extensions compiled under a sysroot from it.
+  imageName: registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910
   imagePullSecrets:
     - name: registry-carverauto-dev-cred
 

@@ -2599,18 +2599,27 @@ oci_ext.pull(
 # no tag resolution. Every other pull in this file was already pinned this way.
 #
 # To move to a newer image, re-resolve the tag deliberately:
-#   tok=$(curl -s "https://ghcr.io/token?scope=repository:cloudnative-pg/postgresql:pull&service=ghcr.io" | jq -r .token)
-#   curl -sI -H "Authorization: Bearer $tok" \
-#     -H "Accept: application/vnd.oci.image.index.v1+json" \
-#     https://ghcr.io/v2/cloudnative-pg/postgresql/manifests/18.4 | grep -i docker-content-digest
+#   crane digest ghcr.io/cloudnative-pg/postgresql:18.4-system-bookworm
 #
-# Use the 18.x tags, NOT 18-bookworm. Upstream abandoned 18-bookworm at 18~rc1
-# (2025-09-08); it has never moved. Building from it produced a release-candidate
-# image tagged 18.3.0-sr5, which overwrote the real 18.3 image in Harbor and left
-# both demo and srql-fixtures pinned to garbage-collected digests.
+# The tag MUST be `18.<minor>-system-bookworm`. Two ways to get this wrong, both of
+# which have already happened:
+#
+#   `18-bookworm`  -- abandoned upstream at 18~rc1 (2025-09-08) and never moved, so
+#                     it silently builds a release candidate. A build from it was
+#                     pushed over 18.3.0-sr5, which let Harbor garbage-collect the
+#                     manifests demo and srql-fixtures were pinned to.
+#   `18.4`         -- resolves to the BULLSEYE build (18.4-1.pgdg11+1). Postgres
+#                     starts, and then PostGIS does not load: our prebuilt postgis
+#                     deb is a bookworm build wanting libldap-2.5.so.0, and bullseye
+#                     ships 2.4. Timescale, AGE and pgvector give no hint of it.
+#
+# Both parts of the suffix are load-bearing. `system` is the flavor the extension
+# layers are built against, and `bookworm` has to match the Debian release every
+# overlaid deb comes from -- libc6, libc6-dev, libssl-dev, postgis, pgvector. Confirm
+# with the base.name label, which must read debian:bookworm-slim.
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
-    digest = "sha256:7af186660aead1b948d827ef1c52c20a8d2cb7b2a4089424b8f612e0a61dc2f9",
+    digest = "sha256:63ba2470bb07cd0f4492c1f088689a6a01bbf20b5c5fc6c6472507353d14002c",
     image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
@@ -3269,6 +3278,40 @@ http_file(
     sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
     urls = [
         "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# Sysroot for the CNPG from-source extension layers, so TimescaleDB and AGE compile
+# against the runtime's glibc instead of the RBE executor's. Keep libc6-dev's version
+# EXACTLY equal to debian_libc6_amd64_deb above -- headers and shared object have to
+# describe the same glibc, or the floor this is meant to pin moves again.
+# See docker/images/cnpg_image.bzl for what breaks without it.
+http_file(
+    name = "debian_libc6_dev_amd64_deb",
+    sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# libc6-dev depends on this; glibc's headers include <asm/*.h> and <linux/*.h>, and a
+# --sysroot search path finds nothing outside the sysroot.
+http_file(
+    name = "debian_linux_libc_dev_amd64_deb",
+    sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+    ],
+)
+
+# Also part of the sysroot: --sysroot hides the executor's /usr/include entirely, and
+# TimescaleDB's src/net/conn_ssl.c includes <openssl/err.h>. Matches the libssl3 that
+# bookworm -- and therefore the CNPG base -- ships at runtime.
+http_file(
+    name = "debian_libssl_dev_amd64_deb",
+    sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 

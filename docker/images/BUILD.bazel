@@ -23,6 +23,7 @@ load(
 )
 
 exports_files([
+    "check_extension_abi.py",
     "export_rootfs_from_layout.py",
     "extract_rootfs.py",
     "image_inventory.bzl",

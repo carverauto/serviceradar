@@ -3,39 +3,37 @@
 This remains the explicit exception path while the rest of docker/images
 converges on shared service/release image macros.
 
-KNOWN DEFECT -- images built from this graph do not currently start
--------------------------------------------------------------------
-The extension layers below compile against the *executor's* libc, not the
-runtime's. //build/rbe:rbe_platform runs actions in rbe-executor (Ubuntu 24.04,
-glibc 2.39); the CNPG base is Debian bookworm (glibc 2.36). glibc gained
-`strlcpy` in 2.38, so on the executor the compiler resolves TimescaleDB's and
-AGE's calls to `strlcpy@GLIBC_2.38` instead of letting them fall through to the
-copy PostgreSQL exports from its own port. The runtime cannot supply that
-version, and Postgres exits immediately:
+Cross-libc invariants -- read before editing the extension layers
+-----------------------------------------------------------------
+The extension layers compile on the RBE executor (//build/rbe:rbe_platform ->
+rbe-executor, Ubuntu 24.04, glibc 2.39) but ship on the CNPG base (Debian
+bookworm, glibc 2.36). Left to itself that mismatch produces a .so which is
+present, correctly named, and kills the database on startup -- both TimescaleDB
+and AGE are in shared_preload_libraries, so it is never a degraded image.
+It shipped once, over an existing tag, and Harbor then garbage-collected the
+manifests two live clusters were pinned to. Three rules keep it fixed:
 
-    FATAL: could not load library "/usr/lib/postgresql/18/lib/timescaledb.so":
-           /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+  1. Compile AND link the source extensions with `--sysroot=$ROOT_DIR` -- the
+     extracted base rootfs, with libc6-dev, linux-libc-dev and libssl-dev
+     overlaid in. Link-only is not enough and fails differently: the executor's
+     headers redirect `strtoul` to `__isoc23_strtoul` (glibc 2.38+), which stays
+     UNVERSIONED, so it slips past any version-floor check and surfaces as
+     `undefined symbol: __isoc23_strtoul` at load time. Compile-only is not
+     enough either -- it reintroduces `strlcpy@GLIBC_2.38` (glibc gained
+     `strlcpy` in 2.38; PostgreSQL exports its own from libpgport, which is what
+     the call is meant to resolve against).
 
-Both affected libraries are in shared_preload_libraries, so this is not a
-degraded image -- the database does not come up at all. Confirmed against the
-18.4.0-sr1 build: timescaledb.so and age.so require GLIBC_2.38, while the same
-libraries in the last known-good image require 2.17. The prebuilt extensions
-(postgis, pgvector) are unaffected; only the compile-from-source layers are.
+  2. The base must be Debian bookworm, asserted at build time from
+     /etc/os-release. Upstream's plain `18.<minor>` tag is the BULLSEYE build,
+     and the overlaid postgis/pgvector debs are bookworm (`pgdg12`): mixing them
+     starts Postgres and then fails `could not load library "postgis-3.so":
+     libldap-2.5.so.0: cannot open shared object file`. See MODULE.bazel.
 
-This is independent of the base pin -- it is the executor image that changed --
-and it is the same failure that broke the c70e6cf6 image earlier.
+  3. Every produced .so is checked by check_extension_abi.py against that same
+     sysroot, for both failure modes. Verifying an extension is PRESENT in the
+     layout proves nothing -- only that it was built, not that it will load.
 
-Two consequences worth knowing before touching this file:
-
-  * Verifying that an extension is PRESENT in the layout proves nothing. The
-    .so must be checked against the base's glibc, or loaded.
-  * Do NOT publish over an existing tag. A broken build pushed over
-    serviceradar-cnpg:18.3.0-sr5 let Harbor garbage-collect the manifests two
-    live clusters were pinned to, which is what caused the srql-fixtures outage.
-
-The fix is to build these layers against the runtime's libc (the base rootfs is
-already extracted to $ROOT_DIR here, so it can serve as a --sysroot once
-libc6-dev and linux-libc-dev are overlaid into it) rather than the executor's.
+Also: do NOT publish over an existing tag, for the Harbor GC reason above.
 """
 
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
@@ -111,6 +109,9 @@ tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
             "@debian_gcc_15_base_amd64_deb//file",
             "@debian_libgcc_s1_amd64_deb//file",
             "@debian_libc6_amd64_deb//file",
+            "@debian_libc6_dev_amd64_deb//file",
+            "@debian_linux_libc_dev_amd64_deb//file",
+            "@debian_libssl_dev_amd64_deb//file",
             "//database/timescaledb:source_tree",
             "//docker/images:pg_config_wrapper.sh",
         ],
@@ -122,6 +123,7 @@ tar -C "$${ROOT_DIR}" -cf "$${OUT_TAR}" .
         # hosts instead of failing the build.
         target_compatible_with = ["@platforms//os:linux"],
         tools = [
+            "//docker/images:check_extension_abi.py",
             "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
             "//docker/images:pg_config_rewrite.py",
@@ -134,6 +136,18 @@ OUT_DIR="$$(pwd)/$(@D)"
 OUT_TAR="$$(pwd)/$@"
 ROOT_DIR="$${OUT_DIR}/rootfs_timescaledb"
 python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
+# The overlaid debs are all bookworm (pgdg12): libc6, libc6-dev, libssl-dev, postgis,
+# pgvector. Assert the base agrees, because a mismatch is close to undetectable from
+# the outside. The plain `18.4` tag is a BULLSEYE build; on it Postgres starts, every
+# check above passes, and PostGIS alone fails at runtime looking for libldap-2.5.so.0.
+BASE_CODENAME="$$(sed -n 's/^VERSION_CODENAME=//p' "$${ROOT_DIR}/etc/os-release" 2>/dev/null || true)"
+if [[ "$${BASE_CODENAME}" != "bookworm" ]]; then
+  echo "CNPG base is Debian '$${BASE_CODENAME:-unknown}', expected bookworm." >&2
+  echo "Every deb overlaid into this image is pgdg12/bookworm; mixing releases yields" >&2
+  echo "an image that starts and then cannot load some extensions. Pin the base to" >&2
+  echo "18.<minor>-system-bookworm in MODULE.bazel." >&2
+  exit 1
+fi
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_server_dev_18_deb//file)" \
   "$(location @debian_bison_amd64_deb//file)" \
@@ -141,7 +155,10 @@ python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @debian_libpq_dev_amd64_deb//file)" \
   "$(location @debian_gcc_15_base_amd64_deb//file)" \
   "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
+  "$(location @debian_libc6_amd64_deb//file)" \
+  "$(location @debian_libc6_dev_amd64_deb//file)" \
+  "$(location @debian_linux_libc_dev_amd64_deb//file)" \
+  "$(location @debian_libssl_dev_amd64_deb//file)"
 # Portable in-place edit (GNU/BSD/macOS): no `sed -i` (its suffix handling differs
 # across seds), and POSIX `[[:space:]]` instead of the GNU-only `\t`.
 sed \
@@ -151,6 +168,26 @@ sed \
   > "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new"
 mv "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global.new" \
    "$${ROOT_DIR}/usr/lib/postgresql/18/lib/pgxs/src/Makefile.global"
+
+# Build against the glibc this extension will RUN on, not the executor's. ROOT_DIR is
+# the extracted CNPG base plus the libc6 / libc6-dev / linux-libc-dev / libssl-dev
+# overlay, so it is a usable sysroot for the target: headers, libc.so linker script,
+# libc.so.6, crti/crtn.
+#
+# BOTH compilation and linking, and each covers a failure the other does not:
+#
+#   link only  -> the linker stops recording `strlcpy@GLIBC_2.38` (a version the
+#                 runtime cannot supply), but the executor's 2.39 headers still
+#                 redirect strtoul to __isoc23_strtoul. That symbol then resolves
+#                 nowhere, stays UNVERSIONED, and passes a version-floor check while
+#                 failing at load with "undefined symbol: __isoc23_strtoul".
+#   compile only -> the headers are right but the link still binds to the executor's
+#                 libc.so.6 and reintroduces the versioned reference.
+#
+# The cost of compiling under the sysroot is that the executor's third-party headers
+# are hidden too, which is why libssl-dev is in the overlay: TimescaleDB's
+# src/net/conn_ssl.c includes <openssl/err.h>.
+SYSROOT_FLAG="--sysroot=$${ROOT_DIR}"
 
 SRC_TREE="$$(pwd)/$(execpath //database/timescaledb:source_tree)"
 echo "Copying TimescaleDB sources from $${SRC_TREE}"
@@ -164,6 +201,11 @@ chmod -R u+w "$${OUT_DIR}/timescaledb"
 cp "$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 chmod +x "$${OUT_DIR}/pg_config_wrapper_ts.sh"
 cp "$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
+# Copy while cwd is still the execroot: label expansion yields an execroot-relative
+# path and the build cds into the source tree below, so it cannot be used from there.
+# (Do not write the expansion macro's name in a comment either -- Bazel substitutes
+# it anywhere in cmd, and a bare one fails analysis with "not defined".)
+cp "$(location //docker/images:check_extension_abi.py)" "$${OUT_DIR}/check_extension_abi.py"
 
 CMAKE_RELATIVE="$(location @cmake_linux_amd64_prebuilt//:cmake_bin)"
 if [[ "$${CMAKE_RELATIVE}" != /* ]]; then
@@ -182,7 +224,14 @@ export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
 export PATH="$${OUT_DIR}/bin:$${CMAKE_DIR}:$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig"
 cd "$${OUT_DIR}/timescaledb"
-BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh"
+# MODULE_LINKER_FLAGS is the one that matters -- the extensions are built as
+# MODULE libraries -- but SHARED and EXE are set too so a future target of a
+# different kind does not silently lose the flag.
+BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DPROJECT_INSTALL_METHOD=docker -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPG_CONFIG="$${OUT_DIR}/pg_config_wrapper_ts.sh" \
+  -DCMAKE_C_FLAGS="$${SYSROOT_FLAG}" \
+  -DCMAKE_MODULE_LINKER_FLAGS="$${SYSROOT_FLAG}" \
+  -DCMAKE_SHARED_LINKER_FLAGS="$${SYSROOT_FLAG}" \
+  -DCMAKE_EXE_LINKER_FLAGS="$${SYSROOT_FLAG}"
 cd build
 make -j4
 mkdir -p "$${OUT_DIR}/install"
@@ -192,6 +241,12 @@ if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "Timescale install prefix $${INSTALL_PREFIX} not found" >&2
   exit 1
 fi
+# Assert the sysroot actually took effect. Checking that the .so exists is not enough --
+# a mis-linked TimescaleDB is present, correctly named, and stops Postgres from starting.
+echo "Checking TimescaleDB glibc floor against the runtime base:"
+python3 "$${OUT_DIR}/check_extension_abi.py" \
+  --sysroot "$${ROOT_DIR}" \
+  "$${INSTALL_PREFIX}/usr/lib/postgresql/18/lib"
 # Normalise mtimes before tarring -- see glibc_runtime_layer above. Worse here than there:
 # every file in this tree was just written by `make install`, so without this ALL of them
 # carry build time and the layer is guaranteed to differ on each rebuild.
@@ -210,6 +265,9 @@ tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
             "@debian_gcc_15_base_amd64_deb//file",
             "@debian_libgcc_s1_amd64_deb//file",
             "@debian_libc6_amd64_deb//file",
+            "@debian_libc6_dev_amd64_deb//file",
+            "@debian_linux_libc_dev_amd64_deb//file",
+            "@debian_libssl_dev_amd64_deb//file",
             "//database/age:source_tree",
             "//docker/images:pg_config_wrapper.sh",
         ],
@@ -221,6 +279,7 @@ tar -C "$${INSTALL_PREFIX}" -cf "$${OUT_TAR}" .
         # hosts instead of failing the build.
         target_compatible_with = ["@platforms//os:linux"],
         tools = [
+            "//docker/images:check_extension_abi.py",
             "//docker/images:extract_rootfs.py",
             "//docker/images:overlay_deb_packages.py",
             "//docker/images:pg_config_rewrite.py",
@@ -232,12 +291,27 @@ OUT_DIR="$$(pwd)/$(@D)"
 OUT_TAR="$$(pwd)/$@"
 ROOT_DIR="$${OUT_DIR}/rootfs_age"
 python3 "$(location //docker/images:extract_rootfs.py)" "$(location :cnpg_postgresql_18_rootfs_tar)" "$${ROOT_DIR}"
+# The overlaid debs are all bookworm (pgdg12): libc6, libc6-dev, libssl-dev, postgis,
+# pgvector. Assert the base agrees, because a mismatch is close to undetectable from
+# the outside. The plain `18.4` tag is a BULLSEYE build; on it Postgres starts, every
+# check above passes, and PostGIS alone fails at runtime looking for libldap-2.5.so.0.
+BASE_CODENAME="$$(sed -n 's/^VERSION_CODENAME=//p' "$${ROOT_DIR}/etc/os-release" 2>/dev/null || true)"
+if [[ "$${BASE_CODENAME}" != "bookworm" ]]; then
+  echo "CNPG base is Debian '$${BASE_CODENAME:-unknown}', expected bookworm." >&2
+  echo "Every deb overlaid into this image is pgdg12/bookworm; mixing releases yields" >&2
+  echo "an image that starts and then cannot load some extensions. Pin the base to" >&2
+  echo "18.<minor>-system-bookworm in MODULE.bazel." >&2
+  exit 1
+fi
 python3 "$(location //docker/images:overlay_deb_packages.py)" "$${ROOT_DIR}" \
   "$(location @postgresql_server_dev_18_deb//file)" \
   "$(location @debian_libpq_dev_amd64_deb//file)" \
   "$(location @debian_gcc_15_base_amd64_deb//file)" \
   "$(location @debian_libgcc_s1_amd64_deb//file)" \
-  "$(location @debian_libc6_amd64_deb//file)"
+  "$(location @debian_libc6_amd64_deb//file)" \
+  "$(location @debian_libc6_dev_amd64_deb//file)" \
+  "$(location @debian_linux_libc_dev_amd64_deb//file)" \
+  "$(location @debian_libssl_dev_amd64_deb//file)"
 # Portable in-place edit (GNU/BSD/macOS): no `sed -i` (its suffix handling differs
 # across seds), and POSIX `[[:space:]]` instead of the GNU-only `\t`.
 sed \
@@ -260,6 +334,7 @@ chmod -R u+w "$${OUT_DIR}/age"
 cp "$${REPO_ROOT}/$(location //docker/images:pg_config_wrapper.sh)" "$${OUT_DIR}/pg_config_wrapper_age.sh"
 chmod +x "$${OUT_DIR}/pg_config_wrapper_age.sh"
 cp "$${REPO_ROOT}/$(location //docker/images:pg_config_rewrite.py)" "$${OUT_DIR}/pg_config_rewrite.py"
+cp "$${REPO_ROOT}/$(location //docker/images:check_extension_abi.py)" "$${OUT_DIR}/check_extension_abi.py"
 
 for tool in flex bison gperf; do
   if ! command -v "$${tool}" >/dev/null 2>&1; then
@@ -273,14 +348,26 @@ export CNPG_REAL_PG_CONFIG="$${ROOT_DIR}/usr/lib/postgresql/18/bin/pg_config"
 export PATH="$${ROOT_DIR}/usr/lib/postgresql/18/bin:$${ROOT_DIR}/usr/bin:/usr/bin:/bin:$${PATH:-}"
 export PKG_CONFIG_PATH="$${ROOT_DIR}/usr/lib/pkgconfig:$${ROOT_DIR}/usr/lib/x86_64-linux-gnu/pkgconfig:$${PKG_CONFIG_PATH:-}"
 cd "$${OUT_DIR}/age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
+# Build against the runtime's glibc rather than the executor's -- see the module
+# docstring for why this has to cover compilation as well as linking. COPT is the
+# right hook for a PGXS build precisely because pgxs appends it to BOTH CFLAGS and
+# LDFLAGS. Setting either directly would REPLACE what pgxs derives from the server
+# build.
+SYSROOT_FLAG="--sysroot=$${ROOT_DIR}"
+make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" COPT="$${SYSROOT_FLAG}" FLEX=flex LEX=flex BISON=bison YACC="bison -y" -j4
 mkdir -p "$${OUT_DIR}/install_age"
-make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" FLEX=flex LEX=flex BISON=bison YACC="bison -y" DESTDIR="$${OUT_DIR}/install_age" install
+make PG_CONFIG="$${OUT_DIR}/pg_config_wrapper_age.sh" COPT="$${SYSROOT_FLAG}" FLEX=flex LEX=flex BISON=bison YACC="bison -y" DESTDIR="$${OUT_DIR}/install_age" install
 INSTALL_PREFIX="$${OUT_DIR}/install_age$${CNPG_ROOT}"
 if [[ ! -d "$${INSTALL_PREFIX}" ]]; then
   echo "AGE install prefix $${INSTALL_PREFIX} not found" >&2
   exit 1
 fi
+# Assert the sysroot took effect; age.so is in shared_preload_libraries, so a
+# mis-linked build stops the database from starting at all.
+echo "Checking AGE glibc floor against the runtime base:"
+python3 "$${OUT_DIR}/check_extension_abi.py" \
+  --sysroot "$${ROOT_DIR}" \
+  "$${INSTALL_PREFIX}/usr/lib/postgresql/18/lib"
 # Normalise mtimes before tarring -- see glibc_runtime_layer above. As with TimescaleDB,
 # `make install` just wrote this whole tree at wall-clock time.
 find "$${INSTALL_PREFIX}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
