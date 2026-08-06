@@ -34,6 +34,41 @@ Use this skill for the formal release path: update release metadata, cut the rel
 - While that hold is active, `serviceradar-demo-image-updater` is expected to report zero matched applications and zero managed images. Treat `0|0|NoErrors:False` as the configured hold state, not a failed release.
 - Automatic sync is authorized only for the guarded, publication-verified `demo/prod-release` branch and must remain non-pruning and non-self-healing. Generated secrets, CNPG resources, and unrelated live drift still require explicit operator judgment.
 
+## Pre-Cut Gates
+
+Run all of these BEFORE touching `VERSION`. Each one has broken a release already.
+
+1. **Every unit test, the way CI runs them.** A tag pins its own source, so a fix pushed to
+   `staging` afterwards is invisible to a re-run of that tag — a broken test found after
+   tagging costs a new tag, not a re-run.
+
+   ```bash
+   make test   # bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+   ```
+
+   Must end `Build completed successfully` with no `FAIL:`. `go test` / `cargo test` /
+   `mix test` do NOT cover this: the Elixir unit shards exist only as bazel targets
+   (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`), which is how
+   two broken Elixir suites reached the v1.4.30 tag.
+
+2. **Duplicate migration versions** — must print nothing:
+
+   ```bash
+   ls elixir/serviceradar_core/priv/repo/migrations/ | grep -oE '^[0-9]+' | sort | uniq -d
+   ```
+
+   This bit v1.3.9 badly: three migrations collided on `20260630120000`, and Ecto refuses to
+   run *any* migration when versions collide, silently bricking auth, metrics and plugin
+   assignment on every fresh install. CI passed because it does not migrate against a prior
+   baseline. If it prints anything, renumber the extras before cutting.
+
+3. **Prod release assembles** — broke v1.3.8. `cd elixir/serviceradar_core && MIX_ENV=prod mix release`
+   must produce no "Duplicated modules" (the hackney/h2 vs grpcbox/chatterbox conflict).
+   Gate on BOTH `serviceradar_core` and `serviceradar_core_elx`.
+
+4. macOS needs `gsed` (`brew install gnu-sed`) — `cut-release.sh` uses GNU sed for in-place
+   edits.
+
 ## Update Release Metadata
 
 Before cutting the release:

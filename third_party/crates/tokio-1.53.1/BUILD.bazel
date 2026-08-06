@@ -98,6 +98,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -187,6 +188,11 @@ rust_library(
             "//third_party/crates/libc-0.2.189:libc",  # arm-unknown-linux-gnueabi
             "//third_party/crates/signal-hook-registry-1.4.8:signal_hook_registry",  # arm-unknown-linux-gnueabi
             "//third_party/crates/socket2-0.6.5:socket2",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/libc-0.2.189:libc",  # arm-unknown-linux-musleabi
+            "//third_party/crates/signal-hook-registry-1.4.8:signal_hook_registry",  # arm-unknown-linux-musleabi
+            "//third_party/crates/socket2-0.6.5:socket2",  # arm-unknown-linux-musleabi
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "//third_party/crates/libc-0.2.189:libc",  # armv7-linux-androideabi

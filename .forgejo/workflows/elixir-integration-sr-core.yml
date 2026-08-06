@@ -160,9 +160,6 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
@@ -216,7 +213,7 @@ jobs:
       # 1. Collect databases leaked by cancelled runs, before this one adds to the fixture.
       - name: Sweep stale integration databases
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' }}
-        run: bazel test --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
 
       # 2. Create sr_core_template if absent, and report whether it is behind the migrations
       # on disk. `bazel run`, not `bazel test`: it writes needs_migration to $GITHUB_OUTPUT,
@@ -225,26 +222,26 @@ jobs:
       - name: Prepare template database
         id: template
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel run --config=ci --//build:enable_integration_tests --build_tag_filters= //rust/integration-db:prepare_template
+        run: bazel run -c opt --config=ci --//build:enable_integration_tests --build_tag_filters= //rust/integration-db:prepare_template
 
       # 3. Apply the Ecto migrations to the template. The one step that needs the BEAM, and
       # the reason step 2 exists: on a branch that adds no migrations this is skipped and
       # nothing in the job starts an Erlang VM until the suite itself.
       - name: Migrate template database
         if: ${{ steps.template.outputs.needs_migration == 'true' }}
-        run: bazel test --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:migrate_template
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:migrate_template
 
       # 4. Clone sr_core_test_<run_id>_<attempt> from the template. Re-checks the pending set
       # itself, so a wrong skip in step 3 fails here rather than silently running the suite
       # against a stale schema.
       - name: Provision integration database
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
 
       # 5. The suite.
       - name: serviceradar_core integration tests
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
 
       # 6. Drop the per-run database. always() rather than success(): a red suite must not
       # leak its database. A cancelled job never reaches this at all, which is what the sweep
@@ -252,4 +249,4 @@ jobs:
       # sweep can drop it.
       - name: Drop integration database
         if: ${{ always() && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db

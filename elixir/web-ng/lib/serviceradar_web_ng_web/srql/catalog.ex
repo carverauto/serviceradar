@@ -964,11 +964,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_ip",
         # Bidirectional: matches either endpoint, like the bare `near:` / `tag:` forms.
         "ip",
+        "endpoint_ip",
         "cidr",
         "src_endpoint_port",
         "src_port",
         "dst_endpoint_port",
         "dst_port",
+        # Bidirectional port (either side of the 5-tuple). Prefer `port:22` over
+        # unsupported boolean OR: `(dst_port:22 OR src_port:22)`.
+        "port",
+        "endpoint_port",
         "protocol_group",
         "protocol_name",
         "protocol_num",
@@ -1051,14 +1056,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "container_name",
         "image",
         "runtime_source",
+        "service_name",
+        "gateway_name",
+        "exposure_class",
+        "route_name",
+        "public_endpoint_namespace",
         "src_endpoint_ip",
         "src_ip",
         "dst_endpoint_ip",
         "dst_ip",
+        # Bidirectional either-endpoint matchers (same as raw flows).
+        "ip",
+        "endpoint_ip",
         "src_endpoint_port",
         "src_port",
         "dst_endpoint_port",
         "dst_port",
+        "port",
+        "endpoint_port",
         "protocol_name",
         "protocol_num",
         "protocol_group",
@@ -1069,12 +1084,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "src_tag",
         "dst_tag"
       ],
-      numeric_fields: ["pid", "uid", "src_endpoint_port", "dst_endpoint_port", "protocol_num"],
+      numeric_fields: [
+        "pid",
+        "uid",
+        "src_endpoint_port",
+        "dst_endpoint_port",
+        "port",
+        "endpoint_port",
+        "protocol_num"
+      ],
       address_fields: [
         "src_endpoint_ip",
         "src_ip",
         "dst_endpoint_ip",
         "dst_ip",
+        "ip",
+        "endpoint_ip",
         "sampler_address"
       ],
       downsample: false
@@ -1097,6 +1122,35 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "port",
         "protocol"
       ],
+      downsample: false
+    },
+    # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
+    %{
+      id: "public_endpoints",
+      label: "Public Endpoints",
+      route: "/inventory/public-endpoints",
+      default_time: "",
+      default_sort_field: "ip",
+      default_sort_dir: "asc",
+      default_filter_field: "ip",
+      filter_fields: [
+        "ip",
+        "hostname",
+        "port",
+        "protocol",
+        "namespace",
+        "cluster_id",
+        "exposure_class",
+        "service_name",
+        "gateway_name",
+        "route_name",
+        "route_kind",
+        "metallb_pool"
+      ],
+      known_values: %{
+        "exposure_class" => ["LoadBalancer", "Gateway", "ExternalIP"],
+        "protocol" => ["TCP", "UDP", "SCTP"]
+      },
       downsample: false
     },
     %{

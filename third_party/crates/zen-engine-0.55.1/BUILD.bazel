@@ -73,6 +73,9 @@ rust_library(
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "//third_party/crates/async-trait-0.1.91:async_trait",  # cfg(not(target_family = "wasm"))
         ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/async-trait-0.1.91:async_trait",  # cfg(not(target_family = "wasm"))
+        ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "//third_party/crates/async-trait-0.1.91:async_trait",  # cfg(not(target_family = "wasm"))
         ],
@@ -172,6 +175,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -225,177 +229,184 @@ rust_library(
         "//third_party/crates/zen-types-0.55.1:zen_types",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-linux-android": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:i686-apple-darwin": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:i686-linux-android": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
@@ -415,72 +426,72 @@ rust_library(
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(target_family = "wasm")
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-apple-ios": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-fuchsia": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-nixos-gnu": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-none": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],
         "@rules_rust//rust/platform:x86_64-unknown-uefi": [
-            "//third_party/crates/http-1.4.2:http",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/http-1.5.0:http",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/jsonschema-0.33.0:jsonschema",  # cfg(not(target_family = "wasm"))
-            "//third_party/crates/reqsign-0.20.3:reqsign",  # cfg(not(target_family = "wasm"))
+            "//third_party/crates/reqsign-0.20.4:reqsign",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/reqwest-0.12.28:reqwest",  # cfg(not(target_family = "wasm"))
             "//third_party/crates/sha2-0.10.9:sha2",  # cfg(not(target_family = "wasm"))
         ],

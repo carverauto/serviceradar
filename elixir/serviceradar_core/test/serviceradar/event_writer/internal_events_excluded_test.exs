@@ -54,9 +54,14 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
 
       for stream <- streams do
         # All subjects should be for external data: events, logs, otel, netflow, etc.
-        # NOT for internal health/state changes
+        # NOT for internal health/state changes.
+        #
+        # `inventory` covers agent-collected inventory snapshots (K8S_INVENTORY publishes
+        # inventory.k8s.public_endpoints). That is external observation data pushed in by an
+        # agent, not this deployment reporting on itself, so it belongs on JetStream like
+        # every other ingestion subject.
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

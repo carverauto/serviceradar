@@ -33,17 +33,25 @@ verify_manifest() {
 verify_known_corpus_dirs() {
   local dir
 
+  # Every corpus lives in //third_party/netprobe_corpora. Anything else there is
+  # unreviewed. Scanning for a bare directory name rather than a '*-corpus' suffix
+  # is deliberate: a suffix pattern would silently match nothing and pass.
   while IFS= read -r dir; do
     case "${dir}" in
-      rust/netprobe/p0f-corpus | \
-      rust/netprobe/muonfp-corpus | \
-      rust/netprobe/recog-corpus | \
-      rust/netprobe/satori-corpus)
+      "${corpora_root}"/p0f | \
+      "${corpora_root}"/muonfp | \
+      "${corpora_root}"/recog | \
+      "${corpora_root}"/satori)
         ;;
       *)
         fail "unexpected fingerprint corpus directory requires license review: ${dir}"
         ;;
     esac
+  done < <(find "${corpora_root}" -mindepth 1 -maxdepth 1 -type d | sort)
+
+  # A corpus reintroduced under the crate would escape every check above.
+  while IFS= read -r dir; do
+    fail "fingerprint corpus must live in ${corpora_root}, not under the crate: ${dir}"
   done < <(find rust/netprobe -maxdepth 1 -type d -name '*-corpus' | sort)
 }
 
@@ -61,10 +69,11 @@ verify_satori_data_boundary() {
   done < <(cd "${satori_dir}" && find . -type f | sed 's#^\./##' | sort)
 }
 
-satori_dir="rust/netprobe/satori-corpus"
-recog_dir="rust/netprobe/recog-corpus"
-muonfp_dir="rust/netprobe/muonfp-corpus"
-p0f_dir="rust/netprobe/p0f-corpus"
+corpora_root="third_party/netprobe_corpora"
+satori_dir="${corpora_root}/satori"
+recog_dir="${corpora_root}/recog"
+muonfp_dir="${corpora_root}/muonfp"
+p0f_dir="${corpora_root}/p0f"
 
 for required in \
   "${p0f_dir}/LICENSE-LGPL-2.1.txt" \
@@ -117,18 +126,18 @@ recog_xml_count="$(find "${recog_dir}/xml" -maxdepth 1 -type f -name '*.xml' | w
 satori_xml_count="$(find "${satori_dir}/xml" -maxdepth 1 -type f -name '*.xml' | wc -l | tr -d '[:space:]')"
 [[ "${satori_xml_count}" -gt 0 ]] || fail "Satori corpus XML directory is empty"
 
-if grep -RInE 'include_(bytes|str)!\([^)]*satori-corpus' rust/netprobe >"${tmp_embed}" 2>/dev/null; then
+if grep -RInE 'include_(bytes|str)!\([^)]*netprobe_corpora/satori' rust/netprobe >"${tmp_embed}" 2>/dev/null; then
   cat "${tmp_embed}" >&2
   fail "Satori GPLv2 XML must be runtime-loaded as replaceable data, not embedded with include_bytes!/include_str!"
 fi
 
-if find rust/netprobe -path '*/target/*' -prune -o -type f \
+if find rust/netprobe "${corpora_root}" -path '*/target/*' -prune -o -type f \
   \( -iname '*fingerbank*' -o -iname '*nmap*' -o -iname '*npsl*' -o -iname '*prads*' -o -iname '*ja4t*' -o -iname '*ja4h*' -o -iname '*ja4s*' -o -iname '*ja4ssh*' -o -iname '*ja4x*' \) \
   -print -quit | grep -q .; then
-  find rust/netprobe -path '*/target/*' -prune -o -type f \
+  find rust/netprobe "${corpora_root}" -path '*/target/*' -prune -o -type f \
     \( -iname '*fingerbank*' -o -iname '*nmap*' -o -iname '*npsl*' -o -iname '*prads*' -o -iname '*ja4t*' -o -iname '*ja4h*' -o -iname '*ja4s*' -o -iname '*ja4ssh*' -o -iname '*ja4x*' \) \
     -print >&2
-  fail "forbidden or unreviewed fingerprint corpus/method file found under rust/netprobe"
+  fail "forbidden or unreviewed fingerprint corpus/method file found under rust/netprobe or ${corpora_root}"
 fi
 
 tmp_tree="$(mktemp "${TMPDIR:-/tmp}/netprobe-cargo-tree.XXXXXX")"

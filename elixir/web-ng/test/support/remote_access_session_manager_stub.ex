@@ -97,6 +97,22 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
     )
   end
 
+  def ssh_console_options(device_uid, opts) do
+    send(test_pid(), {:ssh_console_options, device_uid, opts})
+
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_session_manager_ssh_options_result,
+      {:ok,
+       %{
+         "default_credential_mode" => "ssh_certificate",
+         "accounts" => [%{"name" => "mfreeman"}],
+         "ttl_seconds" => 1800,
+         "device_uid" => device_uid
+       }}
+    )
+  end
+
   defp test_pid do
     Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_test_pid, self())
   end

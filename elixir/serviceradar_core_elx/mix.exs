@@ -68,7 +68,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       # SRT on its compatible 0.1.x line.
       {:membrane_mpeg_ts_plugin, "~> 2.4", override: true},
       {:mpeg_ts, "~> 3.3", override: true},
-      {:boombox, path: "vendor/boombox"},
+      {:boombox, path: "../../third_party/hex_vendored/boombox"},
       {:bandit, "~> 1.10"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
@@ -104,6 +104,9 @@ defmodule ServiceRadarCoreElx.MixProject do
     [
       serviceradar_core_elx: [
         include_executables_for: [:unix],
+        # Avoid boot abort when optional deps (e.g. lazy_html via phoenix_live_view)
+        # bake compile-time env that is unset in some runtime paths.
+        validate_compile_env: false,
         applications: [
           runtime_tools: :permanent,
           serviceradar_core: :permanent,

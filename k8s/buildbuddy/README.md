@@ -216,12 +216,12 @@ confused:
 | release | values | pool | replicas | mem requests | hostPath cache | runs |
 |---|---|---|---|---|---|---|
 | `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/var/lib/buildbuddy/cache` | build actions |
-| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 36Gi | `/var/lib/buildbuddy/cache-workflows` | the CI runner |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/var/lib/buildbuddy/cache-workflows` | the CI runner |
 
 The workflow runner wants ~32GB — a Bazel server over ~2,000 targets, `--jobs=100` of input
 uploads over the WAN, and every `no-remote-exec` target executing locally. Putting that on the
 build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
-up, one runner reserves 36Gi on all three pods and squeezes out the very fan-out it is driving.
+up, one runner reserves 56Gi on all three pods and squeezes out the very fan-out it is driving.
 
 Deploy the workflow fleet with the same API key the build fleet uses:
 
@@ -237,9 +237,10 @@ helm upgrade --install buildbuddy-workflows buildbuddy/buildbuddy-executor \
 `deploy.sh` deliberately does not do this — it hardcodes `RELEASE_NAME=buildbuddy` and would
 overwrite the build fleet with these values.
 
-Three things to know before deploying:
+Four things to know before deploying:
 
-- **Check a node can hold 36Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
+- **The release name and the `-f` must agree, and nothing checks it.** Because the workflow fleet has no scripted path, its upgrades are typed by hand, and `helm upgrade buildbuddy-workflows ... -f values.yaml` succeeds silently. It strips `poolName` (the pod joins the default pool, `workflows` goes empty), sets `replicas: 3`, and reverts to the shared cache hostPath — with no error until the next staging push reports `no registered executors in pool "workflows"`. The mirror-image slip is worse: an edit to `values.yaml` applied to the *workflows* release leaves the build fleet silently un-upgraded, on values weeks old. Both have happened. After either deploy, diff intent against reality: `helm get values <release> -n buildbuddy`.
+- **Check a node can hold 56Gi first.** `kubectl get nodes -o custom-columns='NODE:.metadata.name,MEM:.status.allocatable.memory'`. A request nothing can satisfy leaves the pod `Pending` and the workflow fails with the same `no registered executors` message as before, only now after a helm deploy.
 - **The hostPath differs on purpose.** This pod can land on a node already running a build executor. BuildBuddy's filecache assumes it owns its directory and evicts against `local_cache_size_bytes`; two executors sharing one directory means two eviction loops deleting each other's entries while both believe they are under budget.
 - **KEDA does not touch this release.** `scaledobject.yaml` targets the Deployment `buildbuddy-buildbuddy-executor` by name, and a second release produces a different name. Rename this release into a collision and KEDA will start driving it to `minReplicaCount: 3`.
 
@@ -252,12 +253,20 @@ kubectl get deploy -n buildbuddy
 
 kubectl exec -n buildbuddy <workflow-pod> -- printenv | grep -i pool
 #   MY_POOL=workflows
+
+kubectl logs -n buildbuddy -l app.kubernetes.io/instance=buildbuddy-workflows --tail=200 \
+  | grep "Initialized task scheduler"
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 58,719,476,736 bytes allocated
 ```
 
 `MY_POOL` is the variable the chart renders top-level `poolName` into; that is how you know
 the key was not silently ignored. Empty output means it was, in which case this pod joined the
 default pool and is now accepting build actions — the workflow would fail with `no registered
-executors in pool "workflows"` while a 36Gi executor quietly competed with the build fleet.
+executors in pool "workflows"` while a 56Gi executor quietly competed with the build fleet.
+
+The scheduler line is the second half, because the right pool at the wrong size fails the same
+way. Memory is `limits.memory` minus a flat 10 GB; CPU is `limits.cpu` unreduced. Both must
+clear what `resource_requests` in `buildbuddy.yaml` asks for.
 
 ## Workflows (`buildbuddy.yaml`)
 
@@ -318,15 +327,17 @@ startup line rather than inferring it:
 
 ```bash
 kubectl logs -n buildbuddy <pod> | grep "Initialized task scheduler"
-#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 32,949,672,960 bytes allocated
+#   CPU: 0 of 16,000 milliCPU allocated, Memory: 0 of 58,719,476,736 bytes allocated
 ```
 
 | fleet | `limits.memory` | advertised (limits − 10e9) | largest task |
 |---|---|---|---|
 | build | 32Gi = 34,359,738,368 | 24,359,738,368 (22.7 GiB) | 22 GiB |
-| workflows | 40Gi = 42,949,672,960 | 32,949,672,960 (30.69 GiB) | 28 GiB |
+| workflows | 64Gi = 68,719,476,736 | 58,719,476,736 (54.7 GiB) | 54 GiB |
 
-CPU is the limit unreduced: `limits.cpu: "16"` → 16,000 milliCPU.
+CPU is the limit unreduced: `limits.cpu: "16"` → 16,000 milliCPU. So a fleet can advertise
+plenty of CPU while rejecting a task purely on memory, and the message names only the fit
+failure, not which dimension missed.
 
 Two consequences. `resource_requests` in `buildbuddy.yaml` is in **GiB** despite the `GB`
 suffix — `"14GB"` produced a VM BuildBuddy described as "15.03GB total", which is 14 GiB in

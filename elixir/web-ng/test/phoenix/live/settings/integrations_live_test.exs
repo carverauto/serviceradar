@@ -437,4 +437,114 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     |> Ash.Changeset.for_update(action, finish_attrs)
     |> Ash.update!(scope: scope)
   end
+
+  describe "reusable credential selection" do
+    # IntegrationSource has carried `credential_secret_id` and
+    # sync_config_generator has branched on it for some time. Nothing in this UI
+    # could set it, so in practice every source stored its own encrypted copy and
+    # the shared inventory was unreachable from here.
+
+    defp shared_secret!(name_suffix) do
+      {:ok, secret} =
+        ServiceRadar.Credentials.NetworkCredentialSecret.create_secret(
+          %{
+            name: "Shared integration credential #{name_suffix}",
+            provider: "armis",
+            credential_kind: :api_token,
+            secret_payload: "shared-token-#{name_suffix}"
+          },
+          actor: system_actor()
+        )
+
+      secret
+    end
+
+    test "selecting a credential binds the source to it", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "Bound Source #{unique}"
+      secret = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => secret.id
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      assert source.credential_secret_id == secret.id
+    end
+
+    test "the form-only key never reaches the source", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "No Leak Source #{unique}"
+      secret = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => secret.id,
+        "cred_api_key" => "still-typed-a-key"
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      # The per-source fields are left untouched rather than cleared, so clearing
+      # the binding later falls back to whatever was already stored.
+      assert source.credential_secret_id == secret.id
+      refute Map.has_key?(source.credentials || %{}, "cred_credential_secret_id")
+    end
+
+    test "leaving the selector blank does not bind anything", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "Unbound Source #{unique}"
+
+      # A credential has to exist for the selector to render at all -- it is
+      # hidden when the inventory is empty, so "blank" is only a meaningful
+      # choice when there is something to choose.
+      _available = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => "",
+        "cred_api_key" => "armis-api-key"
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      assert source.credential_secret_id == nil
+      assert source.credentials["api_key"] == "armis-api-key"
+    end
+  end
 end

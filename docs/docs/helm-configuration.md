@@ -46,6 +46,16 @@ HA profile overlay
   - `bmpCollector`
 - The profile also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
 
+Optional public endpoint inventory
+- `k8sInventory.enabled` (default `false`) deploys a cluster-plane collector that
+  maps LoadBalancer / Gateway API public addresses to Services, routes, and
+  backend pods. Helm creates the ServiceAccount, read-only ClusterRole, and
+  Deployment together—do not create the SA by hand for normal installs.
+- Full IR workflow, Argo CD vs manual install notes, and RBAC details:
+  [Kubernetes Public Endpoint Inventory](./k8s-public-endpoint-inventory.md).
+- Demo values (`values-demo.yaml`) enable it with `clusterId: demo` once the
+  `serviceradar-k8s-inventory` image is available for that release tag.
+
 JetStream sizing values
 - The shared `events` stream is created and reconciled by multiple services. The important knobs are:
   - `logCollector.streamReplicas`

@@ -131,3 +131,36 @@ pub(super) fn flows() -> VizMeta {
         ],
     }
 }
+
+pub(super) fn public_endpoints() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "observed_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("cluster_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("ip", ColumnType::Text, None),
+            col("hostname", ColumnType::Text, None),
+            col("port", ColumnType::Int, None),
+            col("protocol", ColumnType::Text, None),
+            col("exposure_class", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("namespace", ColumnType::Text, None),
+            col("service_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("gateway_name", ColumnType::Text, None),
+            col("listener_name", ColumnType::Text, None),
+            col("route_kind", ColumnType::Text, None),
+            col("route_name", ColumnType::Text, None),
+            col("service_target_port", ColumnType::Int, None),
+            col("endpoint_targets", ColumnType::Jsonb, None),
+            col("backend_refs", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}

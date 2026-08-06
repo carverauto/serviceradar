@@ -58,9 +58,9 @@ impl P0fMatcher {
 
     pub fn bundled() -> Result<Self> {
         let corpus = [
-            include_str!("../p0f-corpus/p0f.fp"),
+            include_str!("../../../third_party/netprobe_corpora/p0f/p0f.fp"),
             "\n",
-            include_str!("../p0f-corpus/serviceradar-additions.fp"),
+            include_str!("../../../third_party/netprobe_corpora/p0f/serviceradar-additions.fp"),
         ]
         .concat();
         let mut matcher = Self::from_corpus_str(&corpus)?;

@@ -416,7 +416,20 @@ lint-go: get-golangcilint ## Run Go linting checks
 	@$(GOLANGCI_LINT) run --timeout $(GOLANGCI_LINT_TIMEOUT) $$(go list -f '{{.Dir}}' $(GO_LINT_PACKAGES))
 
 .PHONY: test
-test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
+test: ## Run every unit test the way CI does (bazel, remote, opt)
+	@echo "$(COLOR_BOLD)Running all unit tests via bazel$(COLOR_RESET)"
+	@bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+
+# Everything CI runs before it will accept a release, in one command. `test-toolchains`
+# below is the per-language path (go test / cargo test / vitest / mix precommit); it is
+# NOT a substitute, because it does not build or run the bazel test targets. Elixir unit
+# shards live only in bazel, so two broken Elixir suites reached a release tag while the
+# per-language target stayed green. Run this before cutting anything.
+.PHONY: test-unit
+test-unit: test ## Alias for `test` (bazel unit tests)
+
+.PHONY: test-toolchains
+test-toolchains: $(TEST_PREREQS) get-bun ## Per-language tests + Go coverage profiles (not a CI substitute)
 	@echo "$(COLOR_BOLD)Running Go short tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=45s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
@@ -443,10 +456,16 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	@./scripts/test-integration.sh
 
 .PHONY: test-all
-test-all: test test-integration ## Run the full test suite including serviceradar_core integration tests
+test-all: test test-toolchains test-integration ## Bazel unit tests + per-language tests + integration tests
+
+.PHONY: check
+check: ## Pre-push gate: pull, then build + test + race-test everything on the remote cache
+	@./scripts/check.sh
 
 .PHONY: check-coverage
-check-coverage: test ## Check test coverage against thresholds
+# Depends on test-toolchains, not test: the thresholds are checked against the
+# cover.*.profile files that only the Go leg of test-toolchains writes.
+check-coverage: test-toolchains ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
 	@$(GO) run ./main.go --config=./.github/.testcoverage.yml
 

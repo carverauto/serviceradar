@@ -90,6 +90,7 @@ def ex_unit_tests(
         pre_load = [],
         size = "large",
         tags = [],
+        group_tags = {},
         **kwargs):
     """Declare one ex_unit_test per directory group, plus a test_suite over them.
 
@@ -113,6 +114,10 @@ def ex_unit_tests(
         the environment config/*.exs then reads -- deriving a database URL, for instance.
       size: Bazel test size. A group can hold hundreds of files, so "large".
       tags: Bazel tags applied to every generated target.
+      group_tags: extra tags for individual groups, keyed by group name (the part after
+        "<name>_" in the generated target). Use this rather than `tags` when one subsystem
+        needs to be quarantined -- tagging the whole suite `manual` would remove every
+        group from `//...` expansion, not just the broken one.
       **kwargs: forwarded to each ex_unit_test.
     """
 
@@ -224,6 +229,7 @@ def ex_unit_tests(
         # own <app_name>/ output directory ("one of the output paths ... is a prefix of the
         # other").
         target = "{}_{}".format(name, group)
+        target_tags = tags + group_tags.get(group, [])
         ex_unit_test(
             name = target,
             size = size,
@@ -237,11 +243,17 @@ def ex_unit_tests(
             data = target_data,
             elixir_opts = pre_load_opts + config_loader_opts + ["-r", test_helper],
             env = target_env,
-            tags = tags,
+            tags = target_tags,
             deps = deps,
             **kwargs
         )
-        tests.append(":" + target)
+
+        # A `manual` group is left OUT of the suite, not merely tagged. `manual` keeps a target
+        # out of WILDCARD expansion, but a test_suite naming it explicitly still pulls it in --
+        # so `bazel test //...` matches this suite, expands it, and runs the quarantined group
+        # anyway. Measured: tagging alone left the group running and failing.
+        if "manual" not in target_tags:
+            tests.append(":" + target)
 
     native.test_suite(
         name = name,

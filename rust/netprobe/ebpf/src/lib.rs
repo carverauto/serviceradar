@@ -875,15 +875,43 @@ fn emit_event(
     } else {
         attribution_gate_flow_key(&canonical_flow)
     };
-    let owner_record = current_pid_record(
-        ctx,
-        event_kind,
-        socket_address,
-        now,
-        old_state,
-        new_state,
-        canonical_flow.source_endpoint,
-    );
+    // Prefer socket owner map (filled at connect/accept). Only fall back to the
+    // current task when it has a non-zero pid — never attribute process identity
+    // from the idle task (pid 0 / swapper) or other zero-pid contexts.
+    let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
+    let owner_record = if let Some(owner) = cached_owner {
+        owner_pid_record(
+            owner,
+            event_kind,
+            socket_address,
+            now,
+            old_state,
+            new_state,
+            canonical_flow.source_endpoint,
+        )
+    } else {
+        let current = current_pid_record(
+            ctx,
+            event_kind,
+            socket_address,
+            now,
+            old_state,
+            new_state,
+            canonical_flow.source_endpoint,
+        );
+        if is_valid_process_owner_ids(current.pid, current.tgid) {
+            current
+        } else {
+            empty_process_owner_record(
+                event_kind,
+                socket_address,
+                now,
+                old_state,
+                new_state,
+                canonical_flow.source_endpoint,
+            )
+        }
+    };
     if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
         return;
     }
@@ -892,7 +920,12 @@ fn emit_event(
         return;
     };
     let record = entry.as_mut_ptr();
-    let comm = ctx.command().unwrap_or([0; 16]);
+    // Comm must match the process owner, not the currently running CPU task.
+    let comm = if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
+        process_comm(owner_record.tgid).unwrap_or_else(|| ctx.command().unwrap_or([0; 16]))
+    } else {
+        [0u8; 16]
+    };
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
     // FlowAttributionRecord. Every field is written before the slot is submitted.
@@ -918,9 +951,11 @@ fn emit_event(
         remove_flow_pid_by_key(&canonical_flow.key);
         remove_socket_pid_by_address(socket_address);
     } else {
-        record_process_info(record_ref, now);
-        record_flow_pid_by_key(&gate_flow_key, &owner_record);
-        record_socket_pid_by_address(socket_address, &owner_record);
+        if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
+            record_process_info(record_ref, now);
+            record_flow_pid_by_key(&gate_flow_key, &owner_record);
+            record_socket_pid_by_address(socket_address, &owner_record);
+        }
     }
 
     entry.submit(0);
@@ -946,22 +981,34 @@ fn emit_event_with_cached_owner(
         attribution_gate_flow_key(&canonical_flow)
     };
     let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
-    let owner_from_cache = cached_owner.is_some();
+    // State-change hooks often run in softirq / idle context. Process identity
+    // MUST come from the socket owner map only — never invent it from the
+    // currently scheduled task (that produces swapper/ksoftirq false owners).
     let owner_record = if let Some(owner) = cached_owner {
-        owner_pid_record(
-            owner,
-            event_kind,
-            socket_address,
-            now,
-            old_state,
-            new_state,
-            canonical_flow.source_endpoint,
-        )
+        if is_valid_process_owner_ids(owner.pid, owner.tgid) {
+            owner_pid_record(
+                owner,
+                event_kind,
+                socket_address,
+                now,
+                old_state,
+                new_state,
+                canonical_flow.source_endpoint,
+            )
+        } else {
+            empty_process_owner_record(
+                event_kind,
+                socket_address,
+                now,
+                old_state,
+                new_state,
+                canonical_flow.source_endpoint,
+            )
+        }
     } else if close_event {
         return;
     } else {
-        current_pid_record(
-            ctx,
+        empty_process_owner_record(
             event_kind,
             socket_address,
             now,
@@ -979,10 +1026,10 @@ fn emit_event_with_cached_owner(
         return;
     };
     let record = entry.as_mut_ptr();
-    let comm = if owner_from_cache {
+    let comm = if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
         process_comm(owner_record.tgid).unwrap_or([0; 16])
     } else {
-        ctx.command().unwrap_or([0; 16])
+        [0u8; 16]
     };
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
@@ -1008,7 +1055,7 @@ fn emit_event_with_cached_owner(
     if close_event {
         remove_flow_pid_by_key(&canonical_flow.key);
         remove_socket_pid_by_address(socket_address);
-    } else {
+    } else if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
         record_process_info(record_ref, now);
         record_flow_pid_by_key(&gate_flow_key, &owner_record);
     }
@@ -1034,8 +1081,46 @@ fn remember_current_socket_owner(
         new_state,
         0,
     );
+    // Never bind a socket to idle/zero-pid context — that permanently poisons
+    // later state-change attribution for the socket.
+    if !is_valid_process_owner_ids(owner.pid, owner.tgid) {
+        return;
+    }
     record_pid_process_info(&owner, ctx.command().unwrap_or([0; 16]), now);
     record_socket_pid_by_address(socket_address, &owner);
+}
+
+/// Process ids that can own a userspace socket. Pid 0 is the idle task
+/// (`swapper/*`); never treat it as a socket owner.
+#[inline(always)]
+fn is_valid_process_owner_ids(pid: u32, tgid: u32) -> bool {
+    pid != 0 && tgid != 0
+}
+
+#[inline(always)]
+fn empty_process_owner_record(
+    event_kind: u16,
+    socket_address: u64,
+    now: u64,
+    old_state: i32,
+    new_state: i32,
+    local_endpoint: u8,
+) -> FlowPidRecord {
+    FlowPidRecord {
+        version: EVENT_VERSION,
+        event_kind,
+        pid: 0,
+        tgid: 0,
+        uid: 0,
+        gid: 0,
+        socket_address,
+        last_seen_ns: now,
+        process_generation_ns: 0,
+        old_state,
+        new_state,
+        local_endpoint,
+        reserved: [0; 7],
+    }
 }
 
 #[inline(always)]

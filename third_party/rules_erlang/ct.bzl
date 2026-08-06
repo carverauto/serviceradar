@@ -77,7 +77,7 @@ def ct_suite_variant(
         name = name,
         suite_name = suite_name,
         is_windows = select({
-            "@bazel_tools//src/conditions:host_windows": True,
+            "@platforms//os:windows": True,
             "//conditions:default": False,
         }),
         compiled_suites = [":{}_beam_files".format(suite_name)] + additional_beam,
@@ -108,7 +108,7 @@ def ct_test(
         shard_suite = shard_suite,
         coverdata_to_lcov = coverdata_to_lcov,
         is_windows = select({
-            "@bazel_tools//src/conditions:host_windows": True,
+            "@platforms//os:windows": True,
             "//conditions:default": False,
         }),
         **kwargs

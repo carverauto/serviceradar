@@ -630,7 +630,8 @@ mod tests {
         }
 
         if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-            let candidate = Path::new(&manifest_dir).join("satori-corpus/xml");
+            let candidate =
+                Path::new(&manifest_dir).join("../../third_party/netprobe_corpora/satori/xml");
             if candidate.exists() {
                 return candidate;
             }
@@ -639,8 +640,8 @@ mod tests {
         if let Ok(test_srcdir) = env::var("TEST_SRCDIR") {
             let root = PathBuf::from(test_srcdir);
             for relative in [
-                "serviceradar/rust/netprobe/satori-corpus/xml",
-                "_main/rust/netprobe/satori-corpus/xml",
+                "serviceradar/third_party/netprobe_corpora/satori/xml",
+                "_main/third_party/netprobe_corpora/satori/xml",
             ] {
                 let candidate = root.join(relative);
                 if candidate.exists() {
@@ -651,7 +652,7 @@ mod tests {
 
         let mut current = env::current_dir().expect("current directory is available");
         loop {
-            let candidate = current.join("rust/netprobe/satori-corpus/xml");
+            let candidate = current.join("third_party/netprobe_corpora/satori/xml");
             if candidate.exists() {
                 return candidate;
             }

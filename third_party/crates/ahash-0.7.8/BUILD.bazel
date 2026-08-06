@@ -65,6 +65,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -139,6 +140,10 @@ rust_library(
             "//third_party/crates/once_cell-1.21.4:once_cell",  # cfg(not(all(target_arch = "arm", target_os = "none")))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "//third_party/crates/getrandom-0.2.17:getrandom",  # cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "solaris", target_os = "illumos", target_os = "fuchsia", target_os = "redox", target_os = "cloudabi", target_os = "haiku", target_os = "vxworks", target_os = "emscripten", target_os = "wasi"))
+            "//third_party/crates/once_cell-1.21.4:once_cell",  # cfg(not(all(target_arch = "arm", target_os = "none")))
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
             "//third_party/crates/getrandom-0.2.17:getrandom",  # cfg(any(target_os = "linux", target_os = "android", target_os = "windows", target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "solaris", target_os = "illumos", target_os = "fuchsia", target_os = "redox", target_os = "cloudabi", target_os = "haiku", target_os = "vxworks", target_os = "emscripten", target_os = "wasi"))
             "//third_party/crates/once_cell-1.21.4:once_cell",  # cfg(not(all(target_arch = "arm", target_os = "none")))
         ],

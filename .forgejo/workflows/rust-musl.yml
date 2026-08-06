@@ -63,9 +63,6 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
@@ -104,4 +101,4 @@ jobs:
       # It also caches. The old steps re-ran the assertions on every push regardless of
       # whether netprobe changed.
       - name: Verify static musl linkage
-        run: bazel test --config=ci //rust/netprobe:static_linkage_test
+        run: bazel test -c opt --config=ci //rust/netprobe:static_linkage_test

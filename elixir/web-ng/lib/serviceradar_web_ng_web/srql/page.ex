@@ -464,9 +464,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def route_target_for_entity(entity, fallback_path) when is_binary(entity) do
     config = Catalog.entity(entity)
+    route = Map.get(config, :route)
+
+    # Blank routes must fall back — empty string is truthy in Elixir and would
+    # make push_navigate receive only a query string ("?q=...").
+    path =
+      if is_binary(route) and String.trim(route) != "" do
+        route
+      else
+        fallback_path
+      end
 
     {
-      Map.get(config, :route) || fallback_path,
+      path,
       config |> Map.get(:route_params, %{}) |> normalize_extra_params()
     }
   end

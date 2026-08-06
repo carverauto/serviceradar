@@ -46,8 +46,8 @@ go_test(
     embed = [":banner_grab"],
     # `manual` is TEMPORARY and hides a real failure -- see openspec/notes/bazel-bb-ci.md.
     # assertIntegrationMatches requires an `ntp` product match, but the recog corpus cannot
-    # produce one: there is no recog-corpus/xml/ntp*.xml and serviceradar-recog-additions.xml
-    # has zero ntp entries. The only ntp.xml is under satori-corpus/, which feeds OS
+    # produce one: there is no third_party/netprobe_corpora/recog/xml/ntp*.xml and serviceradar-recog-additions.xml
+    # has zero ntp entries. The only ntp.xml is under third_party/netprobe_corpora/satori/, which feeds OS
     # fingerprint signals (SatoriTcp/Dhcp/Http/Ssh), not banner product matching.
     #
     # This was invisible until --allow-root was added to the sidecar launch: before that the

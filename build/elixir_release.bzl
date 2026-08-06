@@ -268,6 +268,16 @@ mix release {release_name}--no-compile --no-deps-check --overwrite --path "$RELE
 # Mix can leave links pointing back into _build. Materialize before archiving so the
 # tarball is self-contained inside the image.
 PACKAGED=$(mktemp -d)
+# mktemp -d creates 0700, and `tar -C "$PACKAGED" .` records that as the archive's `./`
+# entry -- which becomes the /app directory inside the image. The container runs as 10001 and
+# owns /app, so the application itself is fine, but 0700 stops anything else traversing it: a
+# debug shell as another uid, a sidecar, an exec probe.
+#
+# Fixed here rather than in the layer rule because the mode originates here, and every
+# consumer of this tar inherits it. Pre-existing: the old extract-and-repack genrule in
+# //docker/images:release_images.bzl restored this same 0700 onto its rootfs/app when it
+# unpacked `./`, so the image has always had it.
+chmod 755 "$PACKAGED"
 cp -RL "$RELEASE_DIR"/. "$PACKAGED"/
 
 # Replace byte-identical files with relative symlinks.
@@ -319,7 +329,16 @@ mkdir -p "$(dirname "$EXECROOT/{tar_out}")"
 find "$PACKAGED" -exec touch -h -t 200001010000.00 {{}} + 2>/dev/null || \
   find "$PACKAGED" -exec touch -t 200001010000.00 {{}} +
 
-tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED" .
+# OWNERSHIP IS SET HERE, NOT IN THE ROOTFS LAYER.
+#
+# //docker/images:release_images.bzl used to re-root this tar under /app with a genrule that
+# extracted it, re-touched every file and re-tarred with `--owner=10001 --group=10001`. That
+# genrule is now a pkg_tar, and pkg_tar's add_tar() takes only rootuid/rootgid (remap one uid
+# to 0) and `numeric` (strip owner NAMES) -- it has no way to force an owner onto a merged
+# tar, so the numeric uid/gid recorded here pass straight through into the image layer.
+#
+# Without this the container runs as 10001 against an /app owned by whoever built it.
+tar -czf "$EXECROOT/{tar_out}" --owner=10001 --group=10001 -C "$PACKAGED" .
 """.format(
         dedupe = _DEDUPE_SCRIPT,
         maybe_install_erlang = maybe_install_erlang(ctx),

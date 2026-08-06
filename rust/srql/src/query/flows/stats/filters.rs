@@ -147,6 +147,24 @@ fn build_stats_bidirectional_ip_filter(
     Ok(format!("({src}{joiner}{dst})"))
 }
 
+/// `port:` across both flow endpoint ports (stats path).
+fn build_stats_bidirectional_port_filter(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let src =
+        build_stats_bigint_filter("f.src_endpoint_port::bigint", filter, binds, "port")?;
+    let dst =
+        build_stats_bigint_filter("f.dst_endpoint_port::bigint", filter, binds, "port")?;
+
+    Ok(format!("({src}{joiner}{dst})"))
+}
+
 pub(in crate::query::flows) fn build_stats_filter_clause(
     filter: &Filter,
     binds: &mut Vec<FlowSqlBindValue>,
@@ -156,6 +174,7 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
         "ip" | "endpoint_ip" => build_stats_bidirectional_ip_filter(filter, binds),
+        "port" | "endpoint_port" => build_stats_bidirectional_port_filter(filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
@@ -190,6 +209,23 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         }
         "runtime_source" => {
             build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
+        }
+        "service_name" | "public_endpoint_service" | "k8s_service" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR_ALIASED, filter, binds)
+        }
+        "gateway_name" | "public_endpoint_gateway" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR_ALIASED, filter, binds)
+        }
+        "exposure_class" | "public_endpoint_class" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR_ALIASED, filter, binds)
+        }
+        "public_endpoint_namespace" => build_stats_text_filter(
+            ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR_ALIASED,
+            filter,
+            binds,
+        ),
+        "route_name" | "public_endpoint_route" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR_ALIASED, filter, binds)
         }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
         "input_snmp" | "in_if_index" => {

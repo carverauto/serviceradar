@@ -399,6 +399,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/app-sessions", RemoteAccessTargetIntentController, :create_app)
     post("/remote-access/tcp-sessions", RemoteAccessTargetIntentController, :create_tcp)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
+    get("/remote-access/devices/:device_uid/ssh-options", RemoteAccessSessionController, :ssh_options)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
     post("/remote-access/sessions/:id/webrtc/session", RemoteDesktopWebRTCController, :create_session)
@@ -842,6 +843,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Gateways
       live("/gateways", GatewayLive.Index, :index)
       live("/gateways/:gateway_id", GatewayLive.Show, :show)
+
+      # Kubernetes public VIP / Gateway ownership inventory
+      live("/inventory/public-endpoints", PublicEndpointsLive.Index, :index)
       live("/events", EventLive.Index, :index)
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)

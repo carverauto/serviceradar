@@ -64,6 +64,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -115,6 +116,9 @@ rust_library(
             "//third_party/crates/nix-0.29.0:nix",  # cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "android", target_os = "illumos"))
         ],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
+            "//third_party/crates/nix-0.29.0:nix",  # cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "android", target_os = "illumos"))
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
             "//third_party/crates/nix-0.29.0:nix",  # cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "android", target_os = "illumos"))
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [

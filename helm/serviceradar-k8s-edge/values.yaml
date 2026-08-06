@@ -1,0 +1,154 @@
+# ServiceRadar Kubernetes edge sensors only.
+# Does NOT install core, web-ng, NATS, CNPG, agent-gateway, or SPIRE.
+#
+# Customer provides:
+#   1. agent-gateway address (central self-host or serviceradar.cloud)
+#   2. mTLS materials from edge enrollment (Secret)
+#   3. durable clusterId for multi-cluster ownership rows
+#
+# Install:
+#   helm upgrade --install sr-edge ./helm/serviceradar-k8s-edge \
+#     -n serviceradar-edge --create-namespace \
+#     -f my-cluster-values.yaml
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  # Image tag for agent + k8s-inventory (semver or sha-*)
+  imageTag: "v1.4.29"
+  imageRegistry: "registry.carverauto.dev/serviceradar"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# Durable identity for this Kubernetes cluster in SRQL / ownership rows.
+# REQUIRED when inventory is enabled. Example: acme-prod-eks-us-east-1
+clusterId: ""
+
+# ---------------------------------------------------------------------------
+# Agent — outbound edge identity (required for remote delivery)
+# ---------------------------------------------------------------------------
+agent:
+  enabled: true
+  # Logical agent id enrolled with the platform (package / device identity).
+  agentId: "k8s-edge"
+  partitionId: "default"
+  # agent-gateway host:port (gRPC). Required when agent.enabled.
+  # Examples:
+  #   agent-gateway.serviceradar.cloud:443
+  #   agent-gateway.example.com:50052
+  #   203.0.113.10:50052
+  gatewayAddress: ""
+  # TLS server name for gateway cert verification (SNI / cert SAN).
+  gatewayServerName: "serviceradar-agent-gateway"
+  pushInterval: "30s"
+  statusDebounceInterval: "30s"
+  statusHeartbeatInterval: "5m"
+  # Cluster-plane sensor: no hostNetwork / NET_RAW by default.
+  hostNetwork: false
+  allowNetRaw: false
+  # Existing Secret with enrollment certs (see agent.tls.* file names).
+  # Create from edge package / onboarding bundle, for example:
+  #   kubectl -n serviceradar-edge create secret generic sr-edge-agent-mtls \
+  #     --from-file=root.pem=./root.pem \
+  #     --from-file=agent.pem=./agent.pem \
+  #     --from-file=agent-key.pem=./agent-key.pem
+  existingTlsSecret: ""
+  tls:
+    # Keys inside existingTlsSecret
+    caFile: "root.pem"
+    certFile: "agent.pem"
+    keyFile: "agent-key.pem"
+  # DEPRECATED, and honoured only so existing values files keep working. Set
+  # k8sInventory.spoolDir instead: the collector owns the data, and this path names the same
+  # shared emptyDir. If both are set they must be equal -- rendering fails otherwise, because a
+  # mismatch is invisible at runtime (the collector writes, the agent watches an empty
+  # directory, and every container stays healthy).
+  k8sInventorySpoolDir: "/var/lib/serviceradar/k8s-inventory/spool"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  # Extra env for agent container
+  extraEnv: []
+
+# ---------------------------------------------------------------------------
+# Public endpoint inventory — cluster-plane kube API watches
+# ---------------------------------------------------------------------------
+k8sInventory:
+  enabled: true
+  # agent_spool | stdout | none
+  # agent_spool: write snapshots for the co-located agent to forward (SaaS path).
+  # stdout: debug only. none: run watches without publishing.
+  # (Direct NATS requires full platform certs — use the main serviceradar chart.)
+  publishMode: agent_spool
+  # Empty = all namespaces. Prefer including ingress/gateway + app namespaces.
+  namespaces: []
+  gatewayAPI:
+    enabled: true
+  envoyProxyCRD:
+    enabled: false
+  resync:
+    period: "5m"
+    debounce: "2s"
+  metrics:
+    addr: ":9109"
+    port: 9109
+  # Authoritative shared spool path: the collector writes snapshots here and the agent's spool
+  # reader consumes them from the same emptyDir. Both containers' mounts and the agent's config
+  # file are rendered from this one value.
+  spoolDir: "/var/lib/serviceradar/k8s-inventory/spool"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # RBAC: ClusterRole (default) or namespace Roles only when namespaces is set
+  # and rbac.scope=namespace (experimental; ClusterRole is the supported default).
+  rbac:
+    scope: cluster  # cluster | namespace
+
+# Workload topology: single pod with agent + inventory containers (shared spool).
+# This is the supported sensors-only shape for remote clusters.
+pod:
+  # Annotations / labels applied to the edge pod
+  annotations: {}
+  labels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Security context for the pod (non-root where possible)
+  securityContext:
+    fsGroup: 1001
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+serviceAccount:
+  agent:
+    create: true
+    name: ""
+    annotations: {}
+  inventory:
+    create: true
+    name: ""
+    annotations: {}
+
+# Optional NetworkPolicy: allow inventory→apiserver and agent→gateway only.
+networkPolicy:
+  enabled: false
+  # CIDRs or additional egress for DNS / apiserver if needed
+  # kubeAPIServerCIDRs: []
+  # agentGatewayCIDRs: []
+
+service:
+  # Metrics Service for k8s-inventory (ClusterIP)
+  metrics:
+    enabled: true
+    type: ClusterIP
+    port: 9109
