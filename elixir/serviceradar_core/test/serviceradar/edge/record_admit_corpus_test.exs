@@ -69,35 +69,6 @@ defmodule ServiceRadar.Edge.RecordAdmitCorpusTest do
     end
   end
 
-  # The same deterministic filler Go's corpus uses: sha256 over a counter. Shared RECIPE,
-  # not shared bytes, for the vectors too large to commit.
-  defp chain_bytes(n) do
-    0
-    |> Stream.iterate(&(&1 + 1))
-    |> Stream.map(&:crypto.hash(:sha256, <<&1::big-64>>))
-    |> Enum.reduce_while(<<>>, fn block, acc ->
-      acc = acc <> block
-      if byte_size(acc) >= n, do: {:halt, acc}, else: {:cont, acc}
-    end)
-    |> binary_part(0, n)
-  end
-
-  defp tuned_body(total, incompressible) do
-    chain_bytes(incompressible) <> :binary.copy(<<0>>, total - incompressible)
-  end
-
-  defp zstd_record(body) do
-    payload = body |> :zstd.compress() |> IO.iodata_to_binary()
-
-    %EdgeRecordV1{
-      compression: :EDGE_RECORD_COMPRESSION_ZSTD,
-      payload: payload,
-      payload_sha256: :crypto.hash(:sha256, payload),
-      encoded_size: byte_size(payload),
-      uncompressed_size: byte_size(body)
-    }
-  end
-
   test "every shared vector reaches the SAME verdict in both runtimes" do
     for {file, want} <- manifest() do
       got = file |> record() |> verdict()
@@ -118,7 +89,11 @@ defmodule ServiceRadar.Edge.RecordAdmitCorpusTest do
            "manifest/disk disagree: #{inspect(MapSet.symmetric_difference(named, on_disk))}"
   end
 
-  test "the corpus covers every record-stage outcome the contract can produce" do
+  test "the corpus covers the record-stage outcomes it was BUILT to cover" do
+    # Not "every outcome the contract can produce" -- it deliberately omits some.
+    # `payload_too_large` would need a >512 KiB fixture to say what slice 2's constructed
+    # ceiling vectors already say at the frame API, and `:record` is an Elixir-only shape
+    # guard with no Go counterpart, so no shared vector can produce it.
     outcomes = MapSet.new(manifest(), fn {_, o} -> o end)
 
     assert outcomes ==
@@ -131,31 +106,57 @@ defmodule ServiceRadar.Edge.RecordAdmitCorpusTest do
              ])
   end
 
-  test "a body ABOVE the physical ceiling is transport-reachable" do
+  test "a body ABOVE the physical ceiling is transport-reachable, and is a REAL body" do
     # The two bounds are different KINDS: 512 KiB bounds RECEIVED BYTES, 32 MiB bounds
-    # EXTRACTED WORK. This vector's body exceeds the first and is still admitted, because
-    # what crossed the wire is the frame.
-    r = record("record_admit_reachable_body.bin")
+    # EXTRACTED WORK. This ABI accepts NONCANONICAL encodings -- the payload's identity is
+    # its digest over the exact received bytes, not a re-encoding -- so the padding rides in
+    # a duplicate of a singular field and last-one-wins yields the ordinary bounded batch.
+    r = record("record_admit_oversize_body.bin")
 
     assert r.uncompressed_size > @max_payload
     assert byte_size(r.payload) <= @max_payload
     assert Compression.admit_record(r) == :ok
+
+    assert {:ok, body} = Compression.decompress(r.payload, r.uncompressed_size)
+    assert byte_size(body) > @max_payload
+    assert {:ok, batch} = SweepBodyValidate.validate_bytes(body)
+    assert batch.availability_policy_id == "policy-1"
+  end
+
+  test "the COMPOSED vector carries a real contract body, not filler" do
+    # Admission looks at neither the envelope nor the decoded body, so a vector that stops
+    # at admission can be satisfied by an incomplete record carrying arbitrary bytes. This
+    # asserts the payload really is a valid contract message: extract ONCE, then validate.
+    #
+    # NOT SYMMETRIC WITH GO, deliberately. Go additionally runs ValidateRecord over these
+    # same bytes; this runtime has no whole-record validator to run, so it asserts the half
+    # it owns rather than implying a check it does not perform.
+    r = record("record_admit_composed_sweep.bin")
+
+    assert Compression.admit_record(r) == :ok
+    assert {:ok, body} = Compression.decompress(r.payload, r.uncompressed_size)
+    assert {:ok, _batch} = SweepBodyValidate.validate_bytes(body)
   end
 
   describe "the 32 MiB output ceiling, at RECORD scope" do
-    # CONSTRUCTED, NOT COMMITTED. The accepted side needs a frame that really produces
-    # 33_554_432 bytes while staying above 1/100th of it -- about 340 KiB of fixture, larger
-    # than every committed vector here combined. The window it must land in is ASSERTED
-    # below, so a compressor change fails loudly instead of quietly weakening the vector.
+    # COMMITTED, not constructed. Compressing a shared recipe independently in each runtime
+    # produces two different frames, so "the ceiling is inclusive" would have been asserted
+    # about two different inputs. Both halves below come from the SAME committed bytes.
     setup do
-      %{record: zstd_record(tuned_body(@max_uncompressed, 400_000))}
+      %{record: record("record_admit_output_ceiling.bin")}
     end
 
     test "exactly 32 MiB is ADMITTED, with the ratio slack so the CEILING is what decides",
          %{record: r} do
-      assert r.encoded_size <= @max_payload
+      assert r.uncompressed_size == @max_uncompressed
+      assert byte_size(r.payload) <= @max_payload
       assert @max_uncompressed <= r.encoded_size * @max_ratio
       assert Compression.admit_record(r) == :ok
+
+      # And the ceiling vector is a REAL contract body, not filler.
+      assert {:ok, body} = Compression.decompress(r.payload, r.uncompressed_size)
+      assert byte_size(body) == @max_uncompressed
+      assert {:ok, _batch} = SweepBodyValidate.validate_bytes(body)
     end
 
     test "one byte more is REFUSED, and the ratio still passes", %{record: r} do
@@ -163,6 +164,90 @@ defmodule ServiceRadar.Edge.RecordAdmitCorpusTest do
 
       assert over.uncompressed_size <= over.encoded_size * @max_ratio
       assert Compression.admit_record(over) == {:error, :uncompressed_size}
+    end
+  end
+
+  describe "admit_record/1 is TOTAL and fail-closed" do
+    test "a bare struct map is refused, not raised on" do
+      # `%EdgeRecordV1{} = r` matches this, and `r.payload` would then raise KeyError.
+      assert Compression.admit_record(%{__struct__: EdgeRecordV1}) == {:error, :record}
+    end
+
+    test "a TAGGED MAP carrying only the matched keys is refused" do
+      # A struct pattern checks `__struct__` and the keys it NAMES. This map satisfies every
+      # one of them and every guard, and is still not a record: the generated struct has
+      # twenty fields, this has six.
+      forged = %{
+        __struct__: EdgeRecordV1,
+        payload: <<>>,
+        payload_sha256: :crypto.hash(:sha256, <<>>),
+        encoded_size: 0,
+        uncompressed_size: 0,
+        compression: :EDGE_RECORD_COMPRESSION_NONE
+      }
+
+      assert map_size(forged) < map_size(EdgeRecordV1.__struct__())
+      assert Compression.admit_record(forged) == {:error, :record}
+    end
+
+    test "a SAME-ARITY map with a renamed field is refused" do
+      # Both forgeries above differ in SIZE from the generated struct, so a size-only check
+      # would pass them and prove nothing about the key NAMES. This one has exactly the right
+      # number of keys and the wrong set.
+      base = EdgeRecordV1.__struct__() |> Map.from_struct() |> Map.put(:__struct__, EdgeRecordV1)
+
+      forged =
+        base
+        |> Map.delete(:event_id)
+        |> Map.put(:not_a_record_field, nil)
+
+      assert map_size(forged) == map_size(EdgeRecordV1.__struct__())
+      assert Compression.admit_record(forged) == {:error, :record}
+    end
+
+    test "a map with EXTRA keys beside the full inventory is refused" do
+      # The inventory is compared both ways, so a superset is refused too.
+      forged =
+        EdgeRecordV1.__struct__()
+        |> Map.from_struct()
+        |> Map.put(:__struct__, EdgeRecordV1)
+        |> Map.put(:not_a_record_field, 1)
+
+      assert Compression.admit_record(forged) == {:error, :record}
+    end
+
+    test "a missing payload is REFUSED, not normalized to empty bytes" do
+      r = %EdgeRecordV1{
+        compression: :EDGE_RECORD_COMPRESSION_NONE,
+        payload: nil,
+        payload_sha256: :crypto.hash(:sha256, <<>>),
+        encoded_size: 0,
+        uncompressed_size: 0
+      }
+
+      assert Compression.admit_record(r) == {:error, :record}
+    end
+
+    test "FLOAT sizes are refused, which loose equality would have admitted" do
+      payload = "an uncompressed contract payload"
+
+      r = %EdgeRecordV1{
+        compression: :EDGE_RECORD_COMPRESSION_NONE,
+        payload: payload,
+        payload_sha256: :crypto.hash(:sha256, payload),
+        encoded_size: byte_size(payload),
+        uncompressed_size: byte_size(payload) * 1.0
+      }
+
+      # 32.0 == 32 is TRUE in Elixir, so the NONE arm would have accepted this.
+      assert r.uncompressed_size == r.encoded_size
+      assert Compression.admit_record(r) == {:error, :record}
+    end
+
+    test "non-records of every shape are refused" do
+      for bad <- [nil, :x, 42, "bytes", [1, 2], %{}, {:tuple}] do
+        assert Compression.admit_record(bad) == {:error, :record}, inspect(bad)
+      end
     end
   end
 

@@ -189,6 +189,13 @@ jobs:
       - name: Edge compression admission (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/compression_test.exs
+      # The RECORD-STAGE half of the same rule. The two suites above stop at the frame
+      # validator, which sees a payload and a declared size; the BINDING of encoded_size to
+      # the payload length and the ratio applied to declared sizes live in record
+      # validation, so a divergence there is invisible to both of them.
+      - name: Edge record-admission shared corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/record_admit_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps
