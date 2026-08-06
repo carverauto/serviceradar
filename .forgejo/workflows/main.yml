@@ -69,11 +69,47 @@ jobs:
           git checkout --detach FETCH_HEAD
 
       - name: Check native add-on version bumps
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          base_ref="${GITHUB_BASE_REF:-staging}"
-          git fetch --no-tags --depth=1 origin "${base_ref}"
-          scripts/check-native-addon-version-bumps.sh FETCH_HEAD HEAD
+
+          # THE BASE DIFFERS BY EVENT, and getting it wrong makes this step vacuous rather
+          # than wrong-looking. On a pull request the target branch is the right comparison.
+          # On `push: branches: [staging]` there is no GITHUB_BASE_REF, so the old code fell
+          # back to `staging` -- which on that event is the commit just pushed. The gate then
+          # diffed staging against itself and returned 0 no matter what the tree contained.
+          # d03bebf377 reached staging that way, carrying a changed netprobe payload under an
+          # unchanged version.
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+            base_ref="${GITHUB_BASE_REF:-staging}"
+            git fetch --no-tags --depth=1 origin "${base_ref}"
+            base="$(git rev-parse FETCH_HEAD)"
+          else
+            # The pushed range's starting point. The checkout above is --depth=1, so the base
+            # has to be fetched before it can be named.
+            base=""
+            if [ -n "${PUSH_BEFORE:-}" ] &&
+               [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ] &&
+               git fetch --no-tags --depth=1 origin "${PUSH_BEFORE}" 2>/dev/null; then
+              base="$(git rev-parse FETCH_HEAD)"
+            else
+              # Fall back to this commit's first parent -- the previous tip for both a merge
+              # and a direct push. It under-covers only a multi-commit direct push, which is
+              # not how staging is meant to receive changes anyway.
+              git fetch --no-tags --depth=2 origin "${GITHUB_SHA}"
+              base="$(git rev-parse "${GITHUB_SHA}^" 2>/dev/null || true)"
+            fi
+          fi
+
+          # No silent skip. The script refuses base == head for the same reason: a check that
+          # cannot fail reads exactly like a check that passed.
+          if [ -z "${base}" ]; then
+            echo "::error::could not determine a base commit for the add-on version gate" >&2
+            exit 1
+          fi
+
+          scripts/check-native-addon-version-bumps.sh "${base}" HEAD
 
       - name: Verify committed Rust vendor snapshot
         run: python3 scripts/check-rust-vendor-tracked.py

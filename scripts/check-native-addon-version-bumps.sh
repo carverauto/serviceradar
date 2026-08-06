@@ -21,6 +21,26 @@ if ! git rev-parse --verify "${HEAD_REF}^{commit}" >/dev/null 2>&1; then
   exit 2
 fi
 
+# A COMPARISON OF A COMMIT WITH ITSELF CHECKS NOTHING, and passing is the worst possible
+# answer: the step reports green and the payload rule is simply not applied.
+#
+# That is not hypothetical. On `push: branches: [staging]` there is no GITHUB_BASE_REF, so
+# the caller's base_ref fell back to `staging` -- which on that event IS the commit just
+# pushed. The gate diffed staging against itself and returned 0 even for 80c1c0fa45, the
+# commit that shipped a changed bumblebee payload under an unchanged version.
+#
+# Fail loudly instead. A caller that cannot name a meaningful base has a bug in the caller.
+if [[ "$(git rev-parse "${BASE_REF}^{commit}")" == "$(git rev-parse "${HEAD_REF}^{commit}")" ]]; then
+  cat >&2 <<EOF
+error: base and head are the same commit ($(git rev-parse --short "${HEAD_REF}^{commit}"))
+
+There is no diff to inspect, so this check would pass without examining anything. Pass the
+commit the change is being compared AGAINST -- the target branch for a pull request, or the
+previous tip for a push.
+EOF
+  exit 1
+fi
+
 version_from_yaml() {
   local ref="$1" path="$2"
   git show "${ref}:${path}" 2>/dev/null |
