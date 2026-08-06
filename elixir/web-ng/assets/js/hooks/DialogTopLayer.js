@@ -38,6 +38,7 @@ export default {
   _open() {
     if (typeof this.el.showModal !== "function") {
       this.el.setAttribute("open", "open")
+      this._focusAutofocus()
       return
     }
     if (!this.el.open) {
@@ -46,7 +47,29 @@ export default {
       } catch (_err) {
         // Ignore InvalidStateError if already open / not connected.
       }
+      // showModal() focuses the first focusable (often the close button). Prefer
+      // an explicit autofocus target so search fields are ready to type.
+      this._focusAutofocus()
     }
+  },
+
+  _focusAutofocus() {
+    const target =
+      this.el.querySelector("[data-dialog-autofocus]") || this.el.querySelector("[autofocus]")
+    if (!target || typeof target.focus !== "function") return
+
+    // Defer so showModal()'s own focus pass finishes first.
+    window.requestAnimationFrame(() => {
+      try {
+        target.focus({preventScroll: true})
+      } catch (_err) {
+        try {
+          target.focus()
+        } catch (_err2) {
+          // ignore
+        }
+      }
+    })
   },
 
   _handleOutsideClick(e) {
