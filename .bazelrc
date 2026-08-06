@@ -2,23 +2,23 @@
 # Keep this file minimal and import developer- or environment-specific overrides
 # via the optional .bazelrc.local and .bazelrc.remote files.
 
+# Write build outputs in a platform-specific directory;
+# avoid outputs being wiped and rewritten when switching between platforms.
+common --experimental_platform_in_output_dir
 common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
 common --curses=yes
-common --repository_cache=third_party/bazel-repo-cache
-common --repo_contents_cache=
-common --disk_cache=third_party/bazel-disk-cache
-common --distdir=third_party/distdir
+# Do NOT put repository_cache / disk_cache / distdir under the source tree.
+# Use Bazel defaults (~/.cache/bazel) or machine-local .bazelrc.local instead.
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
-
 # Detailed profiling in BuildBuddy
-# common --noslim_profile
+common --noslim_profile
 # common --experimental_profile_include_target_label
 # common --experimental_profile_include_primary_output
 
-build --keep_going
+#build --keep_going
 build --jobs=auto
 build --show_timestamps
 
@@ -150,7 +150,7 @@ build:no_remote --bes_backend=
 build:no_remote --bes_results_url=
 
 # CI profile can layer on top of the remote config without re-declaring values.
-build:ci --keep_going
+# build:ci --keep_going
 build:ci --noenable_platform_specific_config
 build:ci --config=remote_base
 build:ci --build_metadata=ROLE=CI
@@ -159,9 +159,9 @@ build:ci --build_metadata=ROLE=CI
 # purely to override a remote_base that pointed at BuildBuddy's cloud, which meant
 # --config=remote (and --config=el9) never got the fix.
 build:ci --remote_timeout=15m
-build:ci --strategy=ExpandTemplate=local
-build:ci --strategy=NpmPackageExtract=local
-build:ci --strategy=CopyDirectory=local
+# No --strategy=<Mnemonic>=local here. See the block above build:remote_base's execution
+# settings for why a forced-local strategy is broken under any config that repoints
+# --host_platform at the Linux RBE platform.
 
 # Detailed output only. Tag selection is NOT defaulted here: every call site states which
 # tags it wants, so what a command runs is readable from the command itself.
@@ -194,6 +194,10 @@ test:ci --test_output=errors
 # range. It is a client-side win, so it belongs on every remote profile rather than being a
 # flag someone has to remember per invocation.
 build:remote_base --remote_cache_compression
+# Compress blobs at or above 100 bytes. Also the 9.2 default; stated because it only means
+# anything alongside the line above, and a threshold silently drifting would look like a
+# network regression rather than a config change.
+build:remote_base --experimental_remote_cache_compression_threshold=100
 
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
@@ -225,7 +229,25 @@ build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 # does not depend on this flag -- that comes from --extra_execution_platforms below.
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
-build:remote_base --crosstool_top=@buildbuddy_toolchain//:toolchain
+
+# WHAT MAKES A DEVELOPER'S CACHE AND CI'S THE SAME CACHE is
+# `common --experimental_platform_in_output_dir` at the top of this file, combined with the
+# --host_platform above: the output directory is named from the target platform, which is
+# the RBE platform on every machine, so both produce bazel-out/rbe_platform-opt/... Output
+# paths are baked into action command lines, so a differing prefix means a differing action
+# key and two disjoint caches -- which is what `darwin_arm64-opt` vs `k8-opt` was.
+#
+# --cpu=k8 was the older way to force that agreement and is NOT what does it now. It is kept
+# only as a defensive pin: --experimental_platform_in_output_dir is an experimental flag, and
+# if it is ever dropped or renamed, --cpu is what the output directory falls back to. Nothing
+# else reads it -- no config_setting in this repo matches on `cpu`, and since Bazel 9 C++
+# toolchain selection is platform-based, not --cpu-based.
+build:remote_base --cpu=k8
+# --crosstool_top is deliberately absent. Bazel 9 removed --incompatible_enable_cc_toolchain_resolution
+# along with the legacy CROSSTOOL path it gated, so C++ toolchains now resolve through
+# platforms unconditionally. The flag still PARSES (it is a legacy no-op, and no longer
+# appears in `bazel help build`), which is exactly why it survived here unnoticed. The line
+# below is the one that actually registers the toolchain.
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
 # Note: EL9 platform with ZFS support is available via --config=el9
@@ -257,14 +279,19 @@ build:remote_base --incompatible_strict_action_env
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=64
-build:remote_base --strategy=ExpandTemplate=local
-# NpmPackageExtract is deliberately NOT pinned local. It runs aspect_bazel_lib's `tar`,
-# which comes from a toolchain resolved for the EXEC platform -- and this config pins
-# --host_platform/--extra_execution_platforms to the Linux RBE platform. Forcing the action
-# local therefore hands a macOS developer a linux_amd64 binary to run:
+# NO --strategy=<Mnemonic>=local ON ANY REMOTE PROFILE. This is a rule, not a preference.
+#
+# An action's TOOLS are resolved against the EXEC platform, which every remote profile pins
+# to the Linux RBE platform. `=local` changes only WHERE the action runs, never what it was
+# built to run, so it hands a macOS developer a linux_amd64 binary and executes it on Darwin:
 #     bsd_tar_linux_amd64/tar: cannot execute binary file   (Exit 126)
-# Any forced-local strategy for an action that uses an exec-platform tool has this bug.
-build:remote_base --strategy=CopyDirectory=local
+# The same bug applied to ExpandTemplate and CopyDirectory; there was nothing special about
+# NpmPackageExtract beyond it being the one that surfaced first.
+#
+# These lines were originally added to dodge slow or flaky remote actions. That is the wrong
+# lever: a genuinely local-only action declares `tags = ["no-remote"]` (or "local") on the
+# TARGET, where the exec platform is resolved consistently -- not as a global strategy
+# override that silently mismatches tool platform and execution platform for everyone.
 build:remote_base --action_env=OPENSSL_DIR=/usr
 build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
@@ -337,6 +364,7 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
 # registered Linux exec platforms can be selected for generated protobuf tools.
+build:macos --extra_execution_platforms=//build/platforms:darwin_arm64
 build:macos --config=darwin_local
 test:macos --config=darwin_local
 
@@ -349,7 +377,7 @@ build:el9 --noenable_platform_specific_config
 build:el9 --host_platform=//build/platforms:rbe_linux_el9
 build:el9 --platforms=//build/platforms:rbe_linux_el9
 build:el9 --extra_execution_platforms=//build/platforms:rbe_linux_el9
-build:el9 --crosstool_top=@buildbuddy_toolchain//:toolchain
+# No --crosstool_top here either -- legacy no-op since Bazel 9. See build:remote_base.
 build:el9 --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:el9 --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:el9 --copt=-Wno-use-after-free
@@ -365,9 +393,7 @@ build:el9 --remote_default_exec_properties=EstimatedMemory=8Gi
 build:el9 --remote_download_outputs=all
 build:el9 --remote_upload_local_results
 build:el9 --jobs=100
-build:el9 --strategy=ExpandTemplate=local
-build:el9 --strategy=NpmPackageExtract=local
-build:el9 --strategy=CopyDirectory=local
+# No forced-local strategies -- same reason as build:remote_base (exec-platform tools).
 build:el9 --action_env=OPENSSL_DIR=/usr
 build:el9 --action_env=OPENSSL_LIB_DIR=/usr/lib64
 build:el9 --action_env=OPENSSL_INCLUDE_DIR=/usr/include

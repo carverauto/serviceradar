@@ -4,8 +4,8 @@ use super::{
     dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, events, field_survey, flows, gateways,
     graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics, otel_metric_points,
-    otel_metrics, process_metrics, services, timeseries_metrics, trace_summaries, traces,
-    virtualization, viz, wifi_map,
+    otel_metrics, process_metrics, public_endpoints, services, timeseries_metrics, trace_summaries,
+    traces, virtualization, viz, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -43,6 +43,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Agents => agents::to_sql_and_params(&plan)?,
             Entity::AddonFleet => addon_fleet::to_sql_and_params(&plan)?,
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
+            Entity::PublicEndpoints => public_endpoints::to_sql_and_params(&plan)?,
             Entity::EndpointInventoryScans => endpoint_inventory_scans::to_sql_and_params(&plan)?,
             Entity::EndpointPackageCatalog => endpoint_package_catalog::to_sql_and_params(&plan)?,
             Entity::EndpointPackages => endpoint_packages::to_sql_and_params(&plan)?,

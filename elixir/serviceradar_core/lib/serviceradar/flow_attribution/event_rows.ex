@@ -80,6 +80,10 @@ defmodule ServiceRadar.FlowAttribution.EventRows do
   defp empty_map_to_nil(value) when is_map(value), do: value
   defp empty_map_to_nil(_value), do: nil
 
+  # Socket-scoped identity: one attribution row per (agent, 5-tuple), not per
+  # process. Host and container views of the same socket must collapse so a
+  # later containerized owner can replace a host-only dual emit (e.g. k3s-agent
+  # vs beam on the same pod IP:port) without process-name denylists.
   defp put_attribution_key(row) do
     key_parts = [
       Map.get(row, :agent_id),
@@ -87,11 +91,7 @@ defmodule ServiceRadar.FlowAttribution.EventRows do
       Map.fetch!(row, :local_ip),
       Map.fetch!(row, :local_port),
       Map.fetch!(row, :remote_ip),
-      Map.fetch!(row, :remote_port),
-      Map.get(row, :pid),
-      Map.get(row, :uid),
-      Map.get(row, :container_id),
-      Map.get(row, :comm)
+      Map.fetch!(row, :remote_port)
     ]
 
     Map.put(row, :attribution_key, attribution_key(key_parts))

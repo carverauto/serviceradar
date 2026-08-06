@@ -36,6 +36,17 @@ trivySidecar:
   enabled: true
   clusterId: demo
 
+# Public VIP ownership inventory (cluster-plane only; host agents stay without kube API).
+# Image must exist as serviceradar-k8s-inventory before the Deployment becomes Ready.
+k8sInventory:
+  enabled: true
+  clusterId: demo
+  gatewayAPI:
+    enabled: true
+  # MetalLB + Envoy Gateway demo; CRD optional for ownership (Service status is enough).
+  envoyProxyCRD:
+    enabled: false
+
 natsCreds:
   autoGenerate: true
 

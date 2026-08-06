@@ -231,6 +231,9 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	if s.config.EndpointInventory != nil && s.config.EndpointInventory.Enabled {
 		s.services = append(s.services, NewEndpointInventorySpoolService(s.config.AgentID, s.config.EndpointInventory))
 	}
+	if s.config.K8sPublicEndpoints != nil && s.config.K8sPublicEndpoints.Enabled {
+		s.services = append(s.services, NewK8sPublicEndpointsSpoolService(s.config.AgentID, s.config.K8sPublicEndpoints))
+	}
 
 	return nil
 }
