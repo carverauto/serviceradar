@@ -1,0 +1,23 @@
+k8s/buildbuddy/deploy-cache.sh
+  s_d2089df286db69::t_29c6f5c07a53aa 1-125
+k8s/buildbuddy/values-cache.yaml
+  s_d2089df286db69::t_d797ba2627e0e4 1-95
+k8s/buildbuddy/values.yaml
+  s_d2089df286db69::t_ff2c1702d7cf15 122-125,127-131,133-142,144-148,150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c291b526a752a35f05373b663f53050613dcac41",
+  "prompts": {},
+  "sessions": {
+    "s_d2089df286db69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b57c7de2-a8aa-4eed-96e0-3105307223de",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
