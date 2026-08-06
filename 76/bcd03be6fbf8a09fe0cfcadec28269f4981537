@@ -1,0 +1,20 @@
+.bazelrc
+  s_0eda1e1f71cc86::t_341d5e6e9ff9b8 157-175
+  s_0eda1e1f71cc86::t_bcd47adef13ade 396-399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "76bcd03be6fbf8a09fe0cfcadec28269f4981537",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
