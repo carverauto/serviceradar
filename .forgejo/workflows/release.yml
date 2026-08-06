@@ -415,8 +415,14 @@ jobs:
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
+            # --config=ci, matching buildbuddy.yaml, plus the one flag the deleted
+            # `remote_push` config carried that `ci` does not: --remote_download_outputs=all.
+            # ci inherits --remote_download_minimal from remote_base, which leaves the image
+            # layer tars in the CAS -- and sign-oci-publish.sh below reads them back out of
+            # `bazel info bazel-bin`. A later flag beats the one the config sets, which is why
+            # this belongs on the command line rather than in a publish-only config.
             run_remote_publish() {
-              bazel run --config=remote_push --stamp //:push "${extra_args[@]}"
+              bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push "${extra_args[@]}"
             }
 
             if ! run_remote_publish; then
@@ -429,6 +435,7 @@ jobs:
               elif [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
                 echo "Remote bazel retry failed; retrying locally without remote executor/cache" >&2
                 bazel run \
+                  -c opt \
                   --remote_executor= \
                   --remote_cache= \
                   --noremote_accept_cached \
@@ -558,7 +565,9 @@ jobs:
 
           run_remote() {
             bazel run \
-              --config=remote \
+              -c opt \
+              --config=ci \
+              --remote_download_outputs=all \
               --platforms=//build/platforms:linux_pkg_local \
               --stamp \
               //build/release:publish_packages \
@@ -567,6 +576,7 @@ jobs:
 
           run_local() {
             bazel run \
+              -c opt \
               --config=no_remote \
               --host_platform=@local_config_platform//:host \
               --platforms=//build/platforms:linux_pkg_local \

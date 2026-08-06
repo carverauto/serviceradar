@@ -243,6 +243,7 @@ jobs:
           # test:ci already sets --test_output=errors, and the "Dump Bazel test logs" step
           # below prints the logs of anything that failed.
           bazel test \
+            -c opt \
             --config=ci \
             --test_tag_filters=-manual \
             --test_env=PGSSLROOTCERT \

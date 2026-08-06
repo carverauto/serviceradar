@@ -143,11 +143,11 @@ jobs:
           set -euo pipefail
 
           mapfile -t targets < "${RUNNER_TEMP}/rust-test-targets.txt"
-          bazel build --config=ci "${targets[@]}"
+          bazel build -c opt --config=ci "${targets[@]}"
 
       - name: Run tests
         run: |
           set -euo pipefail
 
           mapfile -t targets < "${RUNNER_TEMP}/rust-test-targets.txt"
-          bazel test --config=ci --test_output=errors "${targets[@]}"
+          bazel test -c opt --config=ci --test_output=errors "${targets[@]}"

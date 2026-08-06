@@ -165,12 +165,12 @@ jobs:
       - name: Build (no publish)
         run: |
           bazel build \
-            --config=remote \
             -c opt \
+            --config=ci \
             //:images
 
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
+        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=ci
 
       - name: Publish images
         env:
@@ -181,7 +181,10 @@ jobs:
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          cmd=(bazel run --config=remote -c opt --stamp //:push)
+          # --remote_download_outputs=all overrides the --remote_download_minimal that
+          # --config=ci inherits: sign-oci-publish.sh below reads the image metadata back out
+          # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
+          cmd=(bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi

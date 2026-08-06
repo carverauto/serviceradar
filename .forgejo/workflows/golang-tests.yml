@@ -138,7 +138,7 @@ jobs:
           set -euo pipefail
 
           mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
-          bazel build --config=ci \
+          bazel build -c opt --config=ci \
             --@io_bazel_rules_go//go/config:pure=false \
             --@io_bazel_rules_go//go/config:race \
             "${targets[@]}"
@@ -169,7 +169,7 @@ jobs:
           set -euo pipefail
 
           mapfile -t targets < "${RUNNER_TEMP}/go-test-targets.txt"
-          bazel test --config=ci \
+          bazel test -c opt --config=ci \
             --@io_bazel_rules_go//go/config:pure=false \
             --@io_bazel_rules_go//go/config:race \
             --test_timeout=600 \
