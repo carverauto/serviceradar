@@ -199,10 +199,20 @@ Common SRQL entry points:
 ```text
 in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
 in:attributed_flows time:last_1h protocol_name:udp sort:time:desc limit:50
-in:attributed_flows time:last_1h service_name:forgejo-ssh sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
+in:flows time:last_24h port:22 sort:time:desc limit:50
+in:public_endpoints port:22 limit:50
 in:attributed_flows time:last_1h stats:"count(*) as total by agent_id, attribution_status" sort:total:desc
 in:addon_statuses addon_id:netprobe sort:reported_at:desc limit:50
 ```
+
+**Bidirectional helpers (no cross-field `OR`):** use `ip:` for either endpoint
+address and `port:` for either endpoint port. Do not write
+`(dst_port:22 OR src_port:22)` — that is not valid SRQL. See the
+[SRQL Cookbook](./srql-cookbook.md#attributed-flows-and-public-endpoints) and
+[language reference](./srql-language-reference.md).
 
 ## Validation
 

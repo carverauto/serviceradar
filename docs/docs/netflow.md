@@ -21,6 +21,21 @@ fields (`attribution.public_endpoint`). Inventory remains queryable via
 `in:public_endpoints` and does not require host agents to hold Kubernetes API
 credentials.
 
+**SRQL tips for investigation:**
+
+```srql
+in:flows time:last_24h port:22 sort:time:desc limit:50
+in:flows time:last_24h ip:<vip> sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:<vip> sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:<owner> sort:time:desc limit:50
+in:public_endpoints port:22 limit:50
+```
+
+`port:` and `ip:` match **either** side of the 5-tuple (there is no
+`(dst_port:X OR src_port:X)` syntax). Raw `in:flows` can show SSH while
+`in:attributed_flows port:22` is empty if process join has not fired yet. More
+recipes: [SRQL Cookbook](./srql-cookbook.md#attributed-flows-and-public-endpoints).
+
 ## Architecture Overview
 
 ServiceRadar uses a single canonical NetFlow ingest path:
