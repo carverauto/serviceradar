@@ -862,12 +862,16 @@ rounds, because the bytes added are zeros and barely move the frame size; failin
 is a hard failure rather than a near miss, since a vector one byte off an inclusive boundary
 proves nothing about it.
 
-The 32 MiB pair is CONSTRUCTED, not committed. To be admitted at exactly the ceiling, the
-frame must genuinely produce 33_554_432 bytes AND stay above 1/100th of that, which puts the
-fixture near 340 KiB -- larger than any existing fixture in the tree. The recipe is
-deterministic in both runtimes, and each asserts the frame landed inside the required size
-window with the ratio slack BEFORE asserting the verdict, so a compressor change fails the
-test rather than silently converting a ceiling vector into a ratio vector.
+The 32 MiB pair is COMMITTED, as `record_admit_output_ceiling.bin`, and both runtimes read
+those same bytes. An intermediate version had each runtime compress a shared RECIPE instead,
+which is not cross-language evidence at all: Go and OTP produce different frames from the
+same input, so "the ceiling is inclusive" would have been asserted about two different
+payloads and neither runtime would ever have seen the other's. The fixture is ~415 KiB,
+larger than anything else in the tree, and there is no cheaper one -- admitting exactly
+33_554_432 bytes of output within 100:1 REQUIRES at least 335_545 encoded bytes. The
+over-ceiling half is derived from the same committed bytes rather than committed twice, and
+both runtimes assert the ratio slack BEFORE the verdict so the CEILING is demonstrably what
+decides.
 
 THREE DEFECTS IN THE SLICE-2 VECTORS ARE WORTH RECORDING, because each was a test that
 looked like proof and was not.
