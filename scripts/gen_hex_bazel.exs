@@ -40,9 +40,9 @@ defmodule GenHexBazel do
     # Hex lock entry and the edge to it would be dropped. It is declared by hand in
     # MODULE.bazel; packages that name it need to resolve to that repo.
     "bundlex" => "@hex_bundlex//:erlang_app",
-    "connection" => "@serviceradar//elixir/connection:erlang_app",
-    "elixir_uuid" => "@serviceradar//elixir/elixir_uuid:erlang_app",
-    "opentelemetry_oban" => "@serviceradar//elixir/vendor/opentelemetry_oban:erlang_app",
+    "connection" => "@serviceradar//third_party/hex_vendored/connection:erlang_app",
+    "elixir_uuid" => "@serviceradar//third_party/hex_vendored/elixir_uuid:erlang_app",
+    "opentelemetry_oban" => "@serviceradar//third_party/hex_vendored/opentelemetry_oban:erlang_app",
     "serviceradar_srql" => "@serviceradar//elixir/serviceradar_srql:erlang_app"
   }
 

@@ -140,6 +140,15 @@ rust_library(
             "tzdb-concatenated",  # arm-unknown-linux-gnueabi
             "tzdb-zoneinfo",  # arm-unknown-linux-gnueabi
         ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "default",  # arm-unknown-linux-musleabi
+            "perf-inline",  # arm-unknown-linux-musleabi
+            "tz-fat",  # arm-unknown-linux-musleabi
+            "tz-system",  # arm-unknown-linux-musleabi
+            "tzdb-bundle-platform",  # arm-unknown-linux-musleabi
+            "tzdb-concatenated",  # arm-unknown-linux-musleabi
+            "tzdb-zoneinfo",  # arm-unknown-linux-musleabi
+        ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "default",  # armv7-linux-androideabi
             "perf-inline",  # armv7-linux-androideabi
@@ -385,6 +394,7 @@ rust_library(
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],

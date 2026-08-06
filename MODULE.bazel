@@ -7,14 +7,14 @@ module(
 # --- Bazel dependencies  ----------------------------------
 bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
-bazel_dep(name = "rules_rust", version = "0.69.0")
-bazel_dep(name = "rules_rust_prost", version = "0.69.0")
+bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_rust_prost", version = "0.73.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
-bazel_dep(name = "rules_nodejs", version = "6.6.0")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_oci", version = "2.3.0")
-bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "rules_pkg", version = "1.2.0")
 bazel_dep(name = "rules_erlang", version = "3.16.0")
 bazel_dep(name = "rules_elixir", version = "1.1.0")
 bazel_dep(name = "platforms", version = "1.1.0")
@@ -2599,13 +2599,27 @@ oci_ext.pull(
 # no tag resolution. Every other pull in this file was already pinned this way.
 #
 # To move to a newer image, re-resolve the tag deliberately:
-#   tok=$(curl -s "https://ghcr.io/token?scope=repository:cloudnative-pg/postgresql:pull&service=ghcr.io" | jq -r .token)
-#   curl -sI -H "Authorization: Bearer $tok" \
-#     -H "Accept: application/vnd.oci.image.index.v1+json" \
-#     https://ghcr.io/v2/cloudnative-pg/postgresql/manifests/18-bookworm | grep -i docker-content-digest
+#   crane digest ghcr.io/cloudnative-pg/postgresql:18.4-system-bookworm
+#
+# The tag MUST be `18.<minor>-system-bookworm`. Two ways to get this wrong, both of
+# which have already happened:
+#
+#   `18-bookworm`  -- abandoned upstream at 18~rc1 (2025-09-08) and never moved, so
+#                     it silently builds a release candidate. A build from it was
+#                     pushed over 18.3.0-sr5, which let Harbor garbage-collect the
+#                     manifests demo and srql-fixtures were pinned to.
+#   `18.4`         -- resolves to the BULLSEYE build (18.4-1.pgdg11+1). Postgres
+#                     starts, and then PostGIS does not load: our prebuilt postgis
+#                     deb is a bookworm build wanting libldap-2.5.so.0, and bullseye
+#                     ships 2.4. Timescale, AGE and pgvector give no hint of it.
+#
+# Both parts of the suffix are load-bearing. `system` is the flavor the extension
+# layers are built against, and `bookworm` has to match the Debian release every
+# overlaid deb comes from -- libc6, libc6-dev, libssl-dev, postgis, pgvector. Confirm
+# with the base.name label, which must read debian:bookworm-slim.
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
-    digest = "sha256:2a8ab71d3b3acddda5abeba2b97d84888fb0dfb1bc0eeb501ce3bade9b418c36",
+    digest = "sha256:63ba2470bb07cd0f4492c1f088689a6a01bbf20b5c5fc6c6472507353d14002c",
     image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
@@ -2753,6 +2767,7 @@ use_repo(
     "com_github_swaggo_swag",
     "com_github_tetratelabs_wazero",
     "in_gopkg_yaml_v3",
+    "io_k8s_api",
     "io_k8s_apimachinery",
     "io_k8s_client_go",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
@@ -2836,7 +2851,7 @@ register_toolchains(
 # //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
 # splicing step. See openspec migrate-bazel-rust-crate-vendoring.
 
-rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+rdp_connector_crates = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 rdp_connector_crates.from_cargo(
     name = "rdp_connector_crates",
     cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
@@ -2909,6 +2924,7 @@ register_toolchains(
 
 # web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+
 #
 # pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
 # to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a
@@ -3106,9 +3122,9 @@ tinygo_host_repository(
 
 http_file(
     name = "postgresql_server_dev_18_deb",
-    sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
+    sha256 = "bb45f27f6072e8109b9a67e390ff0139ab493f681ec05d1cfed139b101187c00",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.3-1.pgdg12%2B1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.4-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
@@ -3264,6 +3280,40 @@ http_file(
     sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
     urls = [
         "https://deb.debian.org/debian/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# Sysroot for the CNPG from-source extension layers, so TimescaleDB and AGE compile
+# against the runtime's glibc instead of the RBE executor's. Keep libc6-dev's version
+# EXACTLY equal to debian_libc6_amd64_deb above -- headers and shared object have to
+# describe the same glibc, or the floor this is meant to pin moves again.
+# See docker/images/cnpg_image.bzl for what breaks without it.
+http_file(
+    name = "debian_libc6_dev_amd64_deb",
+    sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# libc6-dev depends on this; glibc's headers include <asm/*.h> and <linux/*.h>, and a
+# --sysroot search path finds nothing outside the sysroot.
+http_file(
+    name = "debian_linux_libc_dev_amd64_deb",
+    sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+    ],
+)
+
+# Also part of the sysroot: --sysroot hides the executor's /usr/include entirely, and
+# TimescaleDB's src/net/conn_ssl.c includes <openssl/err.h>. Matches the libssl3 that
+# bookworm -- and therefore the CNPG base -- ships at runtime.
+http_file(
+    name = "debian_libssl_dev_amd64_deb",
+    sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
     ],
 )
 
@@ -3947,7 +3997,29 @@ filegroup(
 """,
     sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
     strip_prefix = "apache-age-1.7.0",
+    # ARCHIVE FIRST, downloads.apache.org SECOND, and that order is the fix.
+    #
+    # downloads.apache.org carries only the CURRENT release of a project. AGE 1.8.0 shipped,
+    # 1.7.0 was rotated off, and the pinned URL began returning 404 -- breaking `bazel build
+    # //...` in the LOADING phase with an error that names neither Apache nor a network:
+    #
+    #   ERROR: no such package '@@+http_archive+age_src//': ... GET returned 404 Not Found
+    #   ERROR: database/age/BUILD.bazel:6:18: //database/age:source_tree depends on
+    #          @@+http_archive+age_src//:all_srcs ... which failed to fetch
+    #
+    # It stayed invisible on any machine whose repository cache still held the tarball from
+    # before the rotation, so it looked like a CI-only fault for as long as one developer's
+    # cache was warm. Nothing about the build changed; the artifact moved.
+    #
+    # archive.apache.org is the permanent home -- every Apache release stays there forever,
+    # which is exactly the property a pinned dependency needs. Verified byte-identical to the
+    # sha256 above (5,529,925 bytes) before being listed, so this is the same artifact by a
+    # durable URL, not a version bump. Moving to 1.8.0 is a separate, deliberate change.
+    #
+    # downloads.apache.org is kept second: it is faster and mirror-backed while a version is
+    # current, and harmless once it 404s because Bazel simply tries the next URL.
     urls = [
+        "https://archive.apache.org/dist/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
         "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
     ],
 )

@@ -26,17 +26,8 @@ ctx/
 .DS_Store
 .claude/
 
-# Local tool caches
 .beads/
 .local-dev-certs/
-third_party/bazel-disk-cache/
-third_party/bazel-repo-cache/
-# Both patterns above contain a slash, so git anchors them to the repo root. Running bazel
-# from a subdirectory writes a cache there instead, and nothing matched it: go/third_party/
-# accumulated 7,951 committed files and 860 MB on disk before anyone noticed. These two carry
-# no slash, so they match a directory of that name at any depth.
-bazel-disk-cache/
-bazel-repo-cache/
 docker/compose/creds/
 
 # Added by me

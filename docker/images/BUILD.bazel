@@ -23,6 +23,7 @@ load(
 )
 
 exports_files([
+    "check_extension_abi.py",
     "export_rootfs_from_layout.py",
     "extract_rootfs.py",
     "image_inventory.bzl",
@@ -217,6 +218,29 @@ declare_service_container_amd64(
         "usr/local/bin/serviceradar-trivy-sidecar": "0755",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar:local"],
+    runtime = "alpine_netutils",
+    workdir = "/var/lib/serviceradar",
+)
+
+declare_service_container_amd64(
+    name = "k8s_inventory_image_amd64",
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-k8s-inventory"],
+    # Container entrypoint convention: binary + subcommand for long-running mode.
+    cmd = ["run"],
+    exposed_ports = ["9109/tcp"],
+    files = {
+        "//go/cmd/k8s-inventory:k8s-inventory": "usr/local/bin/serviceradar-k8s-inventory",
+    },
+    image_title = "serviceradar-k8s-inventory",
+    modes = {
+        "usr/local/bin/serviceradar-k8s-inventory": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-k8s-inventory:local"],
     runtime = "alpine_netutils",
     workdir = "/var/lib/serviceradar",
 )

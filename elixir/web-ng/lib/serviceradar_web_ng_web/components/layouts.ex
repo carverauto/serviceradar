@@ -211,7 +211,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/services"}
                   label="Services"
                   icon="hero-cog-6-tooth"
-                  active={@current_path in ["/services", "/gateways"]}
+                  active={
+                    @current_path in ["/services", "/gateways"] or
+                      (@current_path &&
+                         String.starts_with?(@current_path, "/inventory/public-endpoints"))
+                  }
                 />
               </li>
               <li :if={FeatureFlags.god_view_enabled?()}>

@@ -1593,6 +1593,20 @@ if config_env() == :prod do
           batch_size: 100,
           batch_timeout: 1_000
         },
+        # Public VIP / Gateway ownership inventory (add-k8s-public-endpoint-inventory).
+        %{
+          name: "K8S_INVENTORY",
+          stream_name: "k8s_inventory",
+          subject: "inventory.k8s.public_endpoints",
+          processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
+          batch_size: 1,
+          batch_timeout: 2_000,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 1_073_741_824,
+          stream_max_age: 86_400_000_000_000
+        },
         %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",

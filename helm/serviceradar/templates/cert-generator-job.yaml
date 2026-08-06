@@ -155,6 +155,8 @@ spec:
               "falcosidekick-key.pem",
               "trivy-sidecar.pem",
               "trivy-sidecar-key.pem",
+              "k8s-inventory.pem",
+              "k8s-inventory-key.pem",
               "runtime-cert-layout-version",
               agent_component_cert,
               agent_component_key,
@@ -168,7 +170,7 @@ spec:
 
             invalid = []
             root_cert = os.path.join(cert_dir, "root.pem")
-            for name in ["trivy-sidecar.pem"]:
+            for name in ["trivy-sidecar.pem", "k8s-inventory.pem"]:
               cert_path = os.path.join(cert_dir, name)
               if os.path.exists(root_cert) and os.path.exists(cert_path):
                 result = subprocess.run(

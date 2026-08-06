@@ -1,0 +1,33 @@
+"""Vendored fingerprint corpora consumed by //rust/netprobe. See README.md.
+
+One package covers all four corpora rather than a BUILD file per corpus, because
+the Satori tree must stay data-only: scripts/check-netprobe-fingerprint-licenses.sh
+fails on ANY file under satori/ that is not XML data, a license, or a readme. That
+guard exists because the Satori XML is GPLv2 and is only redistributable here as
+replaceable data. Putting a BUILD file inside it would trip the gate; putting one
+here keeps every corpus directory free of build system files.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+# p0f: read by rust/netprobe/build.rs, and include_str!'d into the binary
+# (LGPL-2.1 upstream + CC0-1.0 additions -- embedding is fine, unlike Satori).
+exports_files([
+    "p0f/p0f.fp",
+    "p0f/serviceradar-additions.fp",
+    "recog/serviceradar-recog-additions.xml",
+])
+
+# Recog XML (BSD-2-Clause): build.rs walks this whole directory and generates
+# match tables, so the glob must stay in sync with what build.rs reads.
+filegroup(
+    name = "recog_xml",
+    srcs = glob(["recog/xml/*.xml"]),
+)
+
+# Satori XML (GPLv2): runtime-loaded as replaceable data, never embedded. This is
+# test data only -- //rust/netprobe:netprobe_test locates it through runfiles.
+filegroup(
+    name = "satori_xml",
+    srcs = glob(["satori/xml/*.xml"]),
+)

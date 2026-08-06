@@ -47,17 +47,24 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 
 | Path | Bazel targets | Notes |
 | --- | --- | --- |
-| `elixir/connection` | `erlang_app` | Vendored `Connection`; shadows the Hex package |
-| `elixir/elixir_uuid` | `erlang_app` | Vendored; shadows the Hex package |
 | `elixir/datasvc` | `erlang_app` | gRPC data service |
 | `elixir/serviceradar_srql` | `erlang_app` | Wraps the `srql_nif` Rust NIF |
 | `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_s0..s7`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
-| `elixir/vendor/opentelemetry_oban` | `erlang_app` | Vendored fork |
-| `elixir/vendor/boombox` | `srcs` only | Source filegroup for releases |
 | `elixir/palisade` | none | No BUILD file, not wired into Bazel |
+
+Vendored Hex packages that used to sit in this tree now live in
+`//third_party/hex_vendored`, with the rest of the vendored code. They are still
+Mix path deps and Bazel `mix_app`s; only the path changed.
+
+| Path | Bazel targets | Notes |
+| --- | --- | --- |
+| `third_party/hex_vendored/connection` | `erlang_app` | Vendored `Connection`; shadows the Hex package |
+| `third_party/hex_vendored/elixir_uuid` | `erlang_app` | Vendored; shadows the Hex package |
+| `third_party/hex_vendored/opentelemetry_oban` | `erlang_app` | Vendored fork |
+| `third_party/hex_vendored/boombox` | `erlang_app` | Patched Hex boombox (hackney source removed); single copy read by both Mix and Bazel |
 
 Shared Starlark lives in `//build`:
 

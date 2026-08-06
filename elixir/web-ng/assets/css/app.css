@@ -249,9 +249,21 @@
   background: var(--color-sr-subtle, var(--color-base-200));
 }
 
+.srql-dropdown__item span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .srql-dropdown__item span:last-child {
+  flex-shrink: 0;
   color: var(--color-sr-muted, color-mix(in srgb, var(--color-base-content) 55%, transparent));
   font-family: inherit;
+  font-size: 0.75rem;
+}
+
+.srql-dropdown__item--history span:first-child {
   font-size: 0.75rem;
 }
 
@@ -541,7 +553,9 @@
 html,
 body {
   max-width: 100%;
-  overflow-x: hidden;
+  /* clip (not hidden): hides horizontal spill without creating a scroll
+     container that breaks position:sticky on the ops topbar / public topbar */
+  overflow-x: clip;
   font-family: var(--sr-font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -1941,7 +1955,7 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(10, 17, 20, 0.98), rgba(16, 25, 29, 0.96));
   --sr-ops-border: rgba(38, 54, 58, 0.95);
   --sr-ops-border-soft: rgba(38, 54, 58, 0.75);
-  --sr-ops-topbar-bg: rgba(16, 25, 29, 0.9);
+  --sr-ops-topbar-bg: rgba(16, 25, 29, 0.94);
   --sr-ops-query-bg: rgba(10, 17, 20, 0.78);
   --sr-ops-querybuilder-bg: rgba(16, 25, 29, 0.94);
   --sr-ops-title: #edf5f1;
@@ -1952,10 +1966,16 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-avatar-border: rgba(59, 76, 80, 0.9);
   --sr-ops-brand-mark-bg: rgba(17, 28, 32, 0.96);
   --sr-ops-brand-mark-border: rgba(59, 76, 80, 0.9);
+  /* Pinned chrome dimensions — fixed rail + sticky full-bleed topbar */
+  --sr-ops-rail-width: 4.25rem;
+  --sr-ops-topbar-height: 4rem;
 
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 4.25rem minmax(0, 1fr);
+  min-height: 100dvh;
+  /* Fixed rail is out of flow; main column takes the rest */
+  display: block;
+  padding-left: var(--sr-ops-rail-width);
+  box-sizing: border-box;
   background: var(--sr-ops-shell-bg);
   color: var(--sr-ops-shell-text);
   font-family: var(--sr-font-sans);
@@ -1970,7 +1990,7 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
   --sr-ops-sidebar-bg: linear-gradient(180deg, rgba(252, 253, 253, 0.98), rgba(239, 244, 241, 0.96));
   --sr-ops-border: rgba(200, 211, 206, 0.9);
   --sr-ops-border-soft: rgba(221, 228, 225, 0.95);
-  --sr-ops-topbar-bg: rgba(252, 253, 253, 0.92);
+  --sr-ops-topbar-bg: rgba(252, 253, 253, 0.96);
   --sr-ops-query-bg: rgba(255, 255, 255, 0.86);
   --sr-ops-querybuilder-bg: rgba(247, 249, 248, 0.96);
   --sr-ops-title: #0b1720;
@@ -1989,15 +2009,22 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
 }
 
 .sr-ops-sidebar {
-  position: sticky;
+  /* Fixed to the viewport so the rail never scrolls away with page content */
+  position: fixed;
   top: 0;
-  z-index: 20;
+  left: 0;
+  bottom: 0;
+  z-index: 30;
+  width: var(--sr-ops-rail-width);
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   border-right: 1px solid var(--sr-ops-border);
+  border-radius: 0;
   background: var(--sr-ops-sidebar-bg);
+  box-shadow: none;
   padding: 0.75rem 0.5rem;
 }
 
@@ -2101,36 +2128,37 @@ input[type="radio"].sr-ui-tab:checked + .sr-ui-tab-content {
 .sr-ops-main {
   min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
 
 .sr-ops-topbar {
-  /* Sticky + explicit z-index lifts the topbar's stacking context above the
-     dashboard content below it. Without a real z-index the backdrop-filter
-     alone only creates a z-index:auto stacking context, so dashboard widgets
-     (map/charts via transform/filter/z-index, which come later in the DOM)
-     paint over the topbar — hiding the profile dropdown and the topbar SRQL
-     completions dropdown. Stays below daisyUI modals/drawers/dropdowns (z 999)
-     and native <dialog> top-layer, so overlays still cover the topbar. */
+  /* Sticky full-bleed bar — pins to the top of the viewport while content
+     scrolls. Variable height (SRQL row can wrap). Square edges, not a card.
+     body overflow-x is clip (not hidden) so sticky is not broken. */
   position: sticky;
   top: 0;
   z-index: var(--sr-z-shell);
-  min-height: 4rem;
+  min-height: var(--sr-ops-topbar-height, 4rem);
   height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  border: 0;
   border-bottom: 1px solid var(--sr-ops-border-soft);
+  border-radius: 0;
   background: var(--sr-ops-topbar-bg);
+  box-shadow: none;
   padding: 0.5rem 1.25rem;
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 [data-theme="light"] .sr-ops-topbar {
   border-bottom-color: rgba(148, 163, 184, 0.4);
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .sr-ops-topbar-title {
@@ -2291,14 +2319,19 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   color: var(--sr-ops-hover-text);
 }
 
-/* Public / standard shell topbar — marketing-aligned sticky chrome */
+/* Public / standard shell topbar — full-bleed sticky chrome */
 .sr-public-topbar {
   position: sticky;
   top: 0;
   z-index: var(--sr-z-shell);
+  margin: 0;
+  border: 0;
   border-bottom: 1px solid var(--sr-color-line);
+  border-radius: 0;
   background: color-mix(in srgb, var(--sr-color-surface) 90%, transparent);
+  box-shadow: none;
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .sr-public-topbar-inner {
@@ -6613,14 +6646,21 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
 @media (max-width: 760px) {
   .sr-ops-shell {
-    grid-template-columns: 1fr;
+    padding-left: 0;
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .sr-ops-main {
+    min-height: 0;
   }
 
   .sr-ops-topbar {
+    top: 0;
     height: auto;
     min-height: 3.25rem;
     gap: 0.5rem;
     padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+    border-radius: 0;
   }
 
   .sr-ops-topbar-title {
@@ -6658,12 +6698,14 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     bottom: 0;
     top: auto;
     z-index: 40;
-    height: 4rem;
+    width: 100%;
+    height: calc(4rem + env(safe-area-inset-bottom, 0px));
     flex-direction: row;
     justify-content: center;
     border-right: 0;
     border-top: 1px solid var(--sr-ops-border);
-    padding: 0.45rem;
+    border-radius: 0;
+    padding: 0.45rem 0.45rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
   }
 
   .sr-ops-logo,
@@ -6679,7 +6721,7 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   }
 
   .sr-ops-content {
-    padding: 0.5rem 0.5rem 4.5rem;
+    padding: 0.5rem 0.5rem 0.75rem;
   }
 
   .sr-camera-toolbar {

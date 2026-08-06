@@ -1,3 +1,4 @@
+import {filterHistory, pushHistory} from "../lib/srql/queryHistory.js"
 import {isDynamicKeyField, tokenize} from "../lib/srql/tokenizer.js"
 
 const BOOLEAN_VALUES = ["true", "false"]
@@ -20,6 +21,7 @@ const HINT_ROLE_LABELS = {
   control: "Control token",
   entity: "Entity",
   field: "Field",
+  history: "Recent query",
   op: "Operator",
   value: "Value",
 }
@@ -43,6 +45,7 @@ export default {
   mounted() {
     this.input = this.el
     this.frame = this.input.closest("[data-srql-input-frame]")
+    this.form = this.input.closest("form")
     this.overlay = this.frame?.querySelector("[data-srql-input-overlay]")
     this.dropdown = this.frame?.querySelector("[data-srql-input-dropdown]")
     this.hint = this.frame?.querySelector("[data-srql-input-hint]")
@@ -50,6 +53,11 @@ export default {
     this.candidates = []
     this.highlighted = 0
     this.dropdownOpen = false
+    this.historyStorage = globalThis.localStorage
+
+    // Native <datalist> (list=) races the custom dropdown: empty-bar history flashes
+    // then a browser suggestion list of every field token paints over it.
+    this.detachNativeDatalist()
 
     this.onInput = () => {
       this.forceAllCandidates = false
@@ -64,6 +72,7 @@ export default {
     this.onBlur = () => setTimeout(() => this.close(), 120)
     this.onScroll = () => this.syncOverlayScroll()
     this.onCatalogStale = () => this.loadCatalog({force: true})
+    this.onSubmit = () => this.recordHistory(this.input.value)
 
     this.input.addEventListener("input", this.onInput)
     this.input.addEventListener("click", this.onClick)
@@ -71,9 +80,24 @@ export default {
     this.input.addEventListener("keydown", this.onKeydown)
     this.input.addEventListener("blur", this.onBlur)
     this.input.addEventListener("scroll", this.onScroll)
+    this.form?.addEventListener("submit", this.onSubmit)
     window.addEventListener("phx:srql:catalog-stale", this.onCatalogStale)
 
     this.loadCatalog()
+  },
+
+  // LiveView re-morphs the input and can reattach list=/datalist from server HTML;
+  // re-strip on every patch so the browser suggestion list cannot return.
+  updated() {
+    this.input = this.el
+    this.frame = this.input.closest("[data-srql-input-frame]")
+    this.overlay = this.frame?.querySelector("[data-srql-input-overlay]")
+    this.dropdown = this.frame?.querySelector("[data-srql-input-dropdown]")
+    this.hint = this.frame?.querySelector("[data-srql-input-hint]")
+    this.detachNativeDatalist()
+    if (this.input === document.activeElement) {
+      this.updateState({open: true})
+    }
   },
 
   destroyed() {
@@ -83,6 +107,7 @@ export default {
     this.input.removeEventListener("keydown", this.onKeydown)
     this.input.removeEventListener("blur", this.onBlur)
     this.input.removeEventListener("scroll", this.onScroll)
+    this.form?.removeEventListener("submit", this.onSubmit)
     window.removeEventListener("phx:srql:catalog-stale", this.onCatalogStale)
   },
 
@@ -91,9 +116,13 @@ export default {
     // Revalidate periodically so newly-added catalog fields (e.g. events.id)
     // are picked up after a hot reload without requiring a full page refresh.
     const fresh = cache.data && cache.freshUntil && Date.now() < cache.freshUntil
+    // Keep the dropdown open across catalog load if the bar is focused so empty-bar
+    // history does not flash and then get closed when the catalog arrives.
+    const keepOpen = () => this.input === document.activeElement
+
     if (!force && fresh) {
       this.catalog = cache.data
-      this.updateState()
+      this.updateState({open: keepOpen()})
       return
     }
 
@@ -102,7 +131,7 @@ export default {
       await cache.inflight
       this.catalog = cache.data
 
-      this.updateState()
+      this.updateState({open: keepOpen()})
     } catch (_error) {
       this.catalog = null
       this.close()
@@ -112,7 +141,8 @@ export default {
   },
 
   handleKeydown(event) {
-    if (!this.catalog) return
+    // History works without a catalog; token completions need one.
+    if (!this.catalog && this.candidates.length === 0) return
 
     if ((event.key === "Tab" || event.key === "Enter") && this.candidates.length > 0) {
       event.preventDefault()
@@ -143,9 +173,23 @@ export default {
   },
 
   updateState({open = false} = {}) {
-    if (!this.catalog) return
+    // LiveView patches (and some browsers) re-bind list=; strip before every open.
+    this.detachNativeDatalist()
 
-    this.state = tokenize(this.input.value, this.input.selectionStart ?? this.input.value.length)
+    const value = this.input.value
+    const selection = this.input.selectionStart ?? value.length
+
+    if (!this.catalog) {
+      // Catalog still loading — still surface recent queries on an empty bar.
+      this.state = null
+      this.candidates = value.trim() ? [] : this.historyCandidates()
+      this.highlighted = Math.min(this.highlighted, Math.max(this.candidates.length - 1, 0))
+      this.dropdownOpen = open && this.candidates.length > 0
+      this.renderDropdown()
+      return
+    }
+
+    this.state = tokenize(value, selection)
     this.candidates = this.buildCandidates(this.state)
     this.highlighted = Math.min(this.highlighted, Math.max(this.candidates.length - 1, 0))
     this.dropdownOpen = open && this.candidates.length > 0
@@ -155,7 +199,43 @@ export default {
     this.renderHint()
   },
 
+  recordHistory(query) {
+    pushHistory(query, this.historyStorage)
+  },
+
+  detachNativeDatalist() {
+    if (!this.input) return
+
+    const listId = this.input.getAttribute("list") || (this.input.id ? `${this.input.id}-completions` : null)
+    this.input.removeAttribute("list")
+    // Also disable browser autocomplete chrome that can look like our dropdown.
+    this.input.setAttribute("autocomplete", "off")
+    this.input.setAttribute("autocapitalize", "off")
+    this.input.setAttribute("autocorrect", "off")
+    this.input.setAttribute("spellcheck", "false")
+
+    if (listId) document.getElementById(listId)?.remove()
+    // Sweep any leftover datalists near the frame (LiveView may reinsert them).
+    this.frame?.parentElement?.querySelectorAll("datalist")?.forEach(node => {
+      if (node.id?.endsWith("-completions")) node.remove()
+    })
+  },
+
+  historyCandidates(filter = this.input?.value || "") {
+    return filterHistory(filter, this.historyStorage).map(value => ({
+      value,
+      label: value,
+      detail: "Recent",
+      slot: "history",
+    }))
+  },
+
   buildCandidates(state) {
+    const fullQuery = (this.input?.value ?? "").trim()
+
+    // Empty bar → Chrome-style recent list (no token noise).
+    if (!fullQuery) return this.historyCandidates("")
+
     const raw = this.candidateFilterText(state).toLowerCase()
     let candidates = []
 
@@ -186,9 +266,30 @@ export default {
       candidates = state.entity ? [...this.fieldSlotCandidates(state), ...controls] : controls
     }
 
+    // Once a known entity is in play (e.g. `in:devices …`), keep the dropdown
+    // pure token autocomplete — do not interleave Recent rows with Field lists.
+    // History only merges while the user is still choosing/retyping before that
+    // (empty bar is handled above; partials like `in:dev` still match).
+    const hasKnownEntity = Boolean(state.entity && this.catalog.entities?.[state.entity])
+    if (!hasKnownEntity) {
+      const history = this.historyCandidates(fullQuery).filter(
+        // Bar already equals a recent entry — no point listing it above tokens.
+        candidate => candidate.value !== fullQuery
+      )
+      if (history.length > 0) {
+        candidates = [...history, ...candidates]
+      }
+    }
+
     if (!raw || this.forceAllCandidates) return candidates
 
-    return rankedMatches(candidates, raw)
+    // History rows already filter on the full query string; only rank token rows.
+    const historyRows = candidates.filter(candidate => candidate.slot === "history")
+    const tokenRows = rankedMatches(
+      candidates.filter(candidate => candidate.slot !== "history"),
+      raw
+    )
+    return [...historyRows, ...tokenRows]
   },
 
   activeText(state) {
@@ -333,6 +434,8 @@ export default {
         item.type = "button"
         item.role = "option"
         item.className = `srql-dropdown__item ${index === this.highlighted ? "srql-dropdown__item--active" : ""}`
+        if (candidate.slot === "history") item.classList.add("srql-dropdown__item--history")
+        item.title = candidate.value
         const label = document.createElement("span")
         const detail = document.createElement("span")
         label.textContent = candidate.label
@@ -443,7 +546,21 @@ export default {
   },
 
   accept(candidate) {
-    if (!candidate || !this.state) return
+    if (!candidate) return
+
+    // Recent queries replace the whole bar (address-bar style), then close so
+    // Enter can submit on the next keypress instead of re-accepting a token.
+    if (candidate.slot === "history") {
+      this.input.value = candidate.value
+      const end = candidate.value.length
+      this.input.setSelectionRange(end, end)
+      this.input.dispatchEvent(new Event("input", {bubbles: true}))
+      this.input.dispatchEvent(new Event("change", {bubbles: true}))
+      this.close()
+      return
+    }
+
+    if (!this.state) return
 
     const selectionStart = this.input.selectionStart ?? 0
     const selectionEnd = this.input.selectionEnd ?? selectionStart

@@ -119,27 +119,24 @@ EOF
 
 def elixir_release_rootfs_amd64(name, release_tar, visibility = None):
     """Wrap an Elixir release tarball under /app for OCI packaging."""
-
-    native.genrule(
+    # Still gzipped, via extension, to keep the layer bytes' shape as close to the previous
+    # behaviour as possible -- the win here is the removed extract and touch passes, not the
+    # compression. Consumers take this by LABEL (image_rootfs_tar below), so the output file
+    # renaming from .tar to .tar.gz reaches nothing.
+    # No `mode` here, deliberately. It governs entries pkg_tar creates from `files`/`srcs`,
+    # of which this target has none -- everything arrives via `deps` and keeps its own mode
+    # (0644 files, 0755 dirs). Setting it was tried and changed nothing.
+    #
+    # The /app entry itself is not synthesized either: add_tar() hardcodes mode=0o755 for
+    # parents it invents, so /app comes from the release tar's own `./` root entry. That was
+    # 0700 because //build:elixir_release.bzl built the tree in a `mktemp -d`; it is chmod'd
+    # to 755 there now, at the source, where every consumer of that tar benefits.
+    pkg_tar(
         name = name,
-        srcs = [release_tar],
-        outs = ["{}.tar".format(name)],
-        cmd = """
-set -euo pipefail
-TAR=$(location ___RELEASE_TAR___)
-ROOT=$(@D)/rootfs
-rm -rf "$${ROOT}"
-mkdir -p "$${ROOT}/app"
-tar -xzf "$${TAR}" -C "$${ROOT}/app"
-# Normalise mtimes before tarring. //build:elixir_release.bzl already normalises the release
-# tar it produces, but that is not enough: `mkdir -p "$${ROOT}/app"` creates two fresh
-# directories here whose wall-clock mtimes land in this layer, and `.` alone is enough to
-# move the image digest. 200001010000.00 matches rules_pkg's PORTABLE_MTIME.
-find "$${ROOT}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
-  find "$${ROOT}" -exec touch -t 200001010000.00 {} +
-tar -czf "$@" --owner=10001 --group=10001 -C "$${ROOT}" .
-""".replace("___RELEASE_TAR___", release_tar),
+        extension = "tar.gz",
+        package_dir = "/app",
         visibility = visibility,
+        deps = [release_tar],
     )
 
 def elixir_release_rootfs_with_debs_amd64(

@@ -271,10 +271,9 @@ Failing here skips everything downstream, which is the point.
 
 ### Job: build_test
 
-Preamble: checkout preserving `third_party/bazel-repo-cache` and
-`third_party/bazel-disk-cache` (copy the `git clean -ffdx -e ...` form from `main.yml`
-exactly, an unqualified clean wipes both every run), Socket Firewall, bazelisk, write
-`.bazelrc.remote`, Docker auth.
+Preamble: checkout (a plain `git clean -ffdx` is correct -- `.bazelrc` no longer
+redirects any Bazel cache into the workspace, so there is nothing in the tree to
+preserve), Socket Firewall, bazelisk, write `.bazelrc.remote`, Docker auth.
 
 Then, every command with `-c opt --config=ci`:
 

@@ -149,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :id, :string, required: true
   attr :device_uid, :string, required: true
   attr :create_path, :string, default: "/api/remote-access/sessions"
+  attr :ssh_options_path, :string, default: nil
   attr :title, :string, default: "SSH remote access"
   attr :allow_remembered_keys, :boolean, default: false
   attr :allow_skip_verify_host_key_policy, :boolean, default: false
@@ -158,10 +159,15 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :class, :string, default: ""
 
   def remote_access_ssh_console(assigns) do
+    ssh_options_path =
+      assigns.ssh_options_path ||
+        "/api/remote-access/devices/#{URI.encode(assigns.device_uid)}/ssh-options"
+
     assigns =
       assign(assigns, :props, %{
         deviceUid: assigns.device_uid,
         createPath: assigns.create_path,
+        sshOptionsPath: ssh_options_path,
         approvalId: assigns.approval_id,
         title: assigns.title,
         allowRememberedKeys: assigns.allow_remembered_keys,

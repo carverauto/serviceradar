@@ -66,6 +66,7 @@ pub enum Entity {
     EndpointPackageCatalog,
     EndpointPackages,
     EndpointInventoryScans,
+    PublicEndpoints,
 }
 
 #[derive(Debug, Clone, Serialize)]

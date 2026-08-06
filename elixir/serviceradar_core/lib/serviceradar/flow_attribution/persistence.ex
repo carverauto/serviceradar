@@ -66,10 +66,11 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
     ORDER BY
       partition,
       attribution_key,
+      -- Prefer container-scoped owners over host-only dual emits for the same socket.
+      container_id IS NULL,
       observed_at DESC,
       cmdline IS NULL,
       uid IS NULL,
-      container_id IS NULL,
       workload_identity IS NULL
   )
   INSERT INTO #{@schema}.#{@table} (
@@ -124,24 +125,67 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
   ) AS workload ON r.container_id IS NOT NULL
   ORDER BY r.partition, r.attribution_key
   ON CONFLICT (partition, attribution_key) DO UPDATE SET
-    observed_at = GREATEST(#{@table}.observed_at, EXCLUDED.observed_at),
+    observed_at = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN EXCLUDED.observed_at
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN #{@table}.observed_at
+      ELSE GREATEST(#{@table}.observed_at, EXCLUDED.observed_at)
+    END,
     updated_at = now(),
+    pid = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN EXCLUDED.pid
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN #{@table}.pid
+      WHEN EXCLUDED.observed_at >= #{@table}.observed_at
+        THEN COALESCE(EXCLUDED.pid, #{@table}.pid)
+      ELSE COALESCE(#{@table}.pid, EXCLUDED.pid)
+    END,
+    comm = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN EXCLUDED.comm
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN #{@table}.comm
+      WHEN EXCLUDED.observed_at >= #{@table}.observed_at
+        THEN COALESCE(EXCLUDED.comm, #{@table}.comm)
+      ELSE COALESCE(#{@table}.comm, EXCLUDED.comm)
+    END,
     cmdline = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN COALESCE(EXCLUDED.cmdline, #{@table}.cmdline)
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN COALESCE(#{@table}.cmdline, EXCLUDED.cmdline)
       WHEN EXCLUDED.observed_at >= #{@table}.observed_at
         THEN COALESCE(EXCLUDED.cmdline, #{@table}.cmdline)
       ELSE COALESCE(#{@table}.cmdline, EXCLUDED.cmdline)
     END,
     uid = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN COALESCE(EXCLUDED.uid, #{@table}.uid)
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN COALESCE(#{@table}.uid, EXCLUDED.uid)
       WHEN EXCLUDED.observed_at >= #{@table}.observed_at
         THEN COALESCE(EXCLUDED.uid, #{@table}.uid)
       ELSE COALESCE(#{@table}.uid, EXCLUDED.uid)
     END,
     container_id = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL
+        THEN EXCLUDED.container_id
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL
+        THEN #{@table}.container_id
       WHEN EXCLUDED.observed_at >= #{@table}.observed_at
         THEN COALESCE(EXCLUDED.container_id, #{@table}.container_id)
       ELSE COALESCE(#{@table}.container_id, EXCLUDED.container_id)
     END,
     workload_identity = CASE
+      WHEN EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL THEN
+        NULLIF(
+          COALESCE(#{@table}.workload_identity, '{}'::jsonb) || COALESCE(EXCLUDED.workload_identity, '{}'::jsonb),
+          '{}'::jsonb
+        )
+      WHEN #{@table}.container_id IS NOT NULL AND EXCLUDED.container_id IS NULL THEN
+        #{@table}.workload_identity
       WHEN EXCLUDED.observed_at >= #{@table}.observed_at THEN
         NULLIF(
           COALESCE(#{@table}.workload_identity, '{}'::jsonb) || COALESCE(EXCLUDED.workload_identity, '{}'::jsonb),
@@ -150,33 +194,53 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
       WHEN #{@table}.workload_identity IS NULL THEN EXCLUDED.workload_identity
       ELSE #{@table}.workload_identity
     END
-  WHERE EXCLUDED.observed_at > #{@table}.observed_at
+  WHERE
+    -- Always accept a container-scoped owner over a host-only dual emit.
+    (EXCLUDED.container_id IS NOT NULL AND #{@table}.container_id IS NULL)
      OR (
-          EXCLUDED.observed_at >= #{@table}.observed_at
-          AND EXCLUDED.cmdline IS NOT NULL
-          AND #{@table}.cmdline IS DISTINCT FROM EXCLUDED.cmdline
+          EXCLUDED.container_id IS NOT NULL OR #{@table}.container_id IS NULL
         )
-     OR (#{@table}.cmdline IS NULL AND EXCLUDED.cmdline IS NOT NULL)
-     OR (
-          EXCLUDED.observed_at >= #{@table}.observed_at
-          AND EXCLUDED.uid IS NOT NULL
-          AND #{@table}.uid IS DISTINCT FROM EXCLUDED.uid
+        AND (
+          EXCLUDED.observed_at > #{@table}.observed_at
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND EXCLUDED.cmdline IS NOT NULL
+               AND #{@table}.cmdline IS DISTINCT FROM EXCLUDED.cmdline
+             )
+          OR (#{@table}.cmdline IS NULL AND EXCLUDED.cmdline IS NOT NULL)
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND EXCLUDED.uid IS NOT NULL
+               AND #{@table}.uid IS DISTINCT FROM EXCLUDED.uid
+             )
+          OR (#{@table}.uid IS NULL AND EXCLUDED.uid IS NOT NULL)
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND EXCLUDED.container_id IS NOT NULL
+               AND #{@table}.container_id IS DISTINCT FROM EXCLUDED.container_id
+             )
+          OR (#{@table}.container_id IS NULL AND EXCLUDED.container_id IS NOT NULL)
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND EXCLUDED.pid IS NOT NULL
+               AND #{@table}.pid IS DISTINCT FROM EXCLUDED.pid
+             )
+          OR (#{@table}.pid IS NULL AND EXCLUDED.pid IS NOT NULL)
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND EXCLUDED.comm IS NOT NULL
+               AND #{@table}.comm IS DISTINCT FROM EXCLUDED.comm
+             )
+          OR (#{@table}.comm IS NULL AND EXCLUDED.comm IS NOT NULL)
+          OR (
+               EXCLUDED.observed_at >= #{@table}.observed_at
+               AND NULLIF(
+               COALESCE(#{@table}.workload_identity, '{}'::jsonb) || COALESCE(EXCLUDED.workload_identity, '{}'::jsonb),
+               '{}'::jsonb
+             ) IS DISTINCT FROM #{@table}.workload_identity
+             )
+          OR (#{@table}.workload_identity IS NULL AND EXCLUDED.workload_identity IS NOT NULL)
         )
-     OR (#{@table}.uid IS NULL AND EXCLUDED.uid IS NOT NULL)
-     OR (
-          EXCLUDED.observed_at >= #{@table}.observed_at
-          AND EXCLUDED.container_id IS NOT NULL
-          AND #{@table}.container_id IS DISTINCT FROM EXCLUDED.container_id
-        )
-     OR (#{@table}.container_id IS NULL AND EXCLUDED.container_id IS NOT NULL)
-     OR (
-          EXCLUDED.observed_at >= #{@table}.observed_at
-          AND NULLIF(
-          COALESCE(#{@table}.workload_identity, '{}'::jsonb) || COALESCE(EXCLUDED.workload_identity, '{}'::jsonb),
-          '{}'::jsonb
-        ) IS DISTINCT FROM #{@table}.workload_identity
-        )
-     OR (#{@table}.workload_identity IS NULL AND EXCLUDED.workload_identity IS NOT NULL)
   """
 
   @spec insert_current_rows([map()], keyword()) ::
@@ -209,17 +273,35 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
     |> Enum.reduce(%{}, fn row, acc ->
       key = {Map.fetch!(row, :partition), Map.fetch!(row, :attribution_key)}
 
-      Map.update(acc, key, row, fn current ->
-        if DateTime.after?(Map.fetch!(row, :observed_at), Map.fetch!(current, :observed_at)) do
-          row
-        else
-          current
-        end
-      end)
+      Map.update(acc, key, row, fn current -> prefer_socket_owner(current, row) end)
     end)
     |> Map.values()
     |> Enum.sort_by(&{Map.fetch!(&1, :partition), Map.fetch!(&1, :attribution_key)})
   end
+
+  # Prefer container-scoped identity over host-only for the same socket key.
+  # When specificity ties, keep the newer observation.
+  defp prefer_socket_owner(current, candidate) do
+    current_container? = present?(Map.get(current, :container_id))
+    candidate_container? = present?(Map.get(candidate, :container_id))
+
+    cond do
+      candidate_container? and not current_container? ->
+        candidate
+
+      current_container? and not candidate_container? ->
+        current
+
+      DateTime.after?(Map.fetch!(candidate, :observed_at), Map.fetch!(current, :observed_at)) ->
+        candidate
+
+      true ->
+        current
+    end
+  end
+
+  defp present?(value) when is_binary(value) and value != "", do: true
+  defp present?(_), do: false
 
   defp execute_with_deadlock_retry(payload, query, sleep, retries_left, backoff) do
     case query.(@upsert_sql, [payload]) do

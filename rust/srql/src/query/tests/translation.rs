@@ -1328,3 +1328,45 @@ fn translate_flows_bidirectional_ip_works_on_stats_and_downsample_paths() {
         );
     }
 }
+
+// Chart queries (`bucket:` / downsample) previously rejected `cidr:` even though
+// the row and stats paths already accepted it (and bare `cidr:` is in the catalog).
+#[test]
+fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+
+    for query in [
+        "in:flows time:last_1h cidr:10.0.0.0/8 stats:sum(bytes_total) as bytes by app",
+        "in:flows time:last_1h bucket:5m agg:avg value_field:bytes_total series:app cidr:10.0.0.0/8 sort:time:desc limit:100",
+        "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total src_cidr:10.0.0.0/8 limit:100",
+        "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total dst_cidr:192.168.0.0/16 limit:100",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        };
+
+        let response = translate_request(&config, request)
+            .unwrap_or_else(|err| panic!("translation should succeed for {query}: {err:?}"));
+        let sql = response.sql.to_lowercase();
+
+        assert!(
+            sql.contains("<<= ") || sql.contains("<<="),
+            "{query} must emit a CIDR containment clause: {sql}"
+        );
+        assert!(
+            sql.contains("src_endpoint_ip") || sql.contains("dst_endpoint_ip"),
+            "{query} must reference an endpoint IP column: {sql}"
+        );
+        assert_eq!(
+            super::max_dollar_placeholder(&response.sql),
+            response.params.len(),
+            "{query}: sql placeholders must stay contiguous with params\nsql: {}\nparams: {:?}",
+            response.sql,
+            response.params
+        );
+    }
+}

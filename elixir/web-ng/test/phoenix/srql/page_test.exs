@@ -190,6 +190,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
 
     assert Page.route_target_for_query("in:wifi_sites site_code:ZZC", "/devices") ==
              {"/devices/wifi", %{}}
+
+    assert Page.route_target_for_query(
+             "in:public_endpoints ip:23.138.124.7",
+             "/devices"
+           ) == {"/inventory/public-endpoints", %{}}
   end
 
   test "sanitize_query removes stale catalog filters when switching entities" do

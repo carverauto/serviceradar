@@ -145,10 +145,22 @@ ssl_server_name =
     _ -> nil
   end
 
+# `ca_certs` belongs here next to the path forms. Without it a CA supplied as a PATH turned
+# TLS on by itself while the same CA supplied as PEM CONTENT did not -- so remotely, where no
+# path variable resolves and `ssl_ca || ssl_cert || ssl_key` is always nil, TLS could only be
+# switched on by `sslmode=` in the DSN. A DSN without it connected in plaintext and CNPG
+# refused the connection:
+#
+#   FATAL 28000 (invalid_authorization_specification) pg_hba.conf rejects connection
+#   for host "10.42.68.107", user "srql", database "sr_core_template", no encryption
+#
+# Being handed a CA means TLS was intended, whichever form it arrived in. An explicit
+# sslmode=disable|allow|prefer still wins, because that clause is evaluated first.
 ssl_enabled =
   cond do
     ssl_mode in ~w(disable allow prefer) -> false
     ssl_enabled -> true
+    ca_certs not in [nil, []] -> true
     true -> ssl_ca || ssl_cert || ssl_key
   end
 

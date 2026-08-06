@@ -70,7 +70,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.26"
+NETPROBE_VERSION = "0.2.27"
 
 cargo_build_script(
     name = "build_script",
@@ -83,11 +83,12 @@ cargo_build_script(
     },
     crate_root = "build.rs",
     data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
-    ] + glob(["recog-corpus/xml/*.xml"]),
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps([
         "aya-build",
@@ -102,10 +103,11 @@ rust_binary(
     exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
-    ] + glob(["recog-corpus/xml/*.xml"]),
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
@@ -118,7 +120,7 @@ rust_binary(
 rust_test(
     name = "netprobe_test",
     crate = ":netprobe",
-    data = glob(["satori-corpus/xml/*.xml"]),
+    data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = crate_deps(["tempfile"]),
 )
 
