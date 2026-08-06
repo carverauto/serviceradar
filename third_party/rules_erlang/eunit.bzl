@@ -37,7 +37,7 @@ def eunit(
         name = "eunit",
         coverdata_to_lcov = Label("@rules_erlang//tools/coverdata_to_lcov:coverdata_to_lcov"),
         is_windows = select({
-            "@bazel_tools//src/conditions:host_windows": True,
+            "@platforms//os:windows": True,
             "//conditions:default": False,
         }),
         compiled_suites = [":test_case_beam_files"] + additional_beam,
