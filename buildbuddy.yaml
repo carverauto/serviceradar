@@ -253,12 +253,19 @@ actions:
           # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
           # `manual`, which removes a target from //... expansion before tag filters are considered.
           #
-          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These two carry only `manual`
-          # and `no-remote-exec` -- neither `integration_test` nor `acceptance_test` -- so any
+          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These
+          # two carry only `manual` -- neither `integration_test` nor `acceptance_test` -- so any
           # tag filter naming those two tags would select neither and the step would fail with
-          # "no test targets were found". And they have no requires_shared_fixture() guard,
-          # because they never touch the shared CNPG fixture: their `data` carries
-          # //docker/images:cnpg_image_amd64_tar, so each one starts its own Postgres.
+          # "no test targets were found".
+          #
+          # THEY DO USE THE SHARED FIXTURE, and their position in this step is load-bearing: they
+          # read SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL from the environment provisioned
+          # above. tests/support/harness.rs SKIPS when those are absent, so run from a step that
+          # lacks them this line still exits 0 having asserted nothing.
+          #
+          # They carry no requires_shared_fixture() guard, unlike the tier above -- that skip is
+          # what keeps them safe rather than the guard. Worth reconciling one day; until then do
+          # not "fix" it by adding --//build:enable_integration_tests, which they do not read.
           bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 

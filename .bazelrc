@@ -18,7 +18,7 @@ common --noslim_profile
 # common --experimental_profile_include_target_label
 # common --experimental_profile_include_primary_output
 
-#build --keep_going
+build --keep_going
 build --jobs=auto
 build --show_timestamps
 # The NEXT_*/TURBOPACK entries below stay: they are the same on every machine
