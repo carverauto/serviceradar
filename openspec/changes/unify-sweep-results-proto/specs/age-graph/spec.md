@@ -81,6 +81,21 @@ shared result-pool credit controller with a reserved interactive floor.
 - **AND** no edge, property update, query, orphan cleanup, or prune SHALL cross
   the authoritative network scope
 
+The `(observed_at, trace_id)` ordering SHALL compare RAW NANOSECONDS. It SHALL NOT consume the
+nanosecond-to-microsecond canonicalization that
+`freeze-edge-record-v1-abi`'s "Nanosecond time is canonicalized to microseconds only at the
+projection boundary" requires for the `TIMESTAMPTZ` storage coordinates. The graph is not bound
+by `timestamptz` microsecond resolution, so canonicalizing here would collapse observations
+inside one microsecond into ties broken arbitrarily by `trace_id` -- replacing a determinate
+order with an arbitrary one, in the comparison that exists to stop properties moving backward.
+
+#### Scenario: Two observations inside one microsecond still order determinately
+- **WHEN** two traces for the same edge carry `observed_at` values in the same microsecond,
+  differing only in their sub-microsecond digits
+- **THEN** the newer one SHALL win the property update
+- **AND** the decision SHALL NOT fall through to a `trace_id` comparison, because the
+  timestamps are compared at nanosecond resolution and are not equal
+
 #### Scenario: Older trace projects after a newer trace
 - **GIVEN** one network-scope/agent/protocol/path edge already has a newer
   observation

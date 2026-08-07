@@ -668,7 +668,8 @@ EventWriter; neither payload-body claims nor broker headers are authoritative.
 
 The wire preserves Unix nanoseconds, including signed host deltas, while CNPG
 `timestamptz` stores microseconds. THE CANONICALIZATION IS PROJECTION-DOMAIN ONLY: before
-any PROJECTION-DOMAIN key, hash, identity comparison, ordering, or persistence, every
+any projection-domain STORAGE OR ORDERING COORDINATE -- not a projection hash and not an
+identity comparison, neither of which consumes a canonicalized time -- every
 implementation canonically truncates nanoseconds toward negative infinity to the containing
 PostgreSQL microsecond, and separately stores the original signed `observed_at_unix_nano`
 wherever sub-microsecond fidelity is part of the domain/audit contract.
@@ -680,8 +681,10 @@ and `semantic_envelope_sha256` is taken over the frozen FIELD-FRAMED TRANSCRIPT,
 Canonicalization is what the database-derived keys and ordering are computed from, AFTER both
 hashes exist. Feeding it into either would make the contract depend on a normalization step
 instead of on what was received. Negative delta arithmetic is checked for
-overflow. Golden fixtures cover the +/-999 ns boundaries so Go, Elixir, and SQL
-cannot disagree about replay or ordering.
+overflow. Shared vectors cover the boundary rows so Go and Elixir cannot disagree about the
+mathematics. SQL AGREEMENT IS NOT YET ESTABLISHED: nothing calls the conversion from a
+projector today, so no fixture exercises the value as written and read back. Task 5.4 owns that
+integration, and the claim becomes true when it lands.
 
 For every MTR producer, the producer allocates and durably records an RFC 9562
 UUIDv7 `trace_id` before starting the probe. Its timestamp is the immutable
