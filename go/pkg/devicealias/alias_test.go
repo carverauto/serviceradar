@@ -1,9 +1,11 @@
-package devicealias
+package devicealias_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/carverauto/serviceradar/go/pkg/devicealias"
 )
 
 func TestFromMetadata(t *testing.T) {
@@ -18,7 +20,7 @@ func TestFromMetadata(t *testing.T) {
 		"ip_alias:10.0.0.6":                          "2025-11-03T14:30:00Z",
 	}
 
-	record := FromMetadata(metadata)
+	record := devicealias.FromMetadata(metadata)
 	assert.NotNil(t, record)
 	assert.Equal(t, "2025-11-03T15:00:00Z", record.LastSeenAt)
 	assert.Equal(t, "10.1.1.1", record.CollectorIP)
@@ -33,7 +35,7 @@ func TestFromMetadata(t *testing.T) {
 }
 
 func TestEqual(t *testing.T) {
-	a := &Record{
+	a := &devicealias.Record{
 		LastSeenAt:       "2025-11-03T15:00:00Z",
 		CollectorIP:      "10.1.1.1",
 		CurrentServiceID: "serviceradar:agent:k8s-agent",
@@ -47,10 +49,10 @@ func TestEqual(t *testing.T) {
 	}
 
 	b := a.Clone()
-	assert.True(t, Equal(a, b))
+	assert.True(t, devicealias.Equal(a, b))
 
 	b.Services["serviceradar:agent:rperf"] = "2025-11-03T14:00:00Z"
-	assert.False(t, Equal(a, b))
+	assert.False(t, devicealias.Equal(a, b))
 }
 
 func TestFormatMap(t *testing.T) {
@@ -59,6 +61,6 @@ func TestFormatMap(t *testing.T) {
 		"alpha": "2025-11-03T15:00:00Z",
 	}
 
-	result := FormatMap(input)
+	result := devicealias.FormatMap(input)
 	assert.Equal(t, "alpha=2025-11-03T15:00:00Z,beta=2025-11-03T14:00:00Z", result)
 }

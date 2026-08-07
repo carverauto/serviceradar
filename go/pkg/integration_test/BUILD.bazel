@@ -14,8 +14,8 @@ go_library(
 go_test(
     name = "integration_test_test",
     srcs = ["end_to_end_flow_test.go"],
-    embed = [":integration_test"],
     deps = [
+        ":integration_test",
         "//go/pkg/models",
         "//proto",
         "@com_github_stretchr_testify//assert",

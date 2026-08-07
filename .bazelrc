@@ -83,30 +83,14 @@ test --test_output=errors
 # //elixir/web-ng:precommit already does.
 #test --test_strategy=standalone
 test --remote_executor=
-# --test_env, never --action_env: these reach test actions, which is where they are read, and
-# stay out of every other action's environment. See the note above the NEXT_* block for why
-# that is hygiene rather than a cache fix.
+# THE FIXTURE DSNs. //rust/integration-db resolves the shared CNPG fixture through these --
+# provision_db, teardown_db and sweep_stale_dbs all derive their database from
+# SRQL_TEST_DATABASE_URL, and database_bootstrap_integration_test.exs reads
+# SRQL_TEST_ADMIN_URL. A variable that is exported by the fixture setup but NOT named here
+# never reaches the test action at all, and the failure reads as an unreachable fixture
+# rather than a missing --test_env line.
 test --test_env=SRQL_TEST_DATABASE_URL
 test --test_env=SRQL_TEST_ADMIN_URL
-test --test_env=SRQL_TEST_DATABASE_CA_CERT
-# PATH is deliberately absent here. `test --test_env=PATH`, with no value, took the value from
-# the invoking shell and folded it into the cache key of EVERY test action in the repo. CI
-# handed Bazel a different PATH on every run -- scripts/install-bazelisk.sh and
-# scripts/ci/install-sfw.sh both prepend ${RUNNER_TEMP}-scoped directories -- so every test
-# key changed every run and no test result was ever reusable. Build actions take no
-# --test_env, which is why the symptom read as "only the tests re-run", and why an unrelated
-# Go change appeared to invalidate the dgraph container suite.
-#
-# Without the line, tests get Bazel's own action-environment PATH (/bin:/usr/bin:
-# /usr/local/bin), which is identical on every machine and every run. That is the entire
-# point: a test's result must depend on its inputs, not on who invoked it.
-#
-# The inherited value bought nothing anyway. Under --config=ci tests execute on the
-# BuildBuddy executor, where the runner's /workspace/.../_temp entries do not exist.
-#
-# A test that needs a tool beyond the default PATH declares it -- as a `data` dependency, or
-# with an `env`/`--test_env=VAR=value` entry naming a fixed path. Do NOT restore the
-# inherited form to fix one test; that trades the whole repo's test cache for it.
 test --test_env=CNPG_HOST
 test --test_env=CNPG_PORT
 test --test_env=CNPG_DATABASE
@@ -280,48 +264,15 @@ build:remote_base --java_runtime_version=remotejdk_11
 build:remote_base --tool_java_runtime_version=remotejdk_11
 build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
-# Outputs stay in the CAS unless a local action or `bazel run` actually needs them. Bazel 9's
-# default is `toplevel`, which materialises every top-level output -- on this repo that means
-# dragging entire image layer tars out of the BuildBuddy cache in GCP onto a machine that
-# does nothing with them. The executors already hold those bytes; the download is pure WAN
-# cost. This is the single biggest client-side lever on a `//...` build.
-#
-# CONSEQUENCE: after a `--config=remote` build the outputs are NOT on local disk. Anything
-# that reads artifacts back out of `bazel info bazel-bin` -- scripts/push_all_images.sh,
-# scripts/push_all_wasm_plugins.sh, scripts/sign-oci-publish.sh, and the native-addon
-# publish/verify scripts -- has to append `--remote_download_outputs=all` to its OWN bazel
-# invocation. Append it as a flag on the command line, where a later flag wins over the one
-# the config sets.
-#
-# Do NOT instead add a publish-only config that duplicates remote_base with this one flag
-# changed. That was `remote_push`; it drifted out of sync with remote_base and was deleted.
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
 build:remote_base --jobs=80
-# NO --strategy=<Mnemonic>=local ON ANY REMOTE PROFILE.
-#
-# An action's TOOLS are resolved against the EXEC platform, which every remote profile pins
-# to the Linux RBE platform. `=local` changes only WHERE the action runs, never what it was
-# built to run, so it hands a macOS developer a linux_amd64 binary and executes it on Darwin:
-#     bsd_tar_linux_amd64/tar: cannot execute binary file   (Exit 126)
-# The same bug applied to ExpandTemplate and CopyDirectory; there was nothing special about
-# NpmPackageExtract beyond it being the one that surfaced first.
-#
-# These lines were originally added to dodge slow or flaky remote actions. That is the wrong
-# lever: a genuinely local-only action declares `tags = ["no-remote"]` (or "local") on the
-# TARGET, where the exec platform is resolved consistently -- not as a global strategy
-# override that silently mismatches tool platform and execution platform for everyone.
 build:remote_base --action_env=OPENSSL_DIR=/usr
 build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
 build:remote_base --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build:remote_base --action_env=TURBOPACK=
 build:remote_base --action_env=NEXT_SKIP_TURBO=1
-# Firecracker task sizing lives in //build/rbe:rbe_platform's exec_properties, not here.
-# `--remote_default_exec_properties` is ignored outright once the execution platform sets any
-# exec_properties of its own, and rbe_platform sets four, so declaring the sizing at this
-# level had no effect at all. A target still overrides the platform per key, e.g.
-# test.EstimatedMemory on //rust/dgraph-client/tests:acceptance_tests.
 test:remote --copt=-Wno-use-after-free
 test:remote --action_env=OPENSSL_DIR=/usr
 test:remote --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu

@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package sshca
+package sshca_test
 
 import (
 	"bytes"
@@ -31,6 +31,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/remoteaccess/sshca"
 )
 
 func TestOpenSSHTrustedUserCAKeysAcceptsServiceRadarCertificate(t *testing.T) {
@@ -52,12 +54,12 @@ func TestOpenSSHTrustedUserCAKeysAcceptsServiceRadarCertificate(t *testing.T) {
 
 	caKey := readFile(t, caKeyPath)
 	userPublicKey := readFile(t, userKeyPath+".pub")
-	ca, err := New(caKey, nil, WithMaxTTL(time.Hour))
+	ca, err := sshca.New(caKey, nil, sshca.WithMaxTTL(time.Hour))
 	if err != nil {
 		t.Fatalf("initialize ServiceRadar SSH CA: %v", err)
 	}
 
-	signed, err := ca.SignUserCertificate(UserCertificateRequest{
+	signed, err := ca.SignUserCertificate(sshca.UserCertificateRequest{
 		PublicKey:  userPublicKey,
 		KeyID:      "sr:remote-access:session-1:user-1:agent-1:ssh:target-1",
 		Principals: []string{"sr-test-operator"},

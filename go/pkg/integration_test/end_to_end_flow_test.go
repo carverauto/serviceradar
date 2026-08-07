@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package integration
+package integration_test
 
 import (
 	"context"
@@ -28,6 +28,8 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+
+	"github.com/carverauto/serviceradar/go/pkg/integration_test"
 )
 
 // TestEndToEndDiscoveryFlow validates the complete flow:
@@ -114,11 +116,11 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 	defer ctrl.Finish()
 
 	// Step 1: Setup - Create mock services
-	mockKV := NewMockKVService(ctrl)
-	mockCore := NewMockCoreService(ctrl)
-	mockAgent := NewMockAgentService(ctrl)
-	mockSync := NewMockSyncService(ctrl)
-	mockArmisUpdater := NewMockArmisUpdater(ctrl)
+	mockKV := integration.NewMockKVService(ctrl)
+	mockCore := integration.NewMockCoreService(ctrl)
+	mockAgent := integration.NewMockAgentService(ctrl)
+	mockSync := integration.NewMockSyncService(ctrl)
+	mockArmisUpdater := integration.NewMockArmisUpdater(ctrl)
 
 	// Create test data
 	discoveredDevices, sweptDevices, kvData := createTestData(t)
@@ -132,11 +134,11 @@ func TestEndToEndDiscoveryFlow(t *testing.T) {
 // executeEndToEndFlow runs the complete end-to-end flow
 func executeEndToEndFlow(
 	t *testing.T,
-	mockKV *MockKVService,
-	mockCore *MockCoreService,
-	mockAgent *MockAgentService,
-	mockSync *MockSyncService,
-	mockArmisUpdater *MockArmisUpdater,
+	mockKV *integration.MockKVService,
+	mockCore *integration.MockCoreService,
+	mockAgent *integration.MockAgentService,
+	mockSync *integration.MockSyncService,
+	mockArmisUpdater *integration.MockArmisUpdater,
 	discoveredDevices, sweptDevices []*models.SweepResult,
 	kvData map[string][]byte,
 ) {
@@ -161,7 +163,7 @@ func executeEndToEndFlow(
 }
 
 // setupKVMock configures the KV mock expectations
-func setupKVMock(t *testing.T, mockKV *MockKVService) {
+func setupKVMock(t *testing.T, mockKV *integration.MockKVService) {
 	t.Helper()
 
 	// Mock KV writes from sync service
@@ -181,7 +183,7 @@ func setupKVMock(t *testing.T, mockKV *MockKVService) {
 }
 
 // executeGatewaySyncFlow handles the gateway sync flow
-func executeGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService, discoveredDevices []*models.SweepResult) {
+func executeGatewaySyncFlow(t *testing.T, mockSync *integration.MockSyncService, mockCore *integration.MockCoreService, discoveredDevices []*models.SweepResult) {
 	t.Helper()
 
 	// Step 2: Gateway calls sync service GetResults
@@ -244,8 +246,8 @@ func executeGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *M
 // executeAgentSweepFlow handles the agent sweep flow
 func executeAgentSweepFlow(
 	t *testing.T,
-	mockAgent *MockAgentService,
-	mockCore *MockCoreService,
+	mockAgent *integration.MockAgentService,
+	mockCore *integration.MockCoreService,
 	sweptDevices []*models.SweepResult,
 	kvData map[string][]byte,
 ) {
@@ -313,7 +315,7 @@ func executeAgentSweepFlow(
 }
 
 // executeUpdaterFlow handles the Armis updater flow
-func executeUpdaterFlow(t *testing.T, mockArmisUpdater *MockArmisUpdater, discoveredDevices, sweptDevices []*models.SweepResult) {
+func executeUpdaterFlow(t *testing.T, mockArmisUpdater *integration.MockArmisUpdater, discoveredDevices, sweptDevices []*models.SweepResult) {
 	t.Helper()
 
 	// Step 7: Gateway triggers Armis updater
@@ -365,7 +367,7 @@ func validateFinalResults(t *testing.T, discoveredDevices, sweptDevices []*model
 
 // Helper functions to simulate each part of the flow
 
-func simulateSyncDiscovery(t *testing.T, mockKV *MockKVService, devices []*models.SweepResult, kvData map[string][]byte) {
+func simulateSyncDiscovery(t *testing.T, mockKV *integration.MockKVService, devices []*models.SweepResult, kvData map[string][]byte) {
 	t.Helper()
 	// This simulates what syncSourceDiscovery does:
 	// 1. Calls integration.Fetch() which returns devices
@@ -397,7 +399,7 @@ func simulateGatewayFlow(
 	t *testing.T,
 	serviceName, serviceType string,
 	getResults func(context.Context, *proto.ResultsRequest) (*proto.ResultsResponse, error),
-	mockCore *MockCoreService,
+	mockCore *integration.MockCoreService,
 ) {
 	t.Helper()
 
@@ -437,7 +439,7 @@ func simulateGatewayFlow(
 	require.NoError(t, err)
 }
 
-func simulateGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService) {
+func simulateGatewaySyncFlow(t *testing.T, mockSync *integration.MockSyncService, mockCore *integration.MockCoreService) {
 	t.Helper()
 
 	simulateGatewayFlow(t, "sync", "sync", mockSync.GetResults, mockCore)
@@ -465,13 +467,13 @@ func simulateAgentKVWatch(t *testing.T, kvData map[string][]byte) {
 	t.Logf("Agent will sweep %d IPs: %v", len(ipsToSweep), ipsToSweep)
 }
 
-func simulateGatewayAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore *MockCoreService) {
+func simulateGatewayAgentFlow(t *testing.T, mockAgent *integration.MockAgentService, mockCore *integration.MockCoreService) {
 	t.Helper()
 
 	simulateGatewayFlow(t, "sweep", "sweep", mockAgent.GetResults, mockCore)
 }
 
-func simulateUpdaterTrigger(t *testing.T, mockUpdater *MockArmisUpdater, discoveryResults, sweepResults []*models.SweepResult) {
+func simulateUpdaterTrigger(t *testing.T, mockUpdater *integration.MockArmisUpdater, discoveryResults, sweepResults []*models.SweepResult) {
 	t.Helper()
 	// This simulates the gateway logic that triggers the updater after both
 	// discovery and sweep results have been collected and forwarded to core
