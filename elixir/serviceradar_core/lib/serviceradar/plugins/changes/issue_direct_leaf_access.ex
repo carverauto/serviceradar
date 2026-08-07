@@ -51,9 +51,9 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     )
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, identity.component_id)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, identity.partition_id)
-    |> AshCloak.encrypt_and_set(:direct_certificate_pem_ciphertext, identity.certificate_pem)
-    |> AshCloak.encrypt_and_set(:direct_private_key_pem_ciphertext, identity.private_key_pem)
-    |> AshCloak.encrypt_and_set(:direct_ca_chain_pem_ciphertext, identity.ca_chain_pem)
+    |> AshCloak.encrypt_and_set(:direct_certificate_pem, identity.certificate_pem)
+    |> AshCloak.encrypt_and_set(:direct_private_key_pem, identity.private_key_pem)
+    |> AshCloak.encrypt_and_set(:direct_ca_chain_pem, identity.ca_chain_pem)
   end
 
   defp pending(changeset, reason) do
@@ -75,16 +75,16 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     )
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, identity.component_id)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, identity.partition_id)
-    |> AshCloak.encrypt_and_set(:direct_certificate_pem_ciphertext, identity.certificate_pem)
-    |> AshCloak.encrypt_and_set(:direct_private_key_pem_ciphertext, identity.private_key_pem)
-    |> AshCloak.encrypt_and_set(:direct_ca_chain_pem_ciphertext, identity.ca_chain_pem)
+    |> AshCloak.encrypt_and_set(:direct_certificate_pem, identity.certificate_pem)
+    |> AshCloak.encrypt_and_set(:direct_private_key_pem, identity.private_key_pem)
+    |> AshCloak.encrypt_and_set(:direct_ca_chain_pem, identity.ca_chain_pem)
   end
 
   defp clear_identity_material(changeset) do
     changeset
-    |> Ash.Changeset.force_change_attribute(:direct_certificate_pem_ciphertext, nil)
-    |> Ash.Changeset.force_change_attribute(:direct_private_key_pem_ciphertext, nil)
-    |> Ash.Changeset.force_change_attribute(:direct_ca_chain_pem_ciphertext, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_certificate_pem, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_private_key_pem, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_ca_chain_pem, nil)
     |> Ash.Changeset.change_attribute(:direct_certificate_fingerprint, nil)
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, nil)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, nil)

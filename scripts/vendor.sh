@@ -113,7 +113,7 @@ if ! grep -q "$OPENSSL_SRC_PKG" third_party/BUILD.bazel; then
   exit 1
 fi
 
-# Repair two cargo-bazel rendering bugs in the generated files. Both are upstream bugs
+# Repair three cargo-bazel rendering bugs in the generated files. Both are upstream bugs
 # in how crates_vendor renders, not something the vendored sources can express, so they
 # have to be fixed after the fact -- and re-fixed on every vendor run, since the files
 # are regenerated. Each step asserts its own assumptions instead of editing blindly.
@@ -125,24 +125,31 @@ import sys
 crates = pathlib.Path("third_party/crates")
 
 # (1) Build metadata ('+') in a version is sanitized to '-' for the on-disk directory
-# and for alias `actual` labels, but NOT for the package path emitted into defs.bzl.
+# and for alias `actual` labels, but NOT for the package path emitted into the macro file.
 # Any direct dependency whose version carries build metadata (e.g. toml
 # 1.1.3+spec-1.1.0) therefore renders a label pointing at a package that cannot exist.
 defs = crates / "defs.bzl"
-text = defs.read_text()
+crates_bzl = crates / "crates.bzl"
+
+# crate_universe renders the macro API into `crates.bzl` and leaves `defs.bzl` as a
+# deprecated shim re-exporting it. Older versions put everything in `defs.bzl`. The
+# labels below are emitted into whichever file actually carries the macros, so resolve
+# that first -- targeting the wrong one silently no-ops and the '+' labels survive.
+macros = crates_bzl if crates_bzl.is_file() else defs
+text = macros.read_text()
 
 
 def sanitize(match):
     package = match.group(1).replace("+", "-")
     if not (crates / package).is_dir():
-        sys.exit(f"ERROR: defs.bzl references '{package}', which was not vendored.")
+        sys.exit(f"ERROR: {macros} references '{package}', which was not vendored.")
     return f"//third_party/crates/{package}:"
 
 
 patched, count = re.subn(r'//third_party/crates/([^:"\s]*\+[^:"\s]*):', sanitize, text)
 if count:
-    defs.write_text(patched)
-    print(f"Sanitized {count} '+' package label(s) in {defs}")
+    macros.write_text(patched)
+    print(f"Sanitized {count} '+' package label(s) in {macros}")
 
 # (2) A "weak" optional-dependency reference in a feature definition (`dep?/feature`,
 # meaning "only if dep is already enabled") is rendered as a real Bazel dep edge even
@@ -170,6 +177,39 @@ if oneio is not None:
     if hits:
         build.write_text(stripped)
         print(f"Removed {hits} unreachable rust-s3 dep edge(s) from {build}")
+
+# (3) crate_universe now renders the macro API into `crates.bzl` and leaves `defs.bzl`
+# behind as a deprecated shim that re-exports it. The shim re-exports
+# `crate_repositories` unconditionally, but that macro is only emitted for
+# repository-based crate universes -- a LOCAL vendor has no repositories to declare --
+# so the generated shim cannot load itself:
+#
+#     Error: file ':crates.bzl' does not contain symbol 'crate_repositories'
+#
+# Nothing outside the vendored tree calls crate_repositories, so drop the dangling
+# re-export. The alternative is repointing ~45 BUILD files at :crates.bzl, which buys
+# nothing: the shim is exactly what upstream provides for compatibility.
+if crates_bzl.is_file():
+    if "def crate_repositories(" in crates_bzl.read_text():
+        # Upstream started emitting it. The shim is consistent again; stop editing it.
+        print("crates.bzl now defines crate_repositories; remove this fixup.")
+    else:
+        shim = defs.read_text()
+        shim, hits = re.subn(
+            r'^ *_crate_repositories = "crate_repositories",\n'
+            r'|^crate_repositories = _crate_repositories\n',
+            "",
+            shim,
+            flags=re.M,
+        )
+        if hits:
+            defs.write_text(shim)
+            print(f"Dropped {hits} dangling crate_repositories re-export(s) from {defs}")
+        elif "crate_repositories" in defs.read_text():
+            sys.exit(
+                "ERROR: defs.bzl still references crate_repositories but the expected "
+                "re-export lines did not match; the shim's shape changed."
+            )
 PY
 
 # Record the exact Cargo inputs that produced the committed vendor tree. The root

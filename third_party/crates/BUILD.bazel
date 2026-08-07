@@ -11,6 +11,7 @@ package(default_visibility = ["//visibility:public"])
 exports_files(
     [
         "cargo-bazel.json",
+        "crates.bzl",
         "defs.bzl",
     ] + glob(
         include = ["*.bazel"],
@@ -30,18 +31,6 @@ filegroup(
 )
 
 # Workspace Member Dependencies
-alias(
-    name = "addon-sdk-0.1.0",
-    actual = "//third_party/crates/addon-sdk-0.1.0:addon_sdk",
-    tags = ["manual"],
-)
-
-alias(
-    name = "addon-sdk",
-    actual = "//third_party/crates/addon-sdk-0.1.0:addon_sdk",
-    tags = ["manual"],
-)
-
 alias(
     name = "anyhow-1.0.104",
     actual = "//third_party/crates/anyhow-1.0.104:anyhow",
@@ -631,18 +620,6 @@ alias(
 )
 
 alias(
-    name = "kvutil-0.1.0",
-    actual = "//third_party/crates/kvutil-0.1.0:kvutil",
-    tags = ["manual"],
-)
-
-alias(
-    name = "kvutil",
-    actual = "//third_party/crates/kvutil-0.1.0:kvutil",
-    tags = ["manual"],
-)
-
-alias(
     name = "lazy_static-1.5.0",
     actual = "//third_party/crates/lazy_static-1.5.0:lazy_static",
     tags = ["manual"],
@@ -735,18 +712,6 @@ alias(
 alias(
     name = "openssl-sys",
     actual = "//third_party/crates/openssl-sys-0.9.116:openssl_sys",
-    tags = ["manual"],
-)
-
-alias(
-    name = "otel-0.1.0",
-    actual = "//third_party/crates/otel-0.1.0:otel",
-    tags = ["manual"],
-)
-
-alias(
-    name = "otel",
-    actual = "//third_party/crates/otel-0.1.0:otel",
     tags = ["manual"],
 )
 
@@ -891,18 +856,6 @@ alias(
 alias(
     name = "prost-types",
     actual = "//third_party/crates/prost-types-0.14.4:prost_types",
-    tags = ["manual"],
-)
-
-alias(
-    name = "proto_dgraph-0.0.1",
-    actual = "//third_party/crates/proto_dgraph-0.0.1:proto_dgraph",
-    tags = ["manual"],
-)
-
-alias(
-    name = "proto_dgraph",
-    actual = "//third_party/crates/proto_dgraph-0.0.1:proto_dgraph",
     tags = ["manual"],
 )
 
@@ -1119,78 +1072,6 @@ alias(
 alias(
     name = "serial_test",
     actual = "//third_party/crates/serial_test-3.5.0:serial_test",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-flowgger-0.0.0",
-    actual = "//third_party/crates/serviceradar-flowgger-0.0.0:flowgger",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-flowgger",
-    actual = "//third_party/crates/serviceradar-flowgger-0.0.0:flowgger",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-metric-proto-0.1.0",
-    actual = "//third_party/crates/serviceradar-metric-proto-0.1.0:serviceradar_metric_proto",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-metric-proto",
-    actual = "//third_party/crates/serviceradar-metric-proto-0.1.0:serviceradar_metric_proto",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-netprobe-0.2.25",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.25:serviceradar_netprobe",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-netprobe",
-    actual = "//third_party/crates/serviceradar-netprobe-0.2.25:serviceradar_netprobe",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-powerdns-addon-0.1.3",
-    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.3:serviceradar_powerdns_addon",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-powerdns-addon",
-    actual = "//third_party/crates/serviceradar-powerdns-addon-0.1.3:serviceradar_powerdns_addon",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-rperf-checker-1.0.30",
-    actual = "//third_party/crates/serviceradar-rperf-checker-1.0.30:serviceradar_rperf_checker",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-rperf-checker",
-    actual = "//third_party/crates/serviceradar-rperf-checker-1.0.30:serviceradar_rperf_checker",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-workload-identity-0.1.6",
-    actual = "//third_party/crates/serviceradar-workload-identity-0.1.6:serviceradar_workload_identity",
-    tags = ["manual"],
-)
-
-alias(
-    name = "serviceradar-workload-identity",
-    actual = "//third_party/crates/serviceradar-workload-identity-0.1.6:serviceradar_workload_identity",
     tags = ["manual"],
 )
 
