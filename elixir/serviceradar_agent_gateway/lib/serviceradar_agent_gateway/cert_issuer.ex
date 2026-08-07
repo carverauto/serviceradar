@@ -1,6 +1,6 @@
 defmodule ServiceRadarAgentGateway.CertIssuer do
   @moduledoc """
-  Issues mTLS certificates for edge agents using the gateway CA.
+  Issues mTLS certificates for edge components using the gateway CA.
 
   Certificates use the CN format:
     <component_id>.<partition_id>.serviceradar
@@ -54,7 +54,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp validate_component_type(:agent), do: :ok
+  defp validate_component_type(type) when type in [:agent, :addon], do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
   defp validate_identity_tokens(component_id, partition_id) do

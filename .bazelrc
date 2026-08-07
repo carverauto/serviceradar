@@ -297,8 +297,8 @@ build:remote_base --incompatible_strict_action_env
 # changed. That was `remote_push`; it drifted out of sync with remote_base and was deleted.
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
-build:remote_base --jobs=64
-# NO --strategy=<Mnemonic>=local ON ANY REMOTE PROFILE. This is a rule, not a preference.
+build:remote_base --jobs=80
+# NO --strategy=<Mnemonic>=local ON ANY REMOTE PROFILE.
 #
 # An action's TOOLS are resolved against the EXEC platform, which every remote profile pins
 # to the Linux RBE platform. `=local` changes only WHERE the action runs, never what it was

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   import ServiceRadarWebNGWeb.PluginConfigForm
 
   alias ServiceRadar.AgentRuntimeMetadata
+  alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.RetiredNativeAddons
@@ -60,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:first_party_release_selected?, false)
        |> assign(:first_party_repo_url, first_party_repo_url())
        |> assign(:agents, list_agents(scope))
+       |> assign(:edge_sites, list_edge_sites(scope))
        |> assign(:cohort_options, @cohort_options)
        |> assign(:show_details_modal, false)
        |> assign(:selected_package, nil)
@@ -266,6 +268,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
              package,
              params,
              parse_args(Map.get(form, "args")),
+             Map.get(form, "edge_site_id"),
              update_policy_attrs(form),
              scope
            ) do
@@ -1204,6 +1207,29 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         <% end %>
                       </select>
                     </div>
+                    <div :if={@assignment_form["target_mode"] != "cohort"} class="md:col-span-2">
+                      <label class="label">
+                        <span class="label-text">Direct JetStream edge site (optional)</span>
+                      </label>
+                      <select name="assignment[edge_site_id]" class="select select-bordered w-full">
+                        <option value="" selected={@assignment_form["edge_site_id"] == ""}>
+                          Gateway relay / no edge NATS
+                        </option>
+                        <%= for site <- @edge_sites do %>
+                          <option
+                            value={site.id}
+                            selected={@assignment_form["edge_site_id"] == site.id}
+                          >
+                            {edge_site_option_label(site)}
+                          </option>
+                        <% end %>
+                      </select>
+                      <p class="label">
+                        Required only when configuration sets <code>output.backend</code> to
+                        <code>jetstream</code>. The selected leaf must be active and connected;
+                        mTLS paths remain add-on-owned.
+                      </p>
+                    </div>
                   </div>
 
                   <div :if={
@@ -1847,6 +1873,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     _ -> []
   end
 
+  defp list_edge_sites(scope) do
+    EdgeSite
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read!(scope: scope)
+  rescue
+    _ -> []
+  end
+
   defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
        when status in [:connected, :degraded, :connecting] do
     DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
@@ -1863,12 +1898,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     "#{name} (#{agent.uid})"
   end
 
+  defp edge_site_status_label(%EdgeSite{status: status}), do: to_string(status)
+  defp edge_site_status_label(_site), do: "unknown"
+
+  defp edge_site_option_label(site) do
+    "#{site.name} (#{site.slug}) · #{edge_site_status_label(site)}"
+  end
+
+  defp maybe_put_edge_site_id(attrs, edge_site_id) do
+    case String.trim(edge_site_id || "") do
+      "" -> Map.put(attrs, :edge_site_id, nil)
+      edge_site_id -> Map.put(attrs, :edge_site_id, edge_site_id)
+    end
+  end
+
   defp default_assignment_form(package \\ nil) do
     %{
       "target_mode" => "agent",
       "cohort" => "connected",
       "agent_uid" => "",
       "agent_ids" => "",
+      "edge_site_id" => "",
       "params" => "",
       "params_raw" => "",
       "args" => "",
@@ -1957,7 +2007,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     with {:ok, agent_uid} <- fetch_agent_uid(form), do: {:ok, [agent_uid]}
   end
 
-  defp create_assignments(agent_uids, package, params, args, policy_attrs, scope) do
+  defp create_assignments(agent_uids, package, params, args, edge_site_id, policy_attrs, scope) do
     Enum.reduce_while(agent_uids, {:ok, 0}, fn agent_uid, {:ok, count} ->
       attrs =
         Map.merge(policy_attrs, %{
@@ -1966,6 +2016,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           params: params,
           args: args
         })
+        |> maybe_put_edge_site_id(edge_site_id)
 
       # Upsert by (agent_uid, addon_id): re-pushing the same add-on (or upgrading
       # to a newer package of it) must update the existing assignment rather than

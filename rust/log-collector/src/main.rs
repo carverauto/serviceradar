@@ -175,7 +175,10 @@ async fn start_otel(config_path: &str) -> Result<()> {
 
     let otel_cfg: OtelConfig = bootstrap.load().await?;
     let addr = otel_cfg.bind_address().parse()?;
-    let nats_config = otel_cfg.nats_config();
+    // nats_config() returns Result since it materializes [nats.tls] material to disk, so a
+    // broken TLS section now fails startup here instead of silently yielding no NATS output.
+    // Propagated with `?` to match otel/src/server.rs.
+    let nats_config = otel_cfg.nats_config()?;
     let grpc_tls_config = setup_grpc_tls(&otel_cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
     // Ingestion-token auth shared by the OTLP/gRPC interceptor and the
     // OTLP/HTTP listener (which builds its own copy from the same [auth]
