@@ -21,15 +21,15 @@ base64 = { workspace = true }
 hex = { workspace = true }
 prost = { workspace = true }
 rcgen = { workspace = true }
-rustls = {workspace = true, features = ["aws-lc-rs", "std"] }
+rustls = {workspace = true}
 rustls-pemfile = { workspace = true }
 serviceradar-metric-proto = { path = "../metric-proto" }
 sha2 ={ workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
-tokio-rustls = { workspace = true, features = ["aws-lc-rs"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 tokio-stream = { workspace = true, features = ["net", "sync"] }
-tonic = { workspace = true, features = ["tls-aws-lc", "gzip", "zstd"] }
+tonic = { workspace = true, features = ["tls-ring", "gzip", "zstd"] }
 tonic-health = { workspace = true }
 tonic-prost = { workspace = true }
 

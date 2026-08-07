@@ -118,7 +118,7 @@ impl ServerCertVerifier for PinnedServerVerifier {
             message,
             cert,
             dss,
-            &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
         )
     }
 
@@ -132,12 +132,12 @@ impl ServerCertVerifier for PinnedServerVerifier {
             message,
             cert,
             dss,
-            &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
+            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
         )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        rustls::crypto::aws_lc_rs::default_provider()
+        rustls::crypto::ring::default_provider()
             .signature_verification_algorithms
             .supported_schemes()
     }
@@ -145,7 +145,7 @@ impl ServerCertVerifier for PinnedServerVerifier {
 
 #[tokio::test]
 async fn server_completes_automtls_handshake_and_serves_rpcs() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     // 1. Generate a client cert/key the way go-plugin's Client does (self-signed
     //    `localhost`), and build the server's mTLS material from that PEM.
