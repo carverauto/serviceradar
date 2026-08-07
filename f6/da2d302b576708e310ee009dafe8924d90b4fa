@@ -1,0 +1,19 @@
+elixir/serviceradar_agent_gateway/test/test_helper.exs
+  s_0eda1e1f71cc86::t_78ef99bc5d28a9 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "f6da2d302b576708e310ee009dafe8924d90b4fa",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
