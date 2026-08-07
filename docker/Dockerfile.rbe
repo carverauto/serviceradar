@@ -58,6 +58,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clang \
         llvm \
         llvm-dev \
+        # THE LINKER the cc toolchain selects, and NOT implied by anything above.
+        # `clang` and `llvm` do not provide ld.lld -- clang ships no linker at all and drives
+        # whatever -fuse-ld names; `lld` is a separate package supplying /usr/bin/ld.lld.
+        #
+        # //MODULE.bazel sets use_ld = "lld" on the buildbuddy toolchain. Without this package
+        # every C/C++ and Rust link in the image fails with
+        #   collect2: error: cannot find 'ld.lld'
+        #
+        # It replaces gold, which rustc warns about on every Rust link ("has known bugs with
+        # Rust") and which binutils keeps in maintenance-only mode. bfd is NOT an option: it
+        # rejects --start-lib, which Bazel's C++ rules emit, so it dies on protoc and the upb
+        # generators. Of the three, lld is the only one that both works and is not deprecated.
+        lld \
         make \
         cmake \
         bison \

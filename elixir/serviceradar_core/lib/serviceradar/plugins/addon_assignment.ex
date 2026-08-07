@@ -60,10 +60,20 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
   cloak do
     vault(ServiceRadar.Vault)
 
+    # Named WITHOUT a `_ciphertext` suffix on purpose. AshCloak removes each attribute listed
+    # here and replaces it with `encrypted_<name>` (the stored ciphertext) plus a calculation
+    # under the original name that decrypts. So these three names describe the PLAINTEXT, and
+    # the columns are `encrypted_direct_certificate_pem` and friends.
+    #
+    # Suffixing them produced `encrypted_direct_certificate_pem_ciphertext` as the column while
+    # the migration created `direct_certificate_pem_ciphertext`, so every read of this resource
+    # failed with `undefined_column` and every write to the un-suffixed name failed with
+    # NoSuchAttribute -- the name had become a calculation. See
+    # priv/repo/migrations/20260807120000_rename_direct_leaf_access_ciphertext_columns.exs.
     attributes([
-      :direct_certificate_pem_ciphertext,
-      :direct_private_key_pem_ciphertext,
-      :direct_ca_chain_pem_ciphertext
+      :direct_certificate_pem,
+      :direct_private_key_pem,
+      :direct_ca_chain_pem
     ])
 
     decrypt_by_default([])
@@ -166,9 +176,9 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
         material_present? =
           Enum.all?(
             [
-              :direct_certificate_pem_ciphertext,
-              :direct_private_key_pem_ciphertext,
-              :direct_ca_chain_pem_ciphertext
+              :encrypted_direct_certificate_pem,
+              :encrypted_direct_private_key_pem,
+              :encrypted_direct_ca_chain_pem
             ],
             &(is_binary(Ash.Changeset.get_attribute(changeset, &1)) and
                 byte_size(Ash.Changeset.get_attribute(changeset, &1)) > 0)
@@ -284,25 +294,29 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       description "Actionable reason why direct-leaf identity preparation is pending"
     end
 
-    attribute :direct_certificate_pem_ciphertext, :binary do
+    # Declared as the PLAINTEXT they are. The `cloak` block above rewrites each of these into an
+    # `encrypted_*` :binary attribute holding ciphertext, plus a decrypting calculation that
+    # keeps this name. Nothing writes these names directly -- use AshCloak.encrypt_and_set/3,
+    # and clear via the `encrypted_*` attribute.
+    attribute :direct_certificate_pem, :string do
       allow_nil? true
       public? false
       sensitive? true
-      description "Encrypted assignment-scoped direct-leaf certificate"
+      description "Assignment-scoped direct-leaf certificate"
     end
 
-    attribute :direct_private_key_pem_ciphertext, :binary do
+    attribute :direct_private_key_pem, :string do
       allow_nil? true
       public? false
       sensitive? true
-      description "Encrypted assignment-scoped direct-leaf private key"
+      description "Assignment-scoped direct-leaf private key"
     end
 
-    attribute :direct_ca_chain_pem_ciphertext, :binary do
+    attribute :direct_ca_chain_pem, :string do
       allow_nil? true
       public? false
       sensitive? true
-      description "Encrypted CA chain for the assignment-scoped direct leaf identity"
+      description "CA chain for the assignment-scoped direct leaf identity"
     end
 
     attribute :direct_certificate_fingerprint, :string do

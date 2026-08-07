@@ -73,7 +73,7 @@ pub enum ServeError {
 pub async fn serve<A: Addon>(addon: A) -> Result<(), ServeError> {
     // Install the default rustls crypto provider (ring) once, so tonic's TLS
     // acceptor can build a ServerConfig. Ignored if already installed.
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     handshake::check_magic_cookie()?;
 

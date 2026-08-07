@@ -54,4 +54,31 @@ if File.exists?(config_path) do
   config_path
   |> Config.Reader.read!(env: :test, target: :host)
   |> Application.put_all_env(persistent: true)
+
+  # DELIBERATELY NOT APPLIED TO THE RUNNING LOGGER, despite `config :logger, level: :warning`
+  # being in every project's config/test.exs.
+  #
+  # Logger starts with the VM, long before this file is evaluated, and reads its level once at
+  # startup. Putting the level into the application environment afterwards does not move the
+  # running logger, so these targets run at Logger's :debug default while `mix test` runs at
+  # :warning. Verified:
+  #
+  #   $ elixir -e 'Application.put_all_env([logger: [level: :warning]], persistent: true);
+  #                IO.inspect({Application.get_env(:logger, :level), Logger.level()})'
+  #   {:warning, :debug}
+  #
+  # Adding `Logger.configure(level: level)` here looks like the obvious fix and breaks tests.
+  # The PRIMARY level gates a message before any handler sees it, including the one
+  # ExUnit.CaptureLog installs -- so `capture_log([level: :info], fn -> Logger.info("x") end)`
+  # returns "" at a :warning primary level and "...[info] x..." at :debug. Measured, not
+  # assumed. serviceradar_core has 61 capture_log call sites; at least
+  # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs asks for :info explicitly.
+  #
+  # The reason anyone wants this -- multi-megabyte logs from Ecto's per-query :debug output,
+  # which made Bazel drop the stream entirely:
+  #   stdout ... exceeds maximum size of --experimental_ui_max_stdouterr_bytes=1048576; skipping
+  # -- is handled at the source instead, with `log: false` on the Repo in config/test.exs.
+  # That silences the queries and leaves the primary level alone.
+  #
+  # Applying the level properly means first auditing those 61 call sites.
 end

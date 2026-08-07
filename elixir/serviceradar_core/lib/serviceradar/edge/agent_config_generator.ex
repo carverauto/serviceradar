@@ -737,11 +737,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp inject_direct_leaf_identity(%AddonAssignment{} = assignment, params) do
     with {:ok, certificate_pem} <-
-           decrypt_direct_identity_field(assignment, :direct_certificate_pem_ciphertext),
+           decrypt_direct_identity_field(assignment, :encrypted_direct_certificate_pem),
          {:ok, private_key_pem} <-
-           decrypt_direct_identity_field(assignment, :direct_private_key_pem_ciphertext),
+           decrypt_direct_identity_field(assignment, :encrypted_direct_private_key_pem),
          {:ok, ca_chain_pem} <-
-           decrypt_direct_identity_field(assignment, :direct_ca_chain_pem_ciphertext) do
+           decrypt_direct_identity_field(assignment, :encrypted_direct_ca_chain_pem) do
       nats = map_value(params, :nats) || %{}
       tls = map_value(nats, :tls) || %{}
 

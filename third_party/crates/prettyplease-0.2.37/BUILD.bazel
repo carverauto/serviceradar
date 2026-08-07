@@ -60,6 +60,9 @@ rust_library(
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
             "verbatim",  # i686-unknown-linux-gnu
         ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "verbatim",  # loongarch64-unknown-linux-gnu
+        ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "verbatim",  # powerpc-unknown-linux-gnu
         ],
@@ -104,12 +107,14 @@ rust_library(
     target_compatible_with = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [],
         "@rules_rust//rust/platform:aarch64-apple-ios": [],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [],
         "@rules_rust//rust/platform:aarch64-linux-android": [],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [],
+        "@rules_rust//rust/platform:aarch64-unknown-none": [],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
@@ -121,13 +126,23 @@ rust_library(
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:riscv32imac-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-netbsd": [],
+        "@rules_rust//rust/platform:sparc64-unknown-openbsd": [],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [],
+        "@rules_rust//rust/platform:thumbv7m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabihf": [],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [],
         "@rules_rust//rust/platform:wasm32-wasip1": [],
@@ -135,6 +150,7 @@ rust_library(
         "@rules_rust//rust/platform:wasm32-wasip2": [],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [],
         "@rules_rust//rust/platform:x86_64-apple-ios": [],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:x86_64-linux-android": [],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [],
@@ -147,7 +163,7 @@ rust_library(
     }),
     version = "0.2.37",
     deps = [
-        "//third_party/crates/prettyplease-0.2.37:build_script_build",
+        ":build_script_build",
         "//third_party/crates/proc-macro2-1.0.107:proc_macro2",
         "//third_party/crates/syn-2.0.119:syn",
     ],
@@ -159,6 +175,9 @@ cargo_build_script(
         include = ["**/*.rs"],
         allow_empty = False,
     ),
+    build_script_env_files = [
+        ":cargo_toml_env_vars",
+    ],
     compile_data = glob(
         include = ["**"],
         allow_empty = True,
@@ -193,6 +212,9 @@ cargo_build_script(
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
             "verbatim",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "verbatim",  # loongarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "verbatim",  # powerpc-unknown-linux-gnu
@@ -235,6 +257,7 @@ cargo_build_script(
         ],
     ),
     edition = "2021",
+    emit_warnings = False,
     links = "prettyplease02",
     pkg_name = "prettyplease",
     rustc_env_files = [

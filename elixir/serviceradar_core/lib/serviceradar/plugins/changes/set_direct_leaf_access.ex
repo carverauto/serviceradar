@@ -108,9 +108,9 @@ defmodule ServiceRadar.Plugins.Changes.SetDirectLeafAccess do
 
   defp clear_identity_material(changeset) do
     changeset
-    |> Ash.Changeset.force_change_attribute(:direct_certificate_pem_ciphertext, nil)
-    |> Ash.Changeset.force_change_attribute(:direct_private_key_pem_ciphertext, nil)
-    |> Ash.Changeset.force_change_attribute(:direct_ca_chain_pem_ciphertext, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_certificate_pem, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_private_key_pem, nil)
+    |> Ash.Changeset.force_change_attribute(:encrypted_direct_ca_chain_pem, nil)
     |> Ash.Changeset.change_attribute(:direct_certificate_fingerprint, nil)
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, nil)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, nil)
