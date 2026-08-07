@@ -21,7 +21,6 @@ common --noslim_profile
 #build --keep_going
 build --jobs=auto
 build --show_timestamps
-
 # The NEXT_*/TURBOPACK entries below stay: they are the same on every machine
 build --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --action_env=TURBOPACK=
@@ -133,129 +132,23 @@ build:no_remote --remote_download_minimal
 build:no_remote --bes_backend=
 build:no_remote --bes_results_url=
 
-# CI profile can layer on top of the remote config without re-declaring values.
-# build:ci --keep_going
-build:ci --noenable_platform_specific_config
-build:ci --config=remote_base
-build:ci --build_metadata=ROLE=CI
-# THE COMPILATION MODE IS PART OF THE CACHE KEY, SO IT BELONGS TO THE CONFIG.
-#
-# The output directory is named after it -- bazel-out/rbe_platform-opt vs
-# rbe_platform-fastbuild -- and output paths are baked into action command lines. So a
-# `--config=ci` call that omits `-c opt` does not merely build differently, it builds into a
-# disjoint cache namespace and shares nothing with one that includes it.
-#
-# That is exactly what happened: twelve invocations across five Forgejo workflows said
-# `--config=ci` with no `-c opt`, while buildbuddy.yaml said `-c opt --config=ci`, so the two
-# CI systems maintained two separate sets of remote cache entries for identical work. The
-# native-addon publish was worse -- native-addons.yml overrode BAZEL_BUILD_FLAGS, and the five
-# publish scripts default that variable to `-c opt`, so the override silently dropped it and
-# CI published from el9-fastbuild while every local run used opt.
-#
-# Stating `-c opt` at each call site is not a fix, it is the thing that failed: it has to be
-# remembered on every new bazel line anyone ever adds. Pinning it here makes the compilation
-# mode a property of the profile. A command line still wins if someone genuinely wants
-# `--config=ci -c dbg`, because command-line flags beat rc-file flags.
-build:ci --compilation_mode=opt
-# Endpoints are NOT re-declared here. remote_base above already names
-# carverauto.buildbuddy.io for execution, cache and BES; these lines used to repeat them
-# purely to override a remote_base that pointed at BuildBuddy's cloud, which meant
-# --config=remote (and --config=el9) never got the fix.
-build:ci --remote_timeout=15m
-# No --strategy=<Mnemonic>=local here. See the block above build:remote_base's execution
-# settings for why a forced-local strategy is broken under any config that repoints
-# --host_platform at the Linux RBE platform.
-
-# Detailed output only. Tag selection is NOT defaulted here: every call site states which
-# tags it wants, so what a command runs is readable from the command itself.
-test:ci --test_output=errors
-
-# Remote execution profile settings shared by CI and --config=remote.
-# NOTE: aggregate `bazel run` targets backed by rules_multirun (like //:push)
-# fail locally on macOS when using remote execution because host Python tools
-# may be resolved for Linux. Push from CI/Linux, where the aggregate target
-# works as intended.
-#
-# THE ENDPOINT. Execution, cache and BES all name carverauto.buildbuddy.io -- the org's
-# instance, which is where the executor fleet registers
-# (`app_target` in //k8s/buildbuddy/values.yaml).
-#
-# Pointing any of them at remote.buildbuddy.io (BuildBuddy's shared cloud, a different
-# frontend: 34.98.106.0 vs 34.98.126.170) sends work to a scheduler this org's executors
-# never joined, so the fleet sits idle while the build runs locally -- exactly the failure
-# values.yaml warns about. Declared once here so every profile that layers on remote_base
-# inherits it; do not re-point it per config.
-#
-# Keeping one host for execution, cache and BES is also what makes an action's inputs and
-# outputs live in one CAS. When they diverge, the client uploads inputs to one store and
-# the executor fetches from another, and the resulting NOT_FOUND blob errors read like a
-# flaky network rather than the topology mistake they are.
-# zstd-compress CAS blobs. Default is false, and leaving it off was the actual throughput
-# limit on a remote build: `--remote_download_minimal` (below) means outputs stay remote, but
-# the client still uploads every action's INPUTS, and an uncompressed uplink starves the
-# executors no matter how many are free. Turning this on brought a `//go/...` build back into
-# range. It is a client-side win, so it belongs on every remote profile rather than being a
-# flag someone has to remember per invocation.
+# Remote execution profile settings shared by CI and --config=remote.\
+# Number of parallel jobs on remote executors
+build:remote_base --jobs=100
+# Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
+build:remote_base  --experimental_remote_cache_chunking
+# Remote Cache compression
 build:remote_base --remote_cache_compression
-# Compress blobs at or above 100 bytes. Also the 9.2 default; stated because it only means
-# anything alongside the line above, and a threshold silently drifting would look like a
-# network regression rather than a config change.
 build:remote_base --experimental_remote_cache_compression_threshold=100
-
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
 build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
 build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
 build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-# This flag is why `bazel run //docker/images:*_push` fails on macOS with
-# `aspect_bazel_lib++toolchains+jq_linux_amd64/jq: cannot execute binary file`. The generated
-# launcher resolves crane/jq against the host platform at analysis time, and then `bazel run`
-# executes that launcher LOCALLY -- so declaring the host to be Linux hands a macOS developer
-# Linux binaries. Measured on //docker/images:core_elx_image_amd64_push, only this differing:
-#
-#     --config=remote                                  -> jq_linux_amd64,  crane_linux_amd64
-#     --config=remote --host_platform=@platforms//host -> jq_darwin_arm64, crane_darwin_arm64
-#
-# That difference is real but does NOT fix the push: `bazel run --config=remote
-# --host_platform=@platforms//host //docker/images:core_elx_image_amd64_push` still dies on
-# jq_linux_amd64, because the runfiles tree it executes against was still populated with the
-# Linux toolchain. Overriding the flag per invocation has been tried and does not work.
-#
-# Do not chase this further with flags. Two known-good options:
-#   1. Push from Linux -- the BuildBuddy runner or any Linux box. Also the right answer for
-#      WAN cost, since the executors and registry.carverauto.dev are in the same DC.
-#   2. On macOS, use scripts/push_all_images.sh, which builds the target and then patches
-#      CRANE=/JQ= in the generated launcher to darwin binaries. That is what it is for.
-#
-# Also note removing this pin is NOT free even in principle: //build/rbe:rbe_platform is the
-# only platform carrying the erlang_internal/elixir_internal constraints the Erlang/Elixir
-# toolchains resolve through, and @platforms//host carries neither. Remote execution itself
-# does not depend on this flag -- that comes from --extra_execution_platforms below.
 build:remote_base --host_platform=//build/rbe:rbe_platform
 build:remote_base --platforms=//build/rbe:rbe_platform
-
-# WHAT MAKES A DEVELOPER'S CACHE AND CI'S THE SAME CACHE is
-# `common --experimental_platform_in_output_dir` at the top of this file, combined with the
-# --host_platform above: the output directory is named from the target platform, which is
-# the RBE platform on every machine, so both produce bazel-out/rbe_platform-opt/... Output
-# paths are baked into action command lines, so a differing prefix means a differing action
-# key and two disjoint caches -- which is what `darwin_arm64-opt` vs `k8-opt` was.
-#
-# --cpu=k8 was the older way to force that agreement and is NOT what does it now. It is kept
-# only as a defensive pin: --experimental_platform_in_output_dir is an experimental flag, and
-# if it is ever dropped or renamed, --cpu is what the output directory falls back to. Nothing
-# else reads it -- no config_setting in this repo matches on `cpu`, and since Bazel 9 C++
-# toolchain selection is platform-based, not --cpu-based.
 build:remote_base --cpu=k8
-# --crosstool_top is deliberately absent. Bazel 9 removed --incompatible_enable_cc_toolchain_resolution
-# along with the legacy CROSSTOOL path it gated, so C++ toolchains now resolve through
-# platforms unconditionally. The flag still PARSES (it is a legacy no-op, and no longer
-# appears in `bazel help build`), which is exactly why it survived here unnoticed. The line
-# below is the one that actually registers the toolchain.
 build:remote_base --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
 build:remote_base --extra_execution_platforms=//build/rbe:rbe_platform
-# Note: EL9 platform with ZFS support is available via --config=el9
-# Do NOT add EL9 to extra_execution_platforms here, as it causes glibc mismatches
-# for other targets. Use --config=el9 explicitly for ZFS builds.
 build:remote_base --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 build:remote_base --copt=-Wno-use-after-free
 build:remote_base --java_language_version=11
@@ -266,7 +159,6 @@ build:remote_base --define=EXECUTOR=remote
 build:remote_base --incompatible_strict_action_env
 build:remote_base --remote_download_minimal
 build:remote_base --remote_upload_local_results
-build:remote_base --jobs=80
 build:remote_base --action_env=OPENSSL_DIR=/usr
 build:remote_base --action_env=OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 build:remote_base --action_env=OPENSSL_INCLUDE_DIR=/usr/include
@@ -281,7 +173,17 @@ test:remote --action_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 test:remote --action_env=TURBOPACK=
 test:remote --action_env=NEXT_SKIP_TURBO=1
 
-# Remote execution profile (opt-in via --config=remote).
+# CI profile on top of the remote config
+build:ci --config=remote_base
+# build:ci --keep_going
+build:ci --noenable_platform_specific_config
+build:ci --build_metadata=ROLE=CI
+# THE COMPILATION MODE IS PART OF THE CACHE KEY
+build:ci --compilation_mode=opt
+build:ci --remote_timeout=15m
+test:ci --test_output=errors
+
+# Remote execution profile on top of the remote config
 build:remote --config=remote_base
 build:remote --noenable_platform_specific_config
 # Cache/executor/BES come from remote_base. Do not re-point them here.
