@@ -186,11 +186,28 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
     """
   end
 
+  # Endpoint rows arrive with either string keys (decoded from the inventory snapshot) or
+  # atom keys (loaded through Ecto), so both are tried.
+  #
+  # to_existing_atom, not to_atom: the atom table is never garbage collected, so to_atom on
+  # anything that is not already an atom grows it permanently. Every caller here passes a
+  # literal, so today that set is bounded and this is only a latent risk -- but it is also the
+  # exact shape AGENTS.md forbids ("no String.to_atom/1 with user input"), and one caller
+  # passing a user-supplied key later would turn it into a DoS. to_existing_atom cannot add
+  # to the table at all, which removes the hazard rather than relying on callers.
   defp field(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key)) || "—"
+    Map.get(map, key) || Map.get(map, existing_atom(key)) || "—"
   end
 
   defp field(_, _), do: "—"
+
+  # nil is a fine Map.get/2 key: it simply misses, which is the same outcome as an atom that
+  # was never defined.
+  defp existing_atom(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
 
   defp route_label(ep) do
     kind = field(ep, "route_kind")

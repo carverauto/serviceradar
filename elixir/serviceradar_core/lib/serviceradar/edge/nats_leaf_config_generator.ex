@@ -49,6 +49,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     jetstream_max_memory = Keyword.get(opts, :jetstream_max_memory, "1G")
     jetstream_max_file = Keyword.get(opts, :jetstream_max_file, "10G")
     debug = Keyword.get(opts, :debug, false)
+
     direct_leaf_authorization =
       opts
       |> Keyword.get(:direct_leaf_identities, [])
@@ -120,7 +121,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     if users == [] do
       ""
     else
-      """
+      String.trim("""
       # Assignment-scoped direct OTEL identities. This block is rendered from
       # server-owned identity records; no account seed or broad platform user
       # is installed on the leaf.
@@ -145,8 +146,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
       #{Enum.join(users, ",\n")}
           ]
       }
-      """
-      |> String.trim()
+      """)
     end
   end
 
@@ -164,7 +164,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
          subscribe when is_list(subscribe) <- map_value(scope, :subscribe) do
       cn = "CN=#{component_id}.#{partition_id}.serviceradar"
 
-      """
+      String.trim("""
           {
               user: #{nats_string(cn)}
               permissions: {
@@ -178,8 +178,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
                   }
               }
           }
-      """
-      |> String.trim()
+      """)
     else
       _ -> nil
     end
@@ -187,10 +186,12 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
   defp render_direct_leaf_user(_identity), do: nil
 
-  defp nats_strings(values), do: values |> Enum.map(&nats_string/1) |> Enum.join(", ") |> then(&"[#{&1}]")
+  defp nats_strings(values), do: values |> Enum.map_join(", ", &nats_string/1) |> then(&"[#{&1}]")
   defp nats_string(value), do: Jason.encode!(to_string(value))
 
-  defp map_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp map_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
   defp map_value(_map, _key), do: nil
 
   @doc """

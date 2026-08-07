@@ -7,18 +7,20 @@ defmodule ServiceRadar.Edge.DirectLeafEligibilityTest do
   @leaf %{status: :connected}
 
   defp direct_params(overrides \\ %{}) do
-    %{
-      "output" => %{"backend" => "jetstream"},
-      "nats" => %{
-        "url" => "tls://nats.edge.internal:4222",
-        "tls" => %{
-          "cert_file" => "/etc/serviceradar/edge/nats-client.pem",
-          "key_file" => "/etc/serviceradar/edge/nats-client-key.pem",
-          "ca_file" => "/etc/serviceradar/edge/nats-ca.pem"
+    Map.merge(
+      %{
+        "output" => %{"backend" => "jetstream"},
+        "nats" => %{
+          "url" => "tls://nats.edge.internal:4222",
+          "tls" => %{
+            "cert_file" => "/etc/serviceradar/edge/nats-client.pem",
+            "key_file" => "/etc/serviceradar/edge/nats-client-key.pem",
+            "ca_file" => "/etc/serviceradar/edge/nats-ca.pem"
+          }
         }
-      }
-    }
-    |> Map.merge(overrides)
+      },
+      overrides
+    )
   end
 
   test "accepts direct JetStream only for an active connected registered leaf" do

@@ -64,6 +64,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
 
     assert bundle.cn == "addon-assignment-1.default.serviceradar"
+
     assert bundle.spiffe_id ==
              "spiffe://serviceradar.local/addon/default/addon-assignment-1"
   end

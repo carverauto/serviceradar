@@ -35,9 +35,8 @@ defmodule ServiceRadar.Edge.DirectLeafEligibility do
 
   defp validate_direct_leaf(_params, nil, _leaf_server), do: {:error, :edge_site_not_selected}
 
-  defp validate_direct_leaf(_params, edge_site, _leaf_server)
-       when not is_map(edge_site),
-       do: {:error, :edge_site_not_selected}
+  defp validate_direct_leaf(_params, edge_site, _leaf_server) when not is_map(edge_site),
+    do: {:error, :edge_site_not_selected}
 
   defp validate_direct_leaf(params, edge_site, nil) do
     if active_site?(edge_site) do

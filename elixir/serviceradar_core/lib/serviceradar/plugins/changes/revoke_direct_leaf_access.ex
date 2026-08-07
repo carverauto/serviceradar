@@ -32,7 +32,9 @@ defmodule ServiceRadar.Plugins.Changes.RevokeDirectLeafAccess do
     if previous_identity?(previous) do
       AfterAction.after_action(changeset, fn _record ->
         case DirectLeafIdentityIssuer.revoke(previous, reason: reason) do
-          :ok -> :ok
+          :ok ->
+            :ok
+
           {:error, revoke_error} ->
             Logger.warning(
               "Direct-leaf identity revocation could not reach the gateway: " <>
