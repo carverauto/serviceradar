@@ -1,0 +1,68 @@
+rust/integration-db/BUILD.bazel
+  s_0eda1e1f71cc86::t_d0b8386b39a7e7 50-55,60-62,64-69,71-72
+BUILD.bazel
+  s_0eda1e1f71cc86::t_ce2db0223b0f5c 112-123
+docker/Dockerfile.rbe
+  s_0eda1e1f71cc86::t_13c974c9837472 61-73
+build/platforms/BUILD.bazel
+  s_dbd28f300af5de::t_968b37bed21ac2 23-36,39,49-53
+  s_0eda1e1f71cc86::t_3d6be2a746ccd6 183,203
+  s_dbd28f300af5de::t_822c4046ae3223 54-56
+  s_dbd28f300af5de::t_419a06b668310c 57
+MODULE.bazel
+  s_0eda1e1f71cc86::t_3d6be2a746ccd6 2495
+  s_0eda1e1f71cc86::t_e4cf1401fbb3b3 44-59,61-63,2538
+  s_0eda1e1f71cc86::t_a2211083533c3b 2465-2467,2469,2471,2474,2476-2477,2479-2489
+  s_dbd28f300af5de::t_f6911c2496333c 2505
+  s_0eda1e1f71cc86::t_4b0555de4e93c9 60
+  s_0eda1e1f71cc86::t_44a11bb794485f 2468,2470,2472-2473,2475,2478
+  s_dbd28f300af5de::t_ac42b0bae68af2 2490
+  s_dbd28f300af5de::t_a66c0840d563d8 2500-2504,2506-2507,2512-2537
+  s_0eda1e1f71cc86::t_e275dad531eaa6 2539
+build/rbe/BUILD
+  s_0eda1e1f71cc86::t_3d6be2a746ccd6 40
+k8s/buildbuddy/README.md
+  s_0eda1e1f71cc86::t_3d6be2a746ccd6 201
+k8s/buildbuddy/values-workflows.yaml
+  s_0eda1e1f71cc86::t_9681ec7fc6ece5 204
+docker/images/Dockerfile.workflow-runner
+  s_0eda1e1f71cc86::t_f8316e81a556e3 6-9,11-12
+buildbuddy.yaml
+  s_0eda1e1f71cc86::t_9681ec7fc6ece5 57
+  s_0eda1e1f71cc86::t_032417c79e3f86 44-48,50-55
+  s_0eda1e1f71cc86::t_ecb4c15ce1cd76 15
+.bazelrc
+  s_dbd28f300af5de::t_ba7b9b709b2953 150-169
+build/toolchains/BUILD.bazel
+  s_dbd28f300af5de::t_e3dd21d180d06b 3-7
+  s_dbd28f300af5de::t_7cc213ec6bf3e0 69-72,89
+  s_dbd28f300af5de::t_8bd710e82b0ee0 73-79
+MODULE.bazel.lock
+  s_dbd28f300af5de::t_e1d0b84859e789 73,92,189-190,321-322,977,4998,5167-5168,5174,5178
+k8s/buildbuddy/values.yaml
+  s_0eda1e1f71cc86::t_9f04ffb44fd1ef 112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "0ef5af5f38f7c22d1d7ae3d8f96c27d1c8c483ae",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_dbd28f300af5de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0d5f18c-ce74-496e-8fc6-dcc7d0c00595",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
