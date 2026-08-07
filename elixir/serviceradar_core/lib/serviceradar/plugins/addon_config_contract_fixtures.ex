@@ -76,7 +76,26 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
       "nats" => %{
         "url" => "tls://nats.demo.internal:4222",
         "stream" => "events",
-        "timeout_secs" => "15"
+        "timeout_secs" => "15",
+        # Required, not decorative. config.schema.json carries an allOf that fires when
+        # output.backend is "jetstream": nats then requires url AND tls, tls requires all three
+        # paths, and creds_file must be absent. Without this block delivery refuses the params --
+        #   Expected all of the schemata to match, but the schemata at the following
+        #   indexes did not: 0.
+        # -- and AddonConfigContractFixturesTest fails before it can compare anything.
+        #
+        # The condition arrived in 91ce839f3e ("remove agent NATS credential dependency"), which
+        # moved this add-on from creds-file auth to mTLS. That commit updated the schema and the
+        # committed fixture but not these params, so the two have disagreed since. The paths below
+        # are the ones already in go/pkg/agent/testdata/addonconfig_contract/otel-collector.json.
+        #
+        # These stay file PATHS. For a ready direct assignment the control plane injects
+        # cert_pem/key_pem/ca_pem at delivery time; the base onboarding bundle never carries them.
+        "tls" => %{
+          "cert_file" => "/etc/serviceradar/edge/nats-client.pem",
+          "key_file" => "/etc/serviceradar/edge/nats-client-key.pem",
+          "ca_file" => "/etc/serviceradar/edge/nats-ca.pem"
+        }
       },
       "server" => %{"bind_address" => "0.0.0.0", "port" => 4_317},
       "agent_forward" => %{"spool_dir" => "/var/lib/serviceradar/otel-spool"}
