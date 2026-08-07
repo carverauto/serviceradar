@@ -1019,6 +1019,25 @@
   - Zero means unavailable, so it SHALL be projected as SQL `NULL` rather than as `0`, which
     would otherwise read as a real observation of AS 0.
 
+  NANOSECOND->MICROSECOND PROJECTOR INTEGRATION AND SCHEMA ARE ALSO OWNED HERE, assigned by
+  `freeze-edge-record-v1-abi` task 1.5-c. That change fixes the MATHEMATICS (the canonical value
+  names the CONTAINING microsecond bucket, computed without forming an unrepresentable
+  intermediate), the ORDER relative to the two contract hashes, and the consumer list. It does
+  NOT wire anything up. This task owns:
+  - CALLING the conversion at the projection boundary for `mtr_traces.time` and `mtr_hops.time`
+    -- each `TIMESTAMPTZ`, each the AUTHORITATIVE OBSERVATION TIME, canonicalized for storage
+    and ordering. NEITHER IS THE PARTITION IDENTITY: `trace_identity_time` is, it is UUIDv7
+    MILLISECOND derived, and it SHALL NOT be routed through the nanosecond canonicalizer.
+    `mtr_hops` references the trace's physical identity rather than re-deriving one. There is
+    no PRODUCTION caller today -- the only importer of `go/pkg/edge/projection` is
+    1.5-c's shared-vector suite, which exercises the helper without wiring it into any
+    projector.
+  - Any DDL the conversion implies, including retaining the original signed nanosecond value
+    separately wherever sub-microsecond fidelity is part of the domain or audit contract.
+  - `trace_identity_time` is NOT part of this conversion. It derives from the UUIDv7
+    MILLISECOND timestamp, not from a wire nanosecond, and must not be routed through the
+    nanosecond canonicalizer.
+
 - [ ] 5.5 Reconcile execution progress/completion from unique committed batch
   sequences, immutable plans, and authoritative attempt terminal state/evidence;
   expose scanner, delivery, projection, MTR pending/missing/quarantined, partial,

@@ -44,8 +44,9 @@ func TestCanonicalMicrosFloors(t *testing.T) {
 	}
 }
 
-// Two timestamps in the same microsecond must canonicalize to the same value, so
-// identity/order comparison never disagrees between ns and us.
+// Two timestamps in the same microsecond must canonicalize to the same PROJECTION-DOMAIN
+// coordinate. That collapse is deliberate and applies only there: CONTRACT identity and the two
+// contract hashes keep the raw nanoseconds and must still tell these two instants apart.
 func TestCanonicalMicrosStableWithinMicrosecond(t *testing.T) {
 	base := int64(1_720_000_000_000_000)
 	if CanonicalMicros(base) != CanonicalMicros(base+999) {

@@ -36,6 +36,7 @@ go_test(
         "assignment_test.go",
         "capability_test.go",
         "asn_corpus_test.go",
+        "canonical_micros_corpus_test.go",
         "compression_corpus_test.go",
         "record_admit_corpus_test.go",
         "domain_test.go",
@@ -52,6 +53,7 @@ go_test(
     data = ["//proto/edge/v1:edge_testdata"],
     embed = [":edgerecord"],
     deps = [
+        "//go/pkg/edge/projection",
         "//proto/edge/v1:edgev1",
         "@com_github_klauspost_compress//zstd",
         "@org_golang_google_protobuf//encoding/protowire",

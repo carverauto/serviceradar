@@ -18,9 +18,11 @@
 // the pure functions that turn a decoded observation/trace batch into the
 // database facts the consumer will write idempotently.
 //
-//   - CanonicalMicros canonicalizes nanoseconds to PostgreSQL microseconds
-//     BEFORE any identity or ordering comparison, so a ns value and its truncated
-//     us value never disagree about identity (task 1.5).
+//   - CanonicalMicros canonicalizes nanoseconds to PostgreSQL microseconds for
+//     PROJECTION-DOMAIN STORAGE AND ORDERING COORDINATES ONLY (task 1.5-c). It is
+//     never applied before a contract hash or a contract-identity comparison:
+//     payload_sha256 covers the exact carried bytes and semantic_envelope_sha256
+//     covers a transcript committing the RAW nanosecond values.
 //   - SweepRows / MtrRows are the single source of truth for the projected row
 //     count -- every synchronous row a batch produces, including per-check
 //     port_errors and MTR summary/hop rows. The agent's projected_row_count and
@@ -41,15 +43,30 @@ import (
 // MicrosPerNano is the PostgreSQL microsecond resolution (1 us == 1000 ns).
 const nanosPerMicro = 1000
 
-// CanonicalMicros converts a Unix-nanosecond timestamp to Unix microseconds by
-// flooring toward negative infinity, matching PostgreSQL timestamp precision.
-// Flooring (not truncation-toward-zero) keeps ordering monotonic across zero.
+// CanonicalMicros names the microsecond bucket CONTAINING the instant, which is the
+// invariant `u*1000 <= ns < (u+1)*1000` (mathematical, in widened arithmetic -- near the
+// extremes of int64 both bounds overflow the type).
+//
+// FLOOR, NOT TRUNCATION TOWARD ZERO, and the reason is that invariant rather than
+// monotonicity: both are monotonic, so monotonicity cannot distinguish them. Truncation
+// satisfies the invariant only for non-negative inputs -- -1500ns truncates to -1us, whose
+// bucket [-1000, 0) does not contain -1500 -- so a coordinate built from it names a bucket
+// its own instant is not in.
+//
+// IT FORMS NO UNREPRESENTABLE POSITIVE MAGNITUDE. The previous implementation negated the
+// operand to reuse a positive-domain division, which fails across [MinInt64, MinInt64+999]
+// for two distinct reasons: at exactly MinInt64 the negation itself wraps, and for
+// MinInt64+1..+999 the negation is representable but the +999 bias wraps. Either way the
+// result came back POSITIVE -- a sign flip, not a rounding error -- so an ordering
+// coordinate built on it sorted the earliest instants as the latest. Adjusting the quotient
+// after a direct signed division never forms that intermediate.
 func CanonicalMicros(unixNanos int64) int64 {
-	if unixNanos >= 0 {
-		return unixNanos / nanosPerMicro
+	q := unixNanos / nanosPerMicro
+	if unixNanos%nanosPerMicro != 0 && unixNanos < 0 {
+		q--
 	}
-	// Floor for negatives: -1500ns -> -2us, not -1us.
-	return -((-unixNanos + nanosPerMicro - 1) / nanosPerMicro)
+
+	return q
 }
 
 // SweepHostRows returns the number of synchronous database rows one host
