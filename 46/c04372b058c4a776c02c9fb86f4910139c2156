@@ -1,0 +1,23 @@
+build/native_addons/defs.bzl
+  s_dbd28f300af5de::t_e90652470dd042 22,26-46
+  s_dbd28f300af5de::t_46fbd1b5b056d7 74-75,80-99
+  s_dbd28f300af5de::t_970efb2159c819 113-116
+  s_dbd28f300af5de::t_402dec0f41b154 4-7
+  s_dbd28f300af5de::t_2c37feaeac75ff 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "46c04372b058c4a776c02c9fb86f4910139c2156",
+  "prompts": {},
+  "sessions": {
+    "s_dbd28f300af5de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b0d5f18c-ce74-496e-8fc6-dcc7d0c00595",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
