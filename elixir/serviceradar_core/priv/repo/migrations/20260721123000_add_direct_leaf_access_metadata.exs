@@ -14,9 +14,9 @@ defmodule ServiceRadar.Repo.Migrations.AddDirectLeafAccessMetadata do
       add(:direct_certificate_pem_ciphertext, :binary)
       add(:direct_private_key_pem_ciphertext, :binary)
       add(:direct_ca_chain_pem_ciphertext, :binary)
-      add(:direct_certificate_fingerprint)
-      add(:direct_identity_component_id)
-      add(:direct_identity_partition_id)
+      add(:direct_certificate_fingerprint, :text)
+      add(:direct_identity_component_id, :text)
+      add(:direct_identity_partition_id, :text)
     end
 
     create(index(:addon_assignments, [:direct_access_status], prefix: "platform"))
