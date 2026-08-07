@@ -703,8 +703,8 @@ here.
   mapping to `EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT`, with the LAST-ONE-WINS case covered by the
   SHARED fixture `lane_open_negative_then_valid.bin` referenced from both
   runtimes. The residual clauses (timestamp units, optional zero-valued
-  measurements, ASN observation semantics, unsupported-version handling) were NOT verified
-  clause-by-clause and remain open. The exact-received-bytes rule also applies here,
+  measurements, unsupported-version handling) were NOT verified clause-by-clause and remain
+  open. ASN observation semantics is CLOSED -- see 1.5-e. The exact-received-bytes rule also applies here,
   and for `ScheduledPlanPageV1` it is now SATISFIED: `ValidatePlanFromRaw` (Go)
   and `WireDecode.decode_plan_page/1` (Elixir) bound the RECEIVED bytes before
   decoding, with shared at-limit / one-over vectors. `ValidatePlanPages` still
@@ -713,7 +713,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-a..1.5-e and 1.5-g..1.5-k. 1.5-f is CLOSED. The subtask list is
+  - REMAINING: 1.5-a..1.5-d and 1.5-g..1.5-k. 1.5-e and 1.5-f are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
@@ -729,6 +729,14 @@ here.
     `record_admit_*.bin` + `record_admit_corpus.txt` at the RECORD stage, both written by Go
     and derived by the peer, and all four suites are gated in
     `.forgejo/workflows/proto-abi.yml`.
+    ASN OBSERVATION SEMANTICS (1.5-e): the requirement "An MTR hop's ASN is diagnostic
+    enrichment, not an allocation claim"; the evidence is the 14-vector shared corpus
+    `proto/edge/v1/testdata/asn_*.bin` + `asn_corpus.txt`, exercised by
+    `go/pkg/edge/edgerecord/asn_corpus_test.go` and
+    `elixir/serviceradar_core/test/serviceradar/edge/asn_corpus_test.exs`, both gated in
+    `.forgejo/workflows/proto-abi.yml`. No ASN-SPECIFIC allocation-status filter exists in
+    either runtime, by decision -- the generic validators still run over these records, and the
+    corpus asserts they admit every value.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
@@ -743,7 +751,7 @@ here.
         OWNER NOTE: prior art `CanonicalMicros` (`go/pkg/edge/projection/projection.go:47`) is
         inert -- nothing imports that package -- and its negative branch overflows at MinInt64.
   - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
-  - [ ] 1.5-e ASN OBSERVATION SEMANTICS (renamed from "ASN RANGE admission").
+  - [x] 1.5-e ASN OBSERVATION SEMANTICS (renamed from "ASN RANGE admission").
         LANDED: the requirement "An MTR hop's ASN is diagnostic enrichment, not an allocation
         claim". Implementations SHALL NOT apply allocation-status filtering; zero means
         unavailable; every other uint32 value is carried through unchanged.

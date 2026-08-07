@@ -14,9 +14,14 @@ defmodule ServiceRadar.Edge.AsnCorpusTest do
   decoded value. `SemanticValidate.validate_message/1` cannot catch it: like Go's
   `ValidateMtrTraceBatch` it never reads `asn`, so a truncated number passes it unnoticed.
 
-  ALLOCATION-STATUS FILTERING -- an implementation that began refusing transitional,
-  private-use or reserved values -- is caught by the POSITIVE assertion that every vector still
-  validates. Each vector is admitted, so any new filter turns one of them red.
+  ALLOCATION-STATUS FILTERING AT THIS STAGE -- `SemanticValidate` beginning to refuse
+  transitional, private-use or reserved values -- is caught by the POSITIVE assertion that
+  every vector still validates. Each vector is admitted, so a new filter THERE turns one of
+  them red.
+
+  That is the limit of the claim. A filter introduced at full record ingress would not be
+  visible here, because this runtime has no such entrypoint to exercise; that surface belongs
+  to `unify-sweep-results-proto` tasks 5.1/5.4.
 
   ## What this runtime can and cannot claim
 
