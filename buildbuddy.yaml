@@ -12,7 +12,7 @@ actions:
     # Static environment. Secrets are NOT declared here: BuildBuddy exposes anything configured
     # in the app's secret store as an environment variable automatically.
     #
-    # OCI_REGISTRY is required and its absence is silent. buildbuddy_setup_docker_auth.sh does
+    # OCI_REGISTRY is required. buildbuddy_setup_docker_auth.sh does
     #   oci_registry="${OCI_REGISTRY:-ghcr.io}"
     # so without it every credential is written into ~/.docker/config.json under the `ghcr.io`
     # key. Harbor then gets no entry at all and rules_oci's repository fetch fails during the
@@ -41,27 +41,20 @@ actions:
 
     # THE RUNNER IMAGE.
     #
-    # `container_image` takes a full image ref, not just the ubuntu-XX.XX aliases: those are a
-    # shorthand and workflow/service/service.go's resolveImageAliases falls through with
-    # "otherwise, interpret container_image the same way we treat it for RBE actions". So this
-    # needs no platform_properties entry, and there must be exactly one field naming the image.
+    # TAGGED IDENTICALLY TO rbe-executor, INCLUDING THE PATCH. They are the two halves of one
+    # Bazel run -- this hosts the client, that hosts the actions -- and a single version across
+    # both means "these two were built and tested together", which is checkable at a glance.
+    # Both move to the new tag even when only one changed: v1.0.24.3 added lld to the executor
+    # and nothing to this image, and it is still rebuilt and pushed at .3.
     #
-    # //docker/images/Dockerfile.workflow-runner, vs the `ubuntu-24.04` alias it replaces:
-    #   gcr.io/flame-public/rbe-ubuntu24-04   1.1 GB unpacked, cross-internet, pulled on demand
-    #   this image                            216 MB unpacked, Harbor in-cluster, pre-pulled
-    #                                                 (//k8s/buildbuddy/values-workflows.yaml)
+    # A BUMP MEANS: push BOTH images at the new tag, then update every reference. As of this
+    # commit, seven places in six files:
+    #   this line and //k8s/buildbuddy/values-workflows.yaml     (runner)
+    #   //MODULE.bazel, //build/rbe/BUILD,                       (executor)
+    #   //build/platforms/BUILD.bazel  (TWO entries),
+    #   //k8s/buildbuddy/values.yaml   (warmup_additional_images)
     #
-    # VERSIONED WITH rbe-executor ON THE MAJOR COMPONENT, NOT THE PATCH. Both are v1.0.24.x
-    # because one Bazel run needs both -- this hosts the client, that hosts the actions -- so a
-    # base or toolchain change lands in both at a new v1.0.N. The trailing patch moves
-    # independently: this is .2 while rbe-executor is still .1, because .2 only added python3 and
-    # a few utilities to the runner and nothing about the executor changed. Retagging the
-    # executor to match would mint a tag with no content behind it.
-    #
-    # A MAJOR bump means pushing both images, then updating: this line,
-    # //k8s/buildbuddy/values-workflows.yaml, //BUILD.bazel, //build/rbe/BUILD and
-    # //build/platforms/BUILD.bazel (two entries). A runner-only patch touches just the first two.
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.2"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
 
     platform_properties:
       OSFamily: "linux"
@@ -253,18 +246,25 @@ actions:
           # Named explicitly because no wildcard reaches them: //integration_tests/srql is tagged
           # `manual`, which removes a target from //... expansion before tag filters are considered.
           #
-          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These two carry only `manual`
-          # and `no-remote-exec` -- neither `integration_test` nor `acceptance_test` -- so any
+          # NO --test_tag_filters and NO --//build:enable_integration_tests, both deliberate. These
+          # two carry only `manual` -- neither `integration_test` nor `acceptance_test` -- so any
           # tag filter naming those two tags would select neither and the step would fail with
-          # "no test targets were found". And they have no requires_shared_fixture() guard,
-          # because they never touch the shared CNPG fixture: their `data` carries
-          # //docker/images:cnpg_image_amd64_tar, so each one starts its own Postgres.
+          # "no test targets were found".
+          #
+          # THEY DO USE THE SHARED FIXTURE, and their position in this step is load-bearing: they
+          # read SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL from the environment provisioned
+          # above. tests/support/harness.rs SKIPS when those are absent, so run from a step that
+          # lacks them this line still exits 0 having asserted nothing.
+          #
+          # They carry no requires_shared_fixture() guard, unlike the tier above -- that skip is
+          # what keeps them safe rather than the guard. Worth reconciling one day; until then do
+          # not "fix" it by adding --//build:enable_integration_tests, which they do not read.
           bazel test -c opt --config=ci  //integration_tests/srql:srql_api_test  //integration_tests/srql:srql_comprehensive_test
 
 
       # Largely a cache hit from the //... build above;
-      # - run: "bazel build -c opt --config=ci //:images"
+      - run: "bazel build -c opt --config=ci //:images"
 
       # //:push is rules_multirun over the per-image push targets. The //.bazelrc note about it
       # failing on macOS does not apply; this runner is Linux.
-      - run: "bazel run -c opt --config=ci //:push"
+      # - run: "bazel run -c opt --config=ci //:push"

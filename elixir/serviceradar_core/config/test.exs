@@ -282,6 +282,18 @@ config :serviceradar_core,
        |> Keyword.put(:parameters, search_path: search_path)
        |> Keyword.put(:types, ServiceRadar.PostgresTypes)
        |> Keyword.put(:migration_default_prefix, "platform")
+       # Ecto logs every query, with parameters, at :debug. Under `mix test` the :warning level
+       # above hides that; under //build:elixir_tests.bzl it does NOT, because Logger boots with
+       # the VM and never re-reads the level (see //build/elixir_test_config_loader.exs). The
+       # serviceradar_core integration shards therefore emitted 3-13 MB of stdout each and Bazel
+       # discarded the whole stream --
+       #   stdout ... exceeds maximum size of --experimental_ui_max_stdouterr_bytes; skipping
+       # -- taking the ExUnit failure with it, which is why four of five failing shards could not
+       # be diagnosed from CI at all.
+       #
+       # Silencing the queries here rather than lowering the primary Logger level, which would
+       # break capture_log assertions. Flip to `:debug` locally when a test needs the SQL.
+       |> Keyword.put(:log, false)
 
 # Configure Ash domains (needed for validation)
 config :serviceradar_core,

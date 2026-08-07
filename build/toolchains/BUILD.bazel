@@ -1,6 +1,10 @@
 load("@buildbuddy_toolchain//:cc_toolchain_config.bzl", "cc_toolchain_config")
 load("@rules_cc//cc:defs.bzl", "cc_toolchain")
-load(":arm64_cc_config.bzl", "AARCH64_GCC_BUILTIN_INCLUDE_PATHS", "AARCH64_GCC_TOOL_PATHS")
+load(
+    ":arm64_cc_config.bzl",
+    "AARCH64_GCC_BUILTIN_INCLUDE_PATHS",
+    "AARCH64_GCC_TOOL_PATHS",
+)
 
 filegroup(
     name = "empty",
@@ -20,21 +24,6 @@ cc_toolchain(
     supports_param_files = 1,
     toolchain_config = ":aarch64_linux_gnu_cc_toolchain_config",
     toolchain_identifier = "aarch64-linux-gnu",
-)
-
-cc_toolchain(
-    name = "aarch64_linux_musl_static_cc_toolchain",
-    all_files = ":empty",
-    ar_files = ":empty",
-    as_files = ":empty",
-    compiler_files = ":empty",
-    dwp_files = ":empty",
-    linker_files = ":empty",
-    objcopy_files = ":empty",
-    strip_files = ":empty",
-    supports_param_files = 1,
-    toolchain_config = ":aarch64_linux_musl_static_cc_toolchain_config",
-    toolchain_identifier = "aarch64-linux-musl-static",
 )
 
 cc_toolchain_config(
@@ -77,45 +66,17 @@ cc_toolchain_config(
     toolchain_identifier = "aarch64-linux-gnu",
 )
 
-cc_toolchain_config(
-    name = "aarch64_linux_musl_static_cc_toolchain_config",
-    abi_libc_version = "musl",
-    abi_version = "gcc-13",
-    compile_flags = [
-        "-U_FORTIFY_SOURCE",
-        "-fstack-protector",
-        "-Wall",
-        "-Wunused-but-set-parameter",
-        "-Wno-free-nonheap-object",
-        "-fno-omit-frame-pointer",
-    ],
-    compiler = "aarch64-linux-gnu-gcc",
-    cpu = "aarch64",
-    cxx_builtin_include_directories = AARCH64_GCC_BUILTIN_INCLUDE_PATHS,
-    cxx_flags = ["-std=c++17"],
-    dbg_compile_flags = ["-g"],
-    host_system_name = "x86_64-unknown-linux-gnu",
-    link_flags = [
-        "-static",
-        "-Wl,-no-as-needed",
-        "-Wl,-z,relro,-z,now",
-        "-pass-exit-codes",
-    ],
-    link_libs = [],
-    opt_compile_flags = [
-        "-g0",
-        "-O2",
-        "-D_FORTIFY_SOURCE=1",
-        "-DNDEBUG",
-        "-ffunction-sections",
-        "-fdata-sections",
-    ],
-    target_libc = "musl",
-    target_system_name = "aarch64-unknown-linux-musl",
-    tool_paths = AARCH64_GCC_TOOL_PATHS,
-    toolchain_identifier = "aarch64-linux-musl-static",
-)
-
+# `linux_glibc` is NOT redundant, and removing it reintroduces a bug. It is the default value of
+# //build/platforms:linux_libc, so naming it here changes nothing for ordinary platforms -- but
+# it makes this toolchain INCOMPATIBLE with a musl platform, which without it matched here
+# (a platform with extra constraints still satisfies a toolchain asking for fewer). That is how
+# //build/platforms:linux_x86_64_musl ended up linking against glibc, producing a "static"
+# binary with libstdc++.so.6 and libm.so.6 in DT_NEEDED.
+#
+# musl targets are served by @musl_toolchains_hub (see the @toolchains_musl block in
+# //MODULE.bazel). It registers from a dependency module, i.e. AFTER everything the root
+# module registers, so this constraint is the only thing standing between a musl build and
+# this glibc toolchain.
 toolchain(
     name = "rbe_cc_toolchain",
     exec_compatible_with = [
@@ -125,23 +86,9 @@ toolchain(
     target_compatible_with = [
         "@platforms//cpu:x86_64",
         "@platforms//os:linux",
+        "//build/platforms:linux_glibc",
     ],
     toolchain = "@buildbuddy_toolchain//:ubuntu_local_cc_toolchain",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
-)
-
-toolchain(
-    name = "rbe_cc_toolchain_arm64_musl_static",
-    exec_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_compatible_with = [
-        "@platforms//cpu:aarch64",
-        "@platforms//os:linux",
-        "//build/platforms:linux_musl",
-    ],
-    toolchain = ":aarch64_linux_musl_static_cc_toolchain",
     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )
 

@@ -3,15 +3,13 @@
 # Not to be confused with //docker/Dockerfile.rbe, which is the image Bazel ACTIONS execute in
 # on the executors. This one hosts the `bazel` client that drives them.
 #
-# VERSIONED WITH rbe-executor ON THE MAJOR COMPONENT. Both are v1.0.24.x: they are the two
-# halves of one Bazel run, so a base or toolchain change affects both and lands as a new v1.0.N
-# pushed to both images before any reference moves. //buildbuddy.yaml lists the five files that
-# touches.
+# TAGGED IDENTICALLY TO rbe-executor, PATCH INCLUDED. They are the two halves of one Bazel run,
+# so one shared version says "these were built and tested together". Both images are rebuilt and
+# pushed at every bump even when only one of them changed -- v1.0.24.3 added lld to the executor
+# and nothing here, and this image still went to .3.
 #
-# The trailing patch is this image's alone. v1.0.24.2 added python3 while rbe-executor stayed on
-# v1.0.24.1, because nothing about the executor changed and a matching tag there would point at
-# byte-identical content. A runner-only patch means: push this image, then update //buildbuddy.yaml
-# and //k8s/buildbuddy/values-workflows.yaml. Nothing else.
+# //buildbuddy.yaml lists the seven references a bump has to update, and the grep that
+# re-derives that list. Push both images BEFORE moving any reference.
 #
 #   docker build --platform linux/amd64 -f docker/images/Dockerfile.workflow-runner \
 #     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> docker/images/

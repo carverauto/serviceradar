@@ -259,6 +259,6 @@ async fn ensure_stream(config: &Config, js: &jetstream::Context) -> Result<()> {
 fn ensure_rustls_provider_installed() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let _ = rustls::crypto::ring::default_provider().install_default();
     });
 }
