@@ -1,5 +1,5 @@
-FILE:@@//Cargo.lock d65a14264a065ab61115e26eb01671e81679b373224847bdb2850481d965f087
-FILE:@@//Cargo.toml cbf5353adda059b7fd37b4b8a59f49324fcafe44a346c4a4b4990e4104c18439
+FILE:@@//Cargo.lock 25db3b18762a57919444303da082e0bf92a632df59badc5f2fc1e9c498c057bc
+FILE:@@//Cargo.toml 4ac86977e67a935f91c7042c47c98adf7cef0b3d02ba86b5f0d1747ab82ac867
 FILE:@@//elixir/serviceradar_core/native/anomaly_disposition_nif/Cargo.toml af22b2f909bb6ec6551effc531319048c5ae284e4138b55b2007b78cef7d9916
 FILE:@@//elixir/serviceradar_core/native/zen_nif/Cargo.toml 234168802da06802477c2b57e3969136f445a4083ab114b6cc3980ce10458bd5
 FILE:@@//elixir/serviceradar_srql/native/srql_nif/Cargo.toml 2816cc9558feba4a7089021aba0718dec230a2f3a3779ec2f2d33d3b08ce17ad
@@ -32,7 +32,6 @@ FILE:@@//rust/integration-db/Cargo.toml 928f334bed5ee94ae16d168dc601ea2bfaff3873
 FILE:@@//rust/kvutil/Cargo.toml eda327feb5b54d3b9335acfd624605e56d6f57d6eda96326849d6c9e9ade1d16
 FILE:@@//rust/log-collector/Cargo.toml 6f566b7b4086538694ae2ed1121a0b0a5068fe72ca3d23310cc4bf02734fd255
 FILE:@@//rust/metric-proto/Cargo.toml 859c8398d7c3b2149c5f4087d8e7507e77c680b13049ec344ba776ce4a7770be
-FILE:@@//rust/metrics-delta-writer/Cargo.toml 31e76dc98aa92add9cf71c623586d1f01a112a626d2cf988b1366acafbb340f0
 FILE:@@//rust/netprobe/Cargo.toml 645e396ccc7fe6bdbcb78fa68b12e8e7f9422ae31ca6aa1186bb2d80ac1e43d0
 FILE:@@//rust/otel/Cargo.toml 00fa5cfad93b76777afc387fa594eafffdbeb21f2ce72aa1302454c3d65c7365
 FILE:@@//rust/otel-addon/Cargo.toml b90e667f4d9b3749efd0f5ce400c8975d2ba4a7363ba4c4458de161b88aaa029
