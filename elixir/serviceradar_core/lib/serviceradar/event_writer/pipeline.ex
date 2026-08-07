@@ -518,8 +518,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:pdns_ocsf), do: PowerDNS
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
-  defp get_processor(:k8s_inventory),
-    do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
+  defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
 
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals

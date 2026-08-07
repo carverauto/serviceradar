@@ -1,9 +1,9 @@
 defmodule ServiceRadar.EventWriter.DeviceCorrelationCacheTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
+
+  @moduletag :requires_app
 
   setup do
     # Each test gets a freshly started cache so the named ETS table exists and

@@ -182,7 +182,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
     assert identifier.partition == "default:armis:#{sync_service_id}"
     assert identifier.metadata["sync_service_id"] == sync_service_id
     assert identifier.metadata["integration_type"] == "armis"
-    assert identifier.metadata["hardware_serial_normalized"] != nil
+    assert identifier.metadata["hardware_serial_normalized"]
   end
 
   test "sync ingestor invalidates stale IP identity cache entries after bulk upsert", %{

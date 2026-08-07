@@ -112,7 +112,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     rows = Enum.reject(rows, &is_nil/1)
     keys = Enum.map(rows, & &1.endpoint_key)
 
-    Repo.transaction(fn ->
+    fn ->
       if rows != [] do
         BulkInsert.insert_all(@table, rows,
           prefix: @prefix,
@@ -123,7 +123,8 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
 
       soft_delete_missing!(cluster_id, snapshot_at, keys)
       length(rows)
-    end)
+    end
+    |> Repo.transaction()
     |> case do
       {:ok, count} ->
         :telemetry.execute(
@@ -162,7 +163,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     ip = blank_to_nil(ep["ip"])
     hostname = blank_to_nil(ep["hostname"])
     port = to_int(ep["port"], 0)
-    protocol = string_or(ep["protocol"], "TCP") |> String.upcase()
+    protocol = ep["protocol"] |> string_or("TCP") |> String.upcase()
     exposure = string_or(ep["exposure_class"], "LoadBalancer")
     namespace = string_or(ep["namespace"], "")
     service_name = string_or(ep["service_name"], "")
@@ -286,7 +287,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
     end
   end
 
-  defp parse_time(_), do: {:ok, DateTime.utc_now() |> DateTime.truncate(:second)}
+  defp parse_time(_), do: {:ok, DateTime.truncate(DateTime.utc_now(), :second)}
 
   defp string_or(v, _default) when is_binary(v), do: v
   defp string_or(_, default), do: default
@@ -296,8 +297,8 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpoints do
   defp blank_to_nil(v) when is_binary(v), do: v
   defp blank_to_nil(v), do: to_string(v)
 
-  defp to_int(v, default) when is_integer(v), do: v
-  defp to_int(v, default) when is_float(v), do: trunc(v)
+  defp to_int(v, _default) when is_integer(v), do: v
+  defp to_int(v, _default) when is_float(v), do: trunc(v)
 
   defp to_int(v, default) when is_binary(v) do
     case Integer.parse(v) do

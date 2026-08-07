@@ -1,12 +1,12 @@
 defmodule ServiceRadarAgentGateway.MetricsRouterTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   import Plug.Conn
   import Plug.Test
 
   alias ServiceRadarAgentGateway.MetricsRouter
+
+  @moduletag :requires_app
 
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:telemetry)

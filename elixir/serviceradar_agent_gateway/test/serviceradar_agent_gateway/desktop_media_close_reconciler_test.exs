@@ -1,11 +1,11 @@
 defmodule ServiceRadarAgentGateway.DesktopMediaCloseReconcilerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadarAgentGateway.DesktopMediaCloseReconciler
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub
+
+  @moduletag :requires_app
 
   setup do
     previous_result =

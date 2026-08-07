@@ -1,11 +1,11 @@
 defmodule ServiceRadarAgentGateway.SafeGrpcLoggerTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   import ExUnit.CaptureLog
 
   alias ServiceRadarAgentGateway.SafeGrpcLogger
+
+  @moduletag :requires_app
 
   test "logs gRPC method and status without request or response bodies" do
     stream = %GRPC.Server.Stream{

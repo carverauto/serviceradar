@@ -688,8 +688,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       class={["sr-ui-spinner", ui_spinner_size_class(@size), @class]}
       aria-hidden="true"
       {@rest}
-    >
-    </span>
+    ></span>
     """
   end
 

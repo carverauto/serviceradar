@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducer
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Plugins.ConfigSchema
+
+  @moduletag :requires_app
 
   # A fake SRQL runner that returns hour-of-week profile rows shaped exactly as the
   # `stats:profile_hour_of_week` SQL emits them (string keys, device_id AS series),

@@ -8,9 +8,9 @@ defmodule ServiceRadarAgentGateway.ProcessRegistryPlacementTest do
 
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.ProcessRegistry
+
+  @moduletag :requires_app
 
   test "gateway does not host Horde-distributed processes" do
     refute ProcessRegistry.host_distributed_processes?()

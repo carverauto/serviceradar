@@ -23,8 +23,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
             {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
           <% end %>
         </span>
-        
-    <!-- Select All Matching Toggle -->
+
+        <!-- Select All Matching Toggle -->
         <button
           :if={!@select_all_matching and has_any_filter?(@srql)}
           phx-click="toggle_select_all_matching"

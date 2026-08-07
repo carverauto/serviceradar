@@ -1,10 +1,10 @@
 defmodule ServiceRadarAgentGateway.ControlStreamTelemetryTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
+
+  @moduletag :requires_app
 
   setup do
     handler_id = "control-stream-telemetry-#{System.unique_integer([:positive])}"

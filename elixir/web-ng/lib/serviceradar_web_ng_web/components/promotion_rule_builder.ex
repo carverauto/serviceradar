@@ -188,8 +188,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
         </div>
 
         <div class="sr-ui-divider text-xs text-sr-muted">Match Conditions</div>
-        
-    <!-- Message Body Contains -->
+
+        <!-- Message Body Contains -->
         <div class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
             <input
@@ -218,8 +218,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             </span>
           </label>
         </div>
-        
-    <!-- Severity -->
+
+        <!-- Severity -->
         <div class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
             <input
@@ -247,8 +247,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             <% end %>
           </select>
         </div>
-        
-    <!-- Service Name -->
+
+        <!-- Service Name -->
         <div class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
             <input
@@ -272,8 +272,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             disabled={not @form[:service_name_enabled].value}
           />
         </div>
-        
-    <!-- Attribute Match -->
+
+        <!-- Attribute Match -->
         <div class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
             <input
@@ -330,8 +330,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
         </div>
 
         <div class="sr-ui-divider text-xs text-sr-muted">Event Options</div>
-        
-    <!-- Auto-create Alert -->
+
+        <!-- Auto-create Alert -->
         <div class="flex flex-col gap-1.5">
           <label class="flex cursor-pointer items-center justify-start gap-3">
             <input
@@ -351,8 +351,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             </div>
           </label>
         </div>
-        
-    <!-- Rule Preview Section -->
+
+        <!-- Rule Preview Section -->
         <div class="bg-sr-subtle/50 rounded-lg p-4 mt-4">
           <div class="flex items-center justify-between mb-2">
             <span class="text-sm font-medium">Rule Preview</span>
@@ -410,14 +410,14 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
             {@preview_error}
           </div>
         </div>
-        
-    <!-- Validation Error -->
+
+        <!-- Validation Error -->
         <div :if={@error} class={ui_alert_class("error")}>
           <.icon name="hero-exclamation-circle" class="w-5 h-5" />
           <span>{@error}</span>
         </div>
-        
-    <!-- Actions -->
+
+        <!-- Actions -->
         <div class="flex justify-end gap-2 pt-1">
           <.ui_button type="button" phx-click="close" phx-target={@myself} size="sm" variant="ghost">
             Cancel

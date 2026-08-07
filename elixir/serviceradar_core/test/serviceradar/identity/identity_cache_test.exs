@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Identity.IdentityCacheTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Identity.IdentityCache
+
+  @moduletag :requires_app
 
   setup do
     pid =

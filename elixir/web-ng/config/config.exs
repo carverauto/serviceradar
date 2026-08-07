@@ -35,10 +35,10 @@ config :ash_postgres,
 config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
+    # Keep react/react-dom aliases in lockstep with assets/package.json build:js.
+    # Without them, component/node_modules can pull a second React and hooks crash
+    # with "Cannot read properties of null (reading 'useState')" on remote-access pages.
     args:
-      # Keep react/react-dom aliases in lockstep with assets/package.json build:js.
-      # Without them, component/node_modules can pull a second React and hooks crash
-      # with "Cannot read properties of null (reading 'useState')" on remote-access pages.
       ~w(js/app.js js/theme_init.js --bundle --target=es2022 --outdir=../priv/static/assets/js --public-path=/assets/js --external:/fonts/* --external:/images/* --alias:@=. --alias:react=./node_modules/react --alias:react-dom=./node_modules/react-dom --alias:stream=stream-browserify --loader:.ttf=file --loader:.woff=file --loader:.woff2=file --loader:.wasm=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}

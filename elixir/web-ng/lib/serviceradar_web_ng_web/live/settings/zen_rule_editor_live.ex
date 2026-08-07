@@ -257,8 +257,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
             </.ui_button>
           </div>
         </div>
-        
-    <!-- Single form that persists across all states -->
+
+        <!-- Single form that persists across all states -->
         <.form
           for={@form}
           id="zen_rule_form"
@@ -312,8 +312,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                 </div>
               </.ui_panel>
             </div>
-            
-    <!-- JDM Editor Panel -->
+
+            <!-- JDM Editor Panel -->
             <.ui_panel class={[
               "min-h-[600px]",
               if(@properties_collapsed, do: "lg:col-span-1", else: "")

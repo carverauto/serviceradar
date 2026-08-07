@@ -1,4 +1,4 @@
-import {describe, expect, test, beforeEach} from "vitest"
+import {describe, expect, test} from "vitest"
 
 import SRQLInput from "./SRQLInput.js"
 import {HISTORY_STORAGE_KEY, pushHistory} from "../lib/srql/queryHistory.js"

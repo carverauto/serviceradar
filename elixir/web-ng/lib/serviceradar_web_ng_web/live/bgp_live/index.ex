@@ -165,8 +165,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="sr-observability-page mx-auto max-w-screen-2xl space-y-6 px-4 py-6 font-sans sm:px-6 lg:px-8">
         <.observability_chrome active_pane="bgp" />
-        
-    <!-- Header -->
+
+        <!-- Header -->
         <div class="flex justify-between items-center">
           <div>
             <h1 class="text-2xl font-semibold text-sr-ink">
@@ -176,8 +176,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               BGP routing information from NetFlow, sFlow, and BMP sources
             </p>
           </div>
-          
-    <!-- Filters -->
+
+          <!-- Filters -->
           <div class="flex gap-3">
             <!-- Time Range Selector -->
             <select
@@ -190,8 +190,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
               <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
             </select>
-            
-    <!-- Source Protocol Selector -->
+
+            <!-- Source Protocol Selector -->
             <select
               phx-change="change_source_protocol"
               name="source_protocol"
@@ -204,8 +204,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
                 BGP Peering
               </option>
             </select>
-            
-    <!-- Clear Filters Button -->
+
+            <!-- Clear Filters Button -->
             <%= if @selected_as || @selected_community do %>
               <.ui_button phx-click="clear_filters" size="sm" variant="ghost">
                 Clear Filters
@@ -213,8 +213,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
             <% end %>
           </div>
         </div>
-        
-    <!-- Active Filters Display -->
+
+        <!-- Active Filters Display -->
         <%= if @selected_as || @selected_community do %>
           <div class={ui_alert_class("info")}>
             <div class="flex items-center gap-2">
@@ -238,14 +238,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
             </.ui_button>
           </div>
-          
-    <!-- Data Sources Panel -->
+
+          <!-- Data Sources Panel -->
           <.data_sources_panel sources={@data_sources} />
-          
-    <!-- Traffic Time Series -->
+
+          <!-- Traffic Time Series -->
           <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
-          
-    <!-- Main Statistics Grid -->
+
+          <!-- Main Statistics Grid -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Traffic by AS -->
             <.bgp_traffic_by_as_view
@@ -253,25 +253,25 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               max_bytes={@max_bytes}
               selected_as={@selected_as}
             />
-            
-    <!-- Top BGP Communities -->
+
+            <!-- Top BGP Communities -->
             <.bgp_top_communities_view
               communities={@communities}
               max_bytes={@max_bytes}
               selected_community={@selected_community}
             />
-            
-    <!-- AS Path Diversity -->
+
+            <!-- AS Path Diversity -->
             <.bgp_path_diversity_panel path_diversity={@path_diversity} />
-            
-    <!-- AS Topology Graph -->
+
+            <!-- AS Topology Graph -->
             <.bgp_topology_visualization topology={@topology} />
           </div>
-          
-    <!-- AS Path Details Table -->
+
+          <!-- AS Path Details Table -->
           <.as_path_details_table paths={@as_path_details} />
-          
-    <!-- Prefix Analysis Table -->
+
+          <!-- Prefix Analysis Table -->
           <.prefix_analysis_table prefixes={@prefix_analysis} />
         <% else %>
           <!-- Empty State -->

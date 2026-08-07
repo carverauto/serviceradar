@@ -50,7 +50,6 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
 
   @repo_root Path.expand("../../../../..", __DIR__)
   @fixture_dir Path.join(@repo_root, "go/pkg/agent/testdata/addonconfig_contract")
-  @addons_root Path.join(@repo_root, "addons")
 
   # Representative assignment params per bundled add-on. Deliberately include
   # the documented compatibility forms (see

@@ -819,8 +819,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           </.form>
         </div>
       </div>
-      
-    <!-- Rule Builder Modal -->
+
+      <!-- Rule Builder Modal -->
       <.live_component
         :if={@show_rule_builder}
         module={PromotionRuleBuilder}
