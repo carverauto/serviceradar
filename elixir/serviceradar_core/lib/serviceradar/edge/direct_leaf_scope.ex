@@ -48,8 +48,7 @@ defmodule ServiceRadar.Edge.DirectLeafScope do
 
   @doc "Returns true when a concrete subject is covered by a scoped pattern."
   @spec subject_within_scope?(String.t(), String.t()) :: boolean()
-  def subject_within_scope?(subject, pattern)
-      when is_binary(subject) and is_binary(pattern) do
+  def subject_within_scope?(subject, pattern) when is_binary(subject) and is_binary(pattern) do
     subject_tokens = String.split(subject, ".")
     pattern_tokens = String.split(pattern, ".")
     match_tokens?(subject_tokens, pattern_tokens)

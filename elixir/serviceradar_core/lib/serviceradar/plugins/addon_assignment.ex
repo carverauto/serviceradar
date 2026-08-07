@@ -59,11 +59,13 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
 
   cloak do
     vault(ServiceRadar.Vault)
+
     attributes([
       :direct_certificate_pem_ciphertext,
       :direct_private_key_pem_ciphertext,
       :direct_ca_chain_pem_ciphertext
     ])
+
     decrypt_by_default([])
   end
 
@@ -163,8 +165,11 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
 
         material_present? =
           Enum.all?(
-            [:direct_certificate_pem_ciphertext, :direct_private_key_pem_ciphertext,
-             :direct_ca_chain_pem_ciphertext],
+            [
+              :direct_certificate_pem_ciphertext,
+              :direct_private_key_pem_ciphertext,
+              :direct_ca_chain_pem_ciphertext
+            ],
             &(is_binary(Ash.Changeset.get_attribute(changeset, &1)) and
                 byte_size(Ash.Changeset.get_attribute(changeset, &1)) > 0)
           )
@@ -234,6 +239,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     attribute :edge_site_id, :uuid do
       allow_nil? true
       public? true
+
       description "Registered edge site whose local NATS leaf is authorized for direct add-on output"
     end
 

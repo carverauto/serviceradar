@@ -4,9 +4,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator

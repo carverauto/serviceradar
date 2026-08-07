@@ -8,14 +8,14 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
   add-on certificate for the server-owned partition.
   """
 
-  require Ash.Query
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
   alias ServiceRadar.Edge.EdgeSite
+
+  require Ash.Query
+  require Logger
 
   @gateway_cert_issuer ServiceRadarAgentGateway.CertIssuer
   @gateway_revocation ServiceRadarAgentGateway.AgentCertificateRevocation
@@ -43,14 +43,15 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
          {:ok, scope} <- DirectLeafScope.build(params),
          :ok <- ensure_scope_matches(assignment, scope),
          {:ok, edge_site} <- load_edge_site(edge_site_id, opts),
-         leaf_server <- value(edge_site, :nats_leaf_server),
+         leaf_server = value(edge_site, :nats_leaf_server),
          {:ok, _params} <- DirectLeafEligibility.validate(params, edge_site, leaf_server),
          {:ok, evidence} <- resolve_session(agent_uid, opts),
          :ok <- ensure_session_agent(evidence, agent_uid),
          {:ok, partition_id} <- authenticated_partition(evidence),
          {:ok, gateway_node} <- authenticated_gateway_node(evidence),
          {:ok, component_id} <- component_id(assignment_id),
-         {:ok, bundle} <- issue_on_gateway(component_id, partition_id, gateway_node, assignment, opts) do
+         {:ok, bundle} <-
+           issue_on_gateway(component_id, partition_id, gateway_node, assignment, opts) do
       {:ok,
        %{
          certificate_pem: Map.fetch!(bundle, :certificate_pem),
@@ -58,10 +59,10 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
          ca_chain_pem: Map.fetch!(bundle, :ca_chain_pem),
          certificate_fingerprint: Map.fetch!(bundle, :certificate_fingerprint),
          component_id: component_id,
-          partition_id: partition_id,
-          expires_at: DateTime.add(DateTime.utc_now(), validity_days(opts), :day),
-          scope: scope,
-          authorization_status: Keyword.get(opts, :authorization_status, :pending)
+         partition_id: partition_id,
+         expires_at: DateTime.add(DateTime.utc_now(), validity_days(opts), :day),
+         scope: scope,
+         authorization_status: Keyword.get(opts, :authorization_status, :pending)
        }}
     else
       false -> {:error, :not_direct_leaf_assignment}
@@ -74,8 +75,12 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
   @doc "Best-effort revocation of a previously issued assignment identity."
   @spec revoke(map(), keyword()) :: :ok | {:error, term()}
   def revoke(identity, opts \\ []) when is_map(identity) do
-    fingerprint = value(identity, :direct_certificate_fingerprint) || value(identity, :certificate_fingerprint)
-    component_id = value(identity, :direct_identity_component_id) || value(identity, :component_id)
+    fingerprint =
+      value(identity, :direct_certificate_fingerprint) ||
+        value(identity, :certificate_fingerprint)
+
+    component_id =
+      value(identity, :direct_identity_component_id) || value(identity, :component_id)
 
     if blank?(fingerprint) and blank?(component_id) do
       :ok
@@ -96,11 +101,13 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
     timeout = Keyword.get(opts, :rpc_timeout, @rpc_timeout)
 
     results =
-      [
-        revoke_fingerprint(rpc_call, gateway_node, fingerprint, reason, timeout),
-        revoke_component(rpc_call, gateway_node, component_id, reason, timeout)
-      ]
-      |> Enum.reject(&(&1 == :skip))
+      Enum.reject(
+        [
+          revoke_fingerprint(rpc_call, gateway_node, fingerprint, reason, timeout),
+          revoke_component(rpc_call, gateway_node, component_id, reason, timeout)
+        ],
+        &(&1 == :skip)
+      )
 
     cond do
       results == [] -> :ok
@@ -139,7 +146,9 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
   end
 
   defp resolve_session(agent_uid, opts) do
-    resolver = Keyword.get(opts, :session_resolver, &AgentCommandBus.resolve_control_session_evidence/1)
+    resolver =
+      Keyword.get(opts, :session_resolver, &AgentCommandBus.resolve_control_session_evidence/1)
+
     resolver.(agent_uid)
   end
 
@@ -207,22 +216,34 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
     end
   end
 
-  defp revoke_fingerprint(_rpc_call, _node, fingerprint, _reason, _timeout) when not is_binary(fingerprint),
-    do: :skip
+  defp revoke_fingerprint(_rpc_call, _node, fingerprint, _reason, _timeout)
+       when not is_binary(fingerprint), do: :skip
 
   defp revoke_fingerprint(rpc_call, gateway_node, fingerprint, reason, timeout) do
-    case rpc_call.(gateway_node, @gateway_revocation, :revoke_fingerprint, [fingerprint, [reason: reason]], timeout) do
+    case rpc_call.(
+           gateway_node,
+           @gateway_revocation,
+           :revoke_fingerprint,
+           [fingerprint, [reason: reason]],
+           timeout
+         ) do
       :ok -> :ok
       {:badrpc, reason} -> {:error, {:fingerprint, reason}}
       other -> {:error, {:fingerprint, other}}
     end
   end
 
-  defp revoke_component(_rpc_call, _node, component_id, _reason, _timeout) when not is_binary(component_id),
-    do: :skip
+  defp revoke_component(_rpc_call, _node, component_id, _reason, _timeout)
+       when not is_binary(component_id), do: :skip
 
   defp revoke_component(rpc_call, gateway_node, component_id, reason, timeout) do
-    case rpc_call.(gateway_node, @gateway_revocation, :revoke_component_id, [component_id, [reason: reason]], timeout) do
+    case rpc_call.(
+           gateway_node,
+           @gateway_revocation,
+           :revoke_component_id,
+           [component_id, [reason: reason]],
+           timeout
+         ) do
       :ok -> :ok
       {:badrpc, reason} -> {:error, {:component_id, reason}}
       other -> {:error, {:component_id, other}}
@@ -234,7 +255,9 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
     if is_integer(days) and days > 0, do: days, else: 30
   end
 
-  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
   defp value(_map, _key), do: nil
 
   defp blank?(nil), do: true

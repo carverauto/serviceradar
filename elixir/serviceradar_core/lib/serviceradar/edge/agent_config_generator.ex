@@ -692,14 +692,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp prepare_direct_leaf_params(%AddonAssignment{} = assignment, params) do
     edge_site = Map.get(assignment, :edge_site)
-    leaf_server = if is_map(edge_site), do: Map.get(edge_site, :nats_leaf_server), else: nil
+    leaf_server = if is_map(edge_site), do: Map.get(edge_site, :nats_leaf_server)
 
     case DirectLeafEligibility.validate(params, edge_site, leaf_server) do
       {:ok, params} ->
         if DirectLeafEligibility.direct?(params) do
           if direct_access_ready?(assignment, params) do
             case inject_direct_leaf_identity(assignment, params) do
-              {:ok, params} -> {:ok, params}
+              {:ok, params} ->
+                {:ok, params}
+
               {:error, reason} ->
                 report_direct_leaf_pending(assignment, reason)
                 {:error, reason}
@@ -734,9 +736,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp inject_direct_leaf_identity(%AddonAssignment{} = assignment, params) do
-    with {:ok, certificate_pem} <- decrypt_direct_identity_field(assignment, :direct_certificate_pem_ciphertext),
-         {:ok, private_key_pem} <- decrypt_direct_identity_field(assignment, :direct_private_key_pem_ciphertext),
-         {:ok, ca_chain_pem} <- decrypt_direct_identity_field(assignment, :direct_ca_chain_pem_ciphertext) do
+    with {:ok, certificate_pem} <-
+           decrypt_direct_identity_field(assignment, :direct_certificate_pem_ciphertext),
+         {:ok, private_key_pem} <-
+           decrypt_direct_identity_field(assignment, :direct_private_key_pem_ciphertext),
+         {:ok, ca_chain_pem} <-
+           decrypt_direct_identity_field(assignment, :direct_ca_chain_pem_ciphertext) do
       nats = map_value(params, :nats) || %{}
       tls = map_value(nats, :tls) || %{}
 
@@ -775,7 +780,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp put_map_value(map, key, value) when is_map(map) do
     string_key = Atom.to_string(key)
-    if Map.has_key?(map, string_key), do: Map.put(map, string_key, value), else: Map.put(map, key, value)
+
+    if Map.has_key?(map, string_key),
+      do: Map.put(map, string_key, value),
+      else: Map.put(map, key, value)
   end
 
   defp report_direct_leaf_pending(%AddonAssignment{} = assignment, reason) do

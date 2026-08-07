@@ -1225,8 +1225,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                         <% end %>
                       </select>
                       <p class="label">
-                        Required only when configuration sets <code>output.backend</code> to
-                        <code>jetstream</code>. The selected leaf must be active and connected;
+                        Required only when configuration sets <code>output.backend</code>
+                        to <code>jetstream</code>. The selected leaf must be active and connected;
                         mTLS paths remain add-on-owned.
                       </p>
                     </div>
@@ -2010,7 +2010,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp create_assignments(agent_uids, package, params, args, edge_site_id, policy_attrs, scope) do
     Enum.reduce_while(agent_uids, {:ok, 0}, fn agent_uid, {:ok, count} ->
       attrs =
-        Map.merge(policy_attrs, %{
+        policy_attrs
+        |> Map.merge(%{
           agent_uid: agent_uid,
           addon_package_id: package.id,
           params: params,

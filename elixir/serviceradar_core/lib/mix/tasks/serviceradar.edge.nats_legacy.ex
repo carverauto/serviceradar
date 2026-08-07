@@ -95,10 +95,17 @@ defmodule Mix.Tasks.Serviceradar.Edge.NatsLegacy do
       |> Ash.Query.filter(expr(id == ^package_id))
 
     case Ash.read(query, actor: actor) do
-      {:ok, [package]} -> [package]
-      {:ok, []} -> Mix.raise("No package with legacy NATS material found: #{package_id}")
-      {:ok, packages} -> packages
-      {:error, error} -> Mix.raise("Unable to read onboarding package: #{Exception.message(error)}")
+      {:ok, [package]} ->
+        [package]
+
+      {:ok, []} ->
+        Mix.raise("No package with legacy NATS material found: #{package_id}")
+
+      {:ok, packages} ->
+        packages
+
+      {:error, error} ->
+        Mix.raise("Unable to read onboarding package: #{Exception.message(error)}")
     end
   end
 

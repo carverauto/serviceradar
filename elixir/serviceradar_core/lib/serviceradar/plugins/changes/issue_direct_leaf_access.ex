@@ -14,8 +14,7 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
   @impl true
   def change(changeset, _opts, context) do
     assignment =
-      changeset.data
-      |> Map.put(:params, Ash.Changeset.get_attribute(changeset, :params) || %{})
+      Map.put(changeset.data, :params, Ash.Changeset.get_attribute(changeset, :params) || %{})
 
     opts = [
       validity_days: Ash.Changeset.get_argument(changeset, :validity_days) || 30,
@@ -23,8 +22,12 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     ]
 
     case DirectLeafIdentityIssuer.issue(assignment, opts) do
-      {:ok, %{authorization_status: :ready} = identity} -> ready(changeset, identity)
-      {:ok, identity} -> pending_with_material(changeset, identity, :leaf_authorization_pending)
+      {:ok, %{authorization_status: :ready} = identity} ->
+        ready(changeset, identity)
+
+      {:ok, identity} ->
+        pending_with_material(changeset, identity, :leaf_authorization_pending)
+
       {:error, reason} ->
         changeset
         |> pending(reason)
@@ -42,7 +45,10 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     |> Ash.Changeset.change_attribute(:direct_access_expires_at, identity.expires_at)
     |> Ash.Changeset.change_attribute(:direct_access_revoked_at, nil)
     |> Ash.Changeset.change_attribute(:direct_access_error, nil)
-    |> Ash.Changeset.change_attribute(:direct_certificate_fingerprint, identity.certificate_fingerprint)
+    |> Ash.Changeset.change_attribute(
+      :direct_certificate_fingerprint,
+      identity.certificate_fingerprint
+    )
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, identity.component_id)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, identity.partition_id)
     |> AshCloak.encrypt_and_set(:direct_certificate_pem_ciphertext, identity.certificate_pem)
@@ -63,7 +69,10 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     |> Ash.Changeset.change_attribute(:direct_access_expires_at, identity.expires_at)
     |> Ash.Changeset.change_attribute(:direct_access_revoked_at, nil)
     |> Ash.Changeset.change_attribute(:direct_access_error, reason_text(reason))
-    |> Ash.Changeset.change_attribute(:direct_certificate_fingerprint, identity.certificate_fingerprint)
+    |> Ash.Changeset.change_attribute(
+      :direct_certificate_fingerprint,
+      identity.certificate_fingerprint
+    )
     |> Ash.Changeset.change_attribute(:direct_identity_component_id, identity.component_id)
     |> Ash.Changeset.change_attribute(:direct_identity_partition_id, identity.partition_id)
     |> AshCloak.encrypt_and_set(:direct_certificate_pem_ciphertext, identity.certificate_pem)
@@ -85,7 +94,9 @@ defmodule ServiceRadar.Plugins.Changes.IssueDirectLeafAccess do
     if previous_identity?(previous) do
       AfterAction.after_action(changeset, fn _record ->
         case DirectLeafIdentityIssuer.revoke(previous, reason: reason) do
-          :ok -> :ok
+          :ok ->
+            :ok
+
           {:error, revoke_error} ->
             Logger.warning(
               "Direct-leaf predecessor revocation could not reach the gateway: " <>

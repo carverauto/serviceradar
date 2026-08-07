@@ -68,7 +68,9 @@ defmodule Mix.Tasks.Serviceradar.Edge.DirectLeaf do
   end
 
   def run(_args) do
-    Mix.raise("Expected issue, revoke, or mark-ready. See `mix help serviceradar.edge.direct_leaf`.")
+    Mix.raise(
+      "Expected issue, revoke, or mark-ready. See `mix help serviceradar.edge.direct_leaf`."
+    )
   end
 
   defp required_option(opts, key) do

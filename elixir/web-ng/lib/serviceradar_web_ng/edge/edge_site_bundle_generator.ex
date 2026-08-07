@@ -72,9 +72,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
       # NATS configuration
       {
         "#{bundle_name}/nats/nats-leaf.conf",
-        NatsLeafConfigGenerator.generate_config(edge_site, leaf_server,
-          direct_leaf_identities: direct_leaf_identities
-        )
+        NatsLeafConfigGenerator.generate_config(edge_site, leaf_server, direct_leaf_identities: direct_leaf_identities)
       },
 
       # Server certificates (for local client connections)
