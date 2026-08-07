@@ -201,7 +201,7 @@ config:
     # The MAJOR component tracks rbe-executor (both v1.0.24.x, the two halves of one Bazel run);
     # the patch does not. //buildbuddy.yaml explains why .2 here coexists with the executor's .1.
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.2
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3
 
     oci:
       mounts:

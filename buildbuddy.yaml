@@ -12,7 +12,7 @@ actions:
     # Static environment. Secrets are NOT declared here: BuildBuddy exposes anything configured
     # in the app's secret store as an environment variable automatically.
     #
-    # OCI_REGISTRY is required and its absence is silent. buildbuddy_setup_docker_auth.sh does
+    # OCI_REGISTRY is required. buildbuddy_setup_docker_auth.sh does
     #   oci_registry="${OCI_REGISTRY:-ghcr.io}"
     # so without it every credential is written into ~/.docker/config.json under the `ghcr.io`
     # key. Harbor then gets no entry at all and rules_oci's repository fetch fails during the
@@ -41,27 +41,20 @@ actions:
 
     # THE RUNNER IMAGE.
     #
-    # `container_image` takes a full image ref, not just the ubuntu-XX.XX aliases: those are a
-    # shorthand and workflow/service/service.go's resolveImageAliases falls through with
-    # "otherwise, interpret container_image the same way we treat it for RBE actions". So this
-    # needs no platform_properties entry, and there must be exactly one field naming the image.
+    # TAGGED IDENTICALLY TO rbe-executor, INCLUDING THE PATCH. They are the two halves of one
+    # Bazel run -- this hosts the client, that hosts the actions -- and a single version across
+    # both means "these two were built and tested together", which is checkable at a glance.
+    # Both move to the new tag even when only one changed: v1.0.24.3 added lld to the executor
+    # and nothing to this image, and it is still rebuilt and pushed at .3.
     #
-    # //docker/images/Dockerfile.workflow-runner, vs the `ubuntu-24.04` alias it replaces:
-    #   gcr.io/flame-public/rbe-ubuntu24-04   1.1 GB unpacked, cross-internet, pulled on demand
-    #   this image                            216 MB unpacked, Harbor in-cluster, pre-pulled
-    #                                                 (//k8s/buildbuddy/values-workflows.yaml)
+    # A BUMP MEANS: push BOTH images at the new tag, then update every reference. As of this
+    # commit, seven places in six files:
+    #   this line and //k8s/buildbuddy/values-workflows.yaml     (runner)
+    #   //MODULE.bazel, //build/rbe/BUILD,                       (executor)
+    #   //build/platforms/BUILD.bazel  (TWO entries),
+    #   //k8s/buildbuddy/values.yaml   (warmup_additional_images)
     #
-    # VERSIONED WITH rbe-executor ON THE MAJOR COMPONENT, NOT THE PATCH. Both are v1.0.24.x
-    # because one Bazel run needs both -- this hosts the client, that hosts the actions -- so a
-    # base or toolchain change lands in both at a new v1.0.N. The trailing patch moves
-    # independently: this is .2 while rbe-executor is still .1, because .2 only added python3 and
-    # a few utilities to the runner and nothing about the executor changed. Retagging the
-    # executor to match would mint a tag with no content behind it.
-    #
-    # A MAJOR bump means pushing both images, then updating: this line,
-    # //k8s/buildbuddy/values-workflows.yaml, //BUILD.bazel, //build/rbe/BUILD and
-    # //build/platforms/BUILD.bazel (two entries). A runner-only patch touches just the first two.
-    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.2"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
 
     platform_properties:
       OSFamily: "linux"

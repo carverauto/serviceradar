@@ -41,6 +41,26 @@ bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
 
+# FORKED for one attribute: `use_ld` on the gcc_toolchain tag. Upstream hardcodes
+# "-fuse-ld=gold" as a literal in templates/BUILD.tpl -- no substitution placeholder, so no
+# attribute could select anything else. gold is deprecated, binutils keeps it in
+# maintenance-only mode, and rustc warns on every Rust link that it "has known bugs with Rust".
+#
+# The fork replaces that literal with %{use_ld} and threads an attribute through
+# extensions.bzl -> rules.bzl -> the template, defaulting to "gold" so every other consumer of
+# the module is byte-identical. //MODULE.bazel's buildbuddy_toolchain_ext.gcc_toolchain sets
+# "bfd". Intended for upstream; drop this override once it lands and the version is released.
+#
+# Overriding rather than --linkopt for a reason that was measured: --linkopt APPENDS, so rustc
+# received both flags. The link did use bfd (the driver honours the last -fuse-ld) but the
+# warning stayed, because rustc reports gold on sight without evaluating last-wins. Only
+# removing the flag at source silences it.
+git_override(
+    module_name = "toolchains_buildbuddy",
+    commit = "22e5bbd9748cd041e16416226ac00b32d78f0fdc",
+    remote = "https://github.com/marvin-hansen/buildbuddy-toolchain.git",
+)
+
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
 # first so CI does not fail analysis when GitHub releases transiently returns 502.
 archive_override(
@@ -2442,18 +2462,79 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
     ],
     gcc_major_version = "13",
+    # Replaces gold, which is deprecated, sits in binutils maintenance-only mode, and makes
+    # rustc warn on every Rust link that it "has known bugs with Rust". Needs the `use_ld`
+    # attribute from the fork -- see the git_override above.
+    #
+    # lld is the ONLY workable replacement, which is not obvious. Measured, not assumed:
+    #
+    #   linker   --start-lib   in rbe-executor
+    #   bfd      FAILS         yes (binutils, via build-essential)
+    #   gold     ok            yes (binutils)
+    #   lld      ok            yes, SINCE v1.0.24.3 -- separate apt package
+    #
+    # Bazel's C++ rules pass --start-lib/--end-lib, a gold/lld extension classic GNU ld never
+    # implemented. "bfd" links Rust fine and then dies on the first C++ binary --
+    #   /usr/bin/ld.bfd: unrecognized option '--start-lib'
+    # on protoc_minimal and the two upb generators. That is almost certainly why upstream
+    # hardcoded gold in the first place.
+    #
+    # PAIRED WITH THE IMAGE: ld.lld arrives only in rbe-executor v1.0.24.3
+    # (//docker/Dockerfile.rbe). Selecting "lld" against an older tag fails every link with
+    #   collect2: error: cannot find 'ld.lld'
+    # so this line and the executor tag move together. The fork prints a warning when a Linux
+    # client lacks ld.lld; it cannot check the executor, which is why the pairing is manual.
+    #
+    # Note this re-keys EVERY action -- the cc toolchain is part of the action key -- so the
+    # first build after the switch is a full rebuild with no cache hits.
+    use_ld = "lld",
 )
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.1",
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 register_toolchains(
+    # These are the GLIBC cc toolchains only. musl targets are served by @toolchains_musl
+    # below; see the comment there for why we do not hand-roll a musl cc toolchain.
+    #
+    # Both entries declare //build/platforms:linux_glibc in target_compatible_with, which is
+    # what keeps them from matching a musl platform. Resolution takes the FIRST registered
+    # toolchain whose constraints the target platform satisfies -- not the most specific one --
+    # so without that constraint :rbe_cc_toolchain, asking only for (x86_64, linux), also
+    # matches (x86_64, linux, linux_musl) and wins by virtue of being listed here.
     "//build/toolchains:rbe_cc_toolchain",
-    "//build/toolchains:rbe_cc_toolchain_arm64_musl_static",
     "//build/toolchains:rbe_cc_toolchain_arm64",
+)
+
+# --- musl cc toolchain (bazel-contrib/musl-toolchain) ---------------
+#
+# This replaces a hand-written cc_toolchain_config that was NOT a musl toolchain: it named
+# plain /usr/bin/gcc, set `target_libc = "musl"` as a free-text label, and tried to get
+# staticness from `-static` in link_flags. Since the compiler and its libstdc++/libm were the
+# distro's glibc ones, "musl" was a naming convention and nothing more -- and
+# //rust/netprobe:static_linkage_test caught it once ld.lld started faithfully recording the
+# DT_NEEDED entries that ld.gold had quietly resolved away.
+#
+# @toolchains_musl downloads a real musl-targeting gcc and enables the `fully_static_link`
+# feature itself, so `-static`, the static libstdc++/libm and the absence of a dynamic loader
+# all come from the toolchain rather than from flags we have to remember to keep in sync.
+#
+# `extra_target_compatible_with` is what binds it to our own libc constraint; without it these
+# toolchains match ANY linux platform, including the glibc ones. This mirrors rules_rust's
+# examples/cross_compile_musl, which keys its toolchains on a `linker_config:musl` constraint
+# for the same reason.
+#
+# NOTE: @toolchains_musl registers `@musl_toolchains_hub//:all` from its own MODULE.bazel.
+# Registrations from a dependency are ordered after the root module's, which is safe only
+# because the glibc toolchains above are now musl-incompatible by declaration.
+bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
+
+toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
+toolchains_musl.config(
+    extra_target_compatible_with = ["//build/platforms:linux_musl"],
 )
 
 # --- LLVM Toolchain (clang/lld) ----------------------------------
