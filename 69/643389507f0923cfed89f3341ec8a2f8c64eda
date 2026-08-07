@@ -1,0 +1,27 @@
+docker/images/Dockerfile.workflow-runner
+  s_0eda1e1f71cc86::t_0740e0e615666d 82-101,105-111,114,116-117,119,121-127
+  s_0eda1e1f71cc86::t_d86103ae9bf099 57-58,64-75
+  s_0eda1e1f71cc86::t_f326d470b2b46e 6-14
+buildbuddy.yaml
+  s_0eda1e1f71cc86::t_bdc2b8431948e1 64
+  s_0eda1e1f71cc86::t_e79b586fcf203d 50-52,54-61,63
+k8s/buildbuddy/values-workflows.yaml
+  s_0eda1e1f71cc86::t_668d618975a6b7 193-194,198-199,201-202
+  s_0eda1e1f71cc86::t_1e168a328e110c 204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "69643389507f0923cfed89f3341ec8a2f8c64eda",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
