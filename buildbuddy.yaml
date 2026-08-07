@@ -263,8 +263,8 @@ actions:
 
 
       # Largely a cache hit from the //... build above;
-      # - run: "bazel build -c opt --config=ci //:images"
+      - run: "bazel build -c opt --config=ci //:images"
 
       # //:push is rules_multirun over the per-image push targets. The //.bazelrc note about it
       # failing on macOS does not apply; this runner is Linux.
-      - run: "bazel run -c opt --config=ci //:push"
+      # - run: "bazel run -c opt --config=ci //:push"
