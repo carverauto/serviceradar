@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @manifest_upload_bytes 512 * 1024
 
   @impl true
@@ -1023,6 +1025,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
     end
   end
 
+  # Sobelow flags the File.read! below as directory traversal because it cannot see where
+  # `path` comes from. It is not user input: consume_uploaded_entries/3 hands back a temp file
+  # that Phoenix created and named itself, and reading it is the documented LiveView upload
+  # pattern. The uploaded CONTENT is untrusted and is validated downstream; the path is not.
+  @sobelow_skip ["Traversal.FileModule"]
   defp consume_single_upload(socket, upload_name) do
     case consume_uploaded_entries(socket, upload_name, fn %{path: path}, _entry ->
            {:ok, File.read!(path)}

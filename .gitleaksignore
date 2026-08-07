@@ -7,3 +7,9 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:390
 # Synthetic PEM-shaped rejection fixture removed from the tip but retained in PR history.
 1f50b9c46160066a551450f2362eaceecff655cf:elixir/serviceradar_core/test/serviceradar/automation/ansible/awx_client_test.exs:private-key:711
+# Synthetic OpenSSH key fixture: the base64 body decodes to the ASCII string
+# "openssh-test-key-material", and it sits beside "private_key" => "not-a-private-key"
+# in the same test. Already on staging; listed so a push range that re-scans that
+# commit -- any branch far enough behind that remote_oid..local_oid spans it -- does
+# not block on it.
+73a6f4a05d8df76a5fe5516cf8ba6d67eb5094e3:elixir/serviceradar_core/test/serviceradar/credentials/credential_secret_builder_test.exs:private-key:146

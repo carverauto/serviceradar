@@ -14,11 +14,13 @@ mod publish;
 mod stream;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use async_nats::jetstream;
 use log::{debug, info};
+use tempfile::TempDir;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use connection::ConnectionState;
@@ -44,6 +46,10 @@ pub struct NATSConfig {
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
+    /// Holds control-plane-delivered PEM files alive for this runtime. The
+    /// files are removed when the output is dropped and are never persisted
+    /// as a NATS credentials file.
+    pub tls_material_dir: Option<Arc<TempDir>>,
     /// Maximum number of concurrently in-flight chunk publishes across all
     /// export requests. Per-request chunk ordering stays sequential; this
     /// only bounds cross-request fan-out so a publish burst cannot overwhelm
@@ -66,6 +72,7 @@ impl Default for NATSConfig {
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
+            tls_material_dir: None,
             max_inflight_publishes: DEFAULT_MAX_INFLIGHT_PUBLISHES,
         }
     }

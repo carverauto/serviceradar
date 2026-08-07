@@ -83,7 +83,7 @@ func TestResolveAgentNATSCredsPathFallsBackToDefault(t *testing.T) {
 	assert.Equal(t, "/var/run/sr/nats.creds", resolveAgentNATSCredsPath("/var/run/sr/nats.creds"))
 }
 
-func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
+func TestEnrollAgentRemovesLegacyNATSConfigAndBacksUpCreds(t *testing.T) {
 	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
 	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
 
@@ -131,15 +131,19 @@ func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &config))
 
-	assert.Equal(t, "nats://existing:4222", config["nats_url"])
-	assert.Equal(t, credsPath, config["nats_creds_file"])
+	assert.NotContains(t, config, "nats_url")
+	assert.NotContains(t, config, "nats_creds_file")
+	assert.False(t, fileExists(credsPath))
 
-	creds, err := os.ReadFile(credsPath)
+	backups, err := filepath.Glob(credsPath + ".bak.*")
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+	creds, err := os.ReadFile(backups[0])
 	require.NoError(t, err)
 	assert.Equal(t, "existing-creds", string(creds))
 }
 
-func TestEnrollAgentWritesReplacementNATSCredsToRoleScopedPath(t *testing.T) {
+func TestEnrollAgentIgnoresLegacyNATSCredsFromBundle(t *testing.T) {
 	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
 	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
 
@@ -170,15 +174,14 @@ func TestEnrollAgentWritesReplacementNATSCredsToRoleScopedPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	creds, err := os.ReadFile(credsPath)
-	require.NoError(t, err)
-	assert.Equal(t, "replacement-creds", string(creds))
+	assert.False(t, fileExists(credsPath))
 
 	var config map[string]interface{}
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &config))
-	assert.Equal(t, credsPath, config["nats_creds_file"])
+	assert.NotContains(t, config, "nats_creds_file")
+	assert.NotContains(t, config, "nats_url")
 }
 
 func TestEnrollCollectorInstallsRoleScopedNATSCredsAndRewritesConfig(t *testing.T) {

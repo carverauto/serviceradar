@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert is_binary(tarball)
     end
 
-    test "tars creds/nats.creds and advertises nats_creds_file in config when shipped for agent packages",
+    test "never tars NATS creds or advertises NATS settings for agent packages",
          %{
            agent_package: agent_package,
            agent_join_token: agent_join_token
@@ -160,26 +160,18 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
       {:ok, files} = :erl_tar.extract({:binary, tarball}, [:compressed, :memory])
 
-      # The credential lands at <package_dir>/creds/nats.creds, identical
-      # to the on-disk layout the agent expects under /etc/serviceradar/creds.
-      {creds_path, creds_body} =
-        Enum.find(files, fn {name, _} ->
-          name |> to_string() |> String.ends_with?("creds/nats.creds")
-        end) || flunk("expected creds/nats.creds in bundle")
+      refute Enum.any?(files, fn {name, _} ->
+               name |> to_string() |> String.ends_with?("creds/nats.creds")
+             end)
 
-      assert to_string(creds_path) =~ "creds/nats.creds"
-      assert to_string(creds_body) == creds_content
-
-      # And the bootstrap config carries the agent-side path + URL so the
-      # NATS client can load the JWT without out-of-band configuration.
       {_, config_json} =
         Enum.find(files, fn {name, _} ->
           name |> to_string() |> String.ends_with?("config.json")
         end)
 
       config = Jason.decode!(config_json)
-      assert config["nats_creds_file"] == "/etc/serviceradar/creds/nats.creds"
-      assert config["nats_url"] == "nats://example.test:4222"
+      refute Map.has_key?(config, "nats_creds_file")
+      refute Map.has_key?(config, "nats_url")
     end
 
     test "omits creds/nats.creds for agent packages without provisioned creds",
