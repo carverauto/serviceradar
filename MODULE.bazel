@@ -2527,15 +2527,32 @@ register_toolchains(
 # examples/cross_compile_musl, which keys its toolchains on a `linker_config:musl` constraint
 # for the same reason.
 #
-# NOTE: @toolchains_musl registers `@musl_toolchains_hub//:all` from its own MODULE.bazel.
-# Registrations from a dependency are ordered after the root module's, which is safe only
-# because the glibc toolchains above are now musl-incompatible by declaration.
 bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
 
 toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
 toolchains_musl.config(
     extra_target_compatible_with = ["//build/platforms:linux_musl"],
 )
+use_repo(toolchains_musl, "musl_toolchains_hub")
+
+# REGISTERED HERE, AND BEFORE @llvm_toolchain BELOW. Both facts are load-bearing.
+#
+# @toolchains_musl already registers this from its own MODULE.bazel, but a DEPENDENCY's
+# registrations are ordered after every one of the root module's -- including
+# `register_toolchains("@llvm_toolchain//:all")` further down. @toolchains_llvm generates
+# its toolchain set from the HOST, and on a linux-x86_64 host that set includes
+# `cc-toolchain-x86_64-linux`, whose target_compatible_with is [x86_64, linux] with nothing
+# about libc. It therefore matches a musl target platform and, being registered first, wins.
+#
+# That made musl builds host-dependent, which is a miserable failure mode: on a macOS host
+# @toolchains_llvm emits only darwin/none toolchains, none of which match musl, so the musl
+# hub won and `bazel build //...` passed. The same commit failed on the Linux workflow
+# runner, compiling musl targets with glibc headers and failing at link on symbols musl does
+# not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
+#
+# Repeating the registration here puts it in root-module order, ahead of @llvm_toolchain.
+# Do not move it below that line, and do not drop it as redundant.
+register_toolchains("@musl_toolchains_hub//:all")
 
 # --- LLVM Toolchain (clang/lld) ----------------------------------
 llvm_ext = use_extension(
