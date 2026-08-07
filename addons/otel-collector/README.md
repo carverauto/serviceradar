@@ -23,7 +23,19 @@ The add-on supports both Phase 0.12 transport shapes:
   acknowledgements.
 - **Direct-to-leaf:** set `{"output":{"backend":"jetstream"}}` and configure
   `nats.url` to the local NATS leaf. In this mode the collector publishes to
-  JetStream directly and `RelayOtlp` is intentionally unavailable.
+  JetStream directly and `RelayOtlp` is intentionally unavailable. The direct
+  configuration is an explicit add-on assignment; the base agent onboarding
+  bundle never contains NATS credentials or a platform NATS URL. The
+  assignment must select the registered edge site whose leaf owns that URL;
+  the site must be active with a connected leaf server. The direct path is
+  mTLS-only: the control plane issues a short-lived add-on certificate through
+  the authenticated agent-gateway CA and injects the certificate, private key,
+  and CA chain only into the ready add-on configuration. The Rust runtime
+  materializes those PEM values in a mode-0600 temporary directory and removes
+  them when the direct runtime is replaced. `nats.creds_file` is rejected.
+  The selected leaf must render the assignment's exact subject scope in its
+  local `verify_and_map` authorization block; a certificate by itself is not a
+  substitute for the leaf ACL.
 
 ## Spool sizing and retention
 

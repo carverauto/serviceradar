@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
   alias ServiceRadarWebNG.RBAC
@@ -530,7 +532,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp generate_bundle(site, leaf_server) do
-    with {:ok, nats_creds} <- get_nats_creds(),
+    with {:ok, direct_leaf_identities} <- get_direct_leaf_identities(site.id),
+         {:ok, nats_creds} <- get_nats_creds(),
          {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
          {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
       EdgeSiteBundleGenerator.create_tarball(
@@ -538,9 +541,55 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         leaf_server,
         nats_creds,
         leaf_key_pem: leaf_key_pem,
-        server_key_pem: server_key_pem
+        server_key_pem: server_key_pem,
+        direct_leaf_identities: direct_leaf_identities
       )
     end
+  end
+
+  defp get_direct_leaf_identities(site_id) do
+    actor = SystemActor.system(:edge_site_bundle_generator)
+
+    query =
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(edge_site_id == ^site_id and enabled == true)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, assignments} ->
+        {:ok,
+         assignments
+         |> Enum.filter(&direct_leaf_assignment?/1)
+         |> Enum.map(&direct_leaf_identity/1)
+         |> Enum.reject(&is_nil/1)}
+
+      {:error, reason} ->
+        {:error, {:direct_leaf_identity_read_failed, reason}}
+    end
+  end
+
+  defp direct_leaf_assignment?(assignment) do
+    direct_backend?(assignment.params) and
+      assignment.direct_access_status in [:pending, :ready] and
+      is_binary(assignment.direct_identity_component_id) and
+      is_binary(assignment.direct_identity_partition_id) and
+      is_map(assignment.direct_subject_scope)
+  end
+
+  defp direct_backend?(params) when is_map(params) do
+    output = Map.get(params, :output) || Map.get(params, "output") || %{}
+    backend = Map.get(output, :backend) || Map.get(output, "backend")
+    backend in [:jetstream, "jetstream"]
+  end
+
+  defp direct_backend?(_params), do: false
+
+  defp direct_leaf_identity(assignment) do
+    %{
+      component_id: assignment.direct_identity_component_id,
+      partition_id: assignment.direct_identity_partition_id,
+      scope: assignment.direct_subject_scope
+    }
   end
 
   defp get_nats_creds do
