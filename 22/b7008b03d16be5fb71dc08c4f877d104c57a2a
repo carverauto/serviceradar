@@ -1,0 +1,68 @@
+go/pkg/agent/sidecar/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 19
+go/pkg/remoteaccess/sshca/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 14-17
+go/pkg/agent/ebpf/probes/selftest_test.go
+  s_155758d020800a::t_c9a77d354b6d35 17,19-23,28,32-33,40,44-45,47-48,50-51,58,62,67-68,70-71,78,82-83,85-86,88-89,96,99
+go/internal/fastsum/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 20
+go/pkg/hashutil/hash_test.go
+  s_155758d020800a::t_3779d9ad8d67dc 1,54,71,82-85
+  s_155758d020800a::t_71990909889e85 11-12
+go/pkg/addon/sdk/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 24
+go/pkg/agent/ebpf/probes/BUILD.bazel
+  s_155758d020800a::t_c9a77d354b6d35 109
+go/pkg/devicealias/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 14
+go/pkg/metricpoint/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 13
+go/pkg/integration_test/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 18
+.bazelrc
+  s_0eda1e1f71cc86::t_cc7a27ff85c63a 86-91
+go/pkg/hashutil/BUILD.bazel
+  s_155758d020800a::t_b265984ba5767a 14
+go/internal/fastsum/api_test.go
+  s_155758d020800a::t_462dd82f3516f5 1,7-8,28
+go/pkg/addon/sdk/metrics_test.go
+  s_155758d020800a::t_ef4951c56782c3 17,25-26,30,92,95,117
+go/pkg/agent/sidecar/status_proto_test.go
+  s_155758d020800a::t_cf5134e680521b 17,22-23,29,31,45-46,63
+go/pkg/devicealias/alias_test.go
+  s_155758d020800a::t_6726ec93bc8d87 1,7-8,23,38,52,55,64
+go/pkg/integration_test/end_to_end_flow_test.go
+  s_155758d020800a::t_fea7791a4f5d12 17,31-32,119-123,137-141,166,186,249-250,318,370,402,442,470,476
+go/pkg/metricpoint/metricpoint_test.go
+  s_155758d020800a::t_a39033f2bb0352 1,6-7,11,13,16,28,30-31,43-44,65-68,79-81,99
+go/pkg/remoteaccess/sshca/sshca_test.go
+  s_155758d020800a::t_d0d28ade6bc351 17,31-32,42-44,51,83,108,110,117,122-123,127,133,137-138,142-143,147-148,152,158,162,169,173,180,184,191,220-221,227-228
+go/internal/fastsum/sum_test.go
+  s_155758d020800a::t_a4ee2275245177 4,10-11,36,61
+go/pkg/remoteaccess/sshca/openssh_integration_test.go
+  s_155758d020800a::t_bf67828bc1b101 20,34-35,57,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "22b7008b03d16be5fb71dc08c4f877d104c57a2a",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_155758d020800a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc98424f-0b39-4710-9edc-d0d8dfa2fe16",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
