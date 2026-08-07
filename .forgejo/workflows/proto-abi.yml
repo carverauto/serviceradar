@@ -198,8 +198,9 @@ jobs:
         run: mix test --no-start test/serviceradar/edge/record_admit_corpus_test.exs
       # The ASN observation corpus (task 1.5-e). Gated for the same reason as the others: it
       # is the Elixir half of a frozen ABI rule. It pins the DECODED NUMBER rather than a
-      # rejection -- the rule refuses nothing, so a truncating or substituting decode is the
-      # only way it can break, and neither validator reads the field.
+      # rejection, because the rule refuses nothing -- and it pins, at the SemanticValidate
+      # stage only, that nothing starts filtering on allocation status. Full-ingress filtering
+      # is downstream (unify-sweep-results-proto 5.1/5.4) and is not covered here.
       - name: Edge ASN observation corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/asn_corpus_test.exs
