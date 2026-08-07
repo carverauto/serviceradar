@@ -179,14 +179,29 @@ config:
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
 
-    # NO warmup_additional_images, unlike ./values.yaml.
+    # Warms the WORKFLOW RUNNER image, and only that one.
     #
-    # That fleet warms registry.carverauto.dev/serviceradar/rbe-executor because it runs build
-    # ACTIONS, whose platform pins that container-image. This pool runs one task: the workflow
-    # runner, in BuildBuddy's own runner image. The bazel calls inside it dispatch their
-    # actions to the default pool -- //build/rbe:rbe_platform sets no `Pool` property -- so the
-    # rbe-executor image is never pulled here. Warming it would cost startup time for an image
-    # this fleet does not use.
+    # This used to warm nothing, correctly: the pool ran BuildBuddy's own runner image
+    # (gcr.io/flame-public/rbe-ubuntu24-04, what `container_image: ubuntu-24.04` resolves to),
+    # and rbe-executor -- which ./values.yaml warms -- is never pulled here, because the bazel
+    # calls inside the runner dispatch their ACTIONS to the default pool.
+    # //build/rbe:rbe_platform sets no `Pool` property.
+    #
+    # //buildbuddy.yaml now pins the runner to an image this org owns, so it can be warmed.
+    # That is the point: the pull was the startup cost. Two changes compound here --
+    #
+    #   gcr.io/flame-public/rbe-ubuntu24-04   398 MB compressed, cross-internet, on demand
+    #   this image                             59 MB compressed, in-cluster, pre-pulled
+    #
+    # KEEP THIS IN STEP WITH //buildbuddy.yaml. Warming a tag the workflow no longer names
+    # is not an error, it is just a slower first run and a pointless pull -- so the two move
+    # together or the warm silently stops helping.
+    #
+    # The tag matches rbe-executor's on purpose: the runner and the executor image are versioned
+    # in lockstep, because they are the two halves of one Bazel run. //buildbuddy.yaml lists
+    # every file a bump has to touch.
+    warmup_additional_images:
+      - registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.1
 
     oci:
       mounts:

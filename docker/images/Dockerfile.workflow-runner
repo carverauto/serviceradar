@@ -1,0 +1,82 @@
+# BuildBuddy WORKFLOW RUNNER image -- the container //buildbuddy.yaml runs its steps in.
+#
+# Not to be confused with //docker/Dockerfile.rbe, which is the image Bazel ACTIONS execute in
+# on the executors. This one hosts the `bazel` client that drives them.
+#
+# VERSIONED IN LOCKSTEP WITH rbe-executor -- same tag, always. They are the two halves of one
+# Bazel run, so a base or toolchain change that affects one affects the other, and a shared
+# version makes a mismatch self-evident rather than something to reason about. Build and push
+# BOTH at the new tag before updating any reference; //buildbuddy.yaml lists the five files a
+# bump touches.
+#
+#   docker build --platform linux/amd64 -f docker/images/Dockerfile.workflow-runner \
+#     -t registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag> docker/images/
+#   docker push registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:<tag>
+#
+# Never re-push over an existing tag: the executors warm this image
+# (//k8s/buildbuddy/values-workflows.yaml), so a moved tag means some executors hold the old
+# layers and others the new, with nothing in git showing a change.
+#
+# WHY THIS EXISTS
+#
+# `container_image: "ubuntu-24.04"` in buildbuddy.yaml resolves to
+# gcr.io/flame-public/rbe-ubuntu24-04, which is 398 MB compressed / 1.1 GB unpacked and lives
+# outside the cluster. Every cold executor pays that pull across the internet before step 1.
+# This image is the same Noble base, carries only what the workflow actually uses, and is
+# served by Harbor in the same cluster as the executors.
+#
+# A Dockerfile rather than an oci_image because the contents are apt packages. The
+# //docker/images/*.bzl macros assemble images from Bazel-built artifacts and pre-fetched
+# .debs declared one by one in MODULE.bazel; git alone drags in a large transitive deb set,
+# which would be a lot of http_file entries for an image that changes once a year.
+# //docker/Dockerfile.rbe is the existing precedent for this class of image.
+#
+# THE `buildbuddy` USER IS LOAD-BEARING
+#
+# BuildBuddy runs the workflow runner as the user named in the action's `user` field, which
+# defaults to `buildbuddy`. An image without it fails while building the OCI spec:
+#
+#   create OCI bundle: create spec: get container user:
+#     lookup user "buildbuddy" in /etc/passwd: user not found
+#
+# That happens BEFORE an invocation exists, so nothing appears in the BuildBuddy UI -- the run
+# looks like it was never triggered while the executor re-enqueues several times a second,
+# forever. uid/gid 1001 and the home directory below match gcr.io/flame-public/rbe-ubuntu24-04
+# exactly; do not renumber them.
+#
+# WHAT IS DELIBERATELY ABSENT
+#
+#   bazel / bazelisk  BuildBuddy's ci_runner provides the Bazel client. Verified: the upstream
+#                     rbe-ubuntu24-04 image has neither on PATH, and workflows on it run bazel.
+#   docker            buildbuddy_setup_docker_auth.sh never invokes the binary; it writes
+#                     ~/.docker/config.json itself from base64. Checked, not assumed.
+#   kubectl           Also absent upstream, which is WHY buildbuddy_setup_fixture_env.sh takes
+#                     its Path 2 (pre-set BuildBuddy secrets) rather than reading the
+#                     srql-fixtures secrets live. Adding kubectl here would silently switch CI
+#                     to Path 1 and change the DSNs it receives -- see
+#                     //rust/integration-db/README.md before doing that.
+#   python3           No step uses it.
+#
+# Pinned by digest: a floating `24.04` tag would rebuild this image into a different base
+# without the tag changing, and the glibc version is the thing that must not move.
+FROM registry.carverauto.dev/mirror/library/ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
+
+# git       the ci_runner clones the repository into the workspace
+# openssl   buildbuddy_setup_fixture_env.sh reads the fixture CA's expiry
+# ca-certificates  HTTPS to the BuildBuddy app, Harbor, and every Bazel repository fetch
+#
+# --no-install-recommends is what keeps this small: git's recommends alone pull in perl-doc,
+# less and a mail transport agent.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+      openssl \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1001 buildbuddy \
+ && useradd --uid 1001 --gid 1001 --create-home --shell /bin/sh buildbuddy
+
+# Matches the upstream image. BuildBuddy overrides both, but a shell is what a bare
+# `docker run` against this image should land you in when debugging it by hand.
+CMD ["/bin/sh", "-c", "bash"]

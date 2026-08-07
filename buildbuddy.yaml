@@ -39,34 +39,24 @@ actions:
     #   no registered executors in pool "workflows" with os "linux" with arch "amd64"
     pool: "workflows"
 
-    # THE RUNNER IMAGE IS THE `container_image`.
+    # THE RUNNER IMAGE.
     #
-    # This was `platform_properties: container-image: docker://.../rbe-executor:v1.0.24.1`, to
-    # make the runner byte-identical to //build/rbe:rbe_platform and so guarantee the glibc
-    # match that `no-remote-exec` targets need. It reached the executor correctly and then
-    # failed on every single attempt, before creating an invocation:
+    # `container_image` takes a full image ref, not just the ubuntu-XX.XX aliases: those are a
+    # shorthand and workflow/service/service.go's resolveImageAliases falls through with
+    # "otherwise, interpret container_image the same way we treat it for RBE actions". So this
+    # needs no platform_properties entry, and there must be exactly one field naming the image.
     #
-    #   create OCI bundle: create spec: get container user:
-    #     lookup user "buildbuddy" in /etc/passwd: user not found
+    # //docker/images/Dockerfile.workflow-runner, vs the `ubuntu-24.04` alias it replaces:
+    #   gcr.io/flame-public/rbe-ubuntu24-04   398 MB, cross-internet, pulled on demand
+    #   this image                             59 MB, Harbor in-cluster, pre-pulled
+    #                                                (//k8s/buildbuddy/values-workflows.yaml)
     #
-    # BuildBuddy runs the workflow runner as the user in the `user` field, which defaults to a
-    # provisioned non-root user named `buildbuddy`. rbe-executor is built to run Bazel ACTIONS
-    # and has no such user, so the OCI spec cannot be built. Because the failure is upstream of
-    # the invocation, NOTHING appears in the BuildBuddy UI -- the run looks like it was never
-    # triggered, while the executor retries several times a second and re-enqueues forever.
-    #
-    # ubuntu-24.04 is Noble, the same base as //docker/Dockerfile.rbe, so it carries the same
-    # glibc 2.39 that motivated pinning the image in the first place. It is one of the four
-    # shorthands the field accepts (18.04/20.04/22.04/24.04) and the DEFAULT IS 18.04 -- glibc
-    # 2.27 -- so this line is load-bearing, not decoration. Omit it and the `no-remote-exec`
-    # Rust targets fail with `GLIBC_2.28' not found again.
-    #
-    # Do not "restore" the rbe-executor image here without first adding a `buildbuddy` user to
-    # it, or the identical retry loop comes back.
-    container_image: "ubuntu-24.04"
+    # Tagged in lockstep with rbe-executor -- one Bazel run needs both, so a differing tag is
+    # the bug. A bump means pushing both images, then updating: this line,
+    # //k8s/buildbuddy/values-workflows.yaml, //BUILD.bazel, //build/rbe/BUILD and
+    # //build/platforms/BUILD.bazel (two entries).
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.1"
 
-    # container-image deliberately absent: see above. The rest still applies -- dockerNetwork
-    # host is what lets the database tier resolve srql-fixture-rw.srql-fixtures.svc.
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
