@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Automation.Ansible.AutomationAwxLaunchPreflightEvidenceTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AutomationAwxLaunchPreflightEvidence
+
+  @moduletag :requires_app
 
   @system_actor SystemActor.system(:awx_launch_preflight_evidence_test)
   @run_viewer %{

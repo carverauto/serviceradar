@@ -105,7 +105,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown do
         </span>
       </:title>
 
-      <form id="device_breakdown_search_form" phx-change="breakdown_search" phx-submit="breakdown_search">
+      <form
+        id="device_breakdown_search_form"
+        phx-change="breakdown_search"
+        phx-submit="breakdown_search"
+      >
         <%!--
           Stable id keeps LiveView from remounting this input on every keystroke
           (which was dropping focus after one character). data-dialog-autofocus

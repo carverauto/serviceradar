@@ -373,8 +373,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
           <% end %>
         </div>
-        
-    <!-- JSON Preview Modal -->
+
+        <!-- JSON Preview Modal -->
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -430,8 +430,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
-                    </span>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                 </td>
@@ -603,8 +602,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             />
           </div>
         </div>
-        
-    <!-- Device Targeting Section -->
+
+        <!-- Device Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Device Targeting
@@ -641,8 +640,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </span>
               </label>
             </div>
-            
-    <!-- Visual Query Builder -->
+
+            <!-- Visual Query Builder -->
             <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
@@ -747,8 +746,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </div>
               </div>
             </div>
-            
-    <!-- Device Count Preview -->
+
+            <!-- Device Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
               <.icon name="hero-device-phone-mobile" class="size-4 text-sr-muted" />
               <span class="text-sm">
@@ -756,8 +755,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <span class="text-sr-muted">device(s) match this query</span>
               </span>
             </div>
-            
-    <!-- Priority -->
+
+            <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="flex items-center justify-between gap-2">
@@ -779,8 +778,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </div>
           </div>
         </div>
-        
-    <!-- Collectors Section -->
+
+        <!-- Collectors Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Metric Collectors
@@ -846,8 +845,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             />
           </div>
         </div>
-        
-    <!-- Disk Paths Section -->
+
+        <!-- Disk Paths Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Paths
@@ -870,8 +869,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </label>
           </div>
         </div>
-        
-    <!-- Disk Excludes Section -->
+
+        <!-- Disk Excludes Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Excludes
@@ -894,8 +893,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </label>
           </div>
         </div>
-        
-    <!-- Actions -->
+
+        <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/sysmon"}>
             <.ui_button variant="ghost">Cancel</.ui_button>

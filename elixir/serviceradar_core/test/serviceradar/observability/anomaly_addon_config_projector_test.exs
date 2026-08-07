@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Observability.AnomalyAddonConfigProjector
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Plugins.ConfigSchema
+
+  @moduletag :requires_app
 
   test "managed params project settings and filter non-edge metric-class keys" do
     settings = %AnomalyDetectionConfig{

@@ -183,9 +183,7 @@ defmodule ServiceRadarWebNG.Application do
         if adbc_postgresql_driver_present?() do
           [
             {Adbc.Database,
-             driver: :postgresql,
-             uri: uri,
-             process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+             driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
           ]
         else
           # Bazel OCI builds of web-ng have historically omitted the ADBC
@@ -210,9 +208,9 @@ defmodule ServiceRadarWebNG.Application do
 
     dir != nil and
       File.dir?(dir) and
-      (dir
-       |> File.ls!()
-       |> Enum.any?(&String.contains?(&1, "libadbc_driver_postgresql")))
+      dir
+      |> File.ls!()
+      |> Enum.any?(&String.contains?(&1, "libadbc_driver_postgresql"))
   rescue
     _ -> false
   end

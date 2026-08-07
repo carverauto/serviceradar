@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Security.RateLimiterTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Security.RateLimiter
+
+  @moduletag :requires_app
 
   setup_all do
     case Process.whereis(RateLimiter) do

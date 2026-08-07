@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
     params =
       case Map.get(params, "q") do
         q when is_binary(q) ->
-          if String.trim(q) != "", do: params, else: Map.put(params, "q", @default_query)
+          if String.trim(q) == "", do: Map.put(params, "q", @default_query), else: params
 
         _ ->
           Map.put(params, "q", @default_query)
@@ -68,13 +68,11 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "public_endpoints")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "public_endpoints")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "public_endpoints")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "public_endpoints")}
   end
 
   def handle_event("srql_paginate", params, socket) do
@@ -130,7 +128,9 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
         <thead>
           <tr>
             <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">IP</th>
-            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">Port</th>
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
+              Port
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Proto
             </th>

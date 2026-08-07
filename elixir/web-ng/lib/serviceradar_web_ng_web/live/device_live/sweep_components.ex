@@ -44,8 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                   @latest.status == :available && "bg-success",
                   @latest.status == :unavailable && "bg-error",
                   @latest.status not in [:available, :unavailable] && "bg-warning"
-                ]}>
-                </span>
+                ]}></span>
                 <span class="font-medium">{status_label(@latest.status)}</span>
               </div>
             </div>

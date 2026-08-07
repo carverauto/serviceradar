@@ -1,12 +1,12 @@
 defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Resource.Info
   alias AshPostgres.DataLayer.Info, as: PostgresInfo
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.CapacityForecastConfig
+
+  @moduletag :requires_app
 
   @migration_path "priv/repo/migrations/20260612100000_create_anomaly_capacity_configs.exs"
 

@@ -27,6 +27,17 @@ GOLANGCI_LINT_TIMEOUT ?= 30m
 GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
+# Every Mix project under elixir/, in the order CI walks them. Keep this in step with
+# run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
+#
+# This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
+# separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
+# in 80c1c0fa45 when vendored deps moved under //third_party, and none of them named
+# `palisade`, which CI does lint. Because the loop runs under `set -eu` and
+# elixir_quality.sh exits non-zero on a missing directory, `make lint-elixir` -- and therefore
+# `make lint` -- died on the FIRST entry and never analyzed a single project.
+ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng
+
 # Rust configuration
 CARGO ?= cargo
 RUSTFMT ?= rustfmt
@@ -380,19 +391,17 @@ endif
 .PHONY: lint-elixir
 lint-elixir: ## Run the repository-standard Elixir analyzer contract across elixir/*
 	@set -eu; \
-		projects="connection::--skip-dialyzer datasvc::--skip-dialyzer elixir_uuid::--skip-dialyzer serviceradar_agent_gateway::--skip-dialyzer serviceradar_core::--skip-dialyzer serviceradar_core_elx::--skip-dialyzer serviceradar_srql::--skip-dialyzer web-ng::--phoenix --skip-dialyzer"; \
-	for entry in $$projects; do \
-		project="$${entry%%::*}"; \
-		args="$${entry#*::}"; \
+	for project in $(ELIXIR_PROJECTS); do \
+		extra=""; \
+		if [ "$${project}" = "web-ng" ]; then extra="--phoenix"; fi; \
 		echo "$(COLOR_BOLD)Running Elixir quality ($${project})$(COLOR_RESET)"; \
-		./scripts/elixir_quality.sh --project "elixir/$${project}" $$args; \
+		./scripts/elixir_quality.sh --project "elixir/$${project}" --skip-dialyzer $${extra}; \
 	done
 
 .PHONY: lint-elixir-dialyzer
 lint-elixir-dialyzer: ## Run Dialyzer across elixir/* on demand
 	@set -eu; \
-		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
-	for project in $$projects; do \
+	for project in $(ELIXIR_PROJECTS); do \
 		echo "$(COLOR_BOLD)Running Elixir Dialyzer ($${project})$(COLOR_RESET)"; \
 		(cd "elixir/$${project}" && mix deps.get && mix deps.compile && mix compile && mix dialyzer); \
 	done
@@ -404,8 +413,7 @@ format: ## Run the CI clippy gate over the Rust workspace
 .PHONY: format-elixir
 format-elixir: ## Run mix format across the Elixir projects under elixir/*
 	@set -eu; \
-		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
-	for project in $$projects; do \
+	for project in $(ELIXIR_PROJECTS); do \
 		echo "$(COLOR_BOLD)Formatting Elixir project ($${project})$(COLOR_RESET)"; \
 		(cd "elixir/$${project}" && mix format); \
 	done

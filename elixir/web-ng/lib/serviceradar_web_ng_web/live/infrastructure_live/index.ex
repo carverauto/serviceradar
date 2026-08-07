@@ -252,8 +252,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </.ui_button>
           </div>
         </div>
-        
-    <!-- Debug Panel (admin only) -->
+
+        <!-- Debug Panel (admin only) -->
         <div
           :if={@is_admin && @show_debug}
           class="bg-sr-subtle rounded-lg p-4 space-y-3 border border-sr-line"
@@ -280,8 +280,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </div>
           </div>
         </div>
-        
-    <!-- Summary Cards (admin only) -->
+
+        <!-- Summary Cards (admin only) -->
         <div :if={@is_admin} class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <.summary_card
             title="Cluster Nodes"
@@ -305,8 +305,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             href={~p"/infrastructure?tab=agents"}
           />
         </div>
-        
-    <!-- Tab Navigation (admin sees all tabs, others see only agents) -->
+
+        <!-- Tab Navigation (admin sees all tabs, others see only agents) -->
         <div :if={@is_admin} class="sr-ui-tabs sr-ui-tabs-boxed">
           <.link
             patch={~p"/infrastructure"}
@@ -333,8 +333,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             Connected Agents
           </.link>
         </div>
-        
-    <!-- Tab Content (overview, nodes, gateways only for admin) -->
+
+        <!-- Tab Content (overview, nodes, gateways only for admin) -->
         <div :if={@is_admin && @active_tab == :overview}>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Agent Gateways -->
@@ -347,8 +347,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               </:header>
               <.gateways_table gateways={@gateways} />
             </.ui_panel>
-            
-    <!-- Connected Agents -->
+
+            <!-- Connected Agents -->
             <.ui_panel>
               <:header>
                 <div class="flex items-center gap-2">
@@ -386,8 +386,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <.gateways_table gateways={@gateways} expanded={true} />
           </.ui_panel>
         </div>
-        
-    <!-- Connected Agents tab (visible to all authenticated users) -->
+
+        <!-- Connected Agents tab (visible to all authenticated users) -->
         <div :if={@active_tab == :agents} class="space-y-6">
           <.ui_panel>
             <:header>
@@ -493,8 +493,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                   navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
                   class="flex items-center gap-1.5"
                 >
-                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
-                  </span>
+                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>
@@ -555,8 +554,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <tr class="cursor-pointer">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
-                  </span>
+                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>

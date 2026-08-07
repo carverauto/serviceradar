@@ -1,10 +1,10 @@
 defmodule ServiceRadarAgentGateway.CertIssuerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.CertIssuer
+
+  @moduletag :requires_app
 
   test "issues bundles using secure temp staging under the configured parent and cleans up" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-test")

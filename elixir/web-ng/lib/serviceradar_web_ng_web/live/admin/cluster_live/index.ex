@@ -160,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
           </.ui_button>
         </div>
-        
-    <!-- Health Metrics Cards -->
+
+        <!-- Health Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <.health_card
             title="Cluster Status"
@@ -188,8 +188,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             icon="hero-cube"
           />
         </div>
-        
-    <!-- Cluster Nodes -->
+
+        <!-- Cluster Nodes -->
         <.ui_panel>
           <:header>
             <div>
@@ -239,8 +239,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-        
-    <!-- Gateway Registry -->
+
+        <!-- Gateway Registry -->
         <.ui_panel>
           <:header>
             <div>
@@ -293,8 +293,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <% end %>
           </div>
         </.ui_panel>
-        
-    <!-- Agent Registry -->
+
+        <!-- Agent Registry -->
         <.ui_panel>
           <:header>
             <div>
@@ -349,8 +349,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <% end %>
           </div>
         </.ui_panel>
-        
-    <!-- Recent Events -->
+
+        <!-- Recent Events -->
         <.ui_panel :if={@events != []}>
           <:header>
             <div>

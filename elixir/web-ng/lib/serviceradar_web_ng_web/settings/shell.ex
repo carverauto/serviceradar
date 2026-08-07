@@ -125,8 +125,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
           for="settings-nav-drawer"
           class="hidden peer-checked:max-md:block fixed inset-0 z-40 bg-black/40"
           aria-label="Close settings navigation"
-        >
-        </label>
+        ></label>
 
         <aside class={[
           "hidden peer-checked:block md:block",

@@ -280,8 +280,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
           </.ui_button>
         </div>
-        
-    <!-- Health Metrics Cards -->
+
+        <!-- Health Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <.health_card
             title="Cluster"
@@ -316,8 +316,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             icon="hero-queue-list"
           />
         </div>
-        
-    <!-- Cluster Nodes -->
+
+        <!-- Cluster Nodes -->
         <.ui_panel :if={@is_admin}>
           <:header>
             <div>
@@ -403,8 +403,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <.agents_table agents={@agents} expanded={true} />
           </.ui_panel>
         </div>
-        
-    <!-- Oban Queue Status -->
+
+        <!-- Oban Queue Status -->
         <.ui_panel>
           <:header>
             <div>
@@ -451,8 +451,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-        
-    <!-- Recent Events -->
+
+        <!-- Recent Events -->
         <.ui_panel :if={@events != []}>
           <:header>
             <div>
@@ -563,8 +563,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
                   class="flex items-center gap-1.5"
                 >
-                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
-                  </span>
+                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>
@@ -627,8 +626,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             <tr class="hover:bg-sr-subtle/40 cursor-pointer align-top">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
-                  </span>
+                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>

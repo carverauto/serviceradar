@@ -67,7 +67,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sPublicEndpointsTest do
   end
 
   test "parse_message falls back to now when an endpoint has no observed_at" do
-    before = DateTime.utc_now() |> DateTime.truncate(:second)
+    before = DateTime.truncate(DateTime.utc_now(), :second)
 
     %{endpoints: [row]} =
       K8sPublicEndpoints.parse_message(message(snapshot(%{"observed_at" => nil})))

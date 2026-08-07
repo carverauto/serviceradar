@@ -17,7 +17,7 @@ base = System.get_env("SRQL_TEST_DATABASE_URL")
 if is_binary(base) and base != "" do
   uri = URI.parse(base)
 
-  unless uri.scheme in ["postgres", "postgresql", "ecto"] do
+  if uri.scheme not in ["postgres", "postgresql", "ecto"] do
     raise "SRQL_TEST_DATABASE_URL has unexpected scheme #{inspect(uri.scheme)}"
   end
 

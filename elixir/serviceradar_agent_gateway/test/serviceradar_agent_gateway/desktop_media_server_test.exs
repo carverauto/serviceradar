@@ -1,13 +1,13 @@
 defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadarAgentGateway.DesktopMediaServer
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaAdapterStub
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
   alias ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub
+
+  @moduletag :requires_app
 
   setup do
     previous_identity_resolver =

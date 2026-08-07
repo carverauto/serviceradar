@@ -227,10 +227,10 @@ repo_config =
         # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), because only
         # the former survives on a remote executor. Never both: :ssl rejects the combination.
         |> then(fn opts ->
-          if ca_certs not in [nil, []] do
-            Keyword.put(opts, :cacerts, ca_certs)
-          else
+          if ca_certs in [nil, []] do
             put_if.(opts, :cacertfile, ssl_ca)
+          else
+            Keyword.put(opts, :cacerts, ca_certs)
           end
         end)
         |> put_if.(:certfile, ssl_cert)
