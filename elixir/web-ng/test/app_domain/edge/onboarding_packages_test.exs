@@ -92,6 +92,18 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       assert result.package.partition_id == "legacy-site-a"
       assert result.package.site == "legacy-site-a"
     end
+
+    test "creates an ordinary agent package without NATS account configuration", _context do
+      attrs = %{
+        label: "agent-without-nats",
+        component_type: :agent,
+        component_id: "agent-without-nats"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.status == :issued
+      assert is_nil(result.package.nats_credential_id)
+    end
   end
 
   describe "get/1" do
