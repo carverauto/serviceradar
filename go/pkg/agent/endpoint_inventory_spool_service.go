@@ -33,6 +33,15 @@ const endpointInventoryUploadDeferredState = "upload_deferred"
 
 var errEndpointInventorySpoolTooLarge = errors.New("endpoint inventory spool payload exceeds size budget")
 
+// endpointInventorySpoolPayloadCap is the status-transport size budget enforced after
+// ensureEndpointInventoryAgentID rewrites the payload. Declared as a var (not a const)
+// so tests can shrink it; the production value is fixed at the transport limit. Same
+// idiom as releaseDownloadInitialBackoff. Without it, asserting the cap costs a 32 MiB
+// document marshalled twice and round-tripped through disk under -race.
+//
+//nolint:gochecknoglobals // tunable for tests
+var endpointInventorySpoolPayloadCap = endpointinventory.MaxSpoolPayloadBytes
+
 type EndpointInventorySpoolService struct {
 	agentID   string
 	spoolPath string
@@ -76,7 +85,7 @@ func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.Statu
 		return nil, err
 	}
 	data = ensureEndpointInventoryAgentID(data, s.agentID)
-	if int64(len(data)) > endpointinventory.MaxSpoolPayloadBytes {
+	if int64(len(data)) > endpointInventorySpoolPayloadCap {
 		return nil, errEndpointInventorySpoolTooLarge
 	}
 
