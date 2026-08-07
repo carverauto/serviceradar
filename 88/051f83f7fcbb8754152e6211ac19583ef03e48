@@ -1,0 +1,31 @@
+rust/integration-db/README.md
+  s_0eda1e1f71cc86::t_1ce30bb164a4f8 220-233
+  s_0eda1e1f71cc86::t_2cd600b0897b50 80-107
+  s_0eda1e1f71cc86::t_754162e82ee517 160-198
+  s_0eda1e1f71cc86::t_600a70ad029699 1-32,48-79,108-159,199-219,234-238,241,243-244
+  s_0eda1e1f71cc86::t_f2f63b6c3ed12c 33-47
+  s_0eda1e1f71cc86::t_fbf60f0a13ca29 239-240,242,245-249
+elixir/serviceradar_core/test/serviceradar/cluster/database_bootstrap_integration_test.exs
+  s_0eda1e1f71cc86::t_8b3df6098986e9 415-419,421,429
+  s_0eda1e1f71cc86::t_a966a3abae4067 226-232,236
+  s_0eda1e1f71cc86::t_99d80ebf4b96ee 327,332-351
+  s_0eda1e1f71cc86::t_2143343d25a985 384,390-414,420,422-428
+  s_0eda1e1f71cc86::t_96a237d958e669 352
+  s_0eda1e1f71cc86::t_3baf26ddc9272f 430
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "88051f83f7fcbb8754152e6211ac19583ef03e48",
+  "prompts": {},
+  "sessions": {
+    "s_0eda1e1f71cc86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9d0d64c-4d3a-45ec-b262-e90726967415",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
