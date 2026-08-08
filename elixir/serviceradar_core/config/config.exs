@@ -185,6 +185,7 @@ config :serviceradar_core,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
     ServiceRadar.ColdTier,
+    ServiceRadar.PrefixTags,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
     ServiceRadar.Jobs,
@@ -200,6 +201,7 @@ config :serviceradar_core,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
+    ServiceRadar.Scans,
     ServiceRadar.Security
   ]
 
@@ -218,6 +220,20 @@ config :serviceradar_core,
   mtr_automation_consensus_enabled: false,
   mtr_baseline_tick_ms: 60_000,
   mtr_consensus_cohort_retention_ms: 300_000
+
+# Prefix-tag flow enrichment (LPM trie). Default OFF until migrations are known
+# applied on every EventWriter node (deploy-before-migration would fail inserts
+# once the Diesel schema expects the new columns). Fail-open when enabled.
+# Provider trie defaults ON (SQL is boot/empty-trie fallback only; no ETS cache).
+config :serviceradar_core,
+  prefix_tag_enrichment_enabled: false,
+  # Serve hosting-provider lookups from the provider: trie (ProviderSource loads at boot).
+  prefix_tag_provider_trie_enabled: true,
+  # CTI IpThreatIntelCache current-match via ti: trie (SQL fallback if trie empty).
+  threat_intel_engine_match_enabled: true,
+  # Derive geo:country:/geo:asn: tags from Geolix (not stored in the trie).
+  geo_tag_derivation_enabled: false,
+  prefix_tags_loader_enabled: true
 
 config :serviceradar_core,
   remote_access_desktop_rdp_enabled: false,

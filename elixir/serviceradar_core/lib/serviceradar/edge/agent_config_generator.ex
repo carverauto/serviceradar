@@ -40,6 +40,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifacts
+  alias ServiceRadar.Edge.DirectLeafEligibility
+  alias ServiceRadar.Edge.DirectLeafScope
   alias ServiceRadar.Edge.RemoteConsoleTargetResolver
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
@@ -455,9 +457,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
       |> Ash.Query.sort(source: :asc, updated_at: :desc, inserted_at: :desc)
-      |> Ash.Query.load(:addon_package)
+      |> Ash.Query.load([:addon_package, :rollout_package, edge_site: :nats_leaf_server])
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
+      |> Enum.map(&apply_rollout_package_override/1)
       |> Enum.reject(&retired_addon_assignment?/1)
       |> Enum.filter(&approved_addon_package?/1)
       |> select_effective_addon_assignments()
@@ -539,6 +542,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       _ -> assignment
     end
   end
+
+  # The authoritative assignment/profile package remains stable while a rollout
+  # advances one target at a time. Config generation alone resolves the persisted
+  # per-target override, so profile reconciliation cannot bypass the batch gate.
+  defp apply_rollout_package_override(
+         %AddonAssignment{rollout_id: rollout_id, rollout_package: %AddonPackage{} = package} =
+           assignment
+       )
+       when not is_nil(rollout_id), do: %{assignment | addon_package: package}
+
+  defp apply_rollout_package_override(%AddonAssignment{} = assignment), do: assignment
 
   defp approved_addon_package?(%AddonAssignment{
          addon_package: %AddonPackage{status: :approved, verification_status: "blob_missing"}
@@ -661,18 +675,140 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp build_deliverable_addon_assignment_config(%AddonAssignment{} = assignment, profile) do
     package = assignment.addon_package
     artifact = select_addon_artifact(package.artifacts, profile.os, profile.arch)
+    params = normalize_map(assignment.params)
 
-    if deliverable_addon_assignment?(assignment, profile, artifact) do
-      build_addon_config(
-        logical_addon_id(assignment),
-        package,
-        artifact,
+    with {:ok, params} <- prepare_direct_leaf_params(assignment, params),
+         true <- deliverable_addon_assignment?(assignment, profile, artifact) do
+      build_addon_config(logical_addon_id(assignment), package, artifact,
         enabled: assignment.enabled,
         args: assignment.args || [],
-        params: normalize_map(assignment.params),
+        params: params,
         assignment_id: assignment.id
       )
+    else
+      _ -> nil
     end
+  end
+
+  defp prepare_direct_leaf_params(%AddonAssignment{} = assignment, params) do
+    edge_site = Map.get(assignment, :edge_site)
+    leaf_server = if is_map(edge_site), do: Map.get(edge_site, :nats_leaf_server)
+
+    case DirectLeafEligibility.validate(params, edge_site, leaf_server) do
+      {:ok, params} ->
+        if DirectLeafEligibility.direct?(params) do
+          if direct_access_ready?(assignment, params) do
+            case inject_direct_leaf_identity(assignment, params) do
+              {:ok, params} ->
+                {:ok, params}
+
+              {:error, reason} ->
+                report_direct_leaf_pending(assignment, reason)
+                {:error, reason}
+            end
+          else
+            report_direct_leaf_pending(assignment, :direct_leaf_access_not_ready)
+            {:error, :direct_leaf_access_not_ready}
+          end
+        else
+          {:ok, params}
+        end
+
+      {:error, reason} ->
+        report_direct_leaf_pending(assignment, reason)
+        {:error, reason}
+    end
+  end
+
+  defp direct_access_ready?(%AddonAssignment{} = assignment, params) do
+    status = Map.get(assignment, :direct_access_status, :not_requested)
+    expires_at = Map.get(assignment, :direct_access_expires_at)
+
+    with :ready <- status,
+         %DateTime{} <- expires_at,
+         :gt <- DateTime.compare(expires_at, DateTime.utc_now()),
+         {:ok, scope} <- DirectLeafScope.build(params),
+         true <- Map.get(assignment, :direct_subject_scope, %{}) == scope do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp inject_direct_leaf_identity(%AddonAssignment{} = assignment, params) do
+    with {:ok, certificate_pem} <-
+           decrypt_direct_identity_field(assignment, :encrypted_direct_certificate_pem),
+         {:ok, private_key_pem} <-
+           decrypt_direct_identity_field(assignment, :encrypted_direct_private_key_pem),
+         {:ok, ca_chain_pem} <-
+           decrypt_direct_identity_field(assignment, :encrypted_direct_ca_chain_pem) do
+      nats = map_value(params, :nats) || %{}
+      tls = map_value(nats, :tls) || %{}
+
+      tls =
+        tls
+        |> put_map_value(:cert_pem, certificate_pem)
+        |> put_map_value(:key_pem, private_key_pem)
+        |> put_map_value(:ca_pem, ca_chain_pem)
+
+      {:ok, put_map_value(params, :nats, put_map_value(nats, :tls, tls))}
+    end
+  end
+
+  defp decrypt_direct_identity_field(assignment, attribute) do
+    case Map.get(assignment, attribute) do
+      ciphertext when is_binary(ciphertext) and byte_size(ciphertext) > 0 ->
+        case ServiceRadar.Vault.decrypt(ciphertext) do
+          {:ok, plaintext} when is_binary(plaintext) and byte_size(plaintext) > 0 ->
+            {:ok, plaintext}
+
+          _ ->
+            {:error, :direct_leaf_identity_decrypt_failed}
+        end
+
+      _ ->
+        {:error, :direct_leaf_identity_material_missing}
+    end
+  rescue
+    _error -> {:error, :direct_leaf_identity_decrypt_failed}
+  end
+
+  defp map_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_value(_map, _key), do: nil
+
+  defp put_map_value(map, key, value) when is_map(map) do
+    string_key = Atom.to_string(key)
+
+    if Map.has_key?(map, string_key),
+      do: Map.put(map, string_key, value),
+      else: Map.put(map, key, value)
+  end
+
+  defp report_direct_leaf_pending(%AddonAssignment{} = assignment, reason) do
+    addon_id = logical_addon_id(assignment)
+    marker = {__MODULE__, :direct_leaf_pending, assignment.id, reason}
+
+    if :persistent_term.get(marker, :none) == :warned do
+      Logger.debug(
+        "Direct-leaf add-on assignment remains pending: " <>
+          "assignment=#{assignment.id} addon=#{addon_id} reason=#{reason}"
+      )
+    else
+      :persistent_term.put(marker, :warned)
+
+      Logger.warning(
+        "Direct-leaf add-on assignment is pending: " <>
+          "assignment=#{assignment.id} addon=#{addon_id} reason=#{reason}"
+      )
+    end
+
+    :telemetry.execute(
+      [:serviceradar, :addon_config, :direct_leaf_pending],
+      %{count: 1},
+      %{assignment_id: assignment.id, addon_id: addon_id, reason: reason}
+    )
   end
 
   defp build_deliverable_required_addon_config(%{addon_id: addon_id} = spec, profile, actor) do

@@ -173,6 +173,76 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert source["lng"] == -93.6258
   end
 
+  test "prefix tag filter control patches SRQL tag: into the query", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
+    q = "in:flows time:last_24h"
+
+    {:ok, lv, html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+
+    assert html =~ "Prefix tag"
+    assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"] input[name="tag"]))
+
+    lv
+    |> form(~s(form[phx-submit="netflow_prefix_tag_filter"]), %{"tag" => "netbox:tag:iot"})
+    |> render_submit()
+
+    path = assert_patch(lv)
+    decoded = URI.decode_query(URI.parse(path).query || "")
+    assert Map.get(decoded, "q", "") =~ "tag:netbox:tag:iot"
+  end
+
+  test "flow listing and detail show prefix tag chips when present", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.PrefixTaggedSRQLStub
+    )
+
+    q = "in:flows time:last_24h"
+
+    {:ok, lv, html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+
+    assert html =~ "netbox:tag:corp"
+    assert html =~ "provider:cloudflare"
+    assert html =~ "Filter flows with tag netbox:tag:corp"
+    assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"]))
+
+    {:ok, _lv, detail_html} =
+      live(
+        conn,
+        ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer", open_flow: "1"}}"
+      )
+
+    assert detail_html =~ "Flow details"
+    assert detail_html =~ "netbox:tag:corp"
+    assert detail_html =~ "provider:cloudflare"
+    assert detail_html =~ "Prefix tag: netbox:tag:corp"
+    assert detail_html =~ "Prefix tag: provider:cloudflare"
+  end
+
+  test "untagged flows do not render prefix tag chips", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
+    q = "in:flows time:last_24h"
+
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+
+    refute html =~ "Filter flows with tag"
+    refute html =~ "Prefix tag: "
+  end
+
   defp collect_srql_queries(acc) do
     receive do
       {:srql_query, query} when is_binary(query) ->
@@ -274,6 +344,86 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
                  "dst_mac_vendor" => "DestVendor Inc",
                  "tcp_flags" => 18,
                  "tcp_flags_labels" => ["SYN", "ACK"],
+                 "packets_total" => 10,
+                 "bytes_total" => 2048
+               }
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        true ->
+          {:ok, %{"results" => [], "pagination" => %{}, "error" => nil}}
+      end
+    end
+
+    @impl true
+    def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
+    def query_request(_payload), do: {:error, :invalid_request}
+  end
+
+  defmodule PrefixTaggedSRQLStub do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @impl true
+    def query(query) when is_binary(query), do: query(query, %{})
+
+    @impl true
+    def query(query, _opts) when is_binary(query) do
+      cond do
+        String.contains?(query, "bucket:") ->
+          {:ok,
+           %{
+             "results" => [
+               %{"timestamp" => "2026-02-27T21:00:00Z", "series" => "tcp", "value" => 1024}
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"sum(bytes_total) as total_bytes"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total_bytes" => 10_800_000}],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"sum(packets_total) as total_packets"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total_packets" => 86_400}],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, ~S|stats:"count(*) as total"|) ->
+          {:ok,
+           %{
+             "results" => [%{"total" => 1}],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(query, "in:flows") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "time" => "2026-02-27T21:00:00Z",
+                 "src_endpoint_ip" => "192.168.1.134",
+                 "dst_endpoint_ip" => "13.217.9.183",
+                 "src_endpoint_port" => 57_196,
+                 "dst_endpoint_port" => 443,
+                 "protocol_num" => 6,
+                 "protocol_name" => "tcp",
+                 "direction_label" => "bidirectional",
+                 "dst_service_label" => "HTTPS",
+                 "src_hosting_provider" => "SourceNet Inc",
+                 "dst_hosting_provider" => "DestNet LLC",
+                 "src_prefix_tags" => ["netbox:tag:corp"],
+                 "dst_prefix_tags" => ["provider:cloudflare"],
                  "packets_total" => 10,
                  "bytes_total" => 2048
                }

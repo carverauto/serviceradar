@@ -305,6 +305,66 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     refute html =~ "DateTime.truncate(utc_datetime, :second)"
   end
 
+  test "prefix tag preview panel is on the CRM/IPAM tab and accepts empty IP", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    assert html =~ "Prefix tag preview"
+    assert html =~ "local node"
+    assert has_element?(lv, ~s(form[phx-submit="prefix_tag_preview"] input[name="ip"]))
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "   "})
+    |> render_submit()
+
+    assert render(lv) =~ "Enter an IP address"
+  end
+
+  test "prefix tag preview looks up the local trie and shows matches", %{conn: conn} do
+    alias ServiceRadar.PrefixTags.Store
+
+    Store.put_rows("netbox", [
+      %{prefix: "10.1.0.0/16", tags: ["netbox:tag:corp", "site:hq"], source: "netbox"}
+    ])
+
+    on_exit(fn -> Store.clear("netbox") end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "10.1.2.3"})
+    |> render_submit()
+
+    html = render(lv)
+    assert html =~ "Most-specific first"
+    assert html =~ "10.1.0.0/16"
+    assert html =~ "netbox:tag:corp"
+    assert html =~ "site:hq"
+    assert html =~ "netbox"
+  end
+
+  test "prefix tag preview reports no match for unmapped IPs", %{conn: conn} do
+    alias ServiceRadar.PrefixTags.Store
+
+    Store.clear()
+    on_exit(fn -> Store.clear() end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
+
+    lv
+    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "203.0.113.9"})
+    |> render_submit()
+
+    assert render(lv) =~ "No matching prefixes for this address."
+  end
+
+  test "viewer without integrations manage is redirected", %{conn: _conn} do
+    viewer = AccountsFixtures.user_fixture(%{role: :viewer})
+    viewer_conn = log_in_user(build_conn(), viewer)
+
+    assert {:error, {:redirect, %{to: "/settings/profile"}}} =
+             live(viewer_conn, ~p"/settings/networks/integrations")
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -376,5 +436,115 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     run
     |> Ash.Changeset.for_update(action, finish_attrs)
     |> Ash.update!(scope: scope)
+  end
+
+  describe "reusable credential selection" do
+    # IntegrationSource has carried `credential_secret_id` and
+    # sync_config_generator has branched on it for some time. Nothing in this UI
+    # could set it, so in practice every source stored its own encrypted copy and
+    # the shared inventory was unreachable from here.
+
+    defp shared_secret!(name_suffix) do
+      {:ok, secret} =
+        ServiceRadar.Credentials.NetworkCredentialSecret.create_secret(
+          %{
+            name: "Shared integration credential #{name_suffix}",
+            provider: "armis",
+            credential_kind: :api_token,
+            secret_payload: "shared-token-#{name_suffix}"
+          },
+          actor: system_actor()
+        )
+
+      secret
+    end
+
+    test "selecting a credential binds the source to it", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "Bound Source #{unique}"
+      secret = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => secret.id
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      assert source.credential_secret_id == secret.id
+    end
+
+    test "the form-only key never reaches the source", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "No Leak Source #{unique}"
+      secret = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => secret.id,
+        "cred_api_key" => "still-typed-a-key"
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      # The per-source fields are left untouched rather than cleared, so clearing
+      # the binding later falls back to whatever was already stored.
+      assert source.credential_secret_id == secret.id
+      refute Map.has_key?(source.credentials || %{}, "cred_credential_secret_id")
+    end
+
+    test "leaving the selector blank does not bind anything", %{conn: conn, scope: scope} do
+      agent = create_connected_agent!()
+      unique = System.unique_integer([:positive])
+      source_name = "Unbound Source #{unique}"
+
+      # A credential has to exist for the selector to render at all -- it is
+      # hidden when the inventory is empty, so "blank" is only a meaningful
+      # choice when there is something to choose.
+      _available = shared_secret!(unique)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations/new")
+
+      lv
+      |> form("#create_source_form", %{
+        "form" => %{
+          "name" => source_name,
+          "source_type" => "armis",
+          "endpoint" => "https://armis.example.test",
+          "agent_id" => agent.uid,
+          "discovery_interval_seconds" => "3600"
+        },
+        "cred_credential_secret_id" => "",
+        "cred_api_key" => "armis-api-key"
+      })
+      |> render_submit()
+
+      source = get_source_by_name!(source_name, scope)
+
+      assert source.credential_secret_id == nil
+      assert source.credentials["api_key"] == "armis-api-key"
+    end
   end
 end

@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
 
   alias ServiceRadar.Automation.Ansible.AutomationCallbackCommandAttempt, as: Attempt
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.CallbackCommandContract
   alias ServiceRadar.Automation.Ansible.CallbackCommandDispatcher
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
@@ -10,7 +11,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   alias ServiceRadar.Plugins.SecretRefs
 
   @now ~U[2026-07-13 12:00:00.000000Z]
+  @preflight_evidence_id "018f3f56-1111-7222-8333-123456789a01"
+  @preflight_command_id "018f3f56-1111-7222-8333-123456789a02"
   @controller_id "018f3f56-1111-7222-8333-123456789abe"
+  @preflight_binding_id "018f3f56-1111-7222-8333-123456789a04"
+  @preflight_approval_id "018f3f56-1111-7222-8333-123456789a05"
   @execution_secret "018f3f56-2222-7222-8333-123456789abe"
 
   test "a fast terminal result may take the processing lease before dispatch returns" do
@@ -257,6 +262,113 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
     assert operation_id == attempt.operation_id
     assert_receive {:credential_denial_marked, attempt_id, :current_permission_denied, @now}
     assert attempt_id == attempt.id
+  end
+
+  test "legacy callback mutation stages cannot reach a lease or AWX" do
+    for {stage, {attempt, resources}} <- [
+          create_credential: create_credential_attempt(),
+          launch_job: launch_attempt()
+        ] do
+      assert {:error, :awx_preflight_attestation_required} =
+               CallbackCommandDispatcher.dispatch(attempt,
+                 now: @now,
+                 resource_loader: fn ^attempt -> {:ok, resources} end,
+                 callback_authorizer: &authorize_callback/3,
+                 claim: fn _, _, _, _ ->
+                   flunk("legacy #{stage} must not acquire a dispatch lease")
+                 end,
+                 awx_dispatcher: fn _, _, _, _, _ ->
+                   flunk("legacy #{stage} must not reach AWX")
+                 end
+               )
+    end
+  end
+
+  test "callback launch requires evidence-backed immutable preflight on the exact edge tuple" do
+    {attempt, resources} = launch_attempt()
+    {resources, evidence} = attested_resources(resources)
+    test_pid = self()
+
+    assert {:ok, :dispatched} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: &authorize_callback/3,
+               preflight_evidence_reader: fn @preflight_evidence_id -> {:ok, evidence} end,
+               claim: &claim/4,
+               awx_dispatcher: fn claimed, controller, request, _context, _opts ->
+                 send(test_pid, {:awx_launch, claimed, controller, request})
+                 {:ok, %{id: claimed.command_id}}
+               end,
+               mark_dispatched: fn claimed, _token, _now -> {:ok, claimed} end
+             )
+
+    assert_receive {:awx_launch, claimed, controller, request}
+    assert claimed.dispatch_agent_id == "edge-agent-1"
+    assert claimed.dispatch_partition_id == "farm01"
+    assert controller.id == @controller_id
+    assert request.template_id == 42
+  end
+
+  test "callback launch rejects an attested partition that differs from its durable attempt" do
+    {attempt, resources} = launch_attempt()
+    {resources, evidence} = attested_resources(resources, dispatch_partition_id: "tonka01")
+
+    assert {:error, :awx_preflight_partition_drift} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: &authorize_callback/3,
+               preflight_evidence_reader: fn @preflight_evidence_id -> {:ok, evidence} end,
+               claim: fn _, _, _, _ -> flunk("partition drift must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("partition drift must not reach AWX") end
+             )
+  end
+
+  test "an expired preflight permits an attested read-only callback continuation" do
+    {attempt, resources, request} = fetch_job_attempt()
+
+    {resources, evidence} =
+      attested_resources(resources,
+        verified_at: DateTime.add(@now, -120, :second),
+        expires_at: DateTime.add(@now, -1, :second)
+      )
+
+    assert {:ok, :dispatched} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: &authorize_callback/3,
+               preflight_evidence_reader: fn @preflight_evidence_id -> {:ok, evidence} end,
+               claim: &claim/4,
+               awx_dispatcher: fn claimed, _controller, ^request, _context, _opts ->
+                 send(self(), {:read_only_dispatch, claimed.stage})
+                 {:ok, %{id: claimed.command_id}}
+               end,
+               mark_dispatched: fn claimed, _token, _now -> {:ok, claimed} end
+             )
+
+    assert_receive {:read_only_dispatch, :fetch_job}
+  end
+
+  test "an expired preflight still rejects callback launch before a lease or AWX" do
+    {attempt, resources} = launch_attempt()
+
+    {resources, evidence} =
+      attested_resources(resources,
+        verified_at: DateTime.add(@now, -120, :second),
+        expires_at: DateTime.add(@now, -1, :second)
+      )
+
+    assert {:error, :awx_preflight_evidence_expired} =
+             CallbackCommandDispatcher.dispatch(attempt,
+               now: @now,
+               resource_loader: fn ^attempt -> {:ok, resources} end,
+               callback_authorizer: &authorize_callback/3,
+               preflight_evidence_reader: fn @preflight_evidence_id -> {:ok, evidence} end,
+               claim: fn _, _, _, _ -> flunk("expired launch must not acquire a lease") end,
+               awx_dispatcher: fn _, _, _, _, _ -> flunk("expired launch must not reach AWX") end
+             )
   end
 
   test "active watchdog contraction enters the cancellation-unproven failure path" do
@@ -687,6 +799,69 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandDispatcherTest do
   defp claim(claimed, _token, _expires, _now), do: {:ok, %{claimed | state: :dispatching}}
 
   defp authorize_callback(_mode, _grant, _opts), do: :ok
+
+  defp attested_resources(resources, overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    {:ok, controller_snapshot} = ControllerSecuritySnapshot.capture(resources.controller)
+
+    {:ok, controller_security_snapshot_digest} =
+      ControllerSecuritySnapshot.digest(controller_snapshot)
+
+    attestation =
+      Map.merge(
+        %{
+          schema: AwxLaunchPreflightAttestation.schema(),
+          evidence_id: @preflight_evidence_id,
+          command_id: @preflight_command_id,
+          controller_id: resources.controller.id,
+          dispatch_agent_id: resources.controller.agent_id,
+          dispatch_partition_id: "farm01",
+          binding_id: @preflight_binding_id,
+          binding_version: 3,
+          approval_id: @preflight_approval_id,
+          reviewed_launch_snapshot_digest: String.duplicate("a", 64),
+          preflight_request_digest: String.duplicate("b", 64),
+          target_snapshot_digest: String.duplicate("c", 64),
+          controller_security_snapshot_digest: controller_security_snapshot_digest,
+          live_launch_snapshot_digest: String.duplicate("d", 64),
+          command_result_digest: String.duplicate("e", 64),
+          verified_at: DateTime.add(@now, -1, :second),
+          expires_at: DateTime.add(@now, 60, :second)
+        },
+        overrides
+      )
+
+    assert {:ok, attrs} = AwxLaunchPreflightAttestation.attrs(attestation)
+
+    resources = %{
+      resources
+      | operation: Map.merge(resources.operation, attrs),
+        execution: Map.merge(resources.execution, attrs)
+    }
+
+    {resources, preflight_evidence(attestation)}
+  end
+
+  defp preflight_evidence(attestation) do
+    %{
+      id: attestation.evidence_id,
+      command_id: attestation.command_id,
+      controller_id: attestation.controller_id,
+      dispatch_agent_id: attestation.dispatch_agent_id,
+      dispatch_partition_id: attestation.dispatch_partition_id,
+      binding_id: attestation.binding_id,
+      binding_version: attestation.binding_version,
+      approval_id: attestation.approval_id,
+      reviewed_launch_snapshot_digest: attestation.reviewed_launch_snapshot_digest,
+      preflight_request_digest: attestation.preflight_request_digest,
+      target_snapshot_digest: attestation.target_snapshot_digest,
+      controller_security_snapshot_digest: attestation.controller_security_snapshot_digest,
+      live_launch_snapshot_digest: attestation.live_launch_snapshot_digest,
+      command_result_digest: attestation.command_result_digest,
+      verified_at: attestation.verified_at,
+      expires_at: attestation.expires_at
+    }
+  end
 
   defp controller(id, agent_id) do
     %{

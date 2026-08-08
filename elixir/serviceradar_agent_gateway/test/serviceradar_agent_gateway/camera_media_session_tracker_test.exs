@@ -6,6 +6,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry
 
+  @moduletag :requires_app
+
   setup do
     previous_agent_limit =
       Application.get_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent)
@@ -259,6 +261,116 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
              })
   end
 
+  test "sweeps expired sessions and frees agent capacity" do
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_agent, 1)
+    Application.put_env(:serviceradar_agent_gateway, :camera_relay_max_sessions_per_gateway, 5)
+
+    expired_at = System.os_time(:second) - 60
+
+    assert {:ok, _expired} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-reaper-expired-1",
+               media_ingest_id: "core-media-reaper-expired-1",
+               agent_id: "agent-reaper-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-reaper-expired-1",
+               lease_expires_at_unix: expired_at
+             })
+
+    assert {:ok, active} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-reaper-active-1",
+               media_ingest_id: "core-media-reaper-active-1",
+               agent_id: "agent-reaper-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-2",
+               stream_profile_id: "main",
+               lease_token: "lease-reaper-active-1",
+               lease_expires_at_unix: System.os_time(:second) + 60
+             })
+
+    assert active.relay_session_id == "relay-reaper-active-1"
+    assert CameraMediaSessionTracker.fetch_session("relay-reaper-expired-1") == nil
+    assert {:ok, 0} = CameraMediaSessionTracker.sweep_expired_sessions()
+
+    assert_receive_telemetry(
+      [:serviceradar, :camera_relay, :session, :expired],
+      %{
+        relay_boundary: "agent_gateway",
+        relay_session_id: "relay-reaper-expired-1",
+        reason: "lease_expired"
+      }
+    )
+  end
+
+  test "periodic sweep removes lease-expired sessions" do
+    expired_at = System.os_time(:second) - 30
+
+    assert {:ok, _expired} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-periodic-expired-1",
+               media_ingest_id: "core-media-periodic-expired-1",
+               agent_id: "agent-periodic-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-1",
+               stream_profile_id: "main",
+               lease_token: "lease-periodic-expired-1",
+               lease_expires_at_unix: expired_at
+             })
+
+    assert {:ok, 1} = CameraMediaSessionTracker.sweep_expired_sessions()
+    assert CameraMediaSessionTracker.fetch_session("relay-periodic-expired-1") == nil
+  end
+
+  test "sweep reaps dead local ingress pid and keeps live sessions" do
+    dead = spawn(fn -> :ok end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+    assert {:ok, _} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-dead-ingress-1",
+               media_ingest_id: "core-media-dead-ingress-1",
+               agent_id: "agent-dead-ingress-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-dead-1",
+               stream_profile_id: "main",
+               lease_token: "lease-dead-ingress-1",
+               lease_expires_at_unix: System.os_time(:second) + 120,
+               ingress_pid: dead
+             })
+
+    assert {:ok, live} =
+             CameraMediaSessionTracker.open_session(%{
+               relay_session_id: "relay-live-ingress-1",
+               media_ingest_id: "core-media-live-ingress-1",
+               agent_id: "agent-live-ingress-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               camera_source_id: "camera-live-1",
+               stream_profile_id: "main",
+               lease_token: "lease-live-ingress-1",
+               lease_expires_at_unix: System.os_time(:second) + 120,
+               ingress_pid: self()
+             })
+
+    # Opening the second session sweeps first; dead ingress must reap without
+    # crashing the tracker (regression for remote/local Process.alive?/1).
+    assert Process.whereis(CameraMediaSessionTracker)
+    assert CameraMediaSessionTracker.fetch_session("relay-dead-ingress-1") == nil
+    assert live.relay_session_id == "relay-live-ingress-1"
+    assert CameraMediaSessionTracker.fetch_session("relay-live-ingress-1")
+
+    assert {:ok, 0} = CameraMediaSessionTracker.sweep_expired_sessions()
+    assert CameraMediaSessionTracker.fetch_session("relay-live-ingress-1")
+  end
+
   defp clear_sessions(state) do
     Map.put(state, :sessions, %{})
   end
@@ -268,6 +380,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
       [:serviceradar, :camera_relay, :session, :opened],
       [:serviceradar, :camera_relay, :session, :closing],
       [:serviceradar, :camera_relay, :session, :closed],
+      [:serviceradar, :camera_relay, :session, :expired],
       [:serviceradar, :camera_relay, :session, :saturation_denied]
     ]
   end

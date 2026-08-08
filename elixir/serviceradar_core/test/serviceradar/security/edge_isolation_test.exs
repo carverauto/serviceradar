@@ -60,7 +60,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
     test "remote RPC is only available to ERTS cluster members" do
       # Attempt RPC to a non-existent "agent" node should fail with :nodedown
-      fake_agent_node = :"fake_agent@127.0.0.1"
+      fake_agent_node = :"fake_agent@localhost.localdomain"
 
       # This should fail because Go agents are not ERTS nodes
       result = :rpc.call(fake_agent_node, Kernel, :node, [], 1000)
@@ -114,7 +114,11 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
         })
 
       # Lookup should return gRPC address, not an ERTS connection
-      {:ok, {host, port}} = AgentRegistry.get_grpc_address(agent_id)
+      {:ok, {host, port}} =
+        eventually(
+          fn -> AgentRegistry.get_grpc_address(agent_id) end,
+          &match?({:ok, {"192.168.1.100", 50_051}}, &1)
+        )
 
       assert is_binary(host), "gRPC host should be a string (IP address)"
       assert is_integer(port), "gRPC port should be an integer"
@@ -122,7 +126,8 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
       # The registry entry represents a gRPC endpoint, not an ERTS process
       # Verify we cannot call Erlang functions on this "agent"
-      [{_pid, metadata}] = AgentRegistry.lookup(agent_id)
+      [{_pid, metadata}] =
+        eventually(fn -> AgentRegistry.lookup(agent_id) end, &(length(&1) == 1))
 
       # The registered pid is just a placeholder process for Horde, not the actual agent
       # The actual agent is a Go process accessible only via gRPC
@@ -187,6 +192,21 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   end
 
   # Helper functions
+
+  defp eventually(fun, predicate, attempts \\ 40)
+
+  defp eventually(fun, predicate, attempts) when attempts > 0 do
+    value = fun.()
+
+    if predicate.(value) do
+      value
+    else
+      Process.sleep(10)
+      eventually(fun, predicate, attempts - 1)
+    end
+  end
+
+  defp eventually(fun, _predicate, 0), do: fun.()
 
   defp detect_node_type(node_str) do
     cond do

@@ -36,9 +36,15 @@ spec:
         - /spec/instances
         - /spec/storage/size
   syncPolicy:
-    # The release workflow advances demo/prod-release after artifacts verify.
-    # Keep sync operator-triggered until the CNPG, generated-secret, and
-    # deployment drift in demo has been explicitly reviewed.
+    # The release workflow advances demo/prod-release only after the tagged
+    # release, chart, catalogs, signatures, and security assets verify. Reconcile
+    # that immutable revision automatically, but never prune or self-heal live
+    # drift: deletion and unrelated operator changes remain explicit actions.
+    automated:
+      enabled: true
+      prune: false
+      selfHeal: false
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=true
       - SkipDryRunOnMissingResource=true

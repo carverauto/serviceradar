@@ -1,0 +1,27 @@
+{
+  "instance_id": "network-automation-prod",
+  "token_url": "https://nnm.example.com/idp/oauth2/token",
+  "api_url": "https://na.example.com/nom/api/automation/v1/wrapper",
+  "queries": [
+    {
+      "name": "switches",
+      "parameters": {
+        "type": "Switch",
+        "disabled": false,
+        "pollexcluded": false
+      }
+    },
+    {
+      "name": "selected-cisco",
+      "parameters": {
+        "vendor": "Cisco",
+        "ids": [101, 202]
+      }
+    }
+  ],
+  "page_size": 500,
+  "max_rows": 10000,
+  "max_result_bytes": 8388608,
+  "request_timeout_seconds": 45,
+  "max_retries": 3
+}

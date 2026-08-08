@@ -1,0 +1,17 @@
+[package]
+name = "serviceradar-integration-db"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Database lifecycle for the serviceradar_core integration suite: provision, sweep, teardown. Replaces scripts/{reset,drop,sweep-stale-core}-test-db.sh so the CI job invokes only Bazel targets."
+
+[dependencies]
+anyhow = { workspace = true }
+rustls = { workspace = true, features = ["ring"] }
+rustls-pemfile = { workspace = true }
+srql = { path = "../srql" }
+# "time" is for the clone retry backoff. It is reachable transitively through
+# tokio-postgres, but per rust/README_RUST.md a feature another crate happens to enable is an
+# accident rather than a dependency -- the retry breaks the day that changes.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio-postgres = { workspace = true }

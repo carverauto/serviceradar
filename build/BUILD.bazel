@@ -1,7 +1,35 @@
 # Package placeholder for repository alias helper.
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "elixir_test_config_loader.exs",
     "mix_release_patches.py",
     "repo_alias.bzl",
 ])
+
+# Opt-in switch for tests that talk to the shared CNPG fixture.
+#
+# These tests run real DDL against a database several pull requests share. Nothing may run
+# them by accident, and the guard must be visible at the target rather than buried in a
+# .bazelrc nobody reads -- so it is declared per target as:
+#
+#     target_compatible_with = integration_test_only(),
+#
+# and enabled per invocation as:
+#
+#     bazel test //... --test_tag_filters=integration_test --//build:enable_integration_tests
+#
+# Without the flag those targets are INCOMPATIBLE: a wildcard skips them and says so, and
+# naming one explicitly is a hard error that names the target. Compare `manual`, which
+# silently vanished from wildcards and gave no hint why.
+bool_flag(
+    name = "enable_integration_tests",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "integration_tests_enabled",
+    flag_values = {":enable_integration_tests": "True"},
+)

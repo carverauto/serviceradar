@@ -329,19 +329,19 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       >
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             AWX/AAP controllers, git playbook repositories, schedules, and retention.
           </p>
         </header>
 
-        <div role="tablist" class="tabs tabs-bordered">
+        <div role="tablist" class="sr-ui-tabs border-b border-sr-line">
           <button
             :for={{key, label} <- @tabs}
             type="button"
             role="tab"
             phx-click="select_tab"
             phx-value-tab={key}
-            class={["tab", @active_tab == key && "tab-active"]}
+            class={["sr-ui-tab", @active_tab == key && "sr-ui-tab-active"]}
           >
             {label}
           </button>
@@ -397,18 +397,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp controllers_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@controller_count}</span>
         registered controller{if @controller_count == 1, do: "", else: "s"}.
       </p>
-      <button type="button" phx-click="new_controller" class="btn btn-sm btn-primary">
+      <.ui_button type="button" phx-click="new_controller" size="sm" variant="primary">
         + Add controller
-      </button>
+      </.ui_button>
     </div>
 
     <div
       :if={@controller_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No AWX/AAP controllers registered yet.</p>
       <p class="mt-2">Click <strong>Add controller</strong> to register your first.</p>
@@ -423,9 +423,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@controller_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
-      <table class="table table-zebra">
+      <table class={ui_table_class(zebra: true)}>
         <thead>
           <tr>
             <th>Name</th>
@@ -439,39 +439,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, ctrl} <- @controllers} id={id}>
             <td>
               <div class="font-medium">{ctrl.name}</div>
-              <div :if={ctrl.description} class="text-xs text-base-content/60">
+              <div :if={ctrl.description} class="text-xs text-sr-muted">
                 {ctrl.description}
               </div>
             </td>
             <td><code class="text-xs">{ctrl.base_url}</code></td>
             <td><code class="text-xs">{ctrl.agent_id}</code></td>
             <td>
-              <span class={["badge", health_badge_class(ctrl.status)]}>
+              <.ui_badge size="sm" variant={health_badge_variant(ctrl.status)}>
                 {ctrl.status}
-              </span>
-              <div :if={ctrl.last_health_at} class="text-xs text-base-content/60 mt-1">
+              </.ui_badge>
+              <div :if={ctrl.last_health_at} class="text-xs text-sr-muted mt-1">
                 {Calendar.strftime(ctrl.last_health_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
             </td>
             <td>
               <div class="flex gap-1">
-                <button
+                <.ui_button
                   type="button"
-                  class="btn btn-xs"
                   phx-click="edit_controller"
                   phx-value-id={ctrl.id}
+                  size="xs"
+                  variant="neutral"
                 >
                   Edit
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-error btn-outline"
                   phx-click="delete_controller"
                   phx-value-id={ctrl.id}
                   data-confirm={"Delete controller '#{ctrl.name}'? This cannot be undone."}
+                  size="xs"
+                  variant="outline"
                 >
                   Delete
-                </button>
+                </.ui_button>
               </div>
             </td>
           </tr>
@@ -502,7 +504,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       )
 
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit controller", else: "Add controller"}
       </h2>
@@ -515,65 +517,76 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         class="space-y-3"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="controller[name]"
               value={Phoenix.HTML.Form.input_value(@form, :name)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="Production AWX"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Agent ID</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Agent ID</span>
+            </label>
             <input
               type="text"
               name="controller[agent_id]"
               value={Phoenix.HTML.Form.input_value(@form, :agent_id)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="agent-edge-01"
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="controller[description]"
               value={Phoenix.HTML.Form.input_value(@form, :description)}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Base URL</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Base URL</span>
+            </label>
             <input
               type="url"
               name="controller[base_url]"
               value={Phoenix.HTML.Form.input_value(@form, :base_url)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="https://awx.internal.example.com"
             />
           </div>
 
-          <div role="alert" class="alert alert-info alert-soft md:col-span-2 text-sm">
+          <div
+            role="alert"
+            class={ui_alert_class(variant: "info", class: "alert-soft md:col-span-2 text-sm")}
+          >
             Use separate least-privilege AWX principals for sync, execution, and callback
             credential lifecycle. Callback may deliberately reuse execution, but it never
             falls back automatically.
           </div>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Sync credential</legend>
-            <label class="label">
-              <span class="label-text">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">
                 {if @editing_id, do: "New sync API token", else: "Sync API token"}
               </span>
-              <span class="label-text-alt text-xs text-base-content/60">
+              <span class="text-xs text-sr-muted">
                 {if @editing_id,
                   do: "Leave blank to keep the selected encrypted sync token.",
                   else: "Used only for health, catalog, and inventory reads."}
@@ -584,21 +597,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               id="controller-sync-awx-api-token"
               name="controller[sync_awx_api_token]"
               value=""
-              class="input input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               autocomplete="off"
               placeholder={if @editing_id, do: "Paste only to rotate sync", else: "Paste sync token"}
             />
 
-            <label class="label">
-              <span class="label-text">Existing sync credential secret</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing sync credential secret</span>
+              <span class="text-xs text-sr-muted">
                 Provision AWX tokens in Settings → Credentials → New Secret → AWX API Token.
               </span>
             </label>
             <select
               id="controller-sync-credential-secret-id"
               name="controller[sync_credential_secret_id]"
-              class="select select-sm"
+              class={ui_field_class(size: "sm")}
             >
               <option value="" selected={@selected_sync_secret_id in [nil, ""]}>
                 — none / paste a token above —
@@ -625,12 +638,35 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             />
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Execution credential</legend>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">AWX execution token</span>
+              <span class="text-xs text-sr-muted">
+                {if @editing_id,
+                  do: "Leave blank to keep the selected encrypted execution token.",
+                  else: "Used to launch, observe, and cancel jobs."}
+              </span>
+            </label>
+            <input
+              type="password"
+              id="controller-execution-awx-api-token"
+              name="controller[execution_awx_api_token]"
+              value=""
+              class={ui_field_class(size: "sm", mono: true)}
+              autocomplete="off"
+              placeholder={
+                if @editing_id, do: "Paste only to rotate execution", else: "Paste execution token"
+              }
+            />
+
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing execution credential</span>
+            </label>
             <select
               id="controller-execution-credential-secret-id"
               name="controller[execution_credential_secret_id]"
-              class="select select-sm"
+              class={ui_field_class(size: "sm")}
             >
               <option value="" selected={@selected_execution_secret_id in [nil, ""]}>
                 — none / launching and job polling disabled —
@@ -654,17 +690,40 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {@selected_execution_secret_id} (current)
               </option>
             </select>
-            <p class="label">
+            <p class="flex items-center justify-between gap-2">
               Requires only the exact inventory/template/credential use and job lifecycle roles.
             </p>
           </fieldset>
 
-          <fieldset class="fieldset rounded-box border border-base-300 p-3 md:col-span-2">
+          <fieldset class="fieldset rounded-sr-surface border border-sr-line p-3 md:col-span-2">
             <legend class="fieldset-legend">Callback credential lifecycle</legend>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">AWX callback token</span>
+              <span class="text-xs text-sr-muted">
+                {if @editing_id,
+                  do: "Leave blank to keep the selected encrypted callback token.",
+                  else: "Creates, fetches, and deletes reviewed ephemeral credentials."}
+              </span>
+            </label>
+            <input
+              type="password"
+              id="controller-callback-awx-api-token"
+              name="controller[callback_awx_api_token]"
+              value=""
+              class={ui_field_class(size: "sm", mono: true)}
+              autocomplete="off"
+              placeholder={
+                if @editing_id, do: "Paste only to rotate callback", else: "Paste callback token"
+              }
+            />
+
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Existing callback credential</span>
+            </label>
             <select
               id="controller-callback-credential-secret-id"
               name="controller[callback_credential_secret_id]"
-              class="select select-sm"
+              class={ui_field_class(size: "sm")}
             >
               <option value="" selected={@selected_callback_secret_id in [nil, ""]}>
                 — none / callback-enabled playbooks disabled —
@@ -686,41 +745,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {@selected_callback_secret_id} (current)
               </option>
             </select>
-            <p class="label">
+            <p class="flex items-center justify-between gap-2">
               Use a principal limited to Credential Admin in a dedicated empty AWX organization.
               Selecting the same secret as execution is supported when intentionally reviewed.
             </p>
           </fieldset>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Inventory sync (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Inventory sync (s)</span>
             </label>
             <input
               type="number"
               name="controller[inventory_sync_interval_seconds]"
               value={Phoenix.HTML.Form.input_value(@form, :inventory_sync_interval_seconds) || 300}
               min="30"
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Catalog sync (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Catalog sync (s)</span>
             </label>
             <input
               type="number"
               name="controller[catalog_sync_interval_seconds]"
               value={Phoenix.HTML.Form.input_value(@form, :catalog_sync_interval_seconds) || 600}
               min="60"
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Run pulse (ms)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Run pulse (ms)</span>
             </label>
             <input
               type="number"
@@ -728,16 +787,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               value={Phoenix.HTML.Form.input_value(@form, :run_pulse_interval_ms) || 2000}
               min="250"
               max="60000"
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create controller"}
-          </button>
+          </.ui_button>
         </div>
       </.form>
     </div>
@@ -755,18 +816,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp repositories_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@repository_count}</span>
         registered git repositor{if @repository_count == 1, do: "y", else: "ies"}.
       </p>
-      <button type="button" phx-click="new_repository" class="btn btn-sm btn-primary">
+      <.ui_button type="button" phx-click="new_repository" size="sm" variant="primary">
         + Add repository
-      </button>
+      </.ui_button>
     </div>
 
     <div
       :if={@repository_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No playbook repositories registered yet.</p>
       <p class="mt-2">Click <strong>Add repository</strong> to register your first.</p>
@@ -776,9 +837,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@repository_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
-      <table class="table table-zebra">
+      <table class={ui_table_class(zebra: true)}>
         <thead>
           <tr>
             <th>Name</th>
@@ -792,42 +853,44 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, repo} <- @repositories} id={id}>
             <td>
               <div class="font-medium">{repo.name}</div>
-              <div :if={repo.description} class="text-xs text-base-content/60">
+              <div :if={repo.description} class="text-xs text-sr-muted">
                 {repo.description}
               </div>
             </td>
             <td><code class="text-xs">{repo.git_url}</code></td>
             <td><code class="text-xs">{repo.git_ref}</code></td>
             <td>
-              <span class={["badge", sync_badge_class(repo.last_sync_status)]}>
+              <.ui_badge size="sm" variant={sync_badge_variant(repo.last_sync_status)}>
                 {repo.last_sync_status}
-              </span>
-              <div :if={repo.last_sync_at} class="text-xs text-base-content/60 mt-1">
+              </.ui_badge>
+              <div :if={repo.last_sync_at} class="text-xs text-sr-muted mt-1">
                 {Calendar.strftime(repo.last_sync_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <div :if={repo.last_sync_summary} class="text-xs text-base-content/60 mt-1">
+              <div :if={repo.last_sync_summary} class="text-xs text-sr-muted mt-1">
                 {repo.last_sync_summary}
               </div>
             </td>
             <td>
               <div class="flex gap-1">
-                <button
+                <.ui_button
                   type="button"
-                  class="btn btn-xs"
                   phx-click="edit_repository"
                   phx-value-id={repo.id}
+                  size="xs"
+                  variant="neutral"
                 >
                   Edit
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-error btn-outline"
                   phx-click="delete_repository"
                   phx-value-id={repo.id}
                   data-confirm={"Delete repository '#{repo.name}'? Playbooks sourced from it will be removed too."}
+                  size="xs"
+                  variant="outline"
                 >
                   Delete
-                </button>
+                </.ui_button>
               </div>
             </td>
           </tr>
@@ -842,7 +905,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp repository_form(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit repository", else: "Add repository"}
       </h2>
@@ -854,56 +917,64 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         class="space-y-3"
       >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="repository[name]"
               value={Phoenix.HTML.Form.input_value(@form, :name)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="ops-playbooks"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Ref</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Ref</span>
+            </label>
             <input
               type="text"
               name="repository[git_ref]"
               value={Phoenix.HTML.Form.input_value(@form, :git_ref)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="main"
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="repository[description]"
               value={Phoenix.HTML.Form.input_value(@form, :description)}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Git URL (HTTPS)</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Git URL (HTTPS)</span>
+            </label>
             <input
               type="url"
               name="repository[git_url]"
               value={Phoenix.HTML.Form.input_value(@form, :git_url)}
               required
-              class="input input-bordered input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               placeholder="https://github.com/example/playbooks.git"
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Deploy token secret ID</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Deploy token secret ID</span>
+              <span class="text-xs text-sr-muted">
                 Optional. Required for private repos. UUID from Settings → Credentials.
               </span>
             </label>
@@ -911,30 +982,32 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               type="text"
               name="repository[credential_secret_id]"
               value={Phoenix.HTML.Form.input_value(@form, :credential_secret_id)}
-              class="input input-bordered input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               placeholder="(public repo — leave blank)"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Sync interval (s)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Sync interval (s)</span>
             </label>
             <input
               type="number"
               name="repository[sync_interval_seconds]"
               value={Phoenix.HTML.Form.input_value(@form, :sync_interval_seconds) || 600}
               min="60"
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create repository"}
-          </button>
+          </.ui_button>
         </div>
       </.form>
     </div>
@@ -953,18 +1026,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp schedules_panel(assigns) do
     ~H"""
     <div class="flex items-center justify-between">
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-sr-muted">
         <span class="font-medium">{@schedule_count}</span>
         scheduled run{if @schedule_count == 1, do: "", else: "s"} registered.
       </p>
-      <button type="button" phx-click="new_schedule" class="btn btn-sm btn-primary">
+      <.ui_button type="button" phx-click="new_schedule" size="sm" variant="primary">
         + Add schedule
-      </button>
+      </.ui_button>
     </div>
 
     <div
       :if={@schedule_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-base-300 p-8 text-center text-sm text-base-content/70"
+      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
     >
       <p>No schedules registered.</p>
       <p class="mt-2">Click <strong>Add schedule</strong> to create a cron-driven run.</p>
@@ -974,9 +1047,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     <div
       :if={@schedule_count > 0}
-      class="overflow-x-auto rounded-lg border border-base-300 bg-base-100"
+      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
     >
-      <table class="table table-zebra">
+      <table class={ui_table_class(zebra: true)}>
         <thead>
           <tr>
             <th>Name</th>
@@ -991,25 +1064,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           <tr :for={{id, sched} <- @schedules} id={id}>
             <td>
               <div class="font-medium">{sched.name}</div>
-              <div :if={sched.description} class="text-xs text-base-content/60">
+              <div :if={sched.description} class="text-xs text-sr-muted">
                 {sched.description}
               </div>
             </td>
             <td>
               <code class="text-xs">{sched.cron}</code>
-              <div class="text-xs text-base-content/60">{sched.timezone}</div>
+              <div class="text-xs text-sr-muted">{sched.timezone}</div>
             </td>
             <td>
               <div :if={sched.last_evaluated_at} class="text-xs">
                 {Calendar.strftime(sched.last_evaluated_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <span
+              <.ui_badge
                 :if={sched.last_evaluation_outcome}
-                class={["badge badge-xs mt-1", outcome_badge_class(sched.last_evaluation_outcome)]}
+                size="xs"
+                variant={outcome_badge_variant(sched.last_evaluation_outcome)}
+                class="mt-1"
               >
                 {sched.last_evaluation_outcome}
-              </span>
-              <div :if={!sched.last_evaluated_at} class="text-xs text-base-content/60">
+              </.ui_badge>
+              <div :if={!sched.last_evaluated_at} class="text-xs text-sr-muted">
                 never fired
               </div>
             </td>
@@ -1017,42 +1092,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <div :if={sched.next_run_at} class="text-xs">
                 {Calendar.strftime(sched.next_run_at, "%Y-%m-%d %H:%M:%S UTC")}
               </div>
-              <div :if={!sched.next_run_at} class="text-xs text-base-content/60">—</div>
+              <div :if={!sched.next_run_at} class="text-xs text-sr-muted">—</div>
             </td>
             <td>
-              <span :if={sched.enabled} class="badge badge-success">enabled</span>
-              <span :if={!sched.enabled} class="badge badge-ghost">disabled</span>
-              <span :if={sched.allow_concurrent} class="badge badge-xs badge-warning mt-1">
+              <.ui_badge :if={sched.enabled} size="sm" variant="success">enabled</.ui_badge>
+              <.ui_badge :if={!sched.enabled} size="sm" variant="ghost">disabled</.ui_badge>
+              <.ui_badge :if={sched.allow_concurrent} size="xs" variant="warning" class="mt-1">
                 concurrent
-              </span>
+              </.ui_badge>
             </td>
             <td>
               <div class="flex gap-1 flex-wrap">
-                <button
+                <.ui_button
                   type="button"
-                  class="btn btn-xs"
                   phx-click="toggle_schedule"
                   phx-value-id={sched.id}
+                  size="xs"
+                  variant="neutral"
                 >
                   {if sched.enabled, do: "Disable", else: "Enable"}
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs"
                   phx-click="edit_schedule"
                   phx-value-id={sched.id}
+                  size="xs"
+                  variant="neutral"
                 >
                   Edit
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-error btn-outline"
                   phx-click="delete_schedule"
                   phx-value-id={sched.id}
                   data-confirm={"Delete schedule '#{sched.name}'?"}
+                  size="xs"
+                  variant="outline"
                 >
                   Delete
-                </button>
+                </.ui_button>
               </div>
             </td>
           </tr>
@@ -1068,66 +1146,70 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp schedule_form(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-300 bg-base-200/60 p-4">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
       <h2 class="text-lg font-medium mb-3">
         {if @editing_id, do: "Edit schedule", else: "Add schedule"}
       </h2>
 
       <.form for={@form} phx-change="validate_schedule" phx-submit="save_schedule" class="space-y-3">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Name</span>
+            </label>
             <input
               type="text"
               name="schedule[name]"
               value={Phoenix.HTML.Form.input_value(@form, :name)}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="nightly-deploy"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-2">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
               <input
                 type="checkbox"
                 name="schedule[enabled]"
                 value="true"
                 checked={truthy?(Phoenix.HTML.Form.input_value(@form, :enabled))}
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Enabled</span>
+              <span class="text-sm font-medium text-sr-ink">Enabled</span>
             </label>
-            <label class="label cursor-pointer justify-start gap-2">
+            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
               <input
                 type="checkbox"
                 name="schedule[allow_concurrent]"
                 value="true"
                 checked={truthy?(Phoenix.HTML.Form.input_value(@form, :allow_concurrent))}
-                class="checkbox checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Allow concurrent runs</span>
+              <span class="text-sm font-medium text-sr-ink">Allow concurrent runs</span>
             </label>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label"><span class="label-text">Description</span></label>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <input
               type="text"
               name="schedule[description]"
               value={Phoenix.HTML.Form.input_value(@form, :description)}
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
             />
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Playbook</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Playbook</span>
+              <span class="text-xs text-sr-muted">
                 {length(@playbooks)} launchable
               </span>
             </label>
-            <select name="schedule[playbook_id]" required class="select select-bordered select-sm">
+            <select name="schedule[playbook_id]" required class={ui_field_class(size: "sm")}>
               <option
                 value=""
                 disabled
@@ -1145,72 +1227,76 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             </select>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">Target device UIDs</span>
-              <span class="label-text-alt text-xs text-base-content/60">comma-separated</span>
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target device UIDs</span>
+              <span class="text-xs text-sr-muted">comma-separated</span>
             </label>
             <input
               type="text"
               name="schedule[target_device_uids]"
               value={Phoenix.HTML.Form.input_value(@form, :target_device_uids)}
               required
-              class="input input-bordered input-sm font-mono text-xs"
+              class={ui_field_class(size: "sm", mono: true, class: "text-xs")}
               placeholder="sr:a,sr:b,sr:c"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Cron</span>
-              <span class="label-text-alt text-xs text-base-content/60">5-field, UTC for v1</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Cron</span>
+              <span class="text-xs text-sr-muted">5-field, UTC for v1</span>
             </label>
             <input
               type="text"
               name="schedule[cron]"
               value={Phoenix.HTML.Form.input_value(@form, :cron)}
               required
-              class="input input-bordered input-sm font-mono"
+              class={ui_field_class(size: "sm", mono: true)}
               placeholder="0 3 * * *"
             />
           </div>
 
-          <div class="form-control">
-            <label class="label"><span class="label-text">Timezone</span></label>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Timezone</span>
+            </label>
             <input
               type="text"
               name="schedule[timezone]"
               value={Phoenix.HTML.Form.input_value(@form, :timezone) || "UTC"}
               required
-              class="input input-bordered input-sm"
+              class={ui_field_class(size: "sm")}
               placeholder="UTC"
             />
-            <p class="text-xs text-base-content/60 mt-1">
+            <p class="text-xs text-sr-muted mt-1">
               Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.
             </p>
           </div>
 
-          <div class="form-control md:col-span-2">
-            <label class="label">
-              <span class="label-text">extra_vars (JSON)</span>
-              <span class="label-text-alt text-xs text-base-content/60">
+          <div class="flex flex-col gap-1.5 md:col-span-2">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">extra_vars (JSON)</span>
+              <span class="text-xs text-sr-muted">
                 passed to AWX on each fire
               </span>
             </label>
             <textarea
               name="schedule[requested_extra_vars]"
               rows="3"
-              class="textarea textarea-bordered font-mono text-xs"
+              class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-xs")}
               placeholder={"{\n  \"target_version\": \"1.2.3\"\n}"}
             >{Phoenix.HTML.Form.input_value(@form, :requested_extra_vars)}</textarea>
           </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-primary">
+          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">
             {if @editing_id, do: "Save changes", else: "Create schedule"}
-          </button>
+          </.ui_button>
         </div>
       </.form>
     </div>
@@ -1224,10 +1310,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp retention_panel(assigns) do
     ~H"""
     <div class="space-y-4">
-      <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm space-y-3">
+      <div class="rounded-lg border border-sr-line bg-sr-surface p-6 text-sm space-y-3">
         <header>
           <h2 class="text-lg font-medium">Retention</h2>
-          <p class="text-base-content/70">
+          <p class="text-sr-muted">
             Run-detail + run-summary retention windows are operator-tunable via
             environment variables. Worker cadences (health check, watchdog,
             schedule evaluator) follow the same pattern. Values shown here reflect
@@ -1235,8 +1321,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </p>
         </header>
 
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr>
                 <th class="w-1/3">Setting</th>
@@ -1248,7 +1334,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run detail retention</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     Past this age, prune `PlaybookPlay` / `PlaybookTask` /
                     `PlaybookTaskResult` rows. Run + targets stay so the run
                     header / per-target outcomes remain queryable.
@@ -1260,7 +1346,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run summary retention</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     When set, deletes the entire `PlaybookRun` (cascading to
                     targets / plays / tasks / results) past this age. Default
                     `nil` keeps run summaries forever.
@@ -1272,7 +1358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Retention sweep interval</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     How often the RetentionWorker scans. Defaults to daily.
                   </div>
                 </td>
@@ -1289,7 +1375,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               <tr>
                 <td>
                   <div class="font-medium">Run watchdog interval</div>
-                  <div class="text-xs text-base-content/60">
+                  <div class="text-xs text-sr-muted">
                     Threshold: 2× the AWX job_template timeout, or 1 h fallback
                     if no template timeout is known.
                   </div>
@@ -1315,7 +1401,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </table>
         </div>
 
-        <p class="text-xs text-base-content/60">
+        <p class="text-xs text-sr-muted">
           Per-controller / per-repository / per-schedule overrides take precedence
           over the global defaults above. Each `AnsibleController` carries its own
           `run_pulse_interval_ms` (drives RunPulseWorker), `inventory_sync_interval_seconds`,
@@ -1450,6 +1536,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp resolve_optional_credential(params, param, existing) do
     purpose = optional_credential_purpose(param)
 
+    # A pasted token wins over the select, the same precedence sync already uses:
+    # you only paste when you mean to set or rotate, and the select still holds
+    # whatever was bound before. Without this branch these two purposes could
+    # only be set by pasting a secret UUID, which is the copy-a-UUID step this
+    # change exists to remove -- and the reason execution and callback were
+    # routinely left unset while sync was configured.
+    case nilify_blank(params[optional_credential_token_param(param)]) do
+      token when is_binary(token) ->
+        create_awx_token_secret(params, token, to_string(purpose))
+
+      nil ->
+        resolve_optional_credential_selection(params, param, existing, purpose)
+    end
+  end
+
+  defp resolve_optional_credential_selection(params, param, existing, purpose) do
     if Map.has_key?(params, param) do
       case nilify_blank(params[param]) do
         nil -> {:ok, nil}
@@ -1462,6 +1564,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp optional_credential_purpose("execution_credential_secret_id"), do: :execution
   defp optional_credential_purpose("callback_credential_secret_id"), do: :callback
+
+  defp optional_credential_token_param("execution_credential_secret_id"), do: "execution_awx_api_token"
+
+  defp optional_credential_token_param("callback_credential_secret_id"), do: "callback_awx_api_token"
 
   defp create_awx_token_secret(params, token, purpose) do
     case NetworkCredentialSecret.create_secret(
@@ -1668,10 +1774,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     }
   end
 
-  defp sync_badge_class(:ok), do: "badge-success"
-  defp sync_badge_class(:error), do: "badge-error"
-  defp sync_badge_class(:pending), do: "badge-ghost"
-  defp sync_badge_class(_), do: "badge-ghost"
+  defp sync_badge_variant(:ok), do: "success"
+  defp sync_badge_variant(:error), do: "error"
+  defp sync_badge_variant(:pending), do: "ghost"
+  defp sync_badge_variant(_), do: "ghost"
 
   ## Schedule helpers ---------------------------------------------------------
 
@@ -1895,12 +2001,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     }
   end
 
-  defp outcome_badge_class(:fired), do: "badge-success"
-  defp outcome_badge_class(:skipped_overlap), do: "badge-warning"
-  defp outcome_badge_class(:skipped_disabled), do: "badge-ghost"
-  defp outcome_badge_class(:skipped_ineligible_targets), do: "badge-warning"
-  defp outcome_badge_class(:error), do: "badge-error"
-  defp outcome_badge_class(_), do: "badge-ghost"
+  defp outcome_badge_variant(:fired), do: "success"
+  defp outcome_badge_variant(:skipped_overlap), do: "warning"
+  defp outcome_badge_variant(:skipped_disabled), do: "ghost"
+  defp outcome_badge_variant(:skipped_ineligible_targets), do: "warning"
+  defp outcome_badge_variant(:error), do: "error"
+  defp outcome_badge_variant(_), do: "ghost"
 
   ## Retention helpers --------------------------------------------------------
 
@@ -1967,11 +2073,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp to_int(n) when is_integer(n), do: n
   defp to_int(_), do: nil
 
-  defp health_badge_class(:ok), do: "badge-success"
-  defp health_badge_class(:degraded), do: "badge-warning"
-  defp health_badge_class(:unreachable), do: "badge-error"
-  defp health_badge_class(:unauthorized), do: "badge-error"
-  defp health_badge_class(_), do: "badge-ghost"
+  defp health_badge_variant(:ok), do: "success"
+  defp health_badge_variant(:degraded), do: "warning"
+  defp health_badge_variant(:unreachable), do: "error"
+  defp health_badge_variant(:unauthorized), do: "error"
+  defp health_badge_variant(_), do: "ghost"
 
   defp to_atom_tab(tab) when is_binary(tab) do
     case tab do

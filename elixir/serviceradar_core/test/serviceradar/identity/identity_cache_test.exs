@@ -3,6 +3,8 @@ defmodule ServiceRadar.Identity.IdentityCacheTest do
 
   alias ServiceRadar.Identity.IdentityCache
 
+  @moduletag :requires_app
+
   setup do
     pid =
       case Process.whereis(IdentityCache) do

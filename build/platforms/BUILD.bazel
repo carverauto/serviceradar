@@ -20,13 +20,37 @@ constraint_value(
     visibility = ["//visibility:public"],
 )
 
+# THE DEFAULT IS LOAD-BEARING, and its absence was a real bug.
+#
+# A constraint_setting with no default leaves platforms that never mention it with NO value for
+# it -- and a toolchain that says nothing about libc then matches BOTH glibc and musl platforms.
+# That is how //build/platforms:linux_x86_64_musl (x86_64, linux, linux_musl) matched
+# //build/toolchains:rbe_cc_toolchain, which asks only for (x86_64, linux): a platform carrying
+# EXTRA constraints still satisfies a toolchain asking for fewer. The "musl" build therefore
+# linked with @buildbuddy_toolchain's glibc toolchain, and which one won came down to
+# registration order rather than to anything declared.
+#
+# Giving the setting a default and an explicit :linux_glibc value makes the two mutually
+# exclusive, so resolution is decided by the constraints instead of by list order. This mirrors
+# rules_rust's own cross_compile_musl example, whose `linker` constraint_setting declares
+# `default_constraint_value = ":unknown"` alongside `:musl` for exactly this reason.
 constraint_setting(
     name = "linux_libc",
+    default_constraint_value = ":linux_glibc",
     visibility = ["//visibility:public"],
 )
 
 constraint_value(
     name = "linux_musl",
+    constraint_setting = ":linux_libc",
+    visibility = ["//visibility:public"],
+)
+
+# Every platform that does not say otherwise. Never write this into a platform's
+# constraint_values -- it is the default, so it applies automatically; naming it is only useful
+# on a TOOLCHAIN, to declare "glibc only" and stop it matching musl platforms.
+constraint_value(
+    name = "linux_glibc",
     constraint_setting = ":linux_libc",
     visibility = ["//visibility:public"],
 )
@@ -156,11 +180,13 @@ platform(
         "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
-        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
         "OSFamily": "linux",
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        # Firecracker microVM size (see #4752/#4755). Rustc+ld and pure-Go
+        # GoLink need headroom above the historical ~2.5Gi default.
     },
     visibility = ["//visibility:public"],
 )
@@ -174,7 +200,7 @@ platform(
         "@elixir_config//:elixir_internal",
     ],
     exec_properties = {
-        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+        "container-image": "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
         "OSFamily": "linux",
         # Cross-compiles linux/arm64 targets on the amd64 BuildBuddy executor pool.
         "Arch": "amd64",
@@ -210,6 +236,8 @@ platform(
         "Arch": "amd64",
         "dockerNetwork": "host",
         "Pool": "default",
+        # Native-addons CI uses --config=el9. Without these, Firecracker VMs
+        # stay tiny and rustc/ld dies with signal 9 (//rust/anomaly-addon).
     },
     visibility = ["//visibility:public"],
 )

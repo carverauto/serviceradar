@@ -408,7 +408,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           >
             <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
             <span class="text-sm text-success font-medium">Live Agent</span>
-            <span class="text-xs text-base-content/60">Connected via gateway registry</span>
+            <span class="text-xs text-sr-muted">Connected via gateway registry</span>
           </div>
           <div
             :if={!@live_agent && Map.get(@agent, "_source") == "database"}
@@ -416,7 +416,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           >
             <span class="size-2.5 rounded-full bg-warning"></span>
             <span class="text-sm text-warning font-medium">Database Record</span>
-            <span class="text-xs text-base-content/60">Agent not currently connected to cluster</span>
+            <span class="text-xs text-sr-muted">Agent not currently connected to cluster</span>
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
@@ -455,72 +455,72 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     assigns = assign(assigns, :type_name, type_name)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-6">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
       <div class="flex flex-wrap gap-x-8 gap-y-4">
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Status</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Status</span>
           <.status_badge status={Map.get(@agent, "status")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Type</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Type</span>
           <.type_badge type_id={Map.get(@agent, "type_id")} />
         </div>
 
         <div class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Agent UID</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Agent UID</span>
           <span class="text-sm font-mono">
             {Map.get(@agent, "uid") || Map.get(@agent, "agent_id") || "—"}
           </span>
         </div>
 
         <div :if={has_value?(@agent, "name")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Name</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Name</span>
           <span class="text-sm">{Map.get(@agent, "name")}</span>
         </div>
 
         <div :if={has_value?(@agent, "host")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Host</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Host</span>
           <span class="text-sm font-mono">{Map.get(@agent, "host")}</span>
         </div>
 
         <div :if={has_value?(@agent, "version")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Version</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Version</span>
           <span class="text-sm font-mono">{Map.get(@agent, "version")}</span>
         </div>
 
         <div :if={has_value?(@agent, "desired_version")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Desired Version</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Desired Version</span>
           <span class="text-sm font-mono">{Map.get(@agent, "desired_version")}</span>
         </div>
 
         <div :if={has_value?(@agent, "gateway_id")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Gateway</span>
           <.link
             navigate={~p"/gateways/#{Map.get(@agent, "gateway_id")}"}
-            class="text-sm font-mono link link-primary"
+            class="text-sm font-mono text-sr-brand hover:underline"
           >
             {Map.get(@agent, "gateway_id")}
           </.link>
         </div>
 
         <div :if={has_value?(@agent, "gateway_node")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway Node</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Gateway Node</span>
           <span class="text-sm font-mono text-xs">{Map.get(@agent, "gateway_node")}</span>
         </div>
 
         <div :if={has_value?(@agent, "partition_id")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Partition</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Partition</span>
           <span class="text-sm font-mono">{Map.get(@agent, "partition_id")}</span>
         </div>
 
         <div :if={has_value?(@agent, "ip")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">IP Address</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">IP Address</span>
           <span class="text-sm font-mono">{Map.get(@agent, "ip")}</span>
         </div>
 
         <div :if={has_value?(@agent, "pid")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Process ID</span>
+          <span class="text-xs text-sr-muted uppercase tracking-wider">Process ID</span>
           <span class="text-sm font-mono text-xs">{Map.get(@agent, "pid")}</span>
         </div>
       </div>
@@ -534,8 +534,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp release_management_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-3">
           <span class="text-sm font-semibold">Release Management</span>
           <.release_status_badge
@@ -547,12 +547,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           :if={RBAC.can?(@current_scope, "settings.edge.manage")}
           class="flex flex-wrap items-center gap-2"
         >
-          <.link navigate={agent_release_handoff_path(@agent)} class="btn btn-xs btn-primary">
+          <.ui_button navigate={agent_release_handoff_path(@agent)} size="xs" variant="primary">
             <.icon name="hero-play" class="size-3.5" /> Roll Out This Agent
-          </.link>
-          <.link navigate={~p"/settings/agents/releases"} class="btn btn-xs btn-ghost">
+          </.ui_button>
+          <.ui_button navigate={~p"/settings/agents/releases"} size="xs" variant="ghost">
             Manage Releases
-          </.link>
+          </.ui_button>
         </div>
       </div>
       <div class="p-4 space-y-4">
@@ -579,21 +579,21 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
         <div>
           <div class="mb-2 flex items-center gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
+            <span class="text-xs font-semibold uppercase tracking-wider text-sr-muted">
               Recent Rollout Attempts
             </span>
-            <span class="badge badge-ghost badge-sm">{length(@release_targets)}</span>
+            <.ui_badge size="sm" variant="ghost">{length(@release_targets)}</.ui_badge>
           </div>
 
           <div
             :if={@release_targets == []}
-            class="rounded-lg bg-base-200/40 px-4 py-6 text-sm text-base-content/60"
+            class="rounded-lg bg-sr-subtle/40 px-4 py-6 text-sm text-sr-muted"
           >
             No rollout targets recorded for this agent yet.
           </div>
 
           <div :if={@release_targets != []} class="overflow-x-auto">
-            <table class="table table-sm w-full">
+            <table class={ui_table_class(size: "sm", class: "w-full")}>
               <thead>
                 <tr>
                   <th>Desired</th>
@@ -636,8 +636,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp release_stat(assigns) do
     ~H"""
-    <div class="rounded-lg bg-base-200/40 p-3">
-      <div class="text-xs uppercase tracking-wider text-base-content/50">{@label}</div>
+    <div class="rounded-lg bg-sr-subtle/40 p-3">
+      <div class="text-xs uppercase tracking-wider text-sr-muted">{@label}</div>
       <div class={["mt-1 text-sm", @mono && "font-mono"]}>{@value}</div>
     </div>
     """
@@ -665,68 +665,66 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       |> assign(:capability_count, capability_summary.total + length(plugin_caps))
 
     ~H"""
-    <div :if={@capability_count > 0} class="rounded-xl border border-base-200 bg-base-100">
-      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-200 px-4 py-3">
+    <div :if={@capability_count > 0} class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-sr-line px-4 py-3">
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Capabilities</span>
-          <span class="badge badge-ghost badge-sm">{@capability_count}</span>
+          <.ui_badge size="sm" variant="ghost">{@capability_count}</.ui_badge>
         </div>
-        <span :if={@unavailable_caps != []} class="badge badge-warning badge-soft badge-sm">
+        <.ui_badge :if={@unavailable_caps != []} size="sm" variant="warning">
           {length(@unavailable_caps)} unavailable
-        </span>
+        </.ui_badge>
       </div>
       <div class="p-4 space-y-4">
         <div
           :if={@available_caps != []}
-          class="grid overflow-hidden rounded-lg border border-base-200 sm:grid-cols-2"
+          class="grid overflow-hidden rounded-lg border border-sr-line sm:grid-cols-2"
         >
           <%= for {cap, info} <- @available_caps do %>
-            <div class="min-w-0 border-b border-base-200 p-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:[&:nth-child(odd)]:border-r">
+            <div class="min-w-0 border-b border-sr-line p-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:[&:nth-child(odd)]:border-r">
               <div class="flex min-w-0 items-start gap-2">
-                <span class="status status-success status-xs mt-1.5 shrink-0" title="Available">
-                </span>
-                <code class="min-w-0 break-all text-xs font-semibold text-base-content">{cap}</code>
+                <span class="status status-success status-xs mt-1.5 shrink-0" title="Available"></span>
+                <code class="min-w-0 break-all text-xs font-semibold text-sr-ink">{cap}</code>
               </div>
-              <p class="mt-1 pl-4 text-xs leading-5 text-base-content/60">{info.description}</p>
+              <p class="mt-1 pl-4 text-xs leading-5 text-sr-muted">{info.description}</p>
             </div>
           <% end %>
         </div>
 
         <details
           :if={@unavailable_caps != []}
-          class="collapse collapse-arrow rounded-lg bg-base-200/40"
+          class="sr-ui-collapse sr-ui-collapse-arrow rounded-lg bg-sr-subtle/40"
         >
-          <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
+          <summary class="sr-ui-collapse-title min-h-0 py-3 text-sm font-medium">
             Unavailable capability markers
-            <span class="ml-2 badge badge-warning badge-soft badge-sm">
+            <.ui_badge size="sm" variant="warning" class="ml-2">
               {length(@unavailable_caps)}
-            </span>
+            </.ui_badge>
           </summary>
-          <div class="collapse-content pb-3">
-            <ul class="divide-y divide-base-300/60 rounded-md bg-base-100 px-3">
+          <div class="sr-ui-collapse-content pb-3">
+            <ul class="divide-y divide-sr-line/60 rounded-md bg-sr-surface px-3">
               <li :for={cap <- @unavailable_caps} class="flex min-w-0 items-start gap-2 py-2">
-                <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable">
-                </span>
-                <code class="min-w-0 break-all text-xs text-base-content/70">{cap}</code>
+                <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable"></span>
+                <code class="min-w-0 break-all text-xs text-sr-muted">{cap}</code>
               </li>
             </ul>
           </div>
         </details>
 
         <div :if={@plugin_caps != []}>
-          <div class="mb-2 text-xs font-semibold text-base-content/50">
+          <div class="mb-2 text-xs font-semibold text-sr-muted">
             Plugin-provided
           </div>
-          <div class="grid overflow-hidden rounded-lg border border-base-200 md:grid-cols-2">
+          <div class="grid overflow-hidden rounded-lg border border-sr-line md:grid-cols-2">
             <%= for cap <- @plugin_caps do %>
-              <div class="min-w-0 border-b border-base-200 p-3 last:border-b-0 md:[&:nth-last-child(-n+2)]:border-b-0 md:[&:nth-child(odd)]:border-r">
+              <div class="min-w-0 border-b border-sr-line p-3 last:border-b-0 md:[&:nth-last-child(-n+2)]:border-b-0 md:[&:nth-child(odd)]:border-r">
                 <div class="flex min-w-0 items-start gap-2">
-                  <code class="min-w-0 break-all text-xs font-semibold text-base-content">
+                  <code class="min-w-0 break-all text-xs font-semibold text-sr-ink">
                     {cap.name}
                   </code>
-                  <span :if={cap.enabled == false} class="badge badge-ghost badge-xs">disabled</span>
+                  <.ui_badge :if={cap.enabled == false} size="xs" variant="ghost">disabled</.ui_badge>
                 </div>
-                <div class="mt-1 text-xs leading-5 text-base-content/60">{cap.description}</div>
+                <div class="mt-1 text-xs leading-5 text-sr-muted">{cap.description}</div>
               </div>
             <% end %>
           </div>
@@ -749,12 +747,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       |> assign(:bpf_state, bpf_state)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-eye" class="size-4 text-primary" />
+          <.icon name="hero-eye" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Host Network Visibility</span>
-          <span class="badge badge-primary badge-sm">host-network-visibility</span>
+          <.ui_badge size="sm" variant="primary">host-network-visibility</.ui_badge>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <.ui_badge variant={bpf_state_variant(@bpf_state)} size="sm">
@@ -767,20 +765,20 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       </div>
       <div class="p-4 space-y-4">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div class="rounded-lg bg-base-200/40 p-3">
-            <div class="text-xs uppercase tracking-wide text-base-content/50">Kernel BPF</div>
+          <div class="rounded-lg bg-sr-subtle/40 p-3">
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Kernel BPF</div>
             <div class={["mt-1 text-sm font-semibold", bpf_state_class(@bpf_state)]}>
               {bpf_state_label(@bpf_state)}
             </div>
           </div>
-          <div :for={surface <- @visibility_surfaces} class="rounded-lg bg-base-200/40 p-3">
-            <div class="text-xs uppercase tracking-wide text-base-content/50">{surface.label}</div>
+          <div :for={surface <- @visibility_surfaces} class="rounded-lg bg-sr-subtle/40 p-3">
+            <div class="text-xs uppercase tracking-wide text-sr-muted">{surface.label}</div>
             <div class="mt-1 text-sm font-semibold">{surface.status}</div>
           </div>
         </div>
 
-        <div class="rounded-lg border border-base-200 bg-base-200/20 p-3">
-          <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+        <div class="rounded-lg border border-sr-line bg-sr-subtle/20 p-3">
+          <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted">
             Netprobe sidecar
           </div>
           <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
@@ -811,7 +809,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp agent_visibility_kv(assigns) do
     ~H"""
     <div>
-      <div class="text-xs text-base-content/50">{@label}</div>
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class={["mt-1 truncate", @mono && "font-mono text-xs"]}>{@value || "—"}</div>
     </div>
     """
@@ -822,40 +820,42 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp gateway_node_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <span class="text-sm font-semibold">Gateway Node System Information</span>
-        <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
+        <.ui_badge size="sm" variant="ghost" class="font-mono">{@node}</.ui_badge>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <!-- Uptime -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Uptime</div>
-          <div class="stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
+          <div class="sr-ui-stat-title text-xs">Uptime</div>
+          <div class="sr-ui-stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
-        
-    <!-- Processes -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Processes</div>
-          <div class="stat-value text-lg">{@node_info.process_count}</div>
+
+        <!-- Processes -->
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
+          <div class="sr-ui-stat-title text-xs">Processes</div>
+          <div class="sr-ui-stat-value text-lg">{@node_info.process_count}</div>
         </div>
-        
-    <!-- Schedulers -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
-          <div class="stat-title text-xs">Schedulers</div>
-          <div class="stat-value text-lg">{@node_info.schedulers_online}/{@node_info.schedulers}</div>
+
+        <!-- Schedulers -->
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
+          <div class="sr-ui-stat-title text-xs">Schedulers</div>
+          <div class="sr-ui-stat-value text-lg">
+            {@node_info.schedulers_online}/{@node_info.schedulers}
+          </div>
         </div>
-        
-    <!-- OTP Release -->
-        <div class="stat bg-base-200/30 rounded-lg p-3">
-          <div class="stat-title text-xs">OTP Release</div>
-          <div class="stat-value text-lg">OTP {@node_info.otp_release}</div>
+
+        <!-- OTP Release -->
+        <div class="stat bg-sr-subtle/30 rounded-lg p-3">
+          <div class="sr-ui-stat-title text-xs">OTP Release</div>
+          <div class="sr-ui-stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
-      
-    <!-- Memory breakdown -->
+
+      <!-- Memory breakdown -->
       <div class="px-4 pb-4">
-        <div class="text-xs text-base-content/60 mb-2">Memory Usage</div>
+        <div class="text-xs text-sr-muted mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
           <.memory_stat label="Total" bytes={@node_info.memory_total} />
           <.memory_stat label="Processes" bytes={@node_info.memory_processes} />
@@ -877,8 +877,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp memory_stat(assigns) do
     ~H"""
-    <div class="bg-base-200/30 rounded px-2 py-1">
-      <div class="text-xs text-base-content/50">{@label}</div>
+    <div class="bg-sr-subtle/30 rounded px-2 py-1">
+      <div class="text-xs text-sr-muted">{@label}</div>
       <div class="font-mono text-sm">
         <%= if @bytes do %>
           {format_bytes(@bytes)}
@@ -894,51 +894,51 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp registration_info(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <span class="text-sm font-semibold">Registration Timeline</span>
       </div>
       <div class="p-4">
         <div class="flex flex-col gap-3">
           <div :if={has_value?(@agent, "registered_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-success"></span>
-            <span class="text-xs text-base-content/60 w-24">Registered</span>
+            <span class="text-xs text-sr-muted w-24">Registered</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@agent, "registered_at"))}
             </span>
           </div>
           <div :if={has_value?(@agent, "connected_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info"></span>
-            <span class="text-xs text-base-content/60 w-24">Connected</span>
+            <span class="text-xs text-sr-muted w-24">Connected</span>
             <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "connected_at"))}</span>
-            <span class="text-xs text-base-content/40">
+            <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "connected_at"))})
             </span>
           </div>
           <div :if={has_value?(@agent, "last_heartbeat")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info animate-pulse"></span>
-            <span class="text-xs text-base-content/60 w-24">Last Heartbeat</span>
+            <span class="text-xs text-sr-muted w-24">Last Heartbeat</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@agent, "last_heartbeat"))}
             </span>
-            <span class="text-xs text-base-content/40">
+            <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "last_heartbeat"))})
             </span>
           </div>
           <div :if={has_value?(@agent, "first_seen_time")} class="flex items-center gap-3">
-            <span class="size-2 rounded-full bg-base-content/30"></span>
-            <span class="text-xs text-base-content/60 w-24">First Seen</span>
+            <span class="size-2 rounded-full bg-sr-muted/30"></span>
+            <span class="text-xs text-sr-muted w-24">First Seen</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@agent, "first_seen_time"))}
             </span>
           </div>
           <div :if={has_value?(@agent, "last_seen_time")} class="flex items-center gap-3">
-            <span class="size-2 rounded-full bg-base-content/30"></span>
-            <span class="text-xs text-base-content/60 w-24">Last Seen</span>
+            <span class="size-2 rounded-full bg-sr-muted/30"></span>
+            <span class="text-xs text-sr-muted w-24">Last Seen</span>
             <span class="font-mono text-sm">
               {format_timestamp(Map.get(@agent, "last_seen_time"))}
             </span>
-            <span class="text-xs text-base-content/40">
+            <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "last_seen_time"))})
             </span>
           </div>
@@ -957,8 +957,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   def config_apply_card(assigns) do
     ~H"""
-    <div id="config-apply" class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div id="config-apply" class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Config Apply</span>
           <.ui_badge
@@ -972,39 +972,39 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       </div>
 
       <div :if={is_nil(@config_status)} class="p-4">
-        <p class="text-sm text-base-content/60">No config acknowledgement data recorded yet.</p>
+        <p class="text-sm text-sr-muted">No config acknowledgement data recorded yet.</p>
       </div>
 
       <div :if={@config_status} class="p-4 space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60">
+            <div class="text-xs uppercase tracking-wide text-sr-muted">
               Last Acked Config Version
             </div>
             <div class="mt-1 font-mono text-sm break-all">
               {@config_status.acked_version || "never"}
             </div>
-            <div :if={@config_status.acked_at} class="text-xs text-base-content/60">
+            <div :if={@config_status.acked_at} class="text-xs text-sr-muted">
               {format_timestamp(@config_status.acked_at)} ({time_ago(@config_status.acked_at)})
             </div>
           </div>
           <div :if={config_ack_pending?(@config_status)}>
-            <div class="text-xs uppercase tracking-wide text-base-content/60">
+            <div class="text-xs uppercase tracking-wide text-sr-muted">
               Pushed, Not Yet Acked
             </div>
             <div class="mt-1 font-mono text-sm break-all text-warning">
               {@config_status.pushed_version}
             </div>
-            <div :if={@config_status.pushed_at} class="text-xs text-base-content/60">
+            <div :if={@config_status.pushed_at} class="text-xs text-sr-muted">
               since {format_timestamp(@config_status.pushed_at)} ({time_ago(@config_status.pushed_at)})
             </div>
           </div>
         </div>
 
         <div :if={@config_status.sections != []} class="overflow-x-auto">
-          <table class="table table-sm">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
-              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <tr class="text-xs uppercase tracking-wide text-sr-muted">
                 <th>Section</th>
                 <th>Status</th>
                 <th>Error</th>
@@ -1037,7 +1037,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </table>
         </div>
 
-        <p :if={@config_status.sections == []} class="text-sm text-base-content/60">
+        <p :if={@config_status.sections == []} class="text-sm text-sr-muted">
           No per-section detail (legacy whole-version acks).
         </p>
       </div>
@@ -1100,29 +1100,29 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_assignments_card(assigns) do
     ~H"""
-    <div id="addons" class="rounded-xl border border-base-200 bg-base-100">
-      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
+    <div id="addons" class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line px-4 py-3">
         <div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold">Add-on status</span>
-            <span :if={@rows != []} class="badge badge-ghost badge-sm">{length(@rows)}</span>
+            <.ui_badge :if={@rows != []} size="sm" variant="ghost">{length(@rows)}</.ui_badge>
           </div>
-          <p class="mt-0.5 text-xs text-base-content/60">
+          <p class="mt-0.5 text-xs text-sr-muted">
             Desired delivery and the runtime state reported by this agent
           </p>
         </div>
-        <.link navigate={~p"/settings/agents/addons"} class="btn btn-xs btn-ghost">
+        <.ui_button navigate={~p"/settings/agents/addons"} size="xs" variant="ghost">
           Manage Add-ons
-        </.link>
+        </.ui_button>
       </div>
 
       <div :if={@rows == []} class="p-4">
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-sr-muted">
           No assigned or reported add-ons for this agent.
         </p>
       </div>
 
-      <ul :if={@rows != []} class="divide-y divide-base-200 p-0">
+      <ul :if={@rows != []} class="divide-y divide-sr-line p-0">
         <%= for row <- @rows do %>
           <% package = row.package %>
           <% status = row.status %>
@@ -1138,12 +1138,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                         addon_status_indicator_class(row.drift_state)
                       ]}
                       title={drift_state_text(row.drift_state)}
-                    >
-                    </span>
+                    ></span>
                     <div class="min-w-0">
                       <div class="break-words text-sm font-medium">{addon_row_name(row)}</div>
-                      <code class="block break-all text-xs text-base-content/60">{row.addon_id}</code>
-                      <code class="mt-1 block text-xs text-base-content/70">
+                      <code class="block break-all text-xs text-sr-muted">{row.addon_id}</code>
+                      <code class="mt-1 block text-xs text-sr-muted">
                         {addon_row_version(package, status)}
                       </code>
                     </div>
@@ -1151,21 +1150,21 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                 </div>
 
                 <div class="min-w-0">
-                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">Delivery</div>
+                  <div class="mb-1 text-[11px] font-semibold text-sr-muted">Delivery</div>
                   <.ui_badge variant={management_mode_variant(row.management_mode)} size="xs">
                     {management_mode_text(row.management_mode)}
                   </.ui_badge>
                 </div>
 
                 <div class="min-w-0">
-                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">Runtime</div>
+                  <div class="mb-1 text-[11px] font-semibold text-sr-muted">Runtime</div>
                   <.ui_badge variant={runtime_badge_variant(status)} size="xs">
                     {runtime_state_text(status)}
                   </.ui_badge>
                 </div>
 
                 <div class="min-w-0">
-                  <div class="mb-1 text-[11px] font-semibold text-base-content/50">
+                  <div class="mb-1 text-[11px] font-semibold text-sr-muted">
                     Reconciliation
                   </div>
                   <.ui_badge variant={drift_badge_variant(row.drift_state)} size="xs">
@@ -1184,16 +1183,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               </div>
 
               <details :if={capabilities != []} class="group mt-3 min-w-0 pl-0 md:pl-6">
-                <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-base-content/60 hover:text-base-content focus:outline-none">
+                <summary class="flex w-fit cursor-pointer list-none items-center gap-1 text-[11px] text-sr-muted hover:text-sr-ink focus:outline-none">
                   <.icon
                     name="hero-chevron-right"
                     class="size-3 transition-transform group-open:rotate-90"
                   /> Package capabilities ({length(capabilities)})
                 </summary>
-                <div class="mt-2 grid gap-1 rounded-md bg-base-200/40 p-2 sm:grid-cols-2">
+                <div class="mt-2 grid gap-1 rounded-md bg-sr-subtle/40 p-2 sm:grid-cols-2">
                   <code
                     :for={cap <- capabilities}
-                    class="min-w-0 break-all text-[10px] leading-4 text-base-content/70"
+                    class="min-w-0 break-all text-[10px] leading-4 text-sr-muted"
                   >
                     {cap}
                   </code>
@@ -1399,33 +1398,33 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp drift_reason_class(:runtime_warning), do: "text-warning"
   defp drift_reason_class(state) when state in [:unhealthy, :arch_unsupported], do: "text-error"
-  defp drift_reason_class(_state), do: "text-base-content/60"
+  defp drift_reason_class(_state), do: "text-sr-muted"
 
   attr :assignments, :list, required: true
 
   defp plugin_assignments_card(assigns) do
     ~H"""
-    <div id="plugins" class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div id="plugins" class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div>
           <span class="text-sm font-semibold">Plugin Assignments</span>
-          <span :if={@assignments != []} class="ml-2 badge badge-ghost badge-sm">
+          <.ui_badge :if={@assignments != []} size="sm" variant="ghost" class="ml-2">
             {length(@assignments)}
-          </span>
+          </.ui_badge>
         </div>
-        <.link navigate={~p"/settings/agents/plugins"} class="btn btn-xs btn-ghost">
+        <.ui_button navigate={~p"/settings/agents/plugins"} size="xs" variant="ghost">
           Manage Plugins
-        </.link>
+        </.ui_button>
       </div>
 
       <div :if={@assignments == []} class="p-4">
-        <p class="text-sm text-base-content/60">No plugins assigned to this agent.</p>
+        <p class="text-sm text-sr-muted">No plugins assigned to this agent.</p>
       </div>
 
       <div :if={@assignments != []} class="overflow-x-auto">
-        <table class="table table-sm">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Plugin</th>
               <th>Version</th>
               <th>Source</th>
@@ -1440,7 +1439,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               <tr>
                 <td>
                   <div class="font-medium">{plugin_package_name(package)}</div>
-                  <div class="text-xs font-mono text-base-content/60">
+                  <div class="text-xs font-mono text-sr-muted">
                     {plugin_package_id(package)}
                   </div>
                 </td>
@@ -1457,11 +1456,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                 <td>
                   <div class="flex max-w-md flex-wrap gap-1">
                     <%= for cap <- plugin_requested_capabilities(package) do %>
-                      <span class="badge badge-ghost badge-xs font-mono">{cap}</span>
+                      <.ui_badge size="xs" variant="ghost" class="font-mono">{cap}</.ui_badge>
                     <% end %>
                     <span
                       :if={plugin_requested_capabilities(package) == []}
-                      class="text-xs text-base-content/50"
+                      class="text-xs text-sr-muted"
                     >
                       —
                     </span>
@@ -1480,33 +1479,33 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp service_checks_card(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="flex items-center justify-between border-b border-base-200 px-4 py-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="flex items-center justify-between border-b border-sr-line px-4 py-3">
         <div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold">Direct service checks</span>
-            <span :if={@checks != []} class="badge badge-ghost badge-sm">{length(@checks)}</span>
+            <.ui_badge :if={@checks != []} size="sm" variant="ghost">{length(@checks)}</.ui_badge>
           </div>
-          <p class="mt-0.5 text-xs text-base-content/60">
+          <p class="mt-0.5 text-xs text-sr-muted">
             Ping, TCP, HTTP, DNS, and gRPC checks assigned directly to this agent
           </p>
         </div>
       </div>
       <div :if={@checks == []} class="p-4">
-        <p class="text-sm text-base-content/60">
+        <p class="text-sm text-sr-muted">
           No direct service checks are assigned. Add-on and plugin work is reported in the sections above.
         </p>
       </div>
-      <div :if={@checks != []} class="divide-y divide-base-200">
+      <div :if={@checks != []} class="divide-y divide-sr-line">
         <%= for check <- @checks do %>
           <div class="px-4 py-3 flex items-center gap-4">
             <.check_type_badge type={check.check_type} />
             <div class="flex-1 min-w-0">
               <div class="font-medium text-sm truncate">{check.name}</div>
-              <div class="text-xs text-base-content/60 truncate">{check.target}</div>
+              <div class="text-xs text-sr-muted truncate">{check.target}</div>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-xs text-base-content/50">{check.interval_seconds}s</span>
+              <span class="text-xs text-sr-muted">{check.interval_seconds}s</span>
               <.status_indicator enabled={check.enabled} />
             </div>
           </div>
@@ -1519,22 +1518,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :type, :atom, required: true
 
   defp check_type_badge(assigns) do
-    {label, color} =
+    {label, variant} =
       case assigns.type do
         :ping -> {"PING", "info"}
         :tcp -> {"TCP", "success"}
         :http -> {"HTTP", "warning"}
         :dns -> {"DNS", "info"}
-        :grpc -> {"gRPC", "secondary"}
+        :grpc -> {"gRPC", "ghost"}
         _ -> {to_string(assigns.type), "ghost"}
       end
 
-    assigns = assigns |> assign(:label, label) |> assign(:color, color)
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
 
     ~H"""
-    <span class={"badge badge-#{@color} badge-sm uppercase font-bold w-14 justify-center"}>
+    <.ui_badge size="sm" variant={@variant} class="w-14 uppercase font-bold">
       {@label}
-    </span>
+    </.ui_badge>
     """
   end
 
@@ -1543,7 +1542,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp status_indicator(assigns) do
     ~H"""
     <span :if={@enabled} class="size-2 rounded-full bg-success" title="Enabled"></span>
-    <span :if={!@enabled} class="size-2 rounded-full bg-base-content/30" title="Disabled"></span>
+    <span :if={!@enabled} class="size-2 rounded-full bg-sr-muted/30" title="Disabled"></span>
     """
   end
 

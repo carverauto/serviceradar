@@ -28,11 +28,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     assigns = assign(assigns, items: items)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
       <div class="flex items-center gap-2 mb-3">
-        <.icon name={@icon} class="size-4 text-primary" />
+        <.icon name={@icon} class="size-4 text-sr-brand" />
         <span class="text-sm font-semibold">{@title}</span>
-        <span class="text-xs text-base-content/50">(last 24h)</span>
+        <span class="text-xs text-sr-muted">(last 24h)</span>
       </div>
       <div class="space-y-1.5">
         <button
@@ -44,14 +44,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
           phx-value-value={item["filter_value"] || item["label"]}
         >
           <div class="flex items-center justify-between text-xs">
-            <span class="font-mono truncate max-w-[60%] group-hover:text-primary transition-colors">
+            <span class="font-mono truncate max-w-[60%] group-hover:text-sr-brand transition-colors">
               {item["label"]}
             </span>
-            <span class="text-base-content/60">{format_bytes(item["value"])}</span>
+            <span class="text-sr-muted">{format_bytes(item["value"])}</span>
           </div>
-          <div class="w-full bg-base-200 rounded-full h-1 mt-0.5">
+          <div class="w-full bg-sr-subtle rounded-full h-1 mt-0.5">
             <div
-              class="bg-primary/40 group-hover:bg-primary/60 h-1 rounded-full transition-colors"
+              class="bg-sr-brand/40 group-hover:bg-sr-brand/60 h-1 rounded-full transition-colors"
               style={"width: #{item["pct"]}%"}
             >
             </div>
@@ -73,23 +73,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
 
     ~H"""
     <div class="flex items-center gap-1.5">
-      <span class="text-xs text-base-content/50 font-medium">{@label}:</span>
-      <button
+      <span class="text-xs text-sr-muted font-medium">{@label}:</span>
+      <.ui_button
         :for={item <- @items}
         type="button"
+        size="xs"
+        variant={if(@active_value == item.label, do: "primary", else: "ghost")}
         phx-click="facet_toggle"
         phx-value-field={@field}
         phx-value-value={Map.get(item, :filter_value) || item.label}
-        class={[
-          "badge badge-sm cursor-pointer transition-colors",
-          if(@active_value == item.label,
-            do: "badge-primary",
-            else: "badge-ghost hover:badge-primary/20"
-          )
-        ]}
       >
         {item.label}
-      </button>
+      </.ui_button>
     </div>
     """
   end
@@ -123,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     ~H"""
     <div class="relative inline-flex items-center justify-end w-full min-w-[60px]">
       <div
-        class="absolute inset-y-0 right-0 bg-primary/10 rounded-sm"
+        class="absolute inset-y-0 right-0 bg-sr-brand/10 rounded-sm"
         style={"width: #{@pct}%"}
       >
       </div>
@@ -144,12 +139,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Widgets do
     assigns = assign(assigns, in_if: in_if, out_if: out_if)
 
     ~H"""
-    <span :if={@in_if || @out_if} class="inline-flex items-center gap-1 text-base-content/70">
+    <span :if={@in_if || @out_if} class="inline-flex items-center gap-1 text-sr-muted">
       <span :if={@in_if} class="truncate max-w-[70px]" title={@in_if}>{@in_if}</span>
-      <span :if={@in_if && @out_if} class="text-base-content/40">&rarr;</span>
+      <span :if={@in_if && @out_if} class="text-sr-muted">&rarr;</span>
       <span :if={@out_if} class="truncate max-w-[70px]" title={@out_if}>{@out_if}</span>
     </span>
-    <span :if={!@in_if && !@out_if} class="text-base-content/30">—</span>
+    <span :if={!@in_if && !@out_if} class="text-sr-ink/30">—</span>
     """
   end
 end

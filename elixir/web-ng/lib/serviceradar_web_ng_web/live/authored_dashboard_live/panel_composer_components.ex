@@ -19,29 +19,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
     <dialog
       :if={@editing_panel_id}
       id="dashboard-panel-composer-modal"
-      class="modal modal-open"
+      class="sr-ui-modal sr-ui-modal-open"
       phx-window-keydown="cancel_panel_edit"
       phx-key="Escape"
+      phx-hook="DialogTopLayer"
     >
-      <div class="modal-box flex max-h-[90vh] w-11/12 max-w-6xl flex-col overflow-hidden p-0">
-        <div class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="sr-ui-modal-box sr-ui-modal-box-2xl flex max-h-[90vh] flex-col overflow-hidden p-0">
+        <div class="flex flex-col gap-3 border-b border-sr-line bg-sr-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-normal text-primary">
+            <p class="text-xs font-semibold uppercase tracking-normal text-sr-brand">
               SRQL panel composer
             </p>
             <h2 class="mt-1 text-lg font-semibold tracking-normal">
               {if @editing_panel_id == "new", do: "Create New Panel", else: "Edit Panel"}
             </h2>
-            <p class="text-xs text-base-content/70">
+            <p class="text-xs text-sr-muted">
               Write the panel query, preview its output, then choose one of the compatible visualizations and bind fields.
             </p>
           </div>
-          <button type="button" class="btn btn-sm btn-ghost" phx-click="cancel_panel_edit">
+          <.ui_button type="button" phx-click="cancel_panel_edit" size="sm" variant="ghost">
             <.icon name="hero-x-mark" class="size-4" /> Close
-          </button>
+          </.ui_button>
         </div>
 
-        <div class="overflow-y-auto bg-base-200/40 p-4">
+        <div class="overflow-y-auto bg-sr-subtle/40 p-4">
           <.form
             for={@panel_form}
             as={:panel}
@@ -59,24 +60,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
 
           <div
             :if={@editing_panel_id != "new"}
-            class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 p-3"
+            class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-sr-line bg-sr-surface p-3"
           >
-            <button
+            <.ui_button
               type="button"
-              class="btn btn-sm"
               phx-click="duplicate_panel"
               phx-value-id={@editing_panel_id}
+              size="sm"
+              variant="neutral"
             >
               <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               type="button"
-              class="btn btn-sm btn-error btn-outline"
               phx-click="delete_panel"
               phx-value-id={@editing_panel_id}
+              size="sm"
+              variant="outline"
             >
               <.icon name="hero-trash" class="size-4" /> Delete
-            </button>
+            </.ui_button>
             <form
               phx-change="clone_target"
               phx-submit="clone_panel"
@@ -85,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
               <input type="hidden" name="panel_id" value={@editing_panel_id} />
               <select
                 name="target_dashboard_id"
-                class="select select-sm"
+                class={ui_field_class(size: "sm")}
                 disabled={@clone_targets == []}
               >
                 <option
@@ -96,14 +99,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents do
                   {target.title}
                 </option>
               </select>
-              <button type="submit" class="btn btn-sm" disabled={@clone_targets == []}>
+              <.ui_button type="submit" disabled={@clone_targets == []} size="sm" variant="neutral">
                 <.icon name="hero-arrow-up-on-square-stack" class="size-4" /> Clone
-              </button>
+              </.ui_button>
             </form>
           </div>
         </div>
       </div>
-      <form phx-submit="cancel_panel_edit" class="modal-backdrop">
+      <form phx-submit="cancel_panel_edit" class="sr-ui-modal-backdrop">
         <button type="submit">close</button>
       </form>
     </dialog>

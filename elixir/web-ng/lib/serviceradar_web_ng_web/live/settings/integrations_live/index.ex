@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:page_title, "Integration Sources")
         |> assign(:settings_tab, "crm_ipam")
         |> assign(:sources, list_sources(actor))
+        |> assign(:available_credentials, list_available_credentials(actor))
         |> assign(:partitions, partitions)
         |> assign(:partition_options, build_partition_options(partitions))
         |> assign(:agents, agents)
@@ -58,6 +59,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:form_custom_fields, "")
         |> assign(:mapbox_settings, load_mapbox_settings(actor))
         |> assign(:mapbox_form, mapbox_settings_to_form(load_mapbox_settings(actor)))
+        |> assign(:prefix_tag_preview_ip, "")
+        |> assign(:prefix_tag_preview_result, nil)
+        |> assign(:prefix_tag_preview_error, nil)
 
       {:ok, socket}
     else
@@ -234,6 +238,50 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       {:error, err} ->
         {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+    end
+  end
+
+  def handle_event("prefix_tag_preview", params, socket) do
+    # Rebuild current authority — cached mount permissions are not evidence.
+    case RBAC.authorize_current(socket.assigns.current_scope, ["settings.integrations.manage"]) do
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Not authorized to manage integrations")
+         |> redirect(to: ~p"/settings/profile")}
+
+      {:ok, scope} ->
+        socket = assign(socket, :current_scope, scope)
+
+        ip =
+          params
+          |> Map.get("ip", params |> Map.get("prefix_tag_preview", %{}) |> Map.get("ip", ""))
+          |> to_string()
+          |> String.trim()
+
+        if ip == "" do
+          {:noreply,
+           socket
+           |> assign(:prefix_tag_preview_ip, "")
+           |> assign(:prefix_tag_preview_result, nil)
+           |> assign(:prefix_tag_preview_error, "Enter an IP address")}
+        else
+          case preview_prefix_tags(ip) do
+            {:ok, chain} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, chain)
+               |> assign(:prefix_tag_preview_error, nil)}
+
+            {:error, reason} ->
+              {:noreply,
+               socket
+               |> assign(:prefix_tag_preview_ip, ip)
+               |> assign(:prefix_tag_preview_result, nil)
+               |> assign(:prefix_tag_preview_error, reason)}
+          end
+        end
     end
   end
 
@@ -625,6 +673,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp format_ash_error(_), do: "Unexpected error"
 
+  defp preview_prefix_tags(ip) when is_binary(ip) do
+    # Local trie only — no DB hop. Failures are soft (empty chain / error string).
+    chain = ServiceRadar.PrefixTags.Store.lookup(ip)
+    {:ok, chain}
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -646,8 +702,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Integration Sources</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Integration Sources</h1>
+            <p class="text-sm text-sr-muted">
               Manage data source integrations (Armis, SNMP, Syslog, etc.)
             </p>
           </div>
@@ -662,7 +718,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <.icon name="hero-plus" class="size-4" /> New Source
             </.ui_button>
             <%= if not @sync_agent_available do %>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Register an agent before adding integrations.
               </p>
             <% end %>
@@ -670,16 +726,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
 
         <div class="mt-4">
-          <div class="tabs tabs-boxed">
+          <div class="sr-ui-tabs sr-ui-tabs-boxed">
             <.link
               patch={~p"/settings/networks/integrations?tab=crm_ipam"}
-              class={["tab", @settings_tab == "crm_ipam" && "tab-active"]}
+              class={["sr-ui-tab", @settings_tab == "crm_ipam" && "sr-ui-tab-active"]}
             >
               CRM/IPAM
             </.link>
             <.link
               patch={~p"/settings/networks/integrations?tab=mapbox"}
-              class={["tab", @settings_tab == "mapbox" && "tab-active"]}
+              class={["sr-ui-tab", @settings_tab == "mapbox" && "sr-ui-tab-active"]}
             >
               Mapbox
             </.link>
@@ -690,14 +746,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Sources</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@sources |> length()} source(s)
               </p>
             </div>
             <div class="flex gap-2">
               <select
                 name="source_type"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Types</option>
@@ -709,7 +765,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </select>
               <select
                 name="enabled"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Status</option>
@@ -721,16 +777,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @sources == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No integration sources</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No integration sources</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Create a new integration source to connect to external data sources.
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Name</th>
                     <th>Type</th>
                     <th>Partition</th>
@@ -743,20 +799,20 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </thead>
                 <tbody>
                   <%= for source <- @sources do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{source.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">
+                        <div class="text-xs text-sr-muted font-mono">
                           {String.slice(source.id, 0, 8)}...
                         </div>
                       </td>
                       <td>
                         <.source_type_badge type={source.source_type} />
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {source.partition || "-"}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         <%= if source.agent_id && source.agent_id != "" do %>
                           <% agent = Map.get(@agent_index, source.agent_id) %>
                           <div class="font-medium">
@@ -770,10 +826,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             <% end %>
                           </div>
                         <% else %>
-                          <span class="text-xs text-base-content/60">Auto-assign</span>
+                          <span class="text-xs text-sr-muted">Auto-assign</span>
                         <% end %>
                       </td>
-                      <td class="text-xs text-base-content/70 max-w-[200px] truncate">
+                      <td class="text-xs text-sr-muted max-w-[200px] truncate">
                         {source.endpoint}
                       </td>
                       <td>
@@ -786,7 +842,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             {error_message}
                           </div>
                         <% end %>
-                        <div class="mt-1 text-xs text-base-content/60">
+                        <div class="mt-1 text-xs text-sr-muted">
                           {format_datetime(source.last_sync_at)}
                         </div>
                       </td>
@@ -797,15 +853,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             status={source.northbound_status}
                             result={source.northbound_last_result}
                           />
-                          <div class="mt-1 text-xs text-base-content/60">
+                          <div class="mt-1 text-xs text-sr-muted">
                             {format_datetime(source.northbound_last_run_at)}
                           </div>
-                          <div class="mt-1 text-xs text-base-content/70">
+                          <div class="mt-1 text-xs text-sr-muted">
                             {source.northbound_last_updated_count || 0} updated
                             <span class="mx-1">•</span>
                             {source.northbound_last_skipped_count || 0} skipped
                           </div>
-                          <div class="mt-1 max-w-[180px] truncate text-xs text-base-content/60">
+                          <div class="mt-1 max-w-[180px] truncate text-xs text-sr-muted">
                             {availability_source_display(source)}
                           </div>
                           <%= if source.northbound_last_error_message do %>
@@ -817,7 +873,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             </div>
                           <% end %>
                         <% else %>
-                          <span class="text-xs text-base-content/40">-</span>
+                          <span class="text-xs text-sr-muted">-</span>
                         <% end %>
                       </td>
                       <td>
@@ -854,11 +910,86 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         </.ui_panel>
 
+        <.ui_panel :if={@settings_tab == "crm_ipam"}>
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Prefix tag preview</div>
+              <p class="text-xs text-sr-muted">
+                Look up what tags an IP would receive from the local node's prefix-tag trie
+                (same chain flow enrichment applies when enabled).
+              </p>
+            </div>
+          </:header>
+
+          <form phx-submit="prefix_tag_preview" class="flex flex-wrap items-end gap-2">
+            <div class="grow min-w-48">
+              <label class="text-xs uppercase tracking-wider text-sr-muted">IP address</label>
+              <input
+                type="text"
+                name="ip"
+                value={@prefix_tag_preview_ip}
+                placeholder="10.1.2.3"
+                class={ui_field_class(size: "sm", mono: true, class: "w-full")}
+                autocomplete="off"
+              />
+            </div>
+            <.ui_button type="submit" size="sm" variant="primary">Preview</.ui_button>
+          </form>
+
+          <div
+            :if={@prefix_tag_preview_error}
+            class={ui_alert_class(variant: "warning", class: "mt-3 text-sm")}
+          >
+            {@prefix_tag_preview_error}
+          </div>
+
+          <div :if={is_list(@prefix_tag_preview_result)} class="mt-3 space-y-2">
+            <%= if @prefix_tag_preview_result == [] do %>
+              <p class="text-sm text-sr-muted">No matching prefixes for this address.</p>
+            <% else %>
+              <div class="text-xs uppercase tracking-wider text-sr-muted">
+                Most-specific first
+              </div>
+              <div class="space-y-2">
+                <div
+                  :for={match <- @prefix_tag_preview_result}
+                  class="rounded-lg border border-sr-line bg-sr-subtle/30 p-2"
+                >
+                  <div class="font-mono text-xs text-sr-muted">
+                    {Map.get(match, :prefix) || Map.get(match, "prefix") || "—"}
+                    <.ui_badge
+                      :if={src = Map.get(match, :source) || Map.get(match, "source")}
+                      size="xs"
+                      variant="ghost"
+                      class="ml-2"
+                    >
+                      {src}
+                    </.ui_badge>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <.ui_badge
+                      :for={
+                        tag <-
+                          List.wrap(Map.get(match, :tags) || Map.get(match, "tags") || [])
+                      }
+                      size="xs"
+                      variant="outline"
+                      class="font-mono"
+                    >
+                      {tag}
+                    </.ui_badge>
+                  </div>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </.ui_panel>
+
         <.ui_panel :if={@settings_tab == "mapbox"}>
           <:header>
             <div>
               <div class="text-sm font-semibold">Mapbox</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Configure the Mapbox token and map styles used for flow maps and dashboard packages.
               </p>
             </div>
@@ -869,7 +1000,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  class="toggle toggle-primary"
+                  class={ui_toggle_class()}
                   name="mapbox[enabled]"
                   value="true"
                   checked={truthy_param?(Map.get(@mapbox_form.source, "enabled"))}
@@ -879,7 +1010,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                  <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                  <div class="text-xs uppercase tracking-wider text-sr-muted mb-1">
                     Style (Light)
                   </div>
                   <input
@@ -889,12 +1020,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       Map.get(@mapbox_form.source, "style_light") ||
                         "mapbox://styles/mapbox/light-v11"
                     }
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder="mapbox://styles/..."
                   />
                 </div>
                 <div>
-                  <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                  <div class="text-xs uppercase tracking-wider text-sr-muted mb-1">
                     Style (Dark)
                   </div>
                   <input
@@ -903,37 +1034,37 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     value={
                       Map.get(@mapbox_form.source, "style_dark") || "mapbox://styles/mapbox/dark-v11"
                     }
-                    class="input input-bordered w-full"
+                    class={ui_field_class(class: "w-full")}
                     placeholder="mapbox://styles/..."
                   />
                 </div>
               </div>
 
               <div>
-                <div class="text-xs uppercase tracking-wider text-base-content/60 mb-1">
+                <div class="text-xs uppercase tracking-wider text-sr-muted mb-1">
                   Access token
                 </div>
                 <input
                   type="password"
                   name="mapbox[access_token]"
                   value=""
-                  class="input input-bordered w-full font-mono"
+                  class={ui_field_class(mono: true, class: "w-full")}
                   placeholder="pk.... (leave blank to keep existing)"
                   autocomplete="off"
                 />
-                <div class="mt-1 flex items-center gap-2 text-xs text-base-content/60">
+                <div class="mt-1 flex items-center gap-2 text-xs text-sr-muted">
                   <span>
                     Saved:
                     <%= if @mapbox_settings && Map.get(@mapbox_settings, :access_token_present) do %>
-                      <span class="badge badge-xs badge-success">yes</span>
+                      <.ui_badge size="xs" variant="success">yes</.ui_badge>
                     <% else %>
-                      <span class="badge badge-xs">no</span>
+                      <.ui_badge size="xs" variant="ghost">no</.ui_badge>
                     <% end %>
                   </span>
                   <label class="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      class="checkbox checkbox-xs"
+                      class={ui_checkbox_class(size: "xs")}
                       name="mapbox[clear_access_token]"
                       value="true"
                     />
@@ -943,17 +1074,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
 
               <div class="flex items-center justify-end gap-2">
-                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save</.ui_button>
               </div>
             </form>
           <% else %>
-            <div class="text-sm text-base-content/60">Mapbox settings are unavailable.</div>
+            <div class="text-sm text-sr-muted">Mapbox settings are unavailable.</div>
           <% end %>
         </.ui_panel>
       </Shell.settings_chrome>
 
       <.create_modal
         :if={@show_create_modal}
+        available_credentials={@available_credentials}
         form={@create_form}
         partition_options={@partition_options}
         agent_options={@agent_options}
@@ -963,6 +1095,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       />
       <.edit_modal
         :if={@show_edit_modal}
+        available_credentials={@available_credentials}
         form={@edit_form}
         source={@selected_source}
         partition_options={@partition_options}
@@ -984,19 +1117,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="create_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             phx-click="close_create_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Create Integration Source</h3>
-        <p class="py-2 text-sm text-base-content/70">
+        <p class="py-2 text-sm text-sr-muted">
           Configure a new data source integration.
         </p>
 
@@ -1071,7 +1206,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               placeholder="100"
             />
           </div>
-          <p class="text-xs text-base-content/60 -mt-2">
+          <p class="text-xs text-sr-muted -mt-2">
             Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
 
@@ -1087,13 +1222,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider text-xs text-base-content/60">Credentials</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
 
           <.dynamic_credentials_fields
             form={@form}
             source_type={@form[:source_type].value || :armis}
             mode={:create}
             credentials={%{}}
+            available_credentials={@available_credentials}
+            selected_credential_id={nil}
           />
 
           <.armis_northbound_fields
@@ -1102,30 +1239,32 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             custom_fields_value={@form_custom_fields}
           />
 
-          <div class="divider text-xs text-base-content/60">Queries</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
           <div class="space-y-3">
             <%= for query <- @form_queries do %>
-              <div class="p-3 bg-base-200 rounded-lg space-y-2">
+              <div class="p-3 bg-sr-subtle rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-base-content/60">Query</span>
-                  <button
+                  <span class="text-xs font-semibold text-sr-muted">Query</span>
+                  <.ui_button
                     type="button"
-                    class="btn btn-ghost btn-xs text-error"
                     phx-click="remove_query"
                     phx-value-id={query["id"]}
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
                   >
                     <.icon name="hero-trash" class="size-3" /> Remove
-                  </button>
+                  </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Label</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Label</span>
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full"
+                      class={ui_field_class(size: "sm", class: "w-full")}
                       placeholder="e.g., all_devices"
                       value={query["label"]}
                       phx-blur="update_query"
@@ -1133,13 +1272,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       phx-value-field="label"
                     />
                   </div>
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Query (AQL)</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Query (AQL)</span>
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full font-mono"
+                      class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                       placeholder="in:devices"
                       value={query["query"]}
                       phx-blur="update_query"
@@ -1151,44 +1290,42 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             <% end %>
 
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              phx-click="add_query"
-            >
+            <.ui_button type="button" phx-click="add_query" size="sm" variant="outline" class="w-full">
               <.icon name="hero-plus" class="size-4" /> Add Query
-            </button>
+            </.ui_button>
           </div>
 
           <%= if shows_network_blacklist?(@form[:source_type].value) do %>
-            <div class="divider text-xs text-base-content/60">Network Settings</div>
+            <div class="sr-ui-divider text-xs text-sr-muted">Network Settings</div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Network Blacklist</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Network Blacklist</span>
               </label>
               <textarea
                 name="network_blacklist_text"
-                class="textarea textarea-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
                 rows="3"
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
               ><%= @form_network_blacklist %></textarea>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   One CIDR per line - networks to exclude from discovery
                 </span>
               </label>
             </div>
           <% end %>
 
-          <div class="modal-action">
-            <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Create Source</button>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Create Source</.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_create_modal">close</button>
       </form>
     </dialog>
@@ -1197,19 +1334,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp edit_modal(assigns) do
     ~H"""
-    <dialog id="edit_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="edit_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             phx-click="close_edit_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Edit Integration Source</h3>
-        <p class="py-2 text-sm text-base-content/70">
+        <p class="py-2 text-sm text-sr-muted">
           Update the integration source configuration.
         </p>
 
@@ -1222,13 +1361,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         >
           <div class="grid grid-cols-2 gap-4">
             <.input field={@form[:name]} type="text" label="Name" required />
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Source Type</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Source Type</span>
               </label>
               <input
                 type="text"
-                class="input input-bordered w-full bg-base-200"
+                class={ui_field_class(class: "w-full bg-sr-subtle")}
                 value={@source.source_type}
                 disabled
               />
@@ -1273,7 +1412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               label="Page Size"
             />
           </div>
-          <p class="text-xs text-base-content/60 -mt-2">
+          <p class="text-xs text-sr-muted -mt-2">
             Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
 
@@ -1289,13 +1428,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider text-xs text-base-content/60">Credentials</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
 
           <.dynamic_credentials_fields
             form={@form}
             source_type={(@source && @source.source_type) || :armis}
             mode={:edit}
             credentials={source_credentials(@source)}
+            available_credentials={@available_credentials}
+            selected_credential_id={@source && @source.credential_secret_id}
           />
 
           <.armis_northbound_fields
@@ -1304,30 +1445,32 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             custom_fields_value={@form_custom_fields}
           />
 
-          <div class="divider text-xs text-base-content/60">Queries</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
           <div class="space-y-3">
             <%= for query <- @form_queries do %>
-              <div class="p-3 bg-base-200 rounded-lg space-y-2">
+              <div class="p-3 bg-sr-subtle rounded-lg space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold text-base-content/60">Query</span>
-                  <button
+                  <span class="text-xs font-semibold text-sr-muted">Query</span>
+                  <.ui_button
                     type="button"
-                    class="btn btn-ghost btn-xs text-error"
                     phx-click="remove_query"
                     phx-value-id={query["id"]}
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
                   >
                     <.icon name="hero-trash" class="size-3" /> Remove
-                  </button>
+                  </.ui_button>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Label</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Label</span>
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full"
+                      class={ui_field_class(size: "sm", class: "w-full")}
                       placeholder="e.g., all_devices"
                       value={query["label"]}
                       phx-blur="update_query"
@@ -1335,13 +1478,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       phx-value-field="label"
                     />
                   </div>
-                  <div class="form-control">
-                    <label class="label py-1">
-                      <span class="label-text text-xs">Query (AQL)</span>
+                  <div class="flex flex-col gap-1.5">
+                    <label class="flex items-center justify-between gap-2 py-1">
+                      <span class="text-xs font-medium text-sr-ink">Query (AQL)</span>
                     </label>
                     <input
                       type="text"
-                      class="input input-bordered input-sm w-full font-mono"
+                      class={ui_field_class(size: "sm", mono: true, class: "w-full")}
                       placeholder="in:devices"
                       value={query["query"]}
                       phx-blur="update_query"
@@ -1353,44 +1496,42 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             <% end %>
 
-            <button
-              type="button"
-              class="btn btn-outline btn-sm w-full"
-              phx-click="add_query"
-            >
+            <.ui_button type="button" phx-click="add_query" size="sm" variant="outline" class="w-full">
               <.icon name="hero-plus" class="size-4" /> Add Query
-            </button>
+            </.ui_button>
           </div>
 
           <%= if shows_network_blacklist?(@source && @source.source_type) do %>
-            <div class="divider text-xs text-base-content/60">Network Settings</div>
+            <div class="sr-ui-divider text-xs text-sr-muted">Network Settings</div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Network Blacklist</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Network Blacklist</span>
               </label>
               <textarea
                 name="network_blacklist_text"
-                class="textarea textarea-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
                 rows="3"
                 placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
                 phx-blur="update_network_blacklist"
               ><%= @form_network_blacklist %></textarea>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   One CIDR per line - networks to exclude from discovery
                 </span>
               </label>
             </div>
           <% end %>
 
-          <div class="modal-action">
-            <button type="button" class="btn" phx-click="close_edit_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Update Source</button>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_edit_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Update Source</.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_edit_modal">close</button>
       </form>
     </dialog>
@@ -1399,15 +1540,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
+    <dialog id="details_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-md">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             phx-click="close_details_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Integration Source Details</h3>
@@ -1415,19 +1558,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         <div class="mt-4 space-y-4">
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Name</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Name</div>
               <div class="font-medium">{@source.name}</div>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
               <.status_badge enabled={@source.enabled} result={@source.last_sync_result} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Type</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
               <.source_type_badge type={@source.source_type} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">
+              <div class="text-xs uppercase tracking-wide text-sr-muted">
                 Discovery Interval
               </div>
               <div>{format_interval(@source.discovery_interval_seconds)}</div>
@@ -1435,27 +1578,27 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Endpoint</div>
-            <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.endpoint}</code>
+            <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Endpoint</div>
+            <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@source.endpoint}</code>
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Source ID</div>
-            <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.id}</code>
+            <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Source ID</div>
+            <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@source.id}</code>
           </div>
 
           <%= if armis_source?(@source) do %>
-            <div class="divider">Credentials</div>
+            <div class="sr-ui-divider">Credentials</div>
 
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">API Key</div>
-                <code class="mt-1 block rounded bg-base-200 p-2 font-mono text-sm">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">API Key</div>
+                <code class="mt-1 block rounded bg-sr-subtle p-2 font-mono text-sm">
                   {credential_display_value(source_credentials(@source), "api_key")}
                 </code>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">API Secret</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">API Secret</div>
                 <div class="mt-2">
                   <.ui_badge
                     variant={
@@ -1476,17 +1619,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <%= if @source.partition do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Partition</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.partition}</code>
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Partition</div>
+              <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">
+                {@source.partition}
+              </code>
             </div>
           <% end %>
 
           <%= if @source.agent_id && @source.agent_id != "" do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Agent ID</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Agent ID</div>
               <% agent = Map.get(@agent_index, @source.agent_id) %>
               <div class="flex flex-col gap-2">
-                <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+                <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">
                   {@source.agent_id}
                 </code>
                 <%= if agent do %>
@@ -1498,53 +1643,53 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <div class="divider">Discovery Status</div>
+          <div class="sr-ui-divider">Discovery Status</div>
 
           <div class="grid grid-cols-3 gap-4">
-            <div class="stat bg-base-200 rounded-lg p-3">
-              <div class="stat-title text-xs">Total Syncs</div>
-              <div class="stat-value text-lg">{@source.total_syncs || 0}</div>
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Total Syncs</div>
+              <div class="sr-ui-stat-value text-lg">{@source.total_syncs || 0}</div>
             </div>
-            <div class="stat bg-base-200 rounded-lg p-3">
-              <div class="stat-title text-xs">Last Device Count</div>
-              <div class="stat-value text-lg">{@source.last_device_count || 0}</div>
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Last Device Count</div>
+              <div class="sr-ui-stat-value text-lg">{@source.last_device_count || 0}</div>
             </div>
-            <div class="stat bg-base-200 rounded-lg p-3">
-              <div class="stat-title text-xs">Consecutive Failures</div>
-              <div class="stat-value text-lg">{@source.consecutive_failures || 0}</div>
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Consecutive Failures</div>
+              <div class="sr-ui-stat-value text-lg">{@source.consecutive_failures || 0}</div>
             </div>
           </div>
 
           <%= if @source.last_sync_at do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Last Sync</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Sync</div>
               <div class="text-sm">{format_datetime(@source.last_sync_at)}</div>
             </div>
           <% end %>
 
           <%= if @source.enabled && is_nil(@source.last_sync_at) do %>
-            <div class="alert alert-info text-sm">
+            <div class={ui_alert_class(variant: "info", class: "text-sm")}>
               <.icon name="hero-information-circle" class="size-5" />
               <div>
                 <div class="font-medium">This source has never run.</div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs text-sr-muted">
                   Confirm the assigned agent is connected and the sync runtime is enabled.
                 </div>
               </div>
             </div>
           <% end %>
 
-          <div class="divider">Agent Config Dispatch</div>
+          <div class="sr-ui-divider">Agent Config Dispatch</div>
 
           <%= if @selected_source_config_diagnostics == [] do %>
-            <div class="rounded-lg border border-dashed border-base-200 bg-base-100 p-4 text-sm text-base-content/60">
+            <div class="rounded-lg border border-dashed border-sr-line bg-sr-surface p-4 text-sm text-sr-muted">
               No recent config dispatch recorded for this source.
             </div>
           <% else %>
-            <div class="overflow-x-auto rounded-lg border border-base-200">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Recorded</th>
                     <th>Config</th>
                     <th>Action</th>
@@ -1555,19 +1700,19 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 <tbody>
                   <%= for diagnostic <- @selected_source_config_diagnostics do %>
                     <tr>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(Map.get(diagnostic, :recorded_at))}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {Map.get(diagnostic, :config_type)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {Map.get(diagnostic, :action_type)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_affected_agents(Map.get(diagnostic, :affected_agents))}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_dispatch_result(Map.get(diagnostic, :result))}
                       </td>
                     </tr>
@@ -1578,18 +1723,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
 
           <%= if error_message = visible_error_message(@source.last_error_message) do %>
-            <div class="alert alert-error text-sm">
+            <div class={ui_alert_class(variant: "error", class: "text-sm")}>
               <.icon name="hero-exclamation-circle" class="size-5" />
               <span>{error_message}</span>
             </div>
           <% end %>
 
           <%= if armis_source?(@source) do %>
-            <div class="divider">Armis Northbound</div>
+            <div class="sr-ui-divider">Armis Northbound</div>
 
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Enabled</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Enabled</div>
                 <div class="mt-1">
                   <.ui_badge
                     variant={if @source.northbound_enabled, do: "success", else: "ghost"}
@@ -1600,7 +1745,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
                 <div class="mt-1">
                   <.northbound_status_badge
                     enabled={@source.northbound_enabled}
@@ -1610,17 +1755,17 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Cadence</div>
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Cadence</div>
                 <div>{format_interval(@source.northbound_interval_seconds)}</div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">
                   Custom Property
                 </div>
                 <div class="font-mono text-sm">{custom_fields_display(@source.custom_fields)}</div>
               </div>
               <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">
                   Availability Source
                 </div>
                 <div class="font-mono text-sm">{availability_source_display(@source)}</div>
@@ -1628,43 +1773,49 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
 
             <div class="grid grid-cols-3 gap-4">
-              <div class="stat bg-base-200 rounded-lg p-3">
-                <div class="stat-title text-xs">Last Device Count</div>
-                <div class="stat-value text-lg">{@source.northbound_last_device_count || 0}</div>
+              <div class="stat bg-sr-subtle rounded-lg p-3">
+                <div class="sr-ui-stat-title text-xs">Last Device Count</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_device_count || 0}
+                </div>
               </div>
-              <div class="stat bg-base-200 rounded-lg p-3">
-                <div class="stat-title text-xs">Last Updated</div>
-                <div class="stat-value text-lg">{@source.northbound_last_updated_count || 0}</div>
+              <div class="stat bg-sr-subtle rounded-lg p-3">
+                <div class="sr-ui-stat-title text-xs">Last Updated</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_updated_count || 0}
+                </div>
               </div>
-              <div class="stat bg-base-200 rounded-lg p-3">
-                <div class="stat-title text-xs">Last Skipped</div>
-                <div class="stat-value text-lg">{@source.northbound_last_skipped_count || 0}</div>
+              <div class="stat bg-sr-subtle rounded-lg p-3">
+                <div class="sr-ui-stat-title text-xs">Last Skipped</div>
+                <div class="sr-ui-stat-value text-lg">
+                  {@source.northbound_last_skipped_count || 0}
+                </div>
               </div>
             </div>
 
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Last Run</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Run</div>
               <div class="text-sm">{format_datetime(@source.northbound_last_run_at)}</div>
             </div>
 
             <%= if @source.northbound_last_error_message do %>
-              <div class="alert alert-error text-sm">
+              <div class={ui_alert_class(variant: "error", class: "text-sm")}>
                 <.icon name="hero-exclamation-circle" class="size-5" />
                 <span>{@source.northbound_last_error_message}</span>
               </div>
             <% end %>
 
             <div>
-              <div class="mb-2 text-xs uppercase tracking-wide text-base-content/60">Recent Runs</div>
+              <div class="mb-2 text-xs uppercase tracking-wide text-sr-muted">Recent Runs</div>
               <%= if @selected_source_runs == [] do %>
-                <div class="rounded-lg border border-dashed border-base-200 bg-base-100 p-4 text-sm text-base-content/60">
+                <div class="rounded-lg border border-dashed border-sr-line bg-sr-surface p-4 text-sm text-sr-muted">
                   No northbound runs recorded yet.
                 </div>
               <% else %>
-                <div class="overflow-x-auto rounded-lg border border-base-200">
-                  <table class="table table-sm">
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
-                      <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                      <tr class="text-xs uppercase tracking-wide text-sr-muted">
                         <th>Started</th>
                         <th>Status</th>
                         <th>Source</th>
@@ -1676,16 +1827,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                     <tbody>
                       <%= for run <- @selected_source_runs do %>
                         <tr>
-                          <td class="text-xs text-base-content/70">
+                          <td class="text-xs text-sr-muted">
                             {format_datetime(run.started_at)}
                           </td>
                           <td><.run_status_badge status={run.status} /></td>
-                          <td class="font-mono text-xs text-base-content/70">
+                          <td class="font-mono text-xs text-sr-muted">
                             {run_availability_source_display(run)}
                           </td>
-                          <td class="text-xs text-base-content/70">{run.updated_count || 0}</td>
-                          <td class="text-xs text-base-content/70">{run.skipped_count || 0}</td>
-                          <td class="text-xs text-base-content/70">
+                          <td class="text-xs text-sr-muted">{run.updated_count || 0}</td>
+                          <td class="text-xs text-sr-muted">{run.skipped_count || 0}</td>
+                          <td class="text-xs text-sr-muted">
                             {run.error_count || 0}
                             <%= if run.error_message do %>
                               <div
@@ -1706,35 +1857,39 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <% end %>
         </div>
 
-        <div class="modal-action">
-          <button
+        <div class="sr-ui-modal-action">
+          <.ui_button
             :if={armis_source?(@source)}
             type="button"
-            class="btn btn-secondary btn-outline"
             phx-click="run_northbound_now"
             phx-value-id={@source.id}
+            size="sm"
+            variant="outline"
           >
             Run Northbound Now
-          </button>
-          <button
+          </.ui_button>
+          <.ui_button
             type="button"
-            class="btn btn-error btn-outline"
             phx-click="delete_source"
             phx-value-id={@source.id}
             data-confirm="Are you sure you want to delete this integration source? This cannot be undone."
+            size="sm"
+            variant="outline"
           >
             Delete
-          </button>
+          </.ui_button>
           <.ui_button
             variant="ghost"
             navigate={~p"/settings/networks/integrations/#{@source.id}/edit"}
           >
             Edit
           </.ui_button>
-          <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+          <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">
+            Close
+          </.ui_button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_details_modal">close</button>
       </form>
     </dialog>
@@ -1959,6 +2114,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     Map.new(agents, fn agent -> {agent.uid, agent} end)
   end
 
+  # Credentials an integration source can bind instead of holding its own
+  # encrypted copy. IntegrationSource has carried `credential_secret_id` and
+  # sync_config_generator has branched on it for some time; nothing in this UI
+  # could set it, so in practice every source stored a private copy and the
+  # shared inventory was unreachable from here.
+  #
+  # Unfiltered: an integration source's credential shape is provider-specific
+  # (Armis v1 key+secret, Armis v3 OAuth, NetBox token) and is not expressed as
+  # one credential_kind, so there is nothing to filter on without guessing. A
+  # failed load leaves the list empty, which renders per-source entry exactly as
+  # before rather than breaking the page.
+  defp list_available_credentials(actor) do
+    ServiceRadar.Credentials.NetworkCredentialSecret
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, secrets} -> secrets
+      _ -> []
+    end
+  end
+
   defp list_sources(actor, filters \\ %{}) do
     case Map.get(filters, :source_type) do
       nil ->
@@ -2102,12 +2279,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       "cred_netbox_url",
       "cred_netbox_token",
       "cred_netbox_verify_ssl",
+      "cred_credential_secret_id",
       "credentials_json"
     ])
     |> Map.merge(form_params)
   end
 
   defp parse_credentials_json(params, existing_credentials \\ %{}) do
+    params = apply_selected_integration_credential(params)
     existing_credentials = stringify_credentials(existing_credentials)
 
     cond do
@@ -2154,6 +2333,30 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       # Fallback to JSON parsing for custom/other types
       true ->
         parse_json_field(params, "credentials_json", "credentials")
+    end
+  end
+
+  # Folds the reusable-credential select into the attribute the source actually
+  # persists, and drops the form-only key so it never reaches the changeset.
+  #
+  # A blank selection clears the binding rather than being ignored: the select is
+  # the only control for it, so leaving it blank has to mean "not using a shared
+  # credential" -- otherwise a source could never be unbound once bound. The
+  # per-source encrypted fields are left untouched either way, so clearing the
+  # binding falls back to whatever was already stored.
+  defp apply_selected_integration_credential(params) do
+    case Map.pop(params, "cred_credential_secret_id") do
+      {nil, params} ->
+        params
+
+      {value, params} when is_binary(value) ->
+        case String.trim(value) do
+          "" -> Map.put(params, "credential_secret_id", nil)
+          id -> Map.put(params, "credential_secret_id", id)
+        end
+
+      {_other, params} ->
+        params
     end
   end
 
@@ -2298,12 +2501,25 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   attr(:mode, :atom, default: :create)
   attr(:credentials, :map, default: %{})
 
+  attr(:available_credentials, :list,
+    default: [],
+    doc: "Reusable credentials from the shared inventory. Empty renders per-source entry only."
+  )
+
+  attr(:selected_credential_id, :any, default: nil)
+
   defp dynamic_credentials_fields(assigns) do
     assigns =
       assigns
       |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
-      |> assign(:v3_client_id_value, credential_value(assigns.credentials, ["client_id", "v3_client_id"]))
-      |> assign(:v3_vendor_id_value, credential_value(assigns.credentials, ["vendor_id", "v3_vendor_id"]))
+      |> assign(
+        :v3_client_id_value,
+        credential_value(assigns.credentials, ["client_id", "v3_client_id"])
+      )
+      |> assign(
+        :v3_vendor_id_value,
+        credential_value(assigns.credentials, ["vendor_id", "v3_vendor_id"])
+      )
       |> assign(
         :api_secret_present?,
         credential_present?(assigns.credentials, ["api_secret", "secret_key"])
@@ -2314,30 +2530,57 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       )
 
     ~H"""
+    <div :if={@available_credentials != []} class="space-y-1.5 mb-3">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">Reusable credential</span>
+      </label>
+      <select name="cred_credential_secret_id" class={ui_field_class(class: "w-full")}>
+        <option value="" selected={@selected_credential_id in [nil, ""]}>
+          — enter credentials below —
+        </option>
+        <option
+          :for={secret <- @available_credentials}
+          value={secret.id}
+          selected={to_string(secret.id) == to_string(@selected_credential_id)}
+        >
+          {secret.name} ({secret.provider})
+        </option>
+      </select>
+      <p class="text-xs text-sr-muted">
+        <%= if @selected_credential_id in [nil, ""] do %>
+          Stored on this source only. Choose a reusable credential to share one secret
+          across sources.
+        <% else %>
+          Resolved through the credential broker. The fields below are ignored while one
+          is selected.
+        <% end %>
+      </p>
+    </div>
+
     <%= case @source_type do %>
       <% :armis -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Key</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Key</span>
             </label>
             <input
               type="text"
               name="cred_api_key"
               value={@api_key_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter your Armis API key"
               autocomplete="off"
             />
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Secret</span>
             </label>
             <input
               type="password"
               name="cred_api_secret"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 cond do
                   @mode == :edit and @api_secret_present? ->
@@ -2353,38 +2596,41 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
             <%= if @mode == :edit do %>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   API secret:
-                  <span class={["badge badge-xs", @api_secret_present? && "badge-success"]}>
+                  <.ui_badge
+                    size="xs"
+                    variant={if(@api_secret_present?, do: "success", else: "ghost")}
+                  >
                     {if @api_secret_present?, do: "saved", else: "not saved"}
-                  </span>
+                  </.ui_badge>
                 </span>
               </label>
             <% end %>
           </div>
-          <div class="divider my-2">V3 OAuth</div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client ID</span>
+          <div class="sr-ui-divider my-2">V3 OAuth</div>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client ID</span>
             </label>
             <input
               type="text"
               name="cred_v3_client_id"
               value={@v3_client_id_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter the Armis V3 client ID"
               autocomplete="off"
             />
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Client Secret</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Client Secret</span>
             </label>
             <input
               type="password"
               name="cred_v3_client_secret"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 cond do
                   @mode == :edit and @v3_client_secret_present? ->
@@ -2400,31 +2646,34 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               autocomplete="off"
             />
             <%= if @mode == :edit do %>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   V3 client secret:
-                  <span class={["badge badge-xs", @v3_client_secret_present? && "badge-success"]}>
+                  <.ui_badge
+                    size="xs"
+                    variant={if(@v3_client_secret_present?, do: "success", else: "ghost")}
+                  >
                     {if @v3_client_secret_present?, do: "saved", else: "not saved"}
-                  </span>
+                  </.ui_badge>
                 </span>
               </label>
             <% end %>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Vendor ID</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Vendor ID</span>
             </label>
             <input
               type="text"
               name="cred_v3_vendor_id"
               value={@v3_vendor_id_value}
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="Enter the Armis V3 vendor ID"
               autocomplete="off"
             />
           </div>
-          <label class="label">
-            <span class="label-text-alt text-base-content/60">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               Credentials will be encrypted at rest
             </span>
           </label>
@@ -2432,78 +2681,78 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       <% :snmp -> %>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">SNMP Version</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">SNMP Version</span>
               </label>
-              <select name="cred_snmp_version" class="select select-bordered w-full">
+              <select name="cred_snmp_version" class={ui_field_class(class: "w-full")}>
                 <option value="v2c">SNMPv2c</option>
                 <option value="v3">SNMPv3</option>
               </select>
             </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Community String</span>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Community String</span>
               </label>
               <input
                 type="password"
                 name="cred_community"
-                class="input input-bordered w-full font-mono text-sm"
+                class={ui_field_class(mono: true, class: "w-full text-sm")}
                 placeholder={
                   if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"
                 }
               />
             </div>
           </div>
-          <label class="label">
-            <span class="label-text-alt text-base-content/60">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               For SNMPv3, use the SNMP Profiles section under Network settings
             </span>
           </label>
         </div>
       <% :netbox -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Netbox URL</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Netbox URL</span>
             </label>
             <input
               type="url"
               name="cred_netbox_url"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder="https://netbox.example.com"
             />
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Full URL to your Netbox instance (including https://)
               </span>
             </label>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">API Token</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">API Token</span>
             </label>
             <input
               type="password"
               name="cred_netbox_token"
-              class="input input-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full text-sm")}
               placeholder={
                 if @mode == :edit,
                   do: "Leave empty to keep existing",
                   else: "Enter your Netbox API token"
               }
             />
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Generate a token in Netbox: Admin → API Tokens
               </span>
             </label>
           </div>
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Verify SSL</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Verify SSL</span>
             </label>
-            <select name="cred_netbox_verify_ssl" class="select select-bordered w-full">
+            <select name="cred_netbox_verify_ssl" class={ui_field_class(class: "w-full")}>
               <option value="true">Yes (recommended)</option>
               <option value="false">No (for self-signed certs)</option>
             </select>
@@ -2511,18 +2760,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
       <% :custom -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Credentials (JSON)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Credentials (JSON)</span>
             </label>
             <textarea
               name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
               rows="3"
               placeholder='{"api_key": "your-key", "api_secret": "your-secret"}'
             ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
               </span>
             </label>
@@ -2530,18 +2779,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
       <% _ -> %>
         <div class="space-y-3">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Credentials (JSON)</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Credentials (JSON)</span>
             </label>
             <textarea
               name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
+              class={ui_field_class(mono: true, class: "w-full min-h-24 py-2.5 text-sm")}
               rows="3"
               placeholder={credential_placeholder(@source_type)}
             ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
               </span>
             </label>
@@ -2556,16 +2805,16 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp armis_northbound_fields(assigns) do
     ~H"""
-    <div class="divider text-xs text-base-content/60">Armis Northbound</div>
+    <div class="sr-ui-divider text-xs text-sr-muted">Armis Northbound</div>
 
-    <div class="space-y-4 rounded-xl border border-base-200 bg-base-100/70 p-4">
+    <div class="space-y-4 rounded-xl border border-sr-line bg-sr-surface/70 p-4">
       <label class="flex items-center gap-3 text-sm">
         <input type="hidden" name="form[northbound_enabled]" value="false" />
         <input
           type="checkbox"
           name="form[northbound_enabled]"
           value="true"
-          class="toggle toggle-primary"
+          class={ui_toggle_class()}
           checked={truthy(@form[:northbound_enabled].value)}
         />
         <span>Enable northbound Armis availability updates</span>
@@ -2579,20 +2828,20 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           placeholder="3600"
         />
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text">Armis Custom Property / Tag</span>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Armis Custom Property / Tag</span>
           </label>
           <input
             type="text"
             name="custom_fields_text"
-            class="input input-bordered w-full font-mono text-sm"
+            class={ui_field_class(mono: true, class: "w-full text-sm")}
             value={@custom_fields_value}
             placeholder="availability"
             phx-blur="update_custom_fields"
           />
-          <label class="label">
-            <span class="label-text-alt text-base-content/60">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
               The updater uses the first configured value as the target property in Armis.
             </span>
           </label>

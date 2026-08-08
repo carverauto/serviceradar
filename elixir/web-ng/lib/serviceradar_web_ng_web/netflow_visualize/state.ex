@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.State do
       "truncate_v6" => 128,
       "bidirectional" => false,
       "previous_period" => false
+      # Tag filter lives only in the SRQL `q` param (see PrefixTagQuery).
     }
   end
 

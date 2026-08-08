@@ -179,29 +179,33 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       hide_breadcrumb
       srql={@srql}
     >
-      <div class="min-h-[calc(100vh-5rem)] bg-base-100">
+      <div class="min-h-[calc(100vh-5rem)] bg-sr-surface">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
-          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <.ui_spinner size="lg" />
         </div>
 
         <div
           :if={@load_state == :not_found}
           class="mx-auto flex min-h-[28rem] max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center"
         >
-          <div class="text-lg font-semibold">Dashboard package unavailable</div>
-          <p class="text-sm text-base-content/70">
+          <div class="text-lg font-semibold text-sr-ink">Dashboard package unavailable</div>
+          <p class="text-sm text-sr-muted">
             This dashboard is not enabled, has not been verified, or no longer exists.
           </p>
-          <.link navigate={~p"/dashboard"} class="btn btn-primary btn-sm">Back to dashboard</.link>
+          <.ui_button navigate={~p"/dashboard"} size="sm" variant="primary">
+            Back to dashboard
+          </.ui_button>
         </div>
 
         <div
           :if={@load_state == :error}
           class="mx-auto flex min-h-[28rem] max-w-2xl flex-col items-center justify-center gap-3 px-6 text-center"
         >
-          <div class="text-lg font-semibold">Dashboard package failed to load</div>
-          <p class="text-sm text-base-content/70">{@load_error}</p>
-          <.link navigate={~p"/dashboard"} class="btn btn-primary btn-sm">Back to dashboard</.link>
+          <div class="text-lg font-semibold text-sr-ink">Dashboard package failed to load</div>
+          <p class="text-sm text-sr-muted">{@load_error}</p>
+          <.ui_button navigate={~p"/dashboard"} size="sm" variant="primary">
+            Back to dashboard
+          </.ui_button>
         </div>
 
         <section :if={@load_state == :ready} class="flex min-h-[calc(100vh-5rem)] flex-col">
@@ -210,12 +214,12 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             phx-hook="DashboardWasmHost"
             phx-update="ignore"
             data-host={@host_payload_json}
-            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-base-100"
+            class="relative min-h-[calc(100vh-5rem)] flex-1 bg-sr-surface px-3 py-3 sm:px-5 sm:py-4"
           >
             <div class="absolute inset-0 flex items-center justify-center">
               <div class="text-center">
-                <span class="loading loading-spinner loading-md text-primary"></span>
-                <div class="mt-3 text-sm text-base-content/70">Loading dashboard renderer</div>
+                <.ui_spinner size="md" />
+                <div class="mt-3 text-sm text-sr-muted">Loading dashboard renderer</div>
               </div>
             </div>
           </div>

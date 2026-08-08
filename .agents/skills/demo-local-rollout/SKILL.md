@@ -118,10 +118,10 @@ Re-mint the Vault token if signing starts returning `403 permission denied`.
 Use Bazel remote push targets for the changed images only. Typical examples:
 
 ```bash
-bazel run --config=remote_push --stamp //docker/images:agent_image_amd64_push
-bazel run --config=remote_push --stamp //docker/images:agent_gateway_image_amd64_push
-bazel run --config=remote_push --stamp //docker/images:core_elx_image_amd64_push
-bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
+bazel run --config=remote --stamp //docker/images:agent_image_amd64_push
+bazel run --config=remote --stamp //docker/images:agent_gateway_image_amd64_push
+bazel run --config=remote --stamp //docker/images:core_elx_image_amd64_push
+bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
 ```
 
 These commands print the pushed digest. Capture it for signing and for the final report.

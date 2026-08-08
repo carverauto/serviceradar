@@ -8,6 +8,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
+  @moduletag :requires_app
+
   @forecasted_at ~U[2026-06-12 12:00:00Z]
 
   setup do

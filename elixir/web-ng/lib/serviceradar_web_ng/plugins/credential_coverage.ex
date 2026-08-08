@@ -4,16 +4,16 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
 
   Plugin config schemas mark fields whose values arrive via credential-rule
   materialization with `x-serviceradar-credential-materialized: true`. For such
-  plugins, this module derives the credential provider/purpose from the core
-  provider profiles (never per-plugin UI hardcoding) and answers whether any
+  plugins, this module derives the credential provider/purpose from approved
+  package manifests (never per-plugin UI hardcoding) and answers whether any
   enabled credential rule currently covers a target agent.
 
   Reads go through the core materializer with a system actor: the result only
   exposes rule names/coverage, never secret material.
   """
 
-  alias ServiceRadar.Credentials.CredentialProviderProfile
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
+  alias ServiceRadar.Plugins.IntegrationCatalog
 
   @annotation "x-serviceradar-credential-materialized"
 
@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
   @type coverage :: %{
           state: :covered | :uncovered,
           provider: String.t(),
-          purpose: atom(),
+          purpose: String.t(),
           rules: [String.t()]
         }
 
@@ -51,8 +51,10 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
   def coverage(plugin_id, agent_uid, opts \\ [])
 
   def coverage(plugin_id, agent_uid, opts) when is_binary(plugin_id) and is_binary(agent_uid) do
-    case CredentialProviderProfile.profile_purpose_for_plugin_id(plugin_id) do
-      {:ok, {profile, purpose}} ->
+    case consumer_for_plugin_id(plugin_id, opts) do
+      {:ok, {profile, consumer}} ->
+        purpose = consumer["purpose"]
+
         case PluginAssignmentMaterializer.covering_rules_for_agent(
                profile,
                agent_uid,
@@ -60,13 +62,13 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
                opts
              ) do
           {:ok, []} ->
-            {:ok, %{state: :uncovered, provider: profile.provider(), purpose: purpose, rules: []}}
+            {:ok, %{state: :uncovered, provider: profile["provider"], purpose: purpose, rules: []}}
 
           {:ok, rules} ->
             {:ok,
              %{
                state: :covered,
-               provider: profile.provider(),
+               provider: profile["provider"],
                purpose: purpose,
                rules: Enum.map(rules, &rule_name/1)
              }}
@@ -77,6 +79,9 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
 
       :error ->
         :not_applicable
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -100,6 +105,33 @@ defmodule ServiceRadarWebNG.Plugins.CredentialCoverage do
       is_binary(id) -> id
       true -> to_string(id || "unnamed")
     end
+  end
+
+  defp consumer_for_plugin_id(plugin_id, opts) do
+    case Keyword.get(opts, :integration_catalog) do
+      nil -> IntegrationCatalog.consumer_for_plugin_id(plugin_id, opts)
+      catalog -> consumer_from_catalog(plugin_id, catalog)
+    end
+  end
+
+  defp consumer_from_catalog(plugin_id, %{credential_profiles: profiles}), do: consumer_from_profiles(plugin_id, profiles)
+
+  defp consumer_from_catalog(plugin_id, %{"credential_profiles" => profiles}),
+    do: consumer_from_profiles(plugin_id, profiles)
+
+  defp consumer_from_catalog(plugin_id, profiles) when is_list(profiles), do: consumer_from_profiles(plugin_id, profiles)
+
+  defp consumer_from_catalog(_plugin_id, _catalog), do: {:error, :invalid_plugin_integration_catalog}
+
+  defp consumer_from_profiles(plugin_id, profiles) do
+    Enum.find_value(profiles, :error, fn profile ->
+      profile
+      |> get_in(["provisioning", "consumers"])
+      |> List.wrap()
+      |> Enum.find_value(fn consumer ->
+        if consumer["plugin_id"] == plugin_id, do: {:ok, {profile, consumer}}
+      end)
+    end)
   end
 
   defp stringify_keys(%{} = map) do

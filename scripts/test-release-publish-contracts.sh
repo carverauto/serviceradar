@@ -19,6 +19,8 @@ cut_release="${repo_root}/scripts/cut-release.sh"
 validate_release_tag="${repo_root}/scripts/validate-release-tag.sh"
 validate_release_metadata="${repo_root}/scripts/validate-release-metadata.sh"
 check_oci_chart_version_available="${repo_root}/scripts/check-oci-chart-version-available.sh"
+sign_oci_publish="${repo_root}/scripts/sign-oci-publish.sh"
+demo_prod_application="${repo_root}/k8s/argocd/applications/demo-prod.yaml"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -205,6 +207,10 @@ case "${FAKE_CHART_PROBE_MODE:-}" in
     echo 'Error: registry response: MANIFEST_UNKNOWN' >&2
     exit 1
     ;;
+  available_not_found)
+    echo 'Error: failed to perform "FetchReference" on source: registry.example.invalid/charts/serviceradar:9.8.7: not found' >&2
+    exit 1
+    ;;
   occupied)
     echo 'apiVersion: v2'
     exit 0
@@ -223,6 +229,16 @@ chmod +x "${fake_helm}"
 
 FAKE_CHART_PROBE_MODE=available \
   SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 >/dev/null
+
+FAKE_CHART_PROBE_MODE=available_not_found \
+  SERVICERADAR_HELM_RUNNER="${fake_helm}" \
+  "${check_oci_chart_version_available}" 9.8.7 >/dev/null
+
+ln -s "${fake_helm}" "${tmp_dir}/helm"
+env -u CI -u SERVICERADAR_HELM_RUNNER \
+  PATH="${tmp_dir}:${PATH}" \
+  FAKE_CHART_PROBE_MODE=available_not_found \
   "${check_oci_chart_version_available}" 9.8.7 >/dev/null
 
 if FAKE_CHART_PROBE_MODE=occupied \
@@ -280,7 +296,9 @@ python3 - \
   "${source_security_workflow}" \
   "${image_security_workflow}" \
   "${upload_release_asset}" \
-  "${cut_release}" <<'PY'
+  "${cut_release}" \
+  "${sign_oci_publish}" \
+  "${demo_prod_application}" <<'PY'
 import sys
 from pathlib import Path
 
@@ -291,6 +309,8 @@ source_security_workflow = Path(sys.argv[4]).read_text()
 image_security_workflow = Path(sys.argv[5]).read_text()
 upload_release_asset = Path(sys.argv[6]).read_text()
 cut_release = Path(sys.argv[7]).read_text()
+sign_oci_publish = Path(sys.argv[8]).read_text()
+demo_prod_application = Path(sys.argv[9]).read_text()
 
 required_workflow_fragments = [
     "id: source",
@@ -370,6 +390,50 @@ if not (
 digest_check = '"${tag_check_script}" "${release_sha_tag}" "${RELEASE_TAG}" latest'
 if workflow.count(digest_check) != 2:
     raise SystemExit("release workflow must run the same all-image digest check before and after publish")
+
+checkout_step = workflow[
+    workflow.index("- name: Checkout release commit"):
+    workflow.index("- name: Derive managed agent release public key")
+]
+for fragment in (
+    'cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"',
+    'chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"',
+):
+    if fragment not in checkout_step:
+        raise SystemExit(f"release retry does not preserve the protected signer: {fragment}")
+
+publish_images_step = workflow[
+    workflow.index("- name: Publish container images"):
+    workflow.index("- name: Publish Helm chart to OCI registry")
+]
+for fragment in (
+    'SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh"',
+    'SERVICERADAR_REPO_ROOT="${PWD}"',
+    'SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}"',
+    '"${sign_script}"',
+):
+    if fragment not in publish_images_step:
+        raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
+# Config-agnostic on purpose. This used to name `--config=remote_push`, a config that has
+# since been deleted -- so the guard could never fire again and would have let a rebuild step
+# back in under any other config. Match on the rebuild's shape instead.
+if 'mapfile -t image_targets' in publish_images_step or '--stamp "${image_targets[@]}"' in publish_images_step:
+    raise SystemExit("release retry must not rebuild image digests after registry equality is proven")
+
+for fragment in (
+    'source "${SERVICERADAR_COSIGN_COMMON:-${SCRIPT_DIR}/cosign_common.sh}"',
+    'REPO_ROOT="${SERVICERADAR_REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"',
+    'SIGN_REGISTRY_TAG="${SERVICERADAR_SIGN_REGISTRY_TAG:-}"',
+    'skopeo inspect --format',
+    '"docker://${repository}:${SIGN_REGISTRY_TAG}"',
+    'digest_source="published registry tag ${repository}:${SIGN_REGISTRY_TAG}"',
+    'digest_file="${IMAGE_METADATA_DIR}/${digest_target}.json.sha256"',
+    'digest_source="Bazel OCI digest metadata ${digest_file}"',
+):
+    if fragment not in sign_oci_publish:
+        raise SystemExit(f"OCI signer is missing canonical Bazel digest handling: {fragment}")
+if '_index.json"' in sign_oci_publish:
+    raise SystemExit("OCI signer still relies on non-top-level Bazel index metadata")
 
 postflight = workflow.index("Rechecking release image digest equality after publish/build handling.")
 signing = workflow.index("source ./scripts/ci/prepare-openbao-cosign-env.sh")
@@ -459,6 +523,23 @@ if "steps.parallel_assets.outcome == 'success'" not in advance_step:
 if "steps.finalize_release.outcome == 'success'" not in advance_step:
     raise SystemExit("demo advancement is not explicitly gated on release finalization")
 
+for fragment in (
+    "targetRevision: demo/prod-release",
+    "automated:",
+    "enabled: true",
+    "prune: false",
+    "selfHeal: false",
+    "allowEmpty: false",
+):
+    if fragment not in demo_prod_application:
+        raise SystemExit(f"demo release application is missing zero-touch contract: {fragment}")
+
+sync_policy = demo_prod_application[demo_prod_application.index("  syncPolicy:"):]
+if "prune: true" in sync_policy:
+    raise SystemExit("zero-touch demo release automation must not enable pruning")
+if "selfHeal: true" in sync_policy:
+    raise SystemExit("zero-touch demo release automation must not overwrite live drift")
+
 for worker_name, worker in (
     ("native add-on", native_addons_workflow),
     ("Wasm plugin", wasm_plugins_workflow),
@@ -534,5 +615,54 @@ if len(ancestry_lines) != 1:
 if "&& git push origin refs/tags/$tag:refs/tags/$tag" not in ancestry_lines[0]:
     raise SystemExit("cut-release tag push is not mechanically chained to ancestry success")
 PY
+
+
+# RELEASE_PACKAGES must be the only set pulled into package_artifacts, and the
+# prune script must stay wired into the release finalize job.
+python3 - "${repo_root}" <<'PY2'
+from pathlib import Path
+import re
+import sys
+
+repo = Path(sys.argv[1])
+packages_bzl = (repo / "build/packaging/packages.bzl").read_text()
+release_targets = (repo / "build/packaging/release_targets.bzl").read_text()
+release_workflow = (repo / ".forgejo/workflows/release.yml").read_text()
+prune_script = repo / "scripts/prune-forgejo-releases.sh"
+
+if "RELEASE_PACKAGES" not in packages_bzl:
+    raise SystemExit("packages.bzl must declare RELEASE_PACKAGES")
+if "RELEASE_PACKAGES" not in release_targets:
+    raise SystemExit("release_targets.bzl must consume RELEASE_PACKAGES")
+if "sorted(PACKAGES.keys())" in release_targets:
+    raise SystemExit("release_targets.bzl still ships every PACKAGES entry")
+if not prune_script.is_file():
+    raise SystemExit("scripts/prune-forgejo-releases.sh is missing")
+if "prune-forgejo-releases.sh" not in release_workflow:
+    raise SystemExit("release workflow does not invoke prune-forgejo-releases.sh")
+
+# Parse RELEASE_PACKAGES list roughly.
+match = re.search(r"RELEASE_PACKAGES\s*=\s*\[(.*?)\]", packages_bzl, re.S)
+if not match:
+    raise SystemExit("unable to parse RELEASE_PACKAGES")
+names = re.findall(r'"([^"]+)"', match.group(1))
+required = {
+    "agent",
+    "nats",
+    "cli",
+    "log-collector",
+    "flow-collector",
+    "bmp-collector",
+    "trapd",
+    "rperf",
+    "rperf-checker",
+}
+if set(names) != required:
+    raise SystemExit(f"RELEASE_PACKAGES mismatch: got {sorted(names)}, want {sorted(required)}")
+forbidden = {"core-elx", "web-ng", "agent-gateway", "datasvc", "faker", "bumblebee-scan"}
+if forbidden & set(names):
+    raise SystemExit(f"RELEASE_PACKAGES still includes control-plane packages: {sorted(forbidden & set(names))}")
+print(f"RELEASE_PACKAGES ok: {', '.join(names)}")
+PY2
 
 echo "release publish contracts verified"

@@ -543,16 +543,20 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         restore_cnpg_pooler_auth_function_ownership!(conn, app_user)
         ensure_schema_owner!(conn, "platform", app_user)
         ensure_platform_relation_ownership!(conn, app_user)
+        ensure_continuous_aggregate_backing_privileges!(conn, app_user)
         ensure_managed_function_ownership!(conn, app_user)
       end)
     end
   end
 
   defp managed_database_ownership_repair_needed?(app_user) do
-    case ServiceRadar.Repo.query!(managed_database_ownership_repair_needed_sql(), [app_user]) do
-      %{rows: [[true]]} -> true
-      _ -> false
-    end
+    platform_repair_needed? =
+      case ServiceRadar.Repo.query!(managed_database_ownership_repair_needed_sql(), [app_user]) do
+        %{rows: [[true]]} -> true
+        _ -> false
+      end
+
+    platform_repair_needed? or continuous_aggregate_backing_privileges_missing?(app_user)
   rescue
     error ->
       Logger.warning(
@@ -560,6 +564,21 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
       )
 
       false
+  end
+
+  defp continuous_aggregate_backing_privileges_missing?(app_user) do
+    case ServiceRadar.Repo.query!(continuous_aggregate_information_available_query_sql()) do
+      %{rows: [[true]]} ->
+        case ServiceRadar.Repo.query!(continuous_aggregate_backing_privileges_query_sql(), [
+               app_user
+             ]) do
+          %{rows: []} -> false
+          _ -> true
+        end
+
+      _ ->
+        false
+    end
   end
 
   @doc false
@@ -850,6 +869,58 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           Postgrex.query!(conn, statement, [])
       end
     end)
+  end
+
+  defp ensure_continuous_aggregate_backing_privileges!(conn, app_user) do
+    # Continuous aggregates are definer views over Timescale-owned internal tables.
+    # Restores can leave the public view on the canonical owner while its backing-table
+    # ACL still lacks SELECT, so platform-only ownership checks cannot see the drift.
+    case Postgrex.query!(conn, continuous_aggregate_information_available_query_sql(), []) do
+      %{rows: [[true]]} ->
+        %{rows: rows} =
+          Postgrex.query!(conn, continuous_aggregate_backing_privileges_query_sql(), [app_user])
+
+        Enum.each(rows, fn [schema, name] ->
+          Postgrex.query!(
+            conn,
+            continuous_aggregate_backing_grant_statement(schema, name, app_user),
+            []
+          )
+        end)
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc false
+  def continuous_aggregate_information_available_query_sql do
+    "SELECT to_regclass('timescaledb_information.continuous_aggregates') IS NOT NULL"
+  end
+
+  @doc false
+  def continuous_aggregate_backing_privileges_query_sql do
+    """
+    SELECT ca.materialization_hypertable_schema,
+           ca.materialization_hypertable_name
+    FROM timescaledb_information.continuous_aggregates ca
+    JOIN pg_namespace materialization_namespace
+      ON materialization_namespace.nspname = ca.materialization_hypertable_schema
+    JOIN pg_class materialization
+      ON materialization.relnamespace = materialization_namespace.oid
+     AND materialization.relname = ca.materialization_hypertable_name
+    JOIN pg_roles r ON r.rolname = $1
+    WHERE ca.view_schema = 'platform'
+      AND ca.view_owner = r.rolname
+      AND NOT has_table_privilege(r.oid, materialization.oid, 'SELECT')
+    ORDER BY ca.materialization_hypertable_schema, ca.materialization_hypertable_name
+    """
+  end
+
+  @doc false
+  def continuous_aggregate_backing_grant_statement(schema, name, app_user)
+      when is_binary(schema) and is_binary(name) and is_binary(app_user) do
+    "GRANT SELECT ON TABLE #{quote_ident(schema)}.#{quote_ident(name)} TO #{quote_ident(app_user)}"
   end
 
   defp relation_ownership_statement(_conn, _oid, schema, name, kind, app_user)

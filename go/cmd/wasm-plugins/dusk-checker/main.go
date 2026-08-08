@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 const (

@@ -19,6 +19,8 @@ defmodule ServiceRadar.Edge.AddonConfigContractFixturesTest do
   alias ServiceRadar.Plugins.AddonConfigContractFixtures, as: Fixtures
   alias ServiceRadar.Plugins.ConfigSchema
 
+  @moduletag :requires_app
+
   test "covers every bundled add-on named by the spec" do
     assert Fixtures.addon_ids() == [
              "anomaly-addon",

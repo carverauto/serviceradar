@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-n@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/minitable/libgenerator_stage0.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:dbazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/upb_generator/minitable/libgenerator_stage0.a

@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
   alias ServiceRadar.Automation.Ansible.Targeting
 
   @launch_permission "ansible.runs.launch"
+  @source_fingerprint ~r/\Asha256:[0-9a-f]{64}\z/
   @approval_snapshot_keys MapSet.new([
                             "binding_id",
                             "binding_version",
@@ -403,18 +404,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
       device_uid: value(membership, :canonical_device_uid),
       awx_host_name: value(membership, :host_name),
       ansible_host: value(membership, :ansible_host),
-      membership_generation: value(membership, :source_generation)
+      membership_generation: value(membership, :source_generation),
+      source_fingerprint: value(membership, :source_fingerprint)
     }
-
-    immutable_target =
-      Map.take(target, [
-        :controller_id,
-        :inventory_id,
-        :awx_host_id,
-        :device_uid,
-        :awx_host_name,
-        :ansible_host
-      ])
 
     checks = [
       value(membership, :current) == true,
@@ -429,8 +421,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
       target.awx_host_name == value(persisted, :host_name),
       target.ansible_host == value(persisted, :ansible_host),
       target.membership_generation == value(persisted, :membership_generation),
+      valid_source_fingerprint?(target.source_fingerprint),
+      target.source_fingerprint == value(persisted, :source_fingerprint),
       secure_equal(
-        Targeting.snapshot_digest(immutable_target),
+        Targeting.snapshot_digest(execution_target_snapshot(target)),
         to_string(value(persisted, :snapshot_digest))
       )
     ]
@@ -561,6 +555,25 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
 
   defp optional_string(nil), do: nil
   defp optional_string(value), do: to_string(value)
+
+  defp execution_target_snapshot(target) do
+    %{
+      membership_id: target.membership_id,
+      canonical_device_uid: target.device_uid,
+      controller_id: target.controller_id,
+      inventory_id: target.inventory_id,
+      awx_host_id: target.awx_host_id,
+      membership_generation: target.membership_generation,
+      source_fingerprint: target.source_fingerprint,
+      host_name: target.awx_host_name,
+      ansible_host: target.ansible_host
+    }
+  end
+
+  defp valid_source_fingerprint?(value) when is_binary(value),
+    do: Regex.match?(@source_fingerprint, value)
+
+  defp valid_source_fingerprint?(_value), do: false
 
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(nil), do: nil

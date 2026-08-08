@@ -65,6 +65,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
 
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+          Process.put(
+            :native_addon_recent_release_requests,
+            Process.get(:native_addon_recent_release_requests, 0) + 1
+          )
+
           Process.get(:native_addon_recent_releases_result) ||
             {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
 
@@ -191,6 +196,39 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert addon.import_ready? == true
   end
 
+  test "lists native add-ons from an exact release without consulting recent releases", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    Process.put(:native_addon_recent_releases, [])
+    Process.put(:native_addon_recent_release_requests, 0)
+
+    assert {:ok, [addon]} =
+             NativeAddonImporter.list_release_addons(%{"repo_url" => @repo_url}, "v1.0.0")
+
+    assert addon.addon_id == "sample-addon"
+    assert addon.version == "1.0.0"
+    assert addon.release_tag == "v1.0.0"
+    assert Process.get(:native_addon_recent_release_requests) == 0
+  end
+
+  test "sync worker anchors automatic discovery to the deployed release", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_recent_releases, [])
+    Process.put(:native_addon_recent_release_requests, 0)
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
+    assert Process.get(:native_addon_recent_release_requests) == 0
+    assert [%AddonPackage{source_release_tag: "v1.0.0"}] = sample_packages()
+  end
+
   test "sync worker imports every discovered native add-on and only auto-approves configured ids", %{
     private_key: private_key
   } do
@@ -223,7 +261,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_map(package.artifacts["linux/amd64"])
   end
 
-  test "a concurrent incomplete row is repaired without being auto-approved", %{
+  test "a concurrent incomplete row is repaired and auto-approved by policy", %{
     private_key: private_key
   } do
     install_fixtures(private_key)
@@ -282,13 +320,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert_received {:race_package_seeded, seeded_id}
     assert seeded_id == seeded.id
     assert repaired.id == seeded.id
-    assert repaired.status == :staged
+    assert repaired.status == :approved
     assert repaired.verification_status == "verified"
     assert is_nil(repaired.verification_error)
     assert repaired.source_oci_ref == @oci_ref
     assert repaired.source_oci_digest == @oci_digest
-    assert is_nil(repaired.approved_by)
-    assert repaired.approved_capabilities == []
+    assert repaired.approved_by == "system:native_addon_sync"
+    assert repaired.approved_capabilities == ["submit_result"]
     assert is_map(repaired.artifacts["linux/amd64"])
 
     Process.put(:native_addon_manifest_requests, 0)
@@ -296,7 +334,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     assert {:ok, reused, :skipped} = AddonPackages.import_first_party_addon(addon)
     assert reused.id == seeded.id
-    assert reused.status == :staged
+    assert reused.status == :approved
     assert Process.get(:native_addon_manifest_requests) == 0
   end
 
@@ -433,7 +471,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert length(sample_packages()) == 1
   end
 
-  test "sync worker repairs a nonempty package missing one declared platform without auto-approval", %{
+  test "sync worker repairs a nonempty package and restores policy approval", %{
     private_key: private_key
   } do
     install_fixtures(private_key, platforms: ["amd64", "arm64"])
@@ -461,14 +499,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [repaired] = sample_packages()
-    assert repaired.status == :staged
+    assert repaired.status == :approved
 
     assert repaired.artifacts |> Map.keys() |> MapSet.new() ==
              MapSet.new(["linux/amd64", "linux/arm64"])
 
     assert is_nil(repaired.verification_error)
-    assert is_nil(repaired.approved_by)
-    assert repaired.approved_capabilities == []
+    assert repaired.approved_by == "system:native_addon_sync"
+    assert repaired.approved_capabilities == ["submit_result"]
   end
 
   test "sync worker repairs an otherwise exact package with a verification error", %{
@@ -498,13 +536,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [repaired] = sample_packages()
-    assert repaired.status == :staged
+    assert repaired.status == :approved
     assert is_nil(repaired.verification_error)
     assert repaired.artifacts == package.artifacts
   end
 
   for reviewed_status <- [:staged, :approved, :denied, :revoked] do
-    test "a repaired #{reviewed_status} package stays staged on the next exact auto-approve sync", %{
+    test "a repaired #{reviewed_status} package preserves the authoritative review policy", %{
       private_key: private_key
     } do
       reviewed_status = unquote(reviewed_status)
@@ -534,9 +572,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
                NativeAddonSyncWorker.perform(%Job{args: %{"force" => true, "limit" => 10}})
 
       [repaired] = sample_packages()
-      assert repaired.status == :staged
-      assert is_nil(repaired.approved_by)
-      assert repaired.approved_capabilities == []
+
+      expected_status = expected_review_status(reviewed_status)
+
+      assert repaired.status == expected_status
+
+      if expected_status == :approved do
+        assert repaired.approved_by == "system:native_addon_sync"
+        assert repaired.approved_capabilities == ["submit_result"]
+      else
+        assert is_binary(repaired.denied_reason)
+      end
 
       Process.put(:native_addon_manifest_requests, 0)
 
@@ -551,9 +597,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       assert log =~ "import_ready=1 imported=0 skipped=1 failed=0"
       assert Process.get(:native_addon_manifest_requests) == 0
 
-      [still_staged] = sample_packages()
-      assert still_staged.status == :staged
-      assert is_nil(still_staged.approved_by)
+      [stable] = sample_packages()
+      assert stable.status == expected_status
     end
   end
 
@@ -586,7 +631,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [repaired] = sample_packages()
-    assert repaired.status == :staged
+    assert repaired.status == :approved
     assert repaired.artifacts["linux/arm64"]["sha256"] == tarball_sha256("arm64")
   end
 
@@ -619,7 +664,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [repaired] = sample_packages()
-    assert repaired.status == :staged
+    assert repaired.status == :approved
 
     assert repaired.artifacts["linux/amd64"]["object_key"] ==
              NativeAddonArtifactMirror.object_key(
@@ -660,7 +705,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_manifest_requests) == 1
 
     [repaired] = sample_packages()
-    assert repaired.status == :staged
+    assert repaired.status == :approved
     assert repaired.artifacts["linux/amd64"]["signature"] == signature_hex(private_key)
     assert repaired.artifacts["linux/amd64"]["signature_digest"] == signature_digest(private_key, "amd64")
   end
@@ -749,10 +794,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     [repaired] = sample_packages()
     assert repaired.id == approved.id
-    assert repaired.status == :staged
+    assert repaired.status == :approved
     assert repaired.source_oci_ref == @oci_ref
     assert repaired.source_oci_digest == @oci_digest
-    assert is_nil(repaired.approved_by)
+    assert repaired.approved_by == "system:native_addon_sync"
 
     Process.put(:native_addon_manifest_requests, 0)
     Process.put(:native_addon_manifest_status, 404)
@@ -767,7 +812,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     [reused] = sample_packages()
     assert reused.id == repaired.id
-    assert reused.status == :staged
+    assert reused.status == :approved
     assert reused.source_oci_ref == @oci_ref
     assert reused.source_oci_digest == @oci_digest
   end
@@ -1604,6 +1649,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     |> Ash.update!()
   end
 
+  defp expected_review_status(status) when status in [:denied, :revoked], do: status
+  defp expected_review_status(_status), do: :approved
+
   defp insert_executing_sync_job!(args \\ %{}) do
     insert_sync_job!("executing", args)
   end
@@ -1634,6 +1682,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       fun
     )
   end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

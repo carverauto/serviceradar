@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
             <div
               class={[
                 "h-full rounded-full transition-all",
-                if(Bulk.throttled?(job), do: "bg-warning", else: "bg-primary")
+                if(Bulk.throttled?(job), do: "bg-warning", else: "bg-sr-brand")
               ]}
               style={"width: #{Bulk.bar_width(job, @max_rate)}"}
             >
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
 
   defp jobs_table(assigns) do
     ~H"""
-    <table class="table table-sm sr-mtr-table">
+    <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
       <thead>
         <tr>
           <th>Submitted</th>
@@ -199,9 +199,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
         <tr :for={job <- @bulk_jobs} class="hover">
           <td class="whitespace-nowrap text-xs">{format_time(job.inserted_at)}</td>
           <td>
-            <span class={["badge badge-sm", pending_status_class(job.status)]}>
+            <.ui_badge size="sm" variant={pending_status_variant(job.status)}>
               {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
-            </span>
+            </.ui_badge>
           </td>
           <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>
             {job.agent_id}
@@ -230,36 +230,36 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
             <div :if={Bulk.throttled?(job)} class="text-warning">adaptive backoff</div>
           </td>
           <td>
-            <span class="badge badge-ghost badge-sm">
+            <.ui_badge size="sm" variant="ghost">
               {String.upcase(
                 (job.payload || %{})[Config.payload_execution_profile_key()] ||
                   Config.execution_profile_fast()
               )}
-            </span>
+            </.ui_badge>
           </td>
           <td class="text-xs">
             <%= if Bulk.job_query(job) != "" do %>
-              <div class="badge badge-info badge-sm">SRQL</div>
+              <.ui_badge size="sm" variant="info">SRQL</.ui_badge>
               <div class="sr-mtr-muted mt-1 truncate max-w-[220px]" title={Bulk.job_query(job)}>
                 {Bulk.job_query(job)}
               </div>
               <div class="sr-mtr-muted">limit {Bulk.job_selector_limit(job)}</div>
             <% else %>
-              <span class="badge badge-ghost badge-sm">MANUAL</span>
+              <.ui_badge size="sm" variant="ghost">MANUAL</.ui_badge>
             <% end %>
           </td>
           <td>
-            <span class="badge badge-ghost badge-sm">
+            <.ui_badge size="sm" variant="ghost">
               {String.upcase(
                 (job.payload || %{})[Config.payload_protocol_key()] || Config.protocol_icmp()
               )}
-            </span>
+            </.ui_badge>
           </td>
           <td class="text-xs sr-mtr-muted">
             <%= if Bulk.job_profile_id(job) != "" do %>
               <.link
                 navigate={~p"/settings/networks/mtr/#{Bulk.job_profile_id(job)}/edit"}
-                class="link link-primary"
+                class="text-sr-brand hover:underline"
               >
                 {job.id}
               </.link>

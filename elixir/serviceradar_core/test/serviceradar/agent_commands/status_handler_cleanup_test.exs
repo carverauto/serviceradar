@@ -5,6 +5,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandlerCleanupTest do
 
   alias ServiceRadar.AgentCommands.StatusHandler
 
+  @moduletag :requires_app
+
   defmodule SecretDatabaseError do
     @moduledoc false
     defexception [:message]

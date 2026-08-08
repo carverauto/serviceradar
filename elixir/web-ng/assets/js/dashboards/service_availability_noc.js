@@ -43,70 +43,103 @@ function dashboardHtml(host) {
   const sloRisk = sum(sloRollup.critical, sloRollup.warning)
 
   return `
-    <section class="space-y-5">
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        ${metricCard("Availability", percent(availabilityPct), `${number(ok)} ok / ${number(total)} total`, availabilityStatus(availabilityPct))}
-        ${metricCard("Degraded", number(degraded), `${number(services.length)} active attention rows`, degraded > 0 ? "critical" : "ok")}
-        ${metricCard("SLO Risk", number(sloRisk), `${number(sloRollup.total || slos.length)} evaluated objectives`, sloRisk > 0 ? "warning" : "ok")}
-        ${metricCard("Inventory", number(inventory.length || total), "Services in the selected window", "neutral")}
+    <section class="sr-pkg-dash">
+      <div class="sr-pkg-kpi-grid">
+        ${metricCard({
+          title: "Availability",
+          value: percent(availabilityPct),
+          caption: `${number(ok)} ok / ${number(total)} total`,
+          status: availabilityStatus(availabilityPct),
+          query: "in:service_availability time:last_1h rollup_stats:availability",
+        })}
+        ${metricCard({
+          title: "Degraded",
+          value: number(degraded),
+          caption: `${number(services.length)} active attention rows`,
+          status: degraded > 0 ? "critical" : "ok",
+          query: "in:service_availability status:(critical,unknown,warning) time:last_1h sort:last_observed_at:desc limit:50",
+        })}
+        ${metricCard({
+          title: "SLO Risk",
+          value: number(sloRisk),
+          caption: `${number(sloRollup.total || slos.length)} evaluated objectives`,
+          status: sloRisk > 0 ? "warning" : "ok",
+          query: "in:slo_evaluations severity:(warning,critical) time:last_24h sort:evaluated_at:desc limit:25",
+        })}
+        ${metricCard({
+          title: "Inventory",
+          value: number(inventory.length || total),
+          caption: "Services in the selected window",
+          status: "neutral",
+          query: "in:monitored_services time:last_1h sort:display_name:asc limit:200",
+        })}
       </div>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-        <section class="overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+      <div class="sr-pkg-main-grid">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Active Service Incidents</h2>
-              <p class="text-xs text-base-content/60">Latest failing or degraded services from SRQL</p>
+              <h2>Active Service Incidents</h2>
+              <p>Latest failing or degraded services from SRQL</p>
             </div>
-            <button type="button" data-srql-status="all" class="btn btn-xs btn-ghost">View all</button>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Status</th>
-                  <th>Latency</th>
-                  <th>Observed</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${services.length ? services.map(serviceRow).join("") : emptyRow("No degraded services", 4)}
-              </tbody>
-            </table>
+            <button type="button" data-srql-status="all" class="sr-pkg-btn">View all</button>
+          </header>
+          <div class="sr-pkg-incident-list">
+            ${
+              services.length
+                ? services.map(serviceRow).join("")
+                : emptyState("No degraded services in the current window.")
+            }
           </div>
         </section>
 
-        <section class="space-y-5">
-          <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-            <h2 class="text-base font-semibold text-base-content">Status Mix</h2>
-            <div class="mt-4 space-y-3">
-              ${STATUS_ORDER.map((status) => statusBar(status, {ok, critical, warning, unknown}[status], total)).join("")}
+        <aside class="sr-pkg-side">
+          <section class="sr-pkg-panel">
+            <header class="sr-pkg-panel-header">
+              <div>
+                <h2>Status Mix</h2>
+                <p>Share of services by health state</p>
+              </div>
+            </header>
+            <div class="sr-pkg-status-mix">
+              ${STATUS_ORDER.map((status) =>
+                statusBar(status, {ok, critical, warning, unknown}[status], total)
+              ).join("")}
             </div>
-          </div>
+          </section>
 
-          <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-            <h2 class="text-base font-semibold text-base-content">SLO Pressure</h2>
-            <div class="mt-3 space-y-3">
+          <section class="sr-pkg-panel">
+            <header class="sr-pkg-panel-header">
+              <div>
+                <h2>SLO Pressure</h2>
+                <p>Error-budget burn and projected exhaustion</p>
+              </div>
+            </header>
+            <div class="sr-pkg-stack">
               ${
                 slos.length
-                  ? slos.slice(0, 5).map(sloRow).join("")
-                  : `<p class="text-sm text-base-content/60">No SLO pressure returned by the current query.</p>`
+                  ? slos.slice(0, 6).map(sloRow).join("")
+                  : emptyState("No SLO pressure returned by the current query.")
               }
             </div>
-          </div>
+          </section>
 
-          <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-            <h2 class="text-base font-semibold text-base-content">Recent Services</h2>
-            <div class="mt-3 space-y-3">
+          <section class="sr-pkg-panel">
+            <header class="sr-pkg-panel-header">
+              <div>
+                <h2>Recent Services</h2>
+                <p>Monitored inventory snapshot</p>
+              </div>
+            </header>
+            <div class="sr-pkg-stack">
               ${
                 inventory.length
                   ? inventory.slice(0, 6).map(inventoryRow).join("")
-                  : `<p class="text-sm text-base-content/60">No services returned by the current query.</p>`
+                  : emptyState("No services returned by the current query.")
               }
             </div>
-          </div>
-        </section>
+          </section>
+        </aside>
       </div>
     </section>
   `
@@ -115,7 +148,16 @@ function dashboardHtml(host) {
 function bindActions(element, api) {
   for (const button of element.querySelectorAll("[data-srql-status]")) {
     button.addEventListener("click", () => {
-      api.setSrqlQuery("in:service_availability time:last_1h sort:last_observed_at:desc limit:100")
+      api.setSrqlQuery(
+        "in:service_availability time:last_1h sort:last_observed_at:desc limit:100"
+      )
+    })
+  }
+
+  for (const button of element.querySelectorAll("[data-srql-query]")) {
+    button.addEventListener("click", () => {
+      const query = button.getAttribute("data-srql-query")
+      if (query) api.setSrqlQuery(query)
     })
   }
 }
@@ -135,16 +177,22 @@ function firstRow(frame) {
   return rows(frame)[0] || {}
 }
 
-function metricCard(title, value, caption, status) {
+function metricCard({title, value, caption, status, query}) {
+  const tone = toneClass(status)
   return `
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-sm font-medium text-base-content/70">${escapeHtml(title)}</h2>
-        <span class="h-2.5 w-2.5 rounded-full ${statusClass(status)}"></span>
+    <button
+      type="button"
+      class="sr-pkg-kpi ${tone}"
+      data-srql-query="${escapeAttr(query || "")}"
+      ${query ? "" : "disabled"}
+    >
+      <div class="sr-pkg-kpi-top">
+        <span class="sr-pkg-kpi-label">${escapeHtml(title)}</span>
+        <span class="sr-pkg-kpi-dot" aria-hidden="true"></span>
       </div>
-      <div class="mt-3 text-3xl font-semibold tracking-normal text-base-content">${escapeHtml(value)}</div>
-      <p class="mt-1 text-xs text-base-content/60">${escapeHtml(caption)}</p>
-    </article>
+      <strong class="sr-pkg-kpi-value">${escapeHtml(value)}</strong>
+      <span class="sr-pkg-kpi-caption">${escapeHtml(caption)}</span>
+    </button>
   `
 }
 
@@ -153,17 +201,20 @@ function serviceRow(row) {
   const observed = row.timestamp || row.last_observed_at || row.observed_at || ""
   const summary = row.summary || row.service_key || row.agent_id || row.device_id || ""
   const status = normalizeServiceStatus(row)
+  const latencyLabel = latency(row.response_time_ms)
 
   return `
-    <tr>
-      <td>
-        <div class="font-medium text-base-content">${escapeHtml(name)}</div>
-        <div class="text-xs text-base-content/60">${escapeHtml(summary)}</div>
-      </td>
-      <td>${statusBadge(status)}</td>
-      <td>${latency(row.response_time_ms)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(observed))}</td>
-    </tr>
+    <article class="sr-pkg-incident">
+      <div class="sr-pkg-incident-main">
+        <strong>${escapeHtml(name)}</strong>
+        <small>${escapeHtml(summary)}</small>
+      </div>
+      <div class="sr-pkg-incident-meta">
+        ${statusBadge(status)}
+        <span class="sr-pkg-meta-line">${escapeHtml(latencyLabel)}</span>
+        <span class="sr-pkg-meta-line">${escapeHtml(formatTime(observed))}</span>
+      </div>
+    </article>
   `
 }
 
@@ -174,15 +225,13 @@ function inventoryRow(row) {
   const status = normalizeServiceStatus(row)
 
   return `
-    <div class="rounded-md border border-base-300 p-3">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="truncate text-sm font-medium text-base-content">${escapeHtml(name)}</div>
-          <div class="text-xs text-base-content/60">${escapeHtml(detail)}</div>
-        </div>
-        ${statusBadge(status)}
+    <article class="sr-pkg-list-card">
+      <div class="sr-pkg-list-card-main">
+        <strong>${escapeHtml(name)}</strong>
+        <small>${escapeHtml(detail)}</small>
       </div>
-    </div>
+      ${statusBadge(status)}
+    </article>
   `
 }
 
@@ -195,29 +244,27 @@ function sloRow(row) {
   ].join(" / ")
 
   return `
-    <div class="rounded-md border border-base-300 p-3">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="truncate text-sm font-medium text-base-content">${escapeHtml(name)}</div>
-          <div class="text-xs text-base-content/60">${escapeHtml(caption)}</div>
-          <div class="text-xs text-base-content/50">${escapeHtml(formatNullableTime(row.projected_exhaustion_at))}</div>
-        </div>
-        ${statusBadge(status)}
+    <article class="sr-pkg-list-card">
+      <div class="sr-pkg-list-card-main">
+        <strong>${escapeHtml(name)}</strong>
+        <small>${escapeHtml(caption)}</small>
+        <small class="sr-pkg-muted">${escapeHtml(formatNullableTime(row.projected_exhaustion_at))}</small>
       </div>
-    </div>
+      ${statusBadge(status)}
+    </article>
   `
 }
 
 function statusBar(status, count, total) {
   const pct = total > 0 ? Math.round((Number(count || 0) / Number(total)) * 100) : 0
   return `
-    <div>
-      <div class="mb-1 flex items-center justify-between text-xs">
-        <span class="capitalize text-base-content/70">${escapeHtml(status)}</span>
-        <span class="font-medium text-base-content">${number(count)} (${pct}%)</span>
+    <div class="sr-pkg-mix-row">
+      <div class="sr-pkg-mix-labels">
+        <span class="sr-pkg-mix-name">${escapeHtml(statusLabel(status))}</span>
+        <span class="sr-pkg-mix-count">${number(count)} <em>(${pct}%)</em></span>
       </div>
-      <div class="h-2 overflow-hidden rounded-full bg-base-200">
-        <div class="h-full ${statusClass(status)}" style="width: ${pct}%"></div>
+      <div class="sr-pkg-mix-track">
+        <div class="sr-pkg-mix-fill is-${escapeAttr(status)}" style="width: ${pct}%"></div>
       </div>
     </div>
   `
@@ -225,31 +272,27 @@ function statusBar(status, count, total) {
 
 function statusBadge(status) {
   const normalized = normalizeStatus(status)
-  return `<span class="badge badge-sm ${badgeClass(normalized)}">${escapeHtml(normalized)}</span>`
+  return `<span class="sr-pkg-badge is-${escapeAttr(normalized)}">${escapeHtml(statusLabel(normalized))}</span>`
 }
 
-function emptyRow(message, colspan) {
-  return `<tr><td colspan="${colspan}" class="py-8 text-center text-sm text-base-content/60">${escapeHtml(message)}</td></tr>`
+function emptyState(message) {
+  return `<div class="sr-pkg-empty">${escapeHtml(message)}</div>`
 }
 
-function badgeClass(status) {
-  if (status === "available" || status === "ok" || status === "healthy" || status === "pass" || status === "compliant") {
-    return "badge-success"
-  }
-  if (status === "warning" || status === "warn" || status === "at_risk") return "badge-warning"
-  if (status === "unavailable" || status === "critical" || status === "fail" || status === "failed" || status === "noncompliant") {
-    return "badge-error"
-  }
-  return "badge-neutral"
+function toneClass(status) {
+  if (status === "ok") return "is-ok"
+  if (status === "warning") return "is-warning"
+  if (status === "critical") return "is-critical"
+  return "is-neutral"
 }
 
-function statusClass(status) {
-  if (status === "available" || status === "ok") return "bg-success"
-  if (status === "unavailable") return "bg-error"
-  if (status === "warning") return "bg-warning"
-  if (status === "critical") return "bg-error"
-  if (status === "unknown") return "bg-neutral"
-  return "bg-info"
+function statusLabel(status) {
+  const normalized = normalizeStatus(status)
+  if (normalized === "ok") return "ok"
+  if (normalized === "critical") return "critical"
+  if (normalized === "warning") return "warning"
+  if (normalized === "unknown") return "unknown"
+  return normalized
 }
 
 function normalizeServiceStatus(row) {
@@ -258,12 +301,14 @@ function normalizeServiceStatus(row) {
 
 function normalizeStatus(status) {
   const normalized = String(status || "unknown").toLowerCase()
-  if (["true", "up", "ok", "healthy", "pass", "available", "compliant"].includes(normalized)) return "ok"
-  if (["false", "down", "fail", "failed", "critical", "unavailable"].includes(normalized)) {
+  if (["true", "up", "ok", "healthy", "pass", "available", "compliant"].includes(normalized)) {
+    return "ok"
+  }
+  if (["false", "down", "fail", "failed", "critical", "unavailable", "noncompliant"].includes(normalized)) {
     return "critical"
   }
-  if (normalized === "warn" || normalized === "at_risk") return "warning"
-  if (normalized === "noncompliant") return "critical"
+  if (normalized === "warn" || normalized === "at_risk" || normalized === "warning") return "warning"
+  if (normalized === "unknown") return "unknown"
   return normalized
 }
 
@@ -336,4 +381,8 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("`", "&#96;")
 }

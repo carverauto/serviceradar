@@ -165,11 +165,12 @@ fn candidate_satori_dirs() -> Vec<std::path::PathBuf> {
         dirs.push(path.into());
     }
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        dirs.push(Path::new(&manifest_dir).join("satori-corpus/xml"));
+        dirs.push(Path::new(&manifest_dir).join("../../third_party/netprobe_corpora/satori/xml"));
     }
 
-    dirs.push(Path::new("satori-corpus/xml").into());
-    dirs.push(Path::new("rust/netprobe/satori-corpus/xml").into());
+    dirs.push(Path::new("third_party/netprobe_corpora/satori/xml").into());
+    // The installed layout, which is deliberately NOT the repo layout: the corpus
+    // ships as replaceable GPLv2 data an operator can swap out in place.
     dirs.push(Path::new("/usr/share/serviceradar/netprobe/satori-corpus/xml").into());
 
     dirs
@@ -271,9 +272,12 @@ mod tests {
 
     #[test]
     fn matches_satori_ssh_banner_candidate() {
-        let corpus = SatoriCorpus::load_from_dir("satori-corpus/xml")
-            .or_else(|_| SatoriCorpus::load_from_dir("rust/netprobe/satori-corpus/xml"))
-            .expect("Satori corpus loads");
+        let corpus =
+            SatoriCorpus::load_from_dir("../../third_party/netprobe_corpora/satori/xml")
+                .or_else(|_| {
+                    SatoriCorpus::load_from_dir("third_party/netprobe_corpora/satori/xml")
+                })
+                .expect("Satori corpus loads");
         let matched = satori_match("ssh", "SSH-2.0-Cisco-1.25", &corpus)
             .expect("Cisco SSH Satori banner matches");
 

@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
       <div class="mx-auto max-w-md p-6 space-y-6">
         <header class="text-center space-y-2">
           <h1 class="text-2xl font-semibold">Authorize CLI Session</h1>
-          <p class="text-sm text-base-content/70">
+          <p class="text-sm text-sr-muted">
             Confirm the CLI session ServiceRadar should issue for your account.
           </p>
         </header>
@@ -138,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
         <%= case @state do %>
           <% :prompt -> %>
             <form phx-submit="submit_code" class="space-y-4">
-              <label class="form-control w-full">
-                <span class="label-text">Device code</span>
+              <label class="flex flex-col gap-1.5 w-full">
+                <span class="text-sm font-medium text-sr-ink">Device code</span>
                 <input
                   type="text"
                   name="user_code"
@@ -149,30 +149,30 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                   spellcheck="false"
                   pattern="[A-Z]{4}-[A-Z]{4}"
                   placeholder="WDJB-MJHT"
-                  class="input input-bordered uppercase tracking-widest font-mono"
+                  class={ui_field_class(mono: true, class: "uppercase tracking-widest")}
                 />
               </label>
-              <button type="submit" class="btn btn-primary w-full">
+              <.ui_button type="submit" size="sm" variant="primary" class="w-full">
                 Look up code
-              </button>
+              </.ui_button>
             </form>
           <% :pending -> %>
-            <div class="card bg-base-200 shadow">
-              <div class="card-body space-y-3">
+            <div class="sr-ui-card bg-sr-subtle shadow">
+              <div class="sr-ui-card-body space-y-3">
                 <div>
-                  <div class="label-text">Client</div>
+                  <div class="text-sm font-medium text-sr-ink">Client</div>
                   <div class="font-medium">{@row.client_id}</div>
                 </div>
                 <div>
-                  <div class="label-text">Requested scope</div>
+                  <div class="text-sm font-medium text-sr-ink">Requested scope</div>
                   <div class="font-mono text-sm">{@row.scope}</div>
                 </div>
                 <div>
-                  <div class="label-text">User code</div>
+                  <div class="text-sm font-medium text-sr-ink">User code</div>
                   <div class="font-mono tracking-widest">{@row.user_code}</div>
                 </div>
                 <div>
-                  <div class="label-text">Expires</div>
+                  <div class="text-sm font-medium text-sr-ink">Expires</div>
                   <div class="text-sm">
                     {Calendar.strftime(@row.expires_at, "%Y-%m-%d %H:%M:%S UTC")}
                   </div>
@@ -182,24 +182,28 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
 
             <%= if @can_approve? do %>
               <div class="flex gap-3">
-                <button
+                <.ui_button
                   type="button"
                   phx-click="deny"
                   data-confirm="Deny this CLI session?"
-                  class="btn btn-ghost flex-1"
+                  size="sm"
+                  variant="ghost"
+                  class="flex-1"
                 >
                   Deny
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
                   phx-click="approve"
-                  class="btn btn-primary flex-1"
+                  size="sm"
+                  variant="primary"
+                  class="flex-1"
                 >
                   Approve
-                </button>
+                </.ui_button>
               </div>
             <% else %>
-              <div class="alert alert-warning">
+              <div class={ui_alert_class("warning")}>
                 <div>
                   <h2 class="font-semibold">Your role does not allow CLI authentication.</h2>
                   <p class="text-sm">
@@ -212,7 +216,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             <% end %>
           <% :approved -> %>
-            <div class="alert alert-success">
+            <div class={ui_alert_class("success")}>
               <div>
                 <h2 class="font-semibold">Approved.</h2>
                 <p class="text-sm">
@@ -221,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
           <% :denied -> %>
-            <div class="alert alert-warning">
+            <div class={ui_alert_class("warning")}>
               <div>
                 <h2 class="font-semibold">Denied.</h2>
                 <p class="text-sm">
@@ -230,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
           <% :expired -> %>
-            <div class="alert alert-error">
+            <div class={ui_alert_class("error")}>
               <div>
                 <h2 class="font-semibold">This code has expired.</h2>
                 <p class="text-sm">
@@ -240,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
           <% :unknown -> %>
-            <div class="alert alert-error">
+            <div class={ui_alert_class("error")}>
               <div>
                 <h2 class="font-semibold">We couldn't find that code.</h2>
                 <p class="text-sm">
@@ -251,9 +255,15 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
               </div>
             </div>
 
-            <button type="button" phx-click="submit_code" phx-value-user_code="" class="btn btn-ghost">
+            <.ui_button
+              type="button"
+              phx-click="submit_code"
+              phx-value-user_code=""
+              size="sm"
+              variant="ghost"
+            >
               Try another code
-            </button>
+            </.ui_button>
         <% end %>
       </div>
     </Layouts.app>

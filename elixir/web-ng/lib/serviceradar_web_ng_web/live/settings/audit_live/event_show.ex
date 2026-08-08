@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
         stats={@settings_stats}
       >
         <header class="space-y-2">
-          <.link navigate={~p"/settings/audit/events"} class="link link-hover text-sm">
+          <.link navigate={~p"/settings/audit/events"} class="text-sr-brand hover:underline text-sm">
             Back to audit events
           </.link>
           <h1 class="text-2xl font-semibold">Audit Event Details</h1>
@@ -111,46 +111,46 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
             <p class="text-sm text-error">{@load_error}</p>
           <% @event -> %>
             <div class="grid gap-4 lg:grid-cols-[360px,1fr]">
-              <section class="rounded-lg border border-base-200 bg-base-100 p-4">
+              <section class="rounded-lg border border-sr-line bg-sr-surface p-4">
                 <dl class="grid gap-3 text-sm">
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">ID</dt>
+                    <dt class="text-xs uppercase text-sr-muted">ID</dt>
                     <dd class="font-mono text-xs break-all">{@event.id}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">Time</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Time</dt>
                     <dd class="font-mono text-xs">{format_dt(@event.occurred_at)}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">Kind</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Kind</dt>
                     <dd>{@event.kind}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">Severity</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Severity</dt>
                     <dd>{@event.severity}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">Actor</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Actor</dt>
                     <dd class="font-mono text-xs">{@event.actor_id || "-"}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">IP</dt>
+                    <dt class="text-xs uppercase text-sr-muted">IP</dt>
                     <dd class="font-mono text-xs">{@event.ip || "-"}</dd>
                   </div>
                   <div>
-                    <dt class="text-xs uppercase text-base-content/50">Route</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Route</dt>
                     <dd class="font-mono text-xs break-all">{@event.route || "-"}</dd>
                   </div>
                   <div :if={@event.correlation_id}>
-                    <dt class="text-xs uppercase text-base-content/50">Correlation ID</dt>
+                    <dt class="text-xs uppercase text-sr-muted">Correlation ID</dt>
                     <dd class="font-mono text-xs break-all">{@event.correlation_id}</dd>
                   </div>
                 </dl>
               </section>
 
-              <section class="rounded-lg border border-base-200 bg-base-100 p-4">
+              <section class="rounded-lg border border-sr-line bg-sr-surface p-4">
                 <h2 class="text-sm font-semibold">Details</h2>
-                <pre class="mt-3 max-h-[70vh] overflow-auto rounded bg-base-200/60 p-3 text-xs leading-relaxed"><%= pretty_details(@event.details) %></pre>
+                <pre class="mt-3 max-h-[70vh] overflow-auto rounded bg-sr-subtle/60 p-3 text-xs leading-relaxed"><%= pretty_details(@event.details) %></pre>
               </section>
             </div>
         <% end %>

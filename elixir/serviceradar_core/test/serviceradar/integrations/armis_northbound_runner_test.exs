@@ -5,6 +5,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
 
+  @moduletag :requires_app
+
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:req)
     :ok

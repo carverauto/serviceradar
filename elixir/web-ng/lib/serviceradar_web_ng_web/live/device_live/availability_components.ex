@@ -34,31 +34,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:segments, segments)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Availability Timeline</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               Last 24h · each block = 30m bucket · green = online, red = offline
             </div>
           </div>
           <div class="text-right">
             <div class="text-sm font-semibold tabular-nums">{format_pct(@uptime_pct)}%</div>
-            <div class="text-xs text-base-content/60">uptime (bucketed)</div>
+            <div class="text-xs text-sr-muted">uptime (bucketed)</div>
           </div>
         </div>
       </div>
 
       <div class="p-4">
         <div :if={@segments != []} class="space-y-2">
-          <div class="flex items-center justify-between text-xs text-base-content/60">
+          <div class="flex items-center justify-between text-xs text-sr-muted">
             <span>24h ago</span>
             <span>now</span>
           </div>
 
-          <div class="h-6 rounded-lg bg-base-200/50 p-0.5">
-            <div class="h-full grid grid-flow-col auto-cols-fr gap-px rounded-md overflow-hidden bg-base-300/60">
+          <div class="h-6 rounded-lg bg-sr-subtle/50 p-0.5">
+            <div class="h-full grid grid-flow-col auto-cols-fr gap-px rounded-md overflow-hidden bg-sr-control/60">
               <%= for {seg, idx} <- Enum.with_index(@segments) do %>
                 <div
                   class={[
@@ -78,21 +78,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
               <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-sm bg-success"></span>
                 <span class="tabular-nums font-semibold">{@online_checks}</span>
-                <span class="text-base-content/60">online buckets</span>
+                <span class="text-sr-muted">online buckets</span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-sm bg-error"></span>
                 <span class="tabular-nums font-semibold">{@offline_checks}</span>
-                <span class="text-base-content/60">offline buckets</span>
+                <span class="text-sr-muted">offline buckets</span>
               </div>
             </div>
-            <div class="text-xs text-base-content/50 tabular-nums">
+            <div class="text-xs text-sr-muted tabular-nums">
               {@total_checks} total buckets
             </div>
           </div>
         </div>
 
-        <div :if={@segments == []} class="text-sm text-base-content/60">
+        <div :if={@segments == []} class="text-sm text-sr-muted">
           No availability data found.
         </div>
       </div>
@@ -120,29 +120,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:row_count, length(display_rows))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
-            <.icon name="hero-map-pin" class="size-4 text-primary" />
+            <.icon name="hero-map-pin" class="size-4 text-sr-brand" />
             <span class="text-sm font-semibold">Agent Availability</span>
-            <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
-            <span :if={present?(@source_profile_id)} class="badge badge-info badge-xs">
+            <span :if={@row_count > 0} class="text-xs text-sr-muted">({@row_count})</span>
+            <.ui_badge :if={present?(@source_profile_id)} size="xs" variant="info">
               profile assigned
-            </span>
+            </.ui_badge>
           </div>
           <form
             :if={@availability_source == :canonical}
             phx-change="set_availability_source"
             class="flex items-center gap-2"
           >
-            <label for="availability-source-agent" class="text-xs text-base-content/60">
+            <label for="availability-source-agent" class="text-xs text-sr-muted">
               Canonical source
             </label>
             <select
               id="availability-source-agent"
               name="agent_id"
-              class="select select-bordered select-xs w-48"
+              class={ui_field_class(size: "xs", class: "w-48")}
             >
               <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
               <%= for row <- @display_rows do %>
@@ -154,25 +154,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
           </form>
           <div
             :if={@availability_source == :sweep_history}
-            class="text-xs text-base-content/60"
+            class="text-xs text-sr-muted"
           >
             Source: recent sweep history
           </div>
-          <div :if={@availability_source == :none} class="text-xs text-base-content/60">
+          <div :if={@availability_source == :none} class="text-xs text-sr-muted">
             Canonical source: fallback
           </div>
         </div>
       </div>
 
       <div class="p-4">
-        <div :if={@display_rows == []} class="text-sm text-base-content/60">
+        <div :if={@display_rows == []} class="text-sm text-sr-muted">
           No per-agent sweep availability has been recorded for this device yet.
         </div>
 
         <div :if={@display_rows != []} class="overflow-x-auto">
-          <table class="table table-xs">
+          <table class={ui_table_class(size: "xs")}>
             <thead>
-              <tr class="text-xs text-base-content/60">
+              <tr class="text-xs text-sr-muted">
                 <th>Agent</th>
                 <th>Status</th>
                 <th>Checked</th>
@@ -183,25 +183,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
             </thead>
             <tbody>
               <%= for row <- @display_rows do %>
-                <tr class="hover:bg-base-200/40">
+                <tr class="hover:bg-sr-subtle/40">
                   <td>
                     <div class="flex items-center gap-2">
                       <span class="font-mono text-xs">{availability_agent_label(row)}</span>
-                      <span
+                      <.ui_badge
                         :if={@availability_source == :canonical and row.agent_id == @primary_agent_id}
-                        class="badge badge-primary badge-xs"
+                        size="xs"
+                        variant="primary"
                       >
                         source
-                      </span>
-                      <span
+                      </.ui_badge>
+                      <.ui_badge
                         :if={
                           @availability_source == :canonical and row.agent_id == @primary_agent_id and
                             present?(@source_profile_id)
                         }
-                        class="badge badge-info badge-xs"
+                        size="xs"
+                        variant="info"
                       >
                         profile
-                      </span>
+                      </.ui_badge>
                     </div>
                   </td>
                   <td>
@@ -217,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                   <td class="font-mono text-xs">{format_sweep_time(row.checked_at)}</td>
                   <td class="font-mono text-xs">{format_response_time(row.response_time_ms)}</td>
                   <td class="font-mono text-xs">{format_ports_compact(row.open_ports || [])}</td>
-                  <td class="text-xs text-base-content/70">
+                  <td class="text-xs text-sr-muted">
                     {format_mode_results(row.sweep_modes_results)}
                   </td>
                 </tr>

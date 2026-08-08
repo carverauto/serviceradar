@@ -200,6 +200,14 @@ func startNetprobeSidecarForIntegration(t *testing.T, ctx context.Context, binar
 		"--config", configPath,
 		"--health-port", "0",
 		"--log-format", "json",
+		// Test runners run as root -- BuildBuddy executors always do. Without this the
+		// sidecar exits before binding the socket ("refuses to serve IPC as root") and
+		// the Dial loop below times out with a misleading ENOENT on netprobe.sock.
+		//
+		// Safe here specifically because the config written above is {"enabled":false}:
+		// this sidecar probes nothing and only answers Ping. The privilege drop exists to
+		// stop a REAL probe from running as root; there is no probe in this test.
+		"--allow-root",
 	)
 	cmd.Stdout = &output
 	cmd.Stderr = &output

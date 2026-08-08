@@ -42,10 +42,10 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-7xl p-6">
-        <nav class="mb-4 text-sm breadcrumbs">
+        <nav class="mb-4 text-sm ">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
-            <li class="text-base-content/70">Remote access targets</li>
+            <li class="text-sr-muted">Remote access targets</li>
           </ul>
         </nav>
 
@@ -56,17 +56,19 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
           </:subtitle>
         </.header>
 
-        <div :if={@targets_error} class="alert alert-error mt-4 text-sm">{@targets_error}</div>
+        <div :if={@targets_error} class={ui_alert_class(variant: "error", class: "mt-4 text-sm")}>
+          {@targets_error}
+        </div>
 
         <div class="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
           <section class="space-y-3">
             <div class="flex items-center justify-between gap-3">
               <h2 class="text-base font-semibold">Applications</h2>
-              <span class="badge badge-outline">{length(@application_targets)}</span>
+              <.ui_badge size="sm" variant="outline">{length(@application_targets)}</.ui_badge>
             </div>
 
-            <div class="overflow-hidden rounded border border-base-300">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -76,32 +78,34 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                 </thead>
                 <tbody>
                   <tr :if={@application_targets == []}>
-                    <td colspan="3" class="text-base-content/60">
+                    <td colspan="3" class="text-sr-muted">
                       No registered application targets are visible.
                     </td>
                   </tr>
                   <tr :for={target <- @application_targets}>
                     <td>
                       <div class="font-medium">{target.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">{target.device_uid}</div>
+                      <div class="font-mono text-xs text-sr-muted">{target.device_uid}</div>
                     </td>
                     <td class="font-mono text-xs">
                       {target.upstream_scheme}://{target.upstream_host}:{target.upstream_port}
                     </td>
                     <td class="text-right">
-                      <.link
+                      <.ui_button
                         :if={@can_open_app? and target.enabled}
                         navigate={~p"/remote-access/applications/#{target.id}"}
-                        class="btn btn-primary btn-xs"
+                        size="xs"
+                        variant="primary"
                       >
                         Open
-                      </.link>
-                      <span
+                      </.ui_button>
+                      <.ui_badge
                         :if={!(@can_open_app? and target.enabled)}
-                        class="badge badge-ghost badge-sm"
+                        size="sm"
+                        variant="ghost"
                       >
                         unavailable
-                      </span>
+                      </.ui_badge>
                     </td>
                   </tr>
                 </tbody>
@@ -112,11 +116,11 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
           <section class="space-y-3">
             <div class="flex items-center justify-between gap-3">
               <h2 class="text-base font-semibold">TCP targets</h2>
-              <span class="badge badge-outline">{length(@tcp_targets)}</span>
+              <.ui_badge size="sm" variant="outline">{length(@tcp_targets)}</.ui_badge>
             </div>
 
-            <div class="overflow-hidden rounded border border-base-300">
-              <table class="table table-sm">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -126,33 +130,35 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                 </thead>
                 <tbody>
                   <tr :if={@tcp_targets == []}>
-                    <td colspan="3" class="text-base-content/60">
+                    <td colspan="3" class="text-sr-muted">
                       No registered TCP targets are visible.
                     </td>
                   </tr>
                   <tr :for={target <- @tcp_targets}>
                     <td>
                       <div class="font-medium">{target.name}</div>
-                      <div class="font-mono text-xs text-base-content/60">{target.protocol_name}</div>
+                      <div class="font-mono text-xs text-sr-muted">{target.protocol_name}</div>
                     </td>
                     <td class="font-mono text-xs">{target.upstream_host}:{target.upstream_port}</td>
                     <td class="text-right">
-                      <.link
+                      <.ui_button
                         :if={@can_open_tcp? and target.enabled and tcp_browser_workflow?(target)}
                         navigate={~p"/remote-access/tcp-targets/#{target.id}"}
-                        class="btn btn-secondary btn-xs"
+                        size="xs"
+                        variant="soft"
                       >
                         Open
-                      </.link>
-                      <span
+                      </.ui_button>
+                      <.ui_badge
                         :if={(!@can_open_tcp? or !target.enabled) and tcp_browser_workflow?(target)}
-                        class="badge badge-ghost badge-sm"
+                        size="sm"
+                        variant="ghost"
                       >
                         unavailable
-                      </span>
-                      <span :if={!tcp_browser_workflow?(target)} class="badge badge-ghost badge-sm">
+                      </.ui_badge>
+                      <.ui_badge :if={!tcp_browser_workflow?(target)} size="sm" variant="ghost">
                         none
-                      </span>
+                      </.ui_badge>
                     </td>
                   </tr>
                 </tbody>

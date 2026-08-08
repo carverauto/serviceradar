@@ -5,6 +5,8 @@ defmodule ServiceRadarAgentGateway.SafeGrpcLoggerTest do
 
   alias ServiceRadarAgentGateway.SafeGrpcLogger
 
+  @moduletag :requires_app
+
   test "logs gRPC method and status without request or response bodies" do
     stream = %GRPC.Server.Stream{
       server: ServiceRadarAgentGateway.AgentGatewayServer,

@@ -1,10 +1,20 @@
-defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
+defmodule ServiceRadarWebNGWeb.Components.SettingsComponentsTest do
+  @moduledoc """
+  Subnav visibility rules for `SettingsComponents`. Named for its directory, like
+  every other module under `test/phoenix/components/`: this file previously used
+  the bare `ServiceRadarWebNGWeb.SettingsComponentsTest`, colliding with
+  `test/phoenix/settings/settings_components_test.exs`. Both were loaded into one
+  VM, the second definition won, and all five tests below silently never ran.
+  """
+
   use ExUnit.Case, async: false
 
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.SettingsComponents
+
+  @moduletag :db_free
 
   test "credential manager sees credential rules in the network settings subnav" do
     scope = %Scope{permissions: MapSet.new(["settings.credentials.manage"])}

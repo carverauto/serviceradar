@@ -321,6 +321,23 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :update_metadata do
       accept @alert_metadata_fields
     end
+
+    destroy :discard_internal_probe do
+      require_atomic? false
+
+      change fn changeset, _context ->
+        metadata = changeset.data.metadata || %{}
+
+        if metadata["synthetic_liveness_check"] == true do
+          changeset
+        else
+          Ash.Changeset.add_error(changeset,
+            field: :metadata,
+            message: "only synthetic liveness alerts can use this action"
+          )
+        end
+      end
+    end
   end
 
   defp increment_notification_tracking(changeset, current_count \\ nil) do

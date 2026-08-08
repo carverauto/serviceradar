@@ -30,6 +30,7 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -169,8 +170,8 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
     seconds = interval_seconds(controller)
 
     _ =
-      %{"controller_id" => controller.id}
-      |> new(schedule_in: seconds)
+      __MODULE__
+      |> SelfScheduling.successor_changeset(%{"controller_id" => controller.id}, seconds)
       |> ObanSupport.safe_insert()
 
     :ok

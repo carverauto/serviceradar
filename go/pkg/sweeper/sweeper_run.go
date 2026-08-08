@@ -132,6 +132,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			tcpTargets = append(tcpTargets, t)
 		case models.ModeTCPConnect:
 			tcpConnectTargets = append(tcpConnectTargets, t)
+		case models.ModeMTR:
+			// MTR is handled by the agent's ad-hoc scan path, not this persistent
+			// sweeper run.
 		}
 	}
 

@@ -1,6 +1,9 @@
+load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "crate_deps")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -67,7 +70,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.24"
+NETPROBE_VERSION = "0.2.27"
 
 cargo_build_script(
     name = "build_script",
@@ -80,11 +83,12 @@ cargo_build_script(
     },
     crate_root = "build.rs",
     data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
-    ] + glob(["recog-corpus/xml/*.xml"]),
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps([
         "aya-build",
@@ -96,12 +100,14 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
-    ] + glob(["recog-corpus/xml/*.xml"]),
+        "//third_party/netprobe_corpora:p0f/p0f.fp",
+        "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
+        "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
+        "//third_party/netprobe_corpora:recog_xml",
+    ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
@@ -114,6 +120,65 @@ rust_binary(
 rust_test(
     name = "netprobe_test",
     crate = ":netprobe",
-    data = glob(["satori-corpus/xml/*.xml"]),
+    data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = crate_deps(["tempfile"]),
+)
+
+###############################################################################
+# Static musl linkage gates
+#
+# Was the "Verify static linkage" step of .forgejo/workflows/rust-musl.yml: a `bazel build`
+# with --platforms, then `bazel cquery --output=files | tail -n 1` to locate the artifact,
+# then shell assertions over it, plus scripts/ci/assert-netprobe-libpcap-free.sh.
+#
+# As targets the binary is a declared input rather than something recovered from a cquery
+# expression, so the assertions run under a plain `bazel test //...`, cache like any other
+# test, and cannot drift from the thing they check.
+#
+# The platform transition is what makes this work without --platforms on the command line.
+# //rust/netprobe:netprobe under the default RBE platform is a glibc build and would fail
+# every one of these checks; platform_transition_filegroup rebuilds it for the musl platform
+# named here, so the two test targets below always look at the artifact the release actually
+# ships. That is also why there are two: x86_64 and aarch64 are separate builds and a
+# regression in one says nothing about the other.
+#
+# Deliberately NOT ported: the `--help` smoke run that step did for the host architecture
+# only. A cross-built aarch64 binary cannot execute on an x86_64 executor, so as a test
+# target it would have to be silently skipped on one of the two platforms, which is the
+# failure mode this whole change exists to remove. Execution belongs in a test that can
+# state its own platform requirement.
+###############################################################################
+platform_transition_filegroup(
+    name = "netprobe_linux_x86_64_musl",
+    srcs = [":netprobe"],
+    target_platform = "//build/platforms:linux_x86_64_musl",
+)
+
+platform_transition_filegroup(
+    name = "netprobe_linux_aarch64_musl",
+    srcs = [":netprobe"],
+    target_platform = "//build/platforms:linux_aarch64_musl",
+)
+
+# One test for both architectures. debug/elf parses any ELF regardless of the host, so an
+# aarch64 artifact is checked from an x86_64 executor without a second runner. See the file
+# header for why this is Go and not the sh_test it started as.
+#
+# target_compatible_with is about the MUSL BUILD, not the ELF parsing. The transitions above
+# need the musl Rust toolchain, which a macOS developer running `bazel test //...` under
+# --config=darwin_local cannot resolve; pinning the test to Linux makes that a skip rather
+# than a toolchain error. On CI the target platform is the RBE Linux platform, so it runs.
+go_test(
+    name = "static_linkage_test",
+    size = "small",
+    srcs = ["static_linkage_test.go"],
+    data = [
+        ":netprobe_linux_aarch64_musl",
+        ":netprobe_linux_x86_64_musl",
+    ],
+    env = {
+        "NETPROBE_AARCH64_MUSL": "$(rootpath :netprobe_linux_aarch64_musl)",
+        "NETPROBE_X86_64_MUSL": "$(rootpath :netprobe_linux_x86_64_musl)",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
 )

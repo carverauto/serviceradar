@@ -23,6 +23,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -85,8 +86,8 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    %{}
-    |> new(schedule_in: @reschedule_interval_seconds)
+    __MODULE__
+    |> SelfScheduling.successor_changeset(%{}, @reschedule_interval_seconds)
     |> ObanSupport.safe_insert()
   end
 

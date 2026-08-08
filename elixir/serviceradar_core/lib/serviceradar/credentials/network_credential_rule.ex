@@ -207,37 +207,19 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     attribute :provider, :string do
       allow_nil? false
       public? true
-      description "Integration provider, for example proxmox"
+      description "Package-declared integration provider identifier"
     end
 
-    attribute :auth_method, :atom do
+    attribute :auth_method, :string do
       allow_nil? false
       public? true
-
-      constraints one_of: [
-                    :proxmox_api_token,
-                    :ssh_private_key,
-                    :username_password,
-                    :api_key,
-                    :certificate,
-                    :opaque
-                  ]
+      description "Package-declared authentication method identifier"
     end
 
-    attribute :purpose, :atom do
+    attribute :purpose, :string do
       allow_nil? false
       public? true
-      default :inventory_enrichment
-
-      constraints one_of: [
-                    :inventory_enrichment,
-                    :console_access,
-                    :discovery,
-                    :generic,
-                    :camera_inventory,
-                    :camera_stream,
-                    :device_inventory
-                  ]
+      description "Package-declared primary credential purpose identifier"
     end
 
     attribute :target_query, :string do

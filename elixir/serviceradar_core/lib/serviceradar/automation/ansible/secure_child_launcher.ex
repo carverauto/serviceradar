@@ -21,11 +21,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.Ansible.HardenedLaunchPlan
+  alias ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflight
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter
   alias ServiceRadar.Automation.Ansible.Targeting
   alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Automation.CallbackGrants.ActionContract
   alias ServiceRadar.Automation.CallbackGrants.LaunchContract
+  alias ServiceRadar.Edge.AgentCommandBus
 
   @launch_permission "ansible.runs.launch"
   @max_targets 500
@@ -81,7 +83,60 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
     with {:ok, normalized} <- validate_request(request),
-         {:ok, current_actor} <- adapter.load_current_actor(normalized.actor_id),
+         {:ok, preflight_state} <- load_launch_state(normalized, adapter, now),
+         {:ok, dispatcher_identity} <-
+           authenticated_edge_principal(preflight_state.controller, opts),
+         {:ok, preflight_attestation} <-
+           attest_live_preflight(preflight_state, dispatcher_identity, now, opts),
+         post_preflight_now = Keyword.get(opts, :post_preflight_now, now),
+         {:ok, launch_state} <- load_launch_state(normalized, adapter, post_preflight_now),
+         actor_snapshot =
+           actor_snapshot(
+             launch_state.current_actor,
+             launch_state.authorization,
+             normalized.membership_ids,
+             launch_state.binding,
+             launch_state.callback_contract,
+             post_preflight_now
+           ),
+         {:ok, plan} <-
+           HardenedLaunchPlan.build(%{
+             action: action(normalized.mode),
+             request_source: normalized.request_source,
+             mode: normalized.mode,
+             mutating: normalized.mode == :run,
+             controller_id: launch_state.scope.controller_id,
+             controller_security_snapshot: launch_state.controller_security_snapshot,
+             job_template_id: normalized.job_template_id,
+             actor_snapshot: actor_snapshot,
+             memberships: launch_state.memberships,
+             held_device_uids: launch_state.held_device_uids,
+             binding: launch_state.launch_binding,
+             preflight_binding: launch_state.binding,
+             preflight_attestation: preflight_attestation,
+             preflight_checked_at: post_preflight_now,
+             variable_schema: launch_state.variable_schema,
+             inputs: normalized.inputs,
+             callback_gate_available: not is_nil(launch_state.callback_contract),
+             callback_contract: launch_state.callback_contract,
+             dynamic_callback_slot:
+               if(
+                 launch_state.callback_contract,
+                 do: launch_state.launch_binding.callback_credential_slot
+               )
+           }) do
+      adapter.launch(plan, launch_state.controller)
+    end
+  end
+
+  def launch(_request, _opts), do: {:error, :invalid_secure_launch_request}
+
+  # Every launch takes this read-only state snapshot twice: once to construct
+  # the exact preflight request, then again after the edge response and before
+  # any mutable operation/execution is created. The second read is not an
+  # optimization barrier; it is the authority-contraction boundary.
+  defp load_launch_state(normalized, adapter, now) do
+    with {:ok, current_actor} <- adapter.load_current_actor(normalized.actor_id),
          :ok <- validate_current_actor(current_actor, normalized.actor_id),
          {:ok, authorization} <- adapter.fresh_authorization(current_actor),
          :ok <- require_launch_permission(authorization),
@@ -92,8 +147,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          {:ok, controller} <- adapter.load_controller(scope.controller_id),
          :ok <- validate_controller(controller, scope.controller_id),
          {:ok, controller_security_snapshot} <- ControllerSecuritySnapshot.capture(controller),
-         {:ok, binding} <-
-           adapter.load_binding(scope.controller_id, normalized.job_template_id),
+         {:ok, binding} <- adapter.load_binding(scope.controller_id, normalized.job_template_id),
          {:ok, launch_binding, callback_contract} <-
            validate_binding(
              binding,
@@ -105,41 +159,76 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
          :ok <- require_action_permissions(authorization, callback_contract),
          {:ok, held_device_uids} <- adapter.active_hold_device_uids(scope.device_uids),
          :ok <- reject_active_holds(held_device_uids, scope.device_uids),
-         {:ok, variable_schema} <- VariableSchema.from_binding(binding),
-         actor_snapshot =
-           actor_snapshot(
-             current_actor,
-             authorization,
-             normalized.membership_ids,
-             binding,
-             callback_contract,
-             now
-           ),
-         {:ok, plan} <-
-           HardenedLaunchPlan.build(%{
-             action: action(normalized.mode),
-             request_source: normalized.request_source,
-             mode: normalized.mode,
-             mutating: normalized.mode == :run,
-             controller_id: scope.controller_id,
-             controller_security_snapshot: controller_security_snapshot,
-             job_template_id: normalized.job_template_id,
-             actor_snapshot: actor_snapshot,
-             memberships: memberships,
-             held_device_uids: held_device_uids,
-             binding: launch_binding,
-             variable_schema: variable_schema,
-             inputs: normalized.inputs,
-             callback_gate_available: not is_nil(callback_contract),
-             callback_contract: callback_contract,
-             dynamic_callback_slot:
-               if(callback_contract, do: launch_binding.callback_credential_slot)
-           }) do
-      adapter.launch(plan, controller)
+         {:ok, variable_schema} <- VariableSchema.from_binding(binding) do
+      {:ok,
+       %{
+         current_actor: current_actor,
+         authorization: authorization,
+         memberships: memberships,
+         scope: scope,
+         controller: controller,
+         controller_security_snapshot: controller_security_snapshot,
+         binding: binding,
+         launch_binding: launch_binding,
+         callback_contract: callback_contract,
+         held_device_uids: held_device_uids,
+         variable_schema: variable_schema
+       }}
     end
   end
 
-  def launch(_request, _opts), do: {:error, :invalid_secure_launch_request}
+  defp attest_live_preflight(state, dispatcher_identity, now, opts) do
+    preflight = Keyword.get(opts, :live_preflight, LiveAwxLaunchPreflight)
+
+    preflight_opts =
+      opts
+      |> Keyword.get(:live_preflight_opts, [])
+      |> normalize_preflight_opts(now)
+
+    context = %{
+      controller: state.controller,
+      binding: state.binding,
+      memberships: state.memberships,
+      controller_security_snapshot: state.controller_security_snapshot,
+      dispatcher_identity: dispatcher_identity
+    }
+
+    case preflight do
+      fun when is_function(fun, 2) -> fun.(context, preflight_opts)
+      module when is_atom(module) -> apply(module, :attest, [context, preflight_opts])
+      _ -> {:error, :awx_preflight_unavailable}
+    end
+  rescue
+    UndefinedFunctionError -> {:error, :awx_preflight_unavailable}
+  end
+
+  defp normalize_preflight_opts(options, now) when is_list(options) do
+    options = if Keyword.keyword?(options), do: options, else: []
+    Keyword.put_new(options, :clock, fn -> now end)
+  end
+
+  defp normalize_preflight_opts(_options, now), do: [clock: fn -> now end]
+
+  defp authenticated_edge_principal(controller, opts) do
+    resolver =
+      Keyword.get(
+        opts,
+        :edge_principal_resolver,
+        &AgentCommandBus.resolve_control_session_evidence/1
+      )
+
+    with true <- is_function(resolver, 1),
+         {:ok, evidence} when is_map(evidence) <- resolver.(value(controller, :agent_id)),
+         agent_id when is_binary(agent_id) <- value(evidence, :agent_id),
+         true <- agent_id == value(controller, :agent_id),
+         partition_id when is_binary(partition_id) <- value(evidence, :partition_id),
+         partition_id = String.trim(partition_id),
+         true <- partition_id != "" do
+      {:ok, %{agent_id: agent_id, partition_id: partition_id}}
+    else
+      _ -> {:error, :authenticated_edge_principal_unavailable}
+    end
+  end
 
   defp validate_request(request) do
     actor = value(request, :actor)

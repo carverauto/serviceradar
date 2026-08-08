@@ -140,6 +140,48 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     %{conn: conn, user: user}
   end
 
+  describe "GET /api/remote-access/devices/:device_uid/ssh-options" do
+    test "returns browser-safe account names without principals", %{conn: conn} do
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_device_visibility_fetcher,
+        fn device_uid, _opts -> {:ok, %{uid: device_uid}} end
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_ssh_options_result,
+        {:ok,
+         %{
+           "default_credential_mode" => "ssh_certificate",
+           "accounts" => [%{"name" => "mfreeman"}, %{"name" => "deploy"}],
+           "ttl_seconds" => 1800,
+           "device_uid" => "linux-1"
+         }}
+      )
+
+      conn = get(conn, ~p"/api/remote-access/devices/linux-1/ssh-options")
+      body = json_response(conn, 200)
+
+      assert body["data"]["default_credential_mode"] == "ssh_certificate"
+      assert body["data"]["accounts"] == [%{"name" => "mfreeman"}, %{"name" => "deploy"}]
+      assert body["data"]["ttl_seconds"] == 1800
+      refute inspect(body) =~ "srp_v1_"
+      refute inspect(body) =~ "principals"
+      assert_receive {:ssh_console_options, "linux-1", opts}
+      assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "returns not found when SSH remote access is disabled", %{conn: conn} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+
+      conn = get(conn, ~p"/api/remote-access/devices/linux-1/ssh-options")
+      body = json_response(conn, 404)
+      assert body["error"] == "not_found"
+      refute_receive {:ssh_console_options, _device_uid, _opts}
+    end
+  end
+
   describe "POST /api/remote-access/sessions" do
     test "returns not found when SSH remote access is disabled", %{conn: conn} do
       Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)

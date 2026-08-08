@@ -11,8 +11,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Header do
     <!-- Header with Action Buttons -->
     <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-semibold text-base-content">Devices</h1>
-        <p class="text-sm text-base-content/60">
+        <h1 class="text-2xl font-semibold text-sr-ink">Devices</h1>
+        <p class="text-sm text-sr-muted">
           Manage and monitor your network devices
         </p>
       </div>
@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Header do
     </div>
 
     <div :if={@managed_device_limit_exceeded} class="mb-4">
-      <div role="alert" class="alert alert-warning">
+      <div role="alert" class={ui_alert_class("warning")}>
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div class="text-sm">
           <div class="font-semibold">Managed device advisory limit exceeded</div>

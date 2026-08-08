@@ -79,12 +79,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   defp run_sync(args) do
     repo_url = repo_url(args)
     limit = release_limit(args)
-    release_tag = optional_arg(args, "release_tag")
+    release_tag = release_tag(args)
     addon_ids = requested_addon_ids(args)
     auto_approve_addon_ids = configured_auto_approve_addon_ids()
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
-    case NativeAddonImporter.list_recent_addons(discovery_attrs, limit) do
+    case discover_addons(discovery_attrs, limit, release_tag) do
       {:ok, addons} ->
         results =
           addons
@@ -115,6 +115,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
         {:error, reason}
     end
+  end
+
+  defp discover_addons(discovery_attrs, _limit, release_tag) when is_binary(release_tag) do
+    NativeAddonImporter.list_release_addons(discovery_attrs, release_tag)
+  end
+
+  defp discover_addons(discovery_attrs, limit, nil) do
+    NativeAddonImporter.list_recent_addons(discovery_attrs, limit)
   end
 
   defp schedule_next do
@@ -291,6 +299,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     optional_arg(args, "repo_url") || Keyword.get(config(), :repo_url)
   end
 
+  defp release_tag(args) do
+    optional_arg(args, "release_tag") ||
+      normalize_optional_string(Keyword.get(config(), :release_tag)) ||
+      normalize_optional_string(System.get_env("SERVICERADAR_RELEASE_VERSION"))
+  end
+
   defp requested_addon_ids(args) do
     args
     |> optional_arg("addon_ids")
@@ -326,6 +340,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   end
 
   defp normalize_positive_integer(_value, default), do: default
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_value), do: nil
 
   defp normalize_string_list(value, _default) when is_list(value) do
     value

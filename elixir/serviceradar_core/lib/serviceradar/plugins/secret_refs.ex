@@ -21,7 +21,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   def prepare_params_for_storage(schema, params, existing_params)
       when is_map(schema) and is_map(params) and is_map(existing_params) do
-    params = stringify_keys(params)
+    params =
+      params
+      |> stringify_keys()
+      |> apply_selected_credentials(schema)
+
     existing_params = stringify_keys(existing_params)
 
     params
@@ -33,6 +37,42 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     do: public_params(params)
 
   def prepare_params_for_storage(_schema, _params, _existing_params), do: %{}
+
+  @credential_select_suffix "__credential"
+
+  @doc """
+  The submitted-params key the settings UI uses to offer a reusable credential
+  for a `secretRef` field.
+
+  A separate key rather than the field's own name: the form renders the credential
+  select *and* the raw-entry input together, and two controls sharing one name means
+  the last one submitted wins -- the empty password box would clobber a chosen
+  credential every time.
+  """
+  @spec credential_select_key(String.t()) :: String.t()
+  def credential_select_key(field), do: field <> @credential_select_suffix
+
+  # Fold a chosen credential into its field, then drop the sidecar so it never
+  # reaches stored params. A blank selection leaves the field alone, so raw entry
+  # and "leave unchanged" both behave exactly as they did before.
+  defp apply_selected_credentials(params, schema) do
+    schema
+    |> secret_ref_fields()
+    |> Enum.reduce(params, fn field, acc ->
+      key = credential_select_key(field)
+
+      case Map.get(acc, key) do
+        value when is_binary(value) ->
+          case String.trim(value) do
+            "" -> Map.delete(acc, key)
+            ref -> acc |> Map.put(field, ref) |> Map.delete(key)
+          end
+
+        _ ->
+          Map.delete(acc, key)
+      end
+    end)
+  end
 
   defp prepare_direct_params_for_storage(params, schema, existing_params) do
     existing_material = secret_material(existing_params)

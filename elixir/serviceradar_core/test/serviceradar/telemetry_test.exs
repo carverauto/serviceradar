@@ -489,6 +489,10 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :gateway, :registered, :count] in metric_names
       assert [:serviceradar, :agent, :connected, :count] in metric_names
       assert [:serviceradar, :registry, :lookup, :count] in metric_names
+      assert [:serviceradar, :prefix_tags, :lookup, :count] in metric_names
+      assert [:serviceradar, :prefix_tags, :snapshot_age, :age_seconds] in metric_names
+      assert [:serviceradar, :prefix_tags, :snapshot_freshness, :known] in metric_names
+      assert [:serviceradar, :prefix_tags, :import, :record_count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :opened, :count] in metric_names
       assert [:serviceradar, :camera_relay, :session, :viewer_count] in metric_names
       assert [:serviceradar, :camera_relay, :analysis, :branch_opened, :count] in metric_names
@@ -501,6 +505,44 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
 
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+    end
+  end
+
+  describe "prefix_tag_metrics/0" do
+    test "registers every emitted prefix-tag telemetry event" do
+      metrics = Telemetry.prefix_tag_metrics()
+      metric_names = Enum.map(metrics, & &1.name)
+
+      assert [:serviceradar, :prefix_tags, :lookup, :count] in metric_names
+      assert [:serviceradar, :prefix_tags, :lookup, :match_depth] in metric_names
+      assert [:serviceradar, :prefix_tags, :swap, :duration] in metric_names
+      assert [:serviceradar, :prefix_tags, :swap, :total_prefixes] in metric_names
+      assert [:serviceradar, :prefix_tags, :rebuild, :duration] in metric_names
+      assert [:serviceradar, :prefix_tags, :rebuild, :row_count] in metric_names
+      assert [:serviceradar, :prefix_tags, :rebuild, :total_prefixes] in metric_names
+      assert [:serviceradar, :prefix_tags, :snapshot_age, :age_seconds] in metric_names
+      assert [:serviceradar, :prefix_tags, :snapshot_freshness, :known] in metric_names
+      assert [:serviceradar, :prefix_tags, :import, :duration] in metric_names
+      assert [:serviceradar, :prefix_tags, :import, :record_count] in metric_names
+
+      snapshot_age =
+        Enum.find(metrics, fn metric ->
+          metric.name == [:serviceradar, :prefix_tags, :snapshot_age, :age_seconds]
+        end)
+
+      assert snapshot_age.event_name == [:serviceradar, :prefix_tags, :snapshot_age]
+      assert snapshot_age.tags == [:source]
+      assert snapshot_age.unit == :second
+
+      snapshot_freshness =
+        Enum.find(metrics, fn metric ->
+          metric.name == [:serviceradar, :prefix_tags, :snapshot_freshness, :known]
+        end)
+
+      assert snapshot_freshness.event_name ==
+               [:serviceradar, :prefix_tags, :snapshot_freshness]
+
+      assert snapshot_freshness.tags == [:source]
     end
   end
 

@@ -61,32 +61,32 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="space-y-6">
+      <div class="sr-observability-page space-y-6 font-sans">
         <.observability_chrome active_pane="camera-relays" active_subsection="operations">
           <:actions>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+            <.ui_button type="button" phx-click="refresh" size="sm" variant="primary">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
+            </.ui_button>
           </:actions>
         </.observability_chrome>
 
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="space-y-2">
-            <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-base-content/50">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-sr-muted">
               <span class="inline-flex size-2 rounded-full bg-success"></span> Relay Ops
             </div>
             <div>
-              <h1 class="text-3xl font-semibold tracking-tight text-base-content">
+              <h1 class="text-3xl font-semibold tracking-tight text-sr-ink">
                 Camera Relay Operations
               </h1>
-              <p class="mt-1 max-w-2xl text-sm text-base-content/70">
+              <p class="mt-1 max-w-2xl text-sm text-sr-muted">
                 Live relay visibility for active sessions, viewer load, and recent shutdown reasons.
               </p>
             </div>
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-warning">
+        <div :if={@error} class={ui_alert_class("warning")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -135,23 +135,25 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
         </div>
 
         <section class="grid gap-6 xl:grid-cols-2">
-          <article class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-            <div class="border-b border-base-200 px-5 py-4">
+          <article class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+            <div class="border-b border-sr-line px-5 py-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <h2 class="text-lg font-semibold text-base-content">Active Relay Health Alerts</h2>
-                  <p class="text-sm text-base-content/60">
+                  <h2 class="text-lg font-semibold text-sr-ink">Active Relay Health Alerts</h2>
+                  <p class="text-sm text-sr-muted">
                     Threshold alerts driven by relay failure bursts, saturation denials, and churn.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@relay_health_active_alerts)} active</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@relay_health_active_alerts)} active
+                </.ui_badge>
               </div>
             </div>
 
-            <div class="divide-y divide-base-200">
+            <div class="divide-y divide-sr-line">
               <div
                 :if={@relay_health_active_alerts == []}
-                class="px-5 py-10 text-center text-sm text-base-content/60"
+                class="px-5 py-10 text-center text-sm text-sr-muted"
               >
                 No active relay health alerts.
               </div>
@@ -160,52 +162,54 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-medium text-base-content">{alert.title}</span>
-                      <span class={alert_badge_class(alert.severity)}>
+                      <span class="font-medium text-sr-ink">{alert.title}</span>
+                      <.ui_badge size="sm" variant={alert_badge_variant(alert.severity)}>
                         {String.capitalize(alert.severity || "unknown")}
-                      </span>
-                      <span class={status_badge_class(alert.status)}>
+                      </.ui_badge>
+                      <.ui_badge size="sm" variant={status_badge_variant(alert.status)}>
                         {format_status(alert.status)}
-                      </span>
+                      </.ui_badge>
                     </div>
-                    <div class="text-sm text-base-content/60">{alert.description}</div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-sm text-sr-muted">{alert.description}</div>
+                    <div class="text-xs text-sr-muted">
                       {display_value(alert.log_name)} · notifications={alert.notification_count}
                     </div>
                   </div>
 
-                  <div class="shrink-0 text-right text-xs text-base-content/50">
+                  <div class="shrink-0 text-right text-xs text-sr-muted">
                     <div>{format_datetime(alert.triggered_at)}</div>
                     <div>{format_datetime(alert.last_notification_at)}</div>
                   </div>
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <.link navigate={~p"/alerts/#{alert.id}"} class="btn btn-ghost btn-xs">
+                  <.ui_button navigate={~p"/alerts/#{alert.id}"} size="xs" variant="ghost">
                     View alert
-                  </.link>
+                  </.ui_button>
                 </div>
               </article>
             </div>
           </article>
 
-          <article class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-            <div class="border-b border-base-200 px-5 py-4">
+          <article class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+            <div class="border-b border-sr-line px-5 py-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <h2 class="text-lg font-semibold text-base-content">Recent Relay Health Signals</h2>
-                  <p class="text-sm text-base-content/60">
+                  <h2 class="text-lg font-semibold text-sr-ink">Recent Relay Health Signals</h2>
+                  <p class="text-sm text-sr-muted">
                     Structured relay-health events feeding the alert templates and event stream.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@relay_health_recent_events)} recent</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@relay_health_recent_events)} recent
+                </.ui_badge>
               </div>
             </div>
 
-            <div class="divide-y divide-base-200">
+            <div class="divide-y divide-sr-line">
               <div
                 :if={@relay_health_recent_events == []}
-                class="px-5 py-10 text-center text-sm text-base-content/60"
+                class="px-5 py-10 text-center text-sm text-sr-muted"
               >
                 No recent relay health signals.
               </div>
@@ -214,54 +218,56 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-medium text-base-content">{event.message}</span>
-                      <span class={event_badge_class(event.relay_health_kind)}>
+                      <span class="font-medium text-sr-ink">{event.message}</span>
+                      <.ui_badge size="sm" variant={event_badge_variant(event.relay_health_kind)}>
                         {entry_label(event.relay_health_kind)}
-                      </span>
+                      </.ui_badge>
                     </div>
-                    <div class="text-sm text-base-content/60">
+                    <div class="text-sm text-sr-muted">
                       session={display_value(event.relay_session_id)} · gateway={display_value(
                         event.gateway_id
                       )}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       {display_value(event.log_name)} · reason={display_value(
                         event.reason || event.status_detail
                       )}
                     </div>
                   </div>
 
-                  <div class="shrink-0 text-right text-xs text-base-content/50">
+                  <div class="shrink-0 text-right text-xs text-sr-muted">
                     <div>{format_datetime(event.time)}</div>
                     <div>{display_value(event.severity)}</div>
                   </div>
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <.link navigate={~p"/events/#{event.id}"} class="btn btn-ghost btn-xs">
+                  <.ui_button navigate={~p"/events/#{event.id}"} size="xs" variant="ghost">
                     View event
-                  </.link>
+                  </.ui_button>
                 </div>
               </article>
             </div>
           </article>
         </section>
 
-        <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-          <div class="border-b border-base-200 px-5 py-4">
+        <section class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+          <div class="border-b border-sr-line px-5 py-4">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <h2 class="text-lg font-semibold text-base-content">Terminal Outcome Breakdown</h2>
-                <p class="text-sm text-base-content/60">
+                <h2 class="text-lg font-semibold text-sr-ink">Terminal Outcome Breakdown</h2>
+                <p class="text-sm text-sr-muted">
                   Quick drill-down for the most common recent relay shutdown classes.
                 </p>
               </div>
-              <span class="badge badge-ghost">{length(@terminal_breakdown)} kinds</span>
+              <.ui_badge size="sm" variant="ghost">
+                {length(@terminal_breakdown)} kinds
+              </.ui_badge>
             </div>
           </div>
 
           <div class="flex flex-wrap gap-3 px-5 py-4">
-            <div :if={@terminal_breakdown == []} class="text-sm text-base-content/60">
+            <div :if={@terminal_breakdown == []} class="text-sm text-sr-muted">
               No terminal relay outcomes yet.
             </div>
 
@@ -270,30 +276,32 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
               patch={
                 ~p"/observability/camera-relays?#{filter_params(@filters, %{terminal: entry.kind})}"
               }
-              class="group rounded-xl border border-base-200 bg-base-50 px-4 py-3 transition hover:border-primary/30 hover:bg-primary/5"
+              class="group rounded-xl border border-sr-line bg-base-50 px-4 py-3 transition hover:border-sr-brand/30 hover:bg-sr-brand/5"
             >
-              <div class="text-xs uppercase tracking-wide text-base-content/45">
+              <div class="text-xs uppercase tracking-wide text-sr-ink/45">
                 {entry_label(entry.kind)}
               </div>
               <div class="mt-1 flex items-baseline gap-2">
-                <span class="text-2xl font-semibold text-base-content">{entry.count}</span>
-                <span class="text-xs text-base-content/50">recent sessions</span>
+                <span class="text-2xl font-semibold text-sr-ink">{entry.count}</span>
+                <span class="text-xs text-sr-muted">recent sessions</span>
               </div>
             </.link>
           </div>
         </section>
 
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-            <div class="border-b border-base-200 px-5 py-4">
+          <section class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+            <div class="border-b border-sr-line px-5 py-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <h2 class="text-lg font-semibold text-base-content">Active Relay Sessions</h2>
-                  <p class="text-sm text-base-content/60">
+                  <h2 class="text-lg font-semibold text-sr-ink">Active Relay Sessions</h2>
+                  <p class="text-sm text-sr-muted">
                     Requested, opening, active, and closing sessions across the deployment.
                   </p>
                 </div>
-                <span class="badge badge-ghost">{length(@active_sessions)} sessions</span>
+                <.ui_badge size="sm" variant="ghost">
+                  {length(@active_sessions)} sessions
+                </.ui_badge>
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.filter_chip
@@ -329,8 +337,8 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
               </div>
             </div>
 
-            <div class="overflow-x-auto">
-              <table class="table table-zebra">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(zebra: true)}>
                 <thead>
                   <tr>
                     <th>Camera</th>
@@ -344,21 +352,21 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 </thead>
                 <tbody>
                   <tr :if={@active_sessions == []}>
-                    <td colspan="7" class="py-10 text-center text-sm text-base-content/60">
+                    <td colspan="7" class="py-10 text-center text-sm text-sr-muted">
                       No live relay sessions right now.
                     </td>
                   </tr>
                   <tr :for={session <- @active_sessions}>
                     <td>
                       <div class="space-y-1">
-                        <div class="font-medium text-base-content">{camera_label(session)}</div>
-                        <div class="text-xs text-base-content/55">
+                        <div class="font-medium text-sr-ink">{camera_label(session)}</div>
+                        <div class="text-xs text-sr-ink/55">
                           {profile_label(session)}
                         </div>
                         <div :if={device_uid(session)} class="text-xs">
                           <.link
                             navigate={~p"/devices/#{device_uid(session)}"}
-                            class="link link-hover text-primary"
+                            class="text-sr-brand hover:underline text-sr-brand"
                           >
                             View device
                           </.link>
@@ -366,9 +374,9 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                       </div>
                     </td>
                     <td>
-                      <span class={status_badge_class(session.status)}>
+                      <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                         {format_status(session.status)}
-                      </span>
+                      </.ui_badge>
                     </td>
                     <td class="font-mono text-xs">{session.agent_id}</td>
                     <td class="font-mono text-xs">{session.gateway_id}</td>
@@ -376,7 +384,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     <td>
                       <.session_log_links session={session} />
                     </td>
-                    <td class="text-xs text-base-content/60">
+                    <td class="text-xs text-sr-muted">
                       {format_datetime(session.updated_at)}
                     </td>
                   </tr>
@@ -385,16 +393,16 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
             </div>
           </section>
 
-          <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-            <div class="border-b border-base-200 px-5 py-4">
+          <section class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+            <div class="border-b border-sr-line px-5 py-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <h2 class="text-lg font-semibold text-base-content">Recent Terminal Sessions</h2>
-                  <p class="text-sm text-base-content/60">
+                  <h2 class="text-lg font-semibold text-sr-ink">Recent Terminal Sessions</h2>
+                  <p class="text-sm text-sr-muted">
                     Most recent closed and failed relay sessions with normalized termination details.
                   </p>
                 </div>
-                <span class="badge badge-ghost">last 50</span>
+                <.ui_badge size="sm" variant="ghost">last 50</.ui_badge>
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
                 <.filter_chip
@@ -442,10 +450,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
               </div>
             </div>
 
-            <div class="divide-y divide-base-200">
+            <div class="divide-y divide-sr-line">
               <div
                 :if={@terminal_sessions == []}
-                class="px-5 py-10 text-center text-sm text-base-content/60"
+                class="px-5 py-10 text-center text-sm text-sr-muted"
               >
                 No terminal relay sessions yet.
               </div>
@@ -454,13 +462,13 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 space-y-1">
                     <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-medium text-base-content">{camera_label(session)}</span>
-                      <span class={status_badge_class(session.status)}>
+                      <span class="font-medium text-sr-ink">{camera_label(session)}</span>
+                      <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                         {format_status(session.status)}
-                      </span>
+                      </.ui_badge>
                     </div>
-                    <div class="text-sm text-base-content/60">{profile_label(session)}</div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-sm text-sr-muted">{profile_label(session)}</div>
+                    <div class="text-xs text-sr-muted">
                       termination={display_value(Map.get(session, :termination_kind))} · viewers={Map.get(
                         session,
                         :viewer_count,
@@ -468,19 +476,19 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                       )}
                     </div>
                   </div>
-                  <div class="shrink-0 text-right text-xs text-base-content/50">
+                  <div class="shrink-0 text-right text-xs text-sr-muted">
                     <div>{format_datetime(session.closed_at || session.updated_at)}</div>
                     <div class="font-mono">{session.gateway_id}</div>
                   </div>
                 </div>
 
-                <div class="mt-3 grid gap-2 text-xs text-base-content/65">
+                <div class="mt-3 grid gap-2 text-xs text-sr-ink/65">
                   <div>
-                    <span class="font-semibold text-base-content/75">Close reason:</span>
+                    <span class="font-semibold text-sr-ink/75">Close reason:</span>
                     {display_value(Map.get(session, :close_reason))}
                   </div>
                   <div>
-                    <span class="font-semibold text-base-content/75">Failure reason:</span>
+                    <span class="font-semibold text-sr-ink/75">Failure reason:</span>
                     {display_value(Map.get(session, :failure_reason))}
                   </div>
                 </div>
@@ -493,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
           </section>
         </div>
 
-        <div class="flex items-center gap-2 text-xs text-base-content/45">
+        <div class="flex items-center gap-2 text-xs text-sr-ink/45">
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
             Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
           </span>
@@ -517,13 +525,13 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
       <.link
         patch={~p"/observability/camera-relays?#{@params}"}
         class={[
-          "block rounded-2xl border bg-base-100 p-4 shadow-sm transition hover:shadow-md",
+          "block rounded-2xl border bg-sr-surface p-4 shadow-sm transition hover:shadow-md",
           tone_border(@tone)
         ]}
       >
         <div class="flex items-center justify-between gap-3">
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/50">{@title}</div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">{@title}</div>
             <div class={["mt-2 text-3xl font-semibold tracking-tight", tone_value(@tone)]}>
               {@value}
             </div>
@@ -534,10 +542,10 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
         </div>
       </.link>
     <% else %>
-      <div class={["rounded-2xl border bg-base-100 p-4 shadow-sm", tone_border(@tone)]}>
+      <div class={["rounded-2xl border bg-sr-surface p-4 shadow-sm", tone_border(@tone)]}>
         <div class="flex items-center justify-between gap-3">
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/50">{@title}</div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">{@title}</div>
             <div class={["mt-2 text-3xl font-semibold tracking-tight", tone_value(@tone)]}>
               {@value}
             </div>
@@ -561,16 +569,14 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
     assigns = assign(assigns, :active?, active?)
 
     ~H"""
-    <.link
+    <.ui_button
       patch={~p"/observability/camera-relays?#{@params}"}
-      class={[
-        "btn btn-xs rounded-full",
-        @active? && "btn-primary",
-        not @active? && "btn-ghost"
-      ]}
+      size="xs"
+      variant={if @active?, do: "primary", else: "ghost"}
+      class="rounded-full"
     >
       {@label}
-    </.link>
+    </.ui_button>
     """
   end
 
@@ -579,23 +585,25 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp session_log_links(assigns) do
     ~H"""
     <div class="flex flex-wrap gap-2">
-      <.link navigate={relay_logs_href(@session)} class="btn btn-ghost btn-xs">
+      <.ui_button navigate={relay_logs_href(@session)} size="xs" variant="ghost">
         Relay Logs
-      </.link>
-      <.link
+      </.ui_button>
+      <.ui_button
         :if={present?(Map.get(@session, :agent_id))}
         navigate={agent_logs_href(@session)}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         Agent Logs
-      </.link>
-      <.link
+      </.ui_button>
+      <.ui_button
         :if={present?(Map.get(@session, :gateway_id))}
         navigate={gateway_logs_href(@session)}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         Gateway Logs
-      </.link>
+      </.ui_button>
     </div>
     """
   end
@@ -926,19 +934,15 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp normalize_mac(value) when is_binary(value), do: IdentityReconciler.normalize_mac(value)
   defp normalize_mac(_value), do: nil
 
-  defp status_badge_class(status) do
-    normalized = normalize_status(status)
-
-    base = "badge badge-sm border"
-
-    case normalized do
-      "active" -> "#{base} border-success/30 bg-success/10 text-success"
-      "requested" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "opening" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "closing" -> "#{base} border-warning/30 bg-warning/10 text-warning"
-      "closed" -> "#{base} border-base-300 bg-base-200 text-base-content/70"
-      "failed" -> "#{base} border-error/30 bg-error/10 text-error"
-      _ -> "#{base} border-base-300 bg-base-200 text-base-content/70"
+  defp status_badge_variant(status) do
+    case normalize_status(status) do
+      "active" -> "success"
+      "requested" -> "warning"
+      "opening" -> "warning"
+      "closing" -> "warning"
+      "closed" -> "ghost"
+      "failed" -> "error"
+      _ -> "ghost"
     end
   end
 
@@ -1000,7 +1004,7 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
       ["in:logs" | clauses] ++
         ["time:last_24h", "sort:timestamp:desc", "limit:50"]
 
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: Enum.join(q, " "), limit: 50})
+    "/observability/logs?" <> URI.encode_query(%{q: Enum.join(q, " ")})
   end
 
   defp escaped_query_value(value) when is_binary(value) do
@@ -1038,44 +1042,36 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp tone_border("error"), do: "border-error/25"
   defp tone_border("warning"), do: "border-warning/25"
   defp tone_border("success"), do: "border-success/25"
-  defp tone_border("primary"), do: "border-primary/25"
-  defp tone_border(_tone), do: "border-base-200"
+  defp tone_border("primary"), do: "border-sr-brand/25"
+  defp tone_border(_tone), do: "border-sr-line"
 
   defp tone_bg("error"), do: "bg-error/10"
   defp tone_bg("warning"), do: "bg-warning/10"
   defp tone_bg("success"), do: "bg-success/10"
-  defp tone_bg("primary"), do: "bg-primary/10"
-  defp tone_bg(_tone), do: "bg-base-200"
+  defp tone_bg("primary"), do: "bg-sr-brand/10"
+  defp tone_bg(_tone), do: "bg-sr-subtle"
 
   defp tone_icon("error"), do: "text-error"
   defp tone_icon("warning"), do: "text-warning"
   defp tone_icon("success"), do: "text-success"
-  defp tone_icon("primary"), do: "text-primary"
-  defp tone_icon(_tone), do: "text-base-content"
+  defp tone_icon("primary"), do: "text-sr-brand"
+  defp tone_icon(_tone), do: "text-sr-ink"
 
   defp tone_value("error"), do: "text-error"
   defp tone_value("warning"), do: "text-warning"
   defp tone_value("success"), do: "text-success"
-  defp tone_value("primary"), do: "text-primary"
-  defp tone_value(_tone), do: "text-base-content"
+  defp tone_value("primary"), do: "text-sr-brand"
+  defp tone_value(_tone), do: "text-sr-ink"
 
-  defp alert_badge_class("critical"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
+  defp alert_badge_variant("critical"), do: "error"
+  defp alert_badge_variant("warning"), do: "warning"
+  defp alert_badge_variant("info"), do: "info"
+  defp alert_badge_variant(_severity), do: "ghost"
 
-  defp alert_badge_class("warning"), do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
-
-  defp alert_badge_class("info"), do: "badge badge-sm border border-info/30 bg-info/10 text-info"
-
-  defp alert_badge_class(_severity), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
-
-  defp event_badge_class("session_failure"), do: "badge badge-sm border border-error/30 bg-error/10 text-error"
-
-  defp event_badge_class("gateway_saturation_denial"),
-    do: "badge badge-sm border border-warning/30 bg-warning/10 text-warning"
-
-  defp event_badge_class("viewer_idle_termination"),
-    do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
-
-  defp event_badge_class(_kind), do: "badge badge-sm border border-base-300 bg-base-200 text-base-content/70"
+  defp event_badge_variant("session_failure"), do: "error"
+  defp event_badge_variant("gateway_saturation_denial"), do: "warning"
+  defp event_badge_variant("viewer_idle_termination"), do: "ghost"
+  defp event_badge_variant(_kind), do: "ghost"
 
   defp relay_health_source do
     Application.get_env(

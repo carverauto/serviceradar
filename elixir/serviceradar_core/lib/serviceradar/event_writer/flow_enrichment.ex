@@ -4,11 +4,15 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   This module is intentionally deterministic and side-effect light:
   - protocol/tcp/service/direction are pure transforms
-  - provider/OUI lookups read from CNPG snapshot tables
+  - hosting-provider lookups use the in-memory `provider` prefix-tag trie
+    (`ProviderSource`); GiST SQL is only a boot/empty-trie fallback
+  - OUI lookups read from CNPG snapshot tables
   """
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
   alias ServiceRadar.Types.Cidr
@@ -54,6 +58,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @provider_cache_key {__MODULE__, :provider_lookup_cache}
   @provider_lookup_fun_key {__MODULE__, :provider_lookup_fun}
   @active_snapshot_key {__MODULE__, :provider_active_snapshot_id}
+  @prefix_tag_cache_key {__MODULE__, :prefix_tag_lookup_cache}
 
   @type enrichment_input :: %{
           optional(:protocol_num) => integer() | String.t() | nil,
@@ -75,15 +80,20 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     previous_cache = Process.get(@provider_cache_key, :__serviceradar_unset__)
     previous_lookup_fun = Process.get(@provider_lookup_fun_key, :__serviceradar_unset__)
     previous_snapshot = Process.get(@active_snapshot_key, :__serviceradar_unset__)
+    previous_prefix_tag = Process.get(@prefix_tag_cache_key, :__serviceradar_unset__)
 
     Process.put(@provider_cache_key, %{})
+    # Memoize prefix-tag LPM lookups for the batch (src/dst IPs often repeat).
+    Process.put(@prefix_tag_cache_key, %{})
 
     case Keyword.fetch(opts, :provider_lookup) do
       {:ok, lookup_fun} when is_function(lookup_fun, 1) ->
         Process.put(@provider_lookup_fun_key, lookup_fun)
 
       :error ->
-        Process.put(@active_snapshot_key, fetch_active_snapshot_id())
+        # Lazy: do not hit CNPG unless the SQL fallback path is actually used
+        # (provider trie ready is the steady-state path).
+        Process.put(@active_snapshot_key, :lazy)
     end
 
     try do
@@ -92,6 +102,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       restore_process_value(@provider_cache_key, previous_cache)
       restore_process_value(@provider_lookup_fun_key, previous_lookup_fun)
       restore_process_value(@active_snapshot_key, previous_snapshot)
+      restore_process_value(@prefix_tag_cache_key, previous_prefix_tag)
     end
   end
 
@@ -121,8 +132,9 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     src_ip = trim_or_nil(Map.get(attrs, :src_ip))
     dst_ip = trim_or_nil(Map.get(attrs, :dst_ip))
 
-    src_provider = provider_for_ip(src_ip)
-    dst_provider = provider_for_ip(dst_ip)
+    # One multi-source LPM walk per IP covers hosting-provider + prefix tags.
+    src_ip_enrichment = ip_enrichment(src_ip)
+    dst_ip_enrichment = ip_enrichment(dst_ip)
 
     src_mac = normalize_mac(Map.get(attrs, :src_mac))
     dst_mac = normalize_mac(Map.get(attrs, :dst_mac))
@@ -131,7 +143,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
     dst_vendor = oui_vendor_for_mac(dst_mac)
     dst_service = service_lookup(protocol_num, dst_port)
 
-    %{
+    base = %{
       protocol_name: protocol_name,
       protocol_source: if(is_integer(protocol_num), do: "iana", else: "unknown"),
       tcp_flags: tcp_flags,
@@ -141,10 +153,12 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       dst_service_source: source_from_service(dst_service),
       direction_label: direction_label(bytes_in, bytes_out),
       direction_source: "heuristic",
-      src_hosting_provider: src_provider,
-      src_hosting_provider_source: source_for_lookup(src_provider, "cloud_provider_db"),
-      dst_hosting_provider: dst_provider,
-      dst_hosting_provider_source: source_for_lookup(dst_provider, "cloud_provider_db"),
+      src_hosting_provider: src_ip_enrichment.provider,
+      src_hosting_provider_source:
+        source_for_lookup(src_ip_enrichment.provider, src_ip_enrichment.provider_source),
+      dst_hosting_provider: dst_ip_enrichment.provider,
+      dst_hosting_provider_source:
+        source_for_lookup(dst_ip_enrichment.provider, dst_ip_enrichment.provider_source),
       src_mac: src_mac,
       dst_mac: dst_mac,
       src_mac_vendor: src_vendor,
@@ -152,10 +166,314 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       dst_mac_vendor: dst_vendor,
       dst_mac_vendor_source: source_for_lookup(dst_vendor, "ieee_oui")
     }
+
+    if prefix_tag_enrichment_enabled?() do
+      Map.merge(base, %{
+        src_prefix_tags: src_ip_enrichment.tags,
+        src_prefix_tags_source: src_ip_enrichment.tags_source,
+        dst_prefix_tags: dst_ip_enrichment.tags,
+        dst_prefix_tags_source: dst_ip_enrichment.tags_source
+      })
+    else
+      base
+    end
   end
 
   defp source_for_lookup(nil, _), do: "unknown"
   defp source_for_lookup(_val, source), do: source
+
+  @doc """
+  Whether prefix-tag enrichment is enabled.
+
+  Controlled by Application env `:prefix_tag_enrichment_enabled` (default false).
+  Keep off until `prefix_tag` migrations are applied everywhere EventWriter
+  inserts; enabling with a pre-migration schema fails inserts. Fail-open when
+  enabled: lookup errors / empty tries leave rows untagged.
+  """
+  @spec prefix_tag_enrichment_enabled?() :: boolean()
+  def prefix_tag_enrichment_enabled? do
+    Application.get_env(:serviceradar_core, :prefix_tag_enrichment_enabled, false) == true
+  end
+
+  @doc false
+  @spec prefix_tags_for_ip(String.t() | nil) ::
+          %{tags: [String.t()] | nil, source: String.t() | nil}
+  def prefix_tags_for_ip(nil), do: %{tags: nil, source: nil}
+
+  def prefix_tags_for_ip(ip) when is_binary(ip) do
+    e = ip_enrichment(ip)
+    %{tags: e.tags, source: e.tags_source}
+  end
+
+  # Combined LPM + geo + provider extraction for one IP (batch-memoized).
+  defp ip_enrichment(nil) do
+    %{
+      tags: nil,
+      tags_source: nil,
+      provider: nil,
+      provider_source: "cloud_provider_db"
+    }
+  end
+
+  defp ip_enrichment(ip) when is_binary(ip) do
+    case Process.get(@prefix_tag_cache_key) do
+      %{} = cache ->
+        case Map.fetch(cache, ip) do
+          {:ok, cached} ->
+            cached
+
+          :error ->
+            result = do_ip_enrichment(ip)
+            Process.put(@prefix_tag_cache_key, Map.put(cache, ip, result))
+            result
+        end
+
+      _ ->
+        do_ip_enrichment(ip)
+    end
+  end
+
+  defp do_ip_enrichment(ip) when is_binary(ip) do
+    tags_enabled? = prefix_tag_enrichment_enabled?()
+    provider_trie? = provider_trie_enabled?()
+
+    # When tag enrichment is off, only walk the provider trie (not every source).
+    # When provider-trie rollback is off, exclude provider from the aggregate
+    # chain so stale provider:* tags cannot leak into prefix_tags columns.
+    chain =
+      try do
+        cond do
+          tags_enabled? and provider_trie? ->
+            PrefixTagStore.lookup(ip)
+
+          tags_enabled? ->
+            ip
+            |> PrefixTagStore.lookup()
+            |> Enum.reject(&(Map.get(&1, :source) == "provider"))
+
+          provider_trie? ->
+            PrefixTagStore.lookup(ip, "provider")
+
+          true ->
+            []
+        end
+      rescue
+        e ->
+          Logger.debug("FlowEnrichment prefix tag lookup failed",
+            ip: ip,
+            error: Exception.message(e)
+          )
+
+          []
+      end
+
+    {provider, provider_source} = provider_from_chain_or_sql(chain, ip)
+
+    if tags_enabled? do
+      {trie_tags, trie_sources} = flatten_tag_chain(chain)
+      geo_tags = geo_tags_for_ip(ip)
+      tags = Enum.uniq(trie_tags ++ geo_tags)
+      tags_source = chain_sources_label(trie_sources, geo_tags)
+
+      %{
+        tags: if(tags == [], do: nil, else: tags),
+        tags_source: tags_source,
+        provider: provider,
+        provider_source: provider_source
+      }
+    else
+      %{
+        tags: nil,
+        tags_source: nil,
+        provider: provider,
+        provider_source: provider_source
+      }
+    end
+  end
+
+  # Comma-joined source ids that contributed at least one persisted tag.
+  defp chain_sources_label(sources, geo_tags) when is_list(sources) do
+    sources =
+      sources
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    sources =
+      if geo_tags != [] and "geo" not in sources do
+        sources ++ ["geo"]
+      else
+        sources
+      end
+
+    case sources do
+      [] -> nil
+      list -> Enum.join(list, ",")
+    end
+  end
+
+  defp provider_from_chain_or_sql(chain, ip) do
+    # Operational rollback: when the provider trie flag is off, never consume
+    # trie hits — always take SQL / injected lookup.
+    if provider_trie_enabled?() do
+      case provider_name_from_chain(chain) do
+        name when is_binary(name) and name != "" ->
+          {name, "provider_trie"}
+
+        _ ->
+          if provider_trie_ready?() do
+            # Loaded (including empty): miss is authoritative (no SQL).
+            {nil, "cloud_provider_db"}
+          else
+            {sql_provider_for_ip(ip), "cloud_provider_db"}
+          end
+      end
+    else
+      {sql_provider_for_ip(ip), "cloud_provider_db"}
+    end
+  end
+
+  # Hosting-provider columns only accept matches from the authoritative
+  # `provider` source — manual/netbox tags may use `provider:` syntax without
+  # overriding cloud-provider attribution.
+  defp provider_name_from_chain(chain) when is_list(chain) do
+    Enum.find_value(chain, fn
+      %{source: "provider", tags: tags} when is_list(tags) ->
+        Enum.find_value(tags, fn
+          "provider:" <> name when name != "" -> name
+          _ -> nil
+        end)
+
+      _ ->
+        nil
+    end)
+  end
+
+  @doc """
+  Whether geo-derived tags (`geo:country:`, `geo:asn:`) are merged into the
+  prefix-tag columns. Uses the resident Geolix MMDB; never imports MMDB into
+  the trie. Default false.
+  """
+  @spec geo_tag_derivation_enabled?() :: boolean()
+  def geo_tag_derivation_enabled? do
+    Application.get_env(:serviceradar_core, :geo_tag_derivation_enabled, false) == true
+  end
+
+  @doc false
+  @spec geo_tags_for_ip(String.t() | nil) :: [String.t()]
+  def geo_tags_for_ip(nil), do: []
+
+  def geo_tags_for_ip(ip) when is_binary(ip) do
+    if geo_tag_derivation_enabled?() do
+      case ServiceRadar.Observability.GeoIP.lookup(ip) do
+        {:ok, geo} when is_map(geo) ->
+          []
+          |> maybe_geo_tag("geo:country:", Map.get(geo, :country_iso2))
+          |> maybe_geo_tag("geo:asn:", Map.get(geo, :asn))
+          |> Enum.reverse()
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp maybe_geo_tag(acc, _prefix, nil), do: acc
+  defp maybe_geo_tag(acc, _prefix, ""), do: acc
+
+  defp maybe_geo_tag(acc, prefix, value) when is_integer(value) do
+    [prefix <> Integer.to_string(value) | acc]
+  end
+
+  defp maybe_geo_tag(acc, prefix, value) when is_binary(value) do
+    v = value |> String.trim() |> String.downcase()
+    if v == "", do: acc, else: [prefix <> v | acc]
+  end
+
+  defp maybe_geo_tag(acc, _, _), do: acc
+
+  defp flatten_tag_chain(chain) when is_list(chain) do
+    now = DateTime.utc_now()
+
+    contributions =
+      Enum.map(chain, fn match ->
+        tags =
+          case match do
+            %{source: "ti"} = m ->
+              # Derive TI display tags from still-active members so expired feed
+              # provenance/severity never lands on newly enriched flows.
+              tags_from_active_ti_match(m, now)
+
+            %{tags: tags} when is_list(tags) ->
+              if ThreatIntelSource.match_expired?(match, now), do: [], else: tags
+
+            _ ->
+              []
+          end
+
+        source = if is_map(match), do: Map.get(match, :source)
+        {source, tags}
+      end)
+
+    tags = contributions |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+
+    sources =
+      contributions
+      |> Enum.filter(fn {_source, tags} -> tags != [] end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.uniq()
+
+    {tags, sources}
+  end
+
+  defp tags_from_active_ti_match(match, now) do
+    case ThreatIntelSource.active_indicators(match, now) do
+      [_ | _] = inds ->
+        inds
+        |> Enum.flat_map(&List.wrap(&1[:tags] || &1["tags"]))
+        |> rebuild_ti_display_tags()
+
+      [] ->
+        if ThreatIntelSource.match_expired?(match, now) do
+          []
+        else
+          # Singleton aggregates omit :indicators; use aggregate fields.
+          match[:tags]
+          |> List.wrap()
+          |> then(fn tags ->
+            if tags == [] and is_integer(match[:severity]) and match[:severity] > 0 do
+              feed =
+                case match[:feed_sources] do
+                  [s | _] -> "ti:#{ServiceRadar.PrefixTags.Slug.slugify(s, empty: "unknown")}"
+                  _ -> nil
+                end
+
+              Enum.reject([feed, "ti:severity:#{match[:severity]}"], &is_nil/1)
+            else
+              tags
+            end
+          end)
+        end
+    end
+  end
+
+  defp rebuild_ti_display_tags(tags) do
+    max_sev = ThreatIntelSource.max_severity_from_tags(tags)
+
+    rest =
+      tags
+      |> Enum.reject(fn
+        "ti:severity:" <> _ -> true
+        _ -> false
+      end)
+      |> Enum.uniq()
+      |> Enum.take(if(max_sev > 0, do: 7, else: 8))
+
+    if max_sev > 0, do: rest ++ ["ti:severity:#{max_sev}"], else: rest
+  end
 
   @spec decode_tcp_flags(integer() | nil) :: [String.t()]
   def decode_tcp_flags(nil), do: []
@@ -208,14 +526,42 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   def direction_label(_, _), do: "unknown"
 
+  @doc """
+  Whether hosting-provider lookups should use the in-memory prefix-tag engine.
+
+  When true (default), uses the `provider` trie. Falls back to per-batch GiST SQL
+  only while the provider trie is empty (not yet loaded) or when the flag is
+  disabled for tests. Cross-batch ETS caching was removed — the trie is the
+  durable LPM cache.
+  """
+  @spec provider_trie_enabled?() :: boolean()
+  def provider_trie_enabled? do
+    Application.get_env(:serviceradar_core, :prefix_tag_provider_trie_enabled, true) == true
+  end
+
   @spec provider_for_ip(String.t() | nil) :: String.t() | nil
   def provider_for_ip(nil), do: nil
 
   def provider_for_ip(ip) when is_binary(ip) do
-    with normalized_ip when is_binary(normalized_ip) <- trim_or_nil(ip),
-         {:ok, %Postgrex.INET{} = inet} <- Cidr.dump_to_native(normalized_ip, []) do
-      cached_provider_for_inet(inet)
+    normalized = trim_or_nil(ip)
+
+    if is_nil(normalized) do
+      nil
     else
+      ip_enrichment(normalized).provider
+    end
+  end
+
+  defp provider_trie_ready? do
+    # Loaded (even empty) is authoritative. Never-installed falls back to SQL.
+    # Requiring total_prefixes > 0 treated an empty successful load as "booting"
+    # and hammered SQL on every batch.
+    PrefixTagStore.loaded?("provider")
+  end
+
+  defp sql_provider_for_ip(ip) when is_binary(ip) do
+    case Cidr.dump_to_native(ip, []) do
+      {:ok, %Postgrex.INET{} = inet} -> cached_provider_for_inet(inet)
       _ -> nil
     end
   end
@@ -241,32 +587,39 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   defp lookup_provider_for_inet(%Postgrex.INET{} = inet) do
     case Process.get(@provider_lookup_fun_key, :__serviceradar_unset__) do
       lookup_fun when is_function(lookup_fun, 1) ->
-        # Test/injection path: bypass the cross-batch ETS cache, honor the injected fun
-        # so existing tests that assert exact DB call counts keep working.
+        # Test/injection path: honor the injected fun so existing tests that
+        # assert exact DB call counts keep working.
         lookup_fun.(inet)
 
       :__serviceradar_unset__ ->
-        # L2: cross-batch ETS cache keyed by {active snapshot_id, "addr/mask"}. The
-        # per-batch Process-dict cache (cached_provider_for_inet/1) is L1; this absorbs
-        # the cross-batch repeats — the dominant source of the ~186,800 GiST round-trips
-        # — including negative (non-cloud -> nil) results. query_provider_for_inet/1
-        # already reads @active_snapshot_key and returns nil when it is unset.
-        snapshot_id = Process.get(@active_snapshot_key)
-        ip_key = provider_cache_key(inet)
-
-        ServiceRadar.EventWriter.ProviderCidrCache.fetch(snapshot_id, ip_key, fn ->
-          query_provider_for_inet(inet)
-        end)
+        # Per-batch Process-dict cache is L1 (with_provider_cache/2). SQL path is
+        # only for empty-trie boot / flag-off; production uses ProviderSource.
+        query_provider_for_inet(inet)
     end
   end
 
   defp query_provider_for_inet(%Postgrex.INET{} = inet) do
-    case Process.get(@active_snapshot_key) do
+    case resolve_active_snapshot_id() do
       nil ->
         nil
 
       snapshot_id ->
         query_provider_for_inet(inet, snapshot_id)
+    end
+  end
+
+  defp resolve_active_snapshot_id do
+    case Process.get(@active_snapshot_key) do
+      :lazy ->
+        id = fetch_active_snapshot_id()
+        Process.put(@active_snapshot_key, id)
+        id
+
+      :__serviceradar_unset__ ->
+        nil
+
+      other ->
+        other
     end
   end
 

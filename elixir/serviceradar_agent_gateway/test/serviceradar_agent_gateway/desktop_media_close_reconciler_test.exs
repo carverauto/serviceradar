@@ -5,6 +5,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaCloseReconcilerTest do
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub
 
+  @moduletag :requires_app
+
   setup do
     previous_result =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_frame_forwarder_close_result)

@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Capacity do
       }
       class="space-y-4"
     >
-      <h2 class="text-sm font-bold text-base-content uppercase tracking-wide">
+      <h2 class="text-sm font-bold text-sr-ink uppercase tracking-wide">
         Interface Utilization
       </h2>
 

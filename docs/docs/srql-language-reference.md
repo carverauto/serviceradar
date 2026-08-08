@@ -86,7 +86,16 @@ Notes:
   is not supported.
 - **AND** is implicit: listing multiple filters means all of them must match.
 - **OR** for a single field is the list form `field:(a,b)`. There is no general
-  `OR` keyword across different fields.
+  `OR` keyword across different fields — parenthesized expressions such as
+  `(dst_port:22 OR src_port:22)` are **not** valid SRQL (they tokenize as a
+  single broken `key:value`). Cross-field “either side” cases use dedicated
+  bidirectional fields instead (see below). Tracking for full boolean groups:
+  [issue #4851](https://code.carverauto.dev/carverauto/serviceradar/issues/4851).
+- **Bidirectional flow helpers** (flows / attributed_flows):
+  - `ip:` / `endpoint_ip:` — either endpoint IP
+  - `port:` / `endpoint_port:` — either endpoint port
+  - `cidr:` — either endpoint in a CIDR
+  - Prefer these over inventing `(src_* OR dst_*)` syntax
 - **Ranges** are expressed by repeating a numeric field with two comparison bounds:
   `usage_percent:>80 usage_percent:<95`.
 - List filters accept at most 200 values.
@@ -151,6 +160,9 @@ are served from pre-computed hourly rollups.
   `order:` is an accepted alias for `sort:`.
 - `limit:<n>` — caps the number of rows. Must be a positive integer; the engine
   enforces a configured maximum.
+- On `bucket:` queries `sort:` selects which end of the time window survives
+  `limit:`, not the order rows come back in. See
+  [Downsampling with `bucket`](#downsampling-with-bucket).
 - Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
   values that callers pass back to page through results.
 
@@ -190,6 +202,18 @@ in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
 in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
 ```
 
+Buckets are always **returned** oldest-first, because that is what a chart renders.
+`sort:` instead chooses which end of the window `limit:` keeps when the range holds
+more buckets than the limit allows:
+
+- `sort:time:desc` (or no `sort:` reversal) keeps the **newest** buckets.
+- `sort:time:asc` keeps the **oldest**.
+- With no `sort:` at all, the oldest buckets are kept.
+
+This matters on long ranges with narrow buckets: `time:last_30d bucket:5m` spans 8640
+buckets, so `limit:100` returns a fraction of the window either way. Widen the bucket
+rather than raising the limit — `bucket:1h` over 30 days is 720 buckets.
+
 ## Queryable entities
 
 Target data with `in:<entity>`. Each entity exposes its own set of filterable
@@ -201,7 +225,9 @@ fields; using a field that the entity does not support returns an
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
 | `events` | `activity` | Normalized OCSF events and activity |
 | `logs` | — | Application and system logs (OpenTelemetry) |
-| `flows` | `flow`, `network_activity` | NetFlow / network activity records |
+| `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
+| `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
+| `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
 | `services` | `service` | Observed services and their availability |
 | `gateways` | `gateway` | Gateway/agent operational state |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
@@ -310,12 +336,15 @@ Sortable fields: `timestamp`, `severity_number`.
 | `device_id` | | Associated device |
 | `src_endpoint_ip` | `src_ip` | Source IP (supports wildcards) |
 | `dst_endpoint_ip` | `dst_ip` | Destination IP (supports wildcards) |
+| `ip` | `endpoint_ip` | Matches **either** endpoint — all traffic to or from an address |
+| `cidr` | | Matches flows with **either** endpoint inside a CIDR block |
 | `conversation_a_ip` | `conversation_min_ip` | Canonical first endpoint for bidirectional conversation grouping |
 | `conversation_b_ip` | `conversation_max_ip` | Canonical second endpoint for bidirectional conversation grouping |
 | `src_cidr` | | Source CIDR containment match |
 | `dst_cidr` | | Destination CIDR containment match |
 | `src_endpoint_port` | `src_port` | Source port |
 | `dst_endpoint_port` | `dst_port` | Destination port |
+| `port` | `endpoint_port` | Matches **either** endpoint port — e.g. `port:22` for SSH regardless of direction |
 | `protocol_name` | | Protocol name |
 | `protocol_num` | `proto` | Protocol number |
 | `protocol_group` | `proto_group` | Protocol group |
@@ -331,6 +360,84 @@ Sortable fields: `timestamp`, `severity_number`.
 
 Sortable fields: `time`, `bytes_total`, `packets_total`, `bytes_in`, `bytes_out`,
 `packets_in`, `packets_out`.
+
+Examples:
+
+```srql
+in:flows time:last_24h port:22 sort:time:desc limit:50
+in:flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:flows time:last_1h dst_port:(443,8443)
+```
+
+Do **not** write `(dst_port:22 OR src_port:22)` — use `port:22` instead.
+
+### attributed_flows
+
+NetFlow rows that have been joined with host process attribution (netprobe) and,
+when applicable, Kubernetes public VIP / Gateway ownership. Prefer this entity
+when you need process, pod, or public-endpoint owner fields in the UI.
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| *(all core `flows` endpoint fields)* | | `src_ip`, `dst_ip`, `ip`, `port`, `src_port`, `dst_port`, `protocol_*`, … |
+| `attribution_status` | `status` | `attributed` (has process pid) or `unmatched` |
+| `process` | `process_name`, `comm` | Process name from host socket join |
+| `pid` | `process_pid` | Process id |
+| `cmdline` | `redacted_cmdline` | Redacted command line |
+| `uid` | | Process uid |
+| `container_id` | | Container id when known |
+| `agent_id` | | Host agent that reported the process |
+| `pod_name` | | Workload identity pod name |
+| `pod_namespace` | `namespace` | Workload identity namespace |
+| `container_name` | | Container name |
+| `image` | `image_ref` | Container image |
+| `service_name` | `public_endpoint_service`, `k8s_service` | Public endpoint Service / route target name |
+| `gateway_name` | `public_endpoint_gateway` | Gateway API gateway name |
+| `exposure_class` | `public_endpoint_class` | e.g. `Gateway`, `LoadBalancer` |
+| `route_name` | `public_endpoint_route` | HTTPRoute / GRPCRoute name |
+| `public_endpoint_namespace` | | Namespace of the public endpoint owner |
+
+Sortable fields: same as `flows` (`time`, byte/packet totals).
+
+Examples:
+
+```srql
+in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
+in:attributed_flows time:last_1h attribution_status:attributed process:gitea
+```
+
+**Raw vs attributed:** `in:flows port:22` can return hundreds of SSH 5-tuples
+while `in:attributed_flows port:22` is empty if no host process join landed on
+those sockets. Public VIP ownership (`service_name:`, `exposure_class:`) only
+appears after the central correlator stamps `attribution.public_endpoint`.
+
+### public_endpoints
+
+Current Kubernetes public VIP inventory (LoadBalancer / Gateway / ExternalIP).
+Not a time-series entity — omit or ignore `time:` for inventory scans.
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `ip` | | Public VIP address |
+| `hostname` | | Hostname if recorded |
+| `port` | | Listener port |
+| `protocol` | | e.g. `TCP` |
+| `namespace` | | Kubernetes namespace |
+| `cluster_id` | | Cluster id |
+| `exposure_class` | | `Gateway`, `LoadBalancer`, … |
+| `service_name` | | Service or route backend name |
+| `gateway_name` | | Gateway name |
+| `route_name` | | Route name |
+
+Examples:
+
+```srql
+in:public_endpoints port:22 limit:50
+in:public_endpoints exposure_class:Gateway sort:ip:asc
+in:public_endpoints ip:23.138.124.7
+```
 
 ### services
 

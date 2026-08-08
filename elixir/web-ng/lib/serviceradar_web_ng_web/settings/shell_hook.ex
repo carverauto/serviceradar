@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
   import Phoenix.LiveView, only: [attach_hook: 4]
 
   alias ServiceRadarWebNGWeb.Settings.Catalog
+  alias ServiceRadarWebNGWeb.Settings.PendingApprovals
   alias ServiceRadarWebNGWeb.Settings.StatusCards
 
   def on_mount(:default, _params, _session, socket) do
@@ -64,7 +65,44 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
   # The topbar lists every visible category; the left panel renders the selected
   # category's 2-level tree (parent-group → subgroup → view).
   defp nav_groups(_scope, nil), do: []
-  defp nav_groups(scope, %{id: category_id}), do: Catalog.nav_tree(scope, category_id)
+
+  defp nav_groups(scope, %{id: category_id}) do
+    scope
+    |> Catalog.nav_tree(category_id)
+    |> decorate_badges(scope)
+  end
+
+  # `Catalog` is a compile-time `@views` list, so `:badge` is necessarily nil
+  # there -- a count is a runtime question and a scoped one. The shell already
+  # renders `view.badge`, so the counts are applied here, over the tree the
+  # catalog just produced, rather than by making the catalog itself impure.
+  #
+  # Only decorates views that have a pending count, so every other view keeps
+  # the nil the catalog gave it.
+  defp decorate_badges(groups, scope) do
+    case PendingApprovals.counts(scope) do
+      empty when empty == %{} ->
+        groups
+
+      counts ->
+        Enum.map(groups, fn group ->
+          Map.update!(group, :sections, fn sections ->
+            Enum.map(sections, fn section ->
+              Map.update!(section, :views, fn views ->
+                Enum.map(views, &apply_badge(&1, counts))
+              end)
+            end)
+          end)
+        end)
+    end
+  end
+
+  defp apply_badge(view, counts) do
+    case Map.get(counts, view.id) do
+      nil -> view
+      count -> Map.put(view, :badge, count)
+    end
+  end
 
   # Compute the CONTEXTUAL status cards for the active view. The result is either
   # `:suppressed` (page renders its own metrics) or a list of `%{title, value}`

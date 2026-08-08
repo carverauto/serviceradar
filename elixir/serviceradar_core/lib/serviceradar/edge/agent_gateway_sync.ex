@@ -1431,7 +1431,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp credential_material(resolved) do
     value = string_value(Map.get(resolved, :value))
-    fields = credential_material_fields(value)
+    fields = credential_material_fields(value, Map.get(resolved, :secret))
 
     %{
       value: value,
@@ -1442,24 +1442,36 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     }
   end
 
-  defp credential_material_fields(value) do
+  defp credential_material_fields(value, secret) do
     base = if value == "", do: %{}, else: %{"value" => value}
 
-    case Jason.decode(value) do
-      {:ok, %{} = decoded} ->
-        Enum.reduce(decoded, base, fn
-          {key, field_value}, acc when is_binary(field_value) ->
-            Map.put(acc, to_string(key), field_value)
+    fields =
+      case Jason.decode(value) do
+        {:ok, %{} = decoded} ->
+          Enum.reduce(decoded, base, fn
+            {key, field_value}, acc when is_binary(field_value) ->
+              Map.put(acc, to_string(key), field_value)
 
-          {key, field_value}, acc when is_number(field_value) or is_boolean(field_value) ->
-            Map.put(acc, to_string(key), to_string(field_value))
+            {key, field_value}, acc when is_number(field_value) or is_boolean(field_value) ->
+              Map.put(acc, to_string(key), to_string(field_value))
 
-          _other, acc ->
-            acc
-        end)
+            _other, acc ->
+              acc
+          end)
+
+        _ ->
+          base
+      end
+
+    case {map_value(secret, :credential_kind), string_value(map_value(secret, :username))} do
+      {kind, username}
+      when kind in [:username_password, "username_password"] and username != "" ->
+        fields
+        |> Map.put_new("username", username)
+        |> Map.put_new("password", value)
 
       _ ->
-        base
+        fields
     end
   end
 

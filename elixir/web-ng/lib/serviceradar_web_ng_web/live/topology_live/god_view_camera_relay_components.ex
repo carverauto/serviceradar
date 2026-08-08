@@ -15,65 +15,61 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Topology Camera Viewer</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               Opened from a God-View camera-capable node.
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span
+            <.ui_badge
               :if={@active_camera_relay_session}
-              class={[
-                "badge badge-sm",
-                relay_status_badge_class(@active_camera_relay_session.status)
-              ]}
+              size="sm"
+              variant={relay_status_badge_variant(@active_camera_relay_session.status)}
             >
               {relay_status_label(@active_camera_relay_session.status)}
-            </span>
-            <span
+            </.ui_badge>
+            <.ui_badge
               :if={!@active_camera_relay_session && @last_camera_relay_session}
-              class={[
-                "badge badge-sm",
-                relay_status_badge_class(@last_camera_relay_session.status)
-              ]}
+              size="sm"
+              variant={relay_status_badge_variant(@last_camera_relay_session.status)}
             >
               {relay_status_label(@last_camera_relay_session.status)}
-            </span>
-            <span
+            </.ui_badge>
+            <.ui_badge
               :if={@camera_relay_viewer_state}
-              class={[
-                "badge badge-sm",
-                viewer_state_badge_class(@camera_relay_viewer_state.kind)
-              ]}
+              size="sm"
+              variant={viewer_state_badge_variant(@camera_relay_viewer_state.kind)}
             >
               {@camera_relay_viewer_state.title}
-            </span>
-            <button
+            </.ui_badge>
+            <.ui_button
               :if={@active_camera_relay_session}
               type="button"
-              class="btn btn-xs btn-outline"
               phx-click="close_camera_relay"
+              size="xs"
+              variant="outline"
             >
               Stop Relay
-            </button>
+            </.ui_button>
           </div>
         </div>
       </:header>
 
       <div class="space-y-3">
         <div class="flex flex-wrap items-center gap-2 text-sm">
-          <span class="font-medium text-base-content">
+          <span class="font-medium text-sr-ink">
             {camera_context_label(@selected_camera_context)}
           </span>
-          <span
+          <.ui_badge
             :if={present?(camera_context_profile_label(@selected_camera_context))}
-            class="badge badge-outline badge-sm"
+            size="sm"
+            variant="outline"
           >
             {camera_context_profile_label(@selected_camera_context)}
-          </span>
+          </.ui_badge>
           <.link
             :if={present?(camera_context_device_uid(@selected_camera_context))}
             navigate={~p"/devices/#{camera_context_device_uid(@selected_camera_context)}"}
-            class="link link-primary text-xs"
+            class="text-sr-brand hover:underline text-xs"
           >
             View device
           </.link>
@@ -119,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@active_camera_relay_session)}
           class="space-y-1"
         >
-          <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+          <div class="overflow-hidden rounded-md border border-sr-line/70 bg-sr-control/20">
             <canvas
               data-role="video-canvas"
               class="block aspect-video w-full bg-neutral/80 object-contain"
@@ -132,26 +128,26 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               autoplay
             />
           </div>
-          <div data-role="transport-status" class="text-xs text-base-content/70">
+          <div data-role="transport-status" class="text-xs text-sr-muted">
             Connecting browser stream...
           </div>
-          <div data-role="player-status" class="text-xs text-base-content/70">
+          <div data-role="player-status" class="text-xs text-sr-muted">
             Waiting for browser decoder...
           </div>
-          <div data-role="compatibility-status" class="text-xs text-base-content/70">
+          <div data-role="compatibility-status" class="text-xs text-sr-muted">
             Preferred transport: {relay_preferred_playback_transport(@active_camera_relay_session)}
           </div>
-          <div data-role="relay-status" class="text-xs font-medium text-base-content">
+          <div data-role="relay-status" class="text-xs font-medium text-sr-ink">
             Relay status: {relay_status_label(@active_camera_relay_session.status)}
           </div>
           <div
             data-role="playback-state"
             data-state={relay_playback_state(@active_camera_relay_session)}
-            class="text-xs text-base-content/70"
+            class="text-xs text-sr-muted"
           >
             Playback state: {relay_playback_state(@active_camera_relay_session)}
           </div>
-          <div data-role="viewer-count" class="text-xs text-base-content/70">
+          <div data-role="viewer-count" class="text-xs text-sr-muted">
             Viewer count: {Map.get(@active_camera_relay_session, :viewer_count, 0)}
           </div>
           <div data-role="termination-kind" class="text-xs text-info/80">
@@ -163,19 +159,19 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <div data-role="close-reason" class="text-xs text-warning/80">
             {relay_close_reason_text(@active_camera_relay_session)}
           </div>
-          <div data-role="binary-stats" class="text-xs text-base-content/60">
+          <div data-role="binary-stats" class="text-xs text-sr-muted">
             Chunks: 0  Bytes: 0
           </div>
-          <div data-role="relay-detail" class="text-xs text-base-content/60">
+          <div data-role="relay-detail" class="text-xs text-sr-muted">
             Browser viewer channel is attached to the persisted relay session.
           </div>
         </div>
 
         <div
           :if={!@active_camera_relay_session && @last_camera_relay_session}
-          class="rounded-lg border border-base-300/70 bg-base-200/20 p-3 text-xs text-base-content/70"
+          class="rounded-lg border border-sr-line/70 bg-sr-subtle/20 p-3 text-xs text-sr-muted"
         >
-          <div class="font-medium text-base-content">
+          <div class="font-medium text-sr-ink">
             Last relay status: {relay_status_label(@last_camera_relay_session.status)}
           </div>
           <div :if={present?(relay_termination_text(@last_camera_relay_session))} class="mt-1">
@@ -196,21 +192,22 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold">Topology Camera Tile Set</div>
-            <div class="text-xs text-base-content/60">
+            <div class="text-xs text-sr-muted">
               Bounded multi-camera relay viewing from clustered topology endpoints.
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <span class="badge badge-outline badge-sm">
+            <.ui_badge size="sm" variant="outline">
               {length(@camera_relay_tiles)} / {camera_relay_tile_limit()}
-            </span>
-            <button
+            </.ui_badge>
+            <.ui_button
               type="button"
-              class="btn btn-xs btn-outline"
               phx-click="close_camera_relay_tile_set"
+              size="xs"
+              variant="outline"
             >
               Close All
-            </button>
+            </.ui_button>
           </div>
         </div>
       </:header>
@@ -227,55 +224,55 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
           <div
             :for={tile <- @camera_relay_tiles}
             id={"camera-relay-tile-#{camera_relay_tile_dom_id(tile)}"}
-            class="rounded-xl border border-base-300/70 bg-base-200/20 p-3 shadow-sm"
+            class="rounded-xl border border-sr-line/70 bg-sr-subtle/20 p-3 shadow-sm"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="truncate text-sm font-medium text-base-content">
+                <div class="truncate text-sm font-medium text-sr-ink">
                   {camera_relay_tile_label(tile)}
                 </div>
                 <div
                   :if={present?(camera_relay_tile_profile_label(tile))}
-                  class="mt-1 text-xs text-base-content/60"
+                  class="mt-1 text-xs text-sr-muted"
                 >
                   {camera_relay_tile_profile_label(tile)}
                 </div>
                 <.link
                   :if={present?(camera_relay_tile_device_uid(tile))}
                   navigate={~p"/devices/#{camera_relay_tile_device_uid(tile)}"}
-                  class="link link-primary mt-1 inline-block text-xs"
+                  class="text-sr-brand hover:underline mt-1 inline-block text-xs"
                 >
                   View device
                 </.link>
               </div>
               <div class="flex items-center gap-2">
-                <span
+                <.ui_badge
                   :if={camera_relay_tile_status_label(tile)}
-                  class={[
-                    "badge badge-sm",
-                    camera_relay_tile_badge_class(tile)
-                  ]}
+                  size="sm"
+                  variant={camera_relay_tile_badge_variant(tile)}
                 >
                   {camera_relay_tile_status_label(tile)}
-                </span>
-                <button
+                </.ui_badge>
+                <.ui_button
                   :if={camera_relay_tile_session_id(tile)}
                   type="button"
-                  class="btn btn-xs btn-outline"
                   phx-click="close_camera_relay_tile"
                   phx-value-relay_session_id={camera_relay_tile_session_id(tile)}
+                  size="xs"
+                  variant="outline"
                 >
                   Stop
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   :if={!camera_relay_tile_session_id(tile)}
                   type="button"
-                  class="btn btn-xs btn-ghost"
                   phx-click="dismiss_camera_relay_tile"
                   phx-value-tile_id={tile.tile_id}
+                  size="xs"
+                  variant="ghost"
                 >
                   Dismiss
-                </button>
+                </.ui_button>
               </div>
             </div>
 
@@ -304,7 +301,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               data-webrtc-ice-servers={relay_webrtc_ice_servers_json(camera_relay_tile_session(tile))}
               class="mt-3 space-y-1"
             >
-              <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+              <div class="overflow-hidden rounded-md border border-sr-line/70 bg-sr-control/20">
                 <canvas
                   data-role="video-canvas"
                   class="block aspect-video w-full bg-neutral/80 object-contain"
@@ -317,28 +314,28 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
                   autoplay
                 />
               </div>
-              <div data-role="transport-status" class="text-xs text-base-content/70">
+              <div data-role="transport-status" class="text-xs text-sr-muted">
                 Connecting browser stream...
               </div>
-              <div data-role="player-status" class="text-xs text-base-content/70">
+              <div data-role="player-status" class="text-xs text-sr-muted">
                 Waiting for browser decoder...
               </div>
-              <div data-role="compatibility-status" class="text-xs text-base-content/70">
+              <div data-role="compatibility-status" class="text-xs text-sr-muted">
                 Preferred transport: {relay_preferred_playback_transport(
                   camera_relay_tile_session(tile)
                 )}
               </div>
-              <div data-role="relay-status" class="text-xs font-medium text-base-content">
+              <div data-role="relay-status" class="text-xs font-medium text-sr-ink">
                 Relay status: {camera_relay_tile_session_status_label(tile)}
               </div>
               <div
                 data-role="playback-state"
                 data-state={camera_relay_tile_playback_state(tile)}
-                class="text-xs text-base-content/70"
+                class="text-xs text-sr-muted"
               >
                 Playback state: {camera_relay_tile_playback_state(tile)}
               </div>
-              <div data-role="viewer-count" class="text-xs text-base-content/70">
+              <div data-role="viewer-count" class="text-xs text-sr-muted">
                 Viewer count: {camera_relay_tile_viewer_count(tile)}
               </div>
               <div data-role="termination-kind" class="text-xs text-info/80">
@@ -350,10 +347,10 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
               <div data-role="close-reason" class="text-xs text-warning/80">
                 {camera_relay_tile_close_reason_text(tile)}
               </div>
-              <div data-role="binary-stats" class="text-xs text-base-content/60">
+              <div data-role="binary-stats" class="text-xs text-sr-muted">
                 Chunks: 0  Bytes: 0
               </div>
-              <div data-role="relay-detail" class="text-xs text-base-content/60">
+              <div data-role="relay-detail" class="text-xs text-sr-muted">
                 Cluster tile playback is attached to the persisted relay session.
               </div>
             </div>
@@ -398,15 +395,15 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def relay_status_label(status) when is_binary(status), do: String.capitalize(status)
   def relay_status_label(_), do: "Requested"
 
-  def relay_status_badge_class(:active), do: "badge-success"
-  def relay_status_badge_class("active"), do: "badge-success"
-  def relay_status_badge_class(:opening), do: "badge-warning"
-  def relay_status_badge_class("opening"), do: "badge-warning"
-  def relay_status_badge_class(:closing), do: "badge-warning"
-  def relay_status_badge_class("closing"), do: "badge-warning"
-  def relay_status_badge_class(:failed), do: "badge-error"
-  def relay_status_badge_class("failed"), do: "badge-error"
-  def relay_status_badge_class(_), do: "badge-ghost"
+  def relay_status_badge_variant(:active), do: "success"
+  def relay_status_badge_variant("active"), do: "success"
+  def relay_status_badge_variant(:opening), do: "warning"
+  def relay_status_badge_variant("opening"), do: "warning"
+  def relay_status_badge_variant(:closing), do: "warning"
+  def relay_status_badge_variant("closing"), do: "warning"
+  def relay_status_badge_variant(:failed), do: "error"
+  def relay_status_badge_variant("failed"), do: "error"
+  def relay_status_badge_variant(_), do: "ghost"
 
   def relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "", do: "ready"
@@ -511,11 +508,11 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
   def relay_session_terminal?(_session), do: false
 
-  def viewer_state_badge_class(:auth_required), do: "badge-warning"
-  def viewer_state_badge_class(:unavailable), do: "badge-warning"
-  def viewer_state_badge_class(:unauthorized), do: "badge-error"
-  def viewer_state_badge_class(:relay_error), do: "badge-error"
-  def viewer_state_badge_class(_kind), do: "badge-outline"
+  def viewer_state_badge_variant(:auth_required), do: "warning"
+  def viewer_state_badge_variant(:unavailable), do: "warning"
+  def viewer_state_badge_variant(:unauthorized), do: "error"
+  def viewer_state_badge_variant(:relay_error), do: "error"
+  def viewer_state_badge_variant(_kind), do: "outline"
 
   def viewer_state_container_class(:auth_required) do
     "border-warning/40 bg-warning/10 text-warning-content"
@@ -533,7 +530,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     "border-error/40 bg-error/10 text-error-content"
   end
 
-  def viewer_state_container_class(_kind), do: "border-base-300/70 bg-base-200/20 text-base-content"
+  def viewer_state_container_class(_kind), do: "border-sr-line/70 bg-sr-subtle/20 text-sr-ink"
 
   def camera_relay_tile_limit do
     case Application.get_env(:serviceradar_web_ng, :camera_relay_tile_limit, @default_camera_relay_tile_limit) do
@@ -594,16 +591,16 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
     |> relay_status_label()
   end
 
-  def camera_relay_tile_badge_class(tile) do
+  def camera_relay_tile_badge_variant(tile) do
     cond do
       is_map(Map.get(tile, :relay_session)) ->
-        relay_status_badge_class(Map.get(tile.relay_session, :status))
+        relay_status_badge_variant(Map.get(tile.relay_session, :status))
 
       is_map(Map.get(tile, :viewer_state)) ->
-        viewer_state_badge_class(Map.get(tile.viewer_state, :kind))
+        viewer_state_badge_variant(Map.get(tile.viewer_state, :kind))
 
       true ->
-        "badge-ghost"
+        "ghost"
     end
   end
 
@@ -656,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewCameraRelayComponents do
   def camera_relay_tile_viewer_state_container_class(tile) do
     case Map.get(tile, :viewer_state) do
       %{kind: kind} -> viewer_state_container_class(kind)
-      _ -> "border-base-300/70 bg-base-200/20 text-base-content"
+      _ -> "border-sr-line/70 bg-sr-subtle/20 text-sr-ink"
     end
   end
 

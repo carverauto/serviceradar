@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup, only: [asn_rir_hint: 1]
 
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext,
-    only: [threat_severity_badge_class: 1, threat_sources: 1]
+    only: [threat_severity_badge_variant: 1, threat_sources: 1]
 
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format, only: [to_int: 1]
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params, only: [normalize_optional_string: 1]
@@ -17,8 +17,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
 
   def render(assigns) do
     ~H"""
-    <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
-      <div class="text-xs uppercase tracking-wider text-base-content/50">
+    <div class="p-3 rounded-lg border border-sr-line bg-sr-subtle/30">
+      <div class="text-xs uppercase tracking-wider text-sr-muted">
         Security and Enrichment
       </div>
 
@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
     ~H"""
     <div>
       <div class="font-semibold">ARIN ASN lookup</div>
-      <div class="mt-1 text-base-content/70">Click any AS number to load ARIN Whois details.</div>
+      <div class="mt-1 text-sr-muted">Click any AS number to load ARIN Whois details.</div>
       <div
         :if={is_binary(Map.get(@arin_lookup, :error)) and Map.get(@arin_lookup, :error) != ""}
         class="mt-2 text-error"
@@ -61,19 +61,20 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
         {Map.get(@arin_lookup, :error)}
       </div>
       <%= if data = Map.get(@arin_lookup, :data) do %>
-        <div class="mt-2 rounded-lg border border-base-200 bg-base-200/30 p-2">
+        <div class="mt-2 rounded-lg border border-sr-line bg-sr-subtle/30 p-2">
           <div class="flex items-center justify-between gap-2">
-            <div class="font-mono text-[11px] text-base-content/80">
+            <div class="font-mono text-[11px] text-sr-ink/90">
               {data.handle} {if is_binary(data.name), do: "- #{data.name}", else: ""}
             </div>
-            <span
+            <.ui_badge
               :if={is_binary(data.source) and data.source != ""}
-              class="badge badge-xs badge-outline"
+              size="xs"
+              variant="outline"
             >
               {data.source}
-            </span>
+            </.ui_badge>
           </div>
-          <div class="mt-2 max-h-48 overflow-y-auto space-y-1 font-mono text-[11px] text-base-content/70 pr-1">
+          <div class="mt-2 max-h-48 overflow-y-auto space-y-1 font-mono text-[11px] text-sr-muted pr-1">
             <div :if={is_binary(data.org_name) and data.org_name != ""}>
               org: {data.org_name}
               <span :if={is_binary(data.org_handle) and data.org_handle != ""}>
@@ -116,21 +117,21 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
     <div>
       <div class="font-semibold">Port scan</div>
       <%= if scan = Map.get(@context, :src_port_scan) do %>
-        <div class="mt-1 text-base-content/70">
-          <span class="badge badge-xs badge-error">flagged</span>
+        <div class="mt-1 text-sr-muted">
+          <.ui_badge size="xs" variant="error">flagged</.ui_badge>
           <span class="ml-2 font-mono">{scan.unique_ports} unique ports</span>
         </div>
       <% else %>
-        <div class="mt-1 text-base-content/70">
-          <span class="badge badge-xs badge-ghost">not flagged</span>
+        <div class="mt-1 text-sr-muted">
+          <.ui_badge size="xs" variant="ghost">not flagged</.ui_badge>
         </div>
       <% end %>
     </div>
 
     <div :if={anomaly = Map.get(@context, :dst_port_anomaly)}>
       <div class="font-semibold">Port anomaly</div>
-      <div class="mt-1 text-base-content/70">
-        <span class="badge badge-xs badge-error">anomalous</span>
+      <div class="mt-1 text-sr-muted">
+        <.ui_badge size="xs" variant="error">anomalous</.ui_badge>
         <span class="ml-2 font-mono">
           {anomaly.current_bytes} vs baseline {anomaly.baseline_bytes}
         </span>
@@ -144,22 +145,24 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
 
   def threat_line(assigns) do
     ~H"""
-    <div class="mt-1 text-base-content/70">
+    <div class="mt-1 text-sr-muted">
       {@label}:
       <%= if @match do %>
-        <span class="ml-2 badge badge-xs badge-warning">match</span>
+        <.ui_badge size="xs" variant="warning" class="ml-2">match</.ui_badge>
         <span class="ml-2 font-mono">{@match.match_count} indicators</span>
-        <span
+        <.ui_badge
           :if={@match.max_severity}
-          class={"ml-2 badge badge-xs #{threat_severity_badge_class(@match.max_severity)}"}
+          size="xs"
+          variant={threat_severity_badge_variant(@match.max_severity)}
+          class="ml-2"
         >
           severity {@match.max_severity}
-        </span>
-        <span :for={source <- threat_sources(@match)} class="ml-1 badge badge-xs badge-outline">
+        </.ui_badge>
+        <.ui_badge :for={source <- threat_sources(@match)} size="xs" variant="outline" class="ml-1">
           {source}
-        </span>
+        </.ui_badge>
       <% else %>
-        <span class="ml-2 badge badge-xs badge-ghost">none</span>
+        <.ui_badge size="xs" variant="ghost" class="ml-2">none</.ui_badge>
       <% end %>
     </div>
     """
@@ -172,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
     ~H"""
     <div :if={is_binary(@href) and @href != ""}>
       {@label}:
-      <a href={@href} target="_blank" rel="noopener noreferrer" class="link link-hover">
+      <a href={@href} target="_blank" rel="noopener noreferrer" class="text-sr-brand hover:underline">
         {@href}
       </a>
     </div>
@@ -195,7 +198,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
       |> assign(:asn_selected, Map.get(assigns.arin_lookup || %{}, :asn))
 
     ~H"""
-    <div class="mt-1 text-base-content/70">
+    <div class="mt-1 text-sr-muted">
       {@side}: <span class="font-mono">{@location_label}</span>
       <button
         :if={is_integer(@as_number) and @as_number > 0}
@@ -204,13 +207,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
         phx-value-asn={@as_number}
         phx-value-rir-hint={asn_rir_hint(@country_code)}
         class={[
-          "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
-          @asn_selected == @as_number && "text-primary"
+          "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-sr-brand",
+          @asn_selected == @as_number && "text-sr-brand"
         ]}
       >
         AS{@as_number}
       </button>
-      <span :if={is_binary(@as_name) and @as_name != ""} class="ml-2 font-mono text-base-content/60">
+      <span :if={is_binary(@as_name) and @as_name != ""} class="ml-2 font-mono text-sr-muted">
         {@as_name}
       </span>
     </div>

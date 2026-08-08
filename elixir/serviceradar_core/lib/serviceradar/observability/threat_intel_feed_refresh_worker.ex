@@ -19,6 +19,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Observability.OutboundFeedPolicy
   alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.PrefixTags.ThreatIntelSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -97,6 +98,9 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
         refresh_feed(url, actor, now, expires_at, timeout_ms, max_indicators_per_feed)
       end)
 
+      # One trie rebuild per refresh cycle, not once per feed URL.
+      _ = maybe_reload_ti_trie()
+
       ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
       :ok
     end
@@ -125,6 +129,26 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
     end
 
     :ok
+  end
+
+  defp maybe_reload_ti_trie do
+    if Code.ensure_loaded?(ThreatIntelSource) do
+      case ThreatIntelSource.reload() do
+        {:ok, %{row_count: count}} ->
+          Logger.info("Prefix-tag ti trie refreshed after threat feed", rows: count)
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("Prefix-tag ti trie reload skipped", reason: inspect(reason))
+          :ok
+      end
+    else
+      :ok
+    end
+  rescue
+    e ->
+      Logger.debug("Prefix-tag ti trie reload failed", error: Exception.message(e))
+      :ok
   end
 
   defp download_feed(url, timeout_ms) do

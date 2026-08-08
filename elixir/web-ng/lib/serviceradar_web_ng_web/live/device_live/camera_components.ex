@@ -23,13 +23,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
       |> assign(:active_stream_path, camera_relay_stream_path(assigns.active_session))
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <.icon name="hero-video-camera" class="size-4 text-secondary" />
           <span class="text-sm font-semibold">Camera Streams</span>
         </div>
-        <span :if={@active_session} class="text-xs text-base-content/60">
+        <span :if={@active_session} class="text-xs text-sr-muted">
           Session {String.slice(@active_session.id || "", 0, 8)}
         </span>
       </div>
@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
           {@inventory_error}
         </div>
 
-        <div :if={not @has_sources} class="text-sm text-base-content/60">
+        <div :if={not @has_sources} class="text-sm text-sr-muted">
           No relay-capable camera streams are mapped to this device yet.
         </div>
 
@@ -52,11 +52,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
           active_stream_path={@active_stream_path}
         />
 
-        <div :for={source <- @sources} class="rounded-xl border border-base-200/80 bg-base-50/40">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200/80 px-4 py-3">
+        <div :for={source <- @sources} class="rounded-xl border border-sr-line/80 bg-base-50/40">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line/80 px-4 py-3">
             <div>
               <div class="font-medium text-sm">{source.display_name}</div>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
+              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-sr-muted">
                 <span>{String.upcase(source.vendor)}</span>
                 <span :if={present?(source.assigned_agent_id)}>agent {source.assigned_agent_id}</span>
                 <span :if={present?(source.assigned_gateway_id)}>
@@ -65,31 +65,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
               </div>
               <div
                 :if={present?(source.availability_reason)}
-                class="mt-1 text-xs text-base-content/60"
+                class="mt-1 text-xs text-sr-muted"
               >
                 {source.availability_reason}
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span class={["badge badge-sm", camera_source_status_badge_class(source)]}>
+              <.ui_badge size="sm" variant={camera_source_status_variant(source)}>
                 {camera_source_status_label(source)}
-              </span>
-              <span class="badge badge-outline badge-sm">
+              </.ui_badge>
+              <.ui_badge size="sm" variant="outline">
                 {length(source.stream_profiles)} profile{if length(source.stream_profiles) == 1,
                   do: "",
                   else: "s"}
-              </span>
+              </.ui_badge>
             </div>
           </div>
 
-          <div class="divide-y divide-base-200/70">
+          <div class="divide-y divide-sr-line/70">
             <div
               :for={profile <- source.stream_profiles}
               class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
             >
               <div>
                 <div class="font-medium text-sm">{profile.profile_name}</div>
-                <div class="mt-1 flex flex-wrap gap-2 text-xs text-base-content/60">
+                <div class="mt-1 flex flex-wrap gap-2 text-xs text-sr-muted">
                   <span :if={present?(profile.codec_hint)}>{String.upcase(profile.codec_hint)}</span>
                   <span :if={present?(profile.container_hint)}>{profile.container_hint}</span>
                   <span :if={present?(profile.rtsp_transport)}>RTSP {profile.rtsp_transport}</span>
@@ -99,9 +99,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
               <div class="flex flex-wrap items-center gap-2">
                 <%= cond do %>
                   <% @active_session_key == {source.id, profile.id} -> %>
-                    <span class={["badge badge-sm", relay_status_badge_class(@active_session.status)]}>
+                    <.ui_badge size="sm" variant={relay_status_variant(@active_session.status)}>
                       {relay_status_label(@active_session.status)}
-                    </span>
+                    </.ui_badge>
                     <.ui_button
                       :if={relay_session_closable?(@active_session)}
                       phx-click="close_camera_relay"
@@ -111,9 +111,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
                       Stop Relay
                     </.ui_button>
                   <% @last_session_key == {source.id, profile.id} -> %>
-                    <span class={["badge badge-sm", relay_status_badge_class(@last_session.status)]}>
+                    <.ui_badge size="sm" variant={relay_status_variant(@last_session.status)}>
                       {relay_status_label(@last_session.status)}
-                    </span>
+                    </.ui_badge>
                     <span
                       :if={present?(relay_termination_label(@last_session))}
                       class="text-xs text-info"
@@ -219,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
         data-webrtc-ice-servers={relay_webrtc_ice_servers_json(@active_session)}
         class="space-y-1"
       >
-        <div class="overflow-hidden rounded-md border border-base-300/70 bg-base-300/20">
+        <div class="overflow-hidden rounded-md border border-sr-line/70 bg-sr-control/20">
           <canvas
             data-role="video-canvas"
             class="block aspect-video w-full bg-neutral/80 object-contain"
@@ -232,26 +232,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
             autoplay
           />
         </div>
-        <div data-role="transport-status" class="text-xs text-base-content/70">
+        <div data-role="transport-status" class="text-xs text-sr-muted">
           Connecting browser stream...
         </div>
-        <div data-role="player-status" class="text-xs text-base-content/70">
+        <div data-role="player-status" class="text-xs text-sr-muted">
           Waiting for browser decoder...
         </div>
-        <div data-role="compatibility-status" class="text-xs text-base-content/70">
+        <div data-role="compatibility-status" class="text-xs text-sr-muted">
           Preferred transport: {relay_preferred_playback_transport(@active_session)}
         </div>
-        <div data-role="relay-status" class="text-xs font-medium text-base-content">
+        <div data-role="relay-status" class="text-xs font-medium text-sr-ink">
           Relay status: {relay_status_label(@active_session.status)}
         </div>
         <div
           data-role="playback-state"
           data-state={relay_playback_state(@active_session)}
-          class="text-xs text-base-content/70"
+          class="text-xs text-sr-muted"
         >
           Playback state: {relay_playback_state(@active_session)}
         </div>
-        <div data-role="viewer-count" class="text-xs text-base-content/70">
+        <div data-role="viewer-count" class="text-xs text-sr-muted">
           Viewer count: {Map.get(@active_session, :viewer_count, 0)}
         </div>
         <div data-role="termination-kind" class="text-xs text-info/80">
@@ -260,10 +260,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
         <div data-role="close-reason" class="text-xs text-warning/80">
           {relay_close_reason_text(@active_session)}
         </div>
-        <div data-role="binary-stats" class="text-xs text-base-content/60">
+        <div data-role="binary-stats" class="text-xs text-sr-muted">
           Chunks: 0  Bytes: 0
         </div>
-        <div data-role="relay-detail" class="text-xs text-base-content/60">
+        <div data-role="relay-detail" class="text-xs text-sr-muted">
           Browser viewer channel is attached to the persisted relay session.
         </div>
       </div>
@@ -372,12 +372,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
     end
   end
 
-  def camera_source_status_badge_class(source) do
+  def camera_source_status_variant(source) do
     case camera_source_availability_status(source) do
-      "available" -> "badge-success"
-      "degraded" -> "badge-warning"
-      "unavailable" -> "badge-error"
-      _ -> "badge-ghost"
+      "available" -> "success"
+      "degraded" -> "warning"
+      "unavailable" -> "error"
+      _ -> "ghost"
     end
   end
 
@@ -401,15 +401,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
   def relay_status_label(status) when is_binary(status), do: String.capitalize(status)
   def relay_status_label(_), do: "Requested"
 
-  def relay_status_badge_class(:active), do: "badge-success"
-  def relay_status_badge_class("active"), do: "badge-success"
-  def relay_status_badge_class(:opening), do: "badge-warning"
-  def relay_status_badge_class("opening"), do: "badge-warning"
-  def relay_status_badge_class(:closing), do: "badge-warning"
-  def relay_status_badge_class("closing"), do: "badge-warning"
-  def relay_status_badge_class(:failed), do: "badge-error"
-  def relay_status_badge_class("failed"), do: "badge-error"
-  def relay_status_badge_class(_), do: "badge-ghost"
+  def relay_status_variant(:active), do: "success"
+  def relay_status_variant("active"), do: "success"
+  def relay_status_variant(:opening), do: "warning"
+  def relay_status_variant("opening"), do: "warning"
+  def relay_status_variant(:closing), do: "warning"
+  def relay_status_variant("closing"), do: "warning"
+  def relay_status_variant(:failed), do: "error"
+  def relay_status_variant("failed"), do: "error"
+  def relay_status_variant(_), do: "ghost"
 
   def relay_playback_state(%{status: status, media_ingest_id: media_ingest_id})
       when status in [:active, "active"] and is_binary(media_ingest_id) and media_ingest_id != "" do

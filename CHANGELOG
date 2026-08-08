@@ -1,3 +1,261 @@
+# ServiceRadar v1.4.30
+
+Rebuilt the CNPG database image so its compiled extensions actually load, and
+made a `helm upgrade` across a database image bump need no manual steps. Adds
+reusable credentials for SNMP, plugins and integrations, Kubernetes public
+endpoint inventory, and a Teleport-style SSO certificate SSH console.
+
+## Whats New
+
+**1.4.30**
+- Database image: TimescaleDB and Apache AGE are now compiled *and* linked
+  against the runtime's glibc rather than the build executor's, so the shipped
+  `.so` files load instead of stopping PostgreSQL at startup. Both are in
+  `shared_preload_libraries`, so a mis-linked build was never a degraded image
+  -- the database did not come up. The base is pinned to `18.4-system-bookworm`
+  (the plain `18.4` tag is a bullseye build, on which PostGIS alone fails to
+  load), asserted at build time, and every produced library is now checked
+  against the image that ships it for both a too-new glibc reference and an
+  unresolved symbol. (PR #4850)
+- Database upgrades: the chart moves to PostgreSQL 18.4 and converges extension
+  catalogs automatically. Our image ships one `timescaledb-<version>.so` and
+  PostgreSQL loads the version named in each database's catalog, so an image
+  missing that file cannot open the database -- and `ALTER EXTENSION` is then
+  unreachable to recover. A pre-upgrade hook now updates catalogs while the old
+  image is still serving, verifies every database against the module set the
+  incoming image actually carries, and aborts the upgrade with the cluster
+  untouched rather than letting a rollout strand a database. The default image
+  pin also had two copies that had drifted apart, leaving one environment on an
+  older PostgreSQL; both now read a single definition. (PR #4853)
+- Reusable credentials: SNMP, plugin secret fields and integration sources can
+  select an existing stored credential instead of re-entering secrets, Ansible
+  accepts pasted execution and callback tokens, plugin delivery mode governs
+  what is assignable, and only producer-schedule profiles are reconciled.
+  Credential broker grants and resolution audits are now retained rather than
+  growing unbounded. (PRs #4813, #4816, #4818, #4834, #4839, #4841, #4847)
+- SRQL and query UX: bidirectional `ip:`/`cidr:` flow filters, `%` wildcards
+  honoured on flow IP filters, `sort:` respected when truncating downsample
+  buckets, downsample and stats tokens no longer flagged as unknown, and address
+  filters default to equals instead of contains. (PRs #4827, #4830, #4832,
+  #4836, #4838)
+- Kubernetes inventory: public endpoints are collected through the agent, with
+  VIP flow joins and attribution fixes so traffic resolves to the right service.
+  (PR #4854)
+- Remote access: the SSH console defaults to a Teleport-style SSO certificate
+  flow. (PR #4848)
+- Plugins: pending package approvals are surfaced in the settings navigation.
+  (PR #4835)
+- Build and CI: OCI base images are mirrored to `registry.carverauto.dev`, Hex
+  dependencies compile against the `compile_env` the release applies, add-on
+  task-size hints are centralized so tuning no longer forces version bumps, the
+  release tag is no longer derived from the container image tag, React is pinned
+  to 19.2.8 with dual installs eliminated, and the BuildBuddy workflow and
+  Elixir integration tests were reworked. (PRs #4774, #4790, #4792, #4801,
+  #4810, #4814, #4815, #4824, #4825, #4826, #4843, #4844, #4846)
+- Fixes: scan and CLI tests establish closed ports and bound NSS shell-outs;
+  a stray kubeconfig committed as a file named `~` was removed. (PRs #4793,
+  #4812)
+
+# ServiceRadar v1.4.29
+
+Fixed camera live feeds reattaching to zombie relay sessions that stayed
+`status=active` after the edge pull was dead, by requiring a still-valid lease
+before reusing an active session.
+
+## Whats New
+
+**1.4.29**
+- Camera relay: core no longer reuses `active` relay sessions whose lease has
+  expired (or was never stamped). Zombie DB rows from gateway restarts, agent
+  source failures, or abandoned July sessions were reattached forever — viewers
+  saw open websockets with no media and no new `camera.open_relay` to the agent.
+  Pending `requested`/`opening` rows may still attach during the short open
+  window; stamped-but-expired leases always open a fresh pull. (PR #4787)
+
+# ServiceRadar v1.4.28
+
+Fixed agent-gateway camera relay tracker crashes that took down live camera
+feeds after the v1.4.27 lease reaper landed, by making ingress liveness checks
+safe for remote core PIDs.
+
+## Whats New
+
+**1.4.28**
+- Camera relay: agent-gateway session tracker no longer calls `Process.alive?/1`
+  on remote core ingress PIDs (that raised `ArgumentError`, crashed the tracker
+  GenServer, wiped gateway session state, and broke live feeds). Remote PIDs are
+  probed via `:erpc`; unreachable remotes leave the session until lease expiry.
+  (PR #4785)
+
+# ServiceRadar v1.4.27
+
+Published the camera live-feed session fix that was cut as v1.4.26 but never
+shipped (release publish failed on removed Debian security debs), and unblocked
+container image builds by refreshing the postgis-layer curl/nghttp2 pins.
+
+## Whats New
+
+**1.4.27**
+- Camera relay: agent-gateway reaps lease-expired relay sessions so orphaned
+  streams no longer permanently exhaust the per-agent limit of 16. Core reuses
+  a live edge session for the same camera source and stream profile (one
+  Membrane pull, many viewers) instead of opening a new agent relay on every
+  view. Soft viewer disconnects retain shared edge pulls while viewers remain;
+  idle-timeout still tears them down. (PR #4781)
+- Build: web-ng Bazel precommit stages shared Credo configs into the Mix
+  workdir so `mix credo` no longer fails with a missing `.credo.ex_slop.exs`.
+  (PR #4781)
+- Build: refresh MODULE.bazel Debian `http_file` pins for libcurl3-gnutls
+  (deb12u15) and libnghttp2-14 (deb12u3) so the postgis extension layer can
+  fetch during release publish after upstream removed the prior security
+  updates. (unblocks v1.4.26 publish failure)
+- Dgraph client: first-party Rust client with hermetic E2E integration tests
+  and Bazel-generated gRPC bindings for dgraph protos. (PR #4738)
+- Packaging / release: tagged Forgejo deb/rpm assets are limited to edge
+  installers (agent, nats, cli, log-collector, flow-collector, bmp-collector,
+  trapd, rperf, rperf-checker). Control-plane services remain container/Helm
+  only. Finalize prunes fat Forgejo releases to the newest 10 to control
+  attachment growth. (PR #4773)
+- CI and build graph: Bazel-native Go short tests, parallel Rust musl/lint
+  legs, hermetic web-ng precommit cache layers, and several cache-key and
+  registry-auth fixes that stop false invalidations and unauthenticated pulls.
+
+# ServiceRadar v1.4.26
+
+Fixed camera live feeds dying after gateway session exhaustion, landed the
+first-party Rust Dgraph client with E2E coverage, and slimmed Forgejo release
+packages so control-plane services stay container/Helm only.
+
+## Whats New
+
+**1.4.26**
+- Camera relay: agent-gateway reaps lease-expired relay sessions so orphaned
+  streams no longer permanently exhaust the per-agent limit of 16. Core reuses
+  a live edge session for the same camera source and stream profile (one
+  Membrane pull, many viewers) instead of opening a new agent relay on every
+  view. Soft viewer disconnects retain shared edge pulls while viewers remain;
+  idle-timeout still tears them down. (PR #4781)
+- Build: web-ng Bazel precommit stages shared Credo configs into the Mix
+  workdir so `mix credo` no longer fails with a missing `.credo.ex_slop.exs`.
+  (PR #4781)
+- Dgraph client: first-party Rust client with hermetic E2E integration tests
+  and Bazel-generated gRPC bindings for dgraph protos. (PR #4738)
+- Packaging / release: tagged Forgejo deb/rpm assets are limited to edge
+  installers (agent, nats, cli, log-collector, flow-collector, bmp-collector,
+  trapd, rperf, rperf-checker). Control-plane services remain container/Helm
+  only. Finalize prunes fat Forgejo releases to the newest 10 to control
+  attachment growth. (PR #4773)
+- CI and build graph: Bazel-native Go short tests, parallel Rust musl/lint
+  legs, hermetic web-ng precommit cache layers, and several cache-key and
+  registry-auth fixes that stop false invalidations and unauthenticated pulls.
+
+# ServiceRadar v1.4.25
+
+Delivered a brand-aligned observability console, operator-facing ad-hoc network
+scans, AWX live launch preflight, prefix-tag flow enrichment with NetBox
+import, and package-owned credential profiles — plus MTR sweep foundations and
+fleet-health surfaces for native add-ons.
+
+## Whats New
+
+**1.4.25**
+- Observability console: web-ng drops daisyUI in favor of ServiceRadar brand
+  tokens, redesigns log/event/alert detail viewers, path-based observability
+  tabs with shareable intent URLs, session-held SRQL pagination, and dialog
+  top-layer modals that sit above the ops chrome with outside-click dismiss.
+  (web-ng UI track after v1.4.24)
+- Ad-hoc network scans: operators can launch scans from web-ng with REST and
+  LiveView surfaces; core dispatches work and ingests results over JetStream.
+  (PR #4673)
+- AWX live launch preflight: controller-bound checks, immutable evidence
+  snapshots, survey-default review gates, and drift categories surface before
+  a launch proceeds. (PR #4617)
+- Prefix tagging and inventory: LPM trie enrichment for flows, NetBox-driven
+  prefix import, and a first-party NetBox inventory-sync Wasm plugin.
+  (PRs #4642, #4643)
+- Package-owned credentials: external packages declare and own credential
+  profile rules; the UI restyles those rules onto design-system chrome.
+  (PR #4711)
+- MTR foundations: HostResult carries MTRStatus for first-class sweep mode
+  work, and fresh installs retain MTR policy correctly. (PRs #4678, #4663)
+- Native add-on fleet: rollout health is queryable via API and SRQL; failed
+  rollouts can retry; zero-touch release reconciliation selects the right
+  extension package. (PRs #4670, #4667, #4649)
+- Runtime hardening: agent-gateway buffers stream forward failures; password-
+  only tenants no longer report SSO; event severity stats include current
+  events; web-ng liveness stays up during migrations; synthetic liveness
+  alerts are suppressed; continuous-aggregate privileges for seasonal
+  disposition are repaired; topology attachment metadata is retained.
+  (PRs #4664, #4662, #4661, #4660, #4659, #4658, #4672, #4651)
+- Armis identity: generic identity bridges are removed; hermetic DIRE E2E
+  coverage and integration NATS fixtures land in CI. (PRs #4707, #4712, #4719)
+- Docs and build: ServiceRadar Cloud quickstart runbook; product docs aligned
+  to the design system; Bazel-generated Rust gRPC bindings for dgraph protos.
+  (docs track, PR #4737)
+
+# ServiceRadar v1.4.24
+
+Made verified releases and trusted extension maintenance zero-touch, added
+health-gated add-on fleet updates, stabilized recurring reconciliation, and
+improved cross-subnet topology discovery.
+
+## Whats New
+
+**1.4.24**
+- Zero-touch releases: cached publication retries now recover immutable OCI
+  digests and sign the verified registry artifact. Complete signed releases
+  advance the guarded `demo/prod-release` branch, where conservative ArgoCD
+  auto-sync deploys them without prune or self-heal. (PRs #4627, #4629, #4631)
+- Native add-ons: the catalog converges on the latest verified first-party
+  release, safely auto-approves trusted packages, and advances compatible
+  fleet assignments through canaries, bounded batches, health gates, soak
+  windows, and rollback. Legacy policy backfill runs asynchronously so startup
+  is never blocked. The anomaly add-on advances to 0.3.1. (PRs #4633, #4636)
+- Wasm plugins: canonical signed packages import automatically, trusted legacy
+  assignments recover from current mTLS and authoritative policy evidence, and
+  the UI reports the actual deployed release instead of stale catalog data.
+  (PR #4632)
+- Runtime reconciliation: invalid Proxmox credential rules become stable,
+  fail-closed skips instead of repeated grant failures, while stale Oban
+  execution recovery uses row locking and enum-safe schema updates. (PR #4638)
+- Automation packaging: AWX launch sanitization accepts pending controller
+  evidence, and TinyGo argument allowlists remain reproducible in CI. (PR #4628)
+- Topology mapping: cross-subnet attachment evidence, Q-BRIDGE forwarding
+  discovery, UniFi management identity, and identifier-aware binding improve
+  device placement across routed networks. (PR #4640)
+
+# ServiceRadar v1.4.23
+
+Restored first-party add-on and plugin imports, removed impossible legacy
+recovery actions, and stabilized recurring background work and release
+validation.
+
+## Whats New
+
+**1.4.23**
+- Native add-ons: verified immutable bundles can be reused across release
+  envelopes when an add-on version is unchanged. Corrected first-party package
+  versions and OCI identity checks prevent false source conflicts during
+  release catalog synchronization. (PR #4613)
+- Wasm plugins and assignment recovery: signed bundles with empty optional
+  manifest arrays now import correctly. The Plugins Manager no longer offers
+  recovery actions that cannot succeed for unbound historical assignments and
+  keeps supported assignment workflows available. (PRs #4609, #4610)
+- Background scheduling: self-scheduling Oban workers reliably retain their
+  successor jobs under uniqueness constraints. OUI refreshes now run weekly
+  and provider metadata refreshes daily instead of repeatedly contacting the
+  upstream services. (PRs #4614, #4623)
+- Anomaly verification: committed scorecard and regression coverage lock in
+  spike coalescing, duplicate suppression, and seasonal-delivery behavior
+  without introducing a second anomaly implementation. (PR #4607)
+- Release integrity: Git tags, product metadata, Helm charts, Argo release
+  sources, native add-on catalogs, and published OCI artifacts are checked for
+  consistent immutable versions. Local release operators can run the same OCI
+  chart occupancy guard with an installed Helm client. (PRs #4608, #4624)
+- Gateway availability: Helm now exposes replica, disruption-budget, and
+  topology-spread controls for highly available Envoy Gateway deployments.
+  (PR #4606)
+
 # ServiceRadar v1.4.22
 
 Restored hosted core startup for tenant environments that use the private

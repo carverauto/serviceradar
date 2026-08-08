@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "cli",
@@ -27,5 +27,21 @@ go_library(
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
         "@org_golang_x_crypto//bcrypt",
+    ],
+)
+
+go_test(
+    name = "cli_test",
+    srcs = [
+        "cli_tls_test.go",
+        "nats_bootstrap_acl_integration_test.go",
+        "nats_bootstrap_acl_test.go",
+    ],
+    embed = [":cli"],
+    deps = [
+        "//go/pkg/nats/accounts",
+        "@com_github_nats_io_jwt_v2//:jwt",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_server_v2//server",
     ],
 )

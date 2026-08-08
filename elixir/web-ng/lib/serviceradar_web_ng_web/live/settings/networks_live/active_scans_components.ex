@@ -37,66 +37,65 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
     <div class="space-y-4">
       <!-- Main Stats -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Running</div>
+        <div class="bg-sr-subtle/50 rounded-lg p-4">
+          <div class="text-xs text-sr-muted uppercase tracking-wide">Running</div>
           <div class="text-2xl font-bold mt-1 flex items-center gap-2">
             {length(@running)}
-            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse">
-            </span>
+            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
+        <div class="bg-sr-subtle/50 rounded-lg p-4">
+          <div class="text-xs text-sr-muted uppercase tracking-wide">Hosts Scanned</div>
           <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
-          <div class="text-xs text-base-content/60">
+          <div class="text-xs text-sr-muted">
             {@available_hosts} available
             <%= if @latest_completed do %>
               • {format_last_run(@latest_completed.completed_at || @latest_completed.updated_at)}
             <% end %>
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
+        <div class="bg-sr-subtle/50 rounded-lg p-4">
+          <div class="text-xs text-sr-muted uppercase tracking-wide">Avg Success Rate</div>
           <div class={"text-2xl font-bold mt-1 #{success_rate_color(@avg_success_rate)}"}>
             {@avg_success_rate}%
           </div>
         </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent Executions</div>
+        <div class="bg-sr-subtle/50 rounded-lg p-4">
+          <div class="text-xs text-sr-muted uppercase tracking-wide">Recent Executions</div>
           <div class="text-2xl font-bold mt-1">{@completed_count}</div>
           <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
         </div>
       </div>
-      
-    <!-- Scanner Metrics Summary (only if we have metrics) -->
-      <div :if={@aggregate_metrics.has_data} class="bg-base-200/30 rounded-lg p-4">
+
+      <!-- Scanner Metrics Summary (only if we have metrics) -->
+      <div :if={@aggregate_metrics.has_data} class="bg-sr-subtle/30 rounded-lg p-4">
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-bar" class="size-4 text-base-content/60" />
-          <span class="text-xs text-base-content/60 uppercase tracking-wide">
+          <.icon name="hero-chart-bar" class="size-4 text-sr-muted" />
+          <span class="text-xs text-sr-muted uppercase tracking-wide">
             Scanner Performance (Recent Scans)
           </span>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
-            <div class="text-base-content/60 text-xs">Packets Sent</div>
+            <div class="text-sr-muted text-xs">Packets Sent</div>
             <div class="font-semibold font-mono">
               {format_number(@aggregate_metrics.packets_sent)}
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Packets Received</div>
+            <div class="text-sr-muted text-xs">Packets Received</div>
             <div class="font-semibold font-mono">
               {format_number(@aggregate_metrics.packets_recv)}
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Avg Drop Rate</div>
+            <div class="text-sr-muted text-xs">Avg Drop Rate</div>
             <div class={"font-semibold font-mono #{if to_float(@aggregate_metrics.avg_drop_rate) > 1.0, do: "text-warning", else: ""}"}>
               {Float.round(to_float(@aggregate_metrics.avg_drop_rate), 2)}%
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Total Retries</div>
+            <div class="text-sr-muted text-xs">Total Retries</div>
             <div class="font-semibold font-mono">
               {format_number(@aggregate_metrics.retries_successful)}/{format_number(
                 @aggregate_metrics.retries_attempted
@@ -104,18 +103,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Throttle Waits</div>
+            <div class="text-sr-muted text-xs">Throttle Waits</div>
             <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_waits > 0, do: "text-info", else: ""}"}>
               {format_number(@aggregate_metrics.throttle_waits)}
             </div>
-            <div class="text-[11px] text-base-content/50">
+            <div class="text-[11px] text-sr-muted">
               rate {format_number(@aggregate_metrics.rate_limit_waits)} / ports {format_number(
                 @aggregate_metrics.source_port_waits
               )}
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Throttle Time</div>
+            <div class="text-sr-muted text-xs">Throttle Time</div>
             <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_wait_time_ms > 0, do: "text-info", else: ""}"}>
               {format_duration(@aggregate_metrics.throttle_wait_time_ms)}
             </div>
@@ -296,17 +295,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       |> assign(:has_progress, progress_data.has_progress)
 
     ~H"""
-    <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
+    <div class="bg-sr-subtle/30 rounded-lg p-4 border border-sr-line">
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-3">
           <div class="relative">
-            <span class="loading loading-spinner loading-sm text-success"></span>
+            <.ui_spinner size="sm" />
           </div>
           <div>
             <div class="font-medium">
               {if @group, do: @group.name, else: "Unknown Group"}
             </div>
-            <div class="text-xs text-base-content/60 flex items-center gap-2">
+            <div class="text-xs text-sr-muted flex items-center gap-2">
               <span :if={Map.get(@execution, :agent_id)}>
                 <.icon name="hero-server" class="size-3 inline" />
                 {Map.get(@execution, :agent_id)}
@@ -317,22 +316,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         </div>
         <div class="text-right">
           <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
-          <div class="text-xs text-base-content/60">
+          <div class="text-xs text-sr-muted">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
             <span>
               of {@hosts_total_display} hosts
             </span>
           </div>
-          <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
+          <div :if={@batch_info} class="text-xs text-sr-muted mt-0.5">
             {@batch_info}
           </div>
         </div>
       </div>
-      
-    <!-- Progress bar with real-time updates -->
+
+      <!-- Progress bar with real-time updates -->
       <div class="mt-3">
-        <div class="h-1.5 bg-base-300 rounded-full overflow-hidden">
+        <div class="h-1.5 bg-sr-control rounded-full overflow-hidden">
           <div
             class="h-full bg-success transition-all duration-300"
             style={"width: #{batch_progress_percent(@progress)}%"}
@@ -341,7 +340,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         </div>
         <div
           :if={@has_progress && @progress.total_batches}
-          class="flex justify-between text-xs text-base-content/40 mt-1"
+          class="flex justify-between text-xs text-sr-muted mt-1"
         >
           <span>Processing...</span>
           <span>{batch_progress_percent(@progress)}%</span>
@@ -360,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
     assigns = assign(assigns, :has_metrics, has_metrics)
 
     ~H"""
-    <tr class="hover:bg-base-200/40">
+    <tr class="hover:bg-sr-subtle/40">
       <td>
         <.execution_status_badge status={@execution.status} />
       </td>
@@ -368,11 +367,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         <div class="font-medium">
           {if @group, do: @group.name, else: "Unknown Group"}
         </div>
-        <div :if={@execution.agent_id} class="text-xs text-base-content/60">
+        <div :if={@execution.agent_id} class="text-xs text-sr-muted">
           {@execution.agent_id}
         </div>
       </td>
-      <td class="text-xs text-base-content/60">
+      <td class="text-xs text-sr-muted">
         {format_relative_time(@execution.started_at)}
       </td>
       <td class="font-mono text-xs">
@@ -382,27 +381,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         <span :if={@execution.hosts_total}>
           {@execution.hosts_available || 0} / {@execution.hosts_total}
         </span>
-        <span :if={!@execution.hosts_total} class="text-base-content/40">—</span>
+        <span :if={!@execution.hosts_total} class="text-sr-muted">—</span>
       </td>
       <td>
         <.success_rate_badge execution={@execution} />
       </td>
       <td>
-        <div :if={@has_metrics} class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
-            <.icon name="hero-chart-bar" class="size-4" />
+        <details :if={@has_metrics} class="sr-ui-dropdown group relative inline-block text-left">
+          <summary class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden">
+            <span class="pointer-events-none inline-flex items-center">
+              <.ui_icon_button size="xs" variant="ghost" aria-label="Scanner metrics">
+                <.icon name="hero-chart-bar" class="size-4" />
+              </.ui_icon_button>
+            </span>
+          </summary>
+          <div class="absolute right-0 z-[var(--sr-z-menu)] mt-1.5 w-80 rounded-sr-surface border border-sr-line bg-sr-raised p-3 shadow-sr-raised">
+            <h3 class="mb-2 text-sm font-semibold text-sr-ink">Scanner Metrics</h3>
+            <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
           </div>
-          <div
-            tabindex="0"
-            class="dropdown-content z-[1] card card-compact w-80 p-2 shadow bg-base-100 border border-base-200"
-          >
-            <div class="card-body p-2">
-              <h3 class="text-sm font-semibold mb-2">Scanner Metrics</h3>
-              <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
-            </div>
-          </div>
-        </div>
-        <span :if={!@has_metrics} class="text-base-content/40 text-xs">—</span>
+        </details>
+        <span :if={!@has_metrics} class="text-sr-muted text-xs">—</span>
       </td>
     </tr>
     """
@@ -438,43 +436,43 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
 
     ~H"""
     <div class="grid grid-cols-2 gap-2 text-xs">
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Sent</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Packets Sent</div>
         <div class="font-semibold font-mono">{format_number(@packets_sent)}</div>
       </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Received</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Packets Received</div>
         <div class="font-semibold font-mono">{format_number(@packets_recv)}</div>
       </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Dropped</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Packets Dropped</div>
         <div class={"font-semibold font-mono #{if @packets_dropped > 0, do: "text-warning", else: ""}"}>
           {format_number(@packets_dropped)}
         </div>
       </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">RX Drop Rate</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">RX Drop Rate</div>
         <div class={"font-semibold font-mono #{if to_float(@rx_drop_rate_percent) > 1.0, do: "text-warning", else: ""}"}>
           {Float.round(to_float(@rx_drop_rate_percent), 2)}%
         </div>
       </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Retries</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Retries</div>
         <div class="font-semibold font-mono">
           {format_number(@retries_successful)}/{format_number(@retries_attempted)}
         </div>
       </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Throttle Waits</div>
+      <div class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Throttle Waits</div>
         <div class={"font-semibold font-mono #{if @throttle_waits > 0, do: "text-info", else: ""}"}>
           {format_number(@throttle_waits)}
         </div>
-        <div class="text-[11px] text-base-content/50">
+        <div class="text-[11px] text-sr-muted">
           rate {format_number(@rate_limit_waits)} / ports {format_number(@source_port_waits)}
         </div>
       </div>
-      <div :if={@throttle_wait_time_ms > 0} class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Throttle Time</div>
+      <div :if={@throttle_wait_time_ms > 0} class="bg-sr-subtle/50 rounded p-2">
+        <div class="text-sr-muted">Throttle Time</div>
         <div class="font-semibold font-mono text-info">
           {format_duration(@throttle_wait_time_ms)}
         </div>
@@ -537,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
     <span :if={@rate} class={"text-xs font-medium #{success_rate_color(@rate)}"}>
       {@rate}%
     </span>
-    <span :if={!@rate} class="text-xs text-base-content/40">—</span>
+    <span :if={!@rate} class="text-xs text-sr-muted">—</span>
     """
   end
 
@@ -546,7 +544,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   def status_badge_class(:completed), do: "bg-success/20 text-success"
   def status_badge_class(:failed), do: "bg-error/20 text-error"
   def status_badge_class(:running), do: "bg-info/20 text-info"
-  def status_badge_class(_), do: "bg-base-200 text-base-content/60"
+  def status_badge_class(_), do: "bg-sr-subtle text-sr-muted"
 
   def status_icon(:completed), do: "hero-check-circle"
   def status_icon(:failed), do: "hero-x-circle"

@@ -7,17 +7,18 @@ module(
 # --- Bazel dependencies  ----------------------------------
 bazel_dep(name = "rules_go", version = "0.60.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.45.0", repo_name = "bazel_gazelle")
-bazel_dep(name = "rules_rust", version = "0.65.0")
+bazel_dep(name = "rules_rust", version = "0.73.0")
+bazel_dep(name = "rules_rust_prost", version = "0.73.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
-bazel_dep(name = "rules_nodejs", version = "6.5.0")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "33.4", repo_name = "com_google_protobuf")
-bazel_dep(name = "rules_oci", version = "2.2.6")
-bazel_dep(name = "rules_pkg", version = "1.1.0")
+bazel_dep(name = "rules_oci", version = "2.3.0")
+bazel_dep(name = "rules_pkg", version = "1.2.0")
 bazel_dep(name = "rules_erlang", version = "3.16.0")
 bazel_dep(name = "rules_elixir", version = "1.1.0")
-bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "bazel_features", version = "1.38.0", repo_name = "bazel_features")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "bazel_features", version = "1.51.0", repo_name = "bazel_features")
 bazel_dep(name = "rules_java", version = "9.0.3", repo_name = "rules_java")
 bazel_dep(name = "rules_multirun", version = "0.13.0")
 bazel_dep(name = "swiftlint", version = "0.63.2", repo_name = "SwiftLint")
@@ -38,10 +39,26 @@ bazel_dep(name = "rules_cc", version = "0.2.16")
 bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(
-    name = "toolchains_buildbuddy",
-    version = "0.0.4",
-    repo_name = "io_buildbuddy_buildbuddy_toolchain",
+bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
+
+# FORKED for one attribute: `use_ld` on the gcc_toolchain tag. Upstream hardcodes
+# "-fuse-ld=gold" as a literal in templates/BUILD.tpl -- no substitution placeholder, so no
+# attribute could select anything else. gold is deprecated, binutils keeps it in
+# maintenance-only mode, and rustc warns on every Rust link that it "has known bugs with Rust".
+#
+# The fork replaces that literal with %{use_ld} and threads an attribute through
+# extensions.bzl -> rules.bzl -> the template, defaulting to "gold" so every other consumer of
+# the module is byte-identical. //MODULE.bazel's buildbuddy_toolchain_ext.gcc_toolchain sets
+# "bfd". Intended for upstream; drop this override once it lands and the version is released.
+#
+# Overriding rather than --linkopt for a reason that was measured: --linkopt APPENDS, so rustc
+# received both flags. The link did use bfd (the driver honours the last -fuse-ld) but the
+# warning stayed, because rustc reports gold on sight without evaluating last-wins. Only
+# removing the flag at source silences it.
+git_override(
+    module_name = "toolchains_buildbuddy",
+    commit = "22e5bbd9748cd041e16416226ac00b32d78f0fdc",
+    remote = "https://github.com/marvin-hansen/buildbuddy-toolchain.git",
 )
 
 # rules_go/gazelle pull package_metadata transitively. Prefer the Bazel mirror
@@ -93,21 +110,2222 @@ single_version_override(
     patches = ["//third_party/patches/rules_java:openbsd_jni_header.patch"],
 )
 
-single_version_override(
+# VENDORED, not patched. rabbitmq/rules_erlang is ARCHIVED upstream -- last release 3.16.0,
+# roughly two years ago, and the repository states it is no longer maintained. The six local
+# fixes were therefore never going to land, which made the patch files a permanent tax: they
+# apply by context, break silently, and cannot express a design change.
+#
+# //third_party/rules_erlang is the 3.16.0 source with those six fixes already applied.
+# See //third_party/rules_erlang/VENDORING.md for the per-fix rationale and for how to diff
+# this tree against upstream 3.16.0.
+local_path_override(
     module_name = "rules_erlang",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_erlang:skip_system_erlang.patch",
-        "//third_party/patches/rules_erlang:add_bzlmod_build.patch",
-    ],
+    path = "third_party/rules_erlang",
 )
 
-single_version_override(
+# VENDORED, not patched -- same reasoning as rules_erlang above. //third_party/rules_elixir
+# is the 1.1.0 source with its six local fixes already applied; the per-fix rationale lives
+# in //third_party/rules_elixir/VENDORING.md.
+local_path_override(
     module_name = "rules_elixir",
-    patch_strip = 1,
-    patches = [
-        "//third_party/patches/rules_elixir:skip_system_elixir.patch",
-    ],
+    path = "third_party/rules_elixir",
+)
+
+# Hex packages as first-class Bazel repositories, compiled by the Bazel Elixir toolchain.
+# This replaces `mix deps.get` + `mix deps.compile` for the Ash closure: every package becomes
+# a real Bazel target producing ErlangAppInfo, which is what elixir_app and ex_unit_test need.
+# Build files live in //third_party/hex. Versions and checksums come from
+# elixir/serviceradar_core/mix.lock -- the sha256 is the OUTER tarball checksum (the last field
+# of the lock entry), which is what hex_archive downloads.
+git_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:git.bzl",
+    "git_repository",
+)
+
+hex_archive = use_repo_rule("@rules_erlang//:hex_archive.bzl", "hex_archive")
+
+# bundlex is the one lock entry that is not a Hex package -- serviceradar_core_elx pins it
+# from git (membraneframework/bundlex v1.5.4). It ships a Mix compiler that bunch_native
+# and the rest of the Membrane stack invoke as `compile.bundlex`, so without it those
+# packages fail with `The task "compile.bundlex" could not be found`.
+git_repository(
+    name = "hex_bundlex",
+    build_file = "//third_party/hex:bundlex.BUILD",
+    commit = "8f3b94a8d643c4513d61355be53136cb2ea8fbb4",
+    # Resolve precompiled OS deps from BUNDLEX_LOCAL_PRECOMPILED_DIR before reaching for
+    # github.com. Without it `mix deps.compile` downloads ffmpeg and friends inside a build
+    # action -- unkeyed, and once per consuming plugin. See the patch header.
+    patch_args = ["-p1"],
+    patches = ["//third_party/patches/bundlex:local_precompiled.patch"],
+    remote = "https://github.com/membraneframework/bundlex.git",
+)
+
+hex_archive(
+    name = "hex_acceptor_pool",
+    package_name = "acceptor_pool",
+    build_file = "//third_party/hex:acceptor_pool.BUILD",
+    sha256 = "f172f3d74513e8edd445c257d596fc84dbdd56d2c6fa287434269648ae5a421e",
+    version = "1.0.1",
+)
+
+hex_archive(
+    name = "hex_adbc",
+    package_name = "adbc",
+    build_file = "//third_party/hex:adbc.BUILD",
+    sha256 = "99a4f46e8af1c9dfc94c804c9f1d9e6c1923845a90af089765ea278d876da904",
+    version = "0.12.1",
+)
+
+hex_archive(
+    name = "hex_ash",
+    package_name = "ash",
+    build_file = "//third_party/hex:ash.BUILD",
+    sha256 = "2a7a45d3a3b980457b5cc7e339a84a35c232a7ab99047bbf7ce55e7dc36df357",
+    version = "3.29.3",
+)
+
+hex_archive(
+    name = "hex_ash_admin",
+    package_name = "ash_admin",
+    build_file = "//third_party/hex:ash_admin.BUILD",
+    sha256 = "d3bc34c266491ae3177f2a76ad97bbe916c4d3a41d56196db9d95e76413b3455",
+    version = "0.14.0",
+)
+
+hex_archive(
+    name = "hex_ash_cloak",
+    package_name = "ash_cloak",
+    build_file = "//third_party/hex:ash_cloak.BUILD",
+    sha256 = "83a3c73bb7f941a04e7329273e6123d5beb5f1cd3be73e84e609a37884ad0320",
+    version = "0.3.1",
+)
+
+hex_archive(
+    name = "hex_ash_credo",
+    package_name = "ash_credo",
+    build_file = "//third_party/hex:ash_credo.BUILD",
+    sha256 = "1199c82cac53153c3929be1ce4136dd8512a7fcc9d632aab45502f2b471125de",
+    version = "0.16.1",
+)
+
+hex_archive(
+    name = "hex_ash_json_api",
+    package_name = "ash_json_api",
+    build_file = "//third_party/hex:ash_json_api.BUILD",
+    sha256 = "0ff72b51d99c93f7ee655d2d5e10b29f5561ad36a0ee11dadcbcec7a4b995368",
+    version = "1.7.1",
+)
+
+hex_archive(
+    name = "hex_ash_oban",
+    package_name = "ash_oban",
+    build_file = "//third_party/hex:ash_oban.BUILD",
+    sha256 = "e60992bd6df3a264cac0fd25e43358396d4fe92357210450d94c29e818eb469c",
+    version = "0.8.10",
+)
+
+hex_archive(
+    name = "hex_ash_paper_trail",
+    package_name = "ash_paper_trail",
+    build_file = "//third_party/hex:ash_paper_trail.BUILD",
+    sha256 = "0bbcf8c735593669aecb0cf0d3dd21bdfc3e07706513a1a58b55623a68faf9f2",
+    version = "0.6.0",
+)
+
+hex_archive(
+    name = "hex_ash_phoenix",
+    package_name = "ash_phoenix",
+    build_file = "//third_party/hex:ash_phoenix.BUILD",
+    sha256 = "46e3209cfe5063c0e8d39cad98198cb8fbbccf9df6b29075c3ae45576f94c467",
+    version = "2.3.24",
+)
+
+hex_archive(
+    name = "hex_ash_postgres",
+    package_name = "ash_postgres",
+    build_file = "//third_party/hex:ash_postgres.BUILD",
+    sha256 = "e73298910d29b8051b30af390094165848b588288204ab12990f365c9fc653cc",
+    version = "2.10.0",
+)
+
+hex_archive(
+    name = "hex_ash_sql",
+    package_name = "ash_sql",
+    build_file = "//third_party/hex:ash_sql.BUILD",
+    sha256 = "e054670f5cf59e5dd2b13695c5de02ade592dc2f012ece10adb98a87e94cca8b",
+    version = "0.6.5",
+)
+
+hex_archive(
+    name = "hex_ash_state_machine",
+    package_name = "ash_state_machine",
+    build_file = "//third_party/hex:ash_state_machine.BUILD",
+    sha256 = "aa21c92a8950850df69b5205bf41efc1e502f5ab839425ba08561f0421c9f226",
+    version = "0.2.13",
+)
+
+hex_archive(
+    name = "hex_bandit",
+    package_name = "bandit",
+    build_file = "//third_party/hex:bandit.BUILD",
+    sha256 = "45dac82dc86f45cf4a196dee9cc5a8b791d9c9469d996055f055e6ee36c66e20",
+    version = "1.12.0",
+)
+
+hex_archive(
+    name = "hex_bcrypt_elixir",
+    package_name = "bcrypt_elixir",
+    build_file = "//third_party/hex:bcrypt_elixir.BUILD",
+    sha256 = "471be5151874ae7931911057d1467d908955f93554f7a6cd1b7d804cac8cef53",
+    version = "3.3.2",
+)
+
+hex_archive(
+    name = "hex_benchfella",
+    package_name = "benchfella",
+    build_file = "//third_party/hex:benchfella.BUILD",
+    sha256 = "23f27cbc482cbac03fc8926441eb60a5e111759c17642bac005c3225f5eb809d",
+    version = "0.3.5",
+)
+
+hex_archive(
+    name = "hex_bimap",
+    package_name = "bimap",
+    build_file = "//third_party/hex:bimap.BUILD",
+    sha256 = "bf5a2b078528465aa705f405a5c638becd63e41d280ada41e0f77e6d255a10b4",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_boombox",
+    package_name = "boombox",
+    build_file = "//third_party/hex:boombox.BUILD",
+    sha256 = "53aa18c2548fd29c00aca89f88a48e22502350c6cccdc92c3a7b84a9d3d4388b",
+    version = "0.2.10",
+)
+
+hex_archive(
+    name = "hex_boundary",
+    package_name = "boundary",
+    build_file = "//third_party/hex:boundary.BUILD",
+    sha256 = "8baf6f23987afdb1483033ed0bde75c9c703613c22ed58d5f23bf948f203247c",
+    version = "0.10.4",
+)
+
+hex_archive(
+    name = "hex_broadway",
+    package_name = "broadway",
+    build_file = "//third_party/hex:broadway.BUILD",
+    sha256 = "bef3b4c5512d0072917b70239cbecf8f76a2587465a5b7c3e2b9ae18b4bc405b",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_broadway_dashboard",
+    package_name = "broadway_dashboard",
+    build_file = "//third_party/hex:broadway_dashboard.BUILD",
+    sha256 = "2177b4d4ab46bdc059613fa447219c974091cfc79d9ff16480a9f4aabab89020",
+    version = "0.4.1",
+)
+
+hex_archive(
+    name = "hex_bunch",
+    package_name = "bunch",
+    build_file = "//third_party/hex:bunch.BUILD",
+    sha256 = "cacbe7437dd5299c9e665011d32127e0ce92b26ab4b9f64ebd2389f57cc7c141",
+    version = "1.6.4",
+)
+
+hex_archive(
+    name = "hex_bunch_native",
+    package_name = "bunch_native",
+    build_file = "//third_party/hex:bunch_native.BUILD",
+    sha256 = "23f9e036c34510d8ace14fc47553fd7672e2330e769ab84fe4b54fac80095a4b",
+    version = "0.5.2",
+)
+
+hex_archive(
+    name = "hex_bunt",
+    package_name = "bunt",
+    build_file = "//third_party/hex:bunt.BUILD",
+    sha256 = "dc5f86aa08a5f6fa6b8096f0735c4e76d54ae5c9fa2c143e5a1fc7c1cd9bb6b5",
+    version = "1.0.0",
+)
+
+hex_archive(
+    name = "hex_castore",
+    package_name = "castore",
+    build_file = "//third_party/hex:castore.BUILD",
+    sha256 = "3669e6cab13f54c2df26b3e6833745d647f35b6e30d8ddd5975df0d5c842ca98",
+    version = "1.0.19",
+)
+
+hex_archive(
+    name = "hex_cc_precompiler",
+    package_name = "cc_precompiler",
+    build_file = "//third_party/hex:cc_precompiler.BUILD",
+    sha256 = "3427232caf0835f94680e5bcf082408a70b48ad68a5f5c0b02a3bea9f3a075b9",
+    version = "0.1.11",
+)
+
+hex_archive(
+    name = "hex_chacha20",
+    package_name = "chacha20",
+    build_file = "//third_party/hex:chacha20.BUILD",
+    sha256 = "2027f5d321ae9903f1f0da7f51b0635ad6b8819bc7fe397837930a2011bc2349",
+    version = "1.0.4",
+)
+
+hex_archive(
+    name = "hex_chatterbox",
+    package_name = "ts_chatterbox",
+    build_file = "//third_party/hex:chatterbox.BUILD",
+    sha256 = "4f75b91451338bc0da5f52f3480fa6ef6e3a2aeecfc33686d6b3d0a0948f31aa",
+    version = "0.15.1",
+)
+
+hex_archive(
+    name = "hex_cinder",
+    package_name = "cinder",
+    build_file = "//third_party/hex:cinder.BUILD",
+    sha256 = "60b72243d74b6764ca25be11eea30e9e527f58d863f1665d167929283ad20ac1",
+    version = "0.15.0",
+)
+
+hex_archive(
+    name = "hex_cloak",
+    package_name = "cloak",
+    build_file = "//third_party/hex:cloak.BUILD",
+    sha256 = "92b20527b9aba3d939fab0dd32ce592ff86361547cfdc87d74edce6f980eb3d7",
+    version = "1.1.4",
+)
+
+hex_archive(
+    name = "hex_coerce",
+    package_name = "coerce",
+    build_file = "//third_party/hex:coerce.BUILD",
+    sha256 = "0b3451c729571234fdac478636c298e71d1f2ce1243abed5fa43fa3181b980eb",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_comeonin",
+    package_name = "comeonin",
+    build_file = "//third_party/hex:comeonin.BUILD",
+    sha256 = "65aac8f19938145377cee73973f192c5645873dcf550a8a6b18187d17c13ccdb",
+    version = "5.5.1",
+)
+
+hex_archive(
+    name = "hex_conv_case",
+    package_name = "conv_case",
+    build_file = "//third_party/hex:conv_case.BUILD",
+    sha256 = "88f29a3d97d1742f9865f7e394ed3da011abb7c5e8cc104e676fdef6270d4b4a",
+    version = "0.2.3",
+)
+
+hex_archive(
+    name = "hex_corsica",
+    package_name = "corsica",
+    build_file = "//third_party/hex:corsica.BUILD",
+    sha256 = "616c08f61a345780c2cf662ff226816f04d8868e12054e68963e95285b5be8bc",
+    version = "2.1.3",
+)
+
+hex_archive(
+    name = "hex_cowboy",
+    package_name = "cowboy",
+    build_file = "//third_party/hex:cowboy.BUILD",
+    sha256 = "84f0e4c9d5820342cd506472052b79336d0d9d3624e46303f6d0af9dc94e8d5f",
+    version = "2.17.0",
+)
+
+hex_archive(
+    name = "hex_cowlib",
+    package_name = "cowlib",
+    build_file = "//third_party/hex:cowlib.BUILD",
+    sha256 = "6dc66e3135b229193ea4dcb14294e79520c923d391315c9c962ef0b4bea72356",
+    version = "2.19.0",
+)
+
+hex_archive(
+    name = "hex_crc",
+    package_name = "crc",
+    build_file = "//third_party/hex:crc.BUILD",
+    sha256 = "9e832833d48a5fff03cb7488f8aa5c08adda0a5fa8188bbe124cb17c4e39a00d",
+    version = "0.10.6",
+)
+
+hex_archive(
+    name = "hex_credo",
+    package_name = "credo",
+    build_file = "//third_party/hex:credo.BUILD",
+    sha256 = "2d8bc95d5a7bb99dd2613621d4f08c6a3575c3fd4b62e6a2b48a100352a557b8",
+    version = "1.7.19",
+)
+
+hex_archive(
+    name = "hex_crux",
+    package_name = "crux",
+    build_file = "//third_party/hex:crux.BUILD",
+    sha256 = "ff7d880cf732d82360aa81e439b8d4831cd30768061c9233f90c97e10162b9c0",
+    version = "0.1.4",
+)
+
+hex_archive(
+    name = "hex_ctx",
+    package_name = "ctx",
+    build_file = "//third_party/hex:ctx.BUILD",
+    sha256 = "a14ed2d1b67723dbebbe423b28d7615eb0bdcba6ff28f2d1f1b0a7e1d4aa5fc2",
+    version = "0.6.0",
+)
+
+hex_archive(
+    name = "hex_curve25519",
+    package_name = "curve25519",
+    build_file = "//third_party/hex:curve25519.BUILD",
+    sha256 = "dd714c2da20cdddca81f0b659236c8fb2119e58697326da50785b5c1bc64af9d",
+    version = "1.0.6",
+)
+
+hex_archive(
+    name = "hex_db_connection",
+    package_name = "db_connection",
+    build_file = "//third_party/hex:db_connection.BUILD",
+    sha256 = "510b14482330f1af6490a2fa0efd8d4f1435d1529b165647df22ac0f2df0fa93",
+    version = "2.10.2",
+)
+
+hex_archive(
+    name = "hex_decimal",
+    package_name = "decimal",
+    build_file = "//third_party/hex:decimal.BUILD",
+    sha256 = "c5f25f2ced74a0587d03e6023f595db8e924c9d3922c8c8ffd9edfc4498cf1f6",
+    version = "3.1.1",
+)
+
+hex_archive(
+    name = "hex_delta_crdt",
+    package_name = "delta_crdt",
+    build_file = "//third_party/hex:delta_crdt.BUILD",
+    sha256 = "c6ae23a525d30f96494186dd11bf19ed9ae21d9fe2c1f1b217d492a7cc7294ae",
+    version = "0.6.5",
+)
+
+hex_archive(
+    name = "hex_dialyxir",
+    package_name = "dialyxir",
+    build_file = "//third_party/hex:dialyxir.BUILD",
+    sha256 = "b34527202e6eb8cee198efec110996c25c5898f43a4094df157f8d28f27d9efe",
+    version = "1.4.7",
+)
+
+hex_archive(
+    name = "hex_dns_cluster",
+    package_name = "dns_cluster",
+    build_file = "//third_party/hex:dns_cluster.BUILD",
+    sha256 = "ba6f1893411c69c01b9e8e8f772062535a4cf70f3f35bcc964a324078d8c8240",
+    version = "0.2.0",
+)
+
+hex_archive(
+    name = "hex_earmark_parser",
+    package_name = "earmark_parser",
+    build_file = "//third_party/hex:earmark_parser.BUILD",
+    sha256 = "d3ec045bf122965db20c0bdb420e19ee1415843135327124918473feb4b328e8",
+    version = "1.4.45",
+)
+
+hex_archive(
+    name = "hex_ecto",
+    package_name = "ecto",
+    build_file = "//third_party/hex:ecto.BUILD",
+    sha256 = "24b991956796700f467d0a3ef3d303138a3ef9ddddf8b98f43758ee067b20a30",
+    version = "3.14.1",
+)
+
+hex_archive(
+    name = "hex_ecto_sql",
+    package_name = "ecto_sql",
+    build_file = "//third_party/hex:ecto_sql.BUILD",
+    sha256 = "f4d8d36faf294c9417b5a37ec7ac8217ee2abdef5fcf197ba690f361548d3949",
+    version = "3.14.0",
+)
+
+hex_archive(
+    name = "hex_ed25519",
+    package_name = "ed25519",
+    build_file = "//third_party/hex:ed25519.BUILD",
+    sha256 = "f83f7b346edfb91f0672682dee8672d16a26bfa8a7b85ee9795cb7fb2825b8bb",
+    version = "1.5.1",
+)
+
+hex_archive(
+    name = "hex_elixir_make",
+    package_name = "elixir_make",
+    build_file = "//third_party/hex:elixir_make.BUILD",
+    sha256 = "dc1f09fb7fa68866b886abd5f0f3c83553b1a19a52359a899e92af1bb3b31982",
+    version = "0.10.0",
+)
+
+hex_archive(
+    name = "hex_elixir_uuid",
+    package_name = "elixir_uuid",
+    build_file = "//third_party/hex:elixir_uuid.BUILD",
+    sha256 = "f7eba2ea6c3555cea09706492716b0d87397b88946e6380898c2889d68585752",
+    version = "1.2.1",
+)
+
+hex_archive(
+    name = "hex_elixlsx",
+    package_name = "elixlsx",
+    build_file = "//third_party/hex:elixlsx.BUILD",
+    sha256 = "c4766f47afea075a85950a5c6fe981e98b8b8a30cc076382aaacf2bb8dbcd25d",
+    version = "0.6.0",
+)
+
+hex_archive(
+    name = "hex_equivalex",
+    package_name = "equivalex",
+    build_file = "//third_party/hex:equivalex.BUILD",
+    sha256 = "46fa311adb855117d36e461b9c0ad2598f72110ad17ad73d7533c78020e045fc",
+    version = "1.0.3",
+)
+
+hex_archive(
+    name = "hex_erlex",
+    package_name = "erlex",
+    build_file = "//third_party/hex:erlex.BUILD",
+    sha256 = "8cfffc0ec7159e6d73de2ab28a588064de80f88b2798d5cbe4482cbbc200178b",
+    version = "0.2.9",
+)
+
+hex_archive(
+    name = "hex_esaml",
+    package_name = "esaml",
+    build_file = "//third_party/hex:esaml.BUILD",
+    sha256 = "d34d0b259cd8ac8215fd2c333fac9dbbb91b5f5da5a9304508612ff3ac0afa7a",
+    version = "4.6.0",
+)
+
+hex_archive(
+    name = "hex_esbuild",
+    package_name = "esbuild",
+    build_file = "//third_party/hex:esbuild.BUILD",
+    sha256 = "468489cda427b974a7cc9f03ace55368a83e1a7be12fba7e30969af78e5f8c70",
+    version = "0.10.0",
+)
+
+hex_archive(
+    name = "hex_ets",
+    package_name = "ets",
+    build_file = "//third_party/hex:ets.BUILD",
+    sha256 = "2861fdfb04bcaeff370f1a5904eec864f0a56dcfebe5921ea9aadf2a481c822b",
+    version = "0.9.0",
+)
+
+hex_archive(
+    name = "hex_ex_ast",
+    package_name = "ex_ast",
+    build_file = "//third_party/hex:ex_ast.BUILD",
+    sha256 = "bca9f5092196c63dc96d3d2fcded8b9387e2e8cdb21546c8ba461e321121d423",
+    version = "0.12.9",
+)
+
+hex_archive(
+    name = "hex_ex_dna",
+    package_name = "ex_dna",
+    build_file = "//third_party/hex:ex_dna.BUILD",
+    sha256 = "28196153994e99aae29a955ee9f1d37ea6d3a33dbac0896ac4b937ebc622c313",
+    version = "1.5.3",
+)
+
+hex_archive(
+    name = "hex_ex_doc",
+    package_name = "ex_doc",
+    build_file = "//third_party/hex:ex_doc.BUILD",
+    sha256 = "2756e357742fecd9749b489b85d67c9ce99c465f2e75728d9e6dc8d704b973de",
+    version = "0.40.3",
+)
+
+hex_archive(
+    name = "hex_ex_dtls",
+    package_name = "ex_dtls",
+    build_file = "//third_party/hex:ex_dtls.BUILD",
+    sha256 = "02aa48094982d231043cce4b02e6f2c6cfafc7e308c4afe116785641f92f0a56",
+    version = "0.18.1",
+)
+
+hex_archive(
+    name = "hex_ex_hls",
+    package_name = "ex_hls",
+    build_file = "//third_party/hex:ex_hls.BUILD",
+    sha256 = "144b35920846db02af5212f0dcd2a11d87a2745f1d4307aa20a93c0323da8764",
+    version = "0.1.5",
+)
+
+hex_archive(
+    name = "hex_ex_ice",
+    package_name = "ex_ice",
+    build_file = "//third_party/hex:ex_ice.BUILD",
+    sha256 = "0d65afa15e36b5610d0f51e72e4c25b22346caa9a6d7d2f6f1cfd8db94bd494e",
+    version = "0.13.0",
+)
+
+hex_archive(
+    name = "hex_ex_json_schema",
+    package_name = "ex_json_schema",
+    build_file = "//third_party/hex:ex_json_schema.BUILD",
+    sha256 = "0bbe87044ef0154be2a91ab6927d69c5fcccdb21908a135653fc10dcbbb79c3b",
+    version = "0.11.4",
+)
+
+hex_archive(
+    name = "hex_ex_libsrt",
+    package_name = "ex_libsrt",
+    build_file = "//third_party/hex:ex_libsrt.BUILD",
+    sha256 = "7ab8aae4c8a50e21869fc08429ef1cf9c8f2cdbcf3f207124b27507e373ca15c",
+    version = "0.1.7",
+)
+
+hex_archive(
+    name = "hex_ex_libsrtp",
+    package_name = "ex_libsrtp",
+    build_file = "//third_party/hex:ex_libsrtp.BUILD",
+    sha256 = "d16cd4673552b45122700ee2ad7ce2a0c6d96ed5b5cb32f3ed0769d75fc988a5",
+    version = "0.7.4",
+)
+
+hex_archive(
+    name = "hex_ex_m3u8",
+    package_name = "ex_m3u8",
+    build_file = "//third_party/hex:ex_m3u8.BUILD",
+    sha256 = "ec03aa516919e0c8ec202da55f609b763bd7960195a3388900090fcad270c873",
+    version = "0.15.4",
+)
+
+hex_archive(
+    name = "hex_ex_rtcp",
+    package_name = "ex_rtcp",
+    build_file = "//third_party/hex:ex_rtcp.BUILD",
+    sha256 = "d1532d561ec6f8686ff73f96d269d015e5ed150e5816b358deddcdf61ddc1f8e",
+    version = "0.4.2",
+)
+
+hex_archive(
+    name = "hex_ex_rtp",
+    package_name = "ex_rtp",
+    build_file = "//third_party/hex:ex_rtp.BUILD",
+    sha256 = "3bc7d426adfa1f6b7c735bbf20fcf8688808d6531ab9616641ee156d11877703",
+    version = "0.4.1",
+)
+
+hex_archive(
+    name = "hex_ex_sdp",
+    package_name = "ex_sdp",
+    build_file = "//third_party/hex:ex_sdp.BUILD",
+    sha256 = "452d3a44d667187606b3f8b8c636c537feec18e25d362b8c992d736fa5dfde9e",
+    version = "1.1.4",
+)
+
+hex_archive(
+    name = "hex_ex_slop",
+    package_name = "ex_slop",
+    build_file = "//third_party/hex:ex_slop.BUILD",
+    sha256 = "da8ccad55b61eebf7972fee1ab723f5227e58ed052ea09be4f9fe315c5e89cc2",
+    version = "0.2.0",
+)
+
+hex_archive(
+    name = "hex_ex_stun",
+    package_name = "ex_stun",
+    build_file = "//third_party/hex:ex_stun.BUILD",
+    sha256 = "df711db3610302d4161ce362321f98862fad858de48a75c135fd0b343f18e817",
+    version = "0.2.1",
+)
+
+hex_archive(
+    name = "hex_ex_turn",
+    package_name = "ex_turn",
+    build_file = "//third_party/hex:ex_turn.BUILD",
+    sha256 = "f94874c6d240a162ba610deca0e3a42a6dbc2721c37310ec1ab6063ac1e677c0",
+    version = "0.2.3",
+)
+
+hex_archive(
+    name = "hex_ex_webrtc",
+    package_name = "ex_webrtc",
+    build_file = "//third_party/hex:ex_webrtc.BUILD",
+    sha256 = "d341ee568a86f2fa56204266c26694d258344852d9f3a97515217f20c7ebd21b",
+    version = "0.15.1",
+)
+
+hex_archive(
+    name = "hex_expo",
+    package_name = "expo",
+    build_file = "//third_party/hex:expo.BUILD",
+    sha256 = "5fb308b9cb359ae200b7e23d37c76978673aa1b06e2b3075d814ce12c5811640",
+    version = "1.1.1",
+)
+
+hex_archive(
+    name = "hex_file_system",
+    package_name = "file_system",
+    build_file = "//third_party/hex:file_system.BUILD",
+    sha256 = "7a15ff97dfe526aeefb090a7a9d3d03aa907e100e262a0f8f7746b78f8f87a5d",
+    version = "1.1.1",
+)
+
+hex_archive(
+    name = "hex_finch",
+    package_name = "finch",
+    build_file = "//third_party/hex:finch.BUILD",
+    sha256 = "80e58d3f936f57e3fdf404f83a3642897ae6d9fb642934e46da4d8fe761b99d5",
+    version = "0.23.0",
+)
+
+hex_archive(
+    name = "hex_fine",
+    package_name = "fine",
+    build_file = "//third_party/hex:fine.BUILD",
+    sha256 = "5638eb4495488e885ebec167fa57973e5c35e1a50c344eb7666c90ec1c4e3b12",
+    version = "0.1.6",
+)
+
+hex_archive(
+    name = "hex_flow",
+    package_name = "flow",
+    build_file = "//third_party/hex:flow.BUILD",
+    sha256 = "874adde96368e71870f3510b91e35bc31652291858c86c0e75359cbdd35eb211",
+    version = "1.2.4",
+)
+
+hex_archive(
+    name = "hex_gen_smtp",
+    package_name = "gen_smtp",
+    build_file = "//third_party/hex:gen_smtp.BUILD",
+    sha256 = "0b73fbf069864ecbce02fe653b16d3f35fd889d0fdd4e14527675565c39d84e6",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_gen_stage",
+    package_name = "gen_stage",
+    build_file = "//third_party/hex:gen_stage.BUILD",
+    sha256 = "0ffae547fa777b3ed889a6b9e1e64566217413d018cabd825f786e843ffe63e7",
+    version = "1.3.2",
+)
+
+hex_archive(
+    name = "hex_geolix",
+    package_name = "geolix",
+    build_file = "//third_party/hex:geolix.BUILD",
+    sha256 = "0b871bc2db8efd0114d1fd7087c83180056a1fff20d90946c89d32200e368651",
+    version = "2.1.0",
+)
+
+hex_archive(
+    name = "hex_geolix_adapter_mmdb2",
+    package_name = "geolix_adapter_mmdb2",
+    build_file = "//third_party/hex:geolix_adapter_mmdb2.BUILD",
+    sha256 = "06ff962feae8a310cffdf86b74bfcda6e2d0dccb439bb1f62df2b657b1c0269b",
+    version = "0.6.0",
+)
+
+hex_archive(
+    name = "hex_gettext",
+    package_name = "gettext",
+    build_file = "//third_party/hex:gettext.BUILD",
+    sha256 = "eab805501886802071ad290714515c8c4a17196ea76e5afc9d06ca85fb1bfeb3",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_glob_ex",
+    package_name = "glob_ex",
+    build_file = "//third_party/hex:glob_ex.BUILD",
+    sha256 = "342729363056e3145e61766b416769984c329e4378f1d558b63e341020525de4",
+    version = "0.1.11",
+)
+
+hex_archive(
+    name = "hex_gnat",
+    package_name = "gnat",
+    build_file = "//third_party/hex:gnat.BUILD",
+    sha256 = "d9302b96245bc3a34754df96c8b0ff4af3563b6d4571e22aa23dcb1396d98353",
+    version = "1.15.2",
+)
+
+hex_archive(
+    name = "hex_googleapis",
+    package_name = "googleapis",
+    build_file = "//third_party/hex:googleapis.BUILD",
+    sha256 = "1989a7244fd17d3eb5f3de311a022b656c3736b39740db46506157c4604bd212",
+    version = "0.1.0",
+)
+
+hex_archive(
+    name = "hex_gproc",
+    package_name = "gproc",
+    build_file = "//third_party/hex:gproc.BUILD",
+    sha256 = "905088e32e72127ed9466f0bac0d8e65704ca5e73ee5a62cb073c3117916d507",
+    version = "0.9.1",
+)
+
+hex_archive(
+    name = "hex_grpc",
+    package_name = "grpc",
+    build_file = "//third_party/hex:grpc.BUILD",
+    sha256 = "5ea5258e2ef6e0fd38191bb5d66f23575db6e208b256e9d2efe2c44da472d50f",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_grpc_core",
+    package_name = "grpc_core",
+    build_file = "//third_party/hex:grpc_core.BUILD",
+    sha256 = "73b916dc3f2767bd68f95a35507a9c2b389fb71997fad16558184f40b6fa148a",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_grpc_server",
+    package_name = "grpc_server",
+    build_file = "//third_party/hex:grpc_server.BUILD",
+    sha256 = "27d2b2bc43fbec991c91e839108fb1f3956d3156ccf5bfd3c8d26d5133f2be2a",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_grpcbox",
+    package_name = "grpcbox",
+    build_file = "//third_party/hex:grpcbox.BUILD",
+    sha256 = "4a3b5d7111daabc569dc9cbd9b202a3237d81c80bf97212fbc676832cb0ceb17",
+    version = "0.17.1",
+)
+
+hex_archive(
+    name = "hex_guardian",
+    package_name = "guardian",
+    build_file = "//third_party/hex:guardian.BUILD",
+    sha256 = "5c80103a9c538fbc2505bf08421a82e8f815deba9eaedb6e734c66443154c518",
+    version = "2.4.0",
+)
+
+hex_archive(
+    name = "hex_gun",
+    package_name = "gun",
+    build_file = "//third_party/hex:gun.BUILD",
+    sha256 = "1450575b4d393aa0811322727b90ad1dd94b5c10026f54a1641785bcbd250384",
+    version = "2.4.1",
+)
+
+hex_archive(
+    name = "hex_heap",
+    package_name = "heap",
+    build_file = "//third_party/hex:heap.BUILD",
+    sha256 = "ba9ea2fe99eb4bcbd9a8a28eaf71cbcac449ca1d8e71731596aace9028c9d429",
+    version = "2.0.2",
+)
+
+hex_archive(
+    name = "hex_horde",
+    package_name = "horde",
+    build_file = "//third_party/hex:horde.BUILD",
+    sha256 = "0b51c435cb698cac9bf9c17391dce3ebb1376ae6154c81f077fc61db771b9432",
+    version = "0.10.0",
+)
+
+hex_archive(
+    name = "hex_hpack",
+    package_name = "hpack_erl",
+    build_file = "//third_party/hex:hpack.BUILD",
+    sha256 = "d6137d7079169d8c485c6962dfe261af5b9ef60fbc557344511c1e65e3d95fb0",
+    version = "0.3.0",
+)
+
+hex_archive(
+    name = "hex_hpax",
+    package_name = "hpax",
+    build_file = "//third_party/hex:hpax.BUILD",
+    sha256 = "afc7cb142ebcc2d01ce7816190b98ce5dd49e799111b24249f3443d730f377ca",
+    version = "1.0.4",
+)
+
+hex_archive(
+    name = "hex_idna",
+    package_name = "idna",
+    build_file = "//third_party/hex:idna.BUILD",
+    sha256 = "6ae959a025bf36df61a8cab8508d9654891b5426a84c44d82deaffd6ddf8c71f",
+    version = "7.1.0",
+)
+
+hex_archive(
+    name = "hex_igniter",
+    package_name = "igniter",
+    build_file = "//third_party/hex:igniter.BUILD",
+    sha256 = "89146ad3fba21f3ea10873ae509fc760618623d4578e4723929a9dd1532aa30f",
+    version = "0.8.2",
+)
+
+hex_archive(
+    name = "hex_image",
+    package_name = "image",
+    build_file = "//third_party/hex:image.BUILD",
+    sha256 = "4d66ee976c30ec181a54b99791354a4ae990521d64811cb2daed39c4cd95860b",
+    version = "0.54.4",
+)
+
+hex_archive(
+    name = "hex_iterex",
+    package_name = "iterex",
+    build_file = "//third_party/hex:iterex.BUILD",
+    sha256 = "2e103b8bcc81757a9af121f6dc0df312c9a17220f302b1193ef720460d03029d",
+    version = "0.1.2",
+)
+
+hex_archive(
+    name = "hex_jason",
+    package_name = "jason",
+    build_file = "//third_party/hex:jason.BUILD",
+    sha256 = "b0c823996102bcd0239b3c2444eb00409b72f6a140c1950bc8b457d836b30684",
+    version = "1.4.5",
+)
+
+hex_archive(
+    name = "hex_jose",
+    package_name = "jose",
+    build_file = "//third_party/hex:jose.BUILD",
+    sha256 = "31e92b653e9210b696765cdd885437457de1add2a9011d92f8cf63e4641bab7b",
+    version = "1.11.12",
+)
+
+hex_archive(
+    name = "hex_json_xema",
+    package_name = "json_xema",
+    build_file = "//third_party/hex:json_xema.BUILD",
+    sha256 = "b8ffdbc2f67aa8b91b44e1ba0ab77eb5c0b0142116f8fbb804977fb939d470ef",
+    version = "0.6.5",
+)
+
+hex_archive(
+    name = "hex_jump_credo_checks",
+    package_name = "jump_credo_checks",
+    build_file = "//third_party/hex:jump_credo_checks.BUILD",
+    sha256 = "89f51e654b5f4900dfcc8cfaae780d676bc9343ec072f6067594f0a5c2900a19",
+    version = "0.4.0",
+)
+
+hex_archive(
+    name = "hex_kcl",
+    package_name = "kcl",
+    build_file = "//third_party/hex:kcl.BUILD",
+    sha256 = "254cf4eaa0f103b4e687ecf49158c6e350fc32134f446ef1cf028565509953c4",
+    version = "1.5.1",
+)
+
+hex_archive(
+    name = "hex_lazy_html",
+    package_name = "lazy_html",
+    build_file = "//third_party/hex:lazy_html.BUILD",
+    sha256 = "3b1be592929c31eca1a21673d25696e5c14cddfe922d9d1a3e3b48be4163883b",
+    version = "0.1.11",
+)
+
+hex_archive(
+    name = "hex_libcluster",
+    package_name = "libcluster",
+    build_file = "//third_party/hex:libcluster.BUILD",
+    sha256 = "ebf6561fcedd765a4cd43b4b8c04b1c87f4177b5fb3cbdfe40a780499d72f743",
+    version = "3.5.0",
+)
+
+hex_archive(
+    name = "hex_libgraph",
+    package_name = "libgraph",
+    build_file = "//third_party/hex:libgraph.BUILD",
+    sha256 = "41ca92240e8a4138c30a7e06466acc709b0cbb795c643e9e17174a178982d6bf",
+    version = "0.16.0",
+)
+
+hex_archive(
+    name = "hex_libring",
+    package_name = "libring",
+    build_file = "//third_party/hex:libring.BUILD",
+    sha256 = "070e3593cb572e04f2c8470dd0c119bc1817a7a0a7f88229f43cf0345268ec42",
+    version = "1.7.0",
+)
+
+hex_archive(
+    name = "hex_logger_backends",
+    package_name = "logger_backends",
+    build_file = "//third_party/hex:logger_backends.BUILD",
+    sha256 = "d7903244fe8d84eeb3d3d42f8d7de080fd0409b613040df54c78b3591672d652",
+    version = "1.0.1",
+)
+
+hex_archive(
+    name = "hex_makeup",
+    package_name = "makeup",
+    build_file = "//third_party/hex:makeup.BUILD",
+    sha256 = "9a1a24e5b343b8ae16abea0822c10a6f75da27af7fa802ada5251f7579bfccfa",
+    version = "1.2.2",
+)
+
+hex_archive(
+    name = "hex_makeup_elixir",
+    package_name = "makeup_elixir",
+    build_file = "//third_party/hex:makeup_elixir.BUILD",
+    sha256 = "7284900d412a3e5cfd97fdaed4f5ed389b8f2b4cb49efc0eb3bd10e2febf9507",
+    version = "1.0.1",
+)
+
+hex_archive(
+    name = "hex_makeup_erlang",
+    package_name = "makeup_erlang",
+    build_file = "//third_party/hex:makeup_erlang.BUILD",
+    sha256 = "1cd6780fb1dd1a03979abaed0fe82712b0625118fd5257d3ebbf73f960c73c3c",
+    version = "1.1.0",
+)
+
+hex_archive(
+    name = "hex_mdex",
+    package_name = "mdex",
+    build_file = "//third_party/hex:mdex.BUILD",
+    sha256 = "e970a6e323b46c14af5926cb1fbfa855aba782394abc3b7deb99d849f47412de",
+    version = "0.13.3",
+)
+
+hex_archive(
+    name = "hex_mdex_native",
+    package_name = "mdex_native",
+    build_file = "//third_party/hex:mdex_native.BUILD",
+    sha256 = "3fc55067eba4b9e25c747f22973a4a7e960e9f9418cbc09203d0408d935fb8fb",
+    version = "0.2.5",
+)
+
+hex_archive(
+    name = "hex_membrane_aac_fdk_plugin",
+    package_name = "membrane_aac_fdk_plugin",
+    build_file = "//third_party/hex:membrane_aac_fdk_plugin.BUILD",
+    sha256 = "be592473d8786eaf25661ed116728b422c7fa16ebe7b98e45544ead28fce8178",
+    version = "0.18.15",
+)
+
+hex_archive(
+    name = "hex_membrane_aac_format",
+    package_name = "membrane_aac_format",
+    build_file = "//third_party/hex:membrane_aac_format.BUILD",
+    sha256 = "7e8fbaae4895947394bfafaa4ec823d7eea035a3ccfbfe57a534b2872bf92862",
+    version = "0.8.1",
+)
+
+hex_archive(
+    name = "hex_membrane_aac_plugin",
+    package_name = "membrane_aac_plugin",
+    build_file = "//third_party/hex:membrane_aac_plugin.BUILD",
+    sha256 = "8b1785acfae43d9de68e58f5e4cea69b99ff1bcda6809dd78248dcd85e82e96a",
+    version = "0.19.4",
+)
+
+hex_archive(
+    name = "hex_membrane_cmaf_format",
+    package_name = "membrane_cmaf_format",
+    build_file = "//third_party/hex:membrane_cmaf_format.BUILD",
+    sha256 = "91f2c07bfbadee69b46de6a568a91ac80c1a4eada82aa82957f003bad07bdfab",
+    version = "0.7.2",
+)
+
+hex_archive(
+    name = "hex_membrane_common_c",
+    package_name = "membrane_common_c",
+    build_file = "//third_party/hex:membrane_common_c.BUILD",
+    sha256 = "8416f95bdaeb147072be48418bbccab60e7f58bdbe24927be3a6903d96fea8be",
+    version = "0.16.2",
+)
+
+hex_archive(
+    name = "hex_membrane_core",
+    package_name = "membrane_core",
+    build_file = "//third_party/hex:membrane_core.BUILD",
+    sha256 = "7bdee620f5c1fc492613b12566b1b95e7e09f5eb9364c0fed742fffb16266ab4",
+    version = "1.2.6",
+)
+
+hex_archive(
+    name = "hex_membrane_ffmpeg_swresample_plugin",
+    package_name = "membrane_ffmpeg_swresample_plugin",
+    build_file = "//third_party/hex:membrane_ffmpeg_swresample_plugin.BUILD",
+    sha256 = "514f14f2d62d94eb0f972ab019a04f625ea9cfe207091df59dcf473c38d14e5e",
+    version = "0.20.6",
+)
+
+hex_archive(
+    name = "hex_membrane_ffmpeg_swscale_plugin",
+    package_name = "membrane_ffmpeg_swscale_plugin",
+    build_file = "//third_party/hex:membrane_ffmpeg_swscale_plugin.BUILD",
+    sha256 = "c9b2f3328e441eb61127b74230295fee0097b8194c57f4118c09281b2a03cb9d",
+    version = "0.16.5",
+)
+
+hex_archive(
+    name = "hex_membrane_file_plugin",
+    package_name = "membrane_file_plugin",
+    build_file = "//third_party/hex:membrane_file_plugin.BUILD",
+    sha256 = "974c88cb0e7727a8a0a49bb019d7824d4d9092cce2ac666771fe4266d2ea4276",
+    version = "0.17.5",
+)
+
+hex_archive(
+    name = "hex_membrane_flv_plugin",
+    package_name = "membrane_flv_plugin",
+    build_file = "//third_party/hex:membrane_flv_plugin.BUILD",
+    sha256 = "a317872d6d394e550c7bfd8979f12a3a1cc1e89b547d75360321025b403d3279",
+    version = "0.12.0",
+)
+
+hex_archive(
+    name = "hex_membrane_funnel_plugin",
+    package_name = "membrane_funnel_plugin",
+    build_file = "//third_party/hex:membrane_funnel_plugin.BUILD",
+    sha256 = "865ac9d84f86698e2cfeb7904d3b12ab74855a38ca651a880db1505965fa77cc",
+    version = "0.9.2",
+)
+
+hex_archive(
+    name = "hex_membrane_h264_ffmpeg_plugin",
+    package_name = "membrane_h264_ffmpeg_plugin",
+    build_file = "//third_party/hex:membrane_h264_ffmpeg_plugin.BUILD",
+    sha256 = "29e1089c9ea740672a27af94608f00d648fe6d9201b94f9e68e10f46db51b5c8",
+    version = "0.32.7",
+)
+
+hex_archive(
+    name = "hex_membrane_h264_format",
+    package_name = "membrane_h264_format",
+    build_file = "//third_party/hex:membrane_h264_format.BUILD",
+    sha256 = "4b79be56465a876d2eac2c3af99e115374bbdc03eb1dea4f696ee9a8033cd4b0",
+    version = "0.6.1",
+)
+
+hex_archive(
+    name = "hex_membrane_h265_ffmpeg_plugin",
+    package_name = "membrane_h265_ffmpeg_plugin",
+    build_file = "//third_party/hex:membrane_h265_ffmpeg_plugin.BUILD",
+    sha256 = "24dc587731e7b5bc4b35da1b85e849476eff6a9a7b934ff0b2b5efae037b8589",
+    version = "0.4.3",
+)
+
+hex_archive(
+    name = "hex_membrane_h265_format",
+    package_name = "membrane_h265_format",
+    build_file = "//third_party/hex:membrane_h265_format.BUILD",
+    sha256 = "6df418bdf242c0d9f7dbf2e5aea4c2d182e34ac9ad5a8b8cef2610c290002e83",
+    version = "0.2.0",
+)
+
+hex_archive(
+    name = "hex_membrane_h26x_plugin",
+    package_name = "membrane_h26x_plugin",
+    build_file = "//third_party/hex:membrane_h26x_plugin.BUILD",
+    sha256 = "8aaffef98586ec469d1f2290a6bf203b5fb1e6c2f8e60c6b151cfb97a470d024",
+    version = "0.10.9",
+)
+
+hex_archive(
+    name = "hex_membrane_http_adaptive_stream_plugin",
+    package_name = "membrane_http_adaptive_stream_plugin",
+    build_file = "//third_party/hex:membrane_http_adaptive_stream_plugin.BUILD",
+    sha256 = "0c8aba8640375f1f455359f4fdeb0886bf1abad0f348b27f67afccd49abb4e00",
+    version = "0.20.2",
+)
+
+hex_archive(
+    name = "hex_membrane_ivf_plugin",
+    package_name = "membrane_ivf_plugin",
+    build_file = "//third_party/hex:membrane_ivf_plugin.BUILD",
+    sha256 = "b17805a451f1066dab68c19577efad7819200c20970e3ba5f7d6fbbc751240e9",
+    version = "0.8.0",
+)
+
+hex_archive(
+    name = "hex_membrane_mp3_lame_plugin",
+    package_name = "membrane_mp3_lame_plugin",
+    build_file = "//third_party/hex:membrane_mp3_lame_plugin.BUILD",
+    sha256 = "1b4bbd58e5cb0e6e5d743dea79c626a8ca3a7fb32517ae237c4c003077105c14",
+    version = "0.18.7",
+)
+
+hex_archive(
+    name = "hex_membrane_mp3_mad_plugin",
+    package_name = "membrane_mp3_mad_plugin",
+    build_file = "//third_party/hex:membrane_mp3_mad_plugin.BUILD",
+    sha256 = "e6a3ebfab77adf5b5f0f33647ea4c58c63e245b5559eda27491b80ab39ab6b5e",
+    version = "0.18.7",
+)
+
+hex_archive(
+    name = "hex_membrane_mp4_format",
+    package_name = "membrane_mp4_format",
+    build_file = "//third_party/hex:membrane_mp4_format.BUILD",
+    sha256 = "0e4ec53a50b26a18d6e969f4776606d321ea39bddf5a4571e94f9ccf44e7a53a",
+    version = "0.8.1",
+)
+
+hex_archive(
+    name = "hex_membrane_mp4_plugin",
+    package_name = "membrane_mp4_plugin",
+    build_file = "//third_party/hex:membrane_mp4_plugin.BUILD",
+    sha256 = "4154445dd8d338778ad084c6d73ad82eee2da090d760590479f7ee73d2ac017b",
+    version = "0.36.10",
+)
+
+hex_archive(
+    name = "hex_membrane_mpeg_ts_plugin",
+    package_name = "membrane_mpeg_ts_plugin",
+    build_file = "//third_party/hex:membrane_mpeg_ts_plugin.BUILD",
+    sha256 = "d8bc0ce2c7f0305ae0b0d1fb125855459ca94d43480585236ff5fee0f58a8ff4",
+    version = "2.4.9",
+)
+
+hex_archive(
+    name = "hex_membrane_mpegaudio_format",
+    package_name = "membrane_mpegaudio_format",
+    build_file = "//third_party/hex:membrane_mpegaudio_format.BUILD",
+    sha256 = "4ce6fa36b8a8e3a889fd44bc0cfa054ecdc961a7303128e69ac9f2554de3ac11",
+    version = "0.3.2",
+)
+
+hex_archive(
+    name = "hex_membrane_mpegts_plugin",
+    package_name = "membrane_mpegts_plugin",
+    build_file = "//third_party/hex:membrane_mpegts_plugin.BUILD",
+    sha256 = "6a43ce1285aeb1ba5b6f359b0a479eb00f979839538d77b1a65f70cd357c9bd5",
+    version = "0.5.0",
+)
+
+hex_archive(
+    name = "hex_membrane_ogg_plugin",
+    package_name = "membrane_ogg_plugin",
+    build_file = "//third_party/hex:membrane_ogg_plugin.BUILD",
+    sha256 = "3a80a08c280f9f66ff01dd079a8783200d46aa9713cf4a698a6ef36e374ef187",
+    version = "0.5.2",
+)
+
+hex_archive(
+    name = "hex_membrane_opus_format",
+    package_name = "membrane_opus_format",
+    build_file = "//third_party/hex:membrane_opus_format.BUILD",
+    sha256 = "3837971c402fbc55649ca060a5e1cc433bc92560eb21545c4e1217dd6ad8b647",
+    version = "0.3.1",
+)
+
+hex_archive(
+    name = "hex_membrane_opus_plugin",
+    package_name = "membrane_opus_plugin",
+    build_file = "//third_party/hex:membrane_opus_plugin.BUILD",
+    sha256 = "ed16aee3890793bac2ee2059bd87cf5fb823a005f5fe1e9549bc00e535b7726a",
+    version = "0.20.8",
+)
+
+hex_archive(
+    name = "hex_membrane_precompiled_dependency_provider",
+    package_name = "membrane_precompiled_dependency_provider",
+    build_file = "//third_party/hex:membrane_precompiled_dependency_provider.BUILD",
+    sha256 = "9210a4676a56e9db2a6f7323fa24be69ca58bc2ae3e13da04cf9d32f1e3f6554",
+    version = "0.2.3",
+)
+
+hex_archive(
+    name = "hex_membrane_raw_audio_format",
+    package_name = "membrane_raw_audio_format",
+    build_file = "//third_party/hex:membrane_raw_audio_format.BUILD",
+    sha256 = "8e50520ce2ab0405a3a0b2d78a001223bb2d76014aaa4c59398cc21d4187fe26",
+    version = "0.12.3",
+)
+
+hex_archive(
+    name = "hex_membrane_raw_video_format",
+    package_name = "membrane_raw_video_format",
+    build_file = "//third_party/hex:membrane_raw_video_format.BUILD",
+    sha256 = "c4f62b148ecc1643ac2e77e1fda8ee5bd9b595b4047941b02c514a5f310971f2",
+    version = "0.4.5",
+)
+
+hex_archive(
+    name = "hex_membrane_realtimer_plugin",
+    package_name = "membrane_realtimer_plugin",
+    build_file = "//third_party/hex:membrane_realtimer_plugin.BUILD",
+    sha256 = "b2e96d62135ee57ef9a5fdea94b3a9ab1198e5ea8ee248391b89c671125d1b51",
+    version = "0.9.0",
+)
+
+hex_archive(
+    name = "hex_membrane_rtmp_plugin",
+    package_name = "membrane_rtmp_plugin",
+    build_file = "//third_party/hex:membrane_rtmp_plugin.BUILD",
+    sha256 = "3245fe815082a46070a71b0f2f08adc77aab1c3845cdea8952a35e900e1d5506",
+    version = "0.29.5",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_aac_plugin",
+    package_name = "membrane_rtp_aac_plugin",
+    build_file = "//third_party/hex:membrane_rtp_aac_plugin.BUILD",
+    sha256 = "facde27efb944954830c9f95c8e014322500c2db0d1968ac97f347a69f00e303",
+    version = "0.9.8",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_format",
+    package_name = "membrane_rtp_format",
+    build_file = "//third_party/hex:membrane_rtp_format.BUILD",
+    sha256 = "6c89239543571a00c7116e241a34bd3655151c770a10fc694513091685a19dbb",
+    version = "0.11.1",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_h264_plugin",
+    package_name = "membrane_rtp_h264_plugin",
+    build_file = "//third_party/hex:membrane_rtp_h264_plugin.BUILD",
+    sha256 = "c43f2c9d4a3d0bf336f1abd5b3dcc5d4eac27d8c7fb66cf537d13bcf39d7c8ad",
+    version = "0.20.6",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_h265_plugin",
+    package_name = "membrane_rtp_h265_plugin",
+    build_file = "//third_party/hex:membrane_rtp_h265_plugin.BUILD",
+    sha256 = "45d654f96ce87eaad8052f33e5f2683d7596dcf9116065ad3f708795ade01106",
+    version = "0.5.3",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_opus_plugin",
+    package_name = "membrane_rtp_opus_plugin",
+    build_file = "//third_party/hex:membrane_rtp_opus_plugin.BUILD",
+    sha256 = "d5d222c5a4d44c7dea7bf505cc3e67e501b7cfd1ffbad78f4d7a1d7e798bf475",
+    version = "0.10.3",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_plugin",
+    package_name = "membrane_rtp_plugin",
+    build_file = "//third_party/hex:membrane_rtp_plugin.BUILD",
+    sha256 = "54437bf926a2574b16c9814f45d5c4daecc5ffdf686b5e424a2bfe8ce572783f",
+    version = "0.31.5",
+)
+
+hex_archive(
+    name = "hex_membrane_rtp_vp8_plugin",
+    package_name = "membrane_rtp_vp8_plugin",
+    build_file = "//third_party/hex:membrane_rtp_vp8_plugin.BUILD",
+    sha256 = "c1d8d6757c4e1c1dc25cd00c0506def180834a09faf868d43b439ed5fb7cfbe7",
+    version = "0.9.7",
+)
+
+hex_archive(
+    name = "hex_membrane_rtsp",
+    package_name = "membrane_rtsp",
+    build_file = "//third_party/hex:membrane_rtsp.BUILD",
+    sha256 = "ff382b38c09150ff43c7ec7a2a62df41b2bab42793633dcc40ef9b6e51ac70b9",
+    version = "0.10.1",
+)
+
+hex_archive(
+    name = "hex_membrane_rtsp_plugin",
+    package_name = "membrane_rtsp_plugin",
+    build_file = "//third_party/hex:membrane_rtsp_plugin.BUILD",
+    sha256 = "9e624ba71c34acb13713193cddb4739056361728dae07856ac48fbd18a51b9fa",
+    version = "0.7.2",
+)
+
+hex_archive(
+    name = "hex_membrane_srt_plugin",
+    package_name = "membrane_srt_plugin",
+    build_file = "//third_party/hex:membrane_srt_plugin.BUILD",
+    sha256 = "0e74634c2b274b21c79d41c13705578a3f273074ba7eeab736756aeb7ee33519",
+    version = "0.1.1",
+)
+
+hex_archive(
+    name = "hex_membrane_stream_plugin",
+    package_name = "membrane_stream_plugin",
+    build_file = "//third_party/hex:membrane_stream_plugin.BUILD",
+    sha256 = "c2e982767bfd55a5f36a7ae48a6f3cec8dc0069be6dbb0212cb28d63d09cd13c",
+    version = "0.4.2",
+)
+
+hex_archive(
+    name = "hex_membrane_tcp_plugin",
+    package_name = "membrane_tcp_plugin",
+    build_file = "//third_party/hex:membrane_tcp_plugin.BUILD",
+    sha256 = "8227720d033f81ef495f378237b18808f8a0baf33a6c68273ab5b88071c82a0f",
+    version = "0.6.1",
+)
+
+hex_archive(
+    name = "hex_membrane_tee_plugin",
+    package_name = "membrane_tee_plugin",
+    build_file = "//third_party/hex:membrane_tee_plugin.BUILD",
+    sha256 = "0d61c9ed5e68e5a75d54200e1c6df5739c0bcb52fee0974183ad72446a179887",
+    version = "0.12.0",
+)
+
+hex_archive(
+    name = "hex_membrane_telemetry_metrics",
+    package_name = "membrane_telemetry_metrics",
+    build_file = "//third_party/hex:membrane_telemetry_metrics.BUILD",
+    sha256 = "e6098acb80d2cdaa5c142c72632e55e6a813a65aa1d4e54bd876bd12b110ad78",
+    version = "0.1.3",
+)
+
+hex_archive(
+    name = "hex_membrane_timestamp_queue",
+    package_name = "membrane_timestamp_queue",
+    build_file = "//third_party/hex:membrane_timestamp_queue.BUILD",
+    sha256 = "0600814cbad3b4df80633418abc9b79f171ec7c152282d9735e27772caf54f11",
+    version = "0.2.3",
+)
+
+hex_archive(
+    name = "hex_membrane_transcoder_plugin",
+    package_name = "membrane_transcoder_plugin",
+    build_file = "//third_party/hex:membrane_transcoder_plugin.BUILD",
+    sha256 = "98c3c2764d5f391846e7ff30756fd0e6d24627e7537ce10275670fd71c97b08e",
+    version = "0.3.4",
+)
+
+hex_archive(
+    name = "hex_membrane_udp_plugin",
+    package_name = "membrane_udp_plugin",
+    build_file = "//third_party/hex:membrane_udp_plugin.BUILD",
+    sha256 = "d625da8f120038a88b48d011d717286d1ace8bed207ff829d968a36f98aeb315",
+    version = "0.14.4",
+)
+
+hex_archive(
+    name = "hex_membrane_vp8_format",
+    package_name = "membrane_vp8_format",
+    build_file = "//third_party/hex:membrane_vp8_format.BUILD",
+    sha256 = "07d8d674878ff8e0146f1b513d2a5f071f9a747504bcdfb2f790eda85def4db2",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_membrane_vp9_format",
+    package_name = "membrane_vp9_format",
+    build_file = "//third_party/hex:membrane_vp9_format.BUILD",
+    sha256 = "7857f28716cb48adea6dc27f531a0343db03d0708f8bda7555a8fa0437a8297a",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_membrane_vpx_plugin",
+    package_name = "membrane_vpx_plugin",
+    build_file = "//third_party/hex:membrane_vpx_plugin.BUILD",
+    sha256 = "c2e177fa97289e1e6e258d09769e6112ea07e1e986624925a0cd50956d18c2b8",
+    version = "0.4.4",
+)
+
+hex_archive(
+    name = "hex_membrane_wav_plugin",
+    package_name = "membrane_wav_plugin",
+    build_file = "//third_party/hex:membrane_wav_plugin.BUILD",
+    sha256 = "b419b090158cc3aede42194d0d9e1af80020d327b161bd092a349b5feeb419bf",
+    version = "0.10.3",
+)
+
+hex_archive(
+    name = "hex_membrane_webrtc_plugin",
+    package_name = "membrane_webrtc_plugin",
+    build_file = "//third_party/hex:membrane_webrtc_plugin.BUILD",
+    sha256 = "eba76319be6e7d3ff05f4a05e2218679b5cdb6712b6042be766f5aadc0e5e857",
+    version = "0.26.6",
+)
+
+hex_archive(
+    name = "hex_merkle_map",
+    package_name = "merkle_map",
+    build_file = "//third_party/hex:merkle_map.BUILD",
+    sha256 = "383107f0503f230ac9175e0631647c424efd027e89ea65ab5ea12eeb54257aaf",
+    version = "0.2.2",
+)
+
+hex_archive(
+    name = "hex_mime",
+    package_name = "mime",
+    build_file = "//third_party/hex:mime.BUILD",
+    sha256 = "6171188e399ee16023ffc5b76ce445eb6d9672e2e241d2df6050f3c771e80ccd",
+    version = "2.0.7",
+)
+
+hex_archive(
+    name = "hex_mint",
+    package_name = "mint",
+    build_file = "//third_party/hex:mint.BUILD",
+    sha256 = "5f7c9342480c069dbbc4eeac3490303c9e01870ff01a7f1d29b6107054fc1e74",
+    version = "1.9.3",
+)
+
+hex_archive(
+    name = "hex_mix_audit",
+    package_name = "mix_audit",
+    build_file = "//third_party/hex:mix_audit.BUILD",
+    sha256 = "87f9298e21da32f697af535475860dc1d3617a010e0b418d2ec6142bc8b42d69",
+    version = "2.1.5",
+)
+
+hex_archive(
+    name = "hex_mmdb2_decoder",
+    package_name = "mmdb2_decoder",
+    build_file = "//third_party/hex:mmdb2_decoder.BUILD",
+    sha256 = "316af0f388fac824782d944f54efe78e7c9691bbbdb0afd5cccdd0510adf559d",
+    version = "3.0.1",
+)
+
+hex_archive(
+    name = "hex_mockery",
+    package_name = "mockery",
+    build_file = "//third_party/hex:mockery.BUILD",
+    sha256 = "bd6a6e4d604395a6232f426f2bf3d4c4011faf36a307523ee9d63cd549334162",
+    version = "2.3.4",
+)
+
+hex_archive(
+    name = "hex_mox",
+    package_name = "mox",
+    build_file = "//third_party/hex:mox.BUILD",
+    sha256 = "c7b92b3cc69ee24a7eeeaf944cd7be22013c52fcb580c1f33f50845ec821089a",
+    version = "1.2.0",
+)
+
+hex_archive(
+    name = "hex_mpeg_ts",
+    package_name = "mpeg_ts",
+    build_file = "//third_party/hex:mpeg_ts.BUILD",
+    sha256 = "53bd9e18fd91c1bff6ee6499464a1b7a6d7675a44630ff6134cbde6a093a122a",
+    version = "3.3.19",
+)
+
+hex_archive(
+    name = "hex_multigraph",
+    package_name = "multigraph",
+    build_file = "//third_party/hex:multigraph.BUILD",
+    sha256 = "b9f3e2577cef4658eeedf97c76d22a86d33a7aab702a93c1da9c122e849e9037",
+    version = "0.16.1-mg.4",
+)
+
+hex_archive(
+    name = "hex_nimble_options",
+    package_name = "nimble_options",
+    build_file = "//third_party/hex:nimble_options.BUILD",
+    sha256 = "821b2470ca9442c4b6984882fe9bb0389371b8ddec4d45a9504f00a66f650b44",
+    version = "1.1.1",
+)
+
+hex_archive(
+    name = "hex_nimble_ownership",
+    package_name = "nimble_ownership",
+    build_file = "//third_party/hex:nimble_ownership.BUILD",
+    sha256 = "098af64e1f6f8609c6672127cfe9e9590a5d3fcdd82bc17a377b8692fd81a879",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_nimble_parsec",
+    package_name = "nimble_parsec",
+    build_file = "//third_party/hex:nimble_parsec.BUILD",
+    sha256 = "4b21398942dda052b403bbe1da991ccd03a053668d147d53fb8c4e0efe09c973",
+    version = "1.4.2",
+)
+
+hex_archive(
+    name = "hex_nimble_pool",
+    package_name = "nimble_pool",
+    build_file = "//third_party/hex:nimble_pool.BUILD",
+    sha256 = "af2e4e6b34197db81f7aad230c1118eac993acc0dae6bc83bac0126d4ae0813a",
+    version = "1.1.0",
+)
+
+hex_archive(
+    name = "hex_nkeys",
+    package_name = "nkeys",
+    build_file = "//third_party/hex:nkeys.BUILD",
+    sha256 = "80d8d1d62ac9c5127ad776d8f435e5e1cc732985f6235b22e6c157808b44c108",
+    version = "0.3.1",
+)
+
+hex_archive(
+    name = "hex_numbers",
+    package_name = "numbers",
+    build_file = "//third_party/hex:numbers.BUILD",
+    sha256 = "724563c5b9ed1adccea08b2938215a026aa4344d7506e6b9c75f60d8e2fc9463",
+    version = "5.2.5",
+)
+
+hex_archive(
+    name = "hex_oban",
+    package_name = "oban",
+    build_file = "//third_party/hex:oban.BUILD",
+    sha256 = "8e5f0cec5abecce78dd08cb14dc5438db90ec3884987b44773ce76fe60dd3f81",
+    version = "2.23.0",
+)
+
+hex_archive(
+    name = "hex_oban_met",
+    package_name = "oban_met",
+    build_file = "//third_party/hex:oban_met.BUILD",
+    sha256 = "5c81fd33beeb172603cf83bea760298eeb8709d584fbe79ae2d07b09917d6110",
+    version = "1.2.0",
+)
+
+hex_archive(
+    name = "hex_oban_web",
+    package_name = "oban_web",
+    build_file = "//third_party/hex:oban_web.BUILD",
+    sha256 = "1ade7bbbde1a731c9e4aa23f9f7c8a3f2871e734c6bc46fa4e4384688a69921d",
+    version = "2.12.6",
+)
+
+hex_archive(
+    name = "hex_oidcc",
+    package_name = "oidcc",
+    build_file = "//third_party/hex:oidcc.BUILD",
+    sha256 = "07f5f5de3c9e8f25277a479c48cca52b74e4b915b967bdc6bf2dd3f72bc67314",
+    version = "3.4.0",
+)
+
+hex_archive(
+    name = "hex_open_api_spex",
+    package_name = "open_api_spex",
+    build_file = "//third_party/hex:open_api_spex.BUILD",
+    sha256 = "5f74f1878fdc38f8e961b0b943ac7af88dcf3a82a0c0ef6680ddfd3d161aecbd",
+    version = "3.22.3",
+)
+
+hex_archive(
+    name = "hex_opentelemetry",
+    package_name = "opentelemetry",
+    build_file = "//third_party/hex:opentelemetry.BUILD",
+    sha256 = "a9173b058c4549bf824cbc2f1d2fa2adc5cdedc22aa3f0f826951187bbd53131",
+    version = "1.7.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_api",
+    package_name = "opentelemetry_api",
+    build_file = "//third_party/hex:opentelemetry_api.BUILD",
+    sha256 = "f53ec8a1337ae4a487d43ac89da4bd3a3c99ddf576655d071deed8b56a2d5dda",
+    version = "1.5.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_api_experimental",
+    package_name = "opentelemetry_api_experimental",
+    build_file = "//third_party/hex:opentelemetry_api_experimental.BUILD",
+    sha256 = "10297057eada47267d4f832011becef07d25690e6bf91febccfc4e740dba1a6f",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_bandit",
+    package_name = "opentelemetry_bandit",
+    build_file = "//third_party/hex:opentelemetry_bandit.BUILD",
+    sha256 = "5aa12378f5ff7cc3368f02905693571833f9449df86211fd99f4d764720cff60",
+    version = "0.3.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_ecto",
+    package_name = "opentelemetry_ecto",
+    build_file = "//third_party/hex:opentelemetry_ecto.BUILD",
+    sha256 = "70dfa2e79932e86f209df00e36c980b17a32f82d175f0068bf7ef9a96cf080cf",
+    version = "1.2.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_experimental",
+    package_name = "opentelemetry_experimental",
+    build_file = "//third_party/hex:opentelemetry_experimental.BUILD",
+    sha256 = "a1ad941294f1d3623c33e151faa35613849a10cb468dbfc9ad16367f7ddf80bf",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_exporter",
+    package_name = "opentelemetry_exporter",
+    build_file = "//third_party/hex:opentelemetry_exporter.BUILD",
+    sha256 = "33a116ed7304cb91783f779dec02478f887c87988077bfd72840f760b8d4b952",
+    version = "1.10.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_phoenix",
+    package_name = "opentelemetry_phoenix",
+    build_file = "//third_party/hex:opentelemetry_phoenix.BUILD",
+    sha256 = "a24fdccdfa6b890c8892c6366beab4a15a27ec0c692b0f77ec2a862e7b235f6e",
+    version = "2.0.1",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_process_propagator",
+    package_name = "opentelemetry_process_propagator",
+    build_file = "//third_party/hex:opentelemetry_process_propagator.BUILD",
+    sha256 = "7243cb6de1523c473cba5b1aefa3f85e1ff8cc75d08f367104c1e11919c8c029",
+    version = "0.3.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_semantic_conventions",
+    package_name = "opentelemetry_semantic_conventions",
+    build_file = "//third_party/hex:opentelemetry_semantic_conventions.BUILD",
+    sha256 = "9681ccaa24fd3d810b4461581717661fd85ff7019b082c2dff89c7d5b1fc2864",
+    version = "1.27.0",
+)
+
+hex_archive(
+    name = "hex_opentelemetry_telemetry",
+    package_name = "opentelemetry_telemetry",
+    build_file = "//third_party/hex:opentelemetry_telemetry.BUILD",
+    sha256 = "641ab469deb181957ac6d59bce6e1321d5fe2a56df444fc9c19afcad623ab253",
+    version = "1.1.2",
+)
+
+hex_archive(
+    name = "hex_otel_http",
+    package_name = "otel_http",
+    build_file = "//third_party/hex:otel_http.BUILD",
+    sha256 = "f2beadf922c8cfeb0965488dd736c95cc6ea8b9efce89466b3904d317d7cc717",
+    version = "0.2.0",
+)
+
+hex_archive(
+    name = "hex_owl",
+    package_name = "owl",
+    build_file = "//third_party/hex:owl.BUILD",
+    sha256 = "351e768af8f2edc575cdaab1a5a2f6d6381be591758a026c701c703145508a0c",
+    version = "0.13.1",
+)
+
+hex_archive(
+    name = "hex_permit",
+    package_name = "permit",
+    build_file = "//third_party/hex:permit.BUILD",
+    sha256 = "f5d80a3dabbc5f65873079c376a5334578ca1abcc82d8e91e397c68962aa9a54",
+    version = "0.4.1",
+)
+
+hex_archive(
+    name = "hex_permit_ecto",
+    package_name = "permit_ecto",
+    build_file = "//third_party/hex:permit_ecto.BUILD",
+    sha256 = "fae416cc86a0a4a46d6080eb41a3399f4d3668878c5bc4a48ab1b33141ed078b",
+    version = "0.3.1",
+)
+
+hex_archive(
+    name = "hex_permit_phoenix",
+    package_name = "permit_phoenix",
+    build_file = "//third_party/hex:permit_phoenix.BUILD",
+    sha256 = "f210563db0b592a91fd8f6f6f109f0f313eabb3c560f1a33138f7785c518d4a9",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_phoenix",
+    package_name = "phoenix",
+    build_file = "//third_party/hex:phoenix.BUILD",
+    sha256 = "3477e2dd5a4f61820341169031bdfe21275f659923bea9c5c0ea2aa1c3fcc046",
+    version = "1.8.9",
+)
+
+hex_archive(
+    name = "hex_phoenix_ecto",
+    package_name = "phoenix_ecto",
+    build_file = "//third_party/hex:phoenix_ecto.BUILD",
+    sha256 = "1d75011e4254cb4ddf823e81823a9629559a1be93b4321a6a5f11a5306fbf4cc",
+    version = "4.7.0",
+)
+
+hex_archive(
+    name = "hex_phoenix_html",
+    package_name = "phoenix_html",
+    build_file = "//third_party/hex:phoenix_html.BUILD",
+    sha256 = "3eaa290a78bab0f075f791a46a981bbe769d94bc776869f4f3063a14f30497ad",
+    version = "4.3.0",
+)
+
+hex_archive(
+    name = "hex_phoenix_live_dashboard",
+    package_name = "phoenix_live_dashboard",
+    build_file = "//third_party/hex:phoenix_live_dashboard.BUILD",
+    sha256 = "3a8625cab39ec261d48a13b7468dc619c0ede099601b084e343968309bd4d7d7",
+    version = "0.8.7",
+)
+
+hex_archive(
+    name = "hex_phoenix_live_reload",
+    package_name = "phoenix_live_reload",
+    build_file = "//third_party/hex:phoenix_live_reload.BUILD",
+    sha256 = "d1f89c18114c50d394721365ffb428cce24f1c13de0467ffa773e2ff4a30d5b9",
+    version = "1.6.2",
+)
+
+hex_archive(
+    name = "hex_phoenix_live_view",
+    package_name = "phoenix_live_view",
+    build_file = "//third_party/hex:phoenix_live_view.BUILD",
+    sha256 = "61e97938a4fcca6d6f2c836925623abf2f52a572cc8c6085e4074f3f6337e0eb",
+    version = "1.2.7",
+)
+
+hex_archive(
+    name = "hex_phoenix_pubsub",
+    package_name = "phoenix_pubsub",
+    build_file = "//third_party/hex:phoenix_pubsub.BUILD",
+    sha256 = "adc313a5bf7136039f63cfd9668fde73bba0765e0614cba80c06ac9460ff3e96",
+    version = "2.2.0",
+)
+
+hex_archive(
+    name = "hex_phoenix_react_ng",
+    package_name = "phoenix_react_ng",
+    build_file = "//third_party/hex:phoenix_react_ng.BUILD",
+    sha256 = "602a0bdc7986595610a0e5dd0413e55e03be1f9267c1ab5578093407e3e795ee",
+    version = "0.8.5",
+)
+
+hex_archive(
+    name = "hex_phoenix_template",
+    package_name = "phoenix_template",
+    build_file = "//third_party/hex:phoenix_template.BUILD",
+    sha256 = "2c0c81f0e5c6753faf5cca2f229c9709919aba34fab866d3bc05060c9c444206",
+    version = "1.0.4",
+)
+
+hex_archive(
+    name = "hex_phoenix_view",
+    package_name = "phoenix_view",
+    build_file = "//third_party/hex:phoenix_view.BUILD",
+    sha256 = "4e992022ce14f31fe57335db27a28154afcc94e9983266835bb3040243eb620b",
+    version = "2.0.4",
+)
+
+hex_archive(
+    name = "hex_plug",
+    package_name = "plug",
+    build_file = "//third_party/hex:plug.BUILD",
+    sha256 = "be266aee1b8536ef6409d58cf39a3121319f0ec47cfa1b24024485aa0e76ad76",
+    version = "1.20.3",
+)
+
+hex_archive(
+    name = "hex_plug_crypto",
+    package_name = "plug_crypto",
+    build_file = "//third_party/hex:plug_crypto.BUILD",
+    sha256 = "6470bce6ffe41c8bd497612ffde1a7e4af67f36a15eea5f921af71cf3e11247c",
+    version = "2.1.1",
+)
+
+hex_archive(
+    name = "hex_poly1305",
+    package_name = "poly1305",
+    build_file = "//third_party/hex:poly1305.BUILD",
+    sha256 = "e14e684661a5195e149b3139db4a1693579d4659d65bba115a307529c47dbc3b",
+    version = "1.0.4",
+)
+
+hex_archive(
+    name = "hex_postgrex",
+    package_name = "postgrex",
+    build_file = "//third_party/hex:postgrex.BUILD",
+    sha256 = "f018c13752b2b46e8d35d7e2d84c3276557cbfd880769109021a1d0ee36c1cfe",
+    version = "0.22.3",
+)
+
+hex_archive(
+    name = "hex_protobuf",
+    package_name = "protobuf",
+    build_file = "//third_party/hex:protobuf.BUILD",
+    sha256 = "97fb9f1fe48c38c4ebfc0f8a7a20adb22b2491bbfbdb192fab9a6821d5d604e1",
+    version = "0.16.1",
+)
+
+hex_archive(
+    name = "hex_qex",
+    package_name = "qex",
+    build_file = "//third_party/hex:qex.BUILD",
+    sha256 = "6fb81bf3ae354a9abb471b9561538ea3e8540125d803b00f45cbccff52f00496",
+    version = "0.5.2",
+)
+
+hex_archive(
+    name = "hex_ranch",
+    package_name = "ranch",
+    build_file = "//third_party/hex:ranch.BUILD",
+    sha256 = "fa0b99a1780c80218a4197a59ea8d3bdae32fbff7e88527d7d8a4787eff4f8e7",
+    version = "2.2.0",
+)
+
+hex_archive(
+    name = "hex_ratio",
+    package_name = "ratio",
+    build_file = "//third_party/hex:ratio.BUILD",
+    sha256 = "c60cbb3ccdff9ffa56e7d6d1654b5c70d9f90f4d753ab3a43a6bf40855b881ce",
+    version = "4.0.1",
+)
+
+hex_archive(
+    name = "hex_reactor",
+    package_name = "reactor",
+    build_file = "//third_party/hex:reactor.BUILD",
+    sha256 = "19fd55aaaadaae28f55133351051c25d4ac217f99e3e5a67940cc4a321e3948e",
+    version = "1.0.2",
+)
+
+hex_archive(
+    name = "hex_redoc_ui_plug",
+    package_name = "redoc_ui_plug",
+    build_file = "//third_party/hex:redoc_ui_plug.BUILD",
+    sha256 = "7be01db31f210887e9fc18f8fbccc7788de32c482b204623556e415ed1fe714b",
+    version = "0.2.1",
+)
+
+hex_archive(
+    name = "hex_req",
+    package_name = "req",
+    build_file = "//third_party/hex:req.BUILD",
+    sha256 = "e85b5c6c990e6c3f52bbba68e6f099118f2b8252825f96c7c3636b97a3de307d",
+    version = "0.6.3",
+)
+
+hex_archive(
+    name = "hex_rewrite",
+    package_name = "rewrite",
+    build_file = "//third_party/hex:rewrite.BUILD",
+    sha256 = "d111ac7ff3a58a802ef4f193bbd1831e00a9c57b33276e5068e8390a212714a5",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_rustler",
+    package_name = "rustler",
+    build_file = "//third_party/hex:rustler.BUILD",
+    sha256 = "704c03c1bf66be12b031c5a389347b91c81c5cb819a24b068b0de36fe4a5652a",
+    version = "0.38.0",
+)
+
+hex_archive(
+    name = "hex_rustler_precompiled",
+    package_name = "rustler_precompiled",
+    build_file = "//third_party/hex:rustler_precompiled.BUILD",
+    sha256 = "471d97315bd3bf7b64623418b3693eedd8e47de3d1cb79a0ac8f9da7d770d94c",
+    version = "0.9.0",
+)
+
+hex_archive(
+    name = "hex_salsa20",
+    package_name = "salsa20",
+    build_file = "//third_party/hex:salsa20.BUILD",
+    sha256 = "745ddcd8cfa563ddb0fd61e7ce48d5146279a2cf7834e1da8441b369fdc58ac6",
+    version = "1.0.4",
+)
+
+hex_archive(
+    name = "hex_samly",
+    package_name = "samly",
+    build_file = "//third_party/hex:samly.BUILD",
+    sha256 = "9cc53e043cb4508c3df2f9a4e13bc101a6835aded5cd49ee1c931158f7ce1dd6",
+    version = "1.4.0",
+)
+
+hex_archive(
+    name = "hex_shmex",
+    package_name = "shmex",
+    build_file = "//third_party/hex:shmex.BUILD",
+    sha256 = "7325f40a7308fecaaab1b19790903034926e5fb202a48fcf51dfd2c4ba97f861",
+    version = "0.5.2",
+)
+
+hex_archive(
+    name = "hex_simple_sat",
+    package_name = "simple_sat",
+    build_file = "//third_party/hex:simple_sat.BUILD",
+    sha256 = "3569b68e346a5fd7154b8d14173ff8bcc829f2eb7b088c30c3f42a383443930b",
+    version = "0.1.4",
+)
+
+hex_archive(
+    name = "hex_sobelow",
+    package_name = "sobelow",
+    build_file = "//third_party/hex:sobelow.BUILD",
+    sha256 = "8fac9a2bd90fdc4b15d6fca6e1608efb7f7c600fa75800813b794ee9364c87f2",
+    version = "0.14.1",
+)
+
+hex_archive(
+    name = "hex_sourceror",
+    package_name = "sourceror",
+    build_file = "//third_party/hex:sourceror.BUILD",
+    sha256 = "da37d3da09c5b890528802c7056a8f585a061973820d7656b6e3649c14f0e9cb",
+    version = "1.12.2",
+)
+
+hex_archive(
+    name = "hex_spark",
+    package_name = "spark",
+    build_file = "//third_party/hex:spark.BUILD",
+    sha256 = "adb323ddbf9dbbe326f9e5def54ac96c47911e852b2c270bb19a5147c56f1b45",
+    version = "2.7.2",
+)
+
+hex_archive(
+    name = "hex_spitfire",
+    package_name = "spitfire",
+    build_file = "//third_party/hex:spitfire.BUILD",
+    sha256 = "3601be88ceed4967b584e96444de3e1d12d6555ae0864a7390b9cd5332d134b4",
+    version = "0.3.13",
+)
+
+hex_archive(
+    name = "hex_splode",
+    package_name = "splode",
+    build_file = "//third_party/hex:splode.BUILD",
+    sha256 = "8f2309b6ec2ecbb01435656429ed1d9ed04ba28797a3280c3b0d1217018ecfbd",
+    version = "0.3.1",
+)
+
+hex_archive(
+    name = "hex_ssl_verify_fun",
+    package_name = "ssl_verify_fun",
+    build_file = "//third_party/hex:ssl_verify_fun.BUILD",
+    sha256 = "fe4c190e8f37401d30167c8c405eda19469f34577987c76dde613e838bbc67f8",
+    version = "1.1.7",
+)
+
+hex_archive(
+    name = "hex_stream_data",
+    package_name = "stream_data",
+    build_file = "//third_party/hex:stream_data.BUILD",
+    sha256 = "3cc552e286e817dca43c98044c706eec9318083a1480c52ae2688b08e2936e3c",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_stream_split",
+    package_name = "stream_split",
+    build_file = "//third_party/hex:stream_split.BUILD",
+    sha256 = "1dc072ff507a64404a0ad7af90df97096183fee8eeac7b300320cea7c4679147",
+    version = "0.1.7",
+)
+
+hex_archive(
+    name = "hex_styler",
+    package_name = "styler",
+    build_file = "//third_party/hex:styler.BUILD",
+    sha256 = "70f36165d0cf238a32b7a456fdef6a9c72e77e657d7ac4a0ace33aeba3f2b8c0",
+    version = "1.11.0",
+)
+
+hex_archive(
+    name = "hex_sweet_xml",
+    package_name = "sweet_xml",
+    build_file = "//third_party/hex:sweet_xml.BUILD",
+    sha256 = "193b28a9b12891cae351d81a0cead165ffe67df1b73fe5866d10629f4faefb12",
+    version = "0.7.5",
+)
+
+hex_archive(
+    name = "hex_swoosh",
+    package_name = "swoosh",
+    build_file = "//third_party/hex:swoosh.BUILD",
+    sha256 = "c7683d070fe8f8aa9d174e61b01f2d527be73cd8ac40037b7109184941eb569f",
+    version = "1.26.3",
+)
+
+hex_archive(
+    name = "hex_table",
+    package_name = "table",
+    build_file = "//third_party/hex:table.BUILD",
+    sha256 = "7e99bc7efef806315c7e65640724bf165c3061cdc5d854060f74468367065029",
+    version = "0.1.2",
+)
+
+hex_archive(
+    name = "hex_tailwind",
+    package_name = "tailwind",
+    build_file = "//third_party/hex:tailwind.BUILD",
+    sha256 = "c4e26302a59fec72abc5610ecb6ad2116d9aa31f31aab2d4b8eb6e95d25a689c",
+    version = "0.5.1",
+)
+
+hex_archive(
+    name = "hex_telemetry",
+    package_name = "telemetry",
+    build_file = "//third_party/hex:telemetry.BUILD",
+    sha256 = "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1",
+    version = "1.4.2",
+)
+
+hex_archive(
+    name = "hex_telemetry_metrics",
+    package_name = "telemetry_metrics",
+    build_file = "//third_party/hex:telemetry_metrics.BUILD",
+    sha256 = "e7b79e8ddfde70adb6db8a6623d1778ec66401f366e9a8f5dd0955c56bc8ce67",
+    version = "1.1.0",
+)
+
+hex_archive(
+    name = "hex_telemetry_metrics_prometheus_core",
+    package_name = "telemetry_metrics_prometheus_core",
+    build_file = "//third_party/hex:telemetry_metrics_prometheus_core.BUILD",
+    sha256 = "5e2c599da4983c4f88a33e9571f1458bf98b0cf6ba930f1dc3a6e8cf45d5afb6",
+    version = "1.2.1",
+)
+
+hex_archive(
+    name = "hex_telemetry_poller",
+    package_name = "telemetry_poller",
+    build_file = "//third_party/hex:telemetry_poller.BUILD",
+    sha256 = "51f18bed7128544a50f75897db9974436ea9bfba560420b646af27a9a9b35211",
+    version = "1.3.0",
+)
+
+hex_archive(
+    name = "hex_telemetry_registry",
+    package_name = "telemetry_registry",
+    build_file = "//third_party/hex:telemetry_registry.BUILD",
+    sha256 = "e7ed191eb1d115a3034af8e1e35e4e63d5348851d556646d46ca3d1b4e16bab9",
+    version = "0.3.2",
+)
+
+hex_archive(
+    name = "hex_text_diff",
+    package_name = "text_diff",
+    build_file = "//third_party/hex:text_diff.BUILD",
+    sha256 = "d1ffaaecab338e49357b6daa82e435f877e0649041ace7755583a0ea3362dbd7",
+    version = "0.1.0",
+)
+
+hex_archive(
+    name = "hex_thousand_island",
+    package_name = "thousand_island",
+    build_file = "//third_party/hex:thousand_island.BUILD",
+    sha256 = "708923d40523e43cf99041ab37a0d4b0ec426ac6438fa3716ab23d919eaeb412",
+    version = "1.5.0",
+)
+
+hex_archive(
+    name = "hex_tls_certificate_check",
+    package_name = "tls_certificate_check",
+    build_file = "//third_party/hex:tls_certificate_check.BUILD",
+    sha256 = "cab9a7439e2dbfe91b38104f2d8a4b6d61dbc4d3a5ad59ac364713a88c6cfd9b",
+    version = "1.33.0",
+)
+
+hex_archive(
+    name = "hex_typed_struct",
+    package_name = "typed_struct",
+    build_file = "//third_party/hex:typed_struct.BUILD",
+    sha256 = "c50bd5c3a61fe4e198a8504f939be3d3c85903b382bde4865579bc23111d1b6d",
+    version = "0.3.0",
+)
+
+hex_archive(
+    name = "hex_ueberauth",
+    package_name = "ueberauth",
+    build_file = "//third_party/hex:ueberauth.BUILD",
+    sha256 = "f2d3172e52821375bccb8460e5fa5cb91cfd60b19b636b6e57e9759b6f8c10c1",
+    version = "0.10.8",
+)
+
+hex_archive(
+    name = "hex_ueberauth_oidcc",
+    package_name = "ueberauth_oidcc",
+    build_file = "//third_party/hex:ueberauth_oidcc.BUILD",
+    sha256 = "b9ea3c981464a5052e4f4fbf0a3c716e124da056aca30b9754654c5c6f90f8c2",
+    version = "0.4.2",
+)
+
+hex_archive(
+    name = "hex_unicode_util_compat",
+    package_name = "unicode_util_compat",
+    build_file = "//third_party/hex:unicode_util_compat.BUILD",
+    sha256 = "b3a917854ce3ae233619744ad1e0102e05673136776fb2fa76234f3e03b23642",
+    version = "0.7.1",
+)
+
+hex_archive(
+    name = "hex_unifex",
+    package_name = "unifex",
+    build_file = "//third_party/hex:unifex.BUILD",
+    sha256 = "7c8d473f8e2b43556d792179d9f6d56ff047c252288dc29a554b5a1e1404e528",
+    version = "1.2.5",
+)
+
+hex_archive(
+    name = "hex_vix",
+    package_name = "vix",
+    build_file = "//third_party/hex:vix.BUILD",
+    sha256 = "342d69d41928e59588604f9035b383bf61e3b768bb3b1ed73a05eca134058d15",
+    version = "0.40.0",
+)
+
+hex_archive(
+    name = "hex_websock",
+    package_name = "websock",
+    build_file = "//third_party/hex:websock.BUILD",
+    sha256 = "6105453d7fac22c712ad66fab1d45abdf049868f253cf719b625151460b8b453",
+    version = "0.5.3",
+)
+
+hex_archive(
+    name = "hex_websock_adapter",
+    package_name = "websock_adapter",
+    build_file = "//third_party/hex:websock_adapter.BUILD",
+    sha256 = "50021a85bce8f203b086705d9e0c5415e2c7eb05d319111b0428fe71f9934617",
+    version = "0.6.0",
+)
+
+hex_archive(
+    name = "hex_xema",
+    package_name = "xema",
+    build_file = "//third_party/hex:xema.BUILD",
+    sha256 = "5cb8757c006ee57423fc8f076f3289377dedce9baeb93d1997d6f19d5cee73a8",
+    version = "0.17.9",
+)
+
+hex_archive(
+    name = "hex_yamerl",
+    package_name = "yamerl",
+    build_file = "//third_party/hex:yamerl.BUILD",
+    sha256 = "346adb2963f1051dc837a2364e4acf6eb7d80097c0f53cbdc3046ec8ec4b4e6e",
+    version = "0.10.0",
+)
+
+hex_archive(
+    name = "hex_yaml_elixir",
+    package_name = "yaml_elixir",
+    build_file = "//third_party/hex:yaml_elixir.BUILD",
+    sha256 = "e7c1b10122f973e6558462d51c39026ba0e14afbc6745318e990ea82cfe9e159",
+    version = "2.12.2",
+)
+
+hex_archive(
+    name = "hex_ymlr",
+    package_name = "ymlr",
+    build_file = "//third_party/hex:ymlr.BUILD",
+    sha256 = "7030cb240c46850caeb3b01be745307632be319b15f03083136f6251f49b516d",
+    version = "5.1.5",
+)
+
+hex_archive(
+    name = "hex_zarex",
+    package_name = "zarex",
+    build_file = "//third_party/hex:zarex.BUILD",
+    sha256 = "b628a9b0bc312f278af2c288078c31fd4757224b82d768e91bcf3bedbe3a50e7",
+    version = "1.0.6",
 )
 
 host_platform_ext = use_extension("@platforms//host:extension.bzl", "host_platform")
@@ -244,19 +2462,97 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
     ],
     gcc_major_version = "13",
+    # Replaces gold, which is deprecated, sits in binutils maintenance-only mode, and makes
+    # rustc warn on every Rust link that it "has known bugs with Rust". Needs the `use_ld`
+    # attribute from the fork -- see the git_override above.
+    #
+    # lld is the ONLY workable replacement, which is not obvious. Measured, not assumed:
+    #
+    #   linker   --start-lib   in rbe-executor
+    #   bfd      FAILS         yes (binutils, via build-essential)
+    #   gold     ok            yes (binutils)
+    #   lld      ok            yes, SINCE v1.0.24.3 -- separate apt package
+    #
+    # Bazel's C++ rules pass --start-lib/--end-lib, a gold/lld extension classic GNU ld never
+    # implemented. "bfd" links Rust fine and then dies on the first C++ binary --
+    #   /usr/bin/ld.bfd: unrecognized option '--start-lib'
+    # on protoc_minimal and the two upb generators. That is almost certainly why upstream
+    # hardcoded gold in the first place.
+    #
+    # PAIRED WITH THE IMAGE: ld.lld arrives only in rbe-executor v1.0.24.3
+    # (//docker/Dockerfile.rbe). Selecting "lld" against an older tag fails every link with
+    #   collect2: error: cannot find 'ld.lld'
+    # so this line and the executor tag move together. The fork prints a warning when a Linux
+    # client lacks ld.lld; it cannot check the executor, which is why the pairing is manual.
+    #
+    # Note this re-keys EVERY action -- the cc toolchain is part of the action key -- so the
+    # first build after the switch is a full rebuild with no cache hits.
+    use_ld = "lld",
 )
 
 # Make the generated platform default to our custom executor image.
 buildbuddy_toolchain_ext.platform(
-    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23",
+    container_image = "docker://registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3",
 )
 use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 register_toolchains(
+    # These are the GLIBC cc toolchains only. musl targets are served by @toolchains_musl
+    # below; see the comment there for why we do not hand-roll a musl cc toolchain.
+    #
+    # Both entries declare //build/platforms:linux_glibc in target_compatible_with, which is
+    # what keeps them from matching a musl platform. Resolution takes the FIRST registered
+    # toolchain whose constraints the target platform satisfies -- not the most specific one --
+    # so without that constraint :rbe_cc_toolchain, asking only for (x86_64, linux), also
+    # matches (x86_64, linux, linux_musl) and wins by virtue of being listed here.
     "//build/toolchains:rbe_cc_toolchain",
-    "//build/toolchains:rbe_cc_toolchain_arm64_musl_static",
     "//build/toolchains:rbe_cc_toolchain_arm64",
 )
+
+# --- musl cc toolchain (bazel-contrib/musl-toolchain) ---------------
+#
+# This replaces a hand-written cc_toolchain_config that was NOT a musl toolchain: it named
+# plain /usr/bin/gcc, set `target_libc = "musl"` as a free-text label, and tried to get
+# staticness from `-static` in link_flags. Since the compiler and its libstdc++/libm were the
+# distro's glibc ones, "musl" was a naming convention and nothing more -- and
+# //rust/netprobe:static_linkage_test caught it once ld.lld started faithfully recording the
+# DT_NEEDED entries that ld.gold had quietly resolved away.
+#
+# @toolchains_musl downloads a real musl-targeting gcc and enables the `fully_static_link`
+# feature itself, so `-static`, the static libstdc++/libm and the absence of a dynamic loader
+# all come from the toolchain rather than from flags we have to remember to keep in sync.
+#
+# `extra_target_compatible_with` is what binds it to our own libc constraint; without it these
+# toolchains match ANY linux platform, including the glibc ones. This mirrors rules_rust's
+# examples/cross_compile_musl, which keys its toolchains on a `linker_config:musl` constraint
+# for the same reason.
+#
+bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
+
+toolchains_musl = use_extension("@toolchains_musl//:toolchains_musl.bzl", "toolchains_musl")
+toolchains_musl.config(
+    extra_target_compatible_with = ["//build/platforms:linux_musl"],
+)
+use_repo(toolchains_musl, "musl_toolchains_hub")
+
+# REGISTERED HERE, AND BEFORE @llvm_toolchain BELOW. Both facts are load-bearing.
+#
+# @toolchains_musl already registers this from its own MODULE.bazel, but a DEPENDENCY's
+# registrations are ordered after every one of the root module's -- including
+# `register_toolchains("@llvm_toolchain//:all")` further down. @toolchains_llvm generates
+# its toolchain set from the HOST, and on a linux-x86_64 host that set includes
+# `cc-toolchain-x86_64-linux`, whose target_compatible_with is [x86_64, linux] with nothing
+# about libc. It therefore matches a musl target platform and, being registered first, wins.
+#
+# That made musl builds host-dependent, which is a miserable failure mode: on a macOS host
+# @toolchains_llvm emits only darwin/none toolchains, none of which match musl, so the musl
+# hub won and `bazel build //...` passed. The same commit failed on the Linux workflow
+# runner, compiling musl targets with glibc headers and failing at link on symbols musl does
+# not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
+#
+# Repeating the registration here puts it in root-module order, ahead of @llvm_toolchain.
+# Do not move it below that line, and do not drop it as redundant.
+register_toolchains("@musl_toolchains_hub//:all")
 
 # --- LLVM Toolchain (clang/lld) ----------------------------------
 llvm_ext = use_extension(
@@ -294,7 +2590,7 @@ oci_ext = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 oci_ext.pull(
     name = "ubuntu_jammy",
     digest = "sha256:a1af69f6c9bc3657289d23abff8ee360d2417d6cf69719e287822443dca3dc57",
-    image = "docker.io/library/ubuntu:22.04",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:22.04",
     platforms = [
         "linux/amd64",
     ],
@@ -302,7 +2598,13 @@ oci_ext.pull(
 oci_ext.pull(
     name = "actions_runner",
     digest = "sha256:97b86689bb0571ca04b858e460190c8359c346c2fb4d093f0f88e40906e0b3c4",
-    image = "ghcr.io/actions/actions-runner",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). The direct ghcr.io
+    # pull was dropped because actions-runner has a 301.7 MB layer and Harbor expires an upload
+    # session at ~10 min: from outside the datacenter the push restarted from zero every time
+    # (8 expired sessions, 0 blobs pushed, in one hour). arc-runner is layered on it and shares
+    # that blob. The mirror was populated from a host that could complete the transfer.
+    image = "registry.carverauto.dev/mirror/actions/actions-runner",
     platforms = [
         "linux/amd64",
     ],
@@ -310,7 +2612,10 @@ oci_ext.pull(
 oci_ext.pull(
     name = "arc_runner",
     digest = "sha256:cd933c5c1e917d0e3ad96b81eb02f8dc9ce8ba9043eab7611c457dacf370f26f",
-    image = "ghcr.io/carverauto/arc-runner",
+    # Mirrored to registry.carverauto.dev/mirror/ via `skopeo copy --all --preserve-digests`
+    # (digest preserved, verified byte-identical to the ghcr.io source). See actions_runner
+    # above for why the ghcr.io source was mirrored rather than pulled directly into Harbor.
+    image = "registry.carverauto.dev/mirror/carverauto/arc-runner",
     platforms = [
         "linux/amd64",
     ],
@@ -318,7 +2623,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "alpine_3_20",
     digest = "sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805",
-    image = "docker.io/library/alpine:3.20",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.20",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -327,7 +2632,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "alpine_3_24",
     digest = "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
-    image = "docker.io/library/alpine:3.24",
+    image = "registry.carverauto.dev/mirror/library/alpine:3.24",
     platforms = [
         "linux/amd64",
     ],
@@ -335,7 +2640,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "ubuntu_noble",
     digest = "sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9",
-    image = "docker.io/library/ubuntu:24.04",
+    image = "registry.carverauto.dev/mirror/library/ubuntu:24.04",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -344,7 +2649,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "debian_bookworm_slim",
     digest = "sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421",
-    image = "docker.io/library/debian:bookworm-slim",
+    image = "registry.carverauto.dev/mirror/library/debian:bookworm-slim",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -353,7 +2658,7 @@ oci_ext.pull(
 oci_ext.pull(
     name = "debian_testing_slim",
     digest = "sha256:80381085775a6e69f0f8d09dd9a39495063e348382eb8d4881ba6f142d24b8ab",
-    image = "docker.io/library/debian:testing-slim",
+    image = "registry.carverauto.dev/mirror/library/debian:testing-slim",
     platforms = [
         "linux/amd64",
     ],
@@ -361,27 +2666,62 @@ oci_ext.pull(
 oci_ext.pull(
     name = "node_20_alpine",
     digest = "sha256:6a91081a440be0b57336fbc4ee87f3dab1a2fd6f80cdb355dcf960e13bda3b59",
-    image = "docker.io/library/node:20-alpine",
+    image = "registry.carverauto.dev/mirror/library/node:20-alpine",
     platforms = [
         "linux/amd64",
     ],
 )
 oci_ext.pull(
     name = "serviceradar_tools",
-    digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
+    # v1.4.29. The previous pin (c9b4e23e...) no longer exists in Harbor -- the artifact was
+    # gone while the tags v1.4.3..v1.4.29 remained, so a fresh checkout failed the loading
+    # phase with NOT_FOUND while cached workspaces kept working.
+    digest = "sha256:dbd070a74d1e3ea67f3d560018080d35adf06415233504d52111bcbbd8d0cd32",
     image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
     platforms = [
         "linux/amd64",
     ],
 )
+
+# 18-bookworm, resolved to its OCI image index digest.
+#
+# This was the only tag-based pull in the file, and `reproducible = False` was rules_oci
+# saying so. A tag pull has to re-resolve tag -> digest against the registry on every refetch,
+# and that resolution is an authenticated call: it fetches a bearer token from
+# https://ghcr.io/token first. Anonymous token requests are rate limited, and a throttled one
+# fails in Bazel's loading phase as "no such package @@rules_oci++oci+cloudnativepg_...",
+# which took out //integration_tests/srql:srql_api_test and :srql_comprehensive_test -- two
+# targets with no visible connection to containers.
+#
+# A digest is content-addressed, so the fetch is cacheable in the repository cache and needs
+# no tag resolution. Every other pull in this file was already pinned this way.
+#
+# To move to a newer image, re-resolve the tag deliberately:
+#   crane digest ghcr.io/cloudnative-pg/postgresql:18.4-system-bookworm
+#
+# The tag MUST be `18.<minor>-system-bookworm`. Two ways to get this wrong, both of
+# which have already happened:
+#
+#   `18-bookworm`  -- abandoned upstream at 18~rc1 (2025-09-08) and never moved, so
+#                     it silently builds a release candidate. A build from it was
+#                     pushed over 18.3.0-sr5, which let Harbor garbage-collect the
+#                     manifests demo and srql-fixtures were pinned to.
+#   `18.4`         -- resolves to the BULLSEYE build (18.4-1.pgdg11+1). Postgres
+#                     starts, and then PostGIS does not load: our prebuilt postgis
+#                     deb is a bookworm build wanting libldap-2.5.so.0, and bullseye
+#                     ships 2.4. Timescale, AGE and pgvector give no hint of it.
+#
+# Both parts of the suffix are load-bearing. `system` is the flavor the extension
+# layers are built against, and `bookworm` has to match the Debian release every
+# overlaid deb comes from -- libc6, libc6-dev, libssl-dev, postgis, pgvector. Confirm
+# with the base.name label, which must read debian:bookworm-slim.
 oci_ext.pull(
     name = "cloudnativepg_postgresql_18",
-    image = "ghcr.io/cloudnative-pg/postgresql",
+    digest = "sha256:63ba2470bb07cd0f4492c1f088689a6a01bbf20b5c5fc6c6472507353d14002c",
+    image = "registry.carverauto.dev/mirror/cloudnative-pg/postgresql",
     platforms = [
         "linux/amd64",
     ],
-    reproducible = False,
-    tag = "18-bookworm",
 )
 
 # Official pg_duckdb image (MIT, duckdb org) — base of the analytics head
@@ -538,6 +2878,7 @@ use_repo(
     "com_github_swaggo_swag",
     "com_github_tetratelabs_wazero",
     "in_gopkg_yaml_v3",
+    "io_k8s_api",
     "io_k8s_apimachinery",
     "io_k8s_client_go",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
@@ -580,12 +2921,34 @@ use_repo(
     "rust_linux_x86_64__x86_64-unknown-linux-musl__stable_tools",
 )
 
+# MUST precede @rust_toolchains//:all. Bazel picks the FIRST registered toolchain that
+# matches, not the most specific one, and rules_rust derives a toolchain's
+# target_compatible_with from the triple alone -- @platforms has no musl constraint, so
+# `x86_64-unknown-linux-gnu` declares exactly [os:linux, cpu:x86_64]. That is a subset of
+# //build/platforms:linux_x86_64_musl, so the glibc toolchain matches the musl platform and,
+# registered first, wins. netprobe then built dynamically linked against glibc while the
+# --platforms flag said musl, and only the shape assertions in rust-musl.yml caught it.
+#
+# These wrappers are what encode the distinction: target_compatible_with carries
+# //build/platforms:linux_musl and target_settings pins the matching config_setting, so they
+# are inert for a non-musl linux platform and resolution falls through to gnu as before.
+#
+# Note this only ever misresolved on a linux-x86_64 executor. extra_target_triples requests
+# no x86_64-unknown-linux-gnu toolchain -- that triple exists only because it is the CI
+# executor's own host triple, so from a macOS or arm64 host the musl toolchain was the only
+# match and the bug was invisible.
 register_toolchains(
     "//build/rust:linux_aarch64_musl_toolchain",
     "//build/rust:linux_x86_64_musl_toolchain",
 )
 
 register_toolchains("@rust_toolchains//:all")
+
+# Custom Prost toolchain
+register_toolchains(
+    "//build/rust/prost_toolchain",
+    "//build/rust/proto_toolchain",
+)
 
 # TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
 # crate_universe coverage as additional Rust targets migrate.
@@ -599,7 +2962,7 @@ register_toolchains("@rust_toolchains//:all")
 # //third_party/crates:defs.bzl. Removing this extension eliminates the slow Cargo
 # splicing step. See openspec migrate-bazel-rust-crate-vendoring.
 
-rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+rdp_connector_crates = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 rdp_connector_crates.from_cargo(
     name = "rdp_connector_crates",
     cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
@@ -650,21 +3013,42 @@ node.toolchain(
 )
 use_repo(node, "nodejs_toolchains")
 
+# rules_nodejs 6.6.0 renamed the exec-platform half of each pair: `<plat>_toolchain_target`
+# became `<plat>_runtime_toolchain`. The 6.5.0 names do not exist any more and registering
+# them fails analysis, not just the node targets.
+#
+# 6.5.0 itself cannot be used on Bazel 9: nodejs/toolchain.bzl references the top-level
+# CcInfo symbol, which Bazel 9 removed, so every load of it fails with
+# "The CcInfo symbol has been removed".
 register_toolchains(
-    "@nodejs_toolchains//:darwin_amd64_toolchain_target",
+    "@nodejs_toolchains//:darwin_amd64_runtime_toolchain",
     "@nodejs_toolchains//:darwin_amd64_toolchain",
-    "@nodejs_toolchains//:darwin_arm64_toolchain_target",
+    "@nodejs_toolchains//:darwin_arm64_runtime_toolchain",
     "@nodejs_toolchains//:darwin_arm64_toolchain",
-    "@nodejs_toolchains//:linux_amd64_toolchain_target",
+    "@nodejs_toolchains//:linux_amd64_runtime_toolchain",
     "@nodejs_toolchains//:linux_amd64_toolchain",
-    "@nodejs_toolchains//:linux_arm64_toolchain_target",
+    "@nodejs_toolchains//:linux_arm64_runtime_toolchain",
     "@nodejs_toolchains//:linux_arm64_toolchain",
 )
 
 # --- npm dependency ingestion ------------------------------------------------
 
-# TODO(bazel-migration): Re-enable npm translation once a Bazel-managed JS app
-# (with a lockfile) is reintroduced.
+# web-ng's browser assets. This is the "Bazel-managed JS app with a lockfile"
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+
+#
+# pnpm_lock, not npm_package_lock: rules_js can read package-lock.json, but it converts it
+# to pnpm form on every repository-rule evaluation -- 141s here, on a cold fetch, before a
+# single asset is built. The converted file is checked in instead, so the conversion happens
+# once when a dependency actually changes. Regenerate by pointing this at
+# npm_package_lock = "//elixir/web-ng/assets:package-lock.json", building once, and
+# switching back; rules_js writes the file and tells you to commit it.
+npm.npm_translate_lock(
+    name = "web_ng_npm",
+    pnpm_lock = "//elixir/web-ng/assets:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "web_ng_npm")
 
 # --- External binary artifacts ----------------------------------------------
 
@@ -676,6 +3060,36 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+# Hex, the package manager, built from source as a Mix archive.
+#
+# This is NOT used to fetch anything -- every dependency is already a Bazel
+# repository (see the hex_archive block above) and mix runs with
+# --no-deps-check. Hex is needed only so that Mix can resolve an SCM for the
+# `{:dep, "~> x.y"}` entries in a package's mix.exs; without it Mix aborts with
+# "Could not find an SCM for dependency" on dev/test-only deps it would never
+# have compiled anyway.
+#
+# Hex has no dependencies of its own, so it bootstraps through mix_archive_build
+# with an empty dep graph.
+http_archive(
+    name = "hex",
+    build_file_content = """\
+load("@serviceradar//build:mix_archive_build.bzl", "mix_archive_build")
+
+# Hex is the one package we genuinely need as a .ez, because it is consumed via
+# `mix archive.install` rather than as an ERL_LIBS dependency.
+mix_archive_build(
+    name = "archive",
+    srcs = ["mix.exs"] + glob(["lib/**/*"]),
+    out = "hex.ez",
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "dabd99ea48ba8064c32bc2e97d59ab1b1055a38a1dd178c5389d95c35e985d2d",
+    strip_prefix = "hex-2.5.1",
+    urls = ["https://github.com/hexpm/hex/archive/refs/tags/v2.5.1.zip"],
 )
 
 tinygo_host_repository = use_repo_rule(
@@ -819,9 +3233,9 @@ tinygo_host_repository(
 
 http_file(
     name = "postgresql_server_dev_18_deb",
-    sha256 = "afc115928cceca97aa93f4b803012af51ce51cef111962b8cbc72746416b6738",
+    sha256 = "bb45f27f6072e8109b9a67e390ff0139ab493f681ec05d1cfed139b101187c00",
     urls = [
-        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.3-1.pgdg12%2B1_amd64.deb",
+        "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-server-dev-18_18.4-1.pgdg12%2B1_amd64.deb",
     ],
 )
 
@@ -980,6 +3394,40 @@ http_file(
     ],
 )
 
+# Sysroot for the CNPG from-source extension layers, so TimescaleDB and AGE compile
+# against the runtime's glibc instead of the RBE executor's. Keep libc6-dev's version
+# EXACTLY equal to debian_libc6_amd64_deb above -- headers and shared object have to
+# describe the same glibc, or the floor this is meant to pin moves again.
+# See docker/images/cnpg_image.bzl for what breaks without it.
+http_file(
+    name = "debian_libc6_dev_amd64_deb",
+    sha256 = "0218fc2befcd784c1b0c6292c0a137ce89fad054efaa579ad083bee0f2c01aae",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/g/glibc/libc6-dev_2.36-9+deb12u14_amd64.deb",
+    ],
+)
+
+# libc6-dev depends on this; glibc's headers include <asm/*.h> and <linux/*.h>, and a
+# --sysroot search path finds nothing outside the sysroot.
+http_file(
+    name = "debian_linux_libc_dev_amd64_deb",
+    sha256 = "8bb258735b9dffbb111da778ebdd024750878e435ffd9dfcadcb6762ede6b4cf",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/l/linux/linux-libc-dev_6.1.176-1_amd64.deb",
+    ],
+)
+
+# Also part of the sysroot: --sysroot hides the executor's /usr/include entirely, and
+# TimescaleDB's src/net/conn_ssl.c includes <openssl/err.h>. Matches the libssl3 that
+# bookworm -- and therefore the CNPG base -- ships at runtime.
+http_file(
+    name = "debian_libssl_dev_amd64_deb",
+    sha256 = "43ef5c109056b1507a0972631ee8292e727029aeda1516b4672cb041730ae3af",
+    urls = [
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl-dev_3.0.20-1~deb12u2_amd64.deb",
+    ],
+)
+
 http_file(
     name = "postgresql_18_postgis_3_amd64_deb",
     sha256 = "5c06e2bb5ac73cd3d81f07a9cf44e4240a0c6e0ae8d4e8627187b6cab83d6606",
@@ -1062,9 +3510,9 @@ http_file(
 
 http_file(
     name = "debian_libcurl3_gnutls_amd64_deb",
-    sha256 = "15431a9d3c3ea95df9f2f77ba300a992ada486e9584edf1e88ffa8be43c0fc17",
+    sha256 = "bf430ecf80f7808704e0187cddc582fd57fc98789ea356d4797651edad387ef3",
     urls = [
-        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u14_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/c/curl/libcurl3-gnutls_7.88.1-10+deb12u15_amd64.deb",
     ],
 )
 
@@ -1110,9 +3558,9 @@ http_file(
 
 http_file(
     name = "debian_libnghttp2_14_amd64_deb",
-    sha256 = "dbe3eb8c831e654ac7d5cf045d605d53fd763e8ebc238607c25f301996103bb9",
+    sha256 = "5a5736cee57e51c1baed869979e6ecdbc6495e939e33203d6cfe3b6e5a149e3f",
     urls = [
-        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u2_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/n/nghttp2/libnghttp2-14_1.52.0-1+deb12u3_amd64.deb",
     ],
 )
 
@@ -1176,88 +3624,161 @@ exports_files(["crane"])
     ],
 )
 
+# Ubuntu .deb dependencies for //third_party/libpcap, twelve rules: six amd64 and six arm64.
+#
+# EVERY ONE CARRIES TWO URLS ON PURPOSE. Bazel tries them in order and every rule pins a
+# sha256, so a mirror is verified exactly like the origin -- there is no trust cost to listing
+# one, only a resilience gain.
+#
+# The amd64 six are mirrored because archive.ubuntu.com is unreachable, full stop -- not just
+# from CI. Six simultaneous "Connect timed out" failures took down the loading phase and, with
+# it, //third_party/libpcap and everything depending on it:
+#
+#   ERROR: loading failure: ... Error downloading
+#   [http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_...deb]: Connect timed out
+#   ERROR: //third_party/libpcap:pcap: analysis failure
+#
+# It is NOT a port-80 block, which was the first guess: the arm64 six are also plain HTTP, on
+# ports.ubuntu.com, and none failed in the same run. The host itself is the problem.
+# archive.ubuntu.com is round-robin DNS across a mirror set, serves no HTTPS at all (curl
+# returns 000, so switching scheme in place is not an option), and currently times out from
+# developer machines too.
+#
+# WHY THIS LOOKED CI-SPECIFIC AND WAS NOT. A local `bazel build --config=ci //...` succeeds
+# while CI fails, which reads like an environment difference. It is a warm repository cache:
+# //.bazelrc sets --repository_cache=third_party/bazel-repo-cache, these files landed there
+# during an older fetch, and nothing has needed to reach the network for them since. The cache
+# is content-addressed -- look for content_addressable/sha256/<sha>/file, not for *.deb -- so
+# it is easy to conclude the files are absent when they are not.
+#
+# So the mirror is not a CI workaround. It repairs a single point of failure that any cold
+# checkout hits: a new machine, a fresh clone, a pruned cache. mirrors.edge.kernel.org carries
+# the same pool over HTTPS and answers in ~0.5s.
+#
+# The arm64 six keep ports.ubuntu.com but lead with its HTTPS endpoint, which does answer.
+# They have not failed, so this is prophylactic rather than a fix.
+#
+# distdir is NOT the answer here. //third_party/distdir is gitignored and documented as a
+# cache rather than vendored source, restored in Forgejo through actions/cache -- a mechanism
+# BuildBuddy Workflows has no equivalent of, so a fresh runner starts empty regardless.
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_amd64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "9007bd2c29216bcee3282f10fb63856899b833a37a77c053be0c1b8bb45c65e9",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_amd64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
     sha256 = "62e3379edd4b8cf748f2a1260c96f54dd2074ae4f956bd2b444440d62c0b5d2a",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8_dev_arm64_deb",
     downloaded_file_path = "libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "36af9fe819a2600babd87fb4dd47186bce8c2d856c4938beebece68922242b93",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8-dev_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libpcap0_8t64_arm64_deb",
     downloaded_file_path = "libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
     sha256 = "d1dd3eab09ae527cda36ddb06976ac5ea3d210c4ae03ac6a86cd344d46c2d3c7",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libp/libpcap/libpcap0.8t64_1.10.4-4.1ubuntu3_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_amd64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
     sha256 = "bbb55111182a44d0fe97a84120407e17bb6e23d41e2670d73aa78f619e29efa2",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libdbus_1_3_arm64_deb",
     downloaded_file_path = "libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
     sha256 = "c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_amd64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_amd64.deb",
     sha256 = "731e9d88e498b1a8b03a4eaf6e3ed6227f1c4646b9931256f7e234b42ae618dd",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/r/rdma-core/libibverbs1_50.0-2build2_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libibverbs1_arm64_deb",
     downloaded_file_path = "libibverbs1_50.0-2build2_arm64.deb",
     sha256 = "d5cf6b37c02ccc9609f96ac46b3a823ba087088e98a5f17ff823156c9a765eb0",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/r/rdma-core/libibverbs1_50.0-2build2_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_amd64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "0afff6a14f55122757db02ff7e11ad58f128465fd796e2e33a0b0fe5b45a09ed",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_3_200_arm64_deb",
     downloaded_file_path = "libnl-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "dac93582da210a157bc4d9e34c1a55214823ed94adceb43d641912b56e8e5094",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_amd64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
     sha256 = "8abfa9a87f78dbba7edc19ef4cfcb16b70dde562bccc3ff7550bdd3a0487e358",
-    urls = ["http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb"],
+    urls = [
+        "https://mirrors.edge.kernel.org/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+        "http://archive.ubuntu.com/ubuntu/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_amd64.deb",
+    ],
 )
 
 http_file(
     name = "ubuntu_noble_libnl_route_3_200_arm64_deb",
     downloaded_file_path = "libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
     sha256 = "978dc9ba1f36b2813138563776c7640bd6bd86fbe0a3a7da47cb8c93bfcd3807",
-    urls = ["http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb"],
+    urls = [
+        "https://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+        "http://ports.ubuntu.com/ubuntu-ports/pool/main/libn/libnl3/libnl-route-3-200_3.7.0-0.3build1_arm64.deb",
+    ],
 )
 
 http_file(
@@ -1587,7 +4108,29 @@ filegroup(
 """,
     sha256 = "2e503283704eb7b9d9a251cbf4bd1d186a33016e31f4617bbf37a4d60e38ae02",
     strip_prefix = "apache-age-1.7.0",
+    # ARCHIVE FIRST, downloads.apache.org SECOND, and that order is the fix.
+    #
+    # downloads.apache.org carries only the CURRENT release of a project. AGE 1.8.0 shipped,
+    # 1.7.0 was rotated off, and the pinned URL began returning 404 -- breaking `bazel build
+    # //...` in the LOADING phase with an error that names neither Apache nor a network:
+    #
+    #   ERROR: no such package '@@+http_archive+age_src//': ... GET returned 404 Not Found
+    #   ERROR: database/age/BUILD.bazel:6:18: //database/age:source_tree depends on
+    #          @@+http_archive+age_src//:all_srcs ... which failed to fetch
+    #
+    # It stayed invisible on any machine whose repository cache still held the tarball from
+    # before the rotation, so it looked like a CI-only fault for as long as one developer's
+    # cache was warm. Nothing about the build changed; the artifact moved.
+    #
+    # archive.apache.org is the permanent home -- every Apache release stays there forever,
+    # which is exactly the property a pinned dependency needs. Verified byte-identical to the
+    # sha256 above (5,529,925 bytes) before being listed, so this is the same artifact by a
+    # durable URL, not a version bump. Moving to 1.8.0 is a separate, deliberate change.
+    #
+    # downloads.apache.org is kept second: it is faster and mirror-backed while a version is
+    # current, and harmless once it 404s because Bazel simply tries the next URL.
     urls = [
+        "https://archive.apache.org/dist/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
         "https://downloads.apache.org/age/PG18/1.7.0/apache-age-1.7.0-src.tar.gz",
     ],
 )

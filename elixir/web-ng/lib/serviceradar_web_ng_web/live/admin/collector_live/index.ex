@@ -260,8 +260,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Collectors</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Collectors</h1>
+            <p class="text-sm text-sr-muted">
               Manage NATS-connected data collectors for your account.
             </p>
           </div>
@@ -281,7 +281,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
         </div>
 
-        <div :if={not @collectors_enabled} class="alert alert-warning">
+        <div :if={not @collectors_enabled} class={ui_alert_class("warning")}>
           <.icon name="hero-lock-closed" class="size-5" />
           <span>Collector onboarding is disabled for this deployment.</span>
         </div>
@@ -295,14 +295,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Collector Packages</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@packages |> length()} package(s)
               </p>
             </div>
             <div class="flex gap-2">
               <select
                 name="status"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Statuses</option>
@@ -315,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               </select>
               <select
                 name="collector_type"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Types</option>
@@ -328,9 +328,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @packages == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No collectors found</div>
-                <p class="mt-1 text-xs text-base-content/60">
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="text-sm font-semibold text-sr-ink">No collectors found</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   <%= if @account_status != :ready do %>
                     Your NATS account is being provisioned. Please wait...
                   <% else %>
@@ -339,9 +339,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </p>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Collector</th>
                     <th>Type</th>
                     <th>Status</th>
@@ -353,10 +353,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                 </thead>
                 <tbody>
                   <%= for package <- @packages do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium font-mono text-xs">{package.user_name}</div>
-                        <div class="text-xs text-base-content/60">
+                        <div class="text-xs text-sr-muted">
                           {String.slice(package.id, 0, 8)}...
                         </div>
                       </td>
@@ -371,15 +371,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         <%= if package.edge_site do %>
                           <.link
                             navigate={~p"/admin/edge-sites/#{package.edge_site.id}"}
-                            class="link link-primary"
+                            class="text-sr-brand hover:underline"
                           >
                             {package.edge_site.name}
                           </.link>
                         <% else %>
-                          <span class="text-base-content/50">SaaS</span>
+                          <span class="text-sr-muted">SaaS</span>
                         <% end %>
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(package.inserted_at)}
                       </td>
                       <td>
@@ -420,14 +420,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </:header>
 
           <%= if @credentials == [] do %>
-            <div class="text-center py-4 text-sm text-base-content/60">
+            <div class="text-center py-4 text-sm text-sr-muted">
               No credentials issued yet.
             </div>
           <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-xs">
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "xs")}>
                 <thead>
-                  <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                  <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                     <th>User</th>
                     <th>Type</th>
                     <th>Status</th>
@@ -475,22 +475,22 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp account_status_card(assigns) do
     ~H"""
-    <div class="alert">
+    <div class={ui_alert_class("info")}>
       <div class="flex items-center gap-3">
         <%= case @account_status do %>
           <% :ready -> %>
             <.icon name="hero-check-circle" class="size-6 text-success" />
             <div>
               <div class="font-semibold">NATS Account Ready</div>
-              <div class="text-xs text-base-content/60 font-mono">
+              <div class="text-xs text-sr-muted font-mono">
                 {String.slice(@account_public_key || "", 0, 20)}...
               </div>
             </div>
           <% :pending -> %>
-            <span class="loading loading-spinner loading-sm"></span>
+            <.ui_spinner size="sm" />
             <div>
               <div class="font-semibold">Provisioning NATS Account</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Please wait while your account is being set up...
               </div>
             </div>
@@ -498,7 +498,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.icon name="hero-exclamation-triangle" class="size-6 text-error" />
             <div>
               <div class="font-semibold">NATS Account Error</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 There was an issue provisioning your account. Please contact support.
               </div>
             </div>
@@ -506,7 +506,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
             <.icon name="hero-clock" class="size-6 text-warning" />
             <div>
               <div class="font-semibold">NATS Account Not Configured</div>
-              <div class="text-xs text-base-content/60">
+              <div class="text-xs text-sr-muted">
                 Your account is being set up.
               </div>
             </div>
@@ -518,266 +518,244 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="create_modal" on_cancel="close_create_modal">
+      <%= if @created_package do %>
+        <div class="text-center">
+          <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
+            <.icon name="hero-check-circle" class="size-10 text-success" />
+          </div>
+          <h3 class="text-xl font-bold">Collector Created</h3>
+          <p class="text-sm text-sr-muted mt-1">
+            Your collector package is being provisioned.
+          </p>
+        </div>
 
-        <%= if @created_package do %>
-          <div class="text-center">
-            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
-              <.icon name="hero-check-circle" class="size-10 text-success" />
+        <div class="mt-6 space-y-4">
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
+              <code class="font-mono text-xs">{@created_package.user_name}</code>
             </div>
-            <h3 class="text-xl font-bold">Collector Created</h3>
-            <p class="text-sm text-base-content/70 mt-1">
-              Your collector package is being provisioned.
-            </p>
+            <div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
+              <span>{@created_package.collector_type}</span>
+            </div>
           </div>
 
-          <div class="mt-6 space-y-4">
-            <div class="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">User Name</div>
-                <code class="font-mono text-xs">{@created_package.user_name}</code>
-              </div>
-              <div>
-                <div class="text-xs uppercase tracking-wide text-base-content/60">Type</div>
-                <span>{@created_package.collector_type}</span>
-              </div>
-            </div>
+          <%= if @download_token do %>
+            <div class="space-y-3">
+              <div class="text-sm font-medium">Enrollment Instructions</div>
 
-            <%= if @download_token do %>
-              <div class="space-y-3">
-                <div class="text-sm font-medium">Enrollment Instructions</div>
-
-                <div class="bg-base-200 rounded-lg p-3">
-                  <div class="text-xs uppercase tracking-wide text-base-content/60 mb-2">
-                    <%= if @created_package.collector_type == :falcosidekick do %>
-                      Step 1: Download and deploy the bundle
-                    <% else %>
-                      Step 1: Install the collector
-                    <% end %>
-                  </div>
+              <div class="bg-sr-subtle rounded-lg p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted mb-2">
                   <%= if @created_package.collector_type == :falcosidekick do %>
-                    <div class="text-xs text-base-content/70">
-                      This collector deploys through Helm and reuses the namespace's
-                      `serviceradar-runtime-certs` secret.
-                    </div>
+                    Step 1: Download and deploy the bundle
                   <% else %>
-                    <code class="text-xs">
-                      # Debian/Ubuntu<br />
-                      sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
-                      # RHEL/CentOS<br />
-                      sudo dnf install serviceradar-{@created_package.collector_type}
-                    </code>
+                    Step 1: Install the collector
                   <% end %>
                 </div>
-
-                <div class="bg-base-200 rounded-lg p-3">
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="text-xs uppercase tracking-wide text-base-content/60">
-                      <%= if @created_package.collector_type == :falcosidekick do %>
-                        Step 2: Run the bundle command
-                      <% else %>
-                        Step 2: Run the enrollment command
-                      <% end %>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-ghost"
-                      phx-click="copy_token"
-                      phx-value-token={@created_install_command}
-                    >
-                      <.icon name="hero-clipboard-document" class="size-3" /> Copy
-                    </button>
+                <%= if @created_package.collector_type == :falcosidekick do %>
+                  <div class="text-xs text-sr-muted">
+                    This collector deploys through Helm and reuses the namespace's
+                    `serviceradar-runtime-certs` secret.
                   </div>
-                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
-                    {@created_install_command}
+                <% else %>
+                  <code class="text-xs">
+                    # Debian/Ubuntu<br />
+                    sudo apt install serviceradar-{@created_package.collector_type}<br /><br />
+                    # RHEL/CentOS<br />
+                    sudo dnf install serviceradar-{@created_package.collector_type}
                   </code>
+                <% end %>
+              </div>
+
+              <div class="bg-sr-subtle rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-xs uppercase tracking-wide text-sr-muted">
+                    <%= if @created_package.collector_type == :falcosidekick do %>
+                      Step 2: Run the bundle command
+                    <% else %>
+                      Step 2: Run the enrollment command
+                    <% end %>
+                  </div>
+                  <.ui_button
+                    type="button"
+                    phx-click="copy_token"
+                    phx-value-token={@created_install_command}
+                    size="xs"
+                    variant="ghost"
+                  >
+                    <.icon name="hero-clipboard-document" class="size-3" /> Copy
+                  </.ui_button>
                 </div>
+                <code class="font-mono text-xs break-all bg-sr-control p-2 rounded block">
+                  {@created_install_command}
+                </code>
               </div>
+            </div>
 
-              <div class="alert alert-warning text-xs">
-                <.icon name="hero-exclamation-triangle" class="size-4" />
-                <span>
-                  <strong>Save this command!</strong> The enrollment token expires in 24 hours
-                  and can only be used once.
-                </span>
-              </div>
-            <% else %>
-              <div class="alert alert-info text-xs">
-                <.icon name="hero-information-circle" class="size-4" />
-                <span>
-                  Credentials are being generated. Check back in a moment to download.
-                </span>
-              </div>
-            <% end %>
+            <div class={ui_alert_class(variant: "warning", class: "text-xs")}>
+              <.icon name="hero-exclamation-triangle" class="size-4" />
+              <span>
+                <strong>Save this command!</strong> The enrollment token expires in 24 hours
+                and can only be used once.
+              </span>
+            </div>
+          <% else %>
+            <div class={ui_alert_class(variant: "info", class: "text-xs")}>
+              <.icon name="hero-information-circle" class="size-4" />
+              <span>
+                Credentials are being generated. Check back in a moment to download.
+              </span>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="sr-ui-modal-action">
+          <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="primary">
+            Done
+          </.ui_button>
+        </div>
+      <% else %>
+        <h3 class="text-lg font-bold">Create Collector Package</h3>
+        <p class="py-2 text-sm text-sr-muted">
+          Create a new NATS-connected collector for sending data to the platform.
+        </p>
+
+        <form phx-submit="create_package" class="mt-4 space-y-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Collector Type</span>
+            </label>
+            <select name="collector_type" class={ui_field_class(class: "w-full")} required>
+              <%= for {label, value} <- @collector_types do %>
+                <option value={value}>{label}</option>
+              <% end %>
+            </select>
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-primary" phx-click="close_create_modal">
-              Done
-            </button>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Site (optional)</span>
+            </label>
+            <input
+              type="text"
+              name="site"
+              class={ui_field_class(class: "w-full")}
+              placeholder="e.g., datacenter-1, office-nyc"
+            />
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
+                Deployment location for this collector
+              </span>
+            </label>
           </div>
-        <% else %>
-          <h3 class="text-lg font-bold">Create Collector Package</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Create a new NATS-connected collector for sending data to the platform.
-          </p>
 
-          <form phx-submit="create_package" class="mt-4 space-y-4">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Collector Type</span>
-              </label>
-              <select name="collector_type" class="select select-bordered w-full" required>
-                <%= for {label, value} <- @collector_types do %>
-                  <option value={value}>{label}</option>
-                <% end %>
-              </select>
-            </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Hostname (optional)</span>
+            </label>
+            <input
+              type="text"
+              name="hostname"
+              class={ui_field_class(class: "w-full")}
+              placeholder="e.g., collector-01.example.com"
+            />
+          </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Site (optional)</span>
-              </label>
-              <input
-                type="text"
-                name="site"
-                class="input input-bordered w-full"
-                placeholder="e.g., datacenter-1, office-nyc"
-              />
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
-                  Deployment location for this collector
-                </span>
-              </label>
-            </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Edge Site (optional)</span>
+            </label>
+            <select name="edge_site_id" class={ui_field_class(class: "w-full")}>
+              <option value="">Connect to SaaS (default)</option>
+              <%= for site <- @edge_sites do %>
+                <option value={site.id}>{site.name} ({site.slug})</option>
+              <% end %>
+            </select>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
+                Connect to a local NATS leaf server for low latency
+              </span>
+            </label>
+          </div>
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Hostname (optional)</span>
-              </label>
-              <input
-                type="text"
-                name="hostname"
-                class="input input-bordered w-full"
-                placeholder="e.g., collector-01.example.com"
-              />
-            </div>
-
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Edge Site (optional)</span>
-              </label>
-              <select name="edge_site_id" class="select select-bordered w-full">
-                <option value="">Connect to SaaS (default)</option>
-                <%= for site <- @edge_sites do %>
-                  <option value={site.id}>{site.name} ({site.slug})</option>
-                <% end %>
-              </select>
-              <label class="label">
-                <span class="label-text-alt text-base-content/60">
-                  Connect to a local NATS leaf server for low latency
-                </span>
-              </label>
-            </div>
-
-            <div class="modal-action">
-              <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-              <button type="submit" class="btn btn-primary">Create Collector</button>
-            </div>
-          </form>
-        <% end %>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_create_modal">close</button>
-      </form>
-    </dialog>
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" size="sm" variant="primary">Create Collector</.ui_button>
+          </div>
+        </form>
+      <% end %>
+    </.ui_modal>
     """
   end
 
   defp details_modal(assigns) do
     ~H"""
-    <dialog id="details_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_details_modal"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="details_modal" on_cancel="close_details_modal">
+      <:title>Collector Details</:title>
 
-        <h3 class="text-lg font-bold">Collector Details</h3>
-
-        <div class="mt-4 space-y-4">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">User Name</div>
-              <code class="font-mono text-sm">{@package.user_name}</code>
-            </div>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
-              <.status_badge status={@package.status} />
-            </div>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Type</div>
-              <.collector_type_badge type={@package.collector_type} />
-            </div>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Site</div>
-              <span class="text-sm">{@package.site || "-"}</span>
-            </div>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Hostname</div>
-              <span class="text-sm">{@package.hostname || "-"}</span>
-            </div>
-            <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Created</div>
-              <span class="text-sm">{format_datetime(@package.inserted_at)}</span>
-            </div>
-          </div>
-
+      <div class="mt-4 space-y-4">
+        <div class="grid grid-cols-2 gap-4">
           <div>
-            <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Package ID</div>
-            <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.id}</code>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">User Name</div>
+            <code class="font-mono text-sm">{@package.user_name}</code>
           </div>
-
-          <%= if @package.error_message do %>
-            <div class="alert alert-error text-sm">
-              <.icon name="hero-exclamation-triangle" class="size-4" />
-              {@package.error_message}
-            </div>
-          <% end %>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
+            <.status_badge status={@package.status} />
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Type</div>
+            <.collector_type_badge type={@package.collector_type} />
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Site</div>
+            <span class="text-sm">{@package.site || "-"}</span>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Hostname</div>
+            <span class="text-sm">{@package.hostname || "-"}</span>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
+            <span class="text-sm">{format_datetime(@package.inserted_at)}</span>
+          </div>
         </div>
 
-        <div class="modal-action">
-          <%= if @package.status in [:pending, :ready, :downloaded] do %>
-            <button
-              type="button"
-              class="btn btn-warning"
-              phx-click="revoke_package"
-              phx-value-id={@package.id}
-              data-confirm="Are you sure you want to revoke this collector?"
-            >
-              Revoke
-            </button>
-          <% end %>
-          <button type="button" class="btn" phx-click="close_details_modal">Close</button>
+        <div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Package ID</div>
+          <code class="text-sm font-mono bg-sr-subtle p-2 rounded block">{@package.id}</code>
         </div>
+
+        <%= if @package.error_message do %>
+          <div class={ui_alert_class(variant: "error", class: "text-sm")}>
+            <.icon name="hero-exclamation-triangle" class="size-4" />
+            {@package.error_message}
+          </div>
+        <% end %>
       </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_details_modal">close</button>
-      </form>
-    </dialog>
+
+      <div class="flex justify-end gap-2 pt-1">
+        <%= if @package.status in [:pending, :ready, :downloaded] do %>
+          <.ui_button
+            type="button"
+            phx-click="revoke_package"
+            phx-value-id={@package.id}
+            data-confirm="Are you sure you want to revoke this collector?"
+            size="sm"
+            variant="warning"
+          >
+            Revoke
+          </.ui_button>
+        <% end %>
+        <.ui_button type="button" phx-click="close_details_modal" size="sm" variant="neutral">
+          Close
+        </.ui_button>
+      </div>
+    </.ui_modal>
     """
   end
 

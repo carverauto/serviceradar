@@ -58,6 +58,15 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "gateways")}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_paginate", params,
+       list_assign_key: :gateways,
+       default_limit: @default_limit,
+       max_limit: @max_limit
+     )}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -69,13 +78,12 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
         <.ui_panel>
           <.gateways_table id="gateways" gateways={@gateways} />
 
-          <div class="mt-4 pt-4 border-t border-base-200">
+          <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path="/gateways"
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@gateways)}
             />
           </div>
@@ -90,27 +98,27 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
 
   defp gateways_table(assigns) do
     ~H"""
-    <div class="overflow-x-auto">
-      <table id={@id} class="table table-sm table-zebra w-full">
+    <div class="sr-ui-table-shell">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-48">
               Gateway ID
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-24">
               Status
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Address
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Last Seen
             </th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@gateways == []}>
-            <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
               No gateways found.
             </td>
           </tr>
@@ -118,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
           <%= for {gateway, idx} <- Enum.with_index(@gateways) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
               phx-click={JS.navigate(~p"/gateways/#{gateway_id(gateway)}")}
             >
               <td

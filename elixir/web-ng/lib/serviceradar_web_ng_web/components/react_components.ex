@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   use Phoenix.Component
 
   import Phoenix.ReactServer.Helper
+  import ServiceRadarWebNGWeb.UIComponents, only: [ui_spinner: 1]
 
   @doc """
   Renders the GoRules JDM editor for Zen rule definitions.
@@ -65,8 +66,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="DashboardBuilderCanvas"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-sr-line text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading dashboard canvas...</span>
       </div>
     </div>
@@ -97,8 +98,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="DashboardPanelChart"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-sr-line text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading chart...</span>
       </div>
     </div>
@@ -137,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="JdmEditorHook"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex items-center justify-center h-full text-base-content/50">
-        <span class="loading loading-spinner loading-lg"></span>
+      <div class="flex items-center justify-center h-full text-sr-muted">
+        <.ui_spinner size="lg" />
         <span class="ml-3">Loading decision editor...</span>
       </div>
     </div>
@@ -148,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :id, :string, required: true
   attr :device_uid, :string, required: true
   attr :create_path, :string, default: "/api/remote-access/sessions"
+  attr :ssh_options_path, :string, default: nil
   attr :title, :string, default: "SSH remote access"
   attr :allow_remembered_keys, :boolean, default: false
   attr :allow_skip_verify_host_key_policy, :boolean, default: false
@@ -157,10 +159,15 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :class, :string, default: ""
 
   def remote_access_ssh_console(assigns) do
+    ssh_options_path =
+      assigns.ssh_options_path ||
+        "/api/remote-access/devices/#{URI.encode(assigns.device_uid)}/ssh-options"
+
     assigns =
       assign(assigns, :props, %{
         deviceUid: assigns.device_uid,
         createPath: assigns.create_path,
+        sshOptionsPath: ssh_options_path,
         approvalId: assigns.approval_id,
         title: assigns.title,
         allowRememberedKeys: assigns.allow_remembered_keys,
@@ -177,8 +184,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessSSHConsole"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading SSH console...</span>
       </div>
     </div>
@@ -213,8 +220,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessDesktopSession"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading RDP session...</span>
       </div>
     </div>
@@ -243,8 +250,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessApplication"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading application access...</span>
       </div>
     </div>
@@ -275,8 +282,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessTCPText"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
-        <span class="loading loading-spinner loading-sm"></span>
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
         <span class="ml-3">Loading TCP access...</span>
       </div>
     </div>

@@ -151,13 +151,13 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   defp parse_spiffe_component_type(uri) do
     case URI.parse(uri) do
       %URI{scheme: "spiffe", path: "/" <> path} ->
-        case String.split(path, "/") do
-          [component_type | _rest] when component_type != "" ->
-            String.to_existing_atom(component_type)
-
-          _ ->
-            nil
-        end
+        # String.split/2 always returns at least one element, so First is the leading path
+        # segment or "" -- and "" falls through component_type_atom/1's catch-all, which is
+        # what the old `when component_type != ""` guard did.
+        path
+        |> String.split("/")
+        |> List.first()
+        |> component_type_atom()
 
       _ ->
         nil
@@ -165,6 +165,10 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   rescue
     ArgumentError -> nil
   end
+
+  defp component_type_atom("agent"), do: :agent
+  defp component_type_atom("addon"), do: :addon
+  defp component_type_atom(_), do: nil
 
   defp certificate_fingerprint(cert_der) do
     :sha256

@@ -3,16 +3,21 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   use Phoenix.Component
 
-  attr :schema, :map, default: %{}
-  attr :params, :map, default: %{}
-  attr :base_name, :string, default: "params"
-  attr :docs_url, :string, default: nil
+  import ServiceRadarWebNGWeb.UIComponents
 
-  attr :credential_coverage, :map,
+  alias ServiceRadar.Plugins.SecretRefs
+
+  attr(:schema, :map, default: %{})
+  attr(:params, :map, default: %{})
+  attr(:base_name, :string, default: "params")
+  attr(:docs_url, :string, default: nil)
+
+  attr(:credential_coverage, :map,
     default: nil,
     doc:
       "Matching-rule status for credential-materialized fields: " <>
         "%{state: :covered | :uncovered, provider:, purpose:, rules: [names]} or nil when unknown."
+  )
 
   def plugin_config_fields(assigns) do
     schema = normalize_schema(assigns.schema)
@@ -50,10 +55,15 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     <div class="space-y-4">
       <div
         :if={@docs_url}
-        class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-base-content/80"
+        class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm text-sr-ink/90"
       >
         Need help with these settings?
-        <a class="link link-primary" href={@docs_url} target="_blank" rel="noopener noreferrer">
+        <a
+          class="text-sr-brand hover:underline"
+          href={@docs_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Open the configuration guide
         </a>
       </div>
@@ -76,9 +86,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
       <details
         :if={@advanced_properties != []}
-        class="rounded-lg border border-base-300 bg-base-200/40"
+        class="rounded-lg border border-sr-line bg-sr-subtle/40"
       >
-        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-base-content/80">
+        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-sr-ink/90">
           Advanced settings (optional)
         </summary>
         <div class="space-y-4 p-3 pt-1">
@@ -96,23 +106,23 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     """
   end
 
-  attr :name, :string, required: true
-  attr :prop, :map, required: true
-  attr :coverage, :map, default: nil
+  attr(:name, :string, required: true)
+  attr(:prop, :map, required: true)
+  attr(:coverage, :map, default: nil)
 
   def credential_materialized_field(assigns) do
     assigns = assign(assigns, :description, Map.get(assigns.prop, "description"))
 
     ~H"""
     <div
-      class="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-1"
+      class="rounded-lg border border-sr-line bg-sr-subtle/40 p-3 space-y-1"
       data-credential-materialized={@name}
     >
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-sm font-medium">{Map.get(@prop, "title") || @name}</span>
-        <span class="badge badge-ghost badge-sm">Provided by credential rules</span>
+        <.ui_badge size="sm" variant="ghost">Provided by credential rules</.ui_badge>
       </div>
-      <p :if={is_binary(@description) and @description != ""} class="text-xs text-base-content/60">
+      <p :if={is_binary(@description) and @description != ""} class="text-xs text-sr-muted">
         {@description}
       </p>
       <%= case coverage_state(@coverage) do %>
@@ -126,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             this input will be missing at runtime until a matching rule is enabled.
           </p>
         <% _ -> %>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             Value is materialized per target by credential rules at runtime.
           </p>
       <% end %>
@@ -134,17 +144,22 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
     """
   end
 
-  attr :name, :string, required: true
-  attr :prop, :map, required: true
-  attr :required, :list, default: []
-  attr :params, :map, default: %{}
-  attr :base_name, :string, default: "params"
+  attr(:name, :string, required: true)
+  attr(:prop, :map, required: true)
+  attr(:required, :list, default: [])
+  attr(:params, :map, default: %{})
+  attr(:base_name, :string, default: "params")
+
+  attr(:credentials, :list,
+    default: [],
+    doc: "Reusable credentials offered for secretRef fields. Empty renders raw entry only."
+  )
 
   def config_field(assigns) do
     ~H"""
     <div class="space-y-2">
-      <label class="label">
-        <span class="label-text">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-sr-ink">
           {Map.get(@prop, "title") || @name}
           <%= if @name in @required do %>
             <span class="text-error">*</span>
@@ -154,22 +169,45 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
       <%= case input_type(@prop) do %>
         <% :secret -> %>
+          <%= if @credentials != [] do %>
+            <select
+              name={input_name(@base_name, SecretRefs.credential_select_key(@name))}
+              class={ui_field_class(class: "w-full")}
+            >
+              <option value="">— enter a value below —</option>
+              <option
+                :for={secret <- compatible_credentials(@credentials, @prop)}
+                value={SecretRefs.network_credential_ref(secret.id)}
+                selected={SecretRefs.network_credential_ref(secret.id) == value_for(@params, @name)}
+              >
+                {secret.name} ({secret.provider})
+              </option>
+            </select>
+            <p class="text-xs text-sr-muted">
+              <%= if credential_kind(@prop) do %>
+                Reusable {credential_kind(@prop)} credentials from the shared inventory.
+              <% else %>
+                Reusable credentials from the shared inventory. This field declares no
+                credential kind, so all are listed.
+              <% end %>
+            </p>
+          <% end %>
           <input
             type="password"
             name={input_name(@base_name, @name)}
             value=""
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
             placeholder={secret_placeholder(@params, @name)}
           />
           <%= if current_secret_ref(@params, @name) do %>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               Stored secret ref: {current_secret_ref(@params, @name)}
             </p>
           <% end %>
         <% :select -> %>
           <select
             name={input_name(@base_name, @name)}
-            class="select select-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           >
             <%= for option <- Map.get(@prop, "enum", []) do %>
               <option
@@ -187,15 +225,15 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
               type="checkbox"
               name={input_name(@base_name, @name)}
               value="true"
-              class="checkbox checkbox-sm"
+              class={ui_checkbox_class()}
               checked={truthy?(value_for(@params, @name))}
             />
-            <span class="text-xs text-base-content/60">Enable</span>
+            <span class="text-xs text-sr-muted">Enable</span>
           </div>
         <% :textarea -> %>
           <textarea
             name={input_name(@base_name, @name)}
-            class="textarea textarea-bordered w-full font-mono text-xs min-h-[100px]"
+            class={ui_field_class(mono: true, class: "w-full min-h-[100px] py-2.5 text-xs")}
             placeholder={array_placeholder(@prop)}
           ><%= value_for(@params, @name) %></textarea>
         <% :number -> %>
@@ -205,7 +243,8 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             value={value_for(@params, @name)}
             min={Map.get(@prop, "minimum")}
             max={Map.get(@prop, "maximum")}
-            class="input input-bordered w-full"
+            step={number_step(@prop)}
+            class={ui_field_class(class: "w-full")}
           />
         <% :text -> %>
           <input
@@ -215,12 +254,12 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             minlength={Map.get(@prop, "minLength")}
             maxlength={Map.get(@prop, "maxLength")}
             pattern={Map.get(@prop, "pattern")}
-            class="input input-bordered w-full"
+            class={ui_field_class(class: "w-full")}
           />
       <% end %>
 
       <%= if is_binary(Map.get(@prop, "description")) and Map.get(@prop, "description") != "" do %>
-        <p class="text-xs text-base-content/60">{Map.get(@prop, "description")}</p>
+        <p class="text-xs text-sr-muted">{Map.get(@prop, "description")}</p>
       <% end %>
     </div>
     """
@@ -259,6 +298,14 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp input_type_from_type(%{"type" => "number"}), do: :number
   defp input_type_from_type(%{"type" => "array"}), do: :textarea
   defp input_type_from_type(_), do: :text
+
+  # HTML number inputs default to step=1. JSON Schema `number` values are not
+  # integers, so omitting the step rejects perfectly valid defaults such as 0.5
+  # before the form ever reaches server-side schema validation.
+  defp number_step(%{"multipleOf" => step}) when is_number(step) and step > 0, do: step
+  defp number_step(%{"type" => "integer"}), do: 1
+  defp number_step(%{"type" => "number"}), do: "any"
+  defp number_step(_prop), do: nil
 
   defp internal_property?(name, %{} = prop) do
     Map.get(prop, "x-serviceradar-internal") == true or
@@ -304,7 +351,10 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp coverage_scope_label(_coverage), do: ""
 
   defp docs_url(explicit_url, schema) do
-    Enum.find([explicit_url, Map.get(schema, "x-serviceradar-docs-url"), fallback_docs_url(schema)], &safe_docs_url?/1)
+    Enum.find(
+      [explicit_url, Map.get(schema, "x-serviceradar-docs-url"), fallback_docs_url(schema)],
+      &safe_docs_url?/1
+    )
   end
 
   defp safe_docs_url?(value) when is_binary(value) do
@@ -342,6 +392,26 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp truthy?(_), do: false
 
   defp secret_ref?(prop), do: Map.get(prop, "secretRef") == true
+
+  # The optional `credentialKind` hint from the package's config schema. Absent
+  # on the 17 packages already shipping `secretRef`, so nil means "unfiltered"
+  # rather than "nothing matches" -- filtering an unhinted field to zero options
+  # would hide the inventory from exactly the fields that predate the hint.
+  defp credential_kind(prop) when is_map(prop) do
+    case Map.get(prop, "credentialKind") do
+      kind when is_binary(kind) and kind != "" -> kind
+      _ -> nil
+    end
+  end
+
+  defp credential_kind(_prop), do: nil
+
+  defp compatible_credentials(credentials, prop) do
+    case credential_kind(prop) do
+      nil -> credentials
+      kind -> Enum.filter(credentials, &(to_string(&1.credential_kind) == kind))
+    end
+  end
 
   defp current_secret_ref(params, name) do
     case Map.get(params, name) do

@@ -11,6 +11,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationReconcileWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -72,7 +73,11 @@ defmodule ServiceRadar.Credentials.PluginIntegrationReconcileWorker do
         @default_reschedule_seconds
       )
 
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 10)))
+    _ =
+      ObanSupport.safe_insert(
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
+      )
+
     :ok
   end
 end

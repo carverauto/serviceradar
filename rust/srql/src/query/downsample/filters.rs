@@ -3,6 +3,7 @@ use crate::query::flows::{
     FLOW_APP_EXPR, FLOW_DIRECTION_EXPR, FLOW_EXPORTER_NAME_EXPR, FLOW_IN_IF_NAME_EXPR,
     FLOW_IN_IF_SPEED_BPS_EXPR, FLOW_INPUT_SNMP_EXPR, FLOW_OUT_IF_NAME_EXPR,
     FLOW_OUT_IF_SPEED_BPS_EXPR, FLOW_OUTPUT_SNMP_EXPR, FLOW_PROTOCOL_GROUP_EXPR,
+    normalize_cidr_literal,
 };
 use crate::{
     error::{Result, ServiceError},
@@ -33,6 +34,11 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
         "src_endpoint_ip" | "src_ip" => text_clause("src_endpoint_ip", filter),
         "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
+        "ip" | "endpoint_ip" => bidirectional_ip_clause(filter),
+        "src_cidr" => cidr_clause("src_endpoint_ip", filter),
+        "dst_cidr" => cidr_clause("dst_endpoint_ip", filter),
+        // Bare `cidr:` matches either endpoint (same shape as row/stats paths).
+        "cidr" => bidirectional_cidr_clause(filter),
         "protocol_name" => text_clause("protocol_name", filter),
         "sampler_address" => text_clause("sampler_address", filter),
         "exporter_name" => expr_text_clause(FLOW_EXPORTER_NAME_EXPR, filter),
@@ -56,6 +62,104 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
 
 fn expr_text_clause(expr: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     text_clause(&format!("({expr})"), filter)
+}
+
+/// `ip:` across both flow endpoints for the chart (`bucket:`) path.
+///
+/// A positive match is "either endpoint matches"; a negative match is "neither
+/// endpoint matches" -- the AND of the two per-side negatives, not their OR.
+/// Binds are concatenated in src-then-dst order to match the emitted clause.
+fn bidirectional_ip_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let (src_clause, mut binds) = text_clause("src_endpoint_ip", filter)?;
+    let (dst_clause, dst_binds) = text_clause("dst_endpoint_ip", filter)?;
+    binds.extend(dst_binds);
+
+    Ok((format!("({src_clause}{joiner}{dst_clause})"), binds))
+}
+
+/// Single-side CIDR containment against a flow endpoint IP column.
+fn cidr_clause(ip_col: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+            let binds = vec![SqlBindValue::Text(cidr)];
+            let clause = match filter.op {
+                FilterOp::Eq => {
+                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ?::cidr)")
+                }
+                FilterOp::NotEq => format!(
+                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ?::cidr))"
+                ),
+                _ => unreachable!(),
+            };
+            Ok((clause, binds))
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok((
+                    if matches!(filter.op, FilterOp::In) {
+                        "1=0".to_string()
+                    } else {
+                        "1=1".to_string()
+                    },
+                    Vec::new(),
+                ));
+            }
+            let mut out = Vec::with_capacity(values.len());
+            for value in values {
+                out.push(normalize_cidr_literal(value)?);
+            }
+            let binds = vec![SqlBindValue::TextArray(out)];
+            let clause = match filter.op {
+                FilterOp::In => {
+                    format!("(try_inet(NULLIF({ip_col}, '')) <<= ANY(?::cidr[]))")
+                }
+                FilterOp::NotIn => format!(
+                    "(try_inet(NULLIF({ip_col}, '')) IS NULL OR NOT (try_inet(NULLIF({ip_col}, '')) <<= ANY(?::cidr[])))"
+                ),
+                _ => unreachable!(),
+            };
+            Ok((clause, binds))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "{ip_col} CIDR filter only supports equality or list matching"
+        ))),
+    }
+}
+
+/// Bare `cidr:` — either endpoint is inside the block (chart / `bucket:` path).
+///
+/// Positive match is OR of the two sides; negative match is AND of the two
+/// NULL-safe per-side negatives. Binds are duplicated in src-then-dst order.
+fn bidirectional_cidr_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+            let binds = vec![
+                SqlBindValue::Text(cidr.clone()),
+                SqlBindValue::Text(cidr),
+            ];
+            let clause = match filter.op {
+                FilterOp::Eq => "(try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::cidr \
+                     OR try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::cidr)"
+                    .to_string(),
+                FilterOp::NotEq => "((try_inet(NULLIF(src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(src_endpoint_ip, '')) <<= ?::cidr)) \
+                     AND (try_inet(NULLIF(dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(dst_endpoint_ip, '')) <<= ?::cidr)))"
+                    .to_string(),
+                _ => unreachable!(),
+            };
+            Ok((clause, binds))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "cidr filter only supports equality".into(),
+        )),
+    }
 }
 
 fn text_clause(column: &str, filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {

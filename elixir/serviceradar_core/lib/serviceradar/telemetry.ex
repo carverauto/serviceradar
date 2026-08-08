@@ -86,6 +86,7 @@ defmodule ServiceRadar.Telemetry do
     :opened,
     :closing,
     :closed,
+    :expired,
     :saturation_denied,
     :failed,
     :viewer_count_changed
@@ -323,7 +324,140 @@ defmodule ServiceRadar.Telemetry do
       camera_relay_metrics() ++
       observability_signal_metrics() ++
       event_writer_metrics() ++
+      prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++ stateful_alert_engine_metrics()
+  end
+
+  @doc """
+  Returns prefix-tag lookup, swap, rebuild, freshness, and import metrics.
+
+  These definitions are shared by the core-elx Prometheus reporter and any
+  other runtime that consumes `metrics/0`.
+  """
+  @spec prefix_tag_metrics() :: list()
+  def prefix_tag_metrics do
+    import Telemetry.Metrics
+
+    swap_duration_buckets_us =
+      [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 50_000]
+
+    materialize_duration_buckets_us =
+      [
+        1_000,
+        5_000,
+        10_000,
+        50_000,
+        100_000,
+        500_000,
+        1_000_000,
+        5_000_000,
+        10_000_000,
+        30_000_000,
+        60_000_000,
+        120_000_000
+      ]
+
+    [
+      counter("serviceradar.prefix_tags.lookup.count",
+        event_name: [:serviceradar, :prefix_tags, :lookup],
+        measurement: :count,
+        tags: [:outcome],
+        description: "Prefix-tag longest-prefix-match lookups"
+      ),
+      distribution("serviceradar.prefix_tags.lookup.match_depth",
+        event_name: [:serviceradar, :prefix_tags, :lookup],
+        measurement: :match_depth,
+        tags: [:outcome],
+        reporter_options: [buckets: [0, 1, 2, 3, 4, 6, 8, 12, 16]],
+        description: "Number of prefix matches returned by a lookup"
+      ),
+      distribution("serviceradar.prefix_tags.swap.duration",
+        event_name: [:serviceradar, :prefix_tags, :swap],
+        measurement: :duration_us,
+        tags: [:source],
+        unit: :microsecond,
+        reporter_options: [buckets: swap_duration_buckets_us],
+        description: "Time to atomically install a source trie"
+      ),
+      last_value("serviceradar.prefix_tags.swap.ipv4_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :swap],
+        measurement: :ipv4_prefixes,
+        tags: [:source],
+        description: "IPv4 prefixes in the newly installed source trie"
+      ),
+      last_value("serviceradar.prefix_tags.swap.ipv6_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :swap],
+        measurement: :ipv6_prefixes,
+        tags: [:source],
+        description: "IPv6 prefixes in the newly installed source trie"
+      ),
+      last_value("serviceradar.prefix_tags.swap.total_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :swap],
+        measurement: :total_prefixes,
+        tags: [:source],
+        description: "Total prefixes in the newly installed source trie"
+      ),
+      distribution("serviceradar.prefix_tags.rebuild.duration",
+        event_name: [:serviceradar, :prefix_tags, :rebuild],
+        measurement: :duration_us,
+        tags: [:outcome, :scope],
+        unit: :microsecond,
+        reporter_options: [buckets: materialize_duration_buckets_us],
+        description: "Time to rebuild snapshot-backed prefix-tag tries"
+      ),
+      last_value("serviceradar.prefix_tags.rebuild.row_count",
+        event_name: [:serviceradar, :prefix_tags, :rebuild],
+        measurement: :row_count,
+        tags: [:outcome, :scope],
+        description: "Rows processed by the latest prefix-tag rebuild"
+      ),
+      last_value("serviceradar.prefix_tags.rebuild.ipv4_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :rebuild],
+        measurement: :ipv4_prefixes,
+        tags: [:outcome, :scope],
+        description: "Resident IPv4 prefixes after a prefix-tag rebuild"
+      ),
+      last_value("serviceradar.prefix_tags.rebuild.ipv6_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :rebuild],
+        measurement: :ipv6_prefixes,
+        tags: [:outcome, :scope],
+        description: "Resident IPv6 prefixes after a prefix-tag rebuild"
+      ),
+      last_value("serviceradar.prefix_tags.rebuild.total_prefixes",
+        event_name: [:serviceradar, :prefix_tags, :rebuild],
+        measurement: :total_prefixes,
+        tags: [:outcome, :scope],
+        description: "Resident prefixes after a prefix-tag rebuild"
+      ),
+      last_value("serviceradar.prefix_tags.snapshot_age.age_seconds",
+        event_name: [:serviceradar, :prefix_tags, :snapshot_age],
+        measurement: :age_seconds,
+        tags: [:source],
+        unit: :second,
+        description: "Age of durable backing data for each prefix-tag source"
+      ),
+      last_value("serviceradar.prefix_tags.snapshot_freshness.known",
+        event_name: [:serviceradar, :prefix_tags, :snapshot_freshness],
+        measurement: :known,
+        tags: [:source],
+        description:
+          "Whether durable freshness is known for a prefix-tag source (1 known, 0 unknown)"
+      ),
+      distribution("serviceradar.prefix_tags.import.duration",
+        event_name: [:serviceradar, :prefix_tags, :import],
+        measurement: :duration_us,
+        tags: [:outcome, :source],
+        unit: :microsecond,
+        reporter_options: [buckets: materialize_duration_buckets_us],
+        description: "Prefix-tag import or external materialization duration"
+      ),
+      last_value("serviceradar.prefix_tags.import.record_count",
+        event_name: [:serviceradar, :prefix_tags, :import],
+        measurement: :record_count,
+        tags: [:outcome, :source],
+        description: "Records installed by the latest prefix-tag import"
+      )
+    ]
   end
 
   @doc """

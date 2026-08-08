@@ -212,7 +212,13 @@ run_hex_audit() {
 run_hex_audit
 
 if mix help deps.audit >/dev/null 2>&1; then
-  run mix deps.audit "${deps_audit_args[@]}"
+  # ${deps_audit_args[@]+...} keeps `set -u` happy when the project has no
+  # .deps_audit_ignore and the array is empty. Bash 4.4+ allows the bare
+  # expansion, but macOS ships bash 3.2, where it aborts with "unbound
+  # variable" -- which made this gate unrunnable locally on a Mac for exactly
+  # the projects that have mix_audit but no waiver file. Same idiom as
+  # scripts/lint-rust.sh.
+  run mix deps.audit ${deps_audit_args[@]+"${deps_audit_args[@]}"}
 else
   echo
   echo "==> mix deps.audit unavailable; skipping dependency vulnerability audit"

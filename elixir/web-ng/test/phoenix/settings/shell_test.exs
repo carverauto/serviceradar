@@ -215,9 +215,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     # its title + value.
     assert html =~ ~s(href="/settings/api-credentials")
 
-    assert html =~
-             ~s(class="stat py-2 group cursor-pointer transition-colors hover:bg-base-200")
-
     assert html =~ "API keys"
     assert html =~ "hero-arrow-up-right"
 
@@ -230,6 +227,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     doc = LazyHTML.from_fragment(html)
     linked = LazyHTML.query(doc, ~s(a.stat[href="/settings/api-credentials"]))
     assert LazyHTML.text(linked) =~ "API keys"
+
+    # The clickable affordance, read off the element rather than matched as a class literal.
+    # This used to assert the full class string, which broke when the hover colour moved from
+    # DaisyUI's base-200 to sr-subtle -- a restyle that changed nothing about whether the card
+    # is interactive, which is what the test is for.
+    assert linked |> LazyHTML.attribute("class") |> List.first() =~ "cursor-pointer"
 
     plain = LazyHTML.query(doc, ".stats div.stat")
     assert LazyHTML.text(plain) =~ "Uptime"
@@ -245,6 +248,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert nav_by_title["Active (30d)"] == "/settings/auth/users"
     assert nav_by_title["Admins"] == "/settings/auth/users"
     assert nav_by_title["API keys"] == "/settings/api-credentials"
+  end
+
+  test "edge status cards report the deployed ServiceRadar image version" do
+    previous = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.23")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("SERVICERADAR_RELEASE_VERSION", previous),
+        else: System.delete_env("SERVICERADAR_RELEASE_VERSION")
+    end)
+
+    cards = StatusCards.for_view(Catalog.view(:plugins))
+    assert Enum.find(cards, &(&1.title == "Latest release")).value == "1.4.23"
   end
 
   test "status strip is suppressed on a has_own_stats page (Cluster Status)" do
@@ -275,5 +292,92 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
     refute html =~ "Cluster health"
     refute html =~ ~s(class="stat py-2")
+  end
+
+  describe "pending-approval badges" do
+    # A staged package is inert -- it ships nothing and reconciles nothing -- but
+    # the only signal was a per-row badge on a page you had to already be on. On
+    # demo twelve add-on packages sat staged for up to seven weeks before anyone
+    # noticed. The catalog cannot carry the count (it is a compile-time list and
+    # the count is scoped and runtime), so ShellHook decorates the tree the
+    # catalog produces. These pin that the shell actually renders what is put
+    # there, and that a view without a count keeps the catalog's nil.
+
+    defp badge_assigns(path, badges) do
+      scope = %Scope{permissions: MapSet.new(["plugins.view", "settings.audit.view"])}
+      view = Catalog.view_for_path(path)
+      category = Catalog.category_for_view(view)
+
+      groups =
+        scope
+        |> Catalog.nav_tree(category.id)
+        |> Enum.map(fn group ->
+          Map.update!(group, :sections, fn sections ->
+            Enum.map(sections, fn section ->
+              Map.update!(section, :views, fn views ->
+                Enum.map(views, fn v ->
+                  case Map.get(badges, v.id) do
+                    nil -> v
+                    count -> Map.put(v, :badge, count)
+                  end
+                end)
+              end)
+            end)
+          end)
+        end)
+
+      %{
+        current_path: path,
+        current_scope: scope,
+        active_view: view,
+        active_category: category,
+        breadcrumbs: Catalog.breadcrumbs_for_path(path),
+        nav_tree: %{categories: Catalog.visible_categories(scope), groups: groups},
+        palette: Catalog.palette_index(scope),
+        stats: StatusCards.for_view(view)
+      }
+    end
+
+    defp render_shell(assigns) do
+      rendered_to_string(~H"""
+      <Shell.settings_chrome
+        current_path={@current_path}
+        current_scope={@current_scope}
+        active_view={@active_view}
+        active_category={@active_category}
+        breadcrumbs={@breadcrumbs}
+        nav_tree={@nav_tree}
+        palette={@palette}
+        stats={@stats}
+      >
+        <p>body</p>
+      </Shell.settings_chrome>
+      """)
+    end
+
+    # Assert on the badge element, not a bare digit -- the chrome is full of
+    # incidental numbers (size-7, py-2, ring offsets), so `html =~ "7"` passes
+    # on an undecorated render and proves nothing.
+    defp badge_counts(html) do
+      ~r/ml-auto[^>]*>\s*(\d+)\s*</ |> Regex.scan(html) |> Enum.map(&List.last/1)
+    end
+
+    test "a decorated view renders its count in the nav" do
+      html = "/settings/agents/addons" |> badge_assigns(%{addons: 12}) |> render_shell()
+
+      assert "12" in badge_counts(html)
+    end
+
+    test "an undecorated tree renders no badge at all" do
+      html = "/settings/agents/addons" |> badge_assigns(%{}) |> render_shell()
+
+      assert badge_counts(html) == []
+    end
+
+    test "only the counted view is badged" do
+      html = "/settings/agents/addons" |> badge_assigns(%{addons: 3}) |> render_shell()
+
+      assert badge_counts(html) == ["3"]
+    end
   end
 end

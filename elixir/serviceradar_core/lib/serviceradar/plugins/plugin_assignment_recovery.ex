@@ -36,6 +36,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
   @recovery_audit_writer SystemActor.system(:plugin_assignment_recovery_audit_writer)
   @recovery_audit_lookup SystemActor.system(:plugin_assignment_recovery_audit_lookup)
   @policy_recovery_request_lookup SystemActor.system(:plugin_policy_assignment_recovery_lookup)
+  @automatic_recovery_actor SystemActor.system(:plugin_assignment_automatic_recovery)
+  @automatic_recovery_default_limit 100
+  @automatic_recovery_max_limit 500
 
   @manual_recovery_audit_decisions %{
     initiating_actor_required: {:denied, :initiating_actor_required},
@@ -208,6 +211,47 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
   end
 
   @doc """
+  Converges one bounded page of trusted first-party manual assignments without
+  creating operator work.
+
+  This is an internal maintenance boundary. It always uses a named system
+  actor, requires the historical package to remain approved and cryptographically
+  verified as first-party, re-resolves current mTLS evidence, validates the
+  current schema, and creates a fresh partition-bound assignment through the
+  ordinary create action. Uploads and other packages without first-party trust
+  evidence remain disabled audit history.
+
+  Policy-owned rows are intentionally not cloned here. Their current
+  authoritative reconcilers determine desired state independently of history.
+  """
+  @spec recover_automatic(keyword()) :: {:ok, map()} | {:error, term()}
+  def recover_automatic(opts \\ []) when is_list(opts) do
+    limit = automatic_recovery_limit(Keyword.get(opts, :limit))
+
+    with {:ok, after_id} <- legacy_list_after_id(Keyword.get(opts, :after_id)),
+         {:ok, assignments} <-
+           legacy_assignments(@automatic_recovery_actor, limit + 1, after_id) do
+      {page, overflow} = Enum.split(assignments, limit)
+
+      results =
+        page
+        |> Enum.filter(&(&1.source == :manual))
+        |> Enum.map(&recover_automatic_candidate(&1, opts))
+
+      {:ok,
+       %{
+         scanned: length(page),
+         manual_candidates: length(results),
+         recovered: Enum.count(results, &match?({:ok, %{outcome: :recovered}}, &1)),
+         deferred: Enum.count(results, &match?({:ok, %{outcome: :deferred}}, &1)),
+         failed: Enum.count(results, &match?({:error, _reason}, &1)),
+         more?: overflow != [],
+         next_after_id: if(overflow == [], do: nil, else: page |> List.last() |> Map.get(:id))
+       }}
+    end
+  end
+
+  @doc """
   Classifies an assignment without inferring provenance from a live agent or an
   inventory record. Exposed for the web adapter and focused tests.
   """
@@ -231,12 +275,89 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
 
   def classify(_assignment), do: :not_recoverable
 
-  defp run_recovery_transaction(legacy_assignment_id, actor, opts) do
-    case Repo.transaction(fn -> recover_locked(legacy_assignment_id, actor) end) do
-      {:ok, {:recovered, result, replacement}} ->
+  defp recover_automatic_candidate(assignment, opts) do
+    case automatic_terminal_audit(assignment.id) do
+      {:ok, %PluginAssignmentRecoveryAudit{outcome: :recovered} = audit} ->
+        {:ok,
+         %{
+           outcome: :recovered,
+           legacy_assignment_id: assignment.id,
+           replacement_assignment_id: audit.replacement_assignment_id,
+           idempotent?: true
+         }}
+
+      {:ok, %PluginAssignmentRecoveryAudit{} = audit} ->
+        {:ok,
+         %{
+           outcome: :deferred,
+           legacy_assignment_id: assignment.id,
+           reason: audit.reason
+         }}
+
+      {:ok, nil} ->
+        # Run every first attempt through the transaction so terminal package
+        # trust and approval failures are recorded in the immutable audit.
+        # Returning them before the transaction made those rows eligible for
+        # every periodic sweep despite the documented terminal-outcome rule.
+        assignment.id
+        |> run_recovery_transaction(@automatic_recovery_actor, opts, :automatic)
+        |> normalize_automatic_recovery_result(assignment.id)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_automatic_recovery_result({:ok, result}, _legacy_assignment_id),
+    do: {:ok, result}
+
+  defp normalize_automatic_recovery_result({:error, reason}, legacy_assignment_id)
+       when reason in [
+              :active_assignment_conflict,
+              :bound_manual_assignment_conflict,
+              :params_not_recoverable,
+              :plugin_package_not_found,
+              :plugin_package_not_approved,
+              :plugin_package_not_trusted,
+              :policy_assignment_requires_reconciliation
+            ] do
+    {:ok, %{outcome: :deferred, legacy_assignment_id: legacy_assignment_id, reason: reason}}
+  end
+
+  defp normalize_automatic_recovery_result({:error, reason}, _legacy_assignment_id),
+    do: {:error, reason}
+
+  defp automatic_terminal_audit(legacy_assignment_id) do
+    case latest_recovery_audit(legacy_assignment_id) do
+      {:ok, %PluginAssignmentRecoveryAudit{outcome: :recovered} = audit} ->
+        {:ok, audit}
+
+      {:ok, %PluginAssignmentRecoveryAudit{reason: reason} = audit}
+      when reason in [
+             :active_assignment_conflict,
+             :bound_manual_assignment_conflict,
+             :params_not_recoverable,
+             :plugin_package_not_found,
+             :plugin_package_not_approved,
+             :plugin_package_not_trusted
+           ] ->
+        {:ok, audit}
+
+      {:ok, _retryable_or_missing} ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp run_recovery_transaction(legacy_assignment_id, actor, opts, mode \\ :operator) do
+    case Repo.transaction(fn -> recover_locked(legacy_assignment_id, actor, mode) end) do
+      {:ok, {:recovered, result, replacement, notifications}} ->
         # Match the normal enabled-assignment lifecycle only after the
         # assignment and its immutable audit have committed. The replacement
         # stays internal, so encrypted params never enter the recovery API.
+        Ash.Notifier.notify(notifications)
         dispatch_recovered_config(replacement, opts)
         ServiceStateRegistry.upsert_for_assignment(replacement)
         {:ok, result}
@@ -248,7 +369,8 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
         maybe_sync_idempotent_replacement(result.replacement_assignment_id, actor, opts)
         {:ok, result}
 
-      {:ok, {:failed, reason}} ->
+      {:ok, {:failed, reason, notifications}} ->
+        Ash.Notifier.notify(notifications)
         {:error, reason}
 
       {:error, {:identity_changed, audit_attrs}} ->
@@ -256,8 +378,12 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
         # commit preflight. The replacement was rolled back; write only the
         # redacted decision in a new transaction.
         case write_audit(audit_attrs, actor) do
-          {:ok, _audit} -> {:error, :authenticated_agent_partition_changed}
-          {:error, _reason} -> {:error, :recovery_audit_failed}
+          {:ok, _audit, notifications} ->
+            Ash.Notifier.notify(notifications)
+            {:error, :authenticated_agent_partition_changed}
+
+          {:error, _reason} ->
+            {:error, :recovery_audit_failed}
         end
 
       {:error, _reason} ->
@@ -265,7 +391,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
     end
   end
 
-  defp recover_locked(legacy_assignment_id, actor) do
+  defp recover_locked(legacy_assignment_id, actor, mode) do
     case lock_assignment(legacy_assignment_id, actor) do
       {:ok, assignment} ->
         case recovered_audit(assignment.id, actor) do
@@ -273,48 +399,45 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
             {:recovered, result_from_audit(audit)}
 
           {:ok, nil} ->
-            recover_unlocked_legacy(assignment, actor)
+            recover_unlocked_legacy(assignment, actor, mode)
 
           {:error, _reason} ->
             Repo.rollback(:recovery_audit_lookup_failed)
         end
 
       {:error, :legacy_assignment_not_found} ->
-        {:failed, :legacy_assignment_not_found}
+        {:failed, :legacy_assignment_not_found, []}
 
       {:error, _reason} ->
         Repo.rollback(:legacy_assignment_lookup_failed)
     end
   end
 
-  defp recover_unlocked_legacy(assignment, actor) do
+  defp recover_unlocked_legacy(assignment, actor, mode) do
     case ensure_manual_legacy_unbound(assignment) do
-      :ok -> recover_manual_legacy(assignment, actor)
+      :ok -> recover_manual_legacy(assignment, actor, mode)
       {:error, {outcome, reason}} -> persist_failure(assignment, actor, outcome, reason, %{})
     end
   end
 
-  defp recover_manual_legacy(assignment, actor) do
+  defp recover_manual_legacy(assignment, actor, mode) do
     case resolve_authenticated_evidence(assignment.agent_uid) do
       {:ok, evidence} ->
-        recover_with_evidence(assignment, actor, evidence)
+        recover_with_evidence(assignment, actor, evidence, mode)
 
       {:error, {outcome, reason, observed_evidence}} ->
         persist_failure(assignment, actor, outcome, reason, observed_evidence)
     end
   end
 
-  defp recover_with_evidence(assignment, actor, evidence) do
-    with {:ok, package} <- recoverable_package(assignment.plugin_package_id, actor),
+  defp recover_with_evidence(assignment, actor, evidence, mode) do
+    with {:ok, package} <- recoverable_package(assignment.plugin_package_id, actor, mode),
          {:ok, params} <- recoverable_params(assignment.params, package.config_schema || %{}),
          :ok <- ensure_no_bound_conflict(assignment, package, evidence, actor) do
       create_replacement(assignment, package, params, evidence, actor)
     else
       {:error, {outcome, reason}} ->
         persist_failure(assignment, actor, outcome, reason, evidence)
-
-      {:error, _reason} ->
-        persist_failure(assignment, actor, :rejected, :assignment_create_failed, evidence)
     end
   end
 
@@ -335,22 +458,24 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
       PluginAssignment
       |> Ash.Changeset.for_create(:create, attrs, actor: actor)
       |> Ash.Changeset.set_context(%{config_schema: package.config_schema || %{}})
-      |> Ash.create(actor: actor, authorize?: true)
+      |> Ash.create(actor: actor, authorize?: true, return_notifications?: true)
 
     case result do
-      {:ok, replacement} when replacement.partition_id == evidence.partition_id ->
+      {:ok, replacement, assignment_notifications}
+      when replacement.partition_id == evidence.partition_id ->
         audit_attrs = audit_attrs(assignment, actor, :recovered, :reapproved, evidence)
         audit_attrs = Map.put(audit_attrs, :replacement_assignment_id, replacement.id)
 
         case write_audit(audit_attrs, actor) do
-          {:ok, _audit} ->
-            {:recovered, recovery_result(assignment, replacement, evidence), replacement}
+          {:ok, _audit, audit_notifications} ->
+            {:recovered, recovery_result(assignment, replacement, evidence), replacement,
+             assignment_notifications ++ audit_notifications}
 
           {:error, _reason} ->
             Repo.rollback(:recovery_audit_write_failed)
         end
 
-      {:ok, replacement} ->
+      {:ok, replacement, _notifications} ->
         # A different live session was selected by the ordinary create action.
         # Roll back the new row before recording the safe identity-change event.
         changed_evidence = %{
@@ -377,22 +502,41 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
 
   defp persist_failure(assignment, actor, outcome, reason, evidence) do
     case write_audit(audit_attrs(assignment, actor, outcome, reason, evidence), actor) do
-      {:ok, _audit} -> {:failed, reason}
+      {:ok, _audit, notifications} -> {:failed, reason, notifications}
       {:error, _reason} -> Repo.rollback(:recovery_audit_write_failed)
     end
   end
 
-  defp recoverable_package(package_id, actor) do
+  defp recoverable_package(package_id, actor),
+    do: recoverable_package(package_id, actor, :operator)
+
+  defp recoverable_package(package_id, actor, mode) do
     PluginPackage
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^package_id)
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, {:package_unavailable, :plugin_package_not_found}}
-      {:ok, %{status: :approved} = package} -> {:ok, package}
+      {:ok, %{status: :approved} = package} -> ensure_recovery_package_trust(package, mode)
       {:ok, %PluginPackage{}} -> {:error, {:package_unavailable, :plugin_package_not_approved}}
       {:error, _reason} -> {:error, {:package_unavailable, :plugin_package_not_found}}
     end
+  end
+
+  defp ensure_recovery_package_trust(package, :operator), do: {:ok, package}
+
+  defp ensure_recovery_package_trust(package, :automatic) do
+    if trusted_first_party_package?(package) do
+      {:ok, package}
+    else
+      {:error, {:package_unavailable, :plugin_package_not_trusted}}
+    end
+  end
+
+  defp trusted_first_party_package?(package) do
+    package.source_type == :first_party and package.verification_status == "verified" and
+      present?(package.content_hash) and present?(package.wasm_object_key) and
+      is_map(package.signature) and map_size(package.signature) > 0
   end
 
   defp recoverable_params(params, schema) when is_map(params) and is_map(schema) do
@@ -681,12 +825,10 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
     end
   end
 
-  defp credential_rule_label(:inventory_enrichment), do: "Credential rule (inventory enrichment)"
-  defp credential_rule_label(:console_access), do: "Credential rule (console access)"
-  defp credential_rule_label(:discovery), do: "Credential rule (discovery)"
-  defp credential_rule_label(:camera_inventory), do: "Credential rule (camera inventory)"
-  defp credential_rule_label(:camera_stream), do: "Credential rule (camera stream)"
-  defp credential_rule_label(:generic), do: "Credential rule (generic)"
+  defp credential_rule_label(purpose) when is_binary(purpose) and purpose != "" do
+    "Credential rule (#{String.replace(purpose, "_", " ")})"
+  end
+
   defp credential_rule_label(_purpose), do: "Credential rule"
 
   defp config_compatibility(assignment, actor) do
@@ -700,9 +842,6 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
 
       {:error, {:schema_invalid, reason}} ->
         %{state: :incompatible, reason: reason}
-
-      {:error, _reason} ->
-        %{state: :incompatible, reason: :params_not_recoverable}
     end
   end
 
@@ -857,7 +996,11 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
   defp write_audit(attrs, _initiating_actor) do
     PluginAssignmentRecoveryAudit
     |> Ash.Changeset.for_create(:record_recovery, attrs, actor: @recovery_audit_writer)
-    |> Ash.create(actor: @recovery_audit_writer, authorize?: true)
+    |> Ash.create(
+      actor: @recovery_audit_writer,
+      authorize?: true,
+      return_notifications?: true
+    )
   end
 
   # Callers reach this only after they have loaded and authorized the exact
@@ -872,6 +1015,17 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
       actor: @recovery_audit_lookup
     )
     |> Ash.Query.filter(outcome == :recovered)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: @recovery_audit_lookup)
+  end
+
+  defp latest_recovery_audit(legacy_assignment_id) do
+    PluginAssignmentRecoveryAudit
+    |> Ash.Query.for_read(
+      :for_legacy_assignment,
+      %{legacy_assignment_id: legacy_assignment_id},
+      actor: @recovery_audit_lookup
+    )
     |> Ash.Query.limit(1)
     |> Ash.read_one(actor: @recovery_audit_lookup)
   end
@@ -919,6 +1073,11 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecovery do
     do: min(value, @legacy_list_max_limit)
 
   defp legacy_list_limit(_value), do: @legacy_list_default_limit
+
+  defp automatic_recovery_limit(value) when is_integer(value) and value > 0,
+    do: min(value, @automatic_recovery_max_limit)
+
+  defp automatic_recovery_limit(_value), do: @automatic_recovery_default_limit
 
   defp legacy_list_after_id(nil), do: {:ok, nil}
 

@@ -10,6 +10,8 @@ defmodule ServiceRadarAgentGateway.ProcessRegistryPlacementTest do
 
   alias ServiceRadar.ProcessRegistry
 
+  @moduletag :requires_app
+
   test "gateway does not host Horde-distributed processes" do
     refute ProcessRegistry.host_distributed_processes?()
   end

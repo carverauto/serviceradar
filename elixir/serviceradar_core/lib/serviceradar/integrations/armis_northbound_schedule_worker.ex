@@ -16,6 +16,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -147,7 +148,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
   defp schedule_next do
     _ =
-      support_module().safe_insert(new(%{}, schedule_in: max(scheduler_interval_seconds(), 10)))
+      support_module().safe_insert(
+        SelfScheduling.successor_changeset(
+          __MODULE__,
+          %{},
+          max(scheduler_interval_seconds(), 10)
+        )
+      )
 
     :ok
   end

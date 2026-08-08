@@ -4,8 +4,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadarWebNG.Capabilities
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
   alias ServiceRadarWebNG.RBAC
@@ -138,14 +140,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div class="text-sm breadcrumbs">
+            <div class="text-sm ">
               <ul>
                 <li><.link navigate={~p"/admin/edge-sites"}>Edge Sites</.link></li>
                 <li>{@site.name}</li>
               </ul>
             </div>
-            <h1 class="text-2xl font-semibold text-base-content">{@site.name}</h1>
-            <p class="text-sm text-base-content/60 font-mono">{@site.slug}</p>
+            <h1 class="text-2xl font-semibold text-sr-ink">{@site.name}</h1>
+            <p class="text-sm text-sr-muted font-mono">{@site.slug}</p>
           </div>
           <div class="flex gap-2">
             <.ui_button
@@ -183,26 +185,26 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     <.ui_panel>
       <:header>
         <div class="flex items-center gap-2">
-          <.icon name="hero-building-office-2" class="size-4 text-primary" />
+          <.icon name="hero-building-office-2" class="size-4 text-sr-brand" />
           <span class="font-semibold text-sm">Site Details</span>
         </div>
       </:header>
 
       <div class="grid grid-cols-2 gap-4 text-sm">
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
           <.site_status_badge status={@site.status} />
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Created</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
           <span>{format_datetime(@site.inserted_at)}</span>
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Last Seen</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Last Seen</div>
           <span>{format_relative_time(@site.last_seen_at)}</span>
         </div>
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/60">Site ID</div>
+          <div class="text-xs uppercase tracking-wide text-sr-muted">Site ID</div>
           <code class="text-xs font-mono">{String.slice(@site.id, 0, 8)}...</code>
         </div>
       </div>
@@ -232,19 +234,19 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         <div class="space-y-4">
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Status</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Status</div>
               <.leaf_status_badge status={@leaf_server.status} />
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Upstream URL</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Upstream URL</div>
               <code class="text-xs font-mono">{@leaf_server.upstream_url}</code>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Provisioned</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Provisioned</div>
               <span>{format_datetime(@leaf_server.provisioned_at)}</span>
             </div>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60">Connected</div>
+              <div class="text-xs uppercase tracking-wide text-sr-muted">Connected</div>
               <span>{format_datetime(@leaf_server.connected_at)}</span>
             </div>
           </div>
@@ -254,8 +256,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           <% end %>
         </div>
       <% else %>
-        <div class="text-center py-4 text-sm text-base-content/60">
-          <span class="loading loading-spinner loading-sm"></span>
+        <div class="text-center py-4 text-sm text-sr-muted">
+          <.ui_spinner size="sm" />
           <span class="ml-2">Provisioning NATS leaf server...</span>
         </div>
       <% end %>
@@ -278,14 +280,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           type="text"
           name="nats_leaf_url"
           value={@site.nats_leaf_url}
-          class="input input-bordered input-sm flex-1 font-mono"
+          class={ui_field_class(size: "sm", mono: true, class: "flex-1")}
           placeholder="nats://10.0.1.50:4222"
         />
         <.ui_button type="submit" variant="ghost" size="sm">
           Update
         </.ui_button>
       </form>
-      <p class="text-xs text-base-content/60 mt-2">
+      <p class="text-xs text-sr-muted mt-2">
         This is the URL collectors will use to connect to the local NATS leaf server.
         Update this after deploying the leaf server with the correct IP address.
       </p>
@@ -312,12 +314,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       </:header>
 
       <%= if @collectors == [] do %>
-        <div class="text-center py-4 text-sm text-base-content/60">
+        <div class="text-center py-4 text-sm text-sr-muted">
           No collectors assigned to this site.
           <.link
             :if={@collectors_enabled}
             navigate={~p"/admin/collectors"}
-            class="link link-primary"
+            class="text-sr-brand hover:underline"
           >
             Create a collector
           </.link>
@@ -328,10 +330,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
           <% end %>
         </div>
       <% else %>
-        <div class="overflow-x-auto">
-          <table class="table table-xs">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "xs")}>
             <thead>
-              <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+              <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                 <th>Collector</th>
                 <th>Type</th>
                 <th>Status</th>
@@ -366,18 +368,19 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       <div class="flex items-center justify-between">
         <div>
           <div class="font-medium">Delete Edge Site</div>
-          <p class="text-xs text-base-content/60">
+          <p class="text-xs text-sr-muted">
             This will delete the edge site and all associated configuration.
             Collectors will need to be reassigned or will fall back to direct SaaS connection.
           </p>
         </div>
-        <button
-          class="btn btn-error btn-sm"
+        <.ui_button
           phx-click="delete_site"
           data-confirm="Are you sure you want to delete this edge site? This action cannot be undone."
+          size="sm"
+          variant="danger"
         >
           Delete Site
-        </button>
+        </.ui_button>
       </div>
     </.ui_panel>
     """
@@ -529,7 +532,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp generate_bundle(site, leaf_server) do
-    with {:ok, nats_creds} <- get_nats_creds(),
+    with {:ok, direct_leaf_identities} <- get_direct_leaf_identities(site.id),
+         {:ok, nats_creds} <- get_nats_creds(),
          {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
          {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
       EdgeSiteBundleGenerator.create_tarball(
@@ -537,9 +541,55 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         leaf_server,
         nats_creds,
         leaf_key_pem: leaf_key_pem,
-        server_key_pem: server_key_pem
+        server_key_pem: server_key_pem,
+        direct_leaf_identities: direct_leaf_identities
       )
     end
+  end
+
+  defp get_direct_leaf_identities(site_id) do
+    actor = SystemActor.system(:edge_site_bundle_generator)
+
+    query =
+      AddonAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(edge_site_id == ^site_id and enabled == true)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, assignments} ->
+        {:ok,
+         assignments
+         |> Enum.filter(&direct_leaf_assignment?/1)
+         |> Enum.map(&direct_leaf_identity/1)
+         |> Enum.reject(&is_nil/1)}
+
+      {:error, reason} ->
+        {:error, {:direct_leaf_identity_read_failed, reason}}
+    end
+  end
+
+  defp direct_leaf_assignment?(assignment) do
+    direct_backend?(assignment.params) and
+      assignment.direct_access_status in [:pending, :ready] and
+      is_binary(assignment.direct_identity_component_id) and
+      is_binary(assignment.direct_identity_partition_id) and
+      is_map(assignment.direct_subject_scope)
+  end
+
+  defp direct_backend?(params) when is_map(params) do
+    output = Map.get(params, :output) || Map.get(params, "output") || %{}
+    backend = Map.get(output, :backend) || Map.get(output, "backend")
+    backend in [:jetstream, "jetstream"]
+  end
+
+  defp direct_backend?(_params), do: false
+
+  defp direct_leaf_identity(assignment) do
+    %{
+      component_id: assignment.direct_identity_component_id,
+      partition_id: assignment.direct_identity_partition_id,
+      scope: assignment.direct_subject_scope
+    }
   end
 
   defp get_nats_creds do

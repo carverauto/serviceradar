@@ -1,2 +1,0 @@
-bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/src/google/protobuf/io/_objs/io_win32/io_win32.o: \
-  external/protobuf+/src/google/protobuf/io/io_win32.cc

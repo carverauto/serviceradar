@@ -52,6 +52,14 @@ spec:
           annotations:
             summary: "ServiceRadar agent-gateway metrics target is down"
             description: "Prometheus cannot scrape agent-gateway /metrics in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarAgentGatewayResultsBufferDropped
+          expr: sum(increase(serviceradar_agent_gateway_results_buffer_dropped_count{namespace="{{ .Release.Namespace }}"}[{{ default "5m" $agentGateway.resultsBufferDroppedWindow }}])) > 0
+          for: {{ default "1m" $agentGateway.resultsBufferDroppedFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar agent-gateway dropped buffered statuses"
+            description: "The agent-gateway results buffer dropped one or more statuses in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarCNPGMetricsTargetDown
           expr: up{namespace="{{ .Release.Namespace }}", job=~".*/cnpg"} == 0
           for: 5m

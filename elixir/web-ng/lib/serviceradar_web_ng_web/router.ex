@@ -379,6 +379,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     post("/query", QueryController, :execute)
     get("/srql/catalog", SrqlCatalogController, :show)
+    get("/addon-fleet", AddonFleetController, :index)
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
@@ -398,6 +399,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/app-sessions", RemoteAccessTargetIntentController, :create_app)
     post("/remote-access/tcp-sessions", RemoteAccessTargetIntentController, :create_tcp)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
+    get("/remote-access/devices/:device_uid/ssh-options", RemoteAccessSessionController, :ssh_options)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
     post("/remote-access/sessions/:id/webrtc/session", RemoteDesktopWebRTCController, :create_session)
@@ -492,6 +494,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/desktop-targets/:id/disable", RemoteAccessDesktopTargetController, :admin_disable)
 
     post("/topology/route-analysis", TopologyController, :route_analysis)
+  end
+
+  # Ad-hoc scan API for external tools (API key or bearer token auth)
+  scope "/api/v1", ServiceRadarWebNGWeb.Api do
+    pipe_through(:api_key_auth)
+
+    post("/scans", ScanController, :create)
+    get("/scans/:id", ScanController, :show)
+    get("/scans/:id/results", ScanController, :results)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
@@ -799,6 +810,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/dashboard/:dashboard_id/panels/:panel_id/export.csv", AuthoredDashboardExportController, :panel_csv)
+    get("/scans/:id/export.csv", ScanExportController, :csv)
+    get("/scans/:id/export.xlsx", ScanExportController, :xlsx)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -830,11 +843,22 @@ defmodule ServiceRadarWebNGWeb.Router do
       # Gateways
       live("/gateways", GatewayLive.Index, :index)
       live("/gateways/:gateway_id", GatewayLive.Show, :show)
+
+      # Kubernetes public VIP / Gateway ownership inventory
+      live("/inventory/public-endpoints", PublicEndpointsLive.Index, :index)
       live("/events", EventLive.Index, :index)
       live("/events/:event_id", EventLive.Show, :show)
       live("/alerts", AlertLive.Index, :index)
       live("/alerts/:alert_id", AlertLive.Show, :show)
+      # Unified observability list — path encodes tab intent (URL = intent).
+      # Detail routes for metrics/traces keep their :id segments below.
       live("/observability", LogLive.Index, :index)
+      live("/observability/logs", LogLive.Index, :logs)
+      live("/observability/traces", LogLive.Index, :traces)
+      live("/observability/metrics", LogLive.Index, :metrics)
+      live("/observability/events", LogLive.Index, :events)
+      live("/observability/alerts", LogLive.Index, :alerts)
+      live("/observability/netflows", LogLive.Index, :netflows)
       live("/observability/flows/attributed", Flows.AttributedLive, :index)
       live("/observability/bmp", BmpLive.Index, :index)
       live("/observability/bgp", BGPLive.Index, :index)
@@ -846,7 +870,8 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/cameras/:camera_source_id", CameraLive.Show, :show)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/observability/traces/:trace_id", TraceLive.Show, :show)
-      live("/logs", LogLive.Index, :index)
+      # Legacy alias — same LiveView as /observability/logs
+      live("/logs", LogLive.Index, :logs)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
       live("/services/check", ServiceLive.Show, :show)
@@ -855,6 +880,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/netflow-map", MapLive.NetflowMap, :index)
       live("/spatial/field-surveys", SpatialLive.FieldSurveyReview, :index)
       live("/spatial/field-surveys/:session_id", SpatialLive.FieldSurveyReview, :show)
+
+      # Ad-hoc network scan
+      live("/scans", ScanLive, :index)
 
       # MTR Diagnostics
       live("/diagnostics/mtr", DiagnosticsLive.Mtr, :index)
@@ -921,6 +949,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)
       live("/settings/networks/integrations/:id", Settings.IntegrationsLive.Index, :show)
       live("/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit)
+      live("/settings/networks/prefix-tags", Settings.PrefixTagsLive, :index)
       live("/settings/networks/threat-intel", Settings.ThreatIntelLive.Index, :index)
 
       # Security settings

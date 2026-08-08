@@ -477,7 +477,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql} hide_breadcrumb={true}>
       <div class="container mx-auto px-4 py-6 max-w-6xl">
         <%!-- Breadcrumb --%>
-        <nav class="text-sm breadcrumbs mb-4">
+        <nav class="text-sm  mb-4">
           <ul>
             <li><.link navigate={~p"/devices"}>Devices</.link></li>
             <li>
@@ -488,17 +488,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <li>
               <.link navigate={~p"/devices/#{@device_uid}?tab=interfaces"}>Interfaces</.link>
             </li>
-            <li class="text-base-content/70">{@interface_uid}</li>
+            <li class="text-sr-muted">{@interface_uid}</li>
           </ul>
         </nav>
 
         <%!-- Loading State --%>
         <div :if={@loading} class="flex items-center justify-center py-12">
-          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <.ui_spinner size="lg" />
         </div>
 
         <%!-- Error State --%>
-        <div :if={@error && !@loading} class="alert alert-error mb-4">
+        <div :if={@error && !@loading} class={ui_alert_class(variant: "error", class: "mb-4")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -506,31 +506,33 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         <%!-- Interface Details --%>
         <div :if={@interface && !@loading} class="space-y-6">
           <%!-- Header Card --%>
-          <div class="card bg-base-100 border border-base-200">
-            <div class="card-body">
+          <div class="sr-ui-card bg-sr-surface border border-sr-line">
+            <div class="sr-ui-card-body">
               <div class="flex items-start justify-between">
                 <div>
                   <h1 class="text-2xl font-bold">{interface_name(@interface)}</h1>
-                  <p :if={interface_description(@interface)} class="text-base-content/70 mt-1">
+                  <p :if={interface_description(@interface)} class="text-sr-muted mt-1">
                     {interface_description(@interface)}
                   </p>
                 </div>
                 <div class="flex gap-2 items-center">
                   <% is_favorited = settings_value(@settings, :favorited) %>
-                  <button
+                  <.ui_icon_button
                     type="button"
-                    class={[
-                      "btn btn-ghost btn-sm",
-                      if(is_favorited, do: "text-warning", else: "text-base-content/30")
-                    ]}
+                    size="sm"
+                    variant="ghost"
+                    class={if(is_favorited, do: "text-amber-500", else: "text-sr-muted/50")}
                     phx-click="toggle_favorite"
                     title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                    aria-label={
+                      if is_favorited, do: "Remove from favorites", else: "Add to favorites"
+                    }
                   >
                     <.icon
                       name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
                       class="size-5"
                     />
-                  </button>
+                  </.ui_icon_button>
                   <.interface_status_badge
                     oper_status={Map.get(@interface, "if_oper_status")}
                     admin_status={Map.get(@interface, "if_admin_status")}
@@ -543,16 +545,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Metrics Graphs Section (positioned at top, below header) --%>
           <div
             :if={@metrics.panels != [] || @metrics.error || @metrics.message}
-            class="card bg-base-100 border border-base-200"
+            class="sr-ui-card bg-sr-surface border border-sr-line"
           >
-            <div class="card-body">
-              <h2 class="card-title text-lg">
-                <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics History
+            <div class="sr-ui-card-body">
+              <h2 class="sr-ui-card-title text-lg">
+                <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics History
               </h2>
 
               <%!-- Error state --%>
               <div :if={@metrics.error} class="py-4">
-                <div class="alert alert-error alert-sm">
+                <div class={ui_alert_class("error")}>
                   <.icon name="hero-exclamation-triangle" class="size-4" />
                   <span class="text-sm">{@metrics.error}</span>
                 </div>
@@ -560,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
               <%!-- Empty-state message --%>
               <div :if={@metrics.message && @metrics.panels == [] && !@metrics.error} class="py-4">
-                <div class="alert alert-info alert-sm">
+                <div class={ui_alert_class("info")}>
                   <.icon name="hero-information-circle" class="size-4" />
                   <span class="text-sm">{@metrics.message}</span>
                 </div>
@@ -592,13 +594,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <%!-- Basic Information --%>
-            <div class="card bg-base-100 border border-base-200">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
-                  <.icon name="hero-information-circle" class="size-5 text-primary" />
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
+                  <.icon name="hero-information-circle" class="size-5 text-sr-brand" />
                   Basic Information
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <.property_row label="Interface ID" value={format_interface_id(@interface)} />
                   <.property_row label="Name" value={Map.get(@interface, "if_name")} />
                   <.property_row label="Description" value={Map.get(@interface, "if_descr")} />
@@ -615,12 +617,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Network Information --%>
-            <div class="card bg-base-100 border border-base-200">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
-                  <.icon name="hero-globe-alt" class="size-5 text-primary" /> Network Information
+            <div class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
+                  <.icon name="hero-globe-alt" class="size-5 text-sr-brand" /> Network Information
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <.property_row
                     label="MAC Address"
                     value={Map.get(@interface, "if_phys_address")}
@@ -635,12 +637,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <%!-- Metrics Collection --%>
-            <div class="card bg-base-100 border border-base-200 lg:col-span-2">
-              <div class="card-body">
-                <h2 class="card-title text-lg">
-                  <.icon name="hero-chart-bar" class="size-5 text-primary" /> Metrics Collection
+            <div class="sr-ui-card bg-sr-surface border border-sr-line lg:col-span-2">
+              <div class="sr-ui-card-body">
+                <h2 class="sr-ui-card-title text-lg">
+                  <.icon name="hero-chart-bar" class="size-5 text-sr-brand" /> Metrics Collection
                 </h2>
-                <div class="divide-y divide-base-200">
+                <div class="divide-y divide-sr-line">
                   <% selected_metrics = settings_list_value(@settings, :metrics_selected) %>
                   <% metrics_enabled =
                     settings_value(@settings, :metrics_enabled) and selected_metrics != [] %>
@@ -649,17 +651,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     <div class="flex items-start justify-between gap-4">
                       <div>
                         <span class="text-sm font-medium">Metrics Collection</span>
-                        <p class="text-xs text-base-content/50 mt-0.5">
+                        <p class="text-xs text-sr-muted mt-0.5">
                           Enable collection per metric and configure event/alert settings.
                         </p>
                       </div>
-                      <span class={[
-                        "badge badge-sm",
-                        metrics_enabled && "badge-success",
-                        !metrics_enabled && "badge-ghost"
-                      ]}>
+                      <.ui_badge
+                        size="sm"
+                        variant={if(metrics_enabled, do: "success", else: "ghost")}
+                      >
                         {if metrics_enabled, do: "Enabled", else: "Disabled"}
-                      </span>
+                      </.ui_badge>
                     </div>
                     <p :if={selected_metrics == []} class="text-xs text-warning mt-2">
                       Select at least one metric to enable collection.
@@ -685,7 +686,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     </div>
                   </div>
                   <div :if={normalized_metrics == []} class="py-3">
-                    <div class="flex items-start gap-2 text-base-content/50">
+                    <div class="flex items-start gap-2 text-sr-muted">
                       <.icon name="hero-question-mark-circle" class="size-4 mt-0.5" />
                       <div>
                         <span class="text-sm">Available metrics unknown</span>
@@ -697,21 +698,22 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </div>
                   <%!-- Chart Groups Section --%>
                   <% metric_groups = settings_list_value(@settings, :metric_groups) %>
-                  <div class="py-3 space-y-3 border-t border-base-200">
+                  <div class="py-3 space-y-3 border-t border-sr-line">
                     <div class="flex items-center justify-between">
                       <div>
                         <h3 class="text-sm font-medium">Composite Charts</h3>
-                        <p class="text-xs text-base-content/50">
+                        <p class="text-xs text-sr-muted">
                           Group metrics together to display on a single chart.
                         </p>
                       </div>
-                      <button
+                      <.ui_button
                         type="button"
-                        class="btn btn-xs btn-primary"
+                        size="xs"
+                        variant="primary"
                         phx-click="open_group_modal"
                       >
                         <.icon name="hero-plus-mini" class="size-3" /> New Group
-                      </button>
+                      </.ui_button>
                     </div>
                     <div :if={metric_groups != []} class="space-y-2">
                       <.chart_group_card
@@ -720,7 +722,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                         available_metrics={normalized_metrics}
                       />
                     </div>
-                    <div :if={metric_groups == []} class="text-xs text-base-content/50">
+                    <div :if={metric_groups == []} class="text-xs text-sr-muted">
                       No chart groups configured. Create a group to combine multiple metrics on a single chart.
                     </div>
                   </div>
@@ -747,14 +749,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
         <%!-- Not Found State --%>
         <div :if={!@interface && !@loading && !@error} class="text-center py-12">
-          <.icon name="hero-question-mark-circle" class="size-16 text-base-content/30 mx-auto" />
+          <.icon name="hero-question-mark-circle" class="size-16 text-sr-ink/30 mx-auto" />
           <h3 class="text-lg font-semibold mt-4">Interface Not Found</h3>
-          <p class="text-base-content/70 mt-2">
+          <p class="text-sr-muted mt-2">
             The requested interface could not be found.
           </p>
-          <.link navigate={~p"/devices/#{@device_uid}"} class="btn btn-primary mt-4">
+          <.ui_button navigate={~p"/devices/#{@device_uid}"} size="sm" variant="primary" class="mt-4">
             Back to Device
-          </.link>
+          </.ui_button>
         </div>
       </div>
     </Layouts.app>
@@ -773,12 +775,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp property_row(assigns) do
     ~H"""
     <div class="py-3 flex justify-between gap-4">
-      <span class="text-sm text-base-content/70 shrink-0">{@label}</span>
+      <span class="text-sm text-sr-muted shrink-0">{@label}</span>
       <span
         class={[
           "text-sm text-right",
           @monospace && "font-mono",
-          is_nil(@value) || (@value == "" && "text-base-content/40")
+          is_nil(@value) || (@value == "" && "text-sr-muted")
         ]}
         title={@value_title}
       >
@@ -798,7 +800,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     <div class={[
       "p-3 rounded-lg border transition",
       @enabled && "border-success bg-success/5",
-      !@enabled && "bg-base-200/50 border-base-300 hover:border-primary/50"
+      !@enabled && "bg-sr-subtle/50 border-sr-line hover:border-sr-brand/50"
     ]}>
       <div class="flex items-start justify-between gap-3">
         <div
@@ -808,30 +810,29 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
           phx-click="open_metric_modal"
           phx-value-metric={metric_raw_name(@metric)}
         >
-          <.icon name={metric_category_icon(@metric)} class="size-4 text-primary" />
+          <.icon name={metric_category_icon(@metric)} class="size-4 text-sr-brand" />
           <div>
             <span class="text-sm font-medium">{metric_display_name(@metric)}</span>
-            <span
+            <.ui_badge
               :if={metric_supports_64bit?(@metric)}
-              class="ml-1 badge badge-xs badge-success"
+              size="xs"
+              variant="success"
+              class="ml-1"
               title="64-bit counter available"
             >
               64-bit
-            </span>
+            </.ui_badge>
           </div>
         </div>
-        <button
+        <.ui_button
           type="button"
-          class={[
-            "btn btn-xs",
-            @enabled && "btn-success",
-            !@enabled && "btn-ghost"
-          ]}
+          size="xs"
+          variant={if @enabled, do: "primary", else: "ghost"}
           phx-click="toggle_metric"
           phx-value-metric={metric_raw_name(@metric)}
         >
           {if @enabled, do: "Collecting", else: "Enable"}
-        </button>
+        </.ui_button>
       </div>
       <div
         class="mt-2 flex items-center justify-between cursor-pointer"
@@ -841,22 +842,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         phx-value-metric={metric_raw_name(@metric)}
       >
         <div class="flex items-center gap-2 text-xs">
-          <span class={[
-            "badge badge-xs gap-1",
-            @event_enabled && "badge-info",
-            !@event_enabled && "badge-ghost"
-          ]}>
+          <.ui_badge size="xs" variant={if(@event_enabled, do: "info", else: "ghost")}>
             <.icon name="hero-bolt" class="size-3" /> Event
-          </span>
-          <span class={[
-            "badge badge-xs gap-1",
-            @alert_enabled && "badge-success",
-            !@alert_enabled && "badge-ghost"
-          ]}>
+          </.ui_badge>
+          <.ui_badge size="xs" variant={if(@alert_enabled, do: "success", else: "ghost")}>
             <.icon name="hero-bell-alert" class="size-3" /> Alert
-          </span>
+          </.ui_badge>
         </div>
-        <span class="text-xs text-base-content/50">
+        <span class="text-xs text-sr-muted">
           {metric_category_label(@metric)}
         </span>
       </div>
@@ -891,14 +884,14 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:remaining, remaining)
 
     ~H"""
-    <div class="flex items-center justify-between p-3 rounded-lg bg-base-200/50 border border-base-300">
+    <div class="flex items-center justify-between p-3 rounded-lg bg-sr-subtle/50 border border-sr-line">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <.icon name="hero-chart-bar-square" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar-square" class="size-4 text-sr-brand" />
           <span class="text-sm font-medium">{@group["name"]}</span>
-          <span class="badge badge-xs badge-ghost">{@metric_count} metrics</span>
+          <.ui_badge size="xs" variant="ghost">{@metric_count} metrics</.ui_badge>
         </div>
-        <div :if={@metric_labels != []} class="text-xs text-base-content/50 mt-1 truncate">
+        <div :if={@metric_labels != []} class="text-xs text-sr-muted mt-1 truncate">
           {Enum.join(@metric_labels, ", ")}<span :if={@remaining > 0}> +{@remaining} more</span>
         </div>
         <div :if={@metric_labels == []} class="text-xs text-warning mt-1">
@@ -906,25 +899,30 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         </div>
       </div>
       <div class="flex items-center gap-1">
-        <button
+        <.ui_icon_button
           type="button"
-          class="btn btn-xs btn-ghost"
+          size="xs"
+          variant="ghost"
           phx-click="open_group_modal"
           phx-value-group_id={@group["id"]}
           title="Edit group"
+          aria-label="Edit group"
         >
           <.icon name="hero-pencil" class="size-3" />
-        </button>
-        <button
+        </.ui_icon_button>
+        <.ui_icon_button
           type="button"
-          class="btn btn-xs btn-ghost text-error"
+          size="xs"
+          variant="ghost"
+          class="text-rose-600 dark:text-rose-300"
           phx-click="delete_group"
           phx-value-group_id={@group["id"]}
           data-confirm="Delete this chart group?"
           title="Delete group"
+          aria-label="Delete group"
         >
           <.icon name="hero-trash" class="size-3" />
-        </button>
+        </.ui_icon_button>
       </div>
     </div>
     """
@@ -972,21 +970,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:is_editing, is_editing)
 
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-xl">
+    <dialog
+      id="interface-group-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_group_modal"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-form">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             phx-click="close_group_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">
           {if @is_editing, do: "Edit Chart Group", else: "Create Chart Group"}
         </h3>
-        <p class="text-sm text-base-content/60 mt-1">
+        <p class="text-sm text-sr-muted mt-1">
           Select metrics to display together on a single chart.
         </p>
 
@@ -999,39 +1004,39 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
         >
           <input type="hidden" name="group[id]" value={@form[:id].value} />
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Group Name</span>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Group Name</span>
             </label>
             <input
               type="text"
               name="group[name]"
               value={@form[:name].value}
               placeholder="e.g., Traffic, Errors, etc."
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               required
             />
           </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Metrics</span>
-              <span class="label-text-alt text-base-content/50">
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Metrics</span>
+              <span class="text-xs text-sr-muted">
                 Select compatible metrics to combine
               </span>
             </label>
-            <div class="border border-base-300 rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
+            <div class="border border-sr-line rounded-lg p-3 max-h-64 overflow-y-auto space-y-1">
               <div
                 :if={@available_metrics == []}
-                class="text-sm text-base-content/50 py-2 text-center"
+                class="text-sm text-sr-muted py-2 text-center"
               >
                 No metrics available. Enable metric discovery first.
               </div>
               <label
                 :for={metric <- @available_metrics}
                 class={[
-                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200 transition",
-                  metric.name in @group_metrics && "bg-primary/10"
+                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-sr-subtle transition",
+                  metric.name in @group_metrics && "bg-sr-brand/10"
                 ]}
               >
                 <input
@@ -1039,34 +1044,34 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   name={"group[metrics][#{metric.name}]"}
                   value="true"
                   checked={metric.name in @group_metrics}
-                  class="checkbox checkbox-sm checkbox-primary"
+                  class={ui_checkbox_class()}
                 />
                 <div class="flex-1 min-w-0">
                   <span class="text-sm font-medium">{metric.display}</span>
-                  <span class="text-xs text-base-content/50 ml-2">({metric.name})</span>
+                  <span class="text-xs text-sr-muted ml-2">({metric.name})</span>
                 </div>
-                <span class="badge badge-xs badge-ghost">{metric.category}</span>
+                <.ui_badge size="xs" variant="ghost">{metric.category}</.ui_badge>
               </label>
             </div>
-            <div class="label">
-              <span class="label-text-alt text-base-content/50">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Tip: Combine metrics with the same unit (e.g., inbound + outbound traffic)
               </span>
             </div>
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_group_modal">
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_group_modal" size="sm" variant="ghost">
               Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
+            </.ui_button>
+            <.ui_button type="submit" variant="primary">
               <.icon name="hero-check" class="size-4" />
               {if @is_editing, do: "Update Group", else: "Create Group"}
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_group_modal">close</button>
       </form>
     </dialog>
@@ -1087,19 +1092,26 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
       |> assign(:has_speed_data, is_number(interface_speed_bps) and interface_speed_bps > 0)
 
     ~H"""
-    <dialog class="modal modal-open">
-      <div class="modal-box max-w-3xl">
+    <dialog
+      id="interface-metric-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_metric_modal"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             phx-click="close_metric_modal"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="text-lg font-bold">Configure {@metric_name} metric</h3>
-        <p class="text-sm text-base-content/60 mt-1">
+        <p class="text-sm text-sr-muted mt-1">
           Tune event creation and alert promotion for this metric.
         </p>
 
@@ -1116,7 +1128,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-sm font-semibold">Event Threshold</span>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   Create an event when this metric crosses the threshold.
                 </p>
               </div>
@@ -1124,25 +1136,27 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 type="checkbox"
                 name="metric[enabled]"
                 value="true"
-                class="toggle toggle-info"
+                class={ui_toggle_class(class: "toggle-info")}
                 checked={@form[:enabled].value}
               />
             </div>
 
             <%!-- Threshold Type Selector --%>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text text-xs font-medium">Threshold Type</span>
-                <span :if={!@has_speed_data} class="label-text-alt text-warning text-xs">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-sr-ink font-medium">Threshold Type</span>
+                <span :if={!@has_speed_data} class="text-xs text-sr-muted text-warning text-xs">
                   <.icon name="hero-exclamation-triangle-mini" class="size-3" />
                   Interface speed unknown
                 </span>
               </label>
               <div class="flex gap-2">
                 <label class={[
-                  "flex-1 btn btn-sm",
-                  @form[:threshold_type].value != "percentage" && "btn-primary",
-                  @form[:threshold_type].value == "percentage" && "btn-ghost"
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-sr-control border px-3 py-2 text-sm font-semibold transition-colors",
+                  @form[:threshold_type].value != "percentage" &&
+                    "border-transparent bg-sr-brand text-sr-on-brand shadow-sr-button",
+                  @form[:threshold_type].value == "percentage" &&
+                    "border-sr-line bg-transparent text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
                 ]}>
                   <input
                     type="radio"
@@ -1154,10 +1168,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.icon name="hero-cube" class="size-4" /> Absolute (bytes/sec)
                 </label>
                 <label class={[
-                  "flex-1 btn btn-sm",
-                  @form[:threshold_type].value == "percentage" && "btn-primary",
-                  @form[:threshold_type].value != "percentage" && "btn-ghost",
-                  !@has_speed_data && "btn-disabled opacity-50"
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-sr-control border px-3 py-2 text-sm font-semibold transition-colors",
+                  @form[:threshold_type].value == "percentage" &&
+                    "border-transparent bg-sr-brand text-sr-on-brand shadow-sr-button",
+                  @form[:threshold_type].value != "percentage" &&
+                    "border-sr-line bg-transparent text-sr-muted hover:bg-sr-subtle hover:text-sr-ink",
+                  !@has_speed_data && "pointer-events-none opacity-50"
                 ]}>
                   <input
                     type="radio"
@@ -1170,19 +1186,19 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   <.icon name="hero-chart-pie" class="size-4" /> Percentage (% of speed)
                 </label>
               </div>
-              <div :if={@has_speed_data} class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+              <div :if={@has_speed_data} class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   Interface speed: {format_bps(@interface_speed_bps) || "Unknown"}
                 </span>
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Comparison</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Comparison</span>
                 </label>
-                <select name="metric[comparison]" class="select select-bordered select-sm w-full">
+                <select name="metric[comparison]" class={ui_field_class(size: "sm", class: "w-full")}>
                   <option value="">Select condition</option>
                   <option value="gt" selected={@form[:comparison].value == "gt"}>
                     Greater than (&gt;)
@@ -1201,13 +1217,13 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </option>
                 </select>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">
                     {threshold_value_label(@form[:threshold_type].value)}
                   </span>
                 </label>
-                <div class="join w-full">
+                <div class={ui_join_class(class: "w-full")}>
                   <input
                     type="number"
                     name="metric[value]"
@@ -1216,16 +1232,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     min={if @form[:threshold_type].value == "percentage", do: "0", else: nil}
                     max={if @form[:threshold_type].value == "percentage", do: "100", else: nil}
                     step={if @form[:threshold_type].value == "percentage", do: "1", else: "any"}
-                    class="input input-bordered input-sm w-full join-item"
+                    class={ui_field_class(size: "sm", class: "w-full sr-ui-join-item")}
                   />
-                  <span class="btn btn-sm btn-ghost join-item pointer-events-none">
+                  <span class="inline-flex min-h-9 items-center rounded-r-sr-control border border-l-0 border-sr-line bg-sr-subtle px-3 text-sm text-sr-muted">
                     {threshold_unit(@form[:threshold_type].value)}
                   </span>
                 </div>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Duration (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Duration (seconds)</span>
                 </label>
                 <input
                   type="number"
@@ -1233,17 +1249,20 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   value={@form[:duration_seconds].value}
                   placeholder="0"
                   min="0"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Severity</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Severity</span>
                 </label>
-                <select name="metric[event_severity]" class="select select-bordered select-sm w-full">
+                <select
+                  name="metric[event_severity]"
+                  class={ui_field_class(size: "sm", class: "w-full")}
+                >
                   <option value="info" selected={@form[:event_severity].value == "info"}>
                     Info
                   </option>
@@ -1258,28 +1277,28 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                   </option>
                 </select>
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Message</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Message</span>
                 </label>
                 <input
                   type="text"
                   name="metric[event_message]"
                   value={@form[:event_message].value}
                   placeholder="Optional message override"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
             </div>
           </div>
 
-          <div class="divider text-xs text-base-content/50">Alert Promotion</div>
+          <div class="sr-ui-divider text-xs text-sr-muted">Alert Promotion</div>
 
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-sm font-semibold">Enable Alerts</span>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   Promote metric events into alerts when thresholds are met.
                 </p>
               </div>
@@ -1287,68 +1306,71 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                 type="checkbox"
                 name="metric[alert_enabled]"
                 value="true"
-                class="toggle toggle-success"
+                class={ui_toggle_class(class: "toggle-success")}
                 checked={@form[:alert_enabled].value}
               />
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Event Count</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Event Count</span>
                 </label>
                 <input
                   type="number"
                   name="metric[alert_threshold]"
                   value={@form[:alert_threshold].value}
                   min="1"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Window (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Window (seconds)</span>
                 </label>
                 <input
                   type="number"
                   name="metric[alert_window_seconds]"
                   value={@form[:alert_window_seconds].value}
                   min="60"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Cooldown (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Cooldown (seconds)</span>
                 </label>
                 <input
                   type="number"
                   name="metric[alert_cooldown_seconds]"
                   value={@form[:alert_cooldown_seconds].value}
                   min="60"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Renotify (seconds)</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Renotify (seconds)</span>
                 </label>
                 <input
                   type="number"
                   name="metric[alert_renotify_seconds]"
                   value={@form[:alert_renotify_seconds].value}
                   min="300"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Severity</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Severity</span>
                 </label>
-                <select name="metric[alert_severity]" class="select select-bordered select-sm w-full">
+                <select
+                  name="metric[alert_severity]"
+                  class={ui_field_class(size: "sm", class: "w-full")}
+                >
                   <option value="info" selected={@form[:alert_severity].value == "info"}>
                     Info
                   </option>
@@ -1366,44 +1388,44 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Title</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Title</span>
                 </label>
                 <input
                   type="text"
                   name="metric[alert_title]"
                   value={@form[:alert_title].value}
                   placeholder="Optional title override"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
-              <div class="form-control">
-                <label class="label">
-                  <span class="label-text text-xs">Alert Description</span>
+              <div class="flex flex-col gap-1.5">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-medium text-sr-ink">Alert Description</span>
                 </label>
                 <input
                   type="text"
                   name="metric[alert_description]"
                   value={@form[:alert_description].value}
                   placeholder="Optional description override"
-                  class="input input-bordered input-sm w-full"
+                  class={ui_field_class(size: "sm", class: "w-full")}
                 />
               </div>
             </div>
           </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close_metric_modal">
+          <div class="sr-ui-modal-action">
+            <.ui_button type="button" phx-click="close_metric_modal" size="sm" variant="ghost">
               Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
+            </.ui_button>
+            <.ui_button type="submit" variant="primary">
               <.icon name="hero-check" class="size-4" /> Save Settings
-            </button>
+            </.ui_button>
           </div>
         </.form>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button phx-click="close_metric_modal">close</button>
       </form>
     </dialog>
@@ -1416,23 +1438,23 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp interface_status_badge(assigns) do
     ~H"""
     <div class="flex gap-2">
-      <span class={[
-        "badge badge-sm gap-1 min-w-[4.5rem] justify-center",
-        oper_status_class(@oper_status)
-      ]}>
+      <.ui_badge
+        size="sm"
+        variant={oper_status_variant(@oper_status)}
+        class="min-w-[4.5rem]"
+      >
         <.icon name={oper_status_icon(@oper_status)} class="size-3" />
         {oper_status_text(@oper_status)}
-      </span>
-      <span
+      </.ui_badge>
+      <.ui_badge
         :if={@admin_status}
-        class={[
-          "badge badge-sm badge-outline gap-1 min-w-[5rem] justify-center",
-          admin_status_class(@admin_status)
-        ]}
+        size="sm"
+        variant={admin_status_variant(@admin_status)}
+        class="min-w-[5rem]"
       >
         <.icon name={admin_status_icon(@admin_status)} class="size-3" />
         {admin_status_text(@admin_status)}
-      </span>
+      </.ui_badge>
     </div>
     """
   end
@@ -1977,10 +1999,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp format_value(value), do: to_string(value)
 
   # Status styling functions
-  defp oper_status_class(1), do: "badge-success"
-  defp oper_status_class(2), do: "badge-error"
-  defp oper_status_class(3), do: "badge-warning"
-  defp oper_status_class(_), do: "badge-ghost"
+  defp oper_status_variant(1), do: "success"
+  defp oper_status_variant(2), do: "error"
+  defp oper_status_variant(3), do: "warning"
+  defp oper_status_variant(_), do: "ghost"
 
   defp oper_status_icon(1), do: "hero-arrow-up-circle"
   defp oper_status_icon(2), do: "hero-arrow-down-circle"
@@ -1992,10 +2014,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp oper_status_text(3), do: "Testing"
   defp oper_status_text(_), do: "Unknown"
 
-  defp admin_status_class(1), do: "border-success text-success"
-  defp admin_status_class(2), do: "border-warning text-warning"
-  defp admin_status_class(3), do: "border-info text-info"
-  defp admin_status_class(_), do: "border-base-content/30 text-base-content/50"
+  defp admin_status_variant(1), do: "success"
+  defp admin_status_variant(2), do: "warning"
+  defp admin_status_variant(3), do: "info"
+  defp admin_status_variant(_), do: "ghost"
 
   defp admin_status_icon(1), do: "hero-check-circle"
   defp admin_status_icon(2), do: "hero-pause-circle"

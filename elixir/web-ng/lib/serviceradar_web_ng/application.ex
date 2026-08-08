@@ -180,13 +180,46 @@ defmodule ServiceRadarWebNG.Application do
   defp field_survey_adbc_children do
     case Application.get_env(:serviceradar_web_ng, :field_survey_adbc_uri) do
       uri when is_binary(uri) and uri != "" ->
-        [
-          {Adbc.Database,
-           driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
-        ]
+        if adbc_postgresql_driver_present?() do
+          [
+            {Adbc.Database,
+             driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+          ]
+        else
+          # Bazel OCI builds of web-ng have historically omitted the ADBC
+          # libadbc_driver_postgresql shared library from :adbc priv/. Starting
+          # Adbc.Database then aborts the whole app. Fail open so SRQL and the
+          # rest of web-ng still boot; FieldSurvey Arrow ingest stays off.
+          Logger.warning(
+            "FieldSurvey ADBC disabled: libadbc_driver_postgresql is not present under " <>
+              "#{inspect(adbc_priv_lib_dir())}. SRQL and web-ng will start without Arrow ingest."
+          )
+
+          []
+        end
 
       _ ->
         []
+    end
+  end
+
+  defp adbc_postgresql_driver_present? do
+    dir = adbc_priv_lib_dir()
+
+    dir != nil and
+      File.dir?(dir) and
+      dir
+      |> File.ls!()
+      |> Enum.any?(&String.contains?(&1, "libadbc_driver_postgresql"))
+  rescue
+    _ -> false
+  end
+
+  defp adbc_priv_lib_dir do
+    case :code.priv_dir(:adbc) do
+      dir when is_list(dir) -> Path.join(List.to_string(dir), "lib")
+      dir when is_binary(dir) -> Path.join(dir, "lib")
+      _ -> nil
     end
   end
 

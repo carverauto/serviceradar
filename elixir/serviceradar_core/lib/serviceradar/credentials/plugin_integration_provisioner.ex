@@ -51,6 +51,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
 
     rules
     |> Enum.filter(&plugin_integration_rule?(&1, profiles_by_provider))
+    |> Enum.filter(&producer_schedule_rule?(&1, profiles_by_provider))
     |> Enum.reduce_while({:ok, empty_summary()}, fn rule, {:ok, summary} ->
       provider = provider(rule)
 
@@ -312,7 +313,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
       RuleAccessors.auth_method(rule) not in auth_methods ->
         {:error, :invalid_plugin_integration_auth_method}
 
-      Atom.to_string(RuleAccessors.rule_purpose(rule)) not in purposes ->
+      RuleAccessors.rule_purpose(rule) not in purposes ->
         {:error, :invalid_plugin_integration_purpose}
 
       scope_type(rule) not in scope_types ->
@@ -339,16 +340,26 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   end
 
   defp cadence_seconds(rule, profile) do
-    schedule = profile["producer_schedule"]
-    default = schedule["default_cadence_seconds"]
-    value = RuleAccessors.metadata_int(rule, "cadence_seconds", default)
-    minimum = schedule["min_cadence_seconds"]
-    maximum = schedule["max_cadence_seconds"]
+    # Match on a map rather than indexing straight into it. `nil["min_cadence_seconds"]`
+    # is nil, not a raise, so a profile carrying no schedule used to reach the bounds
+    # check with nil bounds and report `{:invalid_plugin_integration_cadence, nil, nil}`
+    # -- which names the cadence as the problem when the schedule is what is missing.
+    case profile["producer_schedule"] do
+      %{} = schedule ->
+        default = schedule["default_cadence_seconds"]
+        value = RuleAccessors.metadata_int(rule, "cadence_seconds", default)
+        minimum = schedule["min_cadence_seconds"]
+        maximum = schedule["max_cadence_seconds"]
 
-    if is_integer(value) and value >= minimum and value <= maximum do
-      {:ok, value}
-    else
-      {:error, {:invalid_plugin_integration_cadence, minimum, maximum}}
+        if is_integer(value) and is_integer(minimum) and is_integer(maximum) and
+             value >= minimum and value <= maximum do
+          {:ok, value}
+        else
+          {:error, {:invalid_plugin_integration_cadence, minimum, maximum}}
+        end
+
+      _ ->
+        {:error, {:missing_producer_schedule, profile["plugin_id"]}}
     end
   end
 
@@ -366,6 +377,37 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     metadata = RuleAccessors.metadata(rule)
     Map.has_key?(profiles_by_provider, provider(rule)) or metadata["plugin_integration"] == true
   end
+
+  # This provisioner only knows how to bind a package-owned producer schedule.
+  # `IntegrationDescriptor` defines three provisioning modes -- "credential_only",
+  # "producer_schedule" and "target_policy" -- and `IntegrationCatalog` attaches a
+  # "producer_schedule" key to the third of those only. Reconciling either of the
+  # other two through this path reached cadence validation with no schedule at all
+  # and failed as `{:invalid_plugin_integration_cadence, nil, nil}`: a nil/nil
+  # bound, because `nil["min_cadence_seconds"]` returns nil rather than raising.
+  #
+  # That is not a contained failure. The reduce below halts on the first error, so
+  # one such rule stopped reconciliation for every other rule and the worker
+  # discarded after max_attempts. On demo there is not a single producer_schedule
+  # profile -- three target_policy (two proxmox, one camera) and one
+  # credential_only (awx) -- so this worker could never complete a run.
+  #
+  # An allowlist, not a denylist. Rejecting only target_policy would still have let
+  # credential_only through, and a fourth mode added later would silently break
+  # this worker again. Anything this provisioner cannot provision is not its work.
+  #
+  # Skipped rather than routed to `disable_and_continue`: these rules are valid and
+  # owned elsewhere -- target_policy by PluginTargetPolicyReconcileWorker,
+  # credential_only by nothing at all (the rule exists purely to bind a secret).
+  # Treating an unmatched profile as "revoked" would tear down working assignments.
+  defp producer_schedule_rule?(rule, profiles_by_provider) do
+    case Map.get(profiles_by_provider, provider(rule)) do
+      %{} = profile -> provisioning_mode(profile) == "producer_schedule"
+      _ -> false
+    end
+  end
+
+  defp provisioning_mode(profile), do: get_in(profile, ["provisioning", "mode"])
 
   defp rule_enabled?(rule) do
     case ValueUtils.raw_value(rule, [:enabled, "enabled"]) do

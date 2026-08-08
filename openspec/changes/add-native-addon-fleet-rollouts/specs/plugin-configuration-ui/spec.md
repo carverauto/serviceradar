@@ -108,3 +108,48 @@ package counts SHALL remain separate from runtime fleet health.
 - **WHEN** an operator selects any summary counter
 - **THEN** the table SHALL filter to exactly the rows counted by that category
 - **AND** every displayed row SHALL expose the reason it belongs to that category
+
+#### Scenario: Disabled history does not masquerade as current desired state
+- **GIVEN** an agent has only disabled historical assignments for an add-on
+- **AND** the agent still reports that add-on running
+- **WHEN** the fleet matrix renders
+- **THEN** the runtime SHALL be shown as observed-only or required-runtime state
+- **AND** disabled assignment versions SHALL remain available only as audit detail
+- **AND** the row SHALL NOT claim the disabled package is the current assignment
+
+#### Scenario: Older approved version is not labeled newer
+- **GIVEN** an agent reports version `0.3.0` in sync with desired state
+- **AND** the highest approved package is version `0.2.0`
+- **WHEN** the fleet matrix renders version status
+- **THEN** it SHALL NOT label `0.2.0` as a newer approved version
+- **AND** upgrade availability SHALL be determined by semantic version comparison
+
+### Requirement: Fleet inventory groups add-ons by agent
+
+The Add-on Fleet UI SHALL render each agent as one visually bounded inventory card
+containing that agent's add-on rows. Agent identity and aggregate alert counts SHALL
+appear once per card rather than being repeated on every add-on row. Filtering SHALL
+preserve the agent grouping while limiting the rows inside each card.
+
+#### Scenario: One agent reports multiple add-ons
+
+- **GIVEN** one agent has three assigned or observed add-ons
+- **WHEN** the fleet inventory renders
+- **THEN** it SHALL render one agent card containing three add-on rows
+- **AND** the agent name and UID SHALL appear in the card header rather than as a repeated table column
+- **AND** each add-on SHALL retain expandable version, desired-state, runtime, evidence, and diagnostic detail
+
+### Requirement: Schema-generated numeric controls preserve numeric domains
+
+Configuration forms generated from add-on JSON Schema SHALL distinguish `number`
+from `integer`. Decimal defaults SHALL be accepted by browser validation, and a
+positive JSON Schema `multipleOf` SHALL be reflected as the input step when present.
+
+#### Scenario: Anomaly schema contains decimal defaults
+
+- **GIVEN** an approved anomaly add-on schema declares `cusum_slack` as `number` with default `0.5`
+- **AND** another numeric field declares `multipleOf: 0.1`
+- **WHEN** an operator reviews or assigns the package
+- **THEN** the browser SHALL accept `0.5` without rounding or step validation failure
+- **AND** the `multipleOf` field SHALL use `0.1` as its step
+- **AND** fields declared as `integer` SHALL remain integral

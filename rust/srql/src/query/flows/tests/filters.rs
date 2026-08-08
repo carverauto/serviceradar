@@ -39,6 +39,227 @@ fn unknown_filter_field_returns_error() {
 }
 
 #[test]
+fn builds_query_with_tag_filter() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "tag".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("site:austin".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("tag filter should translate");
+    assert!(
+        sql.contains("src_prefix_tags") && sql.contains("dst_prefix_tags"),
+        "tag filter should match either side: {sql}"
+    );
+    assert!(
+        sql.contains("@>") && sql.contains("site:austin"),
+        "tag filter should use jsonb containment: {sql}"
+    );
+    assert!(
+        sql.contains("COALESCE") && sql.contains("'[]'::jsonb"),
+        "tag filter must COALESCE NULL columns so NOT tag keeps untagged rows: {sql}"
+    );
+}
+
+#[test]
+fn negative_tag_filter_coalesces_null_columns() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "tag".into(),
+            op: FilterOp::NotEq,
+            value: FilterValue::Scalar("ti:otx".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("negative tag filter should translate");
+    assert!(
+        sql.contains("COALESCE") && sql.contains("ti:otx"),
+        "negative tag filter must COALESCE NULL so untagged rows match: {sql}"
+    );
+    // Diesel not() wraps the predicate; ensure containment is still present.
+    assert!(sql.contains("@>"), "containment predicate missing: {sql}");
+}
+
+#[test]
+fn builds_query_with_directional_tag_and_cidr() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![
+            Filter {
+                field: "dst_tag".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("role:guest-wifi".to_string()),
+            },
+            Filter {
+                field: "src_cidr".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("10.0.0.0/8".to_string()),
+            },
+        ],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
+    assert!(
+        sql.contains("dst_prefix_tags") && sql.contains("role:guest-wifi"),
+        "dst_tag predicate missing: {sql}"
+    );
+    assert!(
+        sql.contains("10.0.0.0/8") || sql.contains("<<= "),
+        "cidr predicate missing: {sql}"
+    );
+}
+
+#[test]
+fn builds_query_with_near_filter() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "near".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("30.2672,-97.7431,50km".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("near filter should translate");
+    assert!(
+        sql.contains("ST_DWithin") && sql.contains("ip_geo_enrichment_cache"),
+        "near filter should use geo cache ST_DWithin: {sql}"
+    );
+    assert!(
+        sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip"),
+        "near should match either side: {sql}"
+    );
+}
+
+#[test]
+fn near_composes_with_tag_filter() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![
+            Filter {
+                field: "tag".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("ti:otx".to_string()),
+            },
+            Filter {
+                field: "near".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("30.27,-97.74,50km".to_string()),
+            },
+        ],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("composed filters should translate");
+    assert!(
+        sql.contains("@>") && sql.contains("ti:otx"),
+        "tag missing: {sql}"
+    );
+    assert!(sql.contains("ST_DWithin"), "near missing: {sql}");
+}
+
+#[test]
+fn rejects_invalid_near_literal() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "near".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("not-a-point".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 10,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let err = to_sql_and_params(&plan).expect_err("invalid near should fail");
+    assert!(err.to_string().contains("near"), "unexpected error: {err}");
+}
+
+#[test]
+fn rejects_invalid_tag_literal() {
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "tag".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("bad tag;drop".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 10,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let err = to_sql_and_params(&plan).expect_err("invalid tag should fail");
+    assert!(
+        err.to_string().contains("invalid tag"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn builds_query_with_ip_filter() {
     let plan = QueryPlan {
         entity: Entity::Flows,
@@ -84,6 +305,33 @@ fn builds_query_with_port_filter() {
 
     let result = build_query(&plan);
     assert!(result.is_ok(), "should build query with port filter");
+}
+
+#[test]
+fn builds_query_with_bidirectional_port_filter() {
+    let plan = QueryPlan {
+        entity: Entity::AttributedFlows,
+        filters: vec![Filter {
+            field: "port".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("22".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 50,
+        offset: 0,
+        time_range: None,
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+
+    let (sql, _params) = to_sql_and_params(&plan).expect("bidirectional port filter should build");
+    assert!(
+        sql.contains("src_endpoint_port") && sql.contains("dst_endpoint_port"),
+        "expected either-side port match in SQL: {sql}"
+    );
 }
 
 #[test]

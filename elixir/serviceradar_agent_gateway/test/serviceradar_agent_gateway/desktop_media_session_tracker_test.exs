@@ -6,6 +6,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry
 
+  @moduletag :requires_app
+
   setup do
     previous_agent_limit =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_agent)

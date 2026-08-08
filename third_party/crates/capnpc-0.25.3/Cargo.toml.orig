@@ -1,0 +1,32 @@
+[package]
+
+name = "capnpc"
+version = "0.25.3"
+authors = [ "David Renshaw <dwrenshaw@gmail.com>" ]
+license = "MIT"
+description = "Cap'n Proto code generation"
+repository = "https://github.com/capnproto/capnproto-rust"
+documentation = "https://docs.rs/capnpc/"
+edition = "2021"
+
+readme = "README.md"
+
+keywords = ["encoding", "protocol", "serialization"]
+
+[[bin]]
+
+name = "capnpc-rust"
+path = "src/capnpc-rust.rs"
+
+[[bin]]
+
+name = "capnpc-rust-bootstrap"
+path = "src/capnpc-rust-bootstrap.rs"
+
+
+[dependencies.capnp]
+version = "0.25.0"
+path = "../capnp"
+
+[lints]
+workspace = true

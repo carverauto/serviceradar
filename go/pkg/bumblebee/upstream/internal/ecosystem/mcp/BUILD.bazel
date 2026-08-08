@@ -1,9 +1,0 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
-
-go_library(
-    name = "mcp",
-    srcs = ["mcp.go"],
-    importpath = "github.com/carverauto/serviceradar/go/pkg/bumblebee/upstream/internal/ecosystem/mcp",
-    visibility = ["//go/pkg/bumblebee/upstream:__subpackages__"],
-    deps = ["//go/pkg/bumblebee/upstream/internal/model"],
-)

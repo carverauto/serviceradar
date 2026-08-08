@@ -90,4 +90,16 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
       refute MapSet.member?(operator_permissions, permission)
     end
   end
+
+  test "prefix tag manage permission is an operator+ catalog key" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+    viewer_permissions = Catalog.permissions_for_role(:viewer)
+
+    assert "settings.prefix_tags.manage" in keys
+    assert MapSet.member?(admin_permissions, "settings.prefix_tags.manage")
+    assert MapSet.member?(operator_permissions, "settings.prefix_tags.manage")
+    refute MapSet.member?(viewer_permissions, "settings.prefix_tags.manage")
+  end
 end

@@ -13,8 +13,6 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
 
   require Ash.Query
 
-  @reserved_credential_providers ~w(proxmox unifi-protect axis)
-
   @type catalog :: %{
           required(:credential_profiles) => [map()],
           required(:inventory_sources) => [map()]
@@ -70,6 +68,25 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
 
   def profile_for(_provider, _opts), do: :error
 
+  @spec consumer_for_plugin_id(String.t(), keyword()) ::
+          {:ok, {map(), map()}} | :error | {:error, term()}
+  def consumer_for_plugin_id(plugin_id, opts \\ [])
+
+  def consumer_for_plugin_id(plugin_id, opts) when is_binary(plugin_id) do
+    with {:ok, catalog} <- load(opts) do
+      Enum.find_value(catalog.credential_profiles, :error, fn profile ->
+        profile
+        |> get_in(["provisioning", "consumers"])
+        |> List.wrap()
+        |> Enum.find_value(fn consumer ->
+          if consumer["plugin_id"] == plugin_id, do: {:ok, {profile, consumer}}
+        end)
+      end)
+    end
+  end
+
+  def consumer_for_plugin_id(_plugin_id, _opts), do: :error
+
   @spec source_for(String.t(), keyword()) :: {:ok, map()} | :error | {:error, term()}
   def source_for(source, opts \\ [])
 
@@ -110,11 +127,9 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
          %{
            credential_profiles:
              Enum.map(parsed.integrations["credential_profiles"], fn profile ->
-               schedule_id = get_in(profile, ["provisioning", "schedule_id"])
-
                profile
                |> Map.merge(common)
-               |> Map.put("producer_schedule", Map.fetch!(schedules, schedule_id))
+               |> maybe_attach_producer_schedule(schedules)
              end),
            inventory_sources:
              Enum.map(parsed.integrations["inventory_sources"], &Map.merge(&1, common))
@@ -129,6 +144,16 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
     packages
     |> Enum.sort(&newer_package?/2)
     |> Enum.uniq_by(&(value(&1, :plugin_id) || get_in(value(&1, :manifest) || %{}, ["id"])))
+  end
+
+  defp maybe_attach_producer_schedule(profile, schedules) do
+    case profile["provisioning"] do
+      %{"mode" => "producer_schedule", "schedule_id" => schedule_id} ->
+        Map.put(profile, "producer_schedule", Map.fetch!(schedules, schedule_id))
+
+      _ ->
+        profile
+    end
   end
 
   defp newer_package?(left, right) do
@@ -168,20 +193,9 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
   defp timestamp(_value), do: 0
 
   defp validate_unique_claims(catalog) do
-    with :ok <- reject_reserved_providers(catalog.credential_profiles),
-         :ok <- unique_claim(catalog.credential_profiles, "provider", :duplicate_plugin_provider),
+    with :ok <- unique_claim(catalog.credential_profiles, "provider", :duplicate_plugin_provider),
          :ok <- unique_claim(catalog.inventory_sources, "source", :duplicate_inventory_source) do
       {:ok, catalog}
-    end
-  end
-
-  defp reject_reserved_providers(profiles) do
-    case Enum.find(profiles, &(&1["provider"] in @reserved_credential_providers)) do
-      nil ->
-        :ok
-
-      profile ->
-        {:error, {:reserved_credential_provider, profile["provider"], profile["plugin_id"]}}
     end
   end
 

@@ -22,6 +22,10 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+# phoenix_live_view optionally depends on lazy_html. When that app is present in
+# the release, its compile-time env must match at boot or Config.Provider aborts.
+config :lazy_html, :inspect_extra_newline, true
+
 # This release hosts callback result coordination and recovery from
 # serviceradar_core. Those internal continuations use persisted authority and
 # must never receive the web tier's bearer HMAC keyring.
@@ -426,7 +430,10 @@ config :serviceradar_core_elx,
   remote_desktop_webrtc_max_viewers_global:
     max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_MAX_VIEWERS_GLOBAL", 64), 1),
   remote_desktop_media_ingress_idle_timeout_ms:
-    max(parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_INGRESS_IDLE_TIMEOUT_MS", 60_000), 1_000)
+    max(
+      parse_int_env.("SERVICERADAR_REMOTE_ACCESS_DESKTOP_INGRESS_IDLE_TIMEOUT_MS", 60_000),
+      1_000
+    )
 
 if config_env() == :prod do
   cloak_key =
@@ -794,6 +801,14 @@ if config_env() == :prod do
       []
     end
 
+  # Mirrors serviceradar_core's runtime.exs. A job is only rescued once it has
+  # been executing longer than any legitimate run, so this is deliberately far
+  # above the slowest maintenance job rather than a tight timeout.
+  oban_lifeline_rescue_after_ms =
+    "OBAN_LIFELINE_RESCUE_AFTER_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
+    |> String.to_integer()
+
   oban_config = [
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -822,6 +837,14 @@ if config_env() == :prod do
     ],
     plugins: [
       Oban.Plugins.Pruner,
+      # Rescues jobs left `executing` by a node that died without releasing them.
+      # Without this the row is never reclaimed: demo carried an
+      # IdentityReconciliationWorker stuck executing for 13 days, claimed by a pod
+      # that no longer existed. With `unique: [states: :incomplete]` such an orphan
+      # also blocks every future insert of that worker, so one dead node
+      # permanently stalls its pipeline. serviceradar_core's runtime.exs has always
+      # configured this; the release config did not.
+      {Oban.Plugins.Lifeline, rescue_after: oban_lifeline_rescue_after_ms},
       {Cron, crontab: []}
     ],
     peer: Oban.Peers.Database
@@ -849,7 +872,14 @@ if config_env() == :prod do
       {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
       {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
-      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
+      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
+      # Credential broker grants and secret resolution audits had no retention at
+      # all: nothing destroys a grant and nothing calls its :expire transition, so
+      # they and their paper_trail versions grew unbounded (~1.9 GB / 460k rows
+      # per table on demo). Offset from the 03:17 observability sweep so the two
+      # large deletes do not overlap.
+      {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
+       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
     ] ++ capacity_forecasting_crontab ++ ProductionSchedule.cron_entries()
 
   add_cron_entries = fn config, entries ->
@@ -912,7 +942,11 @@ if config_env() == :prod do
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
-  config :serviceradar_core, SeasonalDispositionWorker, ProductionSchedule.seasonal_disposition_worker_config()
+
+  config :serviceradar_core,
+         SeasonalDispositionWorker,
+         ProductionSchedule.seasonal_disposition_worker_config()
+
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
   config :serviceradar_core, ServiceRadar.FlowAttribution, retention_minutes: flow_attribution_retention_minutes
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
@@ -1068,6 +1102,22 @@ if config_env() == :prod do
           processor: ServiceRadar.EventWriter.Processors.TrivyReports,
           batch_size: 100,
           batch_timeout: 1_000
+        },
+        # Public VIP / Gateway ownership inventory (add-k8s-public-endpoint-inventory).
+        # Filter must overlap stream subjects created by serviceradar-k8s-inventory
+        # (inventory.k8s.public_endpoints[+.>]), not the broader inventory.k8s.>.
+        %{
+          name: "K8S_INVENTORY",
+          stream_name: "k8s_inventory",
+          subject: "inventory.k8s.public_endpoints",
+          processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
+          batch_size: 1,
+          batch_timeout: 2_000,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 1_073_741_824,
+          stream_max_age: 86_400_000_000_000
         },
         %{
           name: "OTEL_METRICS",

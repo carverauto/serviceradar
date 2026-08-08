@@ -1,3 +1,10 @@
+const QUERIES = {
+  scans: "in:endpoint_inventory_status current:true sort:last_scan_at:desc limit:200",
+  packages: "in:endpoint_packages current:true sort:updated_at:desc limit:120",
+  packageRollup: "in:endpoint_packages rollup_stats:current_counts limit:60",
+  cpes: "in:endpoint_packages rollup_stats:current_cpe_counts limit:60",
+}
+
 export function mountEndpointInventory(element, host, api) {
   const state = {host, api}
 
@@ -35,79 +42,152 @@ function dashboardHtml(host) {
   const unknown = Math.max(scans.length - fresh - stale, 0)
   const packageRows = sum(scans.map((row) => row.package_count))
   const linkedPackages = recent.filter((row) => deviceUid(row)).length
+  const maxHosts = maxHostCount(packages)
 
   return `
-    <section class="min-w-0 space-y-5 overflow-x-hidden">
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        ${metricCard("Inventory devices", number(scans.length), `${number(fresh)} fresh / ${number(stale)} stale`, stale > 0 ? "warning" : "ok")}
-        ${metricCard("Package rows", number(packageRows || recent.length), "Current endpoint package inventory", packageRows > 0 || recent.length > 0 ? "ok" : "neutral")}
-        ${metricCard("Package rollups", number(packages.length), "Top shared packages across hosts", packages.length > 0 ? "ok" : "neutral")}
-        ${metricCard("Device-linked packages", `${percent(linkedPackages, recent.length)}`, `${number(linkedPackages)} of ${number(recent.length)} recent rows`, linkedPackages === recent.length ? "ok" : "warning")}
+    <section class="sr-pkg-dash">
+      <div class="sr-pkg-kpi-grid">
+        ${metricCard({
+          title: "Inventory devices",
+          value: number(scans.length),
+          caption: `${number(fresh)} fresh / ${number(stale)} stale`,
+          status: stale > 0 ? "warning" : "ok",
+          query: QUERIES.scans,
+        })}
+        ${metricCard({
+          title: "Package rows",
+          value: number(packageRows || recent.length),
+          caption: "Current endpoint package inventory",
+          status: packageRows > 0 || recent.length > 0 ? "ok" : "neutral",
+          query: QUERIES.packages,
+        })}
+        ${metricCard({
+          title: "Package rollups",
+          value: number(packages.length),
+          caption: "Top shared packages across hosts",
+          status: packages.length > 0 ? "ok" : "neutral",
+          query: QUERIES.packageRollup,
+        })}
+        ${metricCard({
+          title: "Device-linked packages",
+          value: percent(linkedPackages, recent.length),
+          caption: `${number(linkedPackages)} of ${number(recent.length)} recent rows`,
+          status: linkedPackages === recent.length && recent.length > 0 ? "ok" : "warning",
+          query: QUERIES.packages,
+        })}
       </div>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+      <div class="sr-pkg-main-grid">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Endpoint Scan Coverage</h2>
-              <p class="text-xs text-base-content/60">Current endpoint inventory scan state by device</p>
+              <h2>Endpoint Scan Coverage</h2>
+              <p>Current endpoint inventory scan state by device</p>
             </div>
-            <button type="button" data-srql="scans" class="btn btn-xs btn-ghost">Open SRQL</button>
+            <button type="button" data-srql="scans" class="sr-pkg-btn">Open SRQL</button>
+          </header>
+          <div class="sr-pkg-table-head sr-pkg-cols-scan">
+            <span>Device</span>
+            <span>Agent</span>
+            <span>State</span>
+            <span>Packages</span>
+            <span>Last scan</span>
           </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Device</th>
-                  <th>Agent</th>
-                  <th>Freshness</th>
-                  <th>Packages</th>
-                  <th>Last scan</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${scans.length ? scans.slice(0, 20).map(scanRow).join("") : emptyRow("No endpoint inventory scans returned", 5)}
-              </tbody>
-            </table>
+          <div class="sr-pkg-incident-list">
+            ${
+              scans.length
+                ? scans.slice(0, 24).map(scanRow).join("")
+                : emptyState("No endpoint inventory scans returned.")
+            }
           </div>
         </section>
 
-        <section class="min-w-0 space-y-5">
-          ${freshnessPanel(fresh, stale, unknown, scans.length)}
-          ${topPackagesPanel(packages)}
-        </section>
+        <aside class="sr-pkg-side">
+          <section class="sr-pkg-panel">
+            <header class="sr-pkg-panel-header">
+              <div>
+                <h2>Freshness</h2>
+                <p>Scan age across inventory devices</p>
+              </div>
+            </header>
+            <div class="sr-pkg-status-mix">
+              ${statusBar("Fresh", fresh, scans.length, "ok")}
+              ${statusBar("Stale", stale, scans.length, "warning")}
+              ${statusBar("Unknown", unknown, scans.length, "unknown")}
+            </div>
+          </section>
+
+          <section class="sr-pkg-panel">
+            <header class="sr-pkg-panel-header">
+              <div>
+                <h2>Top Packages</h2>
+                <p>Most common packages across hosts</p>
+              </div>
+              <button type="button" data-srql="packageRollup" class="sr-pkg-btn">Rows</button>
+            </header>
+            <div class="sr-pkg-stack">
+              ${
+                packages.length
+                  ? packages
+                      .slice(0, 10)
+                      .map((row) =>
+                        packageBar(
+                          `${row.name || "package"}${row.version ? ` ${row.version}` : ""}`,
+                          row.host_count,
+                          maxHosts
+                        )
+                      )
+                      .join("")
+                  : emptyState("No package rollups returned.")
+              }
+            </div>
+          </section>
+        </aside>
       </div>
 
-      <div class="grid gap-5 xl:grid-cols-2">
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+      <div class="sr-pkg-split-grid">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Shared CPE Exposure</h2>
-              <p class="text-xs text-base-content/60">CPE identifiers present across current endpoint inventories</p>
+              <h2>Shared CPE Exposure</h2>
+              <p>CPE identifiers present across current endpoint inventories</p>
             </div>
-            <button type="button" data-srql="cpes" class="btn btn-xs btn-ghost">Open SRQL</button>
+            <button type="button" data-srql="cpes" class="sr-pkg-btn">Open SRQL</button>
+          </header>
+          <div class="sr-pkg-table-head sr-pkg-cols-cpe">
+            <span>CPE</span>
+            <span>Hosts</span>
+            <span>Last seen</span>
           </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead><tr><th>CPE</th><th>Hosts</th><th>Last seen</th></tr></thead>
-              <tbody>${cpes.length ? cpes.slice(0, 14).map(cpeRow).join("") : emptyRow("No CPE rollups returned", 3)}</tbody>
-            </table>
+          <div class="sr-pkg-incident-list">
+            ${
+              cpes.length
+                ? cpes.slice(0, 16).map(cpeRow).join("")
+                : emptyState("No CPE rollups returned.")
+            }
           </div>
         </section>
 
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+        <section class="sr-pkg-panel">
+          <header class="sr-pkg-panel-header">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Recent Packages</h2>
-              <p class="text-xs text-base-content/60">Current package rows tied back to devices</p>
+              <h2>Recent Packages</h2>
+              <p>Current package rows tied back to devices</p>
             </div>
-            <button type="button" data-srql="packages" class="btn btn-xs btn-ghost">Open SRQL</button>
+            <button type="button" data-srql="packages" class="sr-pkg-btn">Open SRQL</button>
+          </header>
+          <div class="sr-pkg-table-head sr-pkg-cols-pkg">
+            <span>Package</span>
+            <span>Device</span>
+            <span>Manager</span>
+            <span>Updated</span>
           </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead><tr><th>Package</th><th>Device</th><th>Manager</th><th>Updated</th></tr></thead>
-              <tbody>${recent.length ? recent.slice(0, 16).map(packageRow).join("") : emptyRow("No package rows returned", 4)}</tbody>
-            </table>
+          <div class="sr-pkg-incident-list">
+            ${
+              recent.length
+                ? recent.slice(0, 18).map(packageRow).join("")
+                : emptyState("No package rows returned.")
+            }
           </div>
         </section>
       </div>
@@ -116,114 +196,113 @@ function dashboardHtml(host) {
 }
 
 function bindActions(element, api) {
-  const queries = {
-    scans: "in:endpoint_inventory_status current:true sort:last_scan_at:desc limit:200",
-    packages: "in:endpoint_packages current:true sort:updated_at:desc limit:120",
-    cpes: "in:endpoint_packages rollup_stats:current_cpe_counts limit:60",
-  }
-
   for (const button of element.querySelectorAll("[data-srql]")) {
     button.addEventListener("click", () => {
-      const query = queries[button.dataset.srql]
+      const query = QUERIES[button.dataset.srql]
+      if (query) api.setSrqlQuery(query)
+    })
+  }
+
+  for (const button of element.querySelectorAll("[data-srql-query]")) {
+    button.addEventListener("click", () => {
+      const query = button.getAttribute("data-srql-query")
       if (query) api.setSrqlQuery(query)
     })
   }
 }
 
-function scanRow(row) {
+function metricCard({title, value, caption, status, query}) {
+  const tone = toneClass(status)
   return `
-    <tr>
-      <td>
+    <button
+      type="button"
+      class="sr-pkg-kpi ${tone}"
+      data-srql-query="${escapeAttr(query || "")}"
+      ${query ? "" : "disabled"}
+    >
+      <div class="sr-pkg-kpi-top">
+        <span class="sr-pkg-kpi-label">${escapeHtml(title)}</span>
+        <span class="sr-pkg-kpi-dot" aria-hidden="true"></span>
+      </div>
+      <strong class="sr-pkg-kpi-value">${escapeHtml(value)}</strong>
+      <span class="sr-pkg-kpi-caption">${escapeHtml(caption)}</span>
+    </button>
+  `
+}
+
+function scanRow(row) {
+  const state = freshness(row)
+  return `
+    <article class="sr-pkg-row sr-pkg-cols-scan">
+      <div class="sr-pkg-cell-main">
         ${deviceLink(row)}
-        <div class="text-xs text-base-content/50">${escapeHtml(row.scan_id || "")}</div>
-      </td>
-      <td class="text-xs text-base-content/70">${escapeHtml(row.agent_id || "unknown")}</td>
-      <td>${freshnessBadge(freshness(row))}</td>
-      <td>${number(row.package_count)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.last_scan_at || row.last_successful_scan_at))}</td>
-    </tr>
+        <small class="sr-pkg-mono">${escapeHtml(row.scan_id || "")}</small>
+      </div>
+      <div class="sr-pkg-cell-muted">${escapeHtml(row.agent_id || "unknown")}</div>
+      <div>${freshnessBadge(state)}</div>
+      <div class="sr-pkg-cell-num">${number(row.package_count)}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(
+        formatTime(row.last_scan_at || row.last_successful_scan_at)
+      )}</div>
+    </article>
   `
 }
 
 function packageRow(row) {
   const name = [row.name, row.version].filter(Boolean).join("@") || row.canonical_purl || "Package"
+  const purl = row.canonical_purl || row.purl_canonical || row.purl || ""
   return `
-    <tr>
-      <td>
-        <div class="font-medium text-base-content">${escapeHtml(name)}</div>
-        <div class="max-w-lg truncate text-xs text-base-content/60">${escapeHtml(row.canonical_purl || row.purl_canonical || row.purl || "")}</div>
-      </td>
-      <td>${deviceLink(row)}</td>
-      <td class="text-xs text-base-content/70">${escapeHtml(row.package_manager || row.ecosystem || "unknown")}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.updated_at || row.last_seen_at))}</td>
-    </tr>
+    <article class="sr-pkg-row sr-pkg-cols-pkg">
+      <div class="sr-pkg-cell-main">
+        <strong>${escapeHtml(name)}</strong>
+        <small class="sr-pkg-mono">${escapeHtml(purl)}</small>
+      </div>
+      <div>${deviceLink(row)}</div>
+      <div class="sr-pkg-cell-muted">${escapeHtml(row.package_manager || row.ecosystem || "unknown")}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(
+        formatTime(row.updated_at || row.last_seen_at)
+      )}</div>
+    </article>
   `
 }
 
 function cpeRow(row) {
   return `
-    <tr>
-      <td><div class="max-w-xl truncate text-xs font-medium text-base-content">${escapeHtml(row.cpe || "unknown")}</div></td>
-      <td>${number(row.host_count)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.last_seen_at))}</td>
-    </tr>
-  `
-}
-
-function freshnessPanel(fresh, stale, unknown, total) {
-  return `
-    <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-      <h2 class="text-base font-semibold text-base-content">Freshness</h2>
-      <div class="mt-4 space-y-3">
-        ${statusBar("Fresh", fresh, total, "ok")}
-        ${statusBar("Stale", stale, total, "warning")}
-        ${statusBar("Unknown", unknown, total, "neutral")}
+    <article class="sr-pkg-row sr-pkg-cols-cpe">
+      <div class="sr-pkg-cell-main">
+        <strong class="sr-pkg-mono">${escapeHtml(row.cpe || "unknown")}</strong>
       </div>
-    </section>
-  `
-}
-
-function topPackagesPanel(packages) {
-  return `
-    <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-base font-semibold text-base-content">Top Packages</h2>
-        <button type="button" data-srql="packages" class="btn btn-xs btn-ghost">Rows</button>
-      </div>
-      <div class="mt-4 space-y-3">
-        ${
-          packages.length
-            ? packages.slice(0, 8).map((row) => statusBar(`${row.name || "package"}${row.version ? ` ${row.version}` : ""}`, row.host_count, maxHostCount(packages), "info")).join("")
-            : `<p class="text-sm text-base-content/60">No package rollups returned.</p>`
-        }
-      </div>
-    </section>
-  `
-}
-
-function metricCard(title, value, caption, tone) {
-  return `
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-sm font-medium text-base-content/70">${escapeHtml(title)}</h2>
-        <span class="h-2.5 w-2.5 rounded-full ${toneClass(tone)}"></span>
-      </div>
-      <div class="mt-3 text-3xl font-semibold tracking-normal text-base-content">${escapeHtml(value)}</div>
-      <p class="mt-1 text-xs text-base-content/60">${escapeHtml(caption)}</p>
+      <div class="sr-pkg-cell-num">${number(row.host_count)}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.last_seen_at))}</div>
     </article>
+  `
+}
+
+function packageBar(label, count, total) {
+  const pct = total > 0 ? Math.round((Number(count || 0) / Number(total)) * 100) : 0
+  return `
+    <div class="sr-pkg-mix-row">
+      <div class="sr-pkg-mix-labels">
+        <span class="sr-pkg-mix-name" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+        <span class="sr-pkg-mix-count">${number(count)} <em>(${pct}%)</em></span>
+      </div>
+      <div class="sr-pkg-mix-track">
+        <div class="sr-pkg-mix-fill is-ok" style="width: ${Math.max(pct, count > 0 ? 4 : 0)}%"></div>
+      </div>
+    </div>
   `
 }
 
 function statusBar(label, count, total, tone) {
   const pct = total > 0 ? Math.round((Number(count || 0) / Number(total)) * 100) : 0
   return `
-    <div>
-      <div class="mb-1 flex items-center justify-between gap-3 text-xs">
-        <span class="truncate text-base-content/70">${escapeHtml(label)}</span>
-        <span class="font-medium text-base-content">${number(count)}${total > 0 ? ` (${pct}%)` : ""}</span>
+    <div class="sr-pkg-mix-row">
+      <div class="sr-pkg-mix-labels">
+        <span class="sr-pkg-mix-name">${escapeHtml(label)}</span>
+        <span class="sr-pkg-mix-count">${number(count)} <em>(${pct}%)</em></span>
       </div>
-      <div class="h-2 overflow-hidden rounded-full bg-base-200">
-        <div class="h-full ${toneClass(tone)}" style="width: ${Math.max(pct, count > 0 && total <= 0 ? 8 : 0)}%"></div>
+      <div class="sr-pkg-mix-track">
+        <div class="sr-pkg-mix-fill is-${escapeAttr(tone)}" style="width: ${pct}%"></div>
       </div>
     </div>
   `
@@ -231,8 +310,8 @@ function statusBar(label, count, total, tone) {
 
 function freshnessBadge(value) {
   const normalized = value || "unknown"
-  const klass = normalized === "fresh" ? "badge-success" : normalized === "stale" ? "badge-warning" : "badge-neutral"
-  return `<span class="badge badge-sm ${klass}">${escapeHtml(normalized)}</span>`
+  const tone = normalized === "fresh" ? "ok" : normalized === "stale" ? "warning" : "unknown"
+  return `<span class="sr-pkg-badge is-${escapeAttr(tone)}">${escapeHtml(normalized)}</span>`
 }
 
 function freshness(row) {
@@ -276,8 +355,21 @@ function deviceName(row) {
 function deviceLink(row) {
   const uid = deviceUid(row)
   const name = deviceName(row)
-  if (!uid) return `<span class="text-xs text-base-content/60">${escapeHtml(name)}</span>`
-  return `<a class="link link-primary text-xs" href="/devices/${encodeURIComponent(uid)}">${escapeHtml(name)}</a>`
+  if (!uid) {
+    return `<span class="sr-pkg-device-name">${escapeHtml(name)}</span>`
+  }
+  return `<a class="sr-pkg-device-link" href="/devices/${encodeURIComponent(uid)}">${escapeHtml(name)}</a>`
+}
+
+function emptyState(message) {
+  return `<div class="sr-pkg-empty">${escapeHtml(message)}</div>`
+}
+
+function toneClass(status) {
+  if (status === "ok") return "is-ok"
+  if (status === "warning") return "is-warning"
+  if (status === "critical") return "is-critical"
+  return "is-neutral"
 }
 
 function frameMap(host) {
@@ -295,8 +387,8 @@ function sum(values) {
   return values.reduce((total, value) => total + numberValue(value), 0)
 }
 
-function maxHostCount(rows) {
-  return Math.max(...rows.map((row) => numberValue(row.host_count)), 0)
+function maxHostCount(list) {
+  return Math.max(...list.map((row) => numberValue(row.host_count)), 0)
 }
 
 function numberValue(value) {
@@ -314,14 +406,6 @@ function percent(value, total) {
   return `${Math.round((value / total) * 100)}%`
 }
 
-function toneClass(tone) {
-  if (tone === "critical") return "bg-error"
-  if (tone === "warning") return "bg-warning"
-  if (tone === "ok") return "bg-success"
-  if (tone === "info") return "bg-info"
-  return "bg-neutral"
-}
-
 function formatTime(value) {
   if (!value) return "n/a"
   const date = new Date(value)
@@ -334,10 +418,6 @@ function stringAt(value, path) {
   return typeof found === "string" && found.trim() ? found.trim() : null
 }
 
-function emptyRow(message, colspan) {
-  return `<tr><td colspan="${colspan}" class="py-8 text-center text-sm text-base-content/60">${escapeHtml(message)}</td></tr>`
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -345,4 +425,8 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("`", "&#96;")
 }

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: serviceradar-k8s-edge
+description: |
+  Edge-only ServiceRadar sensors for Kubernetes clusters that do not run the
+  full ServiceRadar platform. Deploys a cluster agent (outbound mTLS to
+  agent-gateway) plus optional public endpoint inventory (kube API watches).
+type: application
+version: 0.1.0
+appVersion: "1.4.29"
+keywords:
+  - serviceradar
+  - kubernetes
+  - edge
+  - agent
+  - inventory
+  - saas
+home: https://serviceradar.cloud
+sources:
+  - https://github.com/carverauto/serviceradar

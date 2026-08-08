@@ -109,7 +109,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     assert Enum.all?(durable, &(&1["reason"] == "transport_failed"))
   end
 
-  test "a target update failure rolls back operation and execution state" do
+  test "a target update failure rolls back operation, execution, and hold state" do
     fixture = fixture(:running)
     missing_target = %{fixture.target | id: Ash.UUID.generate()}
 
@@ -126,13 +126,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     assert {:ok, execution} = AutomationExecution.get_by_id(fixture.execution.id, actor: @actor)
     assert {:ok, target} = AutomationExecutionTarget.get_by_id(fixture.target.id, actor: @actor)
 
-    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+    # Active-hold reads are optional lookups (not_found_error?: false).
+    assert {:ok, nil} =
              AutomationTargetHold.get_active_for_device(fixture.device_uid, actor: @actor)
 
     assert operation.state == :running
     assert execution.state == :running
     assert target.status == :pending
-    assert Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
   end
 
   defp fixture(state) do
@@ -140,6 +140,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
     controller_id = Ash.UUID.generate()
     membership_id = Ash.UUID.generate()
     device_uid = "sr:secure-execution-db-#{suffix}"
+    source_fingerprint = "sha256:" <> String.duplicate("d", 64)
 
     SQL.query!(Repo, "INSERT INTO platform.ocsf_devices (uid) VALUES ($1)", [device_uid])
 
@@ -166,7 +167,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
               'farm01-pve01', '192.168.2.22', true, true,
               (now() AT TIME ZONE 'utc'), 'approved', $4)
       """,
-      [membership_id, controller_id, device_uid, "secure-execution-db-#{suffix}"]
+      [membership_id, controller_id, device_uid, source_fingerprint]
     )
 
     {:ok, operation} =
@@ -231,6 +232,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
           inventory_id: 34,
           awx_host_id: 7,
           membership_generation: 3,
+          source_fingerprint: source_fingerprint,
           host_name: "farm01-pve01",
           ansible_host: "192.168.2.22",
           snapshot_digest: String.duplicate("d", 64)

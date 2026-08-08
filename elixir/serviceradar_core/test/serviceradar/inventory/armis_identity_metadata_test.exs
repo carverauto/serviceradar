@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.IdentifierRecords
   alias ServiceRadar.Inventory.Sync.Lookups
   alias ServiceRadar.Inventory.Sync.Normalize
+  alias ServiceRadar.Inventory.Sync.SourcePolicy
 
   test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
@@ -38,6 +39,8 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
         }
       })
 
+    ids = Ids.extract_strong_identifiers(update)
+
     assert {:armis_device_id, "18497", "default"} in Lookups.extract_all_identifiers([update])
     refute {:integration_id, "50000", "default"} in Lookups.extract_all_identifiers([update])
 
@@ -52,6 +55,15 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
     refute Enum.any?(records, fn record ->
              record.identifier_type == :integration_id
            end)
+
+    # Policy check, mirroring how Lookups/IdentifierRecords derive `ids`:
+    # Armis carries a typed, source-authoritative identifier, so its raw
+    # integration_id must NOT also be offered as a device identity.
+    ids = SourcePolicy.effective_identifiers(update)
+    id_types = SourcePolicy.identifier_types(update, ids)
+
+    assert :armis_device_id in id_types
+    refute :integration_id in id_types
   end
 
   test "generic integration IDs are scoped by sync source and keep raw value lookup-only" do
@@ -91,6 +103,36 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
     refute Enum.any?(records, fn record ->
              record.identifier_type == :integration_id and
                record.identifier_value == "shared-device-42"
+           end)
+  end
+
+  test "Armis typed identifiers are partition-scoped by sync source" do
+    update =
+      Normalize.normalize_update(%{
+        "hostname" => "armis-source-scoped",
+        "source" => "armis",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => "42",
+          "integration_id" => "42"
+        },
+        "sync_meta" => %{"sync_service_id" => "source-a"}
+      })
+
+    ids = Ids.extract_strong_identifiers(update)
+
+    assert ids.partition == "default:armis:source-a"
+
+    assert {:armis_device_id, "42", "default:armis:source-a"} in Lookups.extract_all_identifiers([
+             update
+           ])
+
+    records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :armis_device_id and
+               record.identifier_value == "42" and
+               record.partition == "default:armis:source-a"
            end)
   end
 end

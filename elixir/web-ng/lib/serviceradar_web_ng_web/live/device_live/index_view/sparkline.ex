@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
 
     ~H"""
     <div class="flex items-center gap-2">
-      <div class="h-8 w-20 rounded-md bg-base-200/30 px-1 py-0.5 overflow-hidden">
+      <div class="h-8 w-20 rounded-md bg-sr-subtle/30 px-1 py-0.5 overflow-hidden">
         <svg viewBox="0 0 400 120" class="w-full h-full" preserveAspectRatio="none">
           <title>{@title || "ICMP latency"}</title>
           <defs>
@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
           />
         </svg>
       </div>
-      <div class="tabular-nums text-[11px] font-bold text-base-content">
+      <div class="tabular-nums text-[11px] font-bold text-sr-ink">
         {format_ms(@latest_ms)}
       </div>
     </div>

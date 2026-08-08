@@ -500,7 +500,7 @@ sig = *:64:0
 
     #[test]
     fn parses_full_upstream_corpus() {
-        let corpus = parse(include_str!("../p0f-corpus/p0f.fp")).unwrap();
+        let corpus = parse(include_str!("../../../third_party/netprobe_corpora/p0f/p0f.fp")).unwrap();
         assert_eq!(corpus.classes, vec!["win", "unix", "other"]);
         assert_eq!(corpus.tcp_signatures.len(), 192);
         assert_eq!(corpus.other_signatures.len(), 130);
@@ -508,6 +508,6 @@ sig = *:64:0
 
     #[test]
     fn parses_serviceradar_additions_corpus() {
-        let _corpus = parse(include_str!("../p0f-corpus/serviceradar-additions.fp")).unwrap();
+        let _corpus = parse(include_str!("../../../third_party/netprobe_corpora/p0f/serviceradar-additions.fp")).unwrap();
     }
 }

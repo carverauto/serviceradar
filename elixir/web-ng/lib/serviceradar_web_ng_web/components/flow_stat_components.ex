@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
   use Phoenix.Component
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.UIComponents
 
   # ---------------------------------------------------------------------------
   # Unit formatting helpers
@@ -108,19 +109,19 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
     ~H"""
     <div class={[
-      "rounded-xl border border-base-200 bg-base-100 p-4 flex flex-col gap-1",
+      "rounded-xl border border-sr-line bg-sr-surface p-4 flex flex-col gap-1",
       @class
     ]}>
-      <div class="text-xs font-medium text-base-content/60 uppercase tracking-wide">
+      <div class="text-xs font-medium text-sr-muted uppercase tracking-wide">
         {@title}
       </div>
 
       <div :if={@loading} class="flex items-center gap-2 h-8">
-        <span class="loading loading-spinner loading-sm"></span>
+        <.ui_spinner size="sm" />
       </div>
 
       <div :if={not @loading} class="flex items-baseline gap-2">
-        <span class="text-2xl font-bold text-base-content tabular-nums">
+        <span class="text-2xl font-bold text-sr-ink tabular-nums">
           {@formatted_value}
         </span>
         <.trend_badge :if={@trend != nil} value={@trend} />
@@ -151,35 +152,36 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
 
   def top_n_table(assigns) do
     ~H"""
-    <div class={["rounded-xl border border-base-200 bg-base-100 overflow-hidden", @class]}>
-      <div :if={@title} class="px-4 py-3 bg-base-200/40 border-b border-base-200">
-        <h3 class="text-sm font-semibold text-base-content">{@title}</h3>
+    <div class={["rounded-xl border border-sr-line bg-sr-surface overflow-hidden", @class]}>
+      <div :if={@title} class="px-4 py-3 bg-sr-subtle/40 border-b border-sr-line">
+        <h3 class="text-sm font-semibold text-sr-ink">{@title}</h3>
       </div>
 
       <div :if={@loading} class="flex items-center justify-center py-8">
-        <span class="loading loading-spinner loading-md"></span>
+        <.ui_spinner size="md" />
       </div>
 
       <div
         :if={not @loading and @rows == []}
-        class="px-4 py-8 text-center text-base-content/50 text-sm"
+        class="px-4 py-8 text-center text-sr-muted text-sm"
       >
         {@empty_message}
       </div>
 
-      <table :if={not @loading and @rows != []} class="table table-sm table-zebra w-full">
+      <table
+        :if={not @loading and @rows != []}
+        class={ui_table_class(size: "sm", zebra: true, class: "w-full")}
+      >
         <thead>
           <tr>
             <th class="w-8 text-center">#</th>
-            <th :for={col <- @columns} class="text-xs uppercase tracking-wide">
-              {col_label(col)}
-            </th>
+            <th :for={col <- @columns}>{col_label(col)}</th>
           </tr>
         </thead>
         <tbody>
           <tr
             :for={{row, idx} <- Enum.with_index(@rows, 1)}
-            class={[@on_row_click && "cursor-pointer hover:bg-base-200/60"]}
+            class={[@on_row_click && "cursor-pointer hover:bg-sr-subtle/60"]}
             phx-click={@on_row_click}
             phx-value-row-idx={@on_row_click && idx - 1}
             phx-value-row={
@@ -190,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
                 end
             }
           >
-            <td class="text-center text-base-content/50 font-mono text-xs">{idx}</td>
+            <td class="text-center text-sr-muted font-mono text-xs">{idx}</td>
             <td :for={col <- @columns} class="text-sm">
               {format_cell(col, row)}
             </td>
@@ -245,7 +247,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       id={@id}
       phx-hook="FlowDonut"
       data-slices={@data_json}
-      class={["rounded-xl border border-base-200 bg-base-100 p-4", @class]}
+      class={["rounded-xl border border-sr-line bg-sr-surface p-4", @class]}
     >
       <div class="flex items-center justify-center" style={"height: #{@height}px"}>
         <canvas class="max-w-full max-h-full"></canvas>
@@ -294,7 +296,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
     <div
       id={@id}
       class={[
-        "rounded-xl border border-base-200 bg-base-100 p-4 flex flex-col items-center gap-2",
+        "rounded-xl border border-sr-line bg-sr-surface p-4 flex flex-col items-center gap-2",
         @class
       ]}
     >
@@ -305,11 +307,11 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       >
         <span class="text-sm font-bold">{@pct}%</span>
       </div>
-      <div :if={@label} class="text-xs font-medium text-base-content/70">{@label}</div>
-      <div class="text-xs text-base-content/50 flex items-center gap-1">
-        <span :if={@rate_kind} class="badge badge-xs badge-ghost font-medium uppercase">
+      <div :if={@label} class="text-xs font-medium text-sr-muted">{@label}</div>
+      <div class="text-xs text-sr-muted flex items-center gap-1">
+        <.ui_badge :if={@rate_kind} size="xs" variant="ghost" class="font-medium uppercase">
           {@rate_kind}
-        </span>
+        </.ui_badge>
         <span>{@current_label}: {@formatted_current} / {@formatted_capacity}</span>
       </div>
     </div>
@@ -327,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.FlowStatComponents do
       cond do
         assigns.value > 0 -> {"hero-arrow-trending-up-mini", "text-success"}
         assigns.value < 0 -> {"hero-arrow-trending-down-mini", "text-error"}
-        true -> {"hero-minus-mini", "text-base-content/50"}
+        true -> {"hero-minus-mini", "text-sr-muted"}
       end
 
     assigns =

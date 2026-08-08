@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowAccess
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Format
 
+  alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
@@ -18,31 +20,31 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   def render(assigns) do
     ~H"""
     <div class="w-full">
-      <table class="table table-zebra table-sm w-full table-fixed">
+      <table class={ui_table_class(size: "sm", zebra: true, fixed: true, class: "w-full")}>
         <thead>
           <tr>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-32">
               Time
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Source
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60">
               Destination
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-20 text-right">
               Proto
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-16 text-right">
               Source
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-28 text-right">
               Attribution
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-28 text-right">
               {flows_table_traffic_header(@unit_mode)}
             </th>
-            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
+            <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-10 text-right">
             </th>
           </tr>
         </thead>
@@ -55,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
             <% src_cc = flow_get(flow, ["src_country_iso2"]) || Map.get(@geo_iso2_map, src_ip) %>
             <% dst_cc = flow_get(flow, ["dst_country_iso2"]) || Map.get(@geo_iso2_map, dst_ip) %>
 
-            <tr class="hover:bg-base-200/40">
+            <tr class="hover:bg-sr-subtle/40">
               <% t_raw = flow_get(flow, ["time", "timestamp"]) %>
               <td class="whitespace-nowrap text-xs font-mono truncate overflow-hidden" title={t_raw}>
                 <span id={"nf-time-#{idx}"} phx-hook="LocalTime" data-iso={t_raw}>
@@ -88,17 +90,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                     >
                       {src_ip || "—"}
                     </span>
-                    <span class="shrink-0 text-base-content/60">
+                    <span class="shrink-0 text-sr-muted">
                       {if src_port, do: ":#{src_port}", else: ""}
                     </span>
                   </div>
                   <div
                     :if={hostname = Map.get(@rdns_map, src_ip)}
-                    class="mt-0.5 text-[11px] text-base-content/60 truncate font-mono"
+                    class="mt-0.5 text-[11px] text-sr-muted truncate font-mono"
                     title={hostname}
                   >
                     {hostname}
                   </div>
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :src),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="text-xs font-mono min-w-0">
@@ -127,17 +138,26 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                     >
                       {dst_ip || "—"}
                     </span>
-                    <span class="shrink-0 text-base-content/60">
+                    <span class="shrink-0 text-sr-muted">
                       {if dst_port, do: ":#{dst_port}", else: ""}
                     </span>
                   </div>
                   <div
                     :if={hostname = Map.get(@rdns_map, dst_ip)}
-                    class="mt-0.5 text-[11px] text-base-content/60 truncate font-mono"
+                    class="mt-0.5 text-[11px] text-sr-muted truncate font-mono"
                     title={hostname}
                   >
                     {hostname}
                   </div>
+                  <PrefixTagChips.linked items={
+                    linked_prefix_tag_items(
+                      flow_prefix_tags(flow, :dst),
+                      @base_path,
+                      @query,
+                      @limit,
+                      @nf_param
+                    )
+                  } />
                 </div>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
@@ -149,7 +169,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                   </.ui_badge>
                   <div
                     :if={is_binary(app) and String.trim(app) != "" and app != "unknown"}
-                    class="text-[10px] text-base-content/60 font-mono"
+                    class="text-[10px] text-sr-muted font-mono"
                   >
                     {app}
                   </div>
@@ -173,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                 </.ui_badge>
                 <span
                   :if={!is_binary(flow_src) or flow_src == "Unknown"}
-                  class="text-base-content/40"
+                  class="text-sr-muted"
                 >
                   —
                 </span>
@@ -193,7 +213,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                     <% {bits_val, bits_unit} = format_bits_parts(raw_bytes) %>
                     <div class="flex flex-col items-end leading-tight">
                       <div>{packets || "—"}</div>
-                      <div class="flex items-baseline gap-1 text-[10px] text-base-content/60">
+                      <div class="flex items-baseline gap-1 text-[10px] text-sr-muted">
                         <span>{bits_val}</span>
                         <span :if={bits_unit != ""} class="uppercase">{bits_unit}</span>
                       </div>
@@ -202,7 +222,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
                     <% {bytes_val, bytes_unit} = format_bytes_parts(raw_bytes) %>
                     <div class="flex flex-col items-end leading-tight">
                       <div>{packets || "—"}</div>
-                      <div class="flex items-baseline gap-1 text-[10px] text-base-content/60">
+                      <div class="flex items-baseline gap-1 text-[10px] text-sr-muted">
                         <span>{bytes_val}</span>
                         <span :if={bytes_unit != ""} class="uppercase">{bytes_unit}</span>
                       </div>
@@ -265,7 +285,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
         </tbody>
       </table>
 
-      <div :if={@flows == []} class="py-10 text-center text-base-content/60">
+      <div :if={@flows == []} class="py-10 text-center text-sr-muted">
         No flows in this window.
       </div>
     </div>
@@ -288,12 +308,45 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
       </.ui_badge>
       <div
         :if={Map.get(@attribution, :attributed?)}
-        class="max-w-28 truncate text-[10px] text-base-content/60"
+        class="max-w-28 truncate text-[10px] text-sr-muted"
         title={Map.get(@attribution, :process_label)}
       >
         {Map.get(@attribution, :process_label)}
       </div>
     </div>
     """
+  end
+
+  # Kept as a thin wrapper for unit tests that still call the table module API.
+  def prefix_tag_chips(assigns) do
+    items =
+      linked_prefix_tag_items(
+        assigns[:tags] || [],
+        assigns.base_path,
+        assigns.query,
+        assigns.limit,
+        assigns[:nf_param]
+      )
+
+    PrefixTagChips.linked(%{items: items})
+  end
+
+  defp flow_prefix_tags(flow, side) when side in [:src, :dst] do
+    prefix = to_string(side)
+
+    tags =
+      flow_get(flow, ["#{prefix}_prefix_tags"]) ||
+        flow_get_in(flow, ["ocsf_payload", "enrichment", "#{prefix}_prefix_tags"])
+
+    PrefixTagChips.normalize_tags(tags, 4)
+  end
+
+  defp linked_prefix_tag_items(tags, base_path, query, limit, nf_param) do
+    Enum.map(tags, fn tag ->
+      %{
+        tag: tag,
+        path: flows_filter_patch(base_path, query, limit, nf_param, "tag", tag)
+      }
+    end)
   end
 end

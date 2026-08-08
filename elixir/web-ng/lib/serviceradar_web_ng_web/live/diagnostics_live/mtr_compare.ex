@@ -285,9 +285,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       <div class="p-4 md:p-6 space-y-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="flex items-center gap-3">
-            <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
+            <.ui_button navigate={~p"/diagnostics/mtr"} size="sm" variant="ghost">
               <.icon name="hero-chevron-left" class="size-4" /> Back
-            </.link>
+            </.ui_button>
             <div>
               <h1 class="text-2xl font-bold">MTR Comparison</h1>
               <p class="sr-mtr-muted mt-1 text-sm">
@@ -296,29 +296,27 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
             </div>
           </div>
 
-          <div class="join">
-            <.link
+          <div class="flex flex-wrap gap-1">
+            <.ui_button
               patch={compare_path(%{"mode" => mode_window()})}
-              class={[
-                "join-item btn btn-sm",
-                if(@mode == mode_window(), do: "btn-primary", else: "btn-outline")
-              ]}
+              size="sm"
+              variant={if(@mode == mode_window(), do: "primary", else: "outline")}
+              active={@mode == mode_window()}
             >
               Time Windows
-            </.link>
-            <.link
+            </.ui_button>
+            <.ui_button
               patch={compare_path(%{"mode" => mode_trace()})}
-              class={[
-                "join-item btn btn-sm",
-                if(@mode == mode_trace(), do: "btn-primary", else: "btn-outline")
-              ]}
+              size="sm"
+              variant={if(@mode == mode_trace(), do: "primary", else: "outline")}
+              active={@mode == mode_trace()}
             >
               Trace Pair
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-error">
+        <div :if={@error} class={ui_alert_class("error")}>
           <span>{@error}</span>
         </div>
 
@@ -342,9 +340,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     ~H"""
     <form phx-submit="compare_trace" class="sr-mtr-panel p-4">
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
-        <div class="form-control">
-          <label class="label"><span class="label-text">Trace A</span></label>
-          <select name="a" class="select select-bordered select-sm w-full">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Trace A</span>
+          </label>
+          <select name="a" class={ui_field_class(size: "sm", class: "w-full")}>
             <option value="">Select trace...</option>
             <%= for t <- @recent_traces do %>
               <option value={t["id"]} selected={@trace_a && @trace_a["id"] == t["id"]}>
@@ -353,9 +353,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
             <% end %>
           </select>
         </div>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Trace B</span></label>
-          <select name="b" class="select select-bordered select-sm w-full">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Trace B</span>
+          </label>
+          <select name="b" class={ui_field_class(size: "sm", class: "w-full")}>
             <option value="">Select trace...</option>
             <%= for t <- @recent_traces do %>
               <option value={t["id"]} selected={@trace_b && @trace_b["id"] == t["id"]}>
@@ -364,7 +366,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
             <% end %>
           </select>
         </div>
-        <button type="submit" class="btn btn-sm btn-primary">Compare Traces</button>
+        <.ui_button type="submit" size="sm" variant="primary">Compare Traces</.ui_button>
       </div>
     </form>
     """
@@ -382,8 +384,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <.trace_summary_card label="Trace B" trace={@trace_b} />
       </div>
 
-      <div class="overflow-x-auto sr-mtr-panel">
-        <table class="table table-sm sr-mtr-table">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
           <thead>
             <tr>
               <th class="w-12">Hop</th>
@@ -442,38 +444,46 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     ~H"""
     <form phx-submit="compare_windows" class="sr-mtr-panel p-4 space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <div class="form-control">
-          <label class="label"><span class="label-text">Preset</span></label>
-          <select name="window[preset]" class="select select-bordered select-sm w-full">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Preset</span>
+          </label>
+          <select name="window[preset]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for {label, value} <- preset_options() do %>
               <option value={value} selected={@state.preset == value}>{label}</option>
             <% end %>
           </select>
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Target</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Target</span>
+          </label>
           <input
             name="window[target]"
             value={@state.target_filter}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
             placeholder="target or IP"
           />
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Source Agent</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Source Agent</span>
+          </label>
           <input
             name="window[agent]"
             value={@state.agent_filter}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
             placeholder="any agent"
           />
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Protocol</span></label>
-          <select name="window[protocol]" class="select select-bordered select-sm w-full">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Protocol</span>
+          </label>
+          <select name="window[protocol]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for protocol <- protocol_options() do %>
               <option value={protocol} selected={@state.protocol == protocol}>
                 {if protocol == "", do: "Any", else: String.upcase(protocol)}
@@ -482,9 +492,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           </select>
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Reachability</span></label>
-          <select name="window[reached]" class="select select-bordered select-sm w-full">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Reachability</span>
+          </label>
+          <select name="window[reached]" class={ui_field_class(size: "sm", class: "w-full")}>
             <%= for reached <- reached_filter_options() do %>
               <option value={reached} selected={@state.reached == reached}>
                 {reached_label(reached)}
@@ -493,8 +505,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           </select>
         </div>
 
-        <div class="form-control justify-end">
-          <button type="submit" class="btn btn-sm btn-primary">Compare Windows</button>
+        <div class="flex flex-col gap-1.5 justify-end">
+          <.ui_button type="submit" size="sm" variant="primary">Compare Windows</.ui_button>
         </div>
       </div>
 
@@ -502,40 +514,48 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         "grid grid-cols-1 gap-3 lg:grid-cols-4",
         if(@state.preset == preset_custom(), do: "", else: "hidden")
       ]}>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Window A Start</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window A Start</span>
+          </label>
           <input
             type="datetime-local"
             name="window[a_start]"
             value={window_input_value(@state.window_a.start)}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
           />
         </div>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Window A End</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window A End</span>
+          </label>
           <input
             type="datetime-local"
             name="window[a_end]"
             value={window_input_value(@state.window_a.end)}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
           />
         </div>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Window B Start</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window B Start</span>
+          </label>
           <input
             type="datetime-local"
             name="window[b_start]"
             value={window_input_value(@state.window_b.start)}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
           />
         </div>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Window B End</span></label>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Window B End</span>
+          </label>
           <input
             type="datetime-local"
             name="window[b_end]"
             value={window_input_value(@state.window_b.end)}
-            class="input input-bordered input-sm w-full"
+            class={ui_field_class(size: "sm", class: "w-full")}
           />
         </div>
       </div>
@@ -643,13 +663,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
             {baseline_note_text(@comparison)}
           </div>
         </div>
-        <.link
+        <.ui_button
           :if={@state.preset == preset_today_vs_yesterday()}
           navigate={compare_elapsed_path(@state)}
-          class="btn btn-xs btn-outline shrink-0"
+          size="xs"
+          variant="outline"
+          class="shrink-0"
         >
           Compare same hours
-        </.link>
+        </.ui_button>
       </div>
     </div>
     """
@@ -688,7 +710,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           >
             {radial_value(@summary.success_rate)}%
           </div>
-          <div class="btn btn-sm btn-outline pointer-events-none">
+          <div class="pointer-events-none inline-flex min-h-9 items-center justify-center rounded-sr-control border border-sr-line-strong px-3 text-sm font-semibold text-sr-ink">
             View Traces
           </div>
         </div>
@@ -728,9 +750,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           <div class="sr-mtr-value text-2xl">{@b_value}</div>
         </.link>
       </div>
-      <div class={["badge badge-sm mt-3", delta_badge_class(@delta, @higher_is_better)]}>
+      <.ui_badge size="sm" variant={delta_badge_variant(@delta, @higher_is_better)} class="mt-3">
         {format_delta(@delta, @unit)}
-      </div>
+      </.ui_badge>
     </div>
     """
   end
@@ -794,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
                 {signature["trace_count"]} traces, {signature["agent_count"]} agents
               </div>
             </div>
-            <div class="btn btn-xs btn-outline shrink-0 pointer-events-none">
+            <div class="pointer-events-none inline-flex min-h-7 shrink-0 items-center justify-center rounded-sr-control border border-sr-line-strong px-2 text-xs font-semibold text-sr-ink">
               Inspect
             </div>
           </div>
@@ -829,7 +851,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <div class="sr-mtr-muted text-xs">reachability by source</div>
       </div>
       <div class="mt-4 overflow-x-auto">
-        <table class="table table-sm sr-mtr-table">
+        <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
           <thead>
             <tr>
               <th>Agent</th>
@@ -843,7 +865,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="font-mono text-xs">
                 <.link
                   navigate={compare_agent_path(@state, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"Compare only #{row["agent_id"]}"}
                 >
                   {row["agent_id"]}
@@ -852,7 +874,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="text-right">
                 <.link
                   navigate={diagnostics_agent_window_path(@state, :a, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"View Window A traces for #{row["agent_id"]}"}
                 >
                   {format_percent(row["a_success_rate"])} ({row["a_trace_count"]})
@@ -861,19 +883,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
               <td class="text-right">
                 <.link
                   navigate={diagnostics_agent_window_path(@state, :b, row["agent_id"])}
-                  class="link link-hover sr-mtr-title"
+                  class="text-sr-brand hover:underline sr-mtr-title"
                   title={"View Window B traces for #{row["agent_id"]}"}
                 >
                   {format_percent(row["b_success_rate"])} ({row["b_trace_count"]})
                 </.link>
               </td>
               <td class="text-right">
-                <span class={[
-                  "badge badge-sm",
-                  delta_badge_class((row["a_success_rate"] || 0) - (row["b_success_rate"] || 0), true)
-                ]}>
+                <.ui_badge
+                  size="sm"
+                  variant={
+                    delta_badge_variant(
+                      (row["a_success_rate"] || 0) - (row["b_success_rate"] || 0),
+                      true
+                    )
+                  }
+                >
                   {format_delta((row["a_success_rate"] || 0) - (row["b_success_rate"] || 0), "points")}
-                </span>
+                </.ui_badge>
               </td>
             </tr>
             <tr :if={@rows == []}>
@@ -1281,15 +1308,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_delta(_, "latency_us"), do: "0us"
   defp format_delta(_, unit), do: "0 #{unit}"
 
-  defp delta_badge_class(delta, higher_is_better) when is_number(delta) do
+  defp delta_badge_variant(delta, higher_is_better) when is_number(delta) do
     cond do
-      delta == 0 -> "badge-ghost"
-      (delta > 0 and higher_is_better) or (delta < 0 and not higher_is_better) -> "badge-success"
-      true -> "badge-error"
+      delta == 0 -> "ghost"
+      (delta > 0 and higher_is_better) or (delta < 0 and not higher_is_better) -> "success"
+      true -> "error"
     end
   end
 
-  defp delta_badge_class(_delta, _higher_is_better), do: "badge-ghost"
+  defp delta_badge_variant(_delta, _higher_is_better), do: "ghost"
 
   defp timeline_bucket_class(row) do
     trace_count = Map.get(row, "trace_count") || 0

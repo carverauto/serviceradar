@@ -6,7 +6,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/cmd/agent-updater",
     visibility = ["//visibility:private"],
     deps = [
-        "//go/pkg/agent:agent",
+        "//go/pkg/agent",
         "//go/pkg/agent/addon",
     ],
 )

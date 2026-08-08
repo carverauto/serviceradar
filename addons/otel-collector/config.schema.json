@@ -4,6 +4,32 @@
   "description": "Operator configuration delivered over the Configure RPC and parsed into the otel crate's collector config. Omitted output defaults to durable gateway relay through the supervising agent (otlp-relay:v1). Set output.backend to jetstream, with nats settings, when the edge has a local NATS leaf and should publish directly.",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "required": ["output"],
+        "properties": {
+          "output": {
+            "properties": { "backend": { "const": "jetstream" } }
+          }
+        }
+      },
+      "then": {
+        "required": ["nats"],
+        "properties": {
+          "nats": {
+            "required": ["url", "tls"],
+            "not": { "required": ["creds_file"] },
+            "properties": {
+              "tls": {
+                "required": ["cert_file", "key_file", "ca_file"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "server": {
       "type": "object",
@@ -124,7 +150,7 @@
     "nats": {
       "type": "object",
       "additionalProperties": false,
-      "description": "NATS/JetStream output settings used only when output.backend is jetstream. Point url at the local NATS leaf for direct-to-leaf edge durability.",
+      "description": "NATS/JetStream output settings used only when output.backend is jetstream. Point url at the registered local NATS leaf and use add-on-owned mTLS files for direct-to-leaf edge durability. Base onboarding never supplies these files.",
       "required": ["url"],
       "properties": {
         "url": { "type": "string" },
@@ -137,7 +163,10 @@
           "type": "string",
           "default": "events"
         },
-        "creds_file": { "type": "string" },
+        "creds_file": {
+          "type": "string",
+          "description": "Reserved for a future short-lived, add-on-scoped credential flow. It is not accepted by the initial direct-leaf capability. Never place this in the base agent onboarding bundle."
+        },
         "timeout_secs": {
           "type": "integer",
           "minimum": 1,
@@ -165,11 +194,24 @@
         "tls": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["cert_file", "key_file"],
+          "required": ["cert_file", "key_file", "ca_file"],
+          "description": "The paths are retained for compatibility with the add-on config contract. For a ready direct assignment, the control plane injects the short-lived assignment certificate as cert_pem/key_pem/ca_pem at delivery time; those values are never included in the base onboarding bundle.",
           "properties": {
             "cert_file": { "type": "string" },
             "key_file": { "type": "string" },
-            "ca_file": { "type": "string" }
+            "ca_file": { "type": "string" },
+            "cert_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped client certificate PEM. Do not configure in a persisted operator profile."
+            },
+            "key_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped private key PEM. Do not configure in a persisted operator profile."
+            },
+            "ca_pem": {
+              "type": "string",
+              "description": "Control-plane injected assignment-scoped CA chain PEM. Do not configure in a persisted operator profile."
+            }
           }
         }
       }

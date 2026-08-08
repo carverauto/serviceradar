@@ -373,8 +373,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
           <% end %>
         </div>
-        
-    <!-- JSON Preview Modal -->
+
+        <!-- JSON Preview Modal -->
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -392,7 +392,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">Host Health Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) configured
             </p>
           </div>
@@ -404,10 +404,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
@@ -418,20 +418,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="6" class="text-center text-base-content/60 py-8">
+              <td colspan="6" class="text-center text-sr-muted py-8">
                 No sysmon profiles configured. Create one to start monitoring systems.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     phx-click="toggle_profile"
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
-                    </span>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                 </td>
@@ -439,25 +438,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <div class="flex items-center gap-2">
                     <.link
                       navigate={~p"/settings/sysmon/#{profile.id}/edit"}
-                      class="font-medium hover:text-primary"
+                      class="font-medium hover:text-sr-brand"
                     >
                       {profile.name}
                     </.link>
                   </div>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
                   <%= if profile.target_query && profile.target_query != "" do %>
                     <code
-                      class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
+                      class="font-mono text-[11px] bg-sr-subtle/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
                       title={profile.target_query}
                     >
                       {profile.target_query}
                     </code>
                   <% else %>
-                    <span class="text-base-content/40">No targeting (will not match devices)</span>
+                    <span class="text-sr-muted">No targeting (will not match devices)</span>
                   <% end %>
                 </td>
                 <td class="font-mono text-xs">
@@ -555,31 +554,35 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       >
         <!-- Basic Info Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Basic Information
           </h3>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="label"><span class="label-text">Profile Name</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:name]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., Production Servers"
                 required
               />
             </div>
             <div>
-              <label class="label"><span class="label-text">Sample Interval</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Sample Interval</span>
+              </label>
               <.input
                 type="text"
                 field={@form[:sample_interval]}
-                class="input input-bordered w-full"
+                class={ui_field_class(class: "w-full")}
                 placeholder="e.g., 10s, 1m, 30s"
               />
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
                   How often to collect metrics (e.g., 10s, 1m, 500ms)
                 </span>
               </label>
@@ -587,33 +590,37 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </div>
 
           <div>
-            <label class="label"><span class="label-text">Description</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Description</span>
+            </label>
             <.input
               type="textarea"
               field={@form[:description]}
-              class="textarea textarea-bordered w-full"
+              class={ui_field_class(class: "w-full min-h-24 py-2.5")}
               placeholder="Optional description of this profile's purpose"
               rows="2"
             />
           </div>
         </div>
-        
-    <!-- Device Targeting Section -->
+
+        <!-- Device Targeting Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Device Targeting
           </h3>
 
           <div class="space-y-4">
             <!-- Query Input with Builder Toggle -->
             <div>
-              <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+              </label>
               <div class="flex items-center gap-2">
                 <div class="flex-1">
                   <.input
                     type="text"
                     field={@form[:target_query]}
-                    class="input input-bordered w-full font-mono text-sm"
+                    class={ui_field_class(mono: true, class: "w-full text-sm")}
                     placeholder="e.g., tags.role:database hostname:%prod%"
                   />
                 </div>
@@ -626,16 +633,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <.icon name="hero-adjustments-horizontal" class="size-4" />
                 </.ui_icon_button>
               </div>
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
-                  SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
-                  <code class="bg-base-200 px-1 rounded">type:Server</code>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
+                  SRQL filters to match devices. Examples: <code class="bg-sr-subtle px-1 rounded">tags.environment:production</code>, <code class="bg-sr-subtle px-1 rounded">hostname:%prod%</code>,
+                  <code class="bg-sr-subtle px-1 rounded">type:Server</code>
                 </span>
               </label>
             </div>
-            
-    <!-- Visual Query Builder -->
-            <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
+
+            <!-- Visual Query Builder -->
+            <div :if={@builder_open} class="border border-sr-line rounded-lg p-4 bg-sr-surface/50">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-semibold">Query Builder</div>
                 <div class="flex items-center gap-2">
@@ -655,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <div class="flex flex-col gap-4">
                 <!-- Filters Section -->
                 <div class="flex flex-col gap-3">
-                  <div class="text-xs text-base-content/60 font-medium">
+                  <div class="text-xs text-sr-muted font-medium">
                     Match devices where:
                   </div>
 
@@ -669,7 +676,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                             value={filter["field"] || ""}
                             placeholder="field"
                             form="sysmon-builder-form"
-                            class="w-40 placeholder:text-base-content/40"
+                            class="w-40 placeholder:text-sr-muted"
                           />
                         <% else %>
                           <.ui_inline_select
@@ -686,7 +693,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
                         <.ui_inline_select
                           name={"builder[filters][#{idx}][op]"}
-                          class="text-xs text-base-content/70"
+                          class="text-xs text-sr-muted"
                           form="sysmon-builder-form"
                         >
                           <option
@@ -712,7 +719,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                           value={filter["value"] || ""}
                           placeholder="value"
                           form="sysmon-builder-form"
-                          class="placeholder:text-base-content/40 w-48"
+                          class="placeholder:text-sr-muted w-48"
                         />
                       </.query_builder_pill>
 
@@ -731,7 +738,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                    class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                     phx-click="builder_add_filter"
                   >
                     <.icon name="hero-plus" class="size-4" /> Add filter
@@ -739,29 +746,31 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </div>
               </div>
             </div>
-            
-    <!-- Device Count Preview -->
+
+            <!-- Device Count Preview -->
             <div :if={@target_device_count != nil} class="flex items-center gap-2">
-              <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
+              <.icon name="hero-device-phone-mobile" class="size-4 text-sr-muted" />
               <span class="text-sm">
                 <span class="font-semibold">{@target_device_count}</span>
-                <span class="text-base-content/60">device(s) match this query</span>
+                <span class="text-sr-muted">device(s) match this query</span>
               </span>
             </div>
-            
-    <!-- Priority -->
+
+            <!-- Priority -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label class="label"><span class="label-text">Priority</span></label>
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-sr-ink">Priority</span>
+                </label>
                 <.input
                   type="number"
                   field={@form[:priority]}
-                  class="input input-bordered w-full"
+                  class={ui_field_class(class: "w-full")}
                   min="0"
                   max="100"
                 />
-                <label class="label">
-                  <span class="label-text-alt text-base-content/50">
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-xs text-sr-muted">
                     Higher priority profiles are evaluated first (0-100)
                   </span>
                 </label>
@@ -769,10 +778,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </div>
           </div>
         </div>
-        
-    <!-- Collectors Section -->
+
+        <!-- Collectors Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Metric Collectors
           </h3>
 
@@ -781,110 +790,112 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
               <.input
                 type="checkbox"
                 field={@form[:collect_cpu]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">CPU</span>
+              <span class="text-sm font-medium text-sr-ink">CPU</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
                 type="checkbox"
                 field={@form[:collect_memory]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Memory</span>
+              <span class="text-sm font-medium text-sr-ink">Memory</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
                 type="checkbox"
                 field={@form[:collect_disk]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Disk</span>
+              <span class="text-sm font-medium text-sr-ink">Disk</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
                 type="checkbox"
                 field={@form[:collect_network]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Network</span>
+              <span class="text-sm font-medium text-sr-ink">Network</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
               <.input
                 type="checkbox"
                 field={@form[:collect_processes]}
-                class="checkbox checkbox-primary checkbox-sm"
+                class={ui_checkbox_class()}
               />
-              <span class="label-text">Processes</span>
+              <span class="text-sm font-medium text-sr-ink">Processes</span>
             </label>
           </div>
-          <p class="text-xs text-base-content/50">
+          <p class="text-xs text-sr-muted">
             Note: Process collection can be resource-intensive on systems with many processes.
           </p>
 
           <div class="max-w-xs">
-            <label class="label">
-              <span class="label-text">Process sample limit</span>
-              <span class="label-text-alt text-base-content/50">Default 25, 0 = unlimited</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Process sample limit</span>
+              <span class="text-xs text-sr-muted">Default 25, 0 = unlimited</span>
             </label>
             <.input
               type="number"
               field={@form[:process_limit]}
               min="0"
               step="1"
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
             />
           </div>
         </div>
-        
-    <!-- Disk Paths Section -->
+
+        <!-- Disk Paths Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Paths
           </h3>
 
           <div>
-            <label class="label">
-              <span class="label-text">Mount Points to Monitor (optional)</span>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Mount Points to Monitor (optional)</span>
             </label>
             <.input
               type="text"
               field={@form[:disk_paths]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="/, /data, /var"
             />
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Leave empty to collect all disks. Use a comma-separated list to restrict collection.
               </span>
             </label>
           </div>
         </div>
-        
-    <!-- Disk Excludes Section -->
+
+        <!-- Disk Excludes Section -->
         <div class="space-y-4">
-          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-sr-muted">
             Disk Excludes
           </h3>
 
           <div>
-            <label class="label"><span class="label-text">Mount Points to Exclude</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Mount Points to Exclude</span>
+            </label>
             <.input
               type="text"
               field={@form[:disk_exclude_paths]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="/var/lib/docker, /var/lib/kubelet"
             />
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-xs text-sr-muted">
                 Comma-separated list of mount points to ignore when collecting all disks.
               </span>
             </label>
           </div>
         </div>
-        
-    <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+
+        <!-- Actions -->
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/sysmon"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>
@@ -900,7 +911,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       <:header>
         <div class="text-sm font-semibold">Compiled Config Preview</div>
       </:header>
-      <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-64">{@json_preview}</pre>
+      <pre class="bg-sr-subtle/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-64">{@json_preview}</pre>
     </.ui_panel>
     """
   end
@@ -910,16 +921,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp json_preview_modal(assigns) do
     ~H"""
-    <div class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-4">Compiled Config Preview</h3>
-        <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
-        <div class="modal-action">
-          <button phx-click="close_preview" class="btn">Close</button>
-        </div>
-      </div>
-      <div class="modal-backdrop" phx-click="close_preview"></div>
-    </div>
+    <.ui_modal id="sysmon-json-preview-modal" on_cancel="close_preview">
+      <:title>Compiled Config Preview</:title>
+      <pre class="max-h-96 overflow-x-auto rounded-lg border border-sr-line bg-sr-subtle/60 p-4 font-mono text-xs text-sr-ink">{@json_preview}</pre>
+      <:actions>
+        <.ui_button phx-click="close_preview" size="sm" variant="neutral">Close</.ui_button>
+      </:actions>
+    </.ui_modal>
     """
   end
 

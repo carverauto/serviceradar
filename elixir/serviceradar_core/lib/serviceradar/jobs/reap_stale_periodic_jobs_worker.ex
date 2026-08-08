@@ -22,9 +22,8 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
 
   @default_stale_threshold_minutes 240
   @self_scheduled_workers [
-    "ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker",
+    "ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker",
     "ServiceRadar.Credentials.PluginIntegrationReconcileWorker",
-    "ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker",
     "ServiceRadar.Edge.AgentCommandCleanupWorker",
     "ServiceRadar.Identity.CliAuthCleanupWorker",
     "ServiceRadar.Inventory.DeviceCleanupWorker",
@@ -46,6 +45,8 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Observability.StatefulAlertCleanupWorker",
     "ServiceRadar.Observability.ThreatIntelFeedRefreshWorker",
     "ServiceRadar.Plugins.AddonProfileReconcileWorker",
+    "ServiceRadar.Plugins.AddonRolloutWorker",
+    "ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker",
     "ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker",
     "ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker",
     "ServiceRadar.SweepJobs.SweepDataCleanupWorker",

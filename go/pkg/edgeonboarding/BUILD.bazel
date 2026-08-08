@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "edgeonboarding",
@@ -12,14 +12,29 @@ go_library(
         "download.go",
         "http_client.go",
         "nats_config.go",
-        "token.go",
         "spire.go",
+        "token.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/edgeonboarding",
     visibility = ["//visibility:public"],
     deps = [
-        "//go/pkg/edgeonboarding/mtls",
         "//go/pkg/logger",
         "//go/pkg/models",
+    ],
+)
+
+go_test(
+    name = "edgeonboarding_test",
+    srcs = [
+        "agent_enroll_test.go",
+        "download_test.go",
+        "spire_test.go",
+        "token_test.go",
+    ],
+    embed = [":edgeonboarding"],
+    deps = [
+        "//go/pkg/models",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
     ],
 )

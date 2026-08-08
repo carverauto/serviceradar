@@ -213,7 +213,9 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       last_value("vm.total_run_queue_lengths.total"),
       last_value("vm.total_run_queue_lengths.cpu"),
       last_value("vm.total_run_queue_lengths.io")
-    ] ++ ServiceRadarTelemetry.camera_relay_metrics()
+    ] ++
+      ServiceRadarTelemetry.camera_relay_metrics() ++
+      ServiceRadarTelemetry.prefix_tag_metrics()
   end
 
   # A last_value gauge with a dedicated event name matching the full metric

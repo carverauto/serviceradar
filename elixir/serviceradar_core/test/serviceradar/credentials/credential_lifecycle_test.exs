@@ -10,6 +10,8 @@ defmodule ServiceRadar.Credentials.CredentialLifecycleTest do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
+  @moduletag :requires_app
+
   @credential_manager %{
     id: "user-1",
     role: :admin,

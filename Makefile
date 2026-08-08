@@ -27,6 +27,17 @@ GOLANGCI_LINT_TIMEOUT ?= 30m
 GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
+# Every Mix project under elixir/, in the order CI walks them. Keep this in step with
+# run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
+#
+# This list used to be copied into lint-elixir, lint-elixir-dialyzer and format-elixir
+# separately, and all three drifted: they still named `connection` and `elixir_uuid`, deleted
+# in 80c1c0fa45 when vendored deps moved under //third_party, and none of them named
+# `palisade`, which CI does lint. Because the loop runs under `set -eu` and
+# elixir_quality.sh exits non-zero on a missing directory, `make lint-elixir` -- and therefore
+# `make lint` -- died on the FIRST entry and never analyzed a single project.
+ELIXIR_PROJECTS ?= datasvc palisade serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng
+
 # Rust configuration
 CARGO ?= cargo
 RUSTFMT ?= rustfmt
@@ -136,7 +147,7 @@ verify-agent-ebpf: ## Verify checked-in agent eBPF probe artifacts are current
 
 .PHONY: push-web-ng
 push-web-ng: ## Build and push just the web-ng OCI image to the configured OCI registry (remote)
-	@bazel run --config=remote_push --stamp //docker/images:web_ng_image_amd64_push
+	@bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
 
 .PHONY: push_all
 push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to also sign+verify locally)
@@ -167,7 +178,7 @@ push_all: ## Build and push all OCI container images (set LOCAL_COSIGN_SIGN=1 to
 	if [ "$(HOST_OS)" = "Darwin" ]; then \
 		./scripts/push_all_images.sh --tag "$${effective_tag}"; \
 	else \
-		bazel run --config=remote_push --stamp //:push -- --tag "$${effective_tag}"; \
+		bazel run --config=remote --stamp //:push -- --tag "$${effective_tag}"; \
 	fi; \
 	if [ "$${LOCAL_COSIGN_SIGN:-0}" = "1" ]; then \
 		./scripts/sign-oci-publish.sh; \
@@ -380,28 +391,29 @@ endif
 .PHONY: lint-elixir
 lint-elixir: ## Run the repository-standard Elixir analyzer contract across elixir/*
 	@set -eu; \
-		projects="connection::--skip-dialyzer datasvc::--skip-dialyzer elixir_uuid::--skip-dialyzer serviceradar_agent_gateway::--skip-dialyzer serviceradar_core::--skip-dialyzer serviceradar_core_elx::--skip-dialyzer serviceradar_srql::--skip-dialyzer web-ng::--phoenix --skip-dialyzer"; \
-	for entry in $$projects; do \
-		project="$${entry%%::*}"; \
-		args="$${entry#*::}"; \
+	for project in $(ELIXIR_PROJECTS); do \
+		extra=""; \
+		if [ "$${project}" = "web-ng" ]; then extra="--phoenix"; fi; \
 		echo "$(COLOR_BOLD)Running Elixir quality ($${project})$(COLOR_RESET)"; \
-		./scripts/elixir_quality.sh --project "elixir/$${project}" $$args; \
+		./scripts/elixir_quality.sh --project "elixir/$${project}" --skip-dialyzer $${extra}; \
 	done
 
 .PHONY: lint-elixir-dialyzer
 lint-elixir-dialyzer: ## Run Dialyzer across elixir/* on demand
 	@set -eu; \
-		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
-	for project in $$projects; do \
+	for project in $(ELIXIR_PROJECTS); do \
 		echo "$(COLOR_BOLD)Running Elixir Dialyzer ($${project})$(COLOR_RESET)"; \
 		(cd "elixir/$${project}" && mix deps.get && mix deps.compile && mix compile && mix dialyzer); \
 	done
 
+.PHONY: format
+format: ## Run the CI clippy gate over the Rust workspace
+	@./scripts/lint-rust.sh
+
 .PHONY: format-elixir
 format-elixir: ## Run mix format across the Elixir projects under elixir/*
 	@set -eu; \
-		projects="connection datasvc elixir_uuid serviceradar_agent_gateway serviceradar_core serviceradar_core_elx serviceradar_srql web-ng"; \
-	for project in $$projects; do \
+	for project in $(ELIXIR_PROJECTS); do \
 		echo "$(COLOR_BOLD)Formatting Elixir project ($${project})$(COLOR_RESET)"; \
 		(cd "elixir/$${project}" && mix format); \
 	done
@@ -412,7 +424,20 @@ lint-go: get-golangcilint ## Run Go linting checks
 	@$(GOLANGCI_LINT) run --timeout $(GOLANGCI_LINT_TIMEOUT) $$(go list -f '{{.Dir}}' $(GO_LINT_PACKAGES))
 
 .PHONY: test
-test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
+test: ## Run every unit test the way CI does (bazel, remote, opt)
+	@echo "$(COLOR_BOLD)Running all unit tests via bazel$(COLOR_RESET)"
+	@bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+
+# Everything CI runs before it will accept a release, in one command. `test-toolchains`
+# below is the per-language path (go test / cargo test / vitest / mix precommit); it is
+# NOT a substitute, because it does not build or run the bazel test targets. Elixir unit
+# shards live only in bazel, so two broken Elixir suites reached a release tag while the
+# per-language target stayed green. Run this before cutting anything.
+.PHONY: test-unit
+test-unit: test ## Alias for `test` (bazel unit tests)
+
+.PHONY: test-toolchains
+test-toolchains: $(TEST_PREREQS) get-bun ## Per-language tests + Go coverage profiles (not a CI substitute)
 	@echo "$(COLOR_BOLD)Running Go short tests$(COLOR_RESET)"
 	@$(GO) test $(GO_TEST_TAGS) -timeout=45s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
@@ -439,10 +464,16 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	@./scripts/test-integration.sh
 
 .PHONY: test-all
-test-all: test test-integration ## Run the full test suite including serviceradar_core integration tests
+test-all: test test-toolchains test-integration ## Bazel unit tests + per-language tests + integration tests
+
+.PHONY: check
+check: ## Pre-push gate: pull, then build + test + race-test everything on the remote cache
+	@./scripts/check.sh
 
 .PHONY: check-coverage
-check-coverage: test ## Check test coverage against thresholds
+# Depends on test-toolchains, not test: the thresholds are checked against the
+# cover.*.profile files that only the Go leg of test-toolchains writes.
+check-coverage: test-toolchains ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
 	@$(GO) run ./main.go --config=./.github/.testcoverage.yml
 

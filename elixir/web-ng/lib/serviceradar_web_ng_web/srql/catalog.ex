@@ -106,6 +106,48 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "addon_fleet",
+      label: "Add-on Fleet",
+      route: "/settings/agents/addons/fleet",
+      default_time: "",
+      default_sort_field: "category",
+      default_sort_dir: "asc",
+      default_filter_field: "category",
+      filter_fields: [
+        "agent_uid",
+        "agent_label",
+        "addon_id",
+        "addon_name",
+        "assigned_version",
+        "observed_state",
+        "observed_version",
+        "category",
+        "reason_code",
+        "rollout_state",
+        "update_policy",
+        "package_status",
+        "degradation_reason",
+        "assigned",
+        "active",
+        "evidence_age_seconds"
+      ],
+      boolean_fields: ["assigned", "active"],
+      numeric_fields: ["evidence_age_seconds"],
+      known_values: %{
+        "category" => [
+          "healthy",
+          "updating",
+          "action_required",
+          "unavailable",
+          "expected_inactive",
+          "observed_only"
+        ],
+        "assigned" => ["true", "false"],
+        "active" => ["true", "false"]
+      },
+      downsample: false
+    },
+    %{
       id: "devices",
       label: "Devices",
       route: "/devices",
@@ -202,12 +244,15 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "events",
       label: "Events",
-      route: "/events",
+      route: "/observability/events",
+      route_params: %{},
       default_time: "last_7d",
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
+        "id",
+        "event_id",
         "activity_name",
         "activity_id",
         "class_uid",
@@ -231,9 +276,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "device_id",
         "source_device_uid",
         "service_radar_device_uid",
+        "host",
         "message",
         "short_message"
       ],
+      downsample: false
+    },
+    %{
+      id: "capacity_forecasts",
+      label: "Capacity Forecasts",
+      route: "/observability/health",
+      default_time: "",
+      default_sort_field: "projected_exhaustion_at",
+      default_sort_dir: "asc",
+      default_filter_field: "resource_label",
+      filter_fields: [
+        "resource_id",
+        "resource_key",
+        "resource_label",
+        "metric_name",
+        "status",
+        "skip_reason",
+        "has_exhaustion"
+      ],
+      boolean_fields: ["has_exhaustion"],
       downsample: false
     },
     %{
@@ -705,33 +771,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "alerts",
       label: "Alerts",
-      route: "/alerts",
+      route: "/observability/alerts",
+      route_params: %{},
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "title",
       filter_fields: [
+        "id",
         "title",
         "status",
         "severity",
         "source_type",
         "source_id",
         "device_uid",
-        "agent_uid"
+        "agent_uid",
+        "event_id"
       ],
       downsample: false
     },
     %{
       id: "logs",
       label: "Logs",
-      route: "/observability",
-      route_params: %{"tab" => "logs"},
+      route: "/observability/logs",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
         "uid",
+        "id",
         "device_id",
         "source_device_uid",
         "gateway_id",
@@ -741,8 +811,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "severity_number",
         "source",
         "source_ip",
+        "service_name",
+        "service",
+        "host",
+        "hostname",
+        "body",
         "message",
         "event_name",
+        "facility",
+        "scope_name",
+        "scope_version",
         "trace_id",
         "span_id",
         "ingest_identity",
@@ -759,8 +837,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_trace_summaries",
       label: "Traces",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -779,8 +857,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_traces",
       label: "Spans",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -803,8 +881,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # SRQL parses `in:traces` as an alias of `in:otel_traces` (span rows).
       id: "traces",
       label: "Spans",
-      route: "/observability",
-      route_params: %{"tab" => "traces"},
+      route: "/observability/traces",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -826,8 +904,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "otel_metrics",
       label: "Metrics",
-      route: "/observability",
-      route_params: %{"tab" => "metrics"},
+      route: "/observability/metrics",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -852,8 +930,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # `otel_metrics`. SRQL also accepts the `metric_points` alias.
       id: "otel_metric_points",
       label: "OTLP Metrics",
-      route: "/observability",
-      route_params: %{"tab" => "metrics", "mview" => "points"},
+      route: "/observability/metrics",
+      route_params: %{"mview" => "points"},
       default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -873,8 +951,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "flows",
       label: "Flows",
-      route: "/observability",
-      route_params: %{"tab" => "netflows"},
+      route: "/observability/netflows",
+      route_params: %{},
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
@@ -884,10 +962,18 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "src_ip",
         "dst_endpoint_ip",
         "dst_ip",
+        # Bidirectional: matches either endpoint, like the bare `near:` / `tag:` forms.
+        "ip",
+        "endpoint_ip",
+        "cidr",
         "src_endpoint_port",
         "src_port",
         "dst_endpoint_port",
         "dst_port",
+        # Bidirectional port (either side of the 5-tuple). Prefer `port:22` over
+        # unsupported boolean OR: `(dst_port:22 OR src_port:22)`.
+        "port",
+        "endpoint_port",
         "protocol_group",
         "protocol_name",
         "protocol_num",
@@ -898,11 +984,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_country_iso2",
         "src_cidr",
         "dst_cidr",
+        "tag",
+        "src_tag",
+        "dst_tag",
+        "near",
+        "src_near",
+        "dst_near",
         "as_path",
         "bgp_communities"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["as_path", "bgp_communities"],
+      # Address-shaped fields default to `equals`, not `contains` (see address_fields/1).
+      address_fields: [
+        "src_endpoint_ip",
+        "src_ip",
+        "dst_endpoint_ip",
+        "dst_ip",
+        "sampler_address"
+      ],
       downsample: true,
       default_bucket: "5m",
       default_agg: "sum",
@@ -956,22 +1056,52 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "container_name",
         "image",
         "runtime_source",
+        "service_name",
+        "gateway_name",
+        "exposure_class",
+        "route_name",
+        "public_endpoint_namespace",
         "src_endpoint_ip",
         "src_ip",
         "dst_endpoint_ip",
         "dst_ip",
+        # Bidirectional either-endpoint matchers (same as raw flows).
+        "ip",
+        "endpoint_ip",
         "src_endpoint_port",
         "src_port",
         "dst_endpoint_port",
         "dst_port",
+        "port",
+        "endpoint_port",
         "protocol_name",
         "protocol_num",
         "protocol_group",
         "direction",
         "app",
+        "sampler_address",
+        "tag",
+        "src_tag",
+        "dst_tag"
+      ],
+      numeric_fields: [
+        "pid",
+        "uid",
+        "src_endpoint_port",
+        "dst_endpoint_port",
+        "port",
+        "endpoint_port",
+        "protocol_num"
+      ],
+      address_fields: [
+        "src_endpoint_ip",
+        "src_ip",
+        "dst_endpoint_ip",
+        "dst_ip",
+        "ip",
+        "endpoint_ip",
         "sampler_address"
       ],
-      numeric_fields: ["pid", "uid", "src_endpoint_port", "dst_endpoint_port", "protocol_num"],
       downsample: false
     },
     %{
@@ -992,6 +1122,35 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "port",
         "protocol"
       ],
+      downsample: false
+    },
+    # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
+    %{
+      id: "public_endpoints",
+      label: "Public Endpoints",
+      route: "/inventory/public-endpoints",
+      default_time: "",
+      default_sort_field: "ip",
+      default_sort_dir: "asc",
+      default_filter_field: "ip",
+      filter_fields: [
+        "ip",
+        "hostname",
+        "port",
+        "protocol",
+        "namespace",
+        "cluster_id",
+        "exposure_class",
+        "service_name",
+        "gateway_name",
+        "route_name",
+        "route_kind",
+        "metallb_pool"
+      ],
+      known_values: %{
+        "exposure_class" => ["LoadBalancer", "Gateway", "ExternalIP"],
+        "protocol" => ["TCP", "UDP", "SCTP"]
+      },
       downsample: false
     },
     %{
@@ -1412,7 +1571,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     :boolean_fields,
     :array_fields
   ]
-  @completion_control_tokens ~w(limit: sort: time: status: type: tag: site: where group: by:)
+  # Reserved control tokens. The editor accepts `["in:", "where" | control_tokens]` and
+  # underlines anything else as unknown, so a downsample/stats token missing here renders
+  # a valid query as invalid. Keep in sync with `CONTROL_PREFIXES` in
+  # assets/js/lib/srql/tokenizer.js.
+  @completion_control_tokens ~w(limit: sort: time: status: type: tag: site: where group: by:) ++
+                               ~w(bucket: agg: value_field: series: stats:)
   @completion_tokens (
                        entity_tokens = Enum.map(@entities, &"in:#{&1.id}")
 
@@ -1432,15 +1596,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def completion_tokens, do: @completion_tokens
 
   def structured do
-    cache_key = {__MODULE__, :structured, :v1}
+    # Content-hash keyed cache so hot reloads that change filter fields (e.g.
+    # events.id) bust the previous catalog instead of serving a sticky
+    # :persistent_term snapshot until full BEAM restart.
+    cache_key = {__MODULE__, :structured, :v2}
+    catalog = structured_from_entities(@entities)
+    version = Map.fetch!(catalog, "version")
 
     case :persistent_term.get(cache_key, nil) do
-      nil ->
-        catalog = structured_from_entities(@entities)
-        :persistent_term.put(cache_key, catalog)
-        catalog
+      %{"version" => ^version} = cached ->
+        cached
 
-      catalog ->
+      _ ->
+        :persistent_term.put(cache_key, catalog)
         catalog
     end
   end
@@ -1476,8 +1644,46 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   def entity(_), do: entity("devices")
 
+  @doc """
+  Address-shaped filter fields for an entity (IP addresses and the like).
+
+  These are matched exactly by default. `contains` on an address is a substring
+  match, so `10.0.0.1` would also match `110.0.0.1` and `10.0.0.100` — never what
+  someone filtering on an address means.
+  """
+  def address_fields(entity_id) when is_binary(entity_id) do
+    entity_id |> entity() |> address_fields()
+  end
+
+  def address_fields(%{} = entity), do: Map.get(entity, :address_fields, [])
+
+  @doc """
+  Default filter operator for a field on an entity.
+
+  `contains` is the right default for free-text fields, but it is wrong for
+  fields with a structured value: booleans, numerics, and addresses are all
+  matched exactly. Callers seeding a new filter row (`Builder.default_state/2`,
+  the builder's "add filter" event) use this so the seeded operator agrees with
+  the operator list the UI actually offers for that field.
+  """
+  def default_filter_op(entity_id, field) when is_binary(entity_id) do
+    entity_id |> entity() |> default_filter_op(field)
+  end
+
+  def default_filter_op(%{} = entity, field) when is_binary(field) do
+    exact? =
+      field in Map.get(entity, :boolean_fields, []) or
+        field in Map.get(entity, :numeric_fields, []) or
+        field in address_fields(entity)
+
+    if exact?, do: "equals", else: "contains"
+  end
+
+  def default_filter_op(_entity, _field), do: "contains"
+
   defp structured_entity(%{} = entity) do
     fields = %{
+      "address" => entity |> address_fields() |> Enum.sort(),
       "array" => entity |> Map.get(:array_fields, []) |> Enum.sort(),
       "boolean" => entity |> Map.get(:boolean_fields, []) |> Enum.sort(),
       "filter" => entity |> Map.get(:filter_fields, []) |> Enum.sort(),

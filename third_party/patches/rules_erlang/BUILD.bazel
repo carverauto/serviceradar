@@ -1,4 +1,0 @@
-exports_files([
-    "skip_system_erlang.patch",
-    "add_bzlmod_build.patch",
-])

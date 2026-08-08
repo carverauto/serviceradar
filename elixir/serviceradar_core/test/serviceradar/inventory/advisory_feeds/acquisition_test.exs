@@ -3,6 +3,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
 
+  @moduletag :requires_app
+
   setup do
     root = Path.join(System.tmp_dir!(), "advisory-acq-#{System.unique_integer([:positive])}")
     System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", root)

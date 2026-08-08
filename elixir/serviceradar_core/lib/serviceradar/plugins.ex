@@ -22,6 +22,8 @@ defmodule ServiceRadar.Plugins do
     resource ServiceRadar.Plugins.AddonProfile
     resource ServiceRadar.Plugins.AddonAssignment
     resource ServiceRadar.Plugins.AddonStatus
+    resource ServiceRadar.Plugins.AddonRollout
+    resource ServiceRadar.Plugins.AddonRolloutTarget
   end
 
   authorization do

@@ -303,6 +303,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		"icmp",
 		"mtr",
 		sweepType,
+		commandTypeAdhocScan,
 		"snmp",
 		"mapper",
 		"sync",

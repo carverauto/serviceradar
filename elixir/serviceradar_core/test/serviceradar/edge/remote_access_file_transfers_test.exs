@@ -4,6 +4,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessSession
 
+  @moduletag :requires_app
+
   defmodule SessionResourceStub do
     @moduledoc false
 

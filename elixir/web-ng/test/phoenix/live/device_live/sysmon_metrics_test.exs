@@ -179,6 +179,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetricsTest do
            ]
   end
 
+  test "CPU section attributes a failed per-core query to the core response" do
+    previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
+
+    Application.put_env(:serviceradar_web_ng, :sysmon_metrics_test_responder, fn query, _opts ->
+      cond do
+        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) and String.contains?(query, "series:core_id") ->
+          {:error, :statement_timeout}
+
+        String.contains?(query, ~s|metric_type:"sysmon.cpu"|) ->
+          {:ok, %{"results" => [%{"timestamp" => "2026-07-18T04:05:00Z", "value" => 12.5}]}}
+
+        true ->
+          {:ok, %{"results" => []}}
+      end
+    end)
+
+    on_exit(fn ->
+      restore_env(:sysmon_metrics_test_responder, previous_responder)
+    end)
+
+    [cpu | _] =
+      SysmonMetrics.load_metric_sections(
+        RecordingSRQLStub,
+        [~s|device_id:"sysmon-core-timeout"|],
+        :scope
+      )
+
+    assert cpu.error == "CPU core SRQL error: :statement_timeout"
+    refute cpu.error =~ "unexpected CPU overall"
+  end
+
   test "process metrics carry a per-process CPU history series for sparklines" do
     previous_responder = Application.get_env(:serviceradar_web_ng, :sysmon_metrics_test_responder)
     now = DateTime.truncate(DateTime.utc_now(), :second)

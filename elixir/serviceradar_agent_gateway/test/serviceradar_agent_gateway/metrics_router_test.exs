@@ -6,6 +6,8 @@ defmodule ServiceRadarAgentGateway.MetricsRouterTest do
 
   alias ServiceRadarAgentGateway.MetricsRouter
 
+  @moduletag :requires_app
+
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:telemetry)
     :ok

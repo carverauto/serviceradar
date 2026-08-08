@@ -14,45 +14,46 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
 
   def sharing_settings(assigns) do
     ~H"""
-    <section class="rounded-lg border border-base-300">
-      <div class="flex flex-col gap-2 border-b border-base-300 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+    <section class="rounded-lg border border-sr-line">
+      <div class="flex flex-col gap-2 border-b border-sr-line px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 class="text-sm font-semibold">Sharing</h3>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-sr-muted">
             Visibility is {@dashboard.visibility}; explicit grants add users or reusable groups.
           </p>
         </div>
-        <span class="badge badge-outline">{length(@access_grants)} grants</span>
+        <.ui_badge size="sm" variant="outline">{length(@access_grants)} grants</.ui_badge>
       </div>
 
       <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
         <div class="space-y-3">
           <div
             :if={@access_grants == []}
-            class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+            class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted"
           >
             No explicit sharing grants yet.
           </div>
 
           <div
             :for={grant <- @access_grants}
-            class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
+            class="flex flex-col gap-3 rounded-lg border border-sr-line p-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
               <div class="text-sm font-medium">{AccessControls.grant_label(grant)}</div>
               <div class="mt-1 flex flex-wrap gap-2">
-                <span class="badge badge-sm">{grant.subject_type}</span>
-                <span class="badge badge-sm badge-outline">{grant.access}</span>
+                <.ui_badge size="sm" variant="ghost">{grant.subject_type}</.ui_badge>
+                <.ui_badge size="sm" variant="outline">{grant.access}</.ui_badge>
               </div>
             </div>
-            <button
+            <.ui_button
               type="button"
-              class="btn btn-xs btn-error btn-outline"
               phx-click="revoke_grant"
               phx-value-id={grant.id}
+              size="xs"
+              variant="outline"
             >
               <.icon name="hero-trash" class="size-4" /> Revoke
-            </button>
+            </.ui_button>
           </div>
         </div>
 
@@ -77,9 +78,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
               label="Access"
               options={AccessControls.access_select_options()}
             />
-            <button type="submit" class="btn btn-sm" disabled={@users == []}>
+            <.ui_button type="submit" disabled={@users == []} size="sm" variant="neutral">
               <.icon name="hero-user-plus" class="size-4" /> Grant User
-            </button>
+            </.ui_button>
           </.form>
 
           <.form
@@ -88,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
             as={:grant}
             phx-change="validate_group_grant"
             phx-submit="grant_group"
-            class="space-y-3 border-t border-base-300 pt-4"
+            class="space-y-3 border-t border-sr-line pt-4"
           >
             <.input
               field={@group_grant_form[:subject_group_id]}
@@ -103,9 +104,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
               label="Access"
               options={AccessControls.access_select_options()}
             />
-            <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
+            <.ui_button type="submit" disabled={@user_groups == []} size="sm" variant="neutral">
               <.icon name="hero-user-group" class="size-4" /> Grant Group
-            </button>
+            </.ui_button>
           </.form>
         </div>
       </div>
@@ -118,10 +119,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
 
   def report_schedule_settings(assigns) do
     ~H"""
-    <section class="rounded-lg border border-base-300">
-      <div class="border-b border-base-300 px-3 py-2">
+    <section class="rounded-lg border border-sr-line">
+      <div class="border-b border-sr-line px-3 py-2">
         <h3 class="text-sm font-semibold">Email Reports</h3>
-        <p class="text-xs text-base-content/55">
+        <p class="text-xs text-sr-ink/55">
           One scanner job picks up due schedules and enqueues delivery attempts.
         </p>
       </div>
@@ -130,48 +131,51 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
         <div class="space-y-3">
           <div
             :if={(@dashboard.report_schedules || []) == []}
-            class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+            class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted"
           >
             No report schedules yet.
           </div>
 
           <div
             :for={schedule <- @dashboard.report_schedules || []}
-            class="rounded-lg border border-base-300 p-3"
+            class="rounded-lg border border-sr-line p-3"
           >
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div class="text-sm font-medium">{schedule.name}</div>
-                <div class="mt-1 font-mono text-xs text-base-content/70">
+                <div class="mt-1 font-mono text-xs text-sr-muted">
                   {schedule.cron} · {schedule.timezone}
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <span class="badge badge-outline">
+                <.ui_badge size="sm" variant="outline">
                   {schedule.last_status || if(schedule.enabled, do: "enabled", else: "disabled")}
-                </span>
-                <button
+                </.ui_badge>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-ghost"
                   phx-click="toggle_report_schedule"
                   phx-value-id={schedule.id}
+                  size="xs"
+                  variant="ghost"
                 >
                   <.icon
                     name={if(schedule.enabled, do: "hero-pause", else: "hero-play")}
                     class="size-4"
                   />
-                </button>
-                <button
+                </.ui_button>
+                <.ui_button
                   type="button"
-                  class="btn btn-xs btn-ghost text-error"
                   phx-click="delete_report_schedule"
                   phx-value-id={schedule.id}
+                  size="xs"
+                  variant="ghost"
+                  class="text-error"
                 >
                   <.icon name="hero-trash" class="size-4" />
-                </button>
+                </.ui_button>
               </div>
             </div>
-            <p class="mt-2 text-xs text-base-content/70">
+            <p class="mt-2 text-xs text-sr-muted">
               Next due: {format_value(schedule.next_due_at)}
             </p>
           </div>
@@ -188,9 +192,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
           <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
           <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
           <.input field={@report_schedule_form[:recipients]} type="textarea" label="Recipients" />
-          <button type="submit" class="btn btn-sm btn-primary">
+          <.ui_button type="submit" size="sm" variant="primary">
             <.icon name="hero-envelope" class="size-4" /> Schedule Report
-          </button>
+          </.ui_button>
         </.form>
       </div>
     </section>

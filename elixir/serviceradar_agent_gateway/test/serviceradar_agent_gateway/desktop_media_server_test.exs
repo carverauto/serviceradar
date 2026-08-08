@@ -7,6 +7,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
   alias ServiceRadarAgentGateway.TestSupport.DesktopMediaFrameForwarderStub
 
+  @moduletag :requires_app
+
   setup do
     previous_identity_resolver =
       Application.get_env(:serviceradar_agent_gateway, :desktop_media_identity_resolver)

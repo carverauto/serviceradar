@@ -142,34 +142,39 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
       <header class="space-y-1">
         <div class="flex flex-wrap items-center gap-2">
           <h1 class="text-2xl font-semibold">Launch reviewed Ansible playbook</h1>
-          <span class="badge badge-success badge-sm">ServiceRadar secured</span>
+          <.ui_badge size="sm" variant="success">ServiceRadar secured</.ui_badge>
         </div>
-        <p class="text-sm text-base-content/70">
+        <p class="text-sm text-sr-muted">
           Targets and approval are resolved from durable ServiceRadar records, then checked again on submit.
         </p>
       </header>
 
-      <section class="card card-border bg-base-100" aria-labelledby="ansible-launch-targets-title">
-        <div class="card-body gap-3">
+      <section
+        class="sr-ui-card card-border bg-sr-surface"
+        aria-labelledby="ansible-launch-targets-title"
+      >
+        <div class="sr-ui-card-body gap-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="ansible-launch-targets-title" class="card-title text-base">Canonical targets</h2>
-            <span class="badge badge-ghost">
+            <h2 id="ansible-launch-targets-title" class="sr-ui-card-title text-base">
+              Canonical targets
+            </h2>
+            <.ui_badge size="sm" variant="ghost">
               {length(@requested_uids)} selected · {length(@devices)} visible
-            </span>
+            </.ui_badge>
           </div>
 
           <div
             :if={@requested_uids == []}
             id="ansible-launch-no-targets"
             role="alert"
-            class="alert alert-warning"
+            class={ui_alert_class("warning")}
           >
             <.icon name="hero-exclamation-triangle" class="size-5" />
             <span>Select at least one inventory device before launching.</span>
           </div>
 
           <div :if={@devices != []} class="overflow-x-auto">
-            <table id="ansible-launch-targets" class="table table-sm">
+            <table id="ansible-launch-targets" class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th>Device</th>
@@ -181,7 +186,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
                 <tr :for={device <- @devices}>
                   <td>{device.hostname || "Unnamed device"}</td>
                   <td><code class="text-xs">{device.uid}</code></td>
-                  <td><span class="badge badge-success badge-sm">Resolved</span></td>
+                  <td>
+                    <.ui_badge size="sm" variant="success">Resolved</.ui_badge>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -189,13 +196,16 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
         </div>
       </section>
 
-      <section class="card card-border bg-base-100" aria-labelledby="ansible-launch-binding-title">
-        <div class="card-body gap-4">
+      <section
+        class="sr-ui-card card-border bg-sr-surface"
+        aria-labelledby="ansible-launch-binding-title"
+      >
+        <div class="sr-ui-card-body gap-4">
           <div>
-            <h2 id="ansible-launch-binding-title" class="card-title text-base">
+            <h2 id="ansible-launch-binding-title" class="sr-ui-card-title text-base">
               Reviewed launch contract
             </h2>
-            <p class="text-sm text-base-content/60">
+            <p class="text-sm text-sr-muted">
               Credentials and execution environment are pre-bound in AWX and are never collected here.
             </p>
           </div>
@@ -221,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
                   {playbook.name}
                 </option>
               </select>
-              <p class="label">
+              <p class="flex items-center justify-between gap-2">
                 Selection is not authority; the current binding and memberships are resolved server-side.
               </p>
             </fieldset>
@@ -242,20 +252,20 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
               <div class="min-w-0">
                 <p class="text-sm font-medium">{@launch_readiness}</p>
                 <div :if={@launch_ready and @launch_resolution} class="mt-1 flex flex-wrap gap-1.5">
-                  <span class="badge badge-success badge-sm">Binding approved</span>
-                  <span class="badge badge-success badge-sm">
+                  <.ui_badge size="sm" variant="success">Binding approved</.ui_badge>
+                  <.ui_badge size="sm" variant="success">
                     {length(@launch_resolution.membership_ids)} exact target{if length(
                                                                                   @launch_resolution.membership_ids
                                                                                 ) == 1,
                                                                                 do: "",
                                                                                 else: "s"}
-                  </span>
-                  <span class="badge badge-ghost badge-sm">
+                  </.ui_badge>
+                  <.ui_badge size="sm" variant="ghost">
                     Inventory {@launch_resolution.inventory_id}
-                  </span>
-                  <span class="badge badge-ghost badge-sm">
+                  </.ui_badge>
+                  <.ui_badge size="sm" variant="ghost">
                     Binding v{@launch_resolution.binding_version}
-                  </span>
+                  </.ui_badge>
                 </div>
               </div>
             </div>
@@ -263,7 +273,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
             <div :if={@vars != []} class="space-y-3">
               <div>
                 <h3 class="text-sm font-medium">Reviewed inputs</h3>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Only typed, non-secret fields declared by the approved binding are accepted.
                 </p>
               </div>
@@ -277,24 +287,25 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
 
             <div
               :if={not is_nil(@selected_playbook_id) and @launch_ready and @vars == []}
-              class="alert alert-info"
+              class={ui_alert_class("info")}
             >
               <.icon name="hero-information-circle" class="size-5" />
               <span>This binding declares no operator inputs.</span>
             </div>
 
             <div class="card-actions items-center justify-between pt-2">
-              <.link navigate={~p"/ansible/operations"} class="link link-hover text-sm">
+              <.link navigate={~p"/ansible/operations"} class="text-sr-brand hover:underline text-sm">
                 Secure operation history
               </.link>
-              <button
+              <.ui_button
                 id="secure-ansible-launch-submit"
                 type="submit"
-                class="btn btn-primary"
                 disabled={not @launch_ready or @launch_in_progress}
+                size="sm"
+                variant="primary"
               >
                 <.icon name="hero-play" class="size-4" /> Launch securely
-              </button>
+              </.ui_button>
             </div>
           </.form>
         </div>

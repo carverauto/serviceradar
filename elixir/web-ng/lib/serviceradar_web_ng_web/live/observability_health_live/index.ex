@@ -2,6 +2,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
   require Logger
 
   @anomaly_query "in:events event_type:(anomaly,anomaly_detection) time:last_24h sort:time:desc limit:25"
@@ -15,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   @capacity_skipped_query "in:capacity_forecasts status:skipped time:last_24h sort:forecasted_at:desc limit:500"
   @capacity_skipped_top_reasons 3
   @capacity_skipped_visible_max 4
+  @srql_default_limit 25
 
   @impl true
   def mount(_params, _session, socket) do
@@ -22,22 +26,31 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
      socket
      |> assign(:page_title, "Observability Health")
      |> assign(:loading?, connected?(socket))
-     |> assign(:overview, empty_overview(:loading))}
+     |> assign(:overview, empty_overview(:loading))
+     |> assign(:capacity_query, @capacity_query)
+     |> assign(:selected_capacity, nil)
+     |> assign(:limit, @srql_default_limit)
+     |> SRQLPage.init("capacity_forecasts", default_limit: @srql_default_limit)}
   end
 
   @impl true
-  def handle_params(_params, _uri, socket) do
+  def handle_params(params, uri, socket) do
+    capacity_query = capacity_query_from_params(params)
+    socket = prefill_srql_bar(socket, capacity_query, uri)
+
     if connected?(socket) do
       scope = socket.assigns.current_scope
 
       {:noreply,
        socket
+       |> assign(:capacity_query, capacity_query)
+       |> assign(:selected_capacity, nil)
        |> assign(:loading?, true)
        |> start_async(:observability_health_overview, fn ->
-         load_overview(scope)
+         load_overview(scope, capacity_query)
        end)}
     else
-      {:noreply, socket}
+      {:noreply, assign(socket, :capacity_query, capacity_query)}
     end
   end
 
@@ -56,10 +69,53 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   end
 
   @impl true
+  def handle_event("open_capacity_row", %{"index" => index}, socket) do
+    row = Enum.at(socket.assigns.overview.capacity_rows, parse_index(index))
+
+    {:noreply, assign(socket, :selected_capacity, row)}
+  end
+
+  def handle_event("close_capacity_row", _params, socket) do
+    {:noreply, assign(socket, :selected_capacity, nil)}
+  end
+
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/health")}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "capacity_forecasts")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/observability/health")}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "capacity_forecasts")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "capacity_forecasts")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-7xl p-6 space-y-5">
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-5 p-6 font-sans">
         <.observability_chrome
           active_pane="health"
           title="Observability Health"
@@ -73,9 +129,9 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
           Some observability health queries did not complete. Showing the data that is currently available.
         </div>
 
-        <div :if={@loading?} class="rounded-lg border border-base-200 bg-base-100 p-4">
-          <div class="flex items-center gap-3 text-sm text-base-content/70">
-            <span class="loading loading-spinner loading-sm" />
+        <div :if={@loading?} class="rounded-lg border border-sr-line bg-sr-surface p-4">
+          <div class="flex items-center gap-3 text-sm text-sr-muted">
+            <.ui_spinner size="sm" />
             <span>Loading observability health...</span>
           </div>
         </div>
@@ -105,21 +161,31 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         </section>
 
         <section class="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-          <div class="rounded-lg border border-base-200 bg-base-100">
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+          <div class="rounded-lg border border-sr-line bg-sr-surface">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line px-5 py-4">
               <div>
                 <h2 class="text-base font-semibold">Capacity Runway</h2>
-                <p class="text-xs text-base-content/60">
+                <p class="text-xs text-sr-muted">
                   Forecast rows ordered by projected exhaustion.
                 </p>
               </div>
-              <.link navigate={observability_href(@overview.capacity_query)} class="btn btn-xs">
-                Open SRQL
-              </.link>
+              <.ui_button
+                navigate={~p"/observability/health?#{%{q: @capacity_query}}"}
+                size="xs"
+                variant="outline"
+              >
+                Refresh query
+              </.ui_button>
             </div>
 
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
+            <div class="border-b border-sr-line bg-sr-subtle/20 px-5 py-2">
+              <code class="block truncate font-mono text-[11px] text-sr-muted" title={@capacity_query}>
+                {@capacity_query}
+              </code>
+            </div>
+
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
                   <tr>
                     <th>Resource</th>
@@ -132,21 +198,33 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                 </thead>
                 <tbody>
                   <tr :if={@overview.capacity_rows == []}>
-                    <td colspan="6" class="py-8 text-center text-base-content/60">
+                    <td colspan="6" class="py-8 text-center text-sr-muted">
                       No projected capacity risks found.
                     </td>
                   </tr>
-                  <tr :for={row <- @overview.capacity_rows}>
-                    <td class="max-w-64 truncate">{resource_label(row)}</td>
-                    <td>{value(row, "metric_name") || "unknown"}</td>
-                    <td>
-                      <span class={["badge badge-sm", status_badge_class(value(row, "status"))]}>
-                        {value(row, "status") || "unknown"}
-                      </span>
+                  <tr
+                    :for={{row, index} <- Enum.with_index(@overview.capacity_rows)}
+                    id={"capacity-row-#{index}"}
+                    phx-click="open_capacity_row"
+                    phx-value-index={index}
+                    class="cursor-pointer transition-colors hover:bg-sr-subtle/60"
+                  >
+                    <td class="max-w-64 truncate font-medium text-sr-ink" title={resource_label(row)}>
+                      {resource_label(row)}
                     </td>
-                    <td>{format_number(value(row, "current_value"))}</td>
-                    <td>{format_number(value(row, "projected_value"))}</td>
-                    <td class="whitespace-nowrap">
+                    <td class="font-mono text-xs">{value(row, "metric_name") || "unknown"}</td>
+                    <td>
+                      <.ui_badge size="sm" variant={status_badge_variant(value(row, "status"))}>
+                        {value(row, "status") || "unknown"}
+                      </.ui_badge>
+                    </td>
+                    <td class="font-mono text-xs tabular-nums">
+                      {format_number(value(row, "current_value"))}
+                    </td>
+                    <td class="font-mono text-xs tabular-nums">
+                      {format_number(value(row, "projected_value"))}
+                    </td>
+                    <td class="whitespace-nowrap font-mono text-xs">
                       {format_timestamp(value(row, "projected_exhaustion_at"))}
                     </td>
                   </tr>
@@ -156,54 +234,66 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
             <div
               :if={show_capacity_skipped?(@overview)}
-              class="border-t border-base-200 px-5 py-3 text-xs text-base-content/60"
+              class="border-t border-sr-line px-5 py-3 text-xs text-sr-muted"
             >
               {capacity_skipped_summary(@overview.capacity_skipped)}
             </div>
           </div>
 
           <div class="space-y-3">
-            <div class="rounded-lg border border-base-200 bg-base-100 px-5 py-4">
+            <div class="rounded-lg border border-sr-line bg-sr-surface px-5 py-4">
               <h2 class="text-base font-semibold">Worst Forecasts</h2>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Current to projected movement for the nearest-risk resources.
               </p>
             </div>
 
-            <.forecast_card :for={row <- Enum.take(@overview.capacity_rows, 4)} row={row} />
+            <.forecast_card
+              :for={{row, index} <- Enum.with_index(Enum.take(@overview.capacity_rows, 4))}
+              row={row}
+              index={index}
+            />
             <div
               :if={@overview.capacity_rows == []}
-              class="rounded-lg border border-base-200 bg-base-100 p-5 text-sm text-base-content/60"
+              class="rounded-lg border border-sr-line bg-sr-surface p-5 text-sm text-sr-muted"
             >
               No forecast rows to visualize yet.
             </div>
           </div>
         </section>
 
-        <section class="rounded-lg border border-base-200 bg-base-100">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+        <section class="rounded-lg border border-sr-line bg-sr-surface">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-sr-line px-5 py-4">
             <div>
               <h2 class="text-base font-semibold">Recent Anomaly Findings</h2>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 Detection findings from the causal anomaly spine.
               </p>
             </div>
-            <.link navigate={observability_href(@overview.anomaly_query)} class="btn btn-xs">
+            <.ui_button
+              navigate={observability_href(@overview.anomaly_query)}
+              size="xs"
+              variant="outline"
+            >
               Open events
-            </.link>
+            </.ui_button>
           </div>
 
-          <div class="divide-y divide-base-200">
-            <div :if={@overview.anomaly_rows == []} class="p-6 text-sm text-base-content/60">
+          <div class="divide-y divide-sr-line">
+            <div :if={@overview.anomaly_rows == []} class="p-6 text-sm text-sr-muted">
               No anomaly findings found in the last 24 hours.
             </div>
-            <article :for={row <- @overview.anomaly_rows} class="px-5 py-4">
+            <.link
+              :for={row <- @overview.anomaly_rows}
+              navigate={anomaly_event_href(row)}
+              class="block px-5 py-4 transition-colors hover:bg-sr-subtle/50"
+            >
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="truncate text-sm font-semibold">
+                  <div class="truncate text-sm font-semibold text-sr-ink">
                     {finding_title(row)}
                   </div>
-                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-sr-muted">
                     <span>
                       {value(row, "source_type") || value(row, "log_provider") || "anomaly"}
                     </span>
@@ -211,14 +301,16 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                     <span>{format_timestamp(value(row, "time"))}</span>
                   </div>
                 </div>
-                <span class={["badge badge-sm", severity_badge_class(value(row, "severity"))]}>
+                <.ui_badge size="sm" variant={severity_badge_variant(value(row, "severity"))}>
                   {value(row, "severity") || "Unknown"}
-                </span>
+                </.ui_badge>
               </div>
-            </article>
+            </.link>
           </div>
         </section>
       </div>
+
+      <.capacity_detail_modal :if={is_map(@selected_capacity)} row={@selected_capacity} />
     </Layouts.app>
     """
   end
@@ -233,16 +325,17 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     ~H"""
     <.link
       navigate={@href}
-      class="block rounded-lg border border-base-200 bg-base-100 p-4 hover:border-primary/40"
+      class="block rounded-lg border border-sr-line bg-sr-surface p-4 hover:border-sr-brand/40"
     >
-      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">{@label}</div>
+      <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">{@label}</div>
       <div class={["mt-2 text-3xl font-semibold", stat_tone_class(@tone)]}>{@value}</div>
-      <div class="mt-1 text-xs text-base-content/60">{@detail}</div>
+      <div class="mt-1 text-xs text-sr-muted">{@detail}</div>
     </.link>
     """
   end
 
   attr :row, :map, required: true
+  attr :index, :integer, default: 0
 
   defp forecast_card(assigns) do
     current = number_value(assigns.row, "current_value")
@@ -260,34 +353,155 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       |> assign(:threshold_width, percent_width(threshold, scale))
 
     ~H"""
-    <article class="rounded-lg border border-base-200 bg-base-100 p-4">
+    <button
+      type="button"
+      phx-click="open_capacity_row"
+      phx-value-index={@index}
+      class="w-full rounded-lg border border-sr-line bg-sr-surface p-4 text-left transition-colors hover:border-sr-brand/40 hover:bg-sr-subtle/30"
+    >
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <div class="truncate text-sm font-semibold">{resource_label(@row)}</div>
-          <div class="mt-1 text-xs text-base-content/60">
+          <div class="truncate text-sm font-semibold text-sr-ink">{resource_label(@row)}</div>
+          <div class="mt-1 text-xs text-sr-muted">
             {value(@row, "metric_name") || "metric"}
           </div>
         </div>
-        <span class={["badge badge-sm", status_badge_class(value(@row, "status"))]}>
+        <.ui_badge size="sm" variant={status_badge_variant(value(@row, "status"))}>
           {value(@row, "status") || "unknown"}
-        </span>
+        </.ui_badge>
       </div>
 
       <div class="mt-4 space-y-2">
-        <.forecast_bar label="Current" value={@current} width={@current_width} class="bg-info" />
+        <.forecast_bar label="Current" value={@current} width={@current_width} class="bg-sky-400" />
         <.forecast_bar
           label="Projected"
           value={@projected}
           width={@projected_width}
-          class="bg-warning"
+          class="bg-amber-400"
         />
-        <.forecast_bar label="Threshold" value={@threshold} width={@threshold_width} class="bg-error" />
+        <.forecast_bar
+          label="Threshold"
+          value={@threshold}
+          width={@threshold_width}
+          class="bg-rose-400"
+        />
       </div>
 
-      <div class="mt-3 text-xs text-base-content/60">
+      <div class="mt-3 text-xs text-sr-muted">
         Exhaustion {format_timestamp(value(@row, "projected_exhaustion_at"))}
       </div>
-    </article>
+    </button>
+    """
+  end
+
+  attr :row, :map, required: true
+
+  defp capacity_detail_modal(assigns) do
+    device_uid = capacity_device_uid(assigns.row)
+
+    assigns =
+      assigns
+      |> assign(:device_uid, device_uid)
+      |> assign(:resource, resource_label(assigns.row))
+
+    ~H"""
+    <dialog
+      id="capacity-forecast-detail-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_capacity_row"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
+        <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold tracking-tight text-sr-ink">Capacity forecast</h2>
+            <div class="mt-1 truncate text-sm text-sr-muted" title={@resource}>{@resource}</div>
+          </div>
+          <.ui_icon_button
+            type="button"
+            phx-click="close_capacity_row"
+            aria-label="Close"
+            size="sm"
+            variant="ghost"
+          >
+            <.icon name="hero-x-mark" class="size-5" />
+          </.ui_icon_button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <.capacity_fact label="Resource" value={@resource} mono />
+          <.capacity_fact label="Metric" value={value(@row, "metric_name")} mono />
+          <.capacity_fact label="Status" value={value(@row, "status")} />
+          <.capacity_fact label="Current" value={format_number(value(@row, "current_value"))} mono />
+          <.capacity_fact
+            label="Projected"
+            value={format_number(value(@row, "projected_value"))}
+            mono
+          />
+          <.capacity_fact
+            label="Threshold"
+            value={format_number(value(@row, "exhaustion_threshold"))}
+            mono
+          />
+          <.capacity_fact
+            label="Exhaustion"
+            value={format_timestamp(value(@row, "projected_exhaustion_at"))}
+            mono
+          />
+          <.capacity_fact label="Unit" value={capacity_value_unit(@row)} mono />
+          <.capacity_fact label="Resource key" value={value(@row, "resource_key")} mono />
+          <.capacity_fact label="Resource ID" value={value(@row, "resource_id")} mono />
+          <.capacity_fact label="Skip reason" value={value(@row, "skip_reason")} />
+          <.capacity_fact
+            label="Forecasted at"
+            value={format_timestamp(value(@row, "forecasted_at"))}
+            mono
+          />
+        </div>
+
+        <div class="sr-ui-modal-action">
+          <.ui_button
+            :if={is_binary(@device_uid)}
+            navigate={~p"/devices/#{@device_uid}"}
+            size="sm"
+            variant="outline"
+          >
+            View device
+          </.ui_button>
+          <.ui_button
+            navigate={~p"/observability/health?#{%{q: capacity_row_query(@row)}}"}
+            size="sm"
+            variant="outline"
+          >
+            Filter runway
+          </.ui_button>
+          <.ui_button type="button" phx-click="close_capacity_row" size="sm" variant="ghost">
+            Close
+          </.ui_button>
+        </div>
+      </div>
+    </dialog>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+
+  defp capacity_fact(assigns) do
+    ~H"""
+    <div
+      :if={not blank_capacity?(@value)}
+      class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
+    >
+      <div class="text-[10px] font-medium uppercase tracking-wider text-sr-muted">{@label}</div>
+      <div class={[
+        "mt-1 break-all text-sm text-sr-ink",
+        @mono && "font-mono text-[13px]"
+      ]}>
+        {@value}
+      </div>
+    </div>
     """
   end
 
@@ -300,21 +514,93 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     ~H"""
     <div>
       <div class="mb-1 flex items-center justify-between gap-3 text-xs">
-        <span class="text-base-content/60">{@label}</span>
+        <span class="text-sr-muted">{@label}</span>
         <span class="font-mono">{format_number(@value)}</span>
       </div>
-      <div class="h-2 rounded-full bg-base-200">
+      <div class="h-2 rounded-full bg-sr-subtle">
         <div class={["h-2 rounded-full", @class]} style={"width: #{@width};"} />
       </div>
     </div>
     """
   end
 
-  defp load_overview(scope) do
+  defp capacity_query_from_params(params) when is_map(params) do
+    case Map.get(params, "q") do
+      q when is_binary(q) ->
+        q = String.trim(q)
+
+        if q != "" and String.contains?(q, "in:capacity_forecasts") do
+          q
+        else
+          @capacity_query
+        end
+
+      _ ->
+        @capacity_query
+    end
+  end
+
+  defp capacity_query_from_params(_), do: @capacity_query
+
+  defp prefill_srql_bar(socket, query, uri) when is_binary(query) do
+    page_path =
+      case uri do
+        path when is_binary(path) and path != "" -> URI.parse(uri).path || "/observability/health"
+        _ -> "/observability/health"
+      end
+
+    srql =
+      (socket.assigns[:srql] || %{})
+      |> Map.merge(%{
+        enabled: true,
+        entity: "capacity_forecasts",
+        query: query,
+        draft: query,
+        page_path: page_path,
+        error: nil,
+        loading: false,
+        builder_available: true,
+        builder_open: false
+      })
+      |> sync_builder_state(query)
+
+    assign(socket, :srql, srql)
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{
+          builder: builder,
+          builder_available: true,
+          builder_supported: true,
+          builder_sync: true
+        })
+
+      {:error, _} ->
+        Map.merge(srql, %{
+          builder_available: true,
+          builder_supported: false,
+          builder_sync: false
+        })
+    end
+  end
+
+  defp parse_index(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {i, _} -> i
+      :error -> -1
+    end
+  end
+
+  defp parse_index(index) when is_integer(index), do: index
+  defp parse_index(_), do: -1
+
+  defp load_overview(scope, capacity_query) do
     summary_result = query_rows(@health_query, scope)
     summary = summary_counts(summary_result)
 
-    capacity_result = query_rows(@capacity_query, scope)
+    capacity_result = query_rows(capacity_query, scope)
 
     capacity_rows =
       capacity_result
@@ -348,7 +634,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       status: status,
       anomaly_query: @anomaly_query,
       health_query: @health_query,
-      capacity_query: @capacity_query,
+      capacity_query: capacity_query,
       anomaly_rows: anomaly_rows,
       health_rows: [],
       capacity_rows: capacity_rows,
@@ -467,7 +753,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   end
 
   defp observability_href(query) do
-    "/observability?" <> URI.encode_query(%{tab: "events", q: query, limit: 50})
+    "/observability/events?" <> URI.encode_query(%{q: query})
   end
 
   defp value(%{} = row, key), do: Map.get(row, key) || Map.get(row, known_atom_key(key))
@@ -497,6 +783,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("exhaustion_threshold"), do: :exhaustion_threshold
   defp known_atom_key("projected_value"), do: :projected_value
   defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
+  defp known_atom_key("forecasted_at"), do: :forecasted_at
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("resource_id"), do: :resource_id
   defp known_atom_key("resource_key"), do: :resource_key
@@ -587,12 +874,57 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       "Unknown resource"
   end
 
+  defp capacity_device_uid(row) do
+    id = value(row, "resource_id") || value(row, "resource_key")
+
+    if is_binary(id) and String.starts_with?(id, "sr:"), do: id
+  end
+
+  defp capacity_row_query(row) do
+    resource = value(row, "resource_key") || value(row, "resource_id") || value(row, "resource_label")
+    metric = value(row, "metric_name")
+
+    resource_token =
+      if is_binary(resource) and resource != "" do
+        ~s|resource_key:"#{escape_srql(resource)}"|
+      end
+
+    metric_token =
+      if is_binary(metric) and metric != "" do
+        ~s|metric_name:"#{escape_srql(metric)}"|
+      end
+
+    ["in:capacity_forecasts", resource_token, metric_token, "sort:projected_exhaustion_at:asc", "limit:25"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp escape_srql(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
+  end
+
+  defp escape_srql(other), do: escape_srql(to_string(other))
+
+  defp blank_capacity?(nil), do: true
+  defp blank_capacity?(""), do: true
+  defp blank_capacity?("-"), do: true
+  defp blank_capacity?(_), do: false
+
   defp finding_title(row) do
     value(row, "finding_title") ||
       nested_value(row, ["metadata", "finding_info", "title"]) ||
       value(row, "message") ||
       value(row, "short_message") ||
       "Anomaly finding"
+  end
+
+  defp anomaly_event_href(row) do
+    case value(row, "id") || nested_value(row, ["metadata", "finding_info", "uid"]) do
+      id when is_binary(id) and id != "" -> ~p"/events/#{id}"
+      _ -> observability_href(@anomaly_query)
+    end
   end
 
   defp device_label(row) do
@@ -651,15 +983,18 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp stat_tone_class("warning"), do: "text-warning"
   defp stat_tone_class("error"), do: "text-error"
   defp stat_tone_class("info"), do: "text-info"
-  defp stat_tone_class(_tone), do: "text-base-content"
+  defp stat_tone_class(_tone), do: "text-sr-ink"
 
-  defp status_badge_class(status) when status in ["at_risk", "exhaustion_projected"], do: "badge-error"
-  defp status_badge_class("projected"), do: "badge-warning"
-  defp status_badge_class("skipped"), do: "badge-ghost"
-  defp status_badge_class(_status), do: "badge-outline"
+  defp status_badge_variant(status) when status in ["at_risk", "exhaustion_projected"], do: "error"
+  defp status_badge_variant("projected"), do: "warning"
+  defp status_badge_variant("skipped"), do: "ghost"
+  defp status_badge_variant(_status), do: "outline"
 
-  defp severity_badge_class(severity) when severity in ["Critical", "critical", "Fatal", "fatal"], do: "badge-error"
-  defp severity_badge_class(severity) when severity in ["High", "high"], do: "badge-warning"
-  defp severity_badge_class(severity) when severity in ["Medium", "medium"], do: "badge-info"
-  defp severity_badge_class(_severity), do: "badge-ghost"
+  defp severity_badge_variant(severity) when severity in ["Critical", "critical", "Fatal", "fatal"], do: "error"
+
+  defp severity_badge_variant(severity) when severity in ["High", "high", "Warning", "warning"], do: "warning"
+
+  defp severity_badge_variant(severity) when severity in ["Medium", "medium", "Info", "info"], do: "info"
+
+  defp severity_badge_variant(_severity), do: "ghost"
 end

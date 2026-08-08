@@ -230,7 +230,7 @@ describe("layout_topology_state_methods", () => {
     expect(positions.get("vjunos").y).toBeGreaterThanOrEqual(positions.get("core").y)
   })
 
-  it("computeBackboneLayeredPositions keeps hosted virtualization islands separate from the backbone", () => {
+  it("computeBackboneLayeredPositions keeps backbone-attached hypervisors in the backbone", () => {
     const context = makeContext()
     const graph = {
       nodes: [
@@ -251,13 +251,14 @@ describe("layout_topology_state_methods", () => {
     }
 
     const positions = context.computeBackboneLayeredPositions(graph, new Set())
+    const hostedLayoutNodeIds = context.hostedLayoutNodeIds(graph, new Set())
+    const backbone = context.buildBackboneAdjacency(graph, new Set())
 
-    expect(positions.get("core").x).toEqual(320)
-    expect(positions.get("switch-a").x).toBeGreaterThan(positions.get("core").x)
-    expect(positions.get("pve-a").x).toBeGreaterThan(positions.get("switch-a").x)
+    expect(Array.from(hostedLayoutNodeIds).sort()).toEqual(["guest-a", "guest-b"])
+    expect(backbone.nodeIds).toEqual(expect.arrayContaining(["core", "switch-a", "pve-a", "pve-b"]))
+    expect(Number.isFinite(positions.get("pve-a").x)).toEqual(true)
+    expect(Number.isFinite(positions.get("pve-b").x)).toEqual(true)
     expect(Math.hypot(positions.get("guest-a").x - positions.get("pve-a").x, positions.get("guest-a").y - positions.get("pve-a").y)).toBeGreaterThan(90)
-    expect(positions.get("pve-b").x).toEqual(positions.get("pve-a").x)
-    expect(positions.get("pve-b").y - positions.get("pve-a").y).toBeGreaterThan(150)
     expect(Math.hypot(positions.get("guest-b").x - positions.get("pve-b").x, positions.get("guest-b").y - positions.get("pve-b").y)).toBeGreaterThan(90)
   })
 

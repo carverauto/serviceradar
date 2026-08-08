@@ -3,6 +3,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationCacheTest do
 
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
 
+  @moduletag :requires_app
+
   setup do
     # Each test gets a freshly started cache so the named ETS table exists and
     # is empty. The cache fails open if the table is missing, so we assert on a

@@ -19,6 +19,10 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   @default_release_limit 10
   @default_reschedule_seconds 3_600
+  @bootstrap_unique [period: :infinity, states: :incomplete]
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
+  @bootstrap_states ["available", "scheduled", "executing", "retryable", "suspended"]
+  @manual_unique [period: :infinity, states: :incomplete, keys: [:force]]
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -26,7 +30,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
       if check_existing_job() do
         {:ok, :already_scheduled}
       else
-        %{} |> new(schedule_in: 60) |> ObanSupport.safe_insert()
+        %{} |> bootstrap_job(schedule_in: 60) |> ObanSupport.safe_insert()
       end
     else
       {:error, :oban_unavailable}
@@ -38,10 +42,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     args =
       %{"force" => true}
       |> maybe_put("repo_url", Keyword.get(opts, :repo_url))
+      |> maybe_put("release_tag", Keyword.get(opts, :release_tag))
       |> maybe_put("limit", Keyword.get(opts, :limit))
 
     args
-    |> new()
+    |> manual_job()
     |> ObanSupport.safe_insert()
   end
 
@@ -49,23 +54,26 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   def perform(%Oban.Job{args: args}) do
     force? = Map.get(args || %{}, "force") == true
 
-    try do
+    result =
       if force? or auto_sync_enabled?() do
         run_sync(args || %{})
       else
         Logger.debug("First-party Wasm plugin sync skipped because auto-sync is disabled")
         :ok
       end
-    after
-      if !force? do
-        schedule_next()
-      end
+
+    if !force? and result == :ok do
+      schedule_next()
     end
+
+    result
   end
 
   defp run_sync(args) do
     actor = SystemActor.system(:first_party_plugin_sync)
-    opts = [actor: actor, repo_url: repo_url(args), limit: release_limit(args)]
+
+    opts =
+      Keyword.put([actor: actor, repo_url: repo_url(args), limit: release_limit(args)], :release_tag, release_tag(args))
 
     case Packages.sync_first_party_plugins(opts) do
       {:ok, summary} ->
@@ -73,6 +81,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           "First-party Wasm plugin sync completed: discovered=#{summary.discovered} " <>
             "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
         )
+
+        log_import_failures(summary.failed)
 
         :ok
 
@@ -84,7 +94,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp schedule_next do
     if auto_sync_enabled?() and ObanSupport.available?() do
-      _ = ObanSupport.safe_insert(new(%{}, schedule_in: reschedule_seconds()))
+      case ObanSupport.safe_insert(successor_job(%{}, schedule_in: reschedule_seconds())) do
+        {:ok, %Oban.Job{}} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to schedule the next first-party Wasm plugin sync", reason: inspect(reason))
+      end
     end
 
     :ok
@@ -94,7 +110,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
     query =
       from(j in Oban.Job,
         where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: j.state in ^@bootstrap_states,
+        where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1
       )
 
@@ -107,6 +124,12 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp repo_url(args) do
     Map.get(args, "repo_url") || Keyword.get(config(), :repo_url)
+  end
+
+  defp release_tag(args) do
+    normalize_optional_string(Map.get(args, "release_tag")) ||
+      normalize_optional_string(Keyword.get(config(), :release_tag)) ||
+      normalize_optional_string(System.get_env("SERVICERADAR_RELEASE_VERSION"))
   end
 
   defp release_limit(args) do
@@ -133,6 +156,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp normalize_positive_integer(_value, default), do: default
 
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_value), do: nil
+
   defp config do
     Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
   end
@@ -140,4 +172,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp bootstrap_job(args, opts), do: new(args, Keyword.put(opts, :unique, @bootstrap_unique))
+  defp successor_job(args, opts), do: new(args, Keyword.put(opts, :unique, @successor_unique))
+  defp manual_job(args), do: new(args, unique: @manual_unique)
+
+  defp log_import_failures(failures) do
+    Enum.each(failures, fn failure ->
+      Logger.warning("First-party Wasm plugin import failed",
+        plugin_id: Map.get(failure, :plugin_id),
+        version: Map.get(failure, :version),
+        release_tag: Map.get(failure, :release_tag),
+        reason: inspect(Map.get(failure, :error), limit: 20, printable_limit: 1_000)
+      )
+    end)
+  end
 end

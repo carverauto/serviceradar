@@ -687,7 +687,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
 
   defp host_tuple(controller_id, host), do: {controller_id, host.inventory_id, host.awx_host_id}
 
+  # Device/membership rows from Ash can arrive as nil when an optional
+  # association is missing; fail closed to nil instead of FunctionClauseError
+  # so one bad row cannot abort the whole inventory membership reconcile.
+  defp field(nil, _key), do: nil
   defp field(struct_or_map, key) when is_map(struct_or_map), do: Map.get(struct_or_map, key)
+  defp field(_other, _key), do: nil
 
   defp value(map, key) when is_map(map) do
     case Map.fetch(map, key) do

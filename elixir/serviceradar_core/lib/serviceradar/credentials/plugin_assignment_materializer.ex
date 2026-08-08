@@ -7,34 +7,29 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   normal `serviceradar.plugin_inputs.v1` assignments without plugin-specific
   host lists.
 
-  The module is parameterized over a
-  `ServiceRadar.Credentials.CredentialProviderProfile`, which supplies the
-  provider-specific constants (provider string, plugin ids, purposes), the
-  credential-broker grant spec, and the stored params template. Proxmox flows
-  through `ProxmoxProfile` via thin shims so its output stays byte-identical to
-  the previous Proxmox-only implementation; camera providers (unifi-protect,
-  axis) flow through the same generic path.
+  Provider names, auth methods, purposes, plugin routes, broker grants, and
+  parameter templates come exclusively from approved plugin package manifests.
+  Core interprets the validated bounded descriptor and contains no provider
+  registry or provider-specific materialization modules.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
-  alias ServiceRadar.Credentials.CredentialProviderProfile
+  alias ServiceRadar.Credentials.CredentialIntegration
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
-  alias ServiceRadar.Credentials.ProviderProfiles.ProxmoxProfile
   alias ServiceRadar.Credentials.RuleAccessors
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
-  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
 
   require Ash.Query
 
-  @inventory_purpose :inventory_enrichment
   @reconcile_telemetry_event [:serviceradar, :credential_rules, :reconcile]
   @policy_recovery_executor SystemActor.system(:plugin_policy_assignment_recovery_executor)
 
@@ -42,66 +37,56 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   @spec reconcile_telemetry_event() :: [atom()]
   def reconcile_telemetry_event, do: @reconcile_telemetry_event
 
-  @doc """
-  Reconciles enabled Proxmox inventory credential rules that are in scope for an agent.
-  """
-  @spec reconcile_proxmox_inventory_for_agent(String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def reconcile_proxmox_inventory_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_provider_for_agent(ProxmoxProfile, agent_id, :inventory_enrichment, opts)
-  end
+  @doc "Reconciles every package-declared target-policy integration for one agent."
+  @spec reconcile_all_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def reconcile_all_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_materializer))
 
-  @doc """
-  Reconciles enabled Proxmox console credential rules that are in scope for an agent.
-  """
-  @spec reconcile_proxmox_console_for_agent(String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def reconcile_proxmox_console_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_provider_for_agent(ProxmoxProfile, agent_id, :console_access, opts)
-  end
-
-  @doc """
-  Reconciles enabled camera inventory credential rules (unifi-protect + axis) in scope for an agent.
-  """
-  @spec reconcile_camera_inventory_for_agent(String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def reconcile_camera_inventory_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_camera_for_agent(agent_id, :camera_inventory, opts)
-  end
-
-  @doc """
-  Reconciles enabled camera stream credential rules (unifi-protect + axis) in scope for an agent.
-  """
-  @spec reconcile_camera_stream_for_agent(String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def reconcile_camera_stream_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
-    reconcile_camera_for_agent(agent_id, :camera_stream, opts)
-  end
-
-  defp reconcile_camera_for_agent(agent_id, purpose, opts) do
-    Enum.reduce_while(
-      CredentialProviderProfile.camera_profiles(),
-      {:ok, empty_summary()},
-      fn profile, {:ok, acc} ->
-        case reconcile_provider_for_agent(profile, agent_id, purpose, opts) do
-          {:ok, summary} -> {:cont, {:ok, add_summaries(acc, summary)}}
+    with {:ok, profiles} <- target_policy_profiles(actor, opts) do
+      Enum.reduce_while(profiles, {:ok, empty_summary()}, fn profile, {:ok, acc} ->
+        # The inner reduce_while returns {:ok, acc} | {:error, reason}, which are not
+        # valid reduce_while accumulators. Returning it directly made the *outer*
+        # reduce_while hand {:ok, acc} to the Enumerable protocol, which only accepts
+        # :cont / :halt / :suspend -- a FunctionClauseError in Enumerable.List.reduce/3.
+        # An empty catalog hid this for as long as it existed: with no profiles the
+        # callback never ran, so the crash only appeared once a package was approved.
+        profile
+        |> CredentialIntegration.purposes()
+        |> Enum.reduce_while({:ok, acc}, fn purpose, {:ok, nested_acc} ->
+          case reconcile_provider_for_agent(profile, agent_id, purpose, opts) do
+            {:ok, summary} -> {:cont, {:ok, add_summaries(nested_acc, summary)}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+        |> case do
+          {:ok, merged} -> {:cont, {:ok, merged}}
           {:error, reason} -> {:halt, {:error, reason}}
         end
-      end
-    )
+      end)
+    end
   end
 
   @doc """
   Reconciles enabled credential rules for a provider profile + purpose in scope for an agent.
   """
-  @spec reconcile_provider_for_agent(module(), String.t(), atom(), keyword()) ::
+  @spec reconcile_provider_for_agent(
+          map() | String.t(),
+          String.t(),
+          String.t() | atom(),
+          keyword()
+        ) ::
           {:ok, map()} | {:error, term()}
-  def reconcile_provider_for_agent(profile, agent_id, purpose, opts \\ [])
-      when is_atom(profile) and is_binary(agent_id) and is_atom(purpose) do
+  def reconcile_provider_for_agent(profile_or_provider, agent_id, purpose, opts \\ [])
+      when (is_map(profile_or_provider) or is_binary(profile_or_provider)) and is_binary(agent_id) and
+             (is_binary(purpose) or is_atom(purpose)) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_materializer))
-    result = do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts)
-    emit_reconcile_telemetry(profile, purpose, agent_id, result)
-    result
+    purpose = to_string(purpose)
+
+    with {:ok, profile} <- resolve_profile(profile_or_provider, actor, opts) do
+      result = do_reconcile_provider_for_agent(profile, agent_id, purpose, actor, opts)
+      emit_reconcile_telemetry(profile, purpose, agent_id, result)
+      result
+    end
   end
 
   @doc """
@@ -119,12 +104,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   create a durable, re-authorized recovery request and let its restricted
   worker call this function. A generic `%{role: :system}` actor is not enough.
   """
-  @spec reconcile_current_rule_for_agent(String.t(), String.t(), atom(), keyword()) ::
+  @spec reconcile_current_rule_for_agent(String.t(), String.t(), String.t() | atom(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def reconcile_current_rule_for_agent(rule_id, agent_id, purpose, opts \\ [])
 
   def reconcile_current_rule_for_agent(rule_id, agent_id, purpose, opts)
-      when is_binary(rule_id) and is_binary(agent_id) and is_atom(purpose) do
+      when is_binary(rule_id) and is_binary(agent_id) and (is_binary(purpose) or is_atom(purpose)) do
     case Keyword.fetch(opts, :actor) do
       {:ok, actor} ->
         if policy_recovery_executor?(actor) do
@@ -151,10 +136,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp actor_value(actor, key), do: Map.get(actor, key) || Map.get(actor, Atom.to_string(key))
 
   defp do_reconcile_current_rule_for_agent(rule_id, agent_id, purpose, actor, opts) do
+    purpose = to_string(purpose)
+
     with {:ok, rule} <- current_rule(rule_id, actor),
          {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
-         {:ok, profile} <- profile_for_provider(provider),
-         true <- profile.rule_has_purpose?(rule, purpose) || {:error, :rule_purpose_mismatch},
+         {:ok, profile} <- profile_for_provider(provider, actor, opts),
+         true <-
+           CredentialIntegration.rule_has_purpose?(profile, rule, purpose) ||
+             {:error, :rule_purpose_mismatch},
          {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts),
          {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
       case Enum.find(selected_rules, &(value_string(&1, [:id, "id"]) == rule_id)) do
@@ -162,17 +151,15 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:owner_not_authoritative)}
 
         selected_rule ->
-          with {:ok, package} <- approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
-            reconcile_rules(
-              [selected_rule],
-              agent_id,
-              package,
-              opts
-              |> Keyword.put(:actor, actor)
-              |> Keyword.put(:profile, profile)
-              |> Keyword.put(:purpose, purpose)
-            )
-          end
+          reconcile_selected_rules(
+            [selected_rule],
+            agent_id,
+            nil,
+            profile,
+            purpose,
+            actor,
+            opts
+          )
       end
     else
       false -> {:ok, skip_summary(:owner_not_authoritative)}
@@ -195,16 +182,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:no_matching_rules)}
 
         _ ->
-          with {:ok, package} <-
-                 approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
-            opts =
-              opts
-              |> Keyword.put(:actor, actor)
-              |> Keyword.put(:purpose, purpose)
-              |> Keyword.put(:profile, profile)
-
-            reconcile_rules(rules, agent_id, package, opts)
-          end
+          reconcile_selected_rules(rules, agent_id, nil, profile, purpose, actor, opts)
       end
     end
   end
@@ -214,7 +192,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       @reconcile_telemetry_event,
       summary_measurements(summary),
       %{
-        provider: profile.provider(),
+        provider: CredentialIntegration.provider(profile),
         purpose: purpose,
         agent_id: agent_id,
         status: :ok,
@@ -229,7 +207,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       @reconcile_telemetry_event,
       summary_measurements(empty_summary()),
       %{
-        provider: profile.provider(),
+        provider: CredentialIntegration.provider(profile),
         purpose: purpose,
         agent_id: agent_id,
         status: :error,
@@ -259,13 +237,16 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   materializing anything or issuing grants. Rules can be injected via
   `opts[:rules]` for database-free checks.
   """
-  @spec covering_rules_for_agent(module(), String.t(), atom(), keyword()) ::
+  @spec covering_rules_for_agent(map() | String.t(), String.t(), String.t() | atom(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def covering_rules_for_agent(profile, agent_id, purpose, opts \\ [])
-      when is_atom(profile) and is_binary(agent_id) and is_atom(purpose) do
+  def covering_rules_for_agent(profile_or_provider, agent_id, purpose, opts \\ [])
+      when (is_map(profile_or_provider) or is_binary(profile_or_provider)) and is_binary(agent_id) and
+             (is_binary(purpose) or is_atom(purpose)) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_coverage))
+    purpose = to_string(purpose)
 
-    with {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
+    with {:ok, profile} <- resolve_profile(profile_or_provider, actor, opts),
+         {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
       {:ok, Enum.filter(rules, &(rule_enabled?(&1) and scope_allows_agent?(&1, agent_id)))}
     end
   end
@@ -295,7 +276,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       |> Keyword.put(:grant_issuer, &issue_ephemeral_test_grant/1)
 
     with {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
-         {:ok, profile} <- profile_for_provider(provider),
+         {:ok, profile} <- profile_for_provider(provider, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, nil),
          {:ok, resolved_inputs} <- resolver.resolve(input_defs, opts),
          {:ok, purposes} <- dry_run_purposes(profile, rule, actor, opts) do
@@ -310,18 +291,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp profile_for_provider(provider) do
-    case CredentialProviderProfile.profile_for(provider) do
-      {:ok, profile} -> {:ok, profile}
-      :error -> {:error, {:unknown_credential_provider, provider}}
-    end
-  end
-
   defp dry_run_purposes(profile, rule, actor, opts) do
     agent_id = dry_run_agent_id(rule, opts)
 
-    profile.purposes()
-    |> Enum.filter(&profile.rule_has_purpose?(rule, &1))
+    profile
+    |> CredentialIntegration.purposes()
+    |> Enum.filter(&CredentialIntegration.rule_has_purpose?(profile, rule, &1))
     |> Enum.reduce_while({:ok, []}, fn purpose, {:ok, acc} ->
       case dry_run_purpose(profile, rule, purpose, agent_id, actor, opts) do
         {:ok, entry} -> {:cont, {:ok, acc ++ [entry]}}
@@ -349,24 +324,27 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp dry_run_purpose(profile, rule, purpose, agent_id, actor, opts) do
-    {package, package_found?} =
-      case approved_plugin_package(profile.plugin_id(purpose), actor, opts) do
-        {:ok, package} -> {package, true}
-        {:error, _reason} -> {%{id: "missing-approved-package"}, false}
-      end
+    with {:ok, consumer} <- CredentialIntegration.consumer_for_rule(profile, rule, purpose) do
+      {package, package_found?} =
+        case approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts) do
+          {:ok, package} -> {package, true}
+          {:error, _reason} -> {%{id: "missing-approved-package"}, false}
+        end
 
-    with {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts) do
-      {:ok,
-       %{
-         purpose: purpose,
-         plugin_id: profile.plugin_id(purpose),
-         policy_id: policy.policy_id,
-         package_found?: package_found?,
-         enabled: policy.enabled,
-         interval_seconds: policy.interval_seconds,
-         timeout_seconds: policy.timeout_seconds,
-         params_template: redacted_template(policy.params_template)
-       }}
+      with {:ok, policy} <-
+             policy_for_rule(consumer, rule, package, purpose, agent_id, actor, opts) do
+        {:ok,
+         %{
+           purpose: purpose,
+           plugin_id: CredentialIntegration.plugin_id(consumer),
+           policy_id: policy.policy_id,
+           package_found?: package_found?,
+           enabled: policy.enabled,
+           interval_seconds: policy.interval_seconds,
+           timeout_seconds: policy.timeout_seconds,
+           params_template: redacted_template(policy.params_template)
+         }}
+      end
     end
   end
 
@@ -433,25 +411,59 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   def reconcile_rules(rules, agent_id, package, opts \\ [])
       when is_list(rules) and is_binary(agent_id) and is_map(package) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
+
+    with {:ok, profile} <- required_profile(opts),
+         {:ok, purpose} <- required_purpose(opts) do
+      reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts)
+    end
+  end
+
+  defp reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts) do
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
-    profile = Keyword.get(opts, :profile, ProxmoxProfile)
-    purpose = Keyword.get(opts, :purpose, @inventory_purpose)
 
     with {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
       Enum.reduce_while(selected_rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
-        case reconcile_rule(profile, rule, agent_id, package, purpose, actor, reconciler, opts) do
-          {:ok, result} ->
-            {:cont, {:ok, merge_summary(acc, result)}}
+        with {:ok, consumer} <- CredentialIntegration.consumer_for_rule(profile, rule, purpose),
+             {:ok, resolved_package} <-
+               resolve_consumer_package(package, consumer, actor, opts) do
+          case reconcile_rule(
+                 profile,
+                 consumer,
+                 rule,
+                 agent_id,
+                 resolved_package,
+                 purpose,
+                 actor,
+                 reconciler,
+                 opts
+               ) do
+            {:ok, result} ->
+              {:cont, {:ok, merge_summary(acc, result)}}
 
-          {:error, reason} ->
-            {:halt, {:error, reason}}
+            {:error, reason} ->
+              maybe_skip_policy_rejection(consumer, reason, acc)
+          end
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
     end
   end
 
-  defp reconcile_rule(profile, rule, agent_id, package, purpose, actor, reconciler, opts) do
-    with {:ok, policy} <- policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts),
+  defp reconcile_rule(
+         profile,
+         consumer,
+         rule,
+         agent_id,
+         package,
+         purpose,
+         actor,
+         reconciler,
+         opts
+       ) do
+    with :ok <- CredentialIntegration.validate_rule(profile, consumer, rule),
+         {:ok, policy} <-
+           policy_for_rule(consumer, rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
@@ -467,12 +479,28 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp policy_for_rule(profile, rule, package, purpose, agent_id, actor, opts) do
+  defp maybe_skip_policy_rejection(consumer, reason, acc) do
+    if CredentialIntegration.failure_mode(consumer) == "skip" and policy_rejection?(reason) do
+      {:cont, {:ok, merge_summary(acc, skip_summary(reason))}}
+    else
+      {:halt, {:error, reason}}
+    end
+  end
+
+  defp policy_rejection?(reason) do
+    reason in [
+      :credential_auth_method_not_allowed,
+      :credential_tls_policy_not_allowed,
+      :credential_ssh_host_key_policy_not_allowed
+    ]
+  end
+
+  defp policy_for_rule(consumer, rule, package, purpose, agent_id, actor, opts) do
     with {:ok, rule_id} <- required_string(rule, [:id, "id"], "id"),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id"),
          {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id"),
          {:ok, params_template} <-
-           build_params_template(profile, rule, secret_id, purpose, agent_id, actor, opts) do
+           build_params_template(consumer, rule, secret_id, agent_id, actor, opts) do
       {:ok,
        %{
          policy_id: policy_id_for_rule(rule_id, purpose),
@@ -492,27 +520,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  # Issues the credential-broker grant for the profile/purpose, resolves the
-  # public (non-secret) username when the profile requires it, then delegates to
-  # the profile to build the stored params template embedding the grant payload.
-  defp build_params_template(profile, rule, secret_id, purpose, agent_id, actor, opts) do
-    {grant_attrs, extras} = profile.grant_spec(purpose, rule, secret_id, agent_id)
-
-    with {:ok, grant} <- issue_grant(grant_attrs, actor, opts, extras),
-         {:ok, username} <-
-           maybe_resolve_username(profile, purpose, rule, secret_id, actor, opts) do
-      ctx = %{
-        grant: grant,
-        secret_ref: SecretRefs.network_credential_ref(secret_id),
-        username: username
-      }
-
-      profile.params_template(purpose, rule, secret_id, ctx)
+  defp build_params_template(consumer, rule, secret_id, agent_id, actor, opts) do
+    with {:ok, username} <- maybe_resolve_username(consumer, secret_id, actor, opts),
+         {:ok, {grant_attrs, extras}} <-
+           CredentialIntegration.grant_spec(consumer, rule, secret_id, agent_id, username),
+         {:ok, grant} <- issue_grant(grant_attrs, actor, opts, extras) do
+      CredentialIntegration.params_template(consumer, rule, secret_id, grant, username)
     end
   end
 
-  defp maybe_resolve_username(profile, purpose, rule, secret_id, actor, opts) do
-    if profile.resolve_username?(purpose, rule) do
+  defp maybe_resolve_username(consumer, secret_id, actor, opts) do
+    if CredentialIntegration.requires_public_username?(consumer) do
       resolver = Keyword.get(opts, :username_resolver, &default_username_resolver/2)
       resolver.(secret_id, actor)
     else
@@ -565,12 +583,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     case Keyword.fetch(opts, :rules) do
       {:ok, rules} ->
         # Mirror the loaded path, which is provider-scoped via
-        # `list_enabled_for_scope/4`: camera reconciles iterate every camera
+        # `list_enabled_for_scope/4`: target-policy reconciles iterate every target
         # profile, so injected rules must not leak across providers.
         {:ok,
          Enum.filter(
            rules,
-           &(rule_matches_provider?(&1, profile) and profile.rule_has_purpose?(&1, purpose))
+           &(rule_matches_provider?(&1, profile) and
+               CredentialIntegration.rule_has_purpose?(profile, &1, purpose))
          )}
 
       :error ->
@@ -579,13 +598,19 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         scopes
         |> Enum.reduce_while({:ok, []}, fn {scope_type, scope_value}, {:ok, acc} ->
           case NetworkCredentialRule.list_enabled_for_scope(
-                 profile.provider(),
+                 CredentialIntegration.provider(profile),
                  scope_type,
                  scope_value,
                  actor: actor
                ) do
             {:ok, rules} ->
-              {:cont, {:ok, acc ++ Enum.filter(rules, &profile.rule_has_purpose?(&1, purpose))}}
+              {:cont,
+               {:ok,
+                acc ++
+                  Enum.filter(
+                    rules,
+                    &CredentialIntegration.rule_has_purpose?(profile, &1, purpose)
+                  )}}
 
             {:error, reason} ->
               {:halt, {:error, reason}}
@@ -599,13 +624,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp rule_matches_provider?(rule, profile) do
-    RuleAccessors.value_string(rule, [:provider, "provider"]) == profile.provider()
+    RuleAccessors.value_string(rule, [:provider, "provider"]) ==
+      CredentialIntegration.provider(profile)
   end
 
   defp selected_rules_for_agent(profile, rules, agent_id, purpose) do
     rules
     |> Enum.filter(
-      &(profile.rule_has_purpose?(&1, purpose) and rule_enabled?(&1) and
+      &(CredentialIntegration.rule_has_purpose?(profile, &1, purpose) and rule_enabled?(&1) and
           scope_allows_agent?(&1, agent_id))
     )
     |> Enum.sort_by(&{rule_priority(&1), value_string(&1, [:inserted_at, "inserted_at"]) || ""})
@@ -636,6 +662,85 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     else
       {:ok, winner}
     end
+  end
+
+  defp required_profile(opts) do
+    case Keyword.get(opts, :profile) do
+      %{} = profile -> validate_target_policy_profile(profile)
+      _ -> {:error, :credential_profile_required}
+    end
+  end
+
+  defp required_purpose(opts) do
+    case Keyword.get(opts, :purpose) do
+      purpose when is_binary(purpose) and purpose != "" -> {:ok, purpose}
+      purpose when is_atom(purpose) -> {:ok, Atom.to_string(purpose)}
+      _ -> {:error, :credential_purpose_required}
+    end
+  end
+
+  defp resolve_profile(%{} = profile, _actor, _opts), do: validate_target_policy_profile(profile)
+
+  defp resolve_profile(provider, actor, opts) when is_binary(provider) do
+    profile_for_provider(provider, actor, opts)
+  end
+
+  defp validate_target_policy_profile(profile) do
+    if CredentialIntegration.target_policy?(profile) and
+         is_binary(CredentialIntegration.provider(profile)) do
+      {:ok, profile}
+    else
+      {:error, :invalid_target_policy_credential_profile}
+    end
+  end
+
+  defp profile_for_provider(provider, actor, opts) do
+    with {:ok, profiles} <- integration_profiles(actor, opts) do
+      case Enum.find(profiles, &(CredentialIntegration.provider(&1) == provider)) do
+        nil -> {:error, {:unknown_credential_provider, provider}}
+        profile -> validate_target_policy_profile(profile)
+      end
+    end
+  end
+
+  defp target_policy_profiles(actor, opts) do
+    with {:ok, profiles} <- integration_profiles(actor, opts) do
+      {:ok, Enum.filter(profiles, &CredentialIntegration.target_policy?/1)}
+    end
+  end
+
+  defp integration_profiles(actor, opts) do
+    case Keyword.get(opts, :integration_catalog) do
+      %{credential_profiles: profiles} when is_list(profiles) -> {:ok, profiles}
+      %{"credential_profiles" => profiles} when is_list(profiles) -> {:ok, profiles}
+      profiles when is_list(profiles) -> {:ok, profiles}
+      nil -> load_integration_profiles(actor, opts)
+      _ -> {:error, :invalid_plugin_integration_catalog}
+    end
+  end
+
+  defp load_integration_profiles(actor, opts) do
+    catalog_loader = Keyword.get(opts, :catalog_loader, &IntegrationCatalog.load/1)
+
+    case catalog_loader.(actor: actor) do
+      {:ok, %{credential_profiles: profiles}} -> {:ok, profiles}
+      {:error, _reason} = error -> error
+      _ -> {:error, :invalid_plugin_integration_catalog}
+    end
+  end
+
+  defp resolve_consumer_package(%{} = package, consumer, _actor, _opts) do
+    expected_plugin_id = CredentialIntegration.plugin_id(consumer)
+
+    case value_string(package, [:plugin_id, "plugin_id"]) do
+      nil -> {:ok, package}
+      ^expected_plugin_id -> {:ok, package}
+      _ -> {:error, {:plugin_package_mismatch, expected_plugin_id}}
+    end
+  end
+
+  defp resolve_consumer_package(nil, consumer, actor, opts) do
+    approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts)
   end
 
   defp approved_plugin_package(plugin_id, actor, opts) do
@@ -735,7 +840,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp policy_id_for_rule(rule_id, @inventory_purpose), do: "network-credential-rule:#{rule_id}"
+  # Preserve the original inventory policy id for upgrade compatibility.
+  defp policy_id_for_rule(rule_id, "inventory_enrichment"),
+    do: "network-credential-rule:#{rule_id}"
+
   defp policy_id_for_rule(rule_id, purpose), do: "network-credential-rule:#{rule_id}:#{purpose}"
 
   defp rule_enabled?(rule) do

@@ -32,7 +32,7 @@ defmodule ServiceRadarSRQL.MixProject do
   defp deps do
     [
       # Rust NIF binding
-      {:rustler, "~> 0.36"},
+      {:rustler, "~> 0.38"},
 
       # JSON parsing
       {:jason, "~> 1.2"},

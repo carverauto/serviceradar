@@ -86,8 +86,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.FieldSurveyPanel do
             :for={cell <- @survey_summary.raster_cells}
             class="sr-ops-field-survey-raster-cell"
             style={fieldsurvey_raster_cell_style(cell)}
-          >
-          </span>
+          ></span>
         </div>
         <div
           :if={@survey_summary.raster_cell_count > 0}

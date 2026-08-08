@@ -36,6 +36,8 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   - `:jetstream_max_memory` - JetStream memory limit (default: "1G")
   - `:jetstream_max_file` - JetStream file limit (default: "10G")
   - `:debug` - Enable debug logging (default: false)
+  - `:direct_leaf_identities` - assignment-scoped identities and their derived
+    subject scopes to render as local NATS authorization users
 
   ## Returns
 
@@ -47,6 +49,11 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     jetstream_max_memory = Keyword.get(opts, :jetstream_max_memory, "1G")
     jetstream_max_file = Keyword.get(opts, :jetstream_max_file, "10G")
     debug = Keyword.get(opts, :debug, false)
+
+    direct_leaf_authorization =
+      opts
+      |> Keyword.get(:direct_leaf_identities, [])
+      |> render_direct_leaf_authorization()
 
     server_name = "nats-#{edge_site.slug}"
 
@@ -69,6 +76,8 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
         ca_file: "/etc/nats/certs/ca-chain.pem"
         verify_and_map: true
     }
+
+    #{direct_leaf_authorization}
 
     # Enable JetStream for local buffering during WAN outages
     jetstream {
@@ -98,6 +107,92 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     }
     """
   end
+
+  @doc false
+  @spec render_direct_leaf_authorization(list()) :: String.t()
+  def render_direct_leaf_authorization([]), do: ""
+
+  def render_direct_leaf_authorization(identities) when is_list(identities) do
+    users =
+      identities
+      |> Enum.map(&render_direct_leaf_user/1)
+      |> Enum.reject(&is_nil/1)
+
+    if users == [] do
+      ""
+    else
+      String.trim("""
+      # Assignment-scoped direct OTEL identities. This block is rendered from
+      # server-owned identity records; no account seed or broad platform user
+      # is installed on the leaf.
+      authorization {
+          # Preserve the existing local collector behavior when an ACL block
+          # is introduced. Every direct identity below has explicit
+          # permissions and therefore does not inherit these defaults.
+          default_permissions: {
+              publish: {
+                  allow: ["logs.>", "logs.otel", "otel.traces.>",
+                          "otel.metrics.>", "events.netflow.>",
+                          "events.falco.>", "netflow.>", "flow.host-slice.>",
+                          "flow.raw.>", "$JS.API.>", "$JS.ACK.>", "_INBOX.>"]
+                  deny: ["$SYS.>"]
+              }
+              subscribe: {
+                  allow: ["$JS.API.>", "$JS.ACK.>", "_INBOX.>"]
+                  deny: ["$SYS.>"]
+              }
+          }
+          users: [
+      #{Enum.join(users, ",\n")}
+          ]
+      }
+      """)
+    end
+  end
+
+  def render_direct_leaf_authorization(_identities), do: ""
+
+  defp render_direct_leaf_user(identity) when is_map(identity) do
+    component_id = map_value(identity, :component_id)
+    partition_id = map_value(identity, :partition_id)
+    scope = map_value(identity, :scope)
+
+    with component_id when is_binary(component_id) <- component_id,
+         partition_id when is_binary(partition_id) <- partition_id,
+         scope when is_map(scope) <- scope,
+         publish when is_list(publish) <- map_value(scope, :publish),
+         subscribe when is_list(subscribe) <- map_value(scope, :subscribe) do
+      cn = "CN=#{component_id}.#{partition_id}.serviceradar"
+
+      String.trim("""
+          {
+              user: #{nats_string(cn)}
+              permissions: {
+                  publish: {
+                      allow: #{nats_strings(publish)}
+                      deny: ["$SYS.>", "_INBOX.>"]
+                  }
+                  subscribe: {
+                      allow: #{nats_strings(subscribe)}
+                      deny: ["$SYS.>"]
+                  }
+              }
+          }
+      """)
+    else
+      _ -> nil
+    end
+  end
+
+  defp render_direct_leaf_user(_identity), do: nil
+
+  defp nats_strings(values), do: values |> Enum.map_join(", ", &nats_string/1) |> then(&"[#{&1}]")
+  defp nats_string(value), do: Jason.encode!(to_string(value))
+
+  defp map_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_value(_map, _key), do: nil
 
   @doc """
   Generates the setup script for deploying the NATS leaf server.

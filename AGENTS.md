@@ -47,6 +47,51 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   straight in a hypertable is invisible to every real-time consumer (anomaly
   detection, the causal engine) until it is queried back out. Keeping all metrics
   on JetStream first makes every stream subscribable.
+- **Never degrade production code to silence Dialyzer (or similar type checkers).**
+  Idiomatic, readable APIs beat warning-count optimization. Do **not** introduce
+  runtime shape hacks, opacity barriers, or non-idiomatic call patterns whose only
+  purpose is to make Dialyzer happy. Forbidden patterns include (non-exhaustive):
+  - `:erlang.apply(MapSet, :new, …)` / `apply(Mod, :fun, …)` / variable-module
+    `apply` solely to hide success typing
+  - “opaque_call” / 0-arity fun wrappers / `:erlang.binary_to_term(term_to_binary(…))`
+    barriers around otherwise normal calls
+  - Rewriting clear `MapSet` / `URI` / gRPC / Ash call sites into obscure forms to
+    dodge opaque-type or error-only success typing noise
+  - Broad “fix everything Dialyzer mentions” sweeps that churn APIs without a
+    product or correctness win
+
+  **Allowed approaches, in order:**
+  1. Fix a real bug or wrong typespec with a clean, idiomatic change (and tests
+     when behavior changes).
+  2. Leave a false positive alone, or add a **narrow, documented** entry in the
+     project’s `.dialyzer_ignore.exs` (file + warning kind or short description —
+     never directory-wide suppressions).
+  3. If Dialyxir cannot render a warning kind (e.g. `:opaque_compare`), report or
+     work around the **formatter**, do not reshape application code for it.
+
+  Historical note: PR #4677 chased Dialyzer counts with apply/opaque barriers and
+  MapSet churn; it was fully reverted in #4679. Do not reintroduce that style.
+- **No shell scripts. Everything is a Bazel target.** Do not add a script under
+  `scripts/`, and do not extend an existing one. Build, test, provisioning, teardown,
+  packaging and publishing are Bazel targets invoked with `bazel build` / `bazel test` /
+  `bazel run`. A script is a build system with no dependency graph, no cache, no sandbox
+  and no remote execution — every one of them is a hole in the graph that has to be
+  re-run, re-debugged and re-documented by hand.
+
+  **The only permitted exception is a hard corner case that genuinely cannot be a Bazel
+  action**, and it must be justified in a comment at the top of the file. Today that means
+  credential handling that must not become an action input: Docker/registry authentication
+  and cosign/OpenBao signing setup. "It was easier" is not a corner case.
+
+  Corollaries:
+  - Work an existing script does belongs in a target. `//rust/integration-db` already
+    replaced `scripts/{reset,drop,sweep-stale-core}-test-db.sh` — those files are dead and
+    should be deleted, not maintained.
+  - A test needing a file gets it as a **declared input** (`data`/`srcs`), never from a
+    script writing it to a runner temp dir and exporting a path. That pattern is what
+    forces `no-remote-exec` and breaks RBE.
+  - Ordering between targets is the caller's sequence of `bazel` invocations, not a script
+    that wraps them.
 
 # Codex Agent Guide for ServiceRadar
 
@@ -75,10 +120,20 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 
 ## Build & Test Commands
 
-- General Go lint/test: `make lint`, `make test`.
+- **Every unit test, the way CI runs them: `make test`** — an alias for
+  `bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test`.
+  **Run this before opening a PR and before cutting any release.** It is the only command
+  that covers the whole repo, because the Elixir unit shards exist ONLY as bazel targets
+  (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`) and are
+  invisible to `go test`, `cargo test` and `mix test`. Two broken Elixir suites reached a
+  release tag that way.
+- Per-language tests + Go coverage profiles: `make test-toolchains` (go test / cargo test /
+  vitest / `mix precommit`). Useful for a fast local loop; **not** a substitute for
+  `make test`, and `make check-coverage` depends on it for the `cover.*.profile` files.
+- Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
-- Bazel tests/images: `bazel test --config=remote //...`, `bazel run //docker/images:<target>_push`.
+- Bazel images: `bazel run //docker/images:<target>_push`.
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `scripts/vendor.sh` → `bazel build`. To only regenerate the vendored tree after hand-editing the root `Cargo.toml`: `scripts/vendor.sh`. See [Rust Dependency Management](#rust-dependency-management).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
@@ -91,7 +146,11 @@ A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must
 
 1. **Bundle inventory** — add an entry to `build/native_addons/addon_inventory.bzl` (binary target, `manifest_entries`, `platforms`).
 2. **Bazel build graph** — the binary's `BUILD.bazel` must declare every dep/src. Rust: use `all_crate_deps(...)` if it has crate-universe deps (a missing `deps` shows up as `unresolved import` only under Bazel). Go: list new `srcs` (incl. `*_linux.go`/`*_other.go` build-tag files) + `deps`. A green `go test ./...` / `cargo test` does NOT prove the Bazel build — run `bazel build //build/native_addons:<name>_bundle`.
-3. **Version-bump gate** — register `<name>` in `scripts/check-native-addon-version-bumps.sh` (`addon_ids`, `manifest_path`, `path_belongs_to_addon`, plus `cargo_version_path` for Rust add-ons). Any change to the add-on's source/config/unit/bundle inventory requires bumping `addons/<name>/addon.yaml` `version`; for Rust add-ons the `Cargo.toml` `[package] version` must match. Rust add-ons built from the root vendored crate universe also require `third_party/crates/.serviceradar-vendor-inputs` to record the current root `Cargo.lock` and add-on `Cargo.toml` hashes; refresh it with `scripts/vendor.sh`. An add-on that consumes a separate crate-universe extension (currently the RDP connector) additionally requires `MODULE.bazel.lock` to record that extension's `Cargo.lock` and `Cargo.toml` hashes — run `bazel --batch mod deps --lockfile_mode=update` twice if the first pass rewrites the lockfile.
+3. **Version-bump gate** — register `<name>` in `scripts/check-native-addon-version-bumps.sh` (`addon_ids`, `manifest_path`, `path_belongs_to_addon`). Any change to the add-on's source/config/unit/bundle inventory requires bumping `addons/<name>/addon.yaml` `version`.
+   - **The gate decides "changed" by matching changed PATHS**, and the add-on's `BUILD.bazel` is one of them — so a build-only edit that cannot alter the binary still demands a bump. Do not put anything tunable in an add-on's `BUILD.bazel`: RBE task-size hints live in `//build/rbe:exec_properties.bzl` (`NATIVE_ADDON_EXEC_PROPERTIES`) precisely so tuning them does not force version bumps on add-ons whose artifacts are byte-identical. Do not "fix" a false positive by teaching the gate to skip `BUILD.bazel` — that trades it for a false negative, a changed artifact shipping under an unchanged version, which is the whole point of the gate.
+   - A few add-ons cross-check a version constant in Bazel (currently only `NETPROBE_VERSION` in `rust/netprobe/BUILD.bazel`, via `bazel_version_constant`); bump those in the same commit.
+   - An add-on that consumes a separate crate-universe extension (currently the RDP connector) additionally requires `MODULE.bazel.lock` to record that extension's `Cargo.lock` and `Cargo.toml` hashes — run `bazel --batch mod deps --lockfile_mode=update` twice if the first pass rewrites the lockfile.
+   - **A Rust add-on's `Cargo.toml` `[package] version` does NOT have to match, and no vendor snapshot needs refreshing for a bump.** That coupling was deliberately removed; see the note at `check-native-addon-version-bumps.sh:117-131`. It was decoration — these crates are binaries nothing depends on as a library — but mirroring the version edited a manifest, which changed `Cargo.lock`, which invalidated `third_party/crates/.serviceradar-vendor-inputs`, whose documented fix rewrites 625 crate directories and discards the Bazel cache for every Rust target, all to restate a version that changed no third-party crate.
 4. **Manifest-validation gate** — add `//addons/<name>:addon.yaml` to BOTH the `args` and `data` lists of `validate_addon_manifests_test` in `build/native_addons/BUILD.bazel`. The `inventory_consistency_test` enforces that every add-on in `addon_inventory.bzl` is also in that test; it runs ONLY in the native-addons publish gate (not in a plain `bazel build`), so a missing entry fails the **release publish** late, not your local build.
 
 Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh origin/staging <commit-sha>` (with jj, git `HEAD` is the parent — pass the real commit, e.g. `jj log -r @ --no-graph -T commit_id`) AND `bazel test //build/native_addons:build_gates_test` (this is the gate the release publish runs; a plain bundle build does not).
@@ -104,6 +163,7 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 
 - **Go**: run `gofmt` on modified files; keep imports organized; favor existing helper utilities in `pkg/`. Avoid introducing new dependencies without updating `go.mod` and Bazel `MODULE.bazel`/`MODULE.bazel.lock` if required.
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
+- **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
 - **Causal / statistical / streaming-anomaly reasoning**: use the **DeepCausality** library (`deep_causality_core` Flow API plus `deep_causality_data_structures` `SlidingWindow`; source at `~/src/deep_causality`), wrapped by the project-owned **`serviceradar-anomaly-core`** crate (`rust/anomaly-core`). DeepCausality is authored by Marvin Hansen, who guides ServiceRadar's anomaly-engine design. **Do not hand-roll a parallel detector** for rolling z-score, running mean/variance, sliding windows, CSM, or equivalent anomaly decisions in Elixir, Go, or a second Rust crate when `serviceradar-anomaly-core` already provides the primitive. A second implementation must be kept in numeric parity by hand and can drift. **`serviceradar-anomaly-core` is the single source of truth**: it powers the edge anomaly add-on (`rust/anomaly-addon`, agent-sidecar) today and a backfill/backtesting CLI. The legacy central `causal_reasoner_nif` + central analysis pipeline are **being retired** (per-series anomaly moved to the edge; see `openspec/changes/move-anomaly-detection-to-edge`) — do not extend them. If DeepCausality lacks a primitive, add it upstream or to `serviceradar-anomaly-core`, never a divergent reimplementation.
 
@@ -602,7 +662,7 @@ Restart the checker using the persisted config:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
    - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing, run `bazel run --config=remote_push //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - If a single image needs republishing, run `bazel run --config=remote //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
    - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:

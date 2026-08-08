@@ -10,9 +10,15 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   @allowed_property_keys ~w(
     $ref type title description default enum minimum maximum minLength maxLength pattern format items
     minItems maxItems uniqueItems minProperties maxProperties dependentRequired properties required
-    additionalProperties secretRef
+    additionalProperties secretRef credentialKind
   )
   @allowed_types ~w(string integer number boolean array object)
+
+  # Must match NetworkCredentialSecret's `credential_kind` constraint and
+  # IntegrationDescriptor's @allowed_credential_kinds. A kind accepted here but
+  # unknown there would validate at import and then match no credential in the
+  # inventory, leaving a field that can never be filled.
+  @allowed_credential_kinds ~w(api_token username_password ssh_private_key certificate snmp opaque)
 
   @spec validate_schema(map()) :: :ok | {:error, [String.t()]}
   def validate_schema(%{} = schema) do
@@ -349,15 +355,53 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp validate_secret_ref(errors, schema, path) do
-    case Map.get(schema, "secretRef") do
-      nil ->
+    case_result =
+      case Map.get(schema, "secretRef") do
+        nil ->
+          errors
+
+        value when is_boolean(value) ->
+          errors
+
+        _ ->
+          ["#{path}.secretRef must be a boolean" | errors]
+      end
+
+    validate_credential_kind(case_result, schema, path)
+  end
+
+  # Optional. Names which credential primitive belongs in a secretRef field so the
+  # settings UI can offer only credentials that will actually work there.
+  #
+  # Without it the UI has nothing to filter on and must offer every credential in
+  # the inventory, which lets an operator bind an SSH key to an API-token field
+  # and discover it when the plugin runs -- surfaced as a credential resolution
+  # failure, which points at the credential rather than at the binding.
+  #
+  # Kept optional so the 17 packages already shipping `secretRef` stay valid; a
+  # field without it is simply unfiltered. Meaningless on a non-secret field, so
+  # that is rejected rather than ignored -- it would otherwise read as if the
+  # field were credential-backed when nothing treats it that way.
+  defp validate_credential_kind(errors, schema, path) do
+    case {Map.get(schema, "credentialKind"), Map.get(schema, "secretRef")} do
+      {nil, _secret_ref} ->
         errors
 
-      value when is_boolean(value) ->
-        errors
+      {_kind, secret_ref} when secret_ref != true ->
+        ["#{path}.credentialKind requires secretRef: true" | errors]
+
+      {kind, _secret_ref} when is_binary(kind) ->
+        if kind in @allowed_credential_kinds do
+          errors
+        else
+          [
+            "#{path}.credentialKind must be one of #{Enum.join(@allowed_credential_kinds, ", ")}"
+            | errors
+          ]
+        end
 
       _ ->
-        ["#{path}.secretRef must be a boolean" | errors]
+        ["#{path}.credentialKind must be a string" | errors]
     end
   end
 

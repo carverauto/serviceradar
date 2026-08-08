@@ -6,8 +6,6 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    # Exclude :executing so the self-reschedule in perform/1 isn't deduped
-    # against the still-running job (double-seed guarded by check_existing_job).
     unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query
@@ -16,6 +14,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -117,7 +116,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   defp schedule_next(interval_minutes) do
     schedule_in = max(interval_minutes, 1) * 60
 
-    case ObanSupport.safe_insert(new(%{"scheduled" => true}, schedule_in: schedule_in)) do
+    case ObanSupport.safe_insert(
+           SelfScheduling.successor_changeset(__MODULE__, %{"scheduled" => true}, schedule_in)
+         ) do
       {:ok, job} -> {:ok, job}
       {:error, reason} -> {:error, reason}
     end

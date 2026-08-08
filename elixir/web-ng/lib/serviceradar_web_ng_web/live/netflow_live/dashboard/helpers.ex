@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.Helpers do
     if app do
       Phoenix.HTML.raw(
         "#{port |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()}" <>
-          " <span class=\"text-xs text-base-content/50\">(#{app |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()})</span>"
+          " <span class=\"text-xs text-sr-muted\">(#{app |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()})</span>"
       )
     else
       port

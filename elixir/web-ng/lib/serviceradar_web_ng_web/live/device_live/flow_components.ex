@@ -14,12 +14,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
   attr(:flows, :list, required: true)
   attr(:error, :string, default: nil)
   attr(:pagination, :map, default: %{})
+  attr(:pagination_page, :integer, default: 1)
   attr(:rdns_map, :map, default: %{})
   attr(:geo_iso2_map, :map, default: %{})
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
   attr(:flow_stats, :map, default: %{})
+  attr(:loading, :boolean, default: false)
   attr(:flow_stats_loading, :boolean, default: true)
   attr(:sparkline_json, :string, default: "[]")
   attr(:proto_json, :string, default: "[]")
@@ -64,8 +66,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
 
     ~H"""
     <div class="space-y-4">
+      <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
+        <.ui_spinner size="md" />
+        <p class="mt-3 text-sm font-semibold">Loading recent flows</p>
+        <p class="mt-1 text-xs text-sr-muted">
+          Searching this device's last 24 hours of flow data.
+        </p>
+      </div>
+
       <%!-- Stats overview row --%>
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div :if={!@loading} class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <.stat_card
           title="Total Bandwidth"
           value={@total_bw}
@@ -99,12 +109,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Traffic Profile chart --%>
       <div
         :if={@flow_chart_points_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Traffic Profile</span>
-          <span class="text-xs text-base-content/50">(last 24h · drag to zoom)</span>
+          <span class="text-xs text-sr-muted">(last 24h · drag to zoom)</span>
         </div>
         <div
           id="device-flow-traffic-profile"
@@ -156,12 +166,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Protocol breakdown --%>
       <div
         :if={@proto_json != "[]"}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-pie" class="size-4 text-primary" />
+          <.icon name="hero-chart-pie" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Protocol Breakdown</span>
-          <span class="text-xs text-base-content/50">(last 24h)</span>
+          <span class="text-xs text-sr-muted">(last 24h)</span>
         </div>
         <.protocol_breakdown id="device-proto-donut" data_json={@proto_json} height={180} />
       </div>
@@ -169,10 +179,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
       <%!-- Quick filters / faceting --%>
       <div
         :if={@facets.protocols != [] or @facets.directions != [] or @facets.services != []}
-        class="rounded-xl border border-base-200 bg-base-100 p-4"
+        class="rounded-xl border border-sr-line bg-sr-surface p-4"
       >
         <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-funnel" class="size-4 text-primary" />
+          <.icon name="hero-funnel" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Quick Filters</span>
           <button
             :if={@active_facets != %{}}
@@ -213,35 +223,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         class="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20 text-sm"
       >
         <.icon name="hero-magnifying-glass-plus-solid" class="size-4 text-info" />
-        <span class="text-base-content/70">Zoomed to</span>
-        <span class="badge badge-info badge-sm font-mono">
+        <span class="text-sr-muted">Zoomed to</span>
+        <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.start, 0, 19)}
-        </span>
-        <span class="text-base-content/50">&rarr;</span>
-        <span class="badge badge-info badge-sm font-mono">
+        </.ui_badge>
+        <span class="text-sr-muted">&rarr;</span>
+        <.ui_badge size="sm" variant="info" class="font-mono">
           {String.slice(@zoom_range.end, 0, 19)}
-        </span>
-        <button phx-click="clear_zoom" class="ml-auto btn btn-ghost btn-xs text-error">
+        </.ui_badge>
+        <.ui_button phx-click="clear_zoom" size="xs" variant="ghost" class="ml-auto text-error">
           <.icon name="hero-x-mark-mini" class="size-3.5" /> Reset
-        </button>
+        </.ui_button>
       </div>
       <div
         :if={@active_topn}
-        class="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-sm"
+        class="flex items-center gap-2 px-3 py-2 rounded-lg bg-sr-brand/10 border border-sr-brand/20 text-sm"
       >
-        <.icon name="hero-funnel-solid" class="size-4 text-primary" />
-        <span class="text-base-content/70">Filtered by</span>
+        <.icon name="hero-funnel-solid" class="size-4 text-sr-brand" />
+        <span class="text-sr-muted">Filtered by</span>
         <span class="font-semibold">{@active_topn.field}:</span>
-        <span class="badge badge-primary badge-sm">{@active_topn.value}</span>
-        <button phx-click="clear_topn_filter" class="ml-auto btn btn-ghost btn-xs text-error">
+        <.ui_badge size="sm" variant="primary">{@active_topn.value}</.ui_badge>
+        <.ui_button phx-click="clear_topn_filter" size="xs" variant="ghost" class="ml-auto text-error">
           <.icon name="hero-x-mark-mini" class="size-3.5" /> Clear
-        </button>
+        </.ui_button>
       </div>
 
       <.flow_table
+        :if={!@loading}
         flows={@flows}
         error={@error}
         pagination={@pagination}
+        pagination_page={@pagination_page}
         rdns_map={@rdns_map}
         geo_iso2_map={@geo_iso2_map}
         device_uid={@device_uid}

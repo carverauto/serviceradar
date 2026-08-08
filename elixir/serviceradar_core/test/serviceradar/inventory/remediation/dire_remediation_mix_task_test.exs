@@ -3,6 +3,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
 
   alias Mix.Tasks.Serviceradar.DireRemediation, as: DireRemediationTask
 
+  @moduletag :requires_app
+
   setup do
     original_shell = Mix.shell()
     Mix.shell(Mix.Shell.Process)

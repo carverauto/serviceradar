@@ -19,6 +19,8 @@ package agent
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 )
 
@@ -48,9 +50,7 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve config: %v", err)
 	}
-	if cfg == nil {
-		t.Fatal("expected config")
-	}
+	require.NotNil(t, cfg, "expected config")
 	if !cfg.Enabled {
 		t.Fatal("expected typed proto config to be enabled")
 	}

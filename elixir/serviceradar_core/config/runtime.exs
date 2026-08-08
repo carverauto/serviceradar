@@ -785,6 +785,25 @@ if config_env() == :prod do
       value -> parse_int.(value)
     end
 
+  # Ecto logs every statement, and repo_opts above sets no :log key, so it defaults to logging
+  # each one. In the integration suite that produced ~40MB of begin/commit/advisory-lock/SELECT
+  # noise in a single run -- 4842 "begin" lines alone -- burying the four real failures at line
+  # 239878 of a 239911-line log.
+  #
+  # This belongs here rather than in config/test.exs for two reasons. Runtime config is applied
+  # last and replaces the ServiceRadar.Repo config wholesale, so a :log key set in test.exs is
+  # discarded. And placing it before control_repo_opts is derived below means ControlRepo
+  # inherits it too, rather than needing a second copy.
+  #
+  # Ecto's :log is the level queries are logged AT, not a threshold, so `false` is the only way
+  # to silence them. Failing queries still surface through the exceptions they raise.
+  repo_opts =
+    if config_env() == :test do
+      Keyword.put(repo_opts, :log, false)
+    else
+      repo_opts
+    end
+
   control_repo_opts =
     repo_opts
     |> Keyword.put(:pool_size, control_repo_pool_size)
@@ -1302,6 +1321,18 @@ if config_env() == :prod do
     mtr_automation_consensus_enabled:
       parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
 
+  # Prefix-tag flow enrichment (LPM trie). Defaults match config.exs; operators
+  # enable enrichment only after migration 20260718010000 is applied everywhere.
+  config :serviceradar_core,
+    prefix_tag_enrichment_enabled:
+      parse_bool.("SERVICERADAR_PREFIX_TAG_ENRICHMENT_ENABLED", false),
+    prefix_tag_provider_trie_enabled:
+      parse_bool.("SERVICERADAR_PREFIX_TAG_PROVIDER_TRIE_ENABLED", true),
+    threat_intel_engine_match_enabled:
+      parse_bool.("SERVICERADAR_THREAT_INTEL_ENGINE_MATCH_ENABLED", true),
+    geo_tag_derivation_enabled: parse_bool.("SERVICERADAR_GEO_TAG_DERIVATION_ENABLED", false),
+    prefix_tags_loader_enabled: parse_bool.("SERVICERADAR_PREFIX_TAGS_LOADER_ENABLED", true)
+
   config :serviceradar_core,
     run_startup_migrations:
       System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
@@ -1488,7 +1519,11 @@ if config_env() == :prod do
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
-            queue: :maintenance}
+            queue: :maintenance},
+           # Kept in step with the same entry in serviceradar_core_elx's
+           # runtime.exs -- that one is what the release actually loads.
+           {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
+            ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
@@ -1656,6 +1691,20 @@ if config_env() == :prod do
           batch_size: 100,
           batch_timeout: 1_000
         },
+        # Public VIP / Gateway ownership inventory (add-k8s-public-endpoint-inventory).
+        %{
+          name: "K8S_INVENTORY",
+          stream_name: "k8s_inventory",
+          subject: "inventory.k8s.public_endpoints",
+          processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
+          batch_size: 1,
+          batch_timeout: 2_000,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 1_073_741_824,
+          stream_max_age: 86_400_000_000_000
+        },
         %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",
@@ -1692,6 +1741,19 @@ if config_env() == :prod do
           stream_max_age: 1_800_000_000_000,
           consumer_pull_batch_size: 4,
           consumer_max_deliver: 5
+        },
+        %{
+          name: "SCAN_RESULTS",
+          stream_name: "scan_results",
+          subject: "scans.results.>",
+          processor: ServiceRadar.EventWriter.Processors.AdhocScan,
+          batch_size: 200,
+          batch_timeout: 500,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 268_435_456,
+          stream_max_age: 3_600_000_000_000
         },
         %{
           name: "BMP_CAUSAL",

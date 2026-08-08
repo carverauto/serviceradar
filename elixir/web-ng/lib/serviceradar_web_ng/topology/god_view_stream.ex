@@ -4628,6 +4628,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   end
 
   defp edge_details_json(edge) when is_map(edge) do
+    metadata = Map.get(edge, :metadata) || %{}
+
     %{
       source_id: Map.get(edge, :source),
       target_id: Map.get(edge, :target),
@@ -4638,7 +4640,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       telemetry_source: Map.get(edge, :telemetry_source),
       telemetry_observed_at: Map.get(edge, :telemetry_observed_at),
       interface_sparkline: Map.get(edge, :interface_sparkline, []),
-      interface_sparkline_label: Map.get(edge, :interface_sparkline_label)
+      interface_sparkline_label: Map.get(edge, :interface_sparkline_label),
+      metadata: %{
+        relation_type: map_value(metadata, "relation_type"),
+        topology_plane: map_value(metadata, "topology_plane")
+      }
     }
   end
 

@@ -150,6 +150,19 @@ available." Boolean fields like `is_available` accept `true` or `false`.
 There is no `OR` keyword between separate filters — when you need OR semantics for a
 single field, use the list form from Step 4.
 
+For **NetFlow either-side** questions (“SSH on port 22 either direction”, “all
+traffic involving this VIP”), do **not** write `(dst_port:22 OR src_port:22)`.
+Use the bidirectional helpers instead:
+
+```srql
+in:flows time:last_24h port:22 sort:time:desc limit:50
+in:flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+```
+
+`port:` matches either endpoint port; `ip:` matches either endpoint address.
+See the [SRQL Cookbook](./srql-cookbook.md#netflow-traffic-queries) for more
+flow and attributed-flow recipes.
+
 ---
 
 ## Step 6: Scope queries to a time window

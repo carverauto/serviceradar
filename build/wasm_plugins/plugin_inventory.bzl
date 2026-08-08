@@ -50,6 +50,18 @@ WASM_BUILD_TARGETS = [
         "main_go": "//go/cmd/wasm-plugins/proxmox:main.go",
         "tags": [],
     },
+    {
+        "name": "netbox_inventory",
+        "srcs": ["//go/cmd/wasm-plugins/netbox:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/netbox:main.go",
+        "tags": [],
+    },
+    {
+        "name": "opentext_network_automation_inventory",
+        "srcs": ["//go/cmd/wasm-plugins/opentext-network-automation:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/opentext-network-automation:main_tinygo.go",
+        "tags": ["tinygo"],
+    },
 ]
 
 WASM_PLUGIN_BUNDLES = [
@@ -189,6 +201,29 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/proxmox:plugin.console.yaml"),
             ("plugin.wasm", ":proxmox_inventory_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/proxmox:config.console.schema.json"),
+        ],
+    },
+    {
+        "name": "netbox_inventory_bundle",
+        "plugin_id": "netbox-inventory",
+        "repository_name": "wasm-plugin-netbox-inventory",
+        "wasm_target": ":netbox_inventory_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/netbox:plugin.yaml"),
+            ("plugin.wasm", ":netbox_inventory_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/netbox:config.schema.json"),
+        ],
+    },
+    {
+        "name": "opentext_network_automation_inventory_bundle",
+        "plugin_id": "opentext-network-automation-inventory",
+        "repository_name": "wasm-plugin-opentext-network-automation-inventory",
+        "wasm_target": ":opentext_network_automation_inventory_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/opentext-network-automation:plugin.yaml"),
+            ("plugin.wasm", ":opentext_network_automation_inventory_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/opentext-network-automation:config.schema.json"),
+            ("docs/configuration.md", "//go/cmd/wasm-plugins/opentext-network-automation:docs/configuration.md"),
         ],
     },
 ]

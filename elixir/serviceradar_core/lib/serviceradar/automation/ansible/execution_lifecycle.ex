@@ -184,8 +184,10 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
       {:accepted_project_mismatch,
        positive_integer(value(job, :project_id) || value(job, :project)) ==
          value(execution, :project_id)},
+      # Pending AWX launches often report an empty scm_revision before checkout
+      # finishes. Accept blank job revisions; still reject a non-empty mismatch.
       {:accepted_scm_revision_mismatch,
-       value(job, :scm_revision) == value(execution, :scm_revision)},
+       accepted_scm_revision?(value(job, :scm_revision), value(execution, :scm_revision))},
       {:accepted_execution_environment_mismatch,
        positive_integer(
          value(job, :execution_environment_id) || value(job, :execution_environment)
@@ -203,13 +205,13 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
       {:accepted_job_slice_count_mismatch, positive_integer(value(job, :job_slice_count)) == 1},
       {:accepted_job_slice_number_mismatch,
        optional_job_slice_number?(value(job, :job_slice_number))},
-      {:accepted_markers_missing, is_map(markers)},
+      # Markers may be unobserved when AWX ignores launch extra_vars. Partial or
+      # wrong markers still fail closed; complete markers must match exactly.
+      {:accepted_markers_missing, markers_status(markers) != :partial},
       {:accepted_dispatch_id_mismatch,
-       is_map(markers) and
-         value(markers, :serviceradar_dispatch_id) == value(execution, :dispatch_id)},
+       markers_match_dispatch?(markers, value(execution, :dispatch_id))},
       {:accepted_snapshot_digest_mismatch,
-       is_map(markers) and
-         value(markers, :serviceradar_snapshot_digest) == value(execution, :snapshot_digest)}
+       markers_match_snapshot?(markers, value(execution, :snapshot_digest))}
     ]
 
     case Enum.find(checks, fn {_reason, valid?} -> not valid? end) do
@@ -519,6 +521,51 @@ defmodule ServiceRadar.Automation.Ansible.ExecutionLifecycle do
   defp positive_integer(_), do: nil
 
   defp blank?(value), do: value in [nil, ""]
+
+  defp accepted_scm_revision?(job_revision, expected),
+    do: blank?(job_revision) or job_revision == expected
+
+  # :absent  — AWX ignored extra_vars / not yet projected
+  # :partial — only one marker present (fail closed)
+  # :complete — both markers present as non-empty strings
+  defp markers_status(markers) do
+    case {marker_string(markers, :serviceradar_dispatch_id),
+          marker_string(markers, :serviceradar_snapshot_digest)} do
+      {nil, nil} -> :absent
+      {dispatch_id, digest} when is_binary(dispatch_id) and is_binary(digest) -> :complete
+      _ -> :partial
+    end
+  end
+
+  defp markers_match_dispatch?(markers, expected_dispatch_id) do
+    case markers_status(markers) do
+      :absent -> true
+      :partial -> false
+      :complete -> marker_string(markers, :serviceradar_dispatch_id) == expected_dispatch_id
+    end
+  end
+
+  defp markers_match_snapshot?(markers, expected_snapshot_digest) do
+    case markers_status(markers) do
+      :absent ->
+        true
+
+      :partial ->
+        false
+
+      :complete ->
+        marker_string(markers, :serviceradar_snapshot_digest) == expected_snapshot_digest
+    end
+  end
+
+  defp marker_string(markers, key) when is_map(markers) do
+    case value(markers, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp marker_string(_markers, _key), do: nil
 
   defp value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))

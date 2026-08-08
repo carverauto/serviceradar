@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-g@bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/third_party/utf8_range/libutf8_range.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:]bazel-out/darwin_arm64-opt-exec/bin/external/protobuf+/third_party/utf8_range/libutf8_range.a

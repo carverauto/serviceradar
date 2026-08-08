@@ -34,9 +34,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
     ~H"""
     <div
       :if={@has_sources or @has_source_observations}
-      class="rounded-xl border border-base-200 bg-base-100"
+      class="rounded-xl border border-sr-line bg-sr-surface"
     >
-      <div class="px-4 py-3 border-b border-base-200 flex items-center gap-2">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center gap-2">
         <.icon name="hero-arrow-path-rounded-square" class="size-4 text-secondary" />
         <span class="text-sm font-semibold">Discovery Sources</span>
         <span class="rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-semibold text-secondary">
@@ -50,8 +50,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
           class={[
             "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
             chip.tip &&
-              "tooltip tooltip-bottom cursor-help border-secondary/30 bg-secondary/5 text-base-content/80 hover:border-secondary/50",
-            !chip.tip && "border-base-200 bg-base-200/40 text-base-content/70"
+              "sr-ui-tooltip sr-ui-tooltip-bottom cursor-help border-secondary/30 bg-secondary/5 text-sr-ink/90 hover:border-secondary/50",
+            !chip.tip && "border-sr-line bg-sr-subtle/40 text-sr-muted"
           ]}
           data-tip={chip.tip}
         >
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
             class={[
               "size-3.5 shrink-0",
               chip.tip && "text-secondary/80",
-              !chip.tip && "text-base-content/50"
+              !chip.tip && "text-sr-muted"
             ]}
           />
           <span class="truncate">{chip.label}</span>
@@ -73,8 +73,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
         </span>
       </div>
 
-      <div :if={@has_source_observations} class="overflow-x-auto border-t border-base-200">
-        <table class="table table-sm w-full">
+      <div :if={@has_source_observations} class="overflow-x-auto border-t border-sr-line">
+        <table class={ui_table_class(size: "sm", class: "w-full")}>
           <thead>
             <tr>
               <th>Source</th>
@@ -91,18 +91,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
                 <div class="font-mono text-xs">
                   {observation_value(observation, "source_instance")}
                 </div>
-                <div class="font-mono text-xs text-base-content/60">
+                <div class="font-mono text-xs text-sr-muted">
                   {observation_value(observation, "source_object_id")}
                 </div>
                 <div
                   :for={item <- observation_metadata_items(observation)}
-                  class="text-xs text-base-content/60"
+                  class="text-xs text-sr-muted"
                 >
                   <span class="font-medium">{item.label}:</span> {item.value}
                 </div>
               </td>
               <td>
-                <span class={source_state_class(observation)}>{source_state(observation)}</span>
+                <.ui_badge size="sm" variant={source_state_variant(observation)}>
+                  {source_state(observation)}
+                </.ui_badge>
               </td>
               <td class="font-mono text-xs">
                 {observation_value(observation, "last_observed_at")}
@@ -360,12 +362,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
     if observation_value(observation, "present") == true, do: "Current", else: "Absent"
   end
 
-  defp source_state_class(observation) do
-    base = "badge badge-sm"
-
-    if observation_value(observation, "present") == true,
-      do: base <> " badge-success",
-      else: base <> " badge-warning"
+  defp source_state_variant(observation) do
+    if observation_value(observation, "present") == true, do: "success", else: "warning"
   end
 
   defp observation_value(observation, key) when is_map(observation) do

@@ -53,6 +53,29 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
 
     identity_wheres_to_sql unique_controller_job: "awx_job_id IS NOT NULL"
 
+    check_constraints do
+      # Multi-column pair: either all empty (legacy) or full attestation together.
+      check_constraint :preflight_evidence_id,
+                       "ansible_automation_executions_preflight_snapshot_pair",
+                       check: """
+                       (
+                         preflight_evidence_id IS NULL
+                         AND immutable_launch_snapshot_digest IS NULL
+                         AND immutable_launch_snapshot = '{}'::jsonb
+                       )
+                       OR (
+                         preflight_evidence_id IS NOT NULL
+                         AND immutable_launch_snapshot_digest IS NOT NULL
+                         AND immutable_launch_snapshot_digest ~ '^[0-9a-f]{64}$'
+                         AND jsonb_typeof(immutable_launch_snapshot) = 'object'
+                         AND immutable_launch_snapshot <> '{}'::jsonb
+                       )
+                       """,
+                       message:
+                         "must retain a complete preflight-evidence ID, immutable launch snapshot, " <>
+                           "and lowercase digest together"
+    end
+
     references do
       reference :operation, on_delete: :delete
       reference :controller, on_delete: :restrict
@@ -147,6 +170,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
         :host_limit,
         :dispatch_id,
         :snapshot_digest,
+        :preflight_evidence_id,
+        :immutable_launch_snapshot,
+        :immutable_launch_snapshot_digest,
         :callback_reference,
         :metadata
       ]
@@ -234,6 +260,21 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecution do
     attribute :host_limit, :string, allow_nil?: false, public?: true
     attribute :dispatch_id, :uuid, allow_nil?: false, public?: true
     attribute :snapshot_digest, :string, allow_nil?: false, public?: true
+
+    # Attested preflight state never belongs in metadata because state updates
+    # and dispatch recovery may amend metadata later. It is create-only on
+    # this child and must exactly match the parent operation before launch.
+    attribute :preflight_evidence_id, :uuid, allow_nil?: true, public?: false
+
+    attribute :immutable_launch_snapshot, :map,
+      allow_nil?: false,
+      default: %{},
+      public?: false
+
+    attribute :immutable_launch_snapshot_digest, :string,
+      allow_nil?: true,
+      public?: false,
+      constraints: [min_length: 64, max_length: 64]
 
     attribute :state, :atom do
       allow_nil? false

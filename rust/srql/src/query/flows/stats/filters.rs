@@ -124,6 +124,47 @@ fn build_stats_bigint_filter(
     }
 }
 
+/// `ip:` across both flow endpoints for the stats path.
+///
+/// A positive match is "either endpoint matches"; a negative match is "neither
+/// endpoint matches", which by De Morgan is the AND of the two per-side negatives,
+/// not their OR. `build_stats_text_filter` already emits NULL-safe negative clauses
+/// per column, so joining them with AND is the whole difference.
+///
+/// The two calls push one bind each, in src-then-dst order, matching the clause.
+fn build_stats_bidirectional_ip_filter(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let src = build_stats_text_filter("f.src_endpoint_ip", filter, binds)?;
+    let dst = build_stats_text_filter("f.dst_endpoint_ip", filter, binds)?;
+
+    Ok(format!("({src}{joiner}{dst})"))
+}
+
+/// `port:` across both flow endpoint ports (stats path).
+fn build_stats_bidirectional_port_filter(
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    let joiner = match filter.op {
+        FilterOp::NotEq | FilterOp::NotIn => " AND ",
+        _ => " OR ",
+    };
+
+    let src =
+        build_stats_bigint_filter("f.src_endpoint_port::bigint", filter, binds, "port")?;
+    let dst =
+        build_stats_bigint_filter("f.dst_endpoint_port::bigint", filter, binds, "port")?;
+
+    Ok(format!("({src}{joiner}{dst})"))
+}
+
 pub(in crate::query::flows) fn build_stats_filter_clause(
     filter: &Filter,
     binds: &mut Vec<FlowSqlBindValue>,
@@ -132,6 +173,8 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "device_id" => flow_device_scope_expr(filter),
         "src_endpoint_ip" | "src_ip" => build_stats_text_filter("f.src_endpoint_ip", filter, binds),
         "dst_endpoint_ip" | "dst_ip" => build_stats_text_filter("f.dst_endpoint_ip", filter, binds),
+        "ip" | "endpoint_ip" => build_stats_bidirectional_ip_filter(filter, binds),
+        "port" | "endpoint_port" => build_stats_bidirectional_port_filter(filter, binds),
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
@@ -166,6 +209,23 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         }
         "runtime_source" => {
             build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
+        }
+        "service_name" | "public_endpoint_service" | "k8s_service" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_SERVICE_EXPR_ALIASED, filter, binds)
+        }
+        "gateway_name" | "public_endpoint_gateway" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_GATEWAY_EXPR_ALIASED, filter, binds)
+        }
+        "exposure_class" | "public_endpoint_class" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_EXPOSURE_EXPR_ALIASED, filter, binds)
+        }
+        "public_endpoint_namespace" => build_stats_text_filter(
+            ATTRIBUTION_PUBLIC_ENDPOINT_NAMESPACE_EXPR_ALIASED,
+            filter,
+            binds,
+        ),
+        "route_name" | "public_endpoint_route" => {
+            build_stats_text_filter(ATTRIBUTION_PUBLIC_ENDPOINT_ROUTE_EXPR_ALIASED, filter, binds)
         }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
         "input_snmp" | "in_if_index" => {
@@ -282,6 +342,33 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
                 "dst_cidr filter only supports equality or list matching".into(),
             )),
         },
+        // Bare `cidr:` mirrors `near:` -- containment on either endpoint. Only equality is
+        // supported, matching `src_cidr` / `dst_cidr`.
+        "cidr" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                let cidr = normalize_cidr_literal(filter.value.as_scalar()?)?;
+                // One bind per side, in src-then-dst order, matching the clause below.
+                binds.push(FlowSqlBindValue::Text(cidr.clone()));
+                binds.push(FlowSqlBindValue::Text(cidr));
+
+                match filter.op {
+                    FilterOp::Eq => Ok("(try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr \
+                         OR try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)"
+                        .to_string()),
+                    // "Neither endpoint is inside the block": the AND of the two NULL-safe
+                    // per-side negatives, not their OR.
+                    FilterOp::NotEq => Ok(
+                        "((try_inet(NULLIF(f.src_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.src_endpoint_ip, '')) <<= ?::cidr)) \
+                         AND (try_inet(NULLIF(f.dst_endpoint_ip, '')) IS NULL OR NOT (try_inet(NULLIF(f.dst_endpoint_ip, '')) <<= ?::cidr)))"
+                            .to_string(),
+                    ),
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "cidr filter only supports equality".into(),
+            )),
+        },
         "direction" => {
             let expr = format!("({})", FLOW_DIRECTION_EXPR);
             build_stats_text_filter(&expr, filter, binds)
@@ -296,8 +383,68 @@ pub(in crate::query::flows) fn build_stats_filter_clause(
         "dst_country_iso2" | "dst_country" => {
             build_stats_text_filter("COALESCE(dst_geo.country_iso2, 'Unknown')", filter, binds)
         }
+        "tag" | "src_tag" | "dst_tag" => build_stats_tag_filter(filter),
+        "near" | "src_near" | "dst_near" => build_stats_near_filter(filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for flows stats: '{other}'"
         ))),
+    }
+}
+
+fn build_stats_near_filter(filter: &Filter) -> Result<String> {
+    use crate::query::flows::literals::{NearSide, near_exists_sql, normalize_near_literal};
+
+    let side = match filter.field.as_str() {
+        "src_near" => NearSide::Src,
+        "dst_near" => NearSide::Dst,
+        "near" => NearSide::Either,
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported near filter field: '{other}'"
+            )));
+        }
+    };
+
+    // Stats SQL aliases the flows table as `f`.
+    let rewrite_ip = |sql: String| {
+        sql.replace("src_endpoint_ip", "f.src_endpoint_ip")
+            .replace("dst_endpoint_ip", "f.dst_endpoint_ip")
+    };
+
+    match filter.op {
+        FilterOp::Eq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            Ok(rewrite_ip(near_exists_sql(point, side)))
+        }
+        FilterOp::NotEq => {
+            let point = normalize_near_literal(filter.value.as_scalar()?)?;
+            Ok(format!(
+                "(NOT {})",
+                rewrite_ip(near_exists_sql(point, side))
+            ))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "near filter only supports equality (e.g. near:30.27,-97.74,50km)".into(),
+        )),
+    }
+}
+
+fn build_stats_tag_filter(filter: &Filter) -> Result<String> {
+    use crate::query::flows::literals::tag_filter_sql;
+
+    let expr = tag_filter_sql(
+        filter.field.as_str(),
+        &filter.op,
+        &filter.value,
+        "f.src_prefix_tags",
+        "f.dst_prefix_tags",
+    )?;
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::In => Ok(expr),
+        FilterOp::NotEq | FilterOp::NotIn => Ok(format!("(NOT {expr})")),
+        _ => Err(ServiceError::InvalidRequest(
+            "tag filter only supports equality or list matching".into(),
+        )),
     }
 }

@@ -1,0 +1,6 @@
+build --registry=https://bcr.bazel.build/
+build --registry=https://raw.githubusercontent.com/rabbitmq/bazel-central-registry/erlang-packages/
+
+build --incompatible_strict_action_env
+
+try-import %workspace%/user.bazelrc

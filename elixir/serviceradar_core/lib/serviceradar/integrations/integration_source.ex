@@ -362,7 +362,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     attribute :source_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:armis, :snmp, :syslog, :nmap, :custom]
+      constraints one_of: [:armis, :snmp, :syslog, :nmap, :netbox, :custom]
       description "Type of data source"
     end
 

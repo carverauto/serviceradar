@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
         <div class="flex items-center justify-between w-full">
           <div>
             <div class="text-sm font-semibold">SNMP Profiles</div>
-            <p class="text-xs text-base-content/60">
+            <p class="text-xs text-sr-muted">
               {length(@profiles)} profile(s) configured
             </p>
           </div>
@@ -27,10 +27,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
-            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
@@ -41,20 +41,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="6" class="text-center text-base-content/60 py-8">
+              <td colspan="6" class="text-center text-sr-muted py-8">
                 No SNMP profiles configured. Create one to start monitoring devices via SNMP.
               </td>
             </tr>
             <%= for profile <- @profiles do %>
-              <tr class="hover:bg-base-200/40">
+              <tr class="hover:bg-sr-subtle/40">
                 <td>
                   <button
                     phx-click="toggle_profile"
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
-                    </span>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                 </td>
@@ -62,29 +61,29 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                   <div class="flex items-center gap-2">
                     <.link
                       navigate={~p"/settings/snmp/#{profile.id}/edit"}
-                      class="font-medium hover:text-primary"
+                      class="font-medium hover:text-sr-brand"
                     >
                       {profile.name}
                     </.link>
                     <.ui_badge :if={profile.is_default} variant="info" size="xs">Default</.ui_badge>
                   </div>
-                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                  <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}
                   </p>
                 </td>
                 <td class="text-xs max-w-xs">
                   <%= cond do %>
                     <% profile.is_default -> %>
-                      <span class="text-base-content/60 italic">All unmatched devices</span>
+                      <span class="text-sr-muted italic">All unmatched devices</span>
                     <% profile.target_query && profile.target_query != "" -> %>
                       <code
-                        class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
+                        class="font-mono text-[11px] bg-sr-subtle/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
                         title={profile.target_query}
                       >
                         {profile.target_query}
                       </code>
                     <% true -> %>
-                      <span class="text-base-content/40">No targeting</span>
+                      <span class="text-sr-muted">No targeting</span>
                   <% end %>
                 </td>
                 <td class="font-mono text-xs">

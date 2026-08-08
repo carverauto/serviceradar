@@ -147,299 +147,290 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     assigns = assign(assigns, :severity_options, @severity_options)
 
     ~H"""
-    <dialog id="rule_builder_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close"
-            phx-target={@myself}
+    <.ui_modal
+      id="rule_builder_modal"
+      on_cancel="close"
+      on_cancel_target={@myself}
+    >
+      <:title>
+        {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
+      </:title>
+      <p class="text-sm text-sr-muted">
+        Configure match conditions to create events from logs.
+        For advanced configuration, visit <.link
+          navigate="/settings/rules?tab=events"
+          class="text-sr-brand hover:underline"
+        >Settings → Rules</.link>.
+      </p>
+
+      <.form
+        for={@form}
+        id="rule-builder-form"
+        phx-change="validate"
+        phx-submit="save"
+        phx-target={@myself}
+        phx-debounce="500"
+        class="space-y-4 mt-4"
+      >
+        <!-- Rule Name -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Rule Name</span>
+          </label>
+          <input
+            type="text"
+            name="rule[name]"
+            value={@form[:name].value}
+            class={ui_field_class()}
+            placeholder="e.g., db-writer-errors"
+            required
+          />
+        </div>
+
+        <div class="sr-ui-divider text-xs text-sr-muted">Match Conditions</div>
+
+        <!-- Message Body Contains -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name="rule[body_contains_enabled]"
+              value="true"
+              checked={@form[:body_contains_enabled].value}
+              class={ui_checkbox_class()}
+            />
+            <span class="text-sm font-medium text-sr-ink">Message contains</span>
+          </label>
+          <input
+            type="text"
+            name="rule[body_contains]"
+            value={@form[:body_contains].value}
+            class={[
+              ui_field_class(size: "sm"),
+              not @form[:body_contains_enabled].value && "opacity-50"
+            ]}
+            placeholder="e.g., Fetch error"
+            disabled={not @form[:body_contains_enabled].value}
+          />
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Case-insensitive substring match
+            </span>
+          </label>
+        </div>
+
+        <!-- Severity -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name="rule[severity_enabled]"
+              value="true"
+              checked={@form[:severity_enabled].value}
+              class={ui_checkbox_class()}
+            />
+            <span class="text-sm font-medium text-sr-ink">Severity level</span>
+          </label>
+          <select
+            name="rule[severity_text]"
+            class={[
+              ui_field_class(size: "sm"),
+              not @form[:severity_enabled].value && "opacity-50"
+            ]}
+            disabled={not @form[:severity_enabled].value}
           >
-            x
-          </button>
-        </form>
+            <option value="">Any severity</option>
+            <%= for {label, value} <- @severity_options do %>
+              <option value={value} selected={@form[:severity_text].value == value}>
+                {label}
+              </option>
+            <% end %>
+          </select>
+        </div>
 
-        <h3 class="text-lg font-bold">
-          {if @mode == :edit, do: "Edit Event Rule", else: "Create Event Rule"}
-        </h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Configure match conditions to create events from logs.
-          For advanced configuration, visit <.link
-            navigate="/settings/rules?tab=events"
-            class="link link-primary"
-          >Settings → Rules</.link>.
-        </p>
+        <!-- Service Name -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name="rule[service_name_enabled]"
+              value="true"
+              checked={@form[:service_name_enabled].value}
+              class={ui_checkbox_class()}
+            />
+            <span class="text-sm font-medium text-sr-ink">Service name</span>
+          </label>
+          <input
+            type="text"
+            name="rule[service_name]"
+            value={@form[:service_name].value}
+            class={[
+              ui_field_class(size: "sm"),
+              not @form[:service_name_enabled].value && "opacity-50"
+            ]}
+            placeholder="e.g., serviceradar-db-event-writer"
+            disabled={not @form[:service_name_enabled].value}
+          />
+        </div>
 
-        <.form
-          for={@form}
-          id="rule-builder-form"
-          phx-change="validate"
-          phx-submit="save"
-          phx-target={@myself}
-          phx-debounce="500"
-          class="space-y-4 mt-4"
-        >
-          <!-- Rule Name -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Rule Name</span>
-            </label>
+        <!-- Attribute Match -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name="rule[attribute_enabled]"
+              value="true"
+              checked={@form[:attribute_enabled].value}
+              class={ui_checkbox_class()}
+            />
+            <span class="text-sm font-medium text-sr-ink">Attribute equals</span>
+          </label>
+          <div class={[
+            "flex gap-2",
+            not @form[:attribute_enabled].value && "opacity-50"
+          ]}>
             <input
               type="text"
-              name="rule[name]"
-              value={@form[:name].value}
-              class="input input-bordered"
-              placeholder="e.g., db-writer-errors"
-              required
+              name="rule[attribute_key]"
+              value={@form[:attribute_key].value}
+              class={ui_field_class(size: "sm", class: "flex-1")}
+              placeholder="Key (e.g., error)"
+              disabled={not @form[:attribute_enabled].value}
             />
-          </div>
-
-          <div class="divider text-xs text-base-content/50">Match Conditions</div>
-          
-    <!-- Message Body Contains -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                name="rule[body_contains_enabled]"
-                value="true"
-                checked={@form[:body_contains_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
-              />
-              <span class="label-text font-medium">Message contains</span>
-            </label>
             <input
               type="text"
-              name="rule[body_contains]"
-              value={@form[:body_contains].value}
-              class={[
-                "input input-bordered input-sm",
-                not @form[:body_contains_enabled].value && "opacity-50"
-              ]}
-              placeholder="e.g., Fetch error"
-              disabled={not @form[:body_contains_enabled].value}
+              name="rule[attribute_value]"
+              value={@form[:attribute_value].value}
+              class={ui_field_class(size: "sm", class: "flex-1")}
+              placeholder="Value (e.g., connection failed)"
+              disabled={not @form[:attribute_enabled].value}
             />
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
-                Case-insensitive substring match
-              </span>
-            </label>
           </div>
-          
-    <!-- Severity -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                name="rule[severity_enabled]"
-                value="true"
-                checked={@form[:severity_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
-              />
-              <span class="label-text font-medium">Severity level</span>
-            </label>
-            <select
-              name="rule[severity_text]"
-              class={[
-                "select select-bordered select-sm",
-                not @form[:severity_enabled].value && "opacity-50"
-              ]}
-              disabled={not @form[:severity_enabled].value}
-            >
-              <option value="">Any severity</option>
-              <%= for {label, value} <- @severity_options do %>
-                <option value={value} selected={@form[:severity_text].value == value}>
-                  {label}
-                </option>
+          <!-- Show parsed attributes as suggestions -->
+          <div
+            :if={@form[:parsed_attributes].value && map_size(@form[:parsed_attributes].value) > 0}
+            class="mt-2"
+          >
+            <span class="text-xs text-sr-muted">Available attributes:</span>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <%= for {key, value} <- flatten_for_suggestions(@form[:parsed_attributes].value) do %>
+                <button
+                  type="button"
+                  class="inline-flex cursor-pointer items-center rounded-full border border-sr-line bg-sr-subtle px-2 text-xs font-semibold text-sr-muted transition-colors hover:border-sr-brand/40 hover:bg-sr-brand/10 hover:text-sr-brand"
+                  phx-click="select_attribute"
+                  phx-value-key={key}
+                  phx-value-value={value}
+                  phx-target={@myself}
+                >
+                  {key}={truncate(value, 20)}
+                </button>
               <% end %>
-            </select>
-          </div>
-          
-    <!-- Service Name -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                name="rule[service_name_enabled]"
-                value="true"
-                checked={@form[:service_name_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
-              />
-              <span class="label-text font-medium">Service name</span>
-            </label>
-            <input
-              type="text"
-              name="rule[service_name]"
-              value={@form[:service_name].value}
-              class={[
-                "input input-bordered input-sm",
-                not @form[:service_name_enabled].value && "opacity-50"
-              ]}
-              placeholder="e.g., serviceradar-db-event-writer"
-              disabled={not @form[:service_name_enabled].value}
-            />
-          </div>
-          
-    <!-- Attribute Match -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                name="rule[attribute_enabled]"
-                value="true"
-                checked={@form[:attribute_enabled].value}
-                class="checkbox checkbox-sm checkbox-primary"
-              />
-              <span class="label-text font-medium">Attribute equals</span>
-            </label>
-            <div class={[
-              "flex gap-2",
-              not @form[:attribute_enabled].value && "opacity-50"
-            ]}>
-              <input
-                type="text"
-                name="rule[attribute_key]"
-                value={@form[:attribute_key].value}
-                class="input input-bordered input-sm flex-1"
-                placeholder="Key (e.g., error)"
-                disabled={not @form[:attribute_enabled].value}
-              />
-              <input
-                type="text"
-                name="rule[attribute_value]"
-                value={@form[:attribute_value].value}
-                class="input input-bordered input-sm flex-1"
-                placeholder="Value (e.g., connection failed)"
-                disabled={not @form[:attribute_enabled].value}
-              />
             </div>
-            <!-- Show parsed attributes as suggestions -->
-            <div
-              :if={@form[:parsed_attributes].value && map_size(@form[:parsed_attributes].value) > 0}
-              class="mt-2"
+          </div>
+        </div>
+
+        <div class="sr-ui-divider text-xs text-sr-muted">Event Options</div>
+
+        <!-- Auto-create Alert -->
+        <div class="flex flex-col gap-1.5">
+          <label class="flex cursor-pointer items-center justify-start gap-3">
+            <input
+              type="checkbox"
+              name="rule[auto_alert]"
+              value="true"
+              checked={@form[:auto_alert].value}
+              class={ui_checkbox_class()}
+            />
+            <div>
+              <span class="text-sm font-medium text-sr-ink">
+                Auto-create alert for matching events
+              </span>
+              <p class="text-xs text-sr-muted">
+                If disabled, alerts are only created for high/critical severity events
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <!-- Rule Preview Section -->
+        <div class="bg-sr-subtle/50 rounded-lg p-4 mt-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium">Rule Preview</span>
+            <.ui_button
+              type="button"
+              phx-click="test_rule"
+              phx-target={@myself}
+              disabled={@preview_state == :loading}
+              size="xs"
+              variant="ghost"
             >
-              <span class="text-xs text-base-content/50">Available attributes:</span>
-              <div class="flex flex-wrap gap-1 mt-1">
-                <%= for {key, value} <- flatten_for_suggestions(@form[:parsed_attributes].value) do %>
-                  <button
-                    type="button"
-                    class="badge badge-ghost badge-sm cursor-pointer hover:badge-primary"
-                    phx-click="select_attribute"
-                    phx-value-key={key}
-                    phx-value-value={value}
-                    phx-target={@myself}
-                  >
-                    {key}={truncate(value, 20)}
-                  </button>
+              <.icon :if={@preview_state != :loading} name="hero-play" class="w-4 h-4" />
+              <span :if={@preview_state == :loading} class="sr-ui-spinner sr-ui-spinner-xs"></span>
+              Test Rule
+            </.ui_button>
+          </div>
+
+          <div :if={@preview_state == :idle} class="text-sm text-sr-muted">
+            Click "Test Rule" to see how many logs from the last hour would match.
+          </div>
+
+          <div :if={@preview_state == :loading} class="text-sm text-sr-muted">
+            Testing rule against recent logs...
+          </div>
+
+          <div :if={@preview_state == :done && @preview_result} class="space-y-2">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-check-circle" class="w-5 h-5 text-success" />
+              <span class="text-sm">
+                <strong>{@preview_result.match_count}</strong> logs from the last hour would match
+              </span>
+            </div>
+
+            <div :if={@preview_result.sample_logs != []} class="mt-2">
+              <span class="text-xs text-sr-muted">Sample matches:</span>
+              <div class="mt-1 space-y-1 max-h-32 overflow-y-auto">
+                <%= for log <- @preview_result.sample_logs do %>
+                  <div class="text-xs font-mono bg-sr-control/50 px-2 py-1 rounded flex gap-2">
+                    <span class="text-sr-muted">
+                      {format_preview_time(log["timestamp"])}
+                    </span>
+                    <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
+                    <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
+                  </div>
                 <% end %>
               </div>
             </div>
-          </div>
 
-          <div class="divider text-xs text-base-content/50">Event Options</div>
-          
-    <!-- Auto-create Alert -->
-          <div class="form-control">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                name="rule[auto_alert]"
-                value="true"
-                checked={@form[:auto_alert].value}
-                class="checkbox checkbox-sm checkbox-primary"
-              />
-              <div>
-                <span class="label-text font-medium">Auto-create alert for matching events</span>
-                <p class="text-xs text-base-content/50">
-                  If disabled, alerts are only created for high/critical severity events
-                </p>
-              </div>
-            </label>
-          </div>
-          
-    <!-- Rule Preview Section -->
-          <div class="bg-base-200/50 rounded-lg p-4 mt-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-medium">Rule Preview</span>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs"
-                phx-click="test_rule"
-                phx-target={@myself}
-                disabled={@preview_state == :loading}
-              >
-                <.icon :if={@preview_state != :loading} name="hero-play" class="w-4 h-4" />
-                <span :if={@preview_state == :loading} class="loading loading-spinner loading-xs">
-                </span>
-                Test Rule
-              </button>
-            </div>
-
-            <div :if={@preview_state == :idle} class="text-sm text-base-content/60">
-              Click "Test Rule" to see how many logs from the last hour would match.
-            </div>
-
-            <div :if={@preview_state == :loading} class="text-sm text-base-content/60">
-              Testing rule against recent logs...
-            </div>
-
-            <div :if={@preview_state == :done && @preview_result} class="space-y-2">
-              <div class="flex items-center gap-2">
-                <.icon name="hero-check-circle" class="w-5 h-5 text-success" />
-                <span class="text-sm">
-                  <strong>{@preview_result.match_count}</strong> logs from the last hour would match
-                </span>
-              </div>
-
-              <div :if={@preview_result.sample_logs != []} class="mt-2">
-                <span class="text-xs text-base-content/50">Sample matches:</span>
-                <div class="mt-1 space-y-1 max-h-32 overflow-y-auto">
-                  <%= for log <- @preview_result.sample_logs do %>
-                    <div class="text-xs font-mono bg-base-300/50 px-2 py-1 rounded flex gap-2">
-                      <span class="text-base-content/50">
-                        {format_preview_time(log["timestamp"])}
-                      </span>
-                      <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
-                      <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
-                    </div>
-                  <% end %>
-                </div>
-              </div>
-
-              <div :if={@preview_result.sample_logs == []} class="text-sm text-warning">
-                No logs would match this rule. Consider adjusting your conditions.
-              </div>
-            </div>
-
-            <div :if={@preview_state == :error} class="text-sm text-error">
-              {@preview_error}
+            <div :if={@preview_result.sample_logs == []} class="text-sm text-warning">
+              No logs would match this rule. Consider adjusting your conditions.
             </div>
           </div>
-          
-    <!-- Validation Error -->
-          <div :if={@error} class="alert alert-error">
-            <.icon name="hero-exclamation-circle" class="w-5 h-5" />
-            <span>{@error}</span>
+
+          <div :if={@preview_state == :error} class="text-sm text-error">
+            {@preview_error}
           </div>
-          
-    <!-- Actions -->
-          <div class="modal-action">
-            <button type="button" class="btn btn-ghost" phx-click="close" phx-target={@myself}>
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary" disabled={@saving}>
-              <span :if={@saving} class="loading loading-spinner loading-xs"></span>
-              <.icon :if={not @saving and @mode == :create} name="hero-plus" class="w-4 h-4" />
-              <.icon :if={not @saving and @mode == :edit} name="hero-check" class="w-4 h-4" />
-              {if @mode == :edit, do: "Save Changes", else: "Create Rule"}
-            </button>
-          </div>
-        </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close" phx-target={@myself}>close</button>
-      </form>
-    </dialog>
+        </div>
+
+        <!-- Validation Error -->
+        <div :if={@error} class={ui_alert_class("error")}>
+          <.icon name="hero-exclamation-circle" class="w-5 h-5" />
+          <span>{@error}</span>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex justify-end gap-2 pt-1">
+          <.ui_button type="button" phx-click="close" phx-target={@myself} size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" disabled={@saving} size="sm" variant="primary">
+            <span :if={@saving} class="sr-ui-spinner sr-ui-spinner-xs"></span>
+            <.icon :if={not @saving and @mode == :create} name="hero-plus" class="w-4 h-4" />
+            <.icon :if={not @saving and @mode == :edit} name="hero-check" class="w-4 h-4" />
+            {if @mode == :edit, do: "Save Changes", else: "Create Rule"}
+          </.ui_button>
+        </div>
+      </.form>
+    </.ui_modal>
     """
   end
 
@@ -887,11 +878,11 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     case String.downcase(severity) do
       s when s in ["error", "critical", "fatal"] -> "text-error"
       s when s in ["warn", "warning"] -> "text-warning"
-      _ -> "text-base-content/70"
+      _ -> "text-sr-muted"
     end
   end
 
-  defp severity_class(_), do: "text-base-content/70"
+  defp severity_class(_), do: "text-sr-muted"
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason

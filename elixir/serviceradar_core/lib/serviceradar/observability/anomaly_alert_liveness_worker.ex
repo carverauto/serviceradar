@@ -3,7 +3,8 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
   Scheduled tripwire around the anomaly alert path (design D7).
 
   Runs `AnomalyAlertLivenessCheck` — synthetic open → persisted alert →
-  synthetic clear → resolved, plus the seeded rule-contract assertion — and
+  synthetic clear → resolved → internal artifacts discarded, plus the seeded
+  rule-contract assertion — and
   records the outcome as a `:core` health event (`anomaly-alert-liveness`)
   via `TripwireHealth`, so a silent rule-shape or engine regression becomes
   operator-visible between deploys. The mix task
@@ -48,7 +49,6 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessWorker do
     case run_check(check, series_key) do
       {:ok, result} ->
         health.(@check_name, true, %{
-          "alert_id" => result.alert_id,
           "series_key" => result.series_key
         })
 

@@ -69,12 +69,12 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     end
   end
 
-  defp device_for_armis_id(armis_id, actor) do
+  defp device_for_armis_id(armis_id, actor, partition \\ "default") do
     query =
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :armis_device_id,
         identifier_value: armis_id,
-        partition: "default"
+        partition: partition
       })
 
     case Ash.read(query, actor: actor) do
@@ -218,12 +218,13 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     end
 
     assert :ok = SyncIngestor.ingest_updates([update.(ip_a)], actor: actor)
-    canonical = device_for_armis_id(armis_id, actor)
+    partition = "default:armis:#{source_id}"
+    canonical = device_for_armis_id(armis_id, actor, partition)
     assert is_binary(canonical)
 
     assert :ok = SyncIngestor.ingest_updates([update.(ip_b)], actor: actor)
 
-    assert device_for_armis_id(armis_id, actor) == canonical
+    assert device_for_armis_id(armis_id, actor, partition) == canonical
 
     assert {:ok, %Device{uid: ^canonical, ip: ^ip_b}} =
              Device.get_by_uid(canonical, false, actor: actor)
@@ -746,14 +747,57 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "a MAC-less re-observation must not trigger the distinct-MAC veto"
   end
 
-  test "direct :mac match is never vetoed even with DIFFERENT armis_device_ids", %{
+  test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do
+    armis_a = "armis-history-a-#{System.unique_integer([:positive])}"
+    armis_b = "armis-history-b-#{System.unique_integer([:positive])}"
+    current_mac = universal_mac()
+    historical_mac = universal_mac()
+    refute current_mac == historical_mac
+
+    update_a = %{
+      "hostname" => "history-host-a",
+      "source" => "armis",
+      "mac" => current_mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_a}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_a], actor: actor)
+    canonical = device_for_armis_id(armis_a, actor)
+    assert is_binary(canonical)
+
+    {:ok, _} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:register, %{
+        device_id: canonical,
+        identifier_type: :mac,
+        identifier_value: historical_mac,
+        partition: "default",
+        confidence: :strong
+      })
+      |> Ash.create(actor: actor)
+
+    update_b = %{
+      "hostname" => "history-host-b",
+      "source" => "armis",
+      "mac" => historical_mac,
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_b}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
+
+    resolved_b = device_for_armis_id(armis_b, actor)
+    assert is_binary(resolved_b)
+    assert resolved_b != canonical
+  end
+
+  test "direct current-primary MAC match is not vetoed even with DIFFERENT armis_device_ids", %{
     actor: actor
   } do
-    # Negative guard (b): a direct `:mac` identifier match is self-consistent and
-    # is NEVER vetoed (the `id_type == :mac` branch returns the device before the
-    # veto can run). Two records carry the SAME hardware MAC but DIFFERENT
-    # armis_device_ids; resolution is driven by the shared `:mac` identifier, so
-    # the second record must resolve to the SAME device as the first.
+    # Negative guard (b): a direct `:mac` identifier match to the canonical
+    # device's current primary MAC is self-consistent and is not vetoed. Two
+    # records carry the SAME current hardware MAC but DIFFERENT armis_device_ids;
+    # resolution is driven by the shared `:mac` identifier, so the second record
+    # must resolve to the SAME device as the first.
     mac = universal_mac()
     armis_a = "armis-direct-a-#{System.unique_integer([:positive])}"
     armis_b = "armis-direct-b-#{System.unique_integer([:positive])}"
@@ -769,8 +813,8 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     canonical = device_for_mac(mac, actor)
     assert is_binary(canonical)
 
-    # Second record: same MAC, a DIFFERENT armis_device_id. The direct `:mac`
-    # match (priority over armis_device_id) resolves it to the same device.
+    # Second record: same current MAC, a DIFFERENT armis_device_id. The direct
+    # `:mac` match resolves it to the same device.
     update_b = %{
       "hostname" => "direct-mac-b",
       "source" => "armis",
@@ -781,7 +825,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert :ok = SyncIngestor.ingest_updates([update_b], actor: actor)
 
     assert device_for_mac(mac, actor) == canonical,
-           "a direct :mac identifier match must never be vetoed"
+           "a direct current-primary MAC match must not be vetoed"
   end
 
   defp device_for_mac(mac, actor) do

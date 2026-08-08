@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6 space-y-4">
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-4 p-6 font-sans">
         <.observability_chrome active_pane="netflows" />
 
         <div class="flex flex-col lg:flex-row gap-4 items-start">

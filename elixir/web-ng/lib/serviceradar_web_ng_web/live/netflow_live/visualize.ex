@@ -70,9 +70,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
          to:
            Params.build_patch_url(socket, %{
              "q" => chart_query,
-             "nf" => Params.nf_param(state),
-             "cursor" => nil,
-             "limit" => Params.parse_limit_param(Map.get(params, "limit"))
+             "nf" => Params.nf_param(state)
            })
        )}
     else

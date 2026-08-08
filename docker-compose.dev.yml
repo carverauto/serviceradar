@@ -32,6 +32,8 @@ services:
       # Feature flags
       - SERVICERADAR_CORE_REPO_ENABLED=true
       - SERVICERADAR_CORE_RUN_MIGRATIONS=true
+      # Initial MTR history retention in days (1-395) for a fresh database.
+      - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
     depends_on:

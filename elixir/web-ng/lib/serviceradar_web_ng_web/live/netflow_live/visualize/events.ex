@@ -10,8 +10,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.QueryState
 
+  alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Events.Bgp
+  alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -20,6 +22,29 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
 
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_paginate", params, socket) do
+    # Session-position keyset page: keep intent URL (q + nf), cursor stays out of the bar.
+    page =
+      case Integer.parse(to_string(Map.get(params, "page") || "1")) do
+        {n, ""} when n > 0 -> n
+        _ -> 1
+      end
+
+    state = Map.get(socket.assigns, :netflow_viz_state) || NFState.default()
+
+    load_params =
+      %{}
+      |> Map.put("cursor", Map.get(params, "cursor"))
+      |> Map.put("page", Integer.to_string(page))
+
+    socket =
+      socket
+      |> assign(:pagination_page, page)
+      |> FlowList.load_flows_list(load_params, state)
+
+    {:noreply, socket}
   end
 
   def handle_event("srql_submit", params, socket) do
@@ -79,6 +104,41 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
      push_patch(socket,
        to: build_patch_url(socket, %{"nf" => nf_param(next), "q" => chart_query, "cursor" => nil})
      )}
+  end
+
+  def handle_event("nf_prefix_tag_filter", params, socket) do
+    tag =
+      params
+      |> Map.get("tag", "")
+      |> to_string()
+      |> String.trim()
+
+    current_q =
+      case socket.assigns do
+        %{srql: %{query: q}} when is_binary(q) and q != "" -> q
+        %{query: q} when is_binary(q) and q != "" -> q
+        _ -> "in:flows"
+      end
+
+    case PrefixTagQuery.apply_tag_filter(current_q, tag) do
+      {:ok, next_q} ->
+        state = socket.assigns.netflow_viz_state
+
+        {:noreply,
+         socket
+         |> assign(:netflow_viz_state, state)
+         |> push_patch(
+           to:
+             build_patch_url(socket, %{
+               "nf" => nf_param(state),
+               "q" => next_q,
+               "cursor" => nil
+             })
+         )}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Invalid prefix tag (use letters, digits, :._@+/-)")}
+    end
   end
 
   def handle_event("netflow_open", %{"idx" => idx_raw}, socket) do

@@ -44,12 +44,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
       ]}>
         <div :if={@map_view == "netflow"} class="sr-ops-map-controls">
           <ul class="sr-ops-map-legend" aria-label="NetFlow map legend">
-            <li><span class="bg-teal-400"></span>Network cluster</li>
-            <li><span class="bg-sky-400"></span>Private/public flow</li>
+            <li><span class="bg-[#3ecf87]"></span>Network cluster</li>
+            <li><span class="bg-[#5bde9b]"></span>Private/public flow</li>
             <li><span class="bg-rose-500"></span>AlienVault IOC match</li>
             <li><span class="bg-violet-400"></span>Busy flow</li>
             <li><span class="bg-orange-400"></span>High volume flow</li>
-            <li><span class="bg-slate-400/60"></span>External-only flow</li>
+            <li><span class="bg-[#8fa39a]/60"></span>External-only flow</li>
           </ul>
           <span class="sr-ops-map-window">{@traffic_links_window_label}</span>
         </div>

@@ -5,10 +5,12 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
 
   use GenServer
 
-  alias ServiceRadar.Credentials.CameraCredentialRuleReconcileWorker
+  alias ServiceRadar.Credentials.PluginCredentialRuleReconcileWorker
   alias ServiceRadar.Credentials.PluginIntegrationReconcileWorker
-  alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
   alias ServiceRadar.Plugins.AddonProfileReconcileWorker
+  alias ServiceRadar.Plugins.AddonRolloutWorker
+  alias ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker
+  alias ServiceRadar.Plugins.PluginLegacyAssignmentRecoveryWorker
   alias ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
   alias ServiceRadar.Repo
@@ -38,11 +40,13 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
       Enum.each(
         [
           PluginTargetPolicyReconcileWorker,
+          PluginLegacyAssignmentRecoveryWorker,
           PluginPolicyAssignmentRecoveryDispatchWorker,
-          ProxmoxCredentialRuleReconcileWorker,
-          CameraCredentialRuleReconcileWorker,
+          PluginCredentialRuleReconcileWorker,
           PluginIntegrationReconcileWorker,
-          AddonProfileReconcileWorker
+          AddonUpdatePolicyBackfillWorker,
+          AddonProfileReconcileWorker,
+          AddonRolloutWorker
         ],
         &ensure_worker_scheduled/1
       )

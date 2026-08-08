@@ -63,6 +63,10 @@ rust_library(
             "retry",  # aarch64-apple-ios
             "timeout",  # aarch64-apple-ios
         ],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [
+            "retry",  # aarch64-apple-ios-macabi
+            "timeout",  # aarch64-apple-ios-macabi
+        ],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [
             "retry",  # aarch64-apple-ios-sim
             "timeout",  # aarch64-apple-ios-sim
@@ -87,6 +91,10 @@ rust_library(
             "retry",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
             "timeout",  # aarch64-unknown-linux-gnu, aarch64-unknown-nixos-gnu
         ],
+        "@rules_rust//rust/platform:aarch64-unknown-none": [
+            "retry",  # aarch64-unknown-none
+            "timeout",  # aarch64-unknown-none
+        ],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [
             "retry",  # aarch64-unknown-nto-qnx710
             "timeout",  # aarch64-unknown-nto-qnx710
@@ -98,6 +106,10 @@ rust_library(
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "retry",  # arm-unknown-linux-gnueabi
             "timeout",  # arm-unknown-linux-gnueabi
+        ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "retry",  # arm-unknown-linux-musleabi
+            "timeout",  # arm-unknown-linux-musleabi
         ],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [
             "retry",  # armv7-linux-androideabi
@@ -127,9 +139,21 @@ rust_library(
             "retry",  # i686-unknown-linux-gnu
             "timeout",  # i686-unknown-linux-gnu
         ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "retry",  # loongarch64-unknown-linux-gnu
+            "timeout",  # loongarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [
+            "retry",  # mips-unknown-linux-gnu
+            "timeout",  # mips-unknown-linux-gnu
+        ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "retry",  # powerpc-unknown-linux-gnu
             "timeout",  # powerpc-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:riscv32imac-unknown-none-elf": [
+            "retry",  # riscv32imac-unknown-none-elf
+            "timeout",  # riscv32imac-unknown-none-elf
         ],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [
             "retry",  # riscv32imc-unknown-none-elf
@@ -147,13 +171,41 @@ rust_library(
             "retry",  # s390x-unknown-linux-gnu
             "timeout",  # s390x-unknown-linux-gnu
         ],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [
+            "retry",  # sparc64-unknown-linux-gnu
+            "timeout",  # sparc64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:sparc64-unknown-netbsd": [
+            "retry",  # sparc64-unknown-netbsd
+            "timeout",  # sparc64-unknown-netbsd
+        ],
+        "@rules_rust//rust/platform:sparc64-unknown-openbsd": [
+            "retry",  # sparc64-unknown-openbsd
+            "timeout",  # sparc64-unknown-openbsd
+        ],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [
+            "retry",  # thumbv6m-none-eabi
+            "timeout",  # thumbv6m-none-eabi
+        ],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [
             "retry",  # thumbv7em-none-eabi
             "timeout",  # thumbv7em-none-eabi
         ],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [
+            "retry",  # thumbv7em-none-eabihf
+            "timeout",  # thumbv7em-none-eabihf
+        ],
+        "@rules_rust//rust/platform:thumbv7m-none-eabi": [
+            "retry",  # thumbv7m-none-eabi
+            "timeout",  # thumbv7m-none-eabi
+        ],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [
             "retry",  # thumbv8m.main-none-eabi
             "timeout",  # thumbv8m.main-none-eabi
+        ],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabihf": [
+            "retry",  # thumbv8m.main-none-eabihf
+            "timeout",  # thumbv8m.main-none-eabihf
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
             "retry",  # x86_64-apple-darwin
@@ -162,6 +214,10 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-apple-ios": [
             "retry",  # x86_64-apple-ios
             "timeout",  # x86_64-apple-ios
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [
+            "retry",  # x86_64-apple-ios-macabi
+            "timeout",  # x86_64-apple-ios-macabi
         ],
         "@rules_rust//rust/platform:x86_64-linux-android": [
             "retry",  # x86_64-linux-android
@@ -215,15 +271,18 @@ rust_library(
     target_compatible_with = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [],
         "@rules_rust//rust/platform:aarch64-apple-ios": [],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [],
         "@rules_rust//rust/platform:aarch64-linux-android": [],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [],
+        "@rules_rust//rust/platform:aarch64-unknown-none": [],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -231,13 +290,23 @@ rust_library(
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:riscv32imac-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-netbsd": [],
+        "@rules_rust//rust/platform:sparc64-unknown-openbsd": [],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [],
+        "@rules_rust//rust/platform:thumbv7m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabihf": [],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [],
         "@rules_rust//rust/platform:wasm32-wasip1": [],
@@ -245,6 +314,7 @@ rust_library(
         "@rules_rust//rust/platform:wasm32-wasip2": [],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [],
         "@rules_rust//rust/platform:x86_64-apple-ios": [],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:x86_64-linux-android": [],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [],
@@ -257,14 +327,14 @@ rust_library(
     }),
     version = "0.5.3",
     deps = [
-        "//third_party/crates/futures-core-0.3.32:futures_core",
-        "//third_party/crates/futures-util-0.3.32:futures_util",
+        "//third_party/crates/futures-core-0.3.33:futures_core",
+        "//third_party/crates/futures-util-0.3.33:futures_util",
         "//third_party/crates/indexmap-2.14.0:indexmap",
         "//third_party/crates/pin-project-lite-0.2.17:pin_project_lite",
         "//third_party/crates/slab-0.4.12:slab",
         "//third_party/crates/sync_wrapper-1.0.2:sync_wrapper",
-        "//third_party/crates/tokio-1.52.3:tokio",
-        "//third_party/crates/tokio-util-0.7.18:tokio_util",
+        "//third_party/crates/tokio-1.53.1:tokio",
+        "//third_party/crates/tokio-util-0.7.19:tokio_util",
         "//third_party/crates/tower-layer-0.3.3:tower_layer",
         "//third_party/crates/tower-service-0.3.3:tower_service",
         "//third_party/crates/tracing-0.1.44:tracing",

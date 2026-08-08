@@ -154,9 +154,31 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
     _, _ -> nil
   end
 
-  # Latest published agent release version string (same resource + sort the
-  # Agent Releases page lists from).
+  # The product version comes from the immutable image tag Helm deployed. The
+  # AgentRelease table describes downloadable agent artifacts and can lag the
+  # running control plane, so it is only a local-development fallback.
   defp latest_release do
+    case deployed_release_version() do
+      nil -> latest_agent_release()
+      version -> version
+    end
+  end
+
+  defp deployed_release_version do
+    case System.get_env("SERVICERADAR_RELEASE_VERSION") do
+      version when is_binary(version) ->
+        case String.trim(version) do
+          "" -> nil
+          "v" <> semver -> semver
+          tag -> tag
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp latest_agent_release do
     AgentRelease
     |> Ash.Query.for_read(:read, %{})
     |> Ash.Query.sort(published_at: :desc, inserted_at: :desc)

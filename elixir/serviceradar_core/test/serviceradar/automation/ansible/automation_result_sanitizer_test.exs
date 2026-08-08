@@ -171,6 +171,29 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizerTest do
     refute inspect(safe) =~ "Bearer secret"
   end
 
+  test "launch evidence accepts pending jobs without scm revision or dispatch markers" do
+    # Real AWX launch responses often have empty scm_revision before checkout,
+    # and omit dispatch_markers when the template ignores request extra_vars.
+    job =
+      valid_job()
+      |> Map.put("scm_revision", "")
+      |> Map.delete("dispatch_markers")
+
+    payload = %{
+      "verb" => "awx.launch_job",
+      "ok" => true,
+      "template_id" => 78,
+      "job" => job
+    }
+
+    safe = AutomationResultSanitizer.sanitize(result("awx.launch_job", payload))
+
+    assert safe.success == true
+    assert safe.payload["job"]["id"] == 357
+    assert safe.payload["job"]["scm_revision"] == ""
+    assert safe.payload["job"]["dispatch_markers"] == %{}
+  end
+
   test "recent-job results are bounded and recursively projected" do
     payload = %{
       "verb" => "awx.list_recent_jobs",

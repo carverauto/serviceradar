@@ -289,11 +289,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext do
 
   def threat_sources(_match), do: []
 
-  def threat_severity_badge_class(severity) when is_integer(severity) and severity >= 80, do: "badge-error"
+  def threat_severity_badge_variant(severity) when is_integer(severity) and severity >= 80, do: "error"
 
-  def threat_severity_badge_class(severity) when is_integer(severity) and severity >= 50, do: "badge-warning"
+  def threat_severity_badge_variant(severity) when is_integer(severity) and severity >= 50, do: "warning"
 
-  def threat_severity_badge_class(_severity), do: "badge-info"
+  def threat_severity_badge_variant(_severity), do: "info"
 
   def read_port_scan(nil, _ip), do: nil
   def read_port_scan(_user, nil), do: nil

@@ -94,21 +94,25 @@ git add .
 git commit -qm "base"
 base_commit="$(git rev-parse HEAD)"
 
-# Root Rust add-on metadata must fail closed until the committed vendor-input
-# index describes the same Cargo inputs.
-printf 'version: 0.1.1\n' >addons/rdp-adapter/addon.yaml
-printf '[package]\nname = "serviceradar-rdp-adapter"\nversion = "0.1.1"\n' \
-  >rust/rdp-adapter/Cargo.toml
-printf 'root-lock-v2\n' >Cargo.lock
+# A Rust add-on payload change requires an addon.yaml bump -- and nothing else.
+#
+# The crate [package] version and the root vendor snapshot are deliberately NOT dragged
+# along. This case used to assert the opposite: that the gate failed closed until
+# third_party/crates/.serviceradar-vendor-inputs recorded the new Cargo.lock and Cargo.toml
+# hashes. The only way to satisfy that was scripts/vendor.sh, which rewrites 625 crate
+# directories and discards the Bazel cache for every Rust target -- to restate a version
+# string that changes no third-party crate. So the second half asserts the bump passes with
+# rust/rdp-adapter/Cargo.toml still at 0.1.0 and the vendor snapshot untouched.
+printf 'pub fn adapter_runtime() {}\n' >rust/rdp-adapter/handler.rs
 git add .
-git commit -qm "stale root vendor index"
+git commit -qm "change rdp payload without bumping"
 expect_failure \
-  "vendor snapshot is stale" \
+  "rdp native add-on payload changed" \
   scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
 
-write_vendor_inputs
-git add third_party/crates/.serviceradar-vendor-inputs
-git commit -qm "refresh root vendor index"
+printf 'version: 0.1.1\n' >addons/rdp-adapter/addon.yaml
+git add addons/rdp-adapter/addon.yaml
+git commit -qm "bump rdp add-on manifest only"
 scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
 
 # The shipped RDP helper consumes the separate connector universe. Its manifest

@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Navigation do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView.Breakdown
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -12,6 +13,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Navigation do
 
   def handle_event("srql_submit", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/devices")}
+  end
+
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :devices,
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    page = Map.get(socket.assigns, :pagination_page, 1)
+    scope = Map.get(socket.assigns, :current_scope)
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
+    devices = socket.assigns.devices
+    token = System.unique_integer([:positive])
+    task = {:device_enrichment, token}
+
+    # Session position only — leave last_params intent-only so PubSub refresh
+    # reloads the head of the result set rather than replaying a keyset cursor.
+    socket =
+      socket
+      |> assign(
+        current_page: page,
+        device_enrichment_token: token,
+        device_enrichment_task: task
+      )
+      |> start_async(task, fn -> IndexData.build_device_enrichments(scope, query, devices) end)
+
+    {:noreply, socket}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do

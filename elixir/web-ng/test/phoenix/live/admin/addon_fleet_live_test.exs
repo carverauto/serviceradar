@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
   @moduledoc """
   DB-backed LiveView tests for the add-on fleet page (issue 4384):
-  one row per (agent, add-on), honest drift rendering for every presence
-  combination, and catalog-only inventory separated from fleet rows.
+  one card per agent with an add-on row group, honest drift rendering for every
+  presence combination, and catalog-only inventory separated from fleet rows.
   """
 
   use ServiceRadarWebNGWeb.ConnCase, async: false
@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRollout
+  alias ServiceRadar.Plugins.AddonRolloutTarget
   alias ServiceRadar.Plugins.AddonStatus
 
   require Ash.Query
@@ -46,7 +48,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "0.1.20"
     assert html =~ "→ assigned"
     refute html =~ "drift:"
-    assert html =~ "version drift"
 
     # The superseded assignment is reachable via the row detail, not a peer row.
     html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
@@ -77,20 +78,56 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
 
     {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
 
+    assert count_occurrences(html, ~s(data-role="agent-addon-card")) == 1
+    assert count_occurrences(html, ~s(data-role="agent-card-label")) == 1
+    assert count_occurrences(html, ~s(data-role="fleet-row")) == 3
     assert html =~ ~s(data-role="version-up-to-date")
     assert html =~ "up to date"
 
     assert html =~ ~s(data-role="version-running-unassigned")
     assert html =~ "(unassigned)"
-    assert html =~ "running, unassigned"
 
     assert html =~ ~s(data-role="version-not-reported")
     assert html =~ "not reported"
-    assert html =~ "assigned, not running"
 
     # No fabricated comparisons anywhere.
     refute html =~ "drift:"
     refute html =~ "0.0.0"
+  end
+
+  test "disabled assignment history never becomes current desired state", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-disabled-history-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-disabled-gw-#{unique}", component_id: "fleet-disabled-#{unique}"})
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "fleet-disabled-agent-#{unique}",
+        name: "Disabled History Agent"
+      })
+
+    old_approved = create_addon_package!(actor, addon_id, "0.2.0")
+    newer_historical = create_addon_package!(actor, addon_id, "0.3.0")
+
+    create_assignment!(actor, agent.uid, old_approved.id, enabled: false)
+    create_assignment!(actor, agent.uid, newer_historical.id, enabled: false)
+    report_status!(agent.uid, addon_id, state: "running", active: true, version: "0.3.0")
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+    fleet_html = fleet_table_html(html)
+
+    assert count_occurrences(fleet_html, ~s(data-role="fleet-row")) == 1
+    assert fleet_html =~ ~s(data-role="version-running-unassigned")
+    refute fleet_html =~ "newer approved: 0.2.0"
+    refute fleet_html =~ "assignment disabled"
+
+    html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
+    assert html =~ "Other assignments on this agent"
+    assert html =~ "0.2.0"
+    assert html =~ "0.3.0"
   end
 
   test "catalog-only packages appear in the inventory section, never as fleet rows",
@@ -135,6 +172,88 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert fleet_html =~ "required runtime"
     assert fleet_html =~ ~s(data-role="assignment-required")
     refute fleet_html =~ "running, unassigned"
+  end
+
+  test "shows failed rollout evidence and the authorized retry control", %{conn: conn, actor: actor} do
+    unique = System.unique_integer([:positive])
+    addon_id = "fleet-rollout-evidence-#{unique}"
+    gateway = gateway_fixture(%{id: "fleet-rollout-gw-#{unique}", component_id: "fleet-rollout-#{unique}"})
+    agent = agent_fixture(gateway, %{uid: "fleet-rollout-agent-#{unique}", name: "Rollout Evidence Agent"})
+
+    previous = create_addon_package!(actor, addon_id, "1.0.0")
+    candidate = create_addon_package!(actor, addon_id, "1.1.0")
+    assignment = create_assignment!(actor, agent.uid, previous.id, enabled: true)
+
+    rollout =
+      AddonRollout
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: addon_id,
+          source_type: :assignment,
+          source_id: assignment.id,
+          previous_package_id: previous.id,
+          candidate_package_id: candidate.id,
+          trigger: :manual,
+          state: :failed,
+          policy: %{},
+          target_snapshot: %{"eligible" => 1},
+          blocked_reason: "candidate_health_timeout"
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    target =
+      AddonRolloutTarget
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          rollout_id: rollout.id,
+          assignment_id: assignment.id,
+          agent_uid: agent.uid,
+          addon_id: addon_id,
+          source_type: :assignment,
+          source_id: assignment.id,
+          previous_package_id: previous.id,
+          candidate_package_id: candidate.id,
+          previous_params: %{},
+          previous_args: [],
+          batch_index: 0,
+          classification: :eligible,
+          state: :rolled_back,
+          reason_code: "candidate_health_timeout"
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    _target =
+      target
+      |> Ash.Changeset.for_update(
+        :update,
+        %{health_observed_at: DateTime.utc_now()},
+        actor: actor
+      )
+      |> Ash.update!()
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/fleet")
+
+    assert html =~ ~s(data-role="addon-rollout-row")
+    assert html =~ "Retry"
+    assert html =~ "candidate health timed out"
+
+    html = render_click(lv, "toggle_rollout_details", %{"id" => rollout.id})
+    assert html =~ ~s(data-role="addon-rollout-detail")
+    assert html =~ ~s(data-role="addon-rollout-target")
+    assert html =~ agent.uid
+    assert html =~ "rolled_back"
+    assert html =~ "candidate health timed out"
+
+    html =
+      render_click(lv, "rollout_action", %{"id" => rollout.id, "operation" => "retry"})
+
+    assert html =~ "Rollout retry accepted."
   end
 
   # The fleet matrix table markup (everything before the catalog inventory

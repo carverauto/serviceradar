@@ -5,6 +5,8 @@ defmodule ServiceRadar.Plugins.AddonProfileActionTest do
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
 
+  @moduletag :requires_app
+
   test "preview and reconcile actions return structured errors instead of treating context as Access" do
     actor = SystemActor.system(:addon_profile_action_test)
     missing_id = Ecto.UUID.generate()

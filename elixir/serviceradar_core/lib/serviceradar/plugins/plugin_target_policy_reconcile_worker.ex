@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadar.Plugins.PluginTargetPolicyOps
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -91,7 +92,11 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
         @default_reschedule_seconds
       )
 
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 10)))
+    _ =
+      ObanSupport.safe_insert(
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 10))
+      )
+
     :ok
   end
 end

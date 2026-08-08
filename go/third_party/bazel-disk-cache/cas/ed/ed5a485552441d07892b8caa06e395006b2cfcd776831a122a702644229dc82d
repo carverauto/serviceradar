@@ -1,37 +1,0 @@
-
-5external/rules_go+/go/private/rules/binary_wrapper.sh
-]bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go++go_sdk+go_sdk/pack.exe
-\bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go++go_sdk+go_sdk/builder
-*external/rules_go+/go/tools/builders/ar.go
-+external/rules_go+/go/tools/builders/asm.go
-/external/rules_go+/go/tools/builders/builder.go
-*external/rules_go+/go/tools/builders/cc.go
-,external/rules_go+/go/tools/builders/cgo2.go
-2external/rules_go+/go/tools/builders/compilepkg.go
-1external/rules_go+/go/tools/builders/constants.go
--external/rules_go+/go/tools/builders/cover.go
-,external/rules_go+/go/tools/builders/edit.go
-0external/rules_go+/go/tools/builders/embedcfg.go
-+external/rules_go+/go/tools/builders/env.go
-.external/rules_go+/go/tools/builders/filter.go
-6external/rules_go+/go/tools/builders/filter_buildid.go
--external/rules_go+/go/tools/builders/flags.go
-:external/rules_go+/go/tools/builders/generate_nogo_main.go
-:external/rules_go+/go/tools/builders/generate_test_main.go
-1external/rules_go+/go/tools/builders/importcfg.go
-,external/rules_go+/go/tools/builders/link.go
-,external/rules_go+/go/tools/builders/nogo.go
-7external/rules_go+/go/tools/builders/nogo_validation.go
-,external/rules_go+/go/tools/builders/read.go
-1external/rules_go+/go/tools/builders/replicate.go
-.external/rules_go+/go/tools/builders/stdlib.go
-2external/rules_go+/go/tools/builders/stdliblist.go
-,external/rules_go+/go/tools/builders/path.go
-GO111MODULEoff
-GOENVoff
-
-GOMAXPROCS1
-GOTELEMETRYoff
-GOTOOLCHAINlocal4
-	GO_BINARY'external/rules_go++go_sdk+go_sdk/bin/go<
-LD_FLAGS0-X main.rulesGoStdlibPrefix=@@rules_go+//stdlib::\bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go++go_sdk+go_sdk/builder:]bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/rules_go++go_sdk+go_sdk/pack.exe

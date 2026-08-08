@@ -53,7 +53,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     |> assign(:ansible_launch_notice, nil)
     |> assign(:ansible_launch_ready, false)
     |> assign(:ansible_launch_resolution, nil)
-    |> assign(:ansible_launch_readiness, "Select a playbook to verify its reviewed binding and target membership.")
+    |> assign(
+      :ansible_launch_readiness,
+      "Select a playbook to verify its reviewed binding and target membership."
+    )
     |> assign(:ansible_launch_form, to_form(%{}))
   end
 
@@ -362,7 +365,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     do: "A target has multiple approved memberships in the selected inventory."
 
   def launch_error_message(:binding_not_approved), do: "The AWX template has no current approval."
+
   def launch_error_message(:binding_approval_expired), do: "The AWX template approval has expired."
+
   def launch_error_message(:binding_mode_not_approved), do: "The reviewed binding does not allow run mode."
 
   def launch_error_message({:required_launch_input, name}), do: "#{name} is required by the reviewed binding."
@@ -379,7 +384,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   def launch_error_message(:ambiguous_launch_inputs), do: "The request contained ambiguous reviewed-input fields."
 
   def launch_error_message(:playbook_not_found), do: "Playbook not found."
+
   def launch_error_message(:awx_playbook_required), do: "Only reviewed AWX playbooks can run here."
+
+  def launch_error_message({:target_held, _device_uid}),
+    do: "This target is under an active automation hold and cannot launch until cleared."
+
+  def launch_error_message({:target_hold_lookup_failed, _reason}),
+    do: "Could not verify target-hold state for this device."
+
+  def launch_error_message(:authenticated_edge_principal_unavailable),
+    do: "The controller edge principal is not currently available for launch."
+
+  def launch_error_message(:awx_preflight_unavailable),
+    do: "Live AWX launch preflight is not available on this deployment."
+
+  def launch_error_message(:awx_preflight_controller_drift),
+    do: "The live AWX controller no longer matches the reviewed binding. An authorized reviewer must approve it again."
+
+  def launch_error_message(:awx_preflight_template_project_drift),
+    do: "The live AWX template or project changed after review. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_inventory_drift),
+    do: "The live AWX inventory changed after review. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_credential_set_drift),
+    do: "The reviewed AWX credential set changed. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_execution_environment_drift),
+    do: "The reviewed AWX execution environment changed. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_survey_contract_drift),
+    do: "The reviewed AWX survey contract changed. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_prompt_policy_drift),
+    do: "The reviewed AWX launch-prompt policy changed. An authorized reviewer must approve the binding again."
+
+  def launch_error_message(:awx_preflight_target_drift),
+    do:
+      "The selected target no longer matches the reviewed AWX membership. Refresh the target and request binding review."
+
+  def launch_error_message(:awx_preflight_static_drift),
+    do: "The live AWX configuration changed after review. An authorized reviewer must approve the binding again."
 
   def launch_error_message(_other), do: "Launch failed because current approval or authorization could not be verified."
 

@@ -86,6 +86,11 @@ go_test(
         "tcp_adapter_test.go",
     ],
     embed = [":remoteaccess"],
+    # desktop_adapter_probe_test.go writes an RDP adapter stub into t.TempDir() and execs it
+    # to exercise ProbeRDPAdapterCapabilities. The sandbox denies that exec, so the probe sits
+    # until its own 5s deadline and the failure surfaces as `signal: killed` -- which reads
+    # like a hung helper rather than the filesystem restriction it is.
+    tags = ["no-sandbox"],
     deps = [
         "//go/pkg/agent/ebpf/probes",
         "@org_golang_x_crypto//ssh",

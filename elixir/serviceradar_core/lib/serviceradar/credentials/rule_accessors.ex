@@ -2,16 +2,12 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
   @moduledoc """
   Pure accessors for reading fields and metadata off a network credential rule.
 
-  These helpers were extracted verbatim from
-  `ServiceRadar.Credentials.PluginAssignmentMaterializer` so that per-provider
-  `ServiceRadar.Credentials.CredentialProviderProfile` implementations can build
-  their params templates and broker grant specs byte-identically to the original
-  Proxmox-only path.
+  Accessors normalize persisted Ash structs and plain test maps without
+  interpreting provider-specific identifiers. Provider names, auth methods,
+  and purposes come from approved plugin package descriptors.
   """
 
   alias ServiceRadar.Plugins.ValueUtils
-
-  @inventory_purpose :inventory_enrichment
 
   @spec value_string(map(), list()) :: String.t() | nil
   def value_string(map, keys), do: ValueUtils.string_value(map, keys)
@@ -69,31 +65,11 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
     end
   end
 
-  @spec auth_method(map()) :: String.t()
-  def auth_method(rule) do
-    case value_string(rule, [:auth_method, "auth_method"]) do
-      "ssh_private_key" -> "ssh_private_key"
-      "username_password" -> "username_password"
-      "certificate" -> "certificate"
-      "opaque" -> "opaque"
-      "api_key" -> "api_key"
-      _ -> "proxmox_api_token"
-    end
-  end
+  @spec auth_method(map()) :: String.t() | nil
+  def auth_method(rule), do: value_string(rule, [:auth_method, "auth_method"])
 
-  @spec rule_purpose(map()) :: atom()
-  def rule_purpose(rule) do
-    case value_string(rule, [:purpose, "purpose"]) do
-      "inventory_enrichment" -> :inventory_enrichment
-      "discovery" -> :discovery
-      "console_access" -> :console_access
-      "generic" -> :generic
-      "camera_inventory" -> :camera_inventory
-      "camera_stream" -> :camera_stream
-      "device_inventory" -> :device_inventory
-      _ -> @inventory_purpose
-    end
-  end
+  @spec rule_purpose(map()) :: String.t() | nil
+  def rule_purpose(rule), do: value_string(rule, [:purpose, "purpose"])
 
   @spec rule_purposes(map()) :: [String.t()]
   def rule_purposes(rule) do
@@ -106,7 +82,7 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
       |> Enum.reject(&(&1 == ""))
 
     if metadata_purposes == [] do
-      [Atom.to_string(rule_purpose(rule))]
+      List.wrap(rule_purpose(rule))
     else
       metadata_purposes
     end

@@ -30,12 +30,11 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    # Exclude :executing so the self-reschedule in perform/1 isn't deduped
-    # against the still-running job (double-seed guarded by check_existing_job).
     unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query
 
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.SweepJobs.SweepGroupExecution
@@ -116,7 +115,9 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    case ObanSupport.safe_insert(new(%{}, schedule_in: @reschedule_interval_seconds)) do
+    case ObanSupport.safe_insert(
+           SelfScheduling.successor_changeset(__MODULE__, %{}, @reschedule_interval_seconds)
+         ) do
       {:ok, _job} ->
         :ok
 

@@ -243,22 +243,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
       >
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">{@page_title}</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">{@page_title}</h1>
+            <p class="text-sm text-sr-muted">
               Build decision logic for log normalization using the visual editor.
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <span :if={@dirty} class="badge badge-warning badge-sm gap-1">
+            <.ui_badge :if={@dirty} size="sm" variant="warning">
               <.icon name="hero-exclamation-triangle-mini" class="w-3 h-3" /> Unsaved
-            </span>
+            </.ui_badge>
             <.ui_button variant="ghost" phx-click="cancel">
               Cancel
             </.ui_button>
           </div>
         </div>
-        
-    <!-- Single form that persists across all states -->
+
+        <!-- Single form that persists across all states -->
         <.form
           for={@form}
           id="zen_rule_form"
@@ -312,19 +312,21 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                 </div>
               </.ui_panel>
             </div>
-            
-    <!-- JDM Editor Panel -->
+
+            <!-- JDM Editor Panel -->
             <.ui_panel class={[
               "min-h-[600px]",
               if(@properties_collapsed, do: "lg:col-span-1", else: "")
             ]}>
               <:header>
                 <div class="flex items-center gap-3">
-                  <button
+                  <.ui_button
                     type="button"
-                    class="btn btn-ghost btn-xs hidden lg:flex"
                     phx-click="toggle_properties"
                     title={if @properties_collapsed, do: "Show properties", else: "Hide properties"}
+                    size="xs"
+                    variant="ghost"
+                    class="hidden lg:flex"
                   >
                     <.icon
                       name={
@@ -332,24 +334,25 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                       }
                       class="w-4 h-4"
                     />
-                  </button>
+                  </.ui_button>
                   <div>
                     <div class="text-sm font-semibold">Decision Logic</div>
-                    <div class="text-xs text-base-content/60">
+                    <div class="text-xs text-sr-muted">
                       Build your rule logic using the visual editor.
                     </div>
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button
+                  <.ui_button
                     :if={@properties_collapsed}
                     type="submit"
                     form="zen_rule_form"
-                    class="btn btn-primary btn-sm"
                     phx-disable-with="Saving..."
+                    size="sm"
+                    variant="primary"
                   >
                     <.icon name="hero-check" class="w-4 h-4" /> Save
-                  </button>
+                  </.ui_button>
                 </div>
               </:header>
 

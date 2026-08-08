@@ -3,12 +3,15 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   Context module for native add-on (feature set) assignments (issue 3425).
 
   Wraps the serviceradar_core ServiceRadar.Plugins.AddonAssignment Ash resource.
-  The UI supplies only agent_uid, addon_package_id, params, and args — addon_id is
-  denormalized server-side by the SetAssignmentAddonId change. No secret-ref or
-  service-state handling is needed (those are Wasm-plugin specific).
+  The UI supplies agent_uid, addon_package_id, optional edge_site_id, params, and
+  args — addon_id is denormalized server-side by the SetAssignmentAddonId change.
+  No secret-ref or service-state handling is needed (those are Wasm-plugin
+  specific).
   """
 
   alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonRolloutCoordinator
 
   require Ash.Query
 
@@ -67,7 +70,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     actor = Keyword.get(opts, :actor)
-    attrs = attrs |> drop_nil_values() |> drop_update_only_values()
+    # `edge_site_id: nil` is meaningful: the UI uses it to move an existing
+    # direct-leaf assignment back to the default gateway-relay path.
+    attrs = attrs |> drop_nil_values([:edge_site_id, "edge_site_id"]) |> drop_update_only_values()
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
@@ -95,11 +100,15 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     agent_uid = Map.get(attrs, :agent_uid) || Map.get(attrs, "agent_uid")
 
     case existing_assignment(agent_uid, addon_id, scope) do
-      %AddonAssignment{id: id} ->
+      %AddonAssignment{id: id} = assignment ->
         # agent_uid is the assignment identity, not a mutable field, so the :update action
         # rejects it. Drop it (the existing row already carries it) and pass only the
         # mutable attrs when upgrading/re-enabling the existing assignment in place.
-        update(id, attrs |> Map.drop([:agent_uid, "agent_uid"]) |> Map.put(:enabled, true), opts)
+        if rollout_upgrade?(assignment, attrs) do
+          start_rollout_upgrade(assignment, attrs, opts)
+        else
+          update(id, attrs |> Map.drop([:agent_uid, "agent_uid"]) |> Map.put(:enabled, true), opts)
+        end
 
       nil ->
         create(attrs, opts)
@@ -114,6 +123,55 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     %{agent_uid: agent_uid, addon_id: addon_id}
     |> list(scope: scope)
     |> List.first()
+  end
+
+  defp rollout_upgrade?(assignment, attrs) do
+    package_id = Map.get(attrs, :addon_package_id) || Map.get(attrs, "addon_package_id")
+    is_binary(package_id) and package_id != assignment.addon_package_id
+  end
+
+  defp start_rollout_upgrade(assignment, attrs, opts) do
+    scope = Keyword.get(opts, :scope)
+    package_id = Map.get(attrs, :addon_package_id) || Map.get(attrs, "addon_package_id")
+    actor = Keyword.get(opts, :actor) || scope_actor(scope)
+
+    policy_attrs =
+      Map.take(attrs, [
+        :update_policy,
+        "update_policy",
+        :explicit_version_pin,
+        "explicit_version_pin",
+        :release_channel,
+        "release_channel",
+        :capability_ceiling,
+        "capability_ceiling",
+        :rollout_policy,
+        "rollout_policy"
+      ])
+
+    with {:ok, updated_assignment} <- update(assignment.id, policy_attrs, opts),
+         {:ok, %AddonPackage{} = candidate} <- read_package(package_id, scope),
+         {:ok, _rollout} <-
+           AddonRolloutCoordinator.start(updated_assignment, candidate,
+             actor: actor,
+             trigger: :manual
+           ) do
+      {:ok, updated_assignment}
+    end
+  end
+
+  defp read_package(id, nil) do
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one()
+  end
+
+  defp read_package(id, scope) do
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one(ash_opts(scope, nil))
   end
 
   @spec delete(String.t(), keyword()) :: {:ok, AddonAssignment.t()} | :ok | {:error, term()}
@@ -210,9 +268,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     end
   end
 
-  defp drop_nil_values(attrs) do
+  defp drop_nil_values(attrs, preserve_keys \\ []) do
     attrs
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Enum.reject(fn {key, value} -> is_nil(value) and key not in preserve_keys end)
     |> Map.new()
   end
 

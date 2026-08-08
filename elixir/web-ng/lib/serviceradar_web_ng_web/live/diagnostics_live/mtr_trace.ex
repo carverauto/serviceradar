@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     >
       <div class="p-6 space-y-6">
         <div class="flex items-center gap-3">
-          <.link navigate={~p"/diagnostics/mtr"} class="btn btn-sm btn-ghost">
+          <.ui_button navigate={~p"/diagnostics/mtr"} size="sm" variant="ghost">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="h-4 w-4"
@@ -89,53 +89,53 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
               />
             </svg>
             Back
-          </.link>
+          </.ui_button>
           <h1 class="text-2xl font-bold">MTR Trace Detail</h1>
         </div>
 
-        <div :if={@error} class="alert alert-error">
+        <div :if={@error} class={ui_alert_class("error")}>
           <span>{@error}</span>
         </div>
 
         <div :if={@trace} class="space-y-6">
-          <div class="stats shadow bg-base-200">
+          <div class="stats shadow bg-sr-subtle">
             <div class="stat">
-              <div class="stat-title">Target</div>
-              <div class="stat-value text-lg font-mono">{@trace["target"]}</div>
-              <div :if={@trace["target_ip"] != @trace["target"]} class="stat-desc">
+              <div class="sr-ui-stat-title">Target</div>
+              <div class="sr-ui-stat-value text-lg font-mono">{@trace["target"]}</div>
+              <div :if={@trace["target_ip"] != @trace["target"]} class="sr-ui-stat-desc">
                 {@trace["target_ip"]}
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Status</div>
-              <div class="stat-value text-lg">
+              <div class="sr-ui-stat-title">Status</div>
+              <div class="sr-ui-stat-value text-lg">
                 <span class={status_class(@trace)}>{status_label(@trace)}</span>
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Hops</div>
-              <div class="stat-value text-lg">{@trace["total_hops"]}</div>
+              <div class="sr-ui-stat-title">Hops</div>
+              <div class="sr-ui-stat-value text-lg">{@trace["total_hops"]}</div>
             </div>
             <div class="stat">
-              <div class="stat-title">Protocol</div>
-              <div class="stat-value text-lg">
+              <div class="sr-ui-stat-title">Protocol</div>
+              <div class="sr-ui-stat-value text-lg">
                 {String.upcase(@trace["protocol"] || "icmp")}
                 <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
               </div>
             </div>
             <div class="stat">
-              <div class="stat-title">Time</div>
-              <div class="stat-value text-sm">{format_time(@trace["time"])}</div>
-              <div class="stat-desc">Agent: {@trace["agent_id"]}</div>
+              <div class="sr-ui-stat-title">Time</div>
+              <div class="sr-ui-stat-value text-sm">{format_time(@trace["time"])}</div>
+              <div class="sr-ui-stat-desc">Agent: {@trace["agent_id"]}</div>
             </div>
           </div>
 
-          <div :if={@trace["error"]} class="alert alert-warning">
+          <div :if={@trace["error"]} class={ui_alert_class("warning")}>
             <span>Error: {@trace["error"]}</span>
           </div>
 
-          <div class="overflow-x-auto">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <thead>
                 <tr>
                   <th class="w-12">Hop</th>
@@ -159,25 +159,25 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                       {hop["addr"] || "???"}
                       <span
                         :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
-                        class="badge badge-xs badge-info ml-1"
+                        class="ml-1 inline-flex items-center rounded-full border border-sr-brand/30 bg-sr-brand/10 px-1.5 text-[0.65rem] font-semibold text-sr-brand-strong"
                         title={Enum.join(hop["ecmp_addrs"], ", ")}
                       >
                         +{length(hop["ecmp_addrs"])} ECMP
                       </span>
                     </div>
                     <div
-                      class="text-sm text-base-content/80 max-w-[220px] truncate"
+                      class="text-sm text-sr-ink/90 max-w-[220px] truncate"
                       title={hop["hostname"]}
                     >
                       {hop["hostname"] || "-"}
                     </div>
                     <div class="text-[11px]">
-                      <span :if={hop["asn"]} class="badge badge-ghost badge-sm mr-1">
+                      <.ui_badge :if={hop["asn"]} size="sm" variant="ghost" class="mr-1">
                         AS{hop["asn"]}
-                      </span>
+                      </.ui_badge>
                       <span
                         :if={hop["asn_org"]}
-                        class="text-base-content/50 truncate inline-block max-w-[180px] align-middle"
+                        class="text-sr-muted truncate inline-block max-w-[180px] align-middle"
                         title={hop["asn_org"]}
                       >
                         {hop["asn_org"]}
@@ -201,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="11" class="text-center py-4 text-base-content/50">
+                  <td colspan="11" class="text-center py-4 text-sr-muted">
                     No hop data available
                   </td>
                 </tr>

@@ -115,7 +115,13 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::AttributedFlows)
         }
         "alerts" | "alert" => Ok(Entity::Alerts),
+        "addon_fleet" | "addon_fleets" => Ok(Entity::AddonFleet),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
+        "public_endpoints"
+        | "public_endpoint"
+        | "k8s_public_endpoints"
+        | "k8s_endpoints"
+        | "vip_inventory" => Ok(Entity::PublicEndpoints),
         "endpoint_inventory_scans"
         | "endpoint_inventory_scan"
         | "endpoint_inventory_status"

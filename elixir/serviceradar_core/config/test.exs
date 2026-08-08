@@ -94,11 +94,34 @@ cnpg_key =
   System.get_env("CNPG_KEY_FILE") ||
     (cnpg_cert_dir && Path.join(cnpg_cert_dir, "workstation-key.pem"))
 
+# The fixture CA, preferring the certificate ITSELF over a path to it.
+#
+# `*_CA_CERT` carries the PEM; `*_CA_CERT_FILE` carries a filesystem path. Only the content
+# form works on a remote executor: a path names a file on the machine that launched the
+# build, and an RBE worker has no such file. Reading the path is what forced `no-remote-exec`
+# onto every fixture-touching target.
+#
+# The CA cannot become a declared Bazel input instead -- it is a CNPG cluster cert on a
+# 90-day rotation, so a committed copy would expire on a calendar rather than on a change.
+#
+# The previous chain listed the CONTENT variables as fallbacks for `ssl_ca` and then passed
+# the result as `:cacertfile`, i.e. handed a whole PEM where a filename was expected. That
+# only ever worked because the `_FILE` variables happened to be set alongside them.
+ca_pem =
+  System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
+    System.get_env("SRQL_TEST_DATABASE_CA_CERT")
+
+ca_certs =
+  if is_binary(ca_pem) and String.trim(ca_pem) != "" do
+    ca_pem
+    |> :public_key.pem_decode()
+    |> Enum.filter(&match?({:Certificate, _der, _cipher}, &1))
+    |> Enum.map(fn {:Certificate, der, _cipher} -> der end)
+  end
+
 ssl_ca =
   System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT_FILE") ||
     System.get_env("SRQL_TEST_DATABASE_CA_CERT_FILE") ||
-    System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
-    System.get_env("SRQL_TEST_DATABASE_CA_CERT") ||
     cnpg_ca
 
 ssl_cert =
@@ -122,10 +145,22 @@ ssl_server_name =
     _ -> nil
   end
 
+# `ca_certs` belongs here next to the path forms. Without it a CA supplied as a PATH turned
+# TLS on by itself while the same CA supplied as PEM CONTENT did not -- so remotely, where no
+# path variable resolves and `ssl_ca || ssl_cert || ssl_key` is always nil, TLS could only be
+# switched on by `sslmode=` in the DSN. A DSN without it connected in plaintext and CNPG
+# refused the connection:
+#
+#   FATAL 28000 (invalid_authorization_specification) pg_hba.conf rejects connection
+#   for host "10.42.68.107", user "srql", database "sr_core_template", no encryption
+#
+# Being handed a CA means TLS was intended, whichever form it arrived in. An explicit
+# sslmode=disable|allow|prefer still wins, because that clause is evaluated first.
 ssl_enabled =
   cond do
     ssl_mode in ~w(disable allow prefer) -> false
     ssl_enabled -> true
+    ca_certs not in [nil, []] -> true
     true -> ssl_ca || ssl_cert || ssl_key
   end
 
@@ -189,7 +224,15 @@ repo_config =
 
       ssl_opts =
         []
-        |> put_if.(:cacertfile, ssl_ca)
+        # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), because only
+        # the former survives on a remote executor. Never both: :ssl rejects the combination.
+        |> then(fn opts ->
+          if ca_certs in [nil, []] do
+            put_if.(opts, :cacertfile, ssl_ca)
+          else
+            Keyword.put(opts, :cacerts, ca_certs)
+          end
+        end)
         |> put_if.(:certfile, ssl_cert)
         |> put_if.(:keyfile, ssl_key)
         |> put_if.(:server_name_indication, ssl_server_name)
@@ -239,6 +282,18 @@ config :serviceradar_core,
        |> Keyword.put(:parameters, search_path: search_path)
        |> Keyword.put(:types, ServiceRadar.PostgresTypes)
        |> Keyword.put(:migration_default_prefix, "platform")
+       # Ecto logs every query, with parameters, at :debug. Under `mix test` the :warning level
+       # above hides that; under //build:elixir_tests.bzl it does NOT, because Logger boots with
+       # the VM and never re-reads the level (see //build/elixir_test_config_loader.exs). The
+       # serviceradar_core integration shards therefore emitted 3-13 MB of stdout each and Bazel
+       # discarded the whole stream --
+       #   stdout ... exceeds maximum size of --experimental_ui_max_stdouterr_bytes; skipping
+       # -- taking the ExUnit failure with it, which is why four of five failing shards could not
+       # be diagnosed from CI at all.
+       #
+       # Silencing the queries here rather than lowering the primary Logger level, which would
+       # break capture_log assertions. Flip to `:debug` locally when a test needs the SQL.
+       |> Keyword.put(:log, false)
 
 # Configure Ash domains (needed for validation)
 config :serviceradar_core,
@@ -255,6 +310,7 @@ config :serviceradar_core,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
+    ServiceRadar.PrefixTags,
     ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles,
@@ -285,6 +341,16 @@ config :serviceradar_core,
   control_repo_enabled: false,
   seeders_enabled: false,
   log_promotion_consumer_enabled: false
+
+# Prefix-tag enrichment off by default in tests; enable per-test when needed.
+# Loader stays off so unit tests don't hit CNPG on application start.
+config :serviceradar_core,
+  prefix_tag_enrichment_enabled: false,
+  # Keep provider SQL/injection path available for unit tests unless a test opts in.
+  prefix_tag_provider_trie_enabled: false,
+  threat_intel_engine_match_enabled: true,
+  geo_tag_derivation_enabled: false,
+  prefix_tags_loader_enabled: false
 
 # Disable Swoosh API client in tests (no hackney needed)
 config :swoosh, :api_client, false

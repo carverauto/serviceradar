@@ -10,8 +10,8 @@ go_library(
 go_test(
     name = "hashutil_test",
     srcs = ["hash_test.go"],
-    embed = [":hashutil"],
     deps = [
+        ":hashutil",
         "@com_github_stretchr_testify//require",
     ],
 )

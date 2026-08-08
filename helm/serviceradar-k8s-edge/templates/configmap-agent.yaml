@@ -1,0 +1,60 @@
+{{- if .Values.agent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sr-edge.fullname" . }}-agent-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sr-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+data:
+  agent.json: |
+    {
+      "checkers_dir": "/var/lib/serviceradar/checkers",
+      "agent_id": {{ .Values.agent.agentId | quote }},
+      "agent_name": "k8s-edge-agent",
+      "host_ip": "k8s-edge",
+      "partition": {{ .Values.agent.partitionId | quote }},
+      "gateway_addr": {{ .Values.agent.gatewayAddress | quote }},
+      "push_interval": {{ .Values.agent.pushInterval | quote }},
+      "status_debounce_interval": {{ .Values.agent.statusDebounceInterval | quote }},
+      "status_heartbeat_interval": {{ .Values.agent.statusHeartbeatInterval | quote }},
+      "sync_runtime_enabled": false,
+      "k8s_public_endpoints": {
+        "enabled": {{ .Values.k8sInventory.enabled }},
+        "spool_dir": {{ include "sr-edge.k8sInventorySpoolDir" . | quote }},
+        "cluster_id": {{ include "sr-edge.clusterId" . | quote }}
+      },
+      "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "agent",
+        "tls": {
+          "cert_file": {{ .Values.agent.tls.certFile | quote }},
+          "key_file": {{ .Values.agent.tls.keyFile | quote }},
+          "ca_file": {{ .Values.agent.tls.caFile | quote }},
+          "client_ca_file": {{ .Values.agent.tls.caFile | quote }}
+        }
+      },
+      "gateway_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": {{ .Values.agent.gatewayServerName | quote }},
+        "role": "agent",
+        "tls": {
+          "cert_file": {{ .Values.agent.tls.certFile | quote }},
+          "key_file": {{ .Values.agent.tls.keyFile | quote }},
+          "ca_file": {{ .Values.agent.tls.caFile | quote }},
+          "client_ca_file": {{ .Values.agent.tls.caFile | quote }}
+        }
+      },
+      "logging": {
+        "level": "info",
+        "debug": false,
+        "output": "stdout",
+        "otel": {
+          "enabled": false
+        }
+      }
+    }
+{{- end }}

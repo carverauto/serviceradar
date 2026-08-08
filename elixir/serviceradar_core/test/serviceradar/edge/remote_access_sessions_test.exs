@@ -369,6 +369,36 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:details][:failure_reason] == "ssh_principal_policy_required"
   end
 
+  test "ssh_console_options returns account names without opaque principals" do
+    uid = unique_uid("ssh-options")
+
+    Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
+      "accounts" => [
+        %{"name" => "mfreeman", "principals" => [@principal]},
+        %{"name" => "deploy", "principals" => [@target_principal]}
+      ],
+      "ttl_seconds" => 900,
+      "targets" => %{
+        uid => %{
+          "accounts" => [
+            %{"name" => "mfreeman", "principals" => [@target_principal]}
+          ],
+          "ttl_seconds" => 600
+        }
+      }
+    })
+
+    insert_device!(uid, agent_id: "agent-options", gateway_id: "gateway-options")
+
+    assert {:ok, options} = RemoteAccessSessions.ssh_console_options(uid)
+    assert options["default_credential_mode"] == "ssh_certificate"
+    assert options["ttl_seconds"] == 600
+    assert options["device_uid"] == uid
+    assert options["accounts"] == [%{"name" => "mfreeman"}]
+    refute inspect(options) =~ "srp_v1_"
+    refute inspect(options) =~ "principals"
+  end
+
   test "SSH certificate sessions materialize only trusted account policy from deployment config" do
     uid = unique_uid("ssh-cert-policy")
 

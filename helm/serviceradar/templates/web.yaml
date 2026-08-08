@@ -291,6 +291,22 @@ spec:
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         - name: PHX_SERVER
           value: "true"
+        # The ServiceRadar RELEASE this deployment corresponds to -- not the
+        # container image tag. web-ng uses it to fetch plugin and native add-on
+        # assets from the matching Forgejo release, and to show a version in the
+        # product status UI (`deployed_release_version/0` strips the `v`).
+        #
+        # These were the same value until now, which only worked when deploying
+        # by `v1.4.x` tags. The documented demo/production path pins
+        # `global.imageTag=sha-<gitsha>` for immutability, and no release is ever
+        # named `sha-...`, so NativeAddonSyncWorker and FirstPartySyncWorker both
+        # discarded permanently with `Release tag sha-... was not found` and the
+        # status UI displayed a 40-character sha as the version.
+        #
+        # Defaults to the chart's appVersion, which is what `scripts/cut-release.sh`
+        # keeps in step with `VERSION` and the published `v<semver>` release.
+        - name: SERVICERADAR_RELEASE_VERSION
+          value: {{ .Values.global.releaseVersion | default (printf "v%s" .Chart.AppVersion) | quote }}
         - name: PHX_HOST
           value: {{ default "serviceradar-web-ng" $webHost | quote }}
         - name: PHX_CHECK_ORIGIN

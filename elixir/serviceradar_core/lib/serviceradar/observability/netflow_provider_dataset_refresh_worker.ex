@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Observability.OutboundFeedPolicy
+  alias ServiceRadar.PrefixTags.ProviderSource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadar.Types.Cidr
@@ -24,6 +25,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   @default_timeout_ms 30_000
   @default_reschedule_seconds 24 * 3600
   @default_failure_reschedule_seconds 12 * 3600
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
   @insert_chunk_size 250
   @db_timeout_ms 120_000
 
@@ -86,10 +88,13 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
         case promote_snapshot(source_url, payload, rows, etag) do
           :ok ->
             Logger.info("Cloud-provider CIDR dataset refreshed", rows: length(rows))
+            _ = maybe_reload_prefix_tag_provider_source()
             schedule_next(reschedule_seconds)
 
           :unchanged ->
             Logger.info("Cloud-provider CIDR dataset unchanged", rows: length(rows))
+            # Still refresh the trie in case this node missed a prior promotion.
+            _ = maybe_reload_prefix_tag_provider_source()
             schedule_next(reschedule_seconds)
 
           {:error, reason} ->
@@ -274,9 +279,37 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     end
   end
 
+  defp maybe_reload_prefix_tag_provider_source do
+    if Code.ensure_loaded?(ProviderSource) do
+      case ProviderSource.reload() do
+        {:ok, %{row_count: count}} ->
+          Logger.info("Prefix-tag provider trie refreshed from provider dataset", rows: count)
+          :ok
+
+        {:error, reason} ->
+          Logger.debug("Prefix-tag provider trie reload skipped", reason: inspect(reason))
+          :ok
+      end
+    else
+      :ok
+    end
+  rescue
+    e ->
+      Logger.debug("Prefix-tag provider trie reload failed", error: Exception.message(e))
+      :ok
+  end
+
   defp schedule_next(seconds) when is_integer(seconds) do
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 3_600)))
+    _ =
+      %{}
+      |> successor_job(schedule_in: max(seconds, 3_600))
+      |> ObanSupport.safe_insert()
+
     :ok
+  end
+
+  defp successor_job(args, opts) do
+    new(args, Keyword.put(opts, :unique, @successor_unique))
   end
 
   defp header(headers, name) do

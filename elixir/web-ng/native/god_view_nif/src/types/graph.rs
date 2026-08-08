@@ -4,7 +4,7 @@
 //! for bridging high-performance topology ingestion from Elixir strings
 //! and maps into canonical native Rust structures.
 
-use rustler::NifMap;
+use rustler::{NifMap, Resource};
 use std::sync::RwLock;
 
 /// Represents a single discovered connection between a local interface and a remote neighbor.
@@ -81,6 +81,12 @@ pub(crate) struct RuntimeGraphResource {
     pub(crate) links: RwLock<Vec<RuntimeGraphRow>>,
 }
 
+// rustler 0.38 replaced the `rustler::resource!(T, env)` registration call, which had to
+// run inside the load callback, with a trait impl that `#[rustler::resource_impl]`
+// registers automatically. Behaviour is unchanged.
+#[rustler::resource_impl]
+impl Resource for RuntimeGraphResource {}
+
 /// A macro-derived module housing canonical Rustler Atom instances.
 ///
 /// By generating them up front, the NIF layer avoids the overhead of converting
@@ -117,6 +123,8 @@ pub(crate) mod runtime_graph_atoms {
         metadata,
         source,
         inference,
+        relation_type,
+        topology_plane,
         confidence_score
     }
 }

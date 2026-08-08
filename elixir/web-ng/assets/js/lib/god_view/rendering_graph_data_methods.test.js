@@ -281,6 +281,40 @@ describe("rendering_graph_data_methods", () => {
     expect(out.edgeData[0].targetId).toEqual("switch")
   })
 
+  it("buildVisibleGraphData keeps attachment census summaries visible while raw endpoints stay hidden", () => {
+    const ctx = baseContext({
+      state: {
+        topologyLayers: {backbone: true, inferred: false, endpoints: false},
+      },
+      overrides: {
+        edgeEnabledByTopologyLayer: vi.fn((edge) => String(edge.topologyClass) !== "endpoints"),
+      },
+    })
+
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "router", x: 1, y: 2, state: 0, label: "Router", pps: 10, operUp: 1, details: {}},
+        {id: "switch", x: 3, y: 4, state: 1, label: "Switch", pps: 20, operUp: 2, details: {cluster_kind: "endpoint-anchor"}},
+        {id: "census", x: 5, y: 6, state: 1, label: "12 endpoints", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-summary"}},
+        {id: "client", x: 7, y: 8, state: 1, label: "Client", pps: 5, operUp: 1, details: {cluster_kind: "endpoint-member"}},
+      ],
+      edges: [
+        {source: 0, target: 1, flowPps: 10, flowBps: 100, capacityBps: 1000, label: "router-switch", topologyClass: "backbone"},
+        {source: 1, target: 2, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "endpoint census", topologyClass: "endpoints"},
+        {source: 2, target: 3, flowPps: 5, flowBps: 50, capacityBps: 1000, label: "endpoint member", topologyClass: "endpoints"},
+      ],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(out.nodeData.map((node) => node.id)).toEqual(["router", "switch", "census"])
+    expect(out.edgeData.map((edge) => [edge.sourceId, edge.targetId])).toEqual([
+      ["census", "switch"],
+      ["router", "switch"],
+    ])
+  })
+
   it("buildVisibleGraphData keeps endpoint nodes visible when the endpoint layer is enabled", () => {
     const ctx = baseContext({
       state: {

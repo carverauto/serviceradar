@@ -375,6 +375,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     payload = map_value(row, "ocsf_payload") || %{}
     attribution = map_value(payload, "attribution") || %{}
     workload = map_value(attribution, "workload_identity") || %{}
+    public_endpoint = map_value(attribution, "public_endpoint") || %{}
     pid = attribution |> map_value("pid") |> parse_int()
     uid = attribution |> map_value("uid") |> parse_int()
     protocol_num = row |> map_value("protocol_num") |> parse_int()
@@ -409,9 +410,28 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       runtime_source: workload |> map_value("runtime_source") |> clean_string(),
       context_name: workload |> map_value("context_name") |> clean_string(),
       workload_identity: workload,
+      public_endpoint: public_endpoint,
+      public_endpoint_service: public_endpoint |> map_value("service_name") |> clean_string(),
+      public_endpoint_gateway: public_endpoint |> map_value("gateway_name") |> clean_string(),
+      public_endpoint_class: public_endpoint |> map_value("exposure_class") |> clean_string(),
+      public_endpoint_route: public_endpoint_route_label(public_endpoint),
+      public_endpoint_namespace: public_endpoint |> map_value("namespace") |> clean_string(),
       raw_payload: payload
     }
   end
+
+  defp public_endpoint_route_label(pe) when is_map(pe) do
+    kind = pe |> map_value("route_kind") |> clean_string()
+    name = pe |> map_value("route_name") |> clean_string()
+
+    cond do
+      present?(kind) and present?(name) -> "#{kind}/#{name}"
+      present?(name) -> name
+      true -> nil
+    end
+  end
+
+  defp public_endpoint_route_label(_), do: nil
 
   defp refresh_selected_flow(nil, _rows_by_id), do: nil
   defp refresh_selected_flow(%{id: id} = selected, rows_by_id), do: Map.get(rows_by_id, id, selected)
@@ -495,7 +515,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       page_title="Attributed Flows"
       srql={@srql}
     >
-      <div class="mx-auto max-w-7xl p-4 sm:p-6 space-y-5">
+      <div class="sr-observability-page mx-auto max-w-7xl space-y-5 p-4 font-sans sm:p-6">
         <.observability_chrome
           active_pane="attributed-flows"
           title="Attributed Flows"
@@ -504,7 +524,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <:actions>
             <div class="flex items-center gap-2">
               <.ui_button
-                href={~p"/observability?#{%{tab: "netflows", view: "explorer"}}"}
+                href={~p"/observability/netflows?#{%{view: "explorer"}}"}
                 variant="ghost"
                 size="sm"
               >
@@ -553,8 +573,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <:header>
             <div class="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div class="text-sm font-semibold">{filter_title(@filter)}</div>
-                <div class="text-xs text-base-content/60">
+                <div class="text-sm font-semibold tracking-tight text-sr-ink">
+                  {filter_title(@filter)}
+                </div>
+                <div class="text-xs leading-relaxed text-sr-muted">
                   Last {@time_window_hours} hours. Page {@page} of {@page_count}.
                 </div>
               </div>
@@ -582,7 +604,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             </div>
           </:header>
 
-          <div class="hidden border-b border-base-200 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50 lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
+          <div class="hidden border-b border-sr-line px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:grid lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4">
             <div>Source</div>
             <div>Destination</div>
             <div>Process / Agent</div>
@@ -593,7 +615,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <div
             id="attributed-flows"
             phx-update="stream"
-            class="divide-y divide-base-200"
+            class="divide-y divide-sr-line"
           >
             <%= for {dom_id, row} <- @streams.attributed_flows do %>
               <button
@@ -601,7 +623,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 id={dom_id}
                 phx-click="open_flow"
                 phx-value-id={row.id}
-                class="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-base-200/55 focus:bg-base-200/70 focus:outline-none lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4"
+                class="grid w-full gap-3 px-4 py-3 text-left transition hover:bg-sr-subtle/55 focus:bg-sr-subtle/70 focus:outline-none lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1.35fr)_minmax(0,1.05fr)_minmax(0,.9fr)_minmax(0,.75fr)] lg:gap-4"
               >
                 <.endpoint_summary
                   label="Source"
@@ -617,26 +639,28 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 />
 
                 <div class="min-w-0">
-                  <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">
+                  <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
                     Process / Agent
                   </div>
-                  <div class="truncate text-sm font-medium">
+                  <div class="truncate text-sm font-semibold tracking-tight text-sr-ink">
                     {process_label(row)}
                   </div>
-                  <div class="mt-0.5 truncate font-mono text-xs text-base-content/55">
-                    {display(workload_label(row) || row.agent_id)}
+                  <div class="mt-0.5 truncate font-mono text-[11px] text-sr-muted">
+                    {display(public_endpoint_label(row) || workload_label(row) || row.agent_id)}
                   </div>
                 </div>
 
                 <div class="min-w-0">
-                  <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">
+                  <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
                     Traffic
                   </div>
                   <div class="flex flex-wrap items-center gap-2">
                     <.ui_badge variant="ghost" size="xs">{row.protocol}</.ui_badge>
-                    <span class="text-sm font-semibold tabular-nums">{format_bytes(row.bytes)}</span>
+                    <span class="text-sm font-semibold tracking-tight tabular-nums text-sr-ink">
+                      {format_bytes(row.bytes)}
+                    </span>
                   </div>
-                  <div class="mt-0.5 text-xs text-base-content/55 tabular-nums">
+                  <div class="mt-0.5 text-xs tabular-nums text-sr-muted">
                     {format_number(row.packets)} packets
                   </div>
                 </div>
@@ -646,7 +670,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                     <.attribution_badge attributed?={row.attributed?} />
                     <.threat_badge threat={row.threat} />
                   </div>
-                  <div class="mt-1 truncate text-xs text-base-content/55">{row.timestamp}</div>
+                  <div class="mt-1 truncate font-mono text-[11px] text-sr-muted">{row.timestamp}</div>
                 </div>
               </button>
             <% end %>
@@ -656,12 +680,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             <div class="text-sm font-medium">
               No {filter_empty_label(@filter)} flows in the last {@time_window_hours} hours.
             </div>
-            <div class="mt-1 text-xs text-base-content/60">
+            <div class="mt-1 text-xs text-sr-muted">
               Toggle to all rows or wait for the next flow-correlation cycle.
             </div>
           </div>
 
-          <div class="border-t border-base-200 px-4 py-3">
+          <div class="border-t border-sr-line px-4 py-3">
             <.pagination_controls
               page={@page}
               page_count={@page_count}
@@ -691,15 +715,19 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       phx-click="set_filter"
       phx-value-filter={@filter}
       class={[
-        "rounded-lg border bg-base-100 p-3 text-left transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30",
+        "rounded-sr-control border bg-sr-surface p-3 text-left font-sans transition hover:-translate-y-px hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus",
         tile_tone_class(@tone),
-        @active && "ring-2 ring-primary/35"
+        @active && "ring-2 ring-sr-brand/35"
       ]}
     >
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <div class="truncate text-xs uppercase text-base-content/60">{@label}</div>
-          <div class="mt-1 truncate text-2xl font-semibold tabular-nums">{@value}</div>
+          <div class="truncate text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
+            {@label}
+          </div>
+          <div class="mt-1 truncate text-2xl font-semibold tracking-tight tabular-nums text-sr-ink">
+            {@value}
+          </div>
         </div>
         <.icon name={@icon} class="size-5 shrink-0 opacity-70" />
       </div>
@@ -720,27 +748,29 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
     ~H"""
     <div class="flex items-center justify-between gap-2">
-      <button
+      <.ui_button
         type="button"
         phx-click="goto_page"
         phx-value-page={@previous_page}
         disabled={@page <= 1}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         <.icon name="hero-chevron-left" class="size-3.5" /> Previous
-      </button>
-      <span class="min-w-20 text-center text-xs text-base-content/60 tabular-nums">
+      </.ui_button>
+      <span class="min-w-20 text-center text-xs text-sr-muted tabular-nums">
         {@page} / {@page_count}
       </span>
-      <button
+      <.ui_button
         type="button"
         phx-click="goto_page"
         phx-value-page={@next_page}
         disabled={@page >= @page_count}
-        class="btn btn-ghost btn-xs"
+        size="xs"
+        variant="ghost"
       >
         Next <.icon name="hero-chevron-right" class="size-3.5" />
-      </button>
+      </.ui_button>
     </div>
     """
   end
@@ -753,11 +783,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp endpoint_summary(assigns) do
     ~H"""
     <div class="min-w-0">
-      <div class="text-xs uppercase tracking-wide text-base-content/50 lg:hidden">{@label}</div>
-      <div class="truncate font-mono text-sm font-medium">
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted lg:hidden">
+        {@label}
+      </div>
+      <div class="truncate font-mono text-[13px] font-normal tracking-tight text-sr-ink">
         {endpoint(@ip, @port)}
       </div>
-      <div class="mt-0.5 truncate text-xs text-base-content/55">
+      <div class="mt-0.5 truncate text-xs text-sr-muted">
         {display(@hostname)}
       </div>
     </div>
@@ -794,25 +826,31 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp flow_details_modal(assigns) do
     ~H"""
-    <div class="modal modal-open" role="dialog" aria-modal="true">
-      <div class="modal-box max-w-4xl">
-        <div class="flex items-start justify-between gap-4">
+    <dialog
+      id="attributed-flow-details-modal"
+      class="sr-ui-modal sr-ui-modal-open"
+      phx-hook="DialogTopLayer"
+      data-cancel="close_flow"
+    >
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg">
+        <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
           <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold">Flow Details</h2>
-            <div class="mt-1 text-xs text-base-content/60">{@flow.timestamp}</div>
+            <h2 class="text-lg font-semibold tracking-tight text-sr-ink">Flow Details</h2>
+            <div class="mt-1 break-all font-mono text-xs text-sr-muted">{@flow.timestamp}</div>
           </div>
-          <button
+          <.ui_icon_button
             type="button"
-            class="btn btn-ghost btn-sm btn-square"
             phx-click="close_flow"
             aria-label="Close details"
             title="Close details"
+            size="sm"
+            variant="ghost"
           >
             <.icon name="hero-x-mark" class="size-5" />
-          </button>
+          </.ui_icon_button>
         </div>
 
-        <div class="mt-4 grid gap-3 md:grid-cols-2">
+        <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <.detail_item
             label="Source"
             value={endpoint(@flow.source, @flow.source_port)}
@@ -831,12 +869,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           />
           <.detail_item label="Packets" value={format_number(@flow.packets)} />
           <.detail_item label="Agent" value={display(@flow.agent_id)} subvalue={@flow.partition} />
-          <.detail_item
-            label="Context"
-            value={display(workload_context_label(@flow))}
-          />
+          <.detail_item label="Context" value={display(workload_context_label(@flow))} />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
+          <.detail_item
+            label="Public endpoint"
+            value={display(public_endpoint_label(@flow))}
+            subvalue={public_endpoint_sublabel(@flow)}
+          />
           <.detail_item
             label="Workload"
             value={display(workload_label(@flow))}
@@ -854,14 +894,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           />
         </div>
 
-        <div class="modal-action">
+        <div class="sr-ui-modal-action">
           <.ui_button href={netflow_details_path(@flow)} variant="primary" size="sm">
             <.icon name="hero-arrow-top-right-on-square" class="size-4" /> NetFlow Details
           </.ui_button>
         </div>
       </div>
-      <button type="button" class="modal-backdrop" phx-click="close_flow">close</button>
-    </div>
+    </dialog>
     """
   end
 
@@ -871,10 +910,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp detail_item(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-      <div class="text-xs uppercase tracking-wide text-base-content/50">{@label}</div>
-      <div class="mt-1 break-words font-mono text-sm">{display(@value)}</div>
-      <div :if={present?(@subvalue)} class="mt-1 break-words text-xs text-base-content/60">
+    <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+      <div class="text-[10px] font-medium uppercase tracking-wider text-sr-muted">{@label}</div>
+      <div class="mt-1 break-all font-mono text-sm leading-snug text-sr-ink">{display(@value)}</div>
+      <div :if={present?(@subvalue)} class="mt-1 break-all text-xs leading-snug text-sr-muted">
         {display(@subvalue)}
       </div>
     </div>
@@ -898,6 +937,27 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp process_label(%{pid: pid}) when is_integer(pid), do: "PID #{pid}"
   defp process_label(_), do: "No process match"
 
+  defp public_endpoint_label(%{public_endpoint_service: service, public_endpoint_class: class})
+       when is_binary(service) and service != "" do
+    if is_binary(class) and class != "", do: "#{class}: #{service}", else: service
+  end
+
+  defp public_endpoint_label(%{public_endpoint_gateway: gateway}) when is_binary(gateway) and gateway != "", do: gateway
+
+  defp public_endpoint_label(_), do: nil
+
+  defp public_endpoint_sublabel(flow) do
+    Enum.find(
+      [
+        flow.public_endpoint_route,
+        flow.public_endpoint_namespace && flow.public_endpoint_service &&
+          "#{flow.public_endpoint_namespace}/#{flow.public_endpoint_service}",
+        flow.public_endpoint_gateway
+      ],
+      &(is_binary(&1) and &1 != "")
+    )
+  end
+
   defp workload_label(%{pod_namespace: ns, pod_name: pod} = flow) when is_binary(ns) and is_binary(pod) do
     [workload_context_label(flow), "#{ns}/#{pod}"]
     |> Enum.reject(&is_nil/1)
@@ -912,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp workload_context_label(_), do: nil
 
   defp netflow_details_path(row) do
-    ~p"/observability?#{%{tab: "netflows", view: "explorer", q: netflow_query(row), limit: 50, open_flow: "1"}}"
+    ~p"/observability/netflows?#{%{view: "explorer", q: netflow_query(row), open_flow: "1"}}"
   end
 
   defp netflow_query(row) do
@@ -1124,8 +1184,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp pluralize(1, singular, _plural), do: singular
   defp pluralize(_, _singular, plural), do: plural
 
-  defp tile_tone_class("success"), do: "border-success/30"
-  defp tile_tone_class("warning"), do: "border-warning/30"
-  defp tile_tone_class("info"), do: "border-info/30"
-  defp tile_tone_class(_), do: "border-base-200"
+  defp tile_tone_class("success"), do: "border-sr-brand/40"
+  defp tile_tone_class("warning"), do: "border-warning/40"
+  defp tile_tone_class("info"), do: "border-sr-line-strong"
+  defp tile_tone_class(_), do: "border-sr-line"
 end

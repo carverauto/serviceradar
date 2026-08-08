@@ -5,6 +5,8 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Plugins.ConfigSchema
 
+  @moduletag :requires_app
+
   test "managed params project settings and filter non-edge metric-class keys" do
     settings = %AnomalyDetectionConfig{
       n_sigma: 4.5,

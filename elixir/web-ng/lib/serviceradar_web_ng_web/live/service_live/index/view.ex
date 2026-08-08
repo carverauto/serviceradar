@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.View do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold">Active Service Checks</div>
-                <div class="text-xs text-base-content/70">
+                <div class="text-xs text-sr-muted">
                   Latest plugin check per service (sorted with failures first).
                 </div>
               </div>

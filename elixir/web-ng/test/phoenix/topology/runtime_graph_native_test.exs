@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
 
   alias ServiceRadarWebNG.Topology.Native
 
+  @moduletag :db_free
+
   test "runtime graph ingest preserves backend directional telemetry fields" do
     graph_ref = Native.runtime_graph_new()
 
@@ -36,6 +38,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
       metadata: %{
         source: "mapper",
         inference: "direct_lldp_neighbor",
+        relation_type: "ATTACHED_TO",
+        topology_plane: "attachment",
         confidence_tier: "high",
         confidence_score: 95.0
       }
@@ -59,5 +63,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphNativeTest do
     assert stored.confidence_reason == "direct_lldp_neighbor"
     assert stored.telemetry_source == "interface"
     assert stored.evidence_class == "direct"
+
+    assert %{
+             "relation_type" => "ATTACHED_TO",
+             "topology_plane" => "attachment"
+           } = Jason.decode!(stored.metadata_json)
   end
 end

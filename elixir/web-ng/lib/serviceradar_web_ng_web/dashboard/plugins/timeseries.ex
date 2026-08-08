@@ -662,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         %{
           title: "No chart data",
           detail: Spec.fetch_panel_value(assigns, :empty_detail, "No samples matched this chart."),
-          class: "border-base-300 bg-base-200/40 text-base-content"
+          class: "border-sr-line bg-sr-subtle/40 text-sr-ink"
         }
     end
   end
@@ -721,7 +721,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
       <div
         :if={is_binary(@compact_title) and @series_data != []}
-        class="mb-3 text-sm font-semibold text-base-content/90"
+        class="mb-3 text-sm font-semibold text-sr-ink"
       >
         {@compact_title}
       </div>
@@ -775,7 +775,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           <div class="min-w-0">
             <div class="text-sm font-semibold">{@title || "Timeseries"}</div>
           </div>
-          <div class="text-xs text-base-content/50 font-mono">
+          <div class="text-xs text-sr-muted font-mono">
             <span :if={is_struct(@first_dt, DateTime)}>{Points.dt_label(@first_dt)}</span>
             <span class="px-1">→</span>
             <span :if={is_struct(@last_dt, DateTime)}>{Points.dt_label(@last_dt)}</span>

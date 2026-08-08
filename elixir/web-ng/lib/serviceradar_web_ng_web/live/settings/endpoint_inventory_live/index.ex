@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
             <h1 class="text-xl font-semibold">Endpoint Inventory</h1>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
             <.form
               :if={@settings_form}
               for={@settings_form}
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
               </div>
 
               <div class="mt-4 flex justify-end">
-                <button class="btn btn-sm btn-primary" type="submit">Save Settings</button>
+                <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
               </div>
             </.form>
           </div>

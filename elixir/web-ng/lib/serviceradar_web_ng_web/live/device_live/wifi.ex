@@ -158,6 +158,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: socket.assigns.active_entity)}
   end
 
+  def handle_event("srql_paginate", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_paginate", params,
+        list_assign_key: :wifi_rows,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    {:noreply, stream(socket, :wifi_rows, socket.assigns.wifi_rows, reset: true, dom_id: &row_dom_id/1)}
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -172,42 +183,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
       srql={@srql}
     >
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <section class="flex flex-col gap-3 border-b border-sr-line pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p class="text-sm font-medium text-primary">Devices</p>
+            <p class="text-sm font-medium text-sr-brand">Devices</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-normal">WiFi Inventory</h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
+            <p class="mt-2 max-w-3xl text-sm text-sr-ink/65">
               Site, access point, controller, RADIUS, and fleet records from imported WiFi map data.
             </p>
           </div>
-          <.link navigate={~p"/devices"} class="btn btn-sm btn-ghost">
+          <.ui_button navigate={~p"/devices"} size="sm" variant="ghost">
             <.icon name="hero-server-stack" class="size-4" /> Device List
-          </.link>
+          </.ui_button>
         </section>
 
         <nav class="flex flex-wrap gap-2" aria-label="WiFi inventory views">
-          <.link
+          <.ui_button
             :for={tab <- @entity_tabs}
-            patch={~p"/devices/wifi?#{%{q: tab.query, limit: @limit}}"}
-            class={[
-              "btn btn-sm",
-              if(tab.id == @active_entity, do: "btn-primary", else: "btn-ghost")
-            ]}
+            patch={~p"/devices/wifi?#{%{q: tab.query}}"}
+            size="sm"
+            variant={if(tab.id == @active_entity, do: "primary", else: "ghost")}
+            active={tab.id == @active_entity}
           >
             {tab.label}
-          </.link>
+          </.ui_button>
         </nav>
 
         <.ui_panel>
           <:header>
             <div>
               <div class="text-sm font-semibold">{Catalog.entity(@active_entity).label}</div>
-              <div class="text-xs text-base-content/60">{Map.get(@srql, :query, "")}</div>
+              <div class="text-xs text-sr-muted">{Map.get(@srql, :query, "")}</div>
             </div>
           </:header>
 
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm", zebra: true)}>
               <thead>
                 <tr>
                   <th :for={{_field, label} <- @columns}>{label}</th>
@@ -215,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
               </thead>
               <tbody id="wifi-rows" phx-update="stream">
                 <tr :if={length(@wifi_rows) == 0} id="wifi-rows-empty">
-                  <td colspan={@column_count} class="py-8 text-center text-base-content/60">
+                  <td colspan={@column_count} class="py-8 text-center text-sr-muted">
                     No WiFi inventory rows found.
                   </td>
                 </tr>
@@ -230,13 +240,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
             </table>
           </div>
 
-          <div class="mt-4 border-t border-base-200 pt-4">
+          <div class="mt-4 border-t border-sr-line pt-4">
             <.ui_pagination
               prev_cursor={Map.get(@pagination, "prev_cursor")}
               next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={@page_path}
-              query={Map.get(@srql, :query, "")}
               limit={@limit}
+              current_page={Map.get(assigns, :pagination_page, 1)}
               result_count={length(@wifi_rows)}
             />
           </div>

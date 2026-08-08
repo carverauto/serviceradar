@@ -1,0 +1,65 @@
+# Autoscale the BuildBuddy executor fleet on remote-execution queue depth.
+#
+# WHY KEDA AND NOT THE CHART'S HPA
+# The buildbuddy-executor chart ships an HPA that reads
+# `buildbuddy_remote_execution_queue_length` as a *Pods* metric from custom.metrics.k8s.io.
+# That API is not registered on this cluster:
+#
+#     v1beta1.external.metrics.k8s.io   keda/keda-operator-metrics-apiserver   True
+#     v1beta1.metrics.k8s.io           kube-system/metrics-server             True
+#     v1beta1.custom.metrics.k8s.io    <absent>
+#
+# Serving it would mean adding prometheus-adapter purely as a shim. KEDA is already
+# installed and already serving external.metrics.k8s.io, and its Prometheus scaler reads
+# the same series straight from promstack. So this replaces the chart's HPA rather than
+# propping it up.
+#
+# ORDER MATTERS, and KEDA enforces it. Applying this while the chart's HPA still exists is
+# rejected outright:
+#
+#     admission webhook "vscaledobject.kb.io" denied the request: the workload
+#     'buildbuddy-buildbuddy-executor' of type 'apps/v1.Deployment' is already managed by
+#     the hpa 'buildbuddy-buildbuddy-executor-autoscaler'
+#
+# So `autoscaler.enabled: false` in values.yaml must be rolled out (helm upgrade) BEFORE
+# this object is created. That webhook is doing us a favour -- two controllers driving one
+# Deployment's replica count would otherwise fight silently.
+#
+# PREREQUISITE: podmonitor.yaml. Without it Prometheus holds no buildbuddy series and this
+# scaler is just a differently-worded version of the same failure. Verify before relying on
+# it:
+#     kubectl exec -n monitoring prometheus-promstack-prometheus-0 -c prometheus -- \
+#       wget -qO- 'http://localhost:9090/api/v1/query?query=buildbuddy_remote_execution_queue_length'
+#
+# SIZING. minReplicaCount/maxReplicaCount mirror the chart's previous 3/10 so this is a
+# behaviour fix, not a capacity change. Each executor requests 8 CPU / 16Gi, so 10 replicas
+# is 80 CPU / 160Gi -- confirm the cluster can actually schedule that before raising the max,
+# or pods sit Pending and the queue never drains.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: buildbuddy-executor
+  namespace: buildbuddy
+spec:
+  scaleTargetRef:
+    name: buildbuddy-buildbuddy-executor
+  minReplicaCount: 3
+  maxReplicaCount: 5
+  # Executors hold warm state: a local CAS cache under /cache and, with snapshot sharing,
+  # prepared VM snapshots. Scaling in aggressively throws that away and the replacement pays
+  # the image pull again (image_pull_timeout is 15m), so cool down slowly.
+  cooldownPeriod: 600
+  pollingInterval: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://promstack-prometheus.monitoring.svc:9090
+        # Average queue depth across the fleet. KEDA scales toward
+        # ceil(current / threshold), so 5 keeps ~5 queued tasks per executor before adding
+        # one -- the same target the chart's HPA used (`averageQueueLength: 5`).
+        query: avg(buildbuddy_remote_execution_queue_length{namespace="buildbuddy"})
+        threshold: "5"
+        # Treat a missing series as "no load" rather than erroring. Without this a Prometheus
+        # blip would surface as a scaler error; with it the fleet simply holds at
+        # minReplicaCount, which is the safe direction.
+        ignoreNullValues: "true"

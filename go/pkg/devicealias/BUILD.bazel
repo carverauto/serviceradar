@@ -10,8 +10,8 @@ go_library(
 go_test(
     name = "devicealias_test",
     srcs = ["alias_test.go"],
-    embed = [":devicealias"],
     deps = [
+        ":devicealias",
         "@com_github_stretchr_testify//assert",
     ],
 )

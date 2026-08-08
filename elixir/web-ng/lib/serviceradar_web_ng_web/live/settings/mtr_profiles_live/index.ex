@@ -513,22 +513,23 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           </div>
         </div>
 
-        <div :if={@retention_lowering?} class="alert alert-warning text-sm">
+        <div :if={@retention_lowering?} class={ui_alert_class(variant: "warning", class: "text-sm")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>Lowering retention may cause older MTR traces and hops to expire sooner.</span>
         </div>
 
         <div class="flex justify-end">
-          <button
+          <.ui_button
             type="submit"
-            class="btn btn-sm btn-primary"
             data-confirm={
               @retention_lowering? &&
                 "Lowering MTR retention may expire older trace and hop history sooner. Continue?"
             }
+            size="sm"
+            variant="primary"
           >
             Save Retention
-          </button>
+          </.ui_button>
         </div>
       </.form>
     </.ui_panel>
@@ -551,8 +552,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         </div>
       </:header>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm sr-mtr-table">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
           <thead>
             <tr>
               <th>Name</th>
@@ -576,43 +577,47 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
-                <span class={[
-                  "badge badge-sm",
-                  if(profile.enabled, do: "badge-success", else: "badge-ghost")
-                ]}>
+                <.ui_badge
+                  size="sm"
+                  variant={if(profile.enabled, do: "success", else: "ghost")}
+                >
                   {if profile.enabled, do: "ENABLED", else: "DISABLED"}
-                </span>
+                </.ui_badge>
               </td>
               <td>
                 <div class="flex items-center gap-1">
-                  <button
+                  <.ui_button
                     type="button"
-                    class="btn btn-xs btn-ghost"
                     phx-click="toggle_profile"
                     phx-value-id={profile.id}
+                    size="xs"
+                    variant="ghost"
                   >
                     {if profile.enabled, do: "Disable", else: "Enable"}
-                  </button>
-                  <.link
+                  </.ui_button>
+                  <.ui_button
                     navigate={~p"/settings/networks/mtr/#{profile.id}/edit"}
-                    class="btn btn-xs btn-ghost"
+                    size="xs"
+                    variant="ghost"
                   >
                     Edit
-                  </.link>
-                  <button
+                  </.ui_button>
+                  <.ui_button
                     type="button"
-                    class="btn btn-xs btn-ghost text-error"
                     phx-click="delete_profile"
                     phx-value-id={profile.id}
                     data-confirm="Delete this MTR profile?"
+                    size="xs"
+                    variant="ghost"
+                    class="text-error"
                   >
                     Delete
-                  </button>
+                  </.ui_button>
                 </div>
               </td>
             </tr>
             <tr :if={@profiles == []}>
-              <td colspan="8" class="text-center py-8 text-base-content/50">
+              <td colspan="8" class="text-center py-8 text-sr-muted">
                 No MTR automation profiles configured yet.
               </td>
             </tr>
@@ -652,16 +657,18 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       <.form for={@form} phx-change="validate_profile" phx-submit="save_profile" class="space-y-6">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="label"><span class="label-text">Profile Name</span></label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Profile Name</span>
+            </label>
+            <.input type="text" field={@form[:name]} class={ui_field_class(class: "w-full")} required />
           </div>
           <label class="flex items-center gap-2 mt-8 cursor-pointer">
             <.input
               type="checkbox"
               field={@form[:enabled]}
-              class="checkbox checkbox-sm checkbox-primary"
+              class={ui_checkbox_class()}
             />
-            <span class="label-text">Enabled</span>
+            <span class="text-sm font-medium text-sr-ink">Enabled</span>
           </label>
         </div>
 
@@ -670,7 +677,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             Device Scope
           </h3>
           <div>
-            <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Target Query (SRQL)</span>
+            </label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
                 <.srql_editor
@@ -756,7 +765,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
               <button
                 type="button"
-                class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
+                class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit"
                 phx-click="builder_add_filter"
               >
                 <.icon name="hero-plus" class="size-4" /> Add filter
@@ -770,7 +779,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           >
             <div>
               <span class="font-semibold">{@target_scope_summary.effective_target_count}</span>
-              <span class="text-base-content/70">
+              <span class="text-sr-muted">
                 managed target(s) are currently eligible per baseline run
               </span>
             </div>
@@ -799,24 +808,24 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 @bulk_interval_guidance.execution_profile
               )})
             </div>
-            <div class="text-base-content/70 mt-1">
+            <div class="text-sr-muted mt-1">
               Measured throughput: {@bulk_interval_guidance.targets_per_minute} targets/min
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Effective concurrency: {@bulk_interval_guidance.effective_concurrency}
             </div>
-            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-base-content/70">
+            <div :if={@bulk_interval_guidance.timeout_ratio_percent > 0} class="text-sr-muted">
               Avg timeout ratio: {@bulk_interval_guidance.timeout_ratio_percent}%
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Estimated runtime for current scope: {@bulk_interval_guidance.estimated_duration_sec}s
             </div>
-            <div class="text-base-content/70">
+            <div class="text-sr-muted">
               Recommended minimum interval: {@bulk_interval_guidance.recommended_interval_sec}s
             </div>
             <div
               :if={@bulk_interval_guidance.throttled_runs > 0}
-              class="text-base-content/70"
+              class="text-sr-muted"
             >
               Adaptive backoff observed in {@bulk_interval_guidance.throttled_runs}/{@bulk_interval_guidance.sample_count} recent runs.
             </div>
@@ -831,31 +840,37 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label class="label"><span class="label-text">Selector Limit</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Selector Limit</span>
+            </label>
             <.input
               type="number"
               field={@form[:selector_limit]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Preferred Agent</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Preferred Agent</span>
+            </label>
             <.input
               type="select"
               field={@form[:preferred_agent_id]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"Auto-select by policy", ""} | Enum.map(@agents, &{agent_label(&1), agent_id(&1)})
               ]}
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Partition (optional)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Partition (optional)</span>
+            </label>
             <.input
               type="text"
               field={@form[:partition_id]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               placeholder="default"
             />
           </div>
@@ -863,65 +878,79 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <label class="label"><span class="label-text">Protocol</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Protocol</span>
+            </label>
             <.input
               type="select"
               field={@form[:baseline_protocol]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={protocol_options()}
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Bulk Execution Profile</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Bulk Execution Profile</span>
+            </label>
             <.input
               type="select"
               field={@form[:bulk_execution_profile]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={execution_profile_options()}
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Baseline Interval (sec)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Baseline Interval (sec)</span>
+            </label>
             <.input
               type="number"
               field={@form[:baseline_interval_sec]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="30"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Extra Canary Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Extra Canary Agents</span>
+            </label>
             <.input
               type="number"
               field={@form[:baseline_canary_vantages]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="0"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Incident Cooldown (sec)</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Incident Cooldown (sec)</span>
+            </label>
             <.input
               type="number"
               field={@form[:incident_cooldown_sec]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="30"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Incident Fanout</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Incident Fanout</span>
+            </label>
             <.input
               type="number"
               field={@form[:incident_fanout_max_agents]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Consensus Mode</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Mode</span>
+            </label>
             <.input
               type="select"
               field={@form[:consensus_mode]}
-              class="select select-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               options={[
                 {"Majority", "majority"},
                 {"Unanimous", "unanimous"},
@@ -930,22 +959,26 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Consensus Threshold</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Threshold</span>
+            </label>
             <.input
               type="number"
               field={@form[:consensus_threshold]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               step="0.01"
               min="0"
               max="1"
             />
           </div>
           <div>
-            <label class="label"><span class="label-text">Consensus Min Agents</span></label>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">Consensus Min Agents</span>
+            </label>
             <.input
               type="number"
               field={@form[:consensus_min_agents]}
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               min="1"
             />
           </div>
@@ -955,12 +988,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           <.input
             type="checkbox"
             field={@form[:recovery_capture]}
-            class="checkbox checkbox-sm checkbox-primary"
+            class={ui_checkbox_class()}
           />
-          <span class="label-text">Run recovery capture MTR on return-to-healthy transitions</span>
+          <span class="text-sm font-medium text-sr-ink">
+            Run recovery capture MTR on return-to-healthy transitions
+          </span>
         </label>
 
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+        <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks/mtr"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>

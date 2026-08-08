@@ -50,7 +50,6 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
 
   @repo_root Path.expand("../../../../..", __DIR__)
   @fixture_dir Path.join(@repo_root, "go/pkg/agent/testdata/addonconfig_contract")
-  @addons_root Path.join(@repo_root, "addons")
 
   # Representative assignment params per bundled add-on. Deliberately include
   # the documented compatibility forms (see
@@ -77,7 +76,26 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
       "nats" => %{
         "url" => "tls://nats.demo.internal:4222",
         "stream" => "events",
-        "timeout_secs" => "15"
+        "timeout_secs" => "15",
+        # Required, not decorative. config.schema.json carries an allOf that fires when
+        # output.backend is "jetstream": nats then requires url AND tls, tls requires all three
+        # paths, and creds_file must be absent. Without this block delivery refuses the params --
+        #   Expected all of the schemata to match, but the schemata at the following
+        #   indexes did not: 0.
+        # -- and AddonConfigContractFixturesTest fails before it can compare anything.
+        #
+        # The condition arrived in 91ce839f3e ("remove agent NATS credential dependency"), which
+        # moved this add-on from creds-file auth to mTLS. That commit updated the schema and the
+        # committed fixture but not these params, so the two have disagreed since. The paths below
+        # are the ones already in go/pkg/agent/testdata/addonconfig_contract/otel-collector.json.
+        #
+        # These stay file PATHS. For a ready direct assignment the control plane injects
+        # cert_pem/key_pem/ca_pem at delivery time; the base onboarding bundle never carries them.
+        "tls" => %{
+          "cert_file" => "/etc/serviceradar/edge/nats-client.pem",
+          "key_file" => "/etc/serviceradar/edge/nats-client-key.pem",
+          "ca_file" => "/etc/serviceradar/edge/nats-ca.pem"
+        }
       },
       "server" => %{"bind_address" => "0.0.0.0", "port" => 4_317},
       "agent_forward" => %{"spool_dir" => "/var/lib/serviceradar/otel-spool"}
@@ -159,18 +177,50 @@ defmodule ServiceRadar.Plugins.AddonConfigContractFixtures do
   @spec addon_ids() :: [String.t()]
   def addon_ids, do: @representative_params |> Map.keys() |> Enum.sort()
 
+  @doc """
+  Repository root, resolved at RUNTIME rather than pinned at compile time.
+
+  `@repo_root` is `Path.expand("../../../../..", __DIR__)`, which is correct under plain
+  `mix` -- the checkout compiles in place. Under Bazel it is not: `mix_app` compiles in its
+  own build tree, so the constant bakes in a path under `bazel-bin/.../erlang_app_mix/`, and
+  the test then runs in a sandbox where only declared runfiles exist. The baked path resolves
+  to a directory that is real on the host and absent in the sandbox, so `File.read!` fails
+  with a path that looks plausible and points nowhere useful.
+
+  Candidates in order, first one that actually contains the tree wins:
+
+    1. `SERVICERADAR_REPO_ROOT`, for a caller that knows better;
+    2. the compile-time root, which is right for `mix`;
+    3. two levels up from the working directory, which is where a Bazel test's runfiles put
+       the workspace (the test runs from `elixir/serviceradar_core`).
+
+  Repo tooling either way -- this module is not meant to run from a release.
+  """
+  @spec repo_root() :: Path.t()
+  def repo_root do
+    [
+      System.get_env("SERVICERADAR_REPO_ROOT"),
+      @repo_root,
+      Path.expand("../..", File.cwd!())
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find(@repo_root, fn root ->
+      File.dir?(Path.join(root, "go/pkg/agent/testdata/addonconfig_contract"))
+    end)
+  end
+
   @spec fixture_dir() :: Path.t()
-  def fixture_dir, do: @fixture_dir
+  def fixture_dir, do: Path.join(repo_root(), "go/pkg/agent/testdata/addonconfig_contract")
 
   @spec fixture_path(String.t()) :: Path.t()
-  def fixture_path(addon_id), do: Path.join(@fixture_dir, addon_id <> ".json")
+  def fixture_path(addon_id), do: Path.join(fixture_dir(), addon_id <> ".json")
 
   @spec representative_params(String.t()) :: map()
   def representative_params(addon_id), do: Map.fetch!(@representative_params, addon_id)
 
   @spec schema(String.t()) :: map()
   def schema(addon_id) do
-    [@addons_root, addon_id, "config.schema.json"]
+    [repo_root(), "addons", addon_id, "config.schema.json"]
     |> Path.join()
     |> File.read!()
     |> Jason.decode!()

@@ -5,6 +5,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.EdgeBaselineProducerTes
   alias ServiceRadar.Observability.SeasonalDisposition.Source
   alias ServiceRadar.Plugins.ConfigSchema
 
+  @moduletag :requires_app
+
   # A fake SRQL runner that returns hour-of-week profile rows shaped exactly as the
   # `stats:profile_hour_of_week` SQL emits them (string keys, device_id AS series),
   # branching on the source's metric_type so cpu and memory get distinct profiles.

@@ -20,8 +20,8 @@ go_library(
 go_test(
     name = "sdk_test",
     srcs = ["metrics_test.go"],
-    embed = [":sdk"],
     deps = [
+        ":sdk",
         "//proto/agent/addon/v1:addonpb",
         "//proto/metric/v1:metricpb",
         "@org_golang_google_protobuf//proto",

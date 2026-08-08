@@ -49,17 +49,19 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class={["fieldset mb-2", @class]}>
-      <label :if={@label} for={@id} class="label mb-1">{@label}</label>
+      <label :if={@label} for={@id} class="flex items-center justify-between gap-2 mb-1">
+        {@label}
+      </label>
       <div
         :if={@compact}
         class="relative srql-input-frame"
         data-srql-input-frame
         style={[
-          "--srql-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;",
-          "--srql-font-size: 0.75rem;",
-          "--srql-line-height: 1rem;",
-          "--srql-padding-inline: 0.75rem;",
-          "--srql-padding-block: 0.375rem;"
+          "--srql-font-family: var(--sr-font-mono);",
+          "--srql-font-size: 0.875rem;",
+          "--srql-line-height: 1.35rem;",
+          "--srql-padding-inline: 0.85rem;",
+          "--srql-padding-block: 0.5rem;"
         ]}
       >
         <input
@@ -67,7 +69,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           type="text"
           name={@name}
           value={@value}
-          list={"#{@id}-completions"}
           phx-hook="SRQLInput"
           phx-debounce="150"
           autocomplete="off"
@@ -75,9 +76,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           autocapitalize="off"
           spellcheck="false"
           class={[
-            "input input-sm w-full font-mono text-xs",
-            "rounded-lg border-base-300 bg-base-100",
-            "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+            ui_field_class(size: "sm", mono: true, class: "w-full text-sm"),
+            "rounded-lg border-sr-line bg-sr-surface",
+            "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
             "srql-input",
             @editor_class
           ]}
@@ -94,18 +95,15 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </ul>
         <div class="srql-hint hidden" data-srql-input-hint aria-hidden="true"></div>
       </div>
-      <datalist :if={@compact} id={"#{@id}-completions"}>
-        <option :for={completion <- @completion_values} value={completion}></option>
-      </datalist>
       <textarea
         :if={!@compact and !@rich}
         id={@id}
         name={@name}
         phx-debounce="300"
         class={[
-          "textarea textarea-bordered min-h-28 w-full font-mono text-xs leading-relaxed",
-          "rounded-lg border-base-300 bg-base-100",
-          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+          ui_field_class(mono: true, class: "min-h-28 w-full text-sm leading-relaxed py-2.5"),
+          "rounded-lg border-sr-line bg-sr-surface",
+          "focus:border-sr-brand focus:outline-none focus:ring-1 focus:ring-sr-brand/30",
           @editor_class
         ]}
         disabled={@disabled}
@@ -135,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         class={[
           @compact && "h-9",
           !@compact && "min-h-28",
-          "overflow-hidden rounded-lg border border-base-300 bg-base-100",
+          "overflow-hidden rounded-lg border border-sr-line bg-sr-surface",
           @editor_class
         ]}
       />
@@ -203,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </.ui_icon_button>
 
         <.ui_button variant="primary" size="sm" type="submit">
-          <span :if={@loading} class="loading loading-spinner loading-xs" /> Run
+          <span :if={@loading} class="sr-ui-spinner sr-ui-spinner-xs" /> Run
         </.ui_button>
       </form>
     </div>
@@ -239,21 +237,21 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={[
       "overflow-x-auto",
-      @container && "rounded-xl border border-base-200 bg-base-100",
+      @container && "rounded-xl border border-sr-line bg-sr-surface",
       @class
     ]}>
-      <table id={@id} class="table table-sm table-zebra w-full">
+      <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
             <%= for col <- @columns do %>
               <th
-                class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60"
+                class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60"
                 aria-sort={sort_aria(col, @sort_field, @sort_dir)}
               >
                 <button
                   :if={(@sortable and @sort_target) && col != "_sparkline"}
                   type="button"
-                  class="group inline-flex items-center gap-1 text-left hover:text-base-content"
+                  class="group inline-flex items-center gap-1 text-left hover:text-sr-ink"
                   phx-click="table_sort"
                   phx-target={@sort_target}
                   phx-value-field={col}
@@ -280,14 +278,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <tr :if={@rows == []}>
             <td
               colspan={max(length(@columns), 1)}
-              class="text-sm text-base-content/60 py-8 text-center"
+              class="text-sm text-sr-muted py-8 text-center"
             >
               {@empty_message}
             </td>
           </tr>
 
           <%= for {row, idx} <- Enum.with_index(@rows) do %>
-            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
+            <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40">
               <%= for col <- @columns do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
                   <%= if col == "_sparkline" do %>
@@ -321,7 +319,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           {display}
         </time>
       <% {:link, %{href: href, label: label}} -> %>
-        <a href={href} target="_blank" rel="noreferrer" class="link link-hover font-mono text-[11px]">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          class="text-sr-brand hover:underline font-mono text-[11px]"
+        >
           {label}
         </a>
       <% {:severity, %{label: label, variant: variant}} -> %>
@@ -344,13 +347,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <:header>
         <div class="min-w-0">
           <div class="text-sm font-semibold">Auto Visualization</div>
-          <div class="text-xs text-base-content/70">
+          <div class="text-xs text-sr-muted">
             A best-effort visualization inferred from the SRQL result set (beta).
           </div>
         </div>
       </:header>
 
-      <div :if={@viz == :none} class="text-sm text-base-content/70">
+      <div :if={@viz == :none} class="text-sm text-sr-muted">
         No visualization detected yet. Try a timeseries query (timestamp + numeric value) or a grouped count.
       </div>
 
@@ -372,17 +375,17 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class="flex flex-col gap-3">
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-sr-muted">
         Timeseries: <span class="font-mono">{@y}</span> over <span class="font-mono">{@x}</span>
       </div>
 
-      <div class="rounded-lg border border-base-200 bg-base-100 p-3">
+      <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
         <svg viewBox="0 0 400 120" class="w-full h-28">
           <polyline
             fill="none"
             stroke="currentColor"
             stroke-width="2"
-            class="text-primary"
+            class="text-sr-brand"
             points={@spark}
           />
         </svg>
@@ -411,7 +414,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <div class="flex flex-col gap-3">
-      <div class="text-xs text-base-content/60">
+      <div class="text-xs text-sr-muted">
         Categories: <span class="font-mono">{@value}</span> by <span class="font-mono">{@label}</span>
       </div>
 
@@ -421,9 +424,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <div class="flex items-center gap-3">
             <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
             <div class="flex-1">
-              <div class="h-2 rounded-full bg-base-200 overflow-hidden">
+              <div class="h-2 rounded-full bg-sr-subtle overflow-hidden">
                 <div
-                  class="h-2 bg-primary/70"
+                  class="h-2 bg-sr-brand/70"
                   style={"width: #{max(round((v_num / @max_v) * 100), 0)}%"}
                 />
               </div>
@@ -453,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           fill="none"
           stroke="currentColor"
           stroke-width="2"
-          class="text-primary"
+          class="text-sr-brand"
           points={@spark}
         />
       </svg>
@@ -944,6 +947,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     value_fields = Map.get(config, :value_fields, [])
     boolean_fields = Map.get(config, :boolean_fields, [])
     numeric_fields = Map.get(config, :numeric_fields, [])
+    address_fields = Catalog.address_fields(config)
 
     assigns =
       assigns
@@ -954,13 +958,14 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:value_fields, value_fields)
       |> assign(:boolean_fields, boolean_fields)
       |> assign(:numeric_fields, numeric_fields)
+      |> assign(:address_fields, address_fields)
 
     ~H"""
     <.ui_panel>
       <:header>
         <div class="min-w-0">
           <div class="text-sm font-semibold">Query Builder</div>
-          <div class="text-xs text-base-content/70">
+          <div class="text-xs text-sr-muted">
             Compose a query visually.
           </div>
         </div>
@@ -1000,7 +1005,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </.ui_inline_select>
               </.query_builder_pill>
 
-              <div class="pl-10 border-l-2 border-primary/30 flex flex-col gap-5">
+              <div class="pl-10 border-l-2 border-sr-brand/30 flex flex-col gap-5">
                 <.query_builder_pill label="Time">
                   <.ui_inline_select name="builder[time]" disabled={not @supported}>
                     <option value="" selected={(@builder["time"] || "") == ""}>Any</option>
@@ -1033,7 +1038,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </.query_builder_pill>
 
                 <div :if={@supports_downsample} class="flex flex-wrap items-center gap-4">
-                  <div class="text-xs text-base-content/60 font-medium">Downsample</div>
+                  <div class="text-xs text-sr-muted font-medium">Downsample</div>
 
                   <.query_builder_pill label="Bucket">
                     <.ui_inline_select name="builder[bucket]" disabled={not @supported}>
@@ -1077,7 +1082,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                         name="builder[series]"
                         value={@builder["series"] || ""}
                         placeholder="field"
-                        class="w-40 placeholder:text-base-content/40"
+                        class="w-40 placeholder:text-sr-muted"
                         disabled={not @supported}
                       />
                     <% else %>
@@ -1096,12 +1101,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </div>
 
                 <div class="flex flex-col gap-3">
-                  <div class="text-xs text-base-content/60 font-medium">Filters</div>
+                  <div class="text-xs text-sr-muted font-medium">Filters</div>
 
                   <div class="flex flex-col gap-3">
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                       <% is_bool_field = (filter["field"] || "") in @boolean_fields %>
                       <% is_numeric_field = (filter["field"] || "") in @numeric_fields %>
+                      <% is_address_field = (filter["field"] || "") in @address_fields %>
                       <div class="flex items-center gap-3">
                         <.query_builder_pill label="Filter">
                           <%= if @config.filter_fields == [] do %>
@@ -1110,7 +1116,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               name={"builder[filters][#{idx}][field]"}
                               value={filter["field"] || ""}
                               placeholder="field"
-                              class="w-40 placeholder:text-base-content/40"
+                              class="w-40 placeholder:text-sr-muted"
                               disabled={not @supported}
                             />
                           <% else %>
@@ -1131,7 +1137,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                             <.ui_inline_select
                               name={"builder[filters][#{idx}][op]"}
                               disabled={not @supported}
-                              class="text-xs text-base-content/70"
+                              class="text-xs text-sr-muted"
                             >
                               <option
                                 value="equals"
@@ -1148,7 +1154,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               <.ui_inline_select
                                 name={"builder[filters][#{idx}][op]"}
                                 disabled={not @supported}
-                                class="text-xs text-base-content/70"
+                                class="text-xs text-sr-muted"
                               >
                                 <option
                                   value="equals"
@@ -1173,27 +1179,60 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                                 </option>
                               </.ui_inline_select>
                             <% else %>
-                              <.ui_inline_select
-                                name={"builder[filters][#{idx}][op]"}
-                                disabled={not @supported}
-                                class="text-xs text-base-content/70"
-                              >
-                                <option
-                                  value="contains"
-                                  selected={(filter["op"] || "contains") == "contains"}
+                              <%= if is_address_field do %>
+                                <%!-- Addresses match exactly by default; `contains` on an
+                                      address is a substring match (10.0.0.1 also matching
+                                      110.0.0.1), so it stays available but is not first. --%>
+                                <.ui_inline_select
+                                  name={"builder[filters][#{idx}][op]"}
+                                  disabled={not @supported}
+                                  class="text-xs text-sr-muted"
                                 >
-                                  contains
-                                </option>
-                                <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                                  does not contain
-                                </option>
-                                <option value="equals" selected={filter["op"] == "equals"}>
-                                  equals
-                                </option>
-                                <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                                  does not equal
-                                </option>
-                              </.ui_inline_select>
+                                  <option
+                                    value="equals"
+                                    selected={(filter["op"] || "equals") == "equals"}
+                                  >
+                                    equals
+                                  </option>
+                                  <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                    does not equal
+                                  </option>
+                                  <option value="contains" selected={filter["op"] == "contains"}>
+                                    contains
+                                  </option>
+                                  <option
+                                    value="not_contains"
+                                    selected={filter["op"] == "not_contains"}
+                                  >
+                                    does not contain
+                                  </option>
+                                </.ui_inline_select>
+                              <% else %>
+                                <.ui_inline_select
+                                  name={"builder[filters][#{idx}][op]"}
+                                  disabled={not @supported}
+                                  class="text-xs text-sr-muted"
+                                >
+                                  <option
+                                    value="contains"
+                                    selected={(filter["op"] || "contains") == "contains"}
+                                  >
+                                    contains
+                                  </option>
+                                  <option
+                                    value="not_contains"
+                                    selected={filter["op"] == "not_contains"}
+                                  >
+                                    does not contain
+                                  </option>
+                                  <option value="equals" selected={filter["op"] == "equals"}>
+                                    equals
+                                  </option>
+                                  <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                    does not equal
+                                  </option>
+                                </.ui_inline_select>
+                              <% end %>
                             <% end %>
                           <% end %>
 
@@ -1217,7 +1256,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               name={"builder[filters][#{idx}][value]"}
                               value={filter["value"] || ""}
                               placeholder="value"
-                              class="placeholder:text-base-content/40 w-56"
+                              class="placeholder:text-sr-muted w-56"
                               disabled={not @supported}
                             />
                           <% end %>
@@ -1238,7 +1277,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
                     <button
                       type="button"
-                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit disabled:opacity-60"
+                      class="inline-flex items-center gap-2 rounded-md border border-dashed border-sr-brand/40 px-3 py-2 text-sm text-sr-brand/80 hover:bg-sr-brand/5 w-fit disabled:opacity-60"
                       phx-click="srql_builder_add_filter"
                       disabled={not @supported}
                     >
@@ -1248,7 +1287,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                 </div>
 
                 <div class="flex items-center gap-4 pt-2">
-                  <div class="text-xs text-base-content/60 font-medium">Sort</div>
+                  <div class="text-xs text-sr-muted font-medium">Sort</div>
                   <.query_builder_pill label="Sort">
                     <.ui_inline_input
                       type="text"
@@ -1265,7 +1304,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     </.ui_inline_select>
                   </.query_builder_pill>
 
-                  <div class="text-xs text-base-content/60 font-medium">Limit</div>
+                  <div class="text-xs text-sr-muted font-medium">Limit</div>
                   <.query_builder_pill label="Limit">
                     <.ui_inline_input
                       type="number"
@@ -1279,7 +1318,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                   </.query_builder_pill>
                 </div>
 
-                <div class="flex items-center gap-3 pt-4 mt-4 border-t border-base-200">
+                <div class="flex items-center gap-3 pt-4 mt-4 border-t border-sr-line">
                   <.ui_button variant="primary" size="sm" type="button" phx-click="srql_builder_run">
                     Run Query
                   </.ui_button>

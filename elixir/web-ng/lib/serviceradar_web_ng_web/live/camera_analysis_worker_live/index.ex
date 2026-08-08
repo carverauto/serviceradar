@@ -74,32 +74,32 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="space-y-6">
+      <div class="sr-observability-page space-y-6 font-sans">
         <.observability_chrome active_pane="camera-relays" active_subsection="analysis-workers">
           <:actions>
-            <button type="button" phx-click="refresh" class="btn btn-primary btn-sm">
+            <.ui_button type="button" phx-click="refresh" size="sm" variant="primary">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
-            </button>
+            </.ui_button>
           </:actions>
         </.observability_chrome>
 
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="space-y-2">
-            <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-base-content/50">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-sr-muted">
               <span class="inline-flex size-2 rounded-full bg-warning"></span> Analysis Ops
             </div>
             <div>
-              <h1 class="text-3xl font-semibold tracking-tight text-base-content">
+              <h1 class="text-3xl font-semibold tracking-tight text-sr-ink">
                 Camera Analysis Workers
               </h1>
-              <p class="mt-1 max-w-2xl text-sm text-base-content/70">
+              <p class="mt-1 max-w-2xl text-sm text-sr-muted">
                 Registered worker inventory, health state, and bounded failover-relevant runtime status.
               </p>
             </div>
           </div>
         </div>
 
-        <div :if={@error} class="alert alert-warning">
+        <div :if={@error} class={ui_alert_class("warning")}>
           <.icon name="hero-exclamation-triangle" class="size-5" />
           <span>{@error}</span>
         </div>
@@ -139,25 +139,25 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
           />
         </div>
 
-        <section class="rounded-2xl border border-base-200 bg-base-100 shadow-sm">
-          <div class="border-b border-base-200 px-5 py-4">
+        <section class="rounded-2xl border border-sr-line bg-sr-surface shadow-sm">
+          <div class="border-b border-sr-line px-5 py-4">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <h2 class="text-lg font-semibold text-base-content">Worker Registry</h2>
-                <p class="text-sm text-base-content/60">
+                <h2 class="text-lg font-semibold text-sr-ink">Worker Registry</h2>
+                <p class="text-sm text-sr-muted">
                   Authoritative analysis worker state from the platform registry.
                 </p>
               </div>
-              <span class="badge badge-ghost">{length(@workers)} workers</span>
+              <.ui_badge size="sm" variant="ghost">{length(@workers)} workers</.ui_badge>
             </div>
           </div>
 
-          <div :if={@workers == []} class="px-5 py-8 text-sm text-base-content/60">
+          <div :if={@workers == []} class="px-5 py-8 text-sm text-sr-muted">
             No camera analysis workers are registered.
           </div>
 
           <div :if={@workers != []} class="overflow-x-auto">
-            <table class="table">
+            <table class={ui_table_class()}>
               <thead>
                 <tr>
                   <th>Worker</th>
@@ -175,88 +175,91 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
               <tbody>
                 <tr :for={worker <- @workers}>
                   <td>
-                    <div class="font-medium text-base-content">
+                    <div class="font-medium text-sr-ink">
                       {worker.display_name || worker.worker_id}
                     </div>
-                    <div class="text-xs text-base-content/50 font-mono">{worker.worker_id}</div>
+                    <div class="text-xs text-sr-muted font-mono">{worker.worker_id}</div>
                   </td>
                   <td>
-                    <span class="badge badge-ghost">{worker.adapter}</span>
+                    <.ui_badge size="sm" variant="ghost">{worker.adapter}</.ui_badge>
                   </td>
                   <td>
                     <div class="flex flex-wrap gap-1">
-                      <span :if={worker.capabilities == []} class="text-xs text-base-content/50">
+                      <span :if={worker.capabilities == []} class="text-xs text-sr-muted">
                         none
                       </span>
-                      <span
+                      <.ui_badge
                         :for={capability <- worker.capabilities}
-                        class="badge badge-outline badge-sm"
+                        size="sm"
+                        variant="outline"
                       >
                         {capability}
-                      </span>
+                      </.ui_badge>
                     </div>
                   </td>
                   <td>
-                    <span class={[
-                      "badge",
-                      if(worker.enabled, do: "badge-success", else: "badge-ghost")
-                    ]}>
+                    <.ui_badge
+                      size="sm"
+                      variant={if(worker.enabled, do: "success", else: "ghost")}
+                    >
                       {if(worker.enabled, do: "enabled", else: "disabled")}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td>
                     <div class="space-y-1">
-                      <span class={["badge", health_badge_class(worker.health_status)]}>
+                      <.ui_badge size="sm" variant={health_badge_variant(worker.health_status)}>
                         {worker.health_status || "unknown"}
-                      </span>
-                      <span :if={worker.flapping} class="badge badge-warning">flapping</span>
-                      <span :if={worker.alert_active} class="badge badge-error">
+                      </.ui_badge>
+                      <.ui_badge :if={worker.flapping} size="sm" variant="warning">
+                        flapping
+                      </.ui_badge>
+                      <.ui_badge :if={worker.alert_active} size="sm" variant="error">
                         alert: {worker.alert_state}
-                      </span>
-                      <div :if={worker.health_reason} class="text-xs text-base-content/50">
+                      </.ui_badge>
+                      <div :if={worker.health_reason} class="text-xs text-sr-muted">
                         {worker.health_reason}
                       </div>
                     </div>
                   </td>
                   <td>
-                    <div class="text-sm text-base-content">
+                    <div class="text-sm text-sr-ink">
                       failures: {worker.consecutive_failures || 0}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       last failure: {format_datetime(worker.last_failure_at)}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       last healthy: {format_datetime(worker.last_healthy_at)}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       {flapping_summary(worker)}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       {alert_summary(worker)}
                     </div>
-                    <div :if={worker.alert_active} class="text-xs text-base-content/50 font-mono">
+                    <div :if={worker.alert_active} class="text-xs text-sr-muted font-mono">
                       {routed_alert_summary(worker)}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       {notification_policy_summary(worker)}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       {notification_audit_summary(worker)}
                     </div>
                   </td>
                   <td>
-                    <div class="text-sm text-base-content">
+                    <div class="text-sm text-sr-ink">
                       active: {Map.get(worker, :active_assignment_count, 0)}
                     </div>
                     <div
                       :if={Map.get(worker, :active_assignment_count, 0) == 0}
-                      class="text-xs text-base-content/50"
+                      class="text-xs text-sr-muted"
                     >
                       idle
                     </div>
                     <div
                       :for={assignment <- active_assignments(worker)}
-                      class="mt-1 rounded-lg border border-base-200 bg-base-200/40 p-2 text-xs text-base-content/70"
+                      class="mt-1 rounded-lg border border-sr-line bg-sr-subtle/40 p-2 text-xs text-sr-muted"
                     >
                       <div class="font-mono text-[11px]">
                         {assignment.relay_session_id}/{assignment.branch_id}
@@ -271,41 +274,42 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                   </td>
                   <td>
                     <div
-                      class="max-w-xs truncate font-mono text-xs text-base-content/70"
+                      class="max-w-xs truncate font-mono text-xs text-sr-muted"
                       title={worker.endpoint_url}
                     >
                       {worker.endpoint_url}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       headers: {length(worker.header_keys || [])}
                     </div>
                   </td>
                   <td>
-                    <div class="font-mono text-xs text-base-content/70">
+                    <div class="font-mono text-xs text-sr-muted">
                       {worker.health_endpoint_url || worker.health_path || "/health"}
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       timeout: {worker.health_timeout_ms || "default"} ms
                     </div>
-                    <div class="text-xs text-base-content/50">
+                    <div class="text-xs text-sr-muted">
                       interval: {worker.probe_interval_ms || "default"} ms
                     </div>
-                    <div :for={probe <- recent_probes(worker)} class="text-xs text-base-content/50">
+                    <div :for={probe <- recent_probes(worker)} class="text-xs text-sr-muted">
                       {probe_status_label(probe)} {probe_reason_suffix(probe)}at {probe_timestamp(
                         probe
                       )}
                     </div>
                   </td>
                   <td>
-                    <button
+                    <.ui_button
                       type="button"
                       phx-click="toggle_enabled"
                       phx-value-id={worker.id}
                       phx-value-enabled={to_string(!worker.enabled)}
-                      class={["btn btn-xs", if(worker.enabled, do: "btn-ghost", else: "btn-primary")]}
+                      size="xs"
+                      variant={if(worker.enabled, do: "ghost", else: "primary")}
                     >
                       {if(worker.enabled, do: "Disable", else: "Enable")}
-                    </button>
+                    </.ui_button>
                   </td>
                 </tr>
               </tbody>
@@ -358,9 +362,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     }
   end
 
-  defp health_badge_class("healthy"), do: "badge-success"
-  defp health_badge_class("unhealthy"), do: "badge-error"
-  defp health_badge_class(_), do: "badge-ghost"
+  defp health_badge_variant("healthy"), do: "success"
+  defp health_badge_variant("unhealthy"), do: "error"
+  defp health_badge_variant(_), do: "ghost"
 
   defp format_datetime(nil), do: "never"
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
@@ -462,11 +466,11 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
 
   defp summary_card(assigns) do
     ~H"""
-    <div class="rounded-2xl border border-base-200 bg-base-100 p-4 shadow-sm">
+    <div class="rounded-2xl border border-sr-line bg-sr-surface p-4 shadow-sm">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-xs uppercase tracking-wide text-base-content/45">{@title}</div>
-          <div class="mt-1 text-3xl font-semibold text-base-content">{@value}</div>
+          <div class="text-xs uppercase tracking-wide text-sr-ink/45">{@title}</div>
+          <div class="mt-1 text-3xl font-semibold text-sr-ink">{@value}</div>
         </div>
         <div class={["flex size-10 items-center justify-center rounded-xl", tone_class(@tone)]}>
           <.icon name={@icon} class="size-5" />
@@ -476,9 +480,9 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
     """
   end
 
-  defp tone_class("primary"), do: "bg-primary/10 text-primary"
+  defp tone_class("primary"), do: "bg-sr-brand/10 text-sr-brand"
   defp tone_class("success"), do: "bg-success/10 text-success"
   defp tone_class("error"), do: "bg-error/10 text-error"
   defp tone_class("warning"), do: "bg-warning/10 text-warning"
-  defp tone_class(_), do: "bg-base-200 text-base-content"
+  defp tone_class(_), do: "bg-sr-subtle text-sr-ink"
 end

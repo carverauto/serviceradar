@@ -79,24 +79,6 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
-	// Initialize flow publisher (NATS connection for `flow.host-slice.<agent-id>`).
-	// Optional: only connects when nats_url + nats_creds_file are present in the
-	// bootstrap config (written by edge-bundle generator for :agent packages).
-	// Backwards-compatible: when keys are absent, the agent runs without it.
-	//
-	// Fail-loud when the operator explicitly configured NATS auth but it is
-	// broken — silent fallback would defeat B-5 (per-agent JWT-scoped
-	// publishing). The no-config path returns nil from initFlowPublisher
-	// (see nats_publisher.go newFlowPublisher: returns (nil, nil) when both
-	// URL and Creds are empty), so reaching the error branch with intent
-	// signalled in config is operator misconfiguration we must surface.
-	if err := s.initFlowPublisher(ctx); err != nil {
-		if errors.Is(err, ErrFlowPublisherCredsMissing) || cfg.NATSCredsFile != "" || cfg.NATSURL != "" {
-			return nil, fmt.Errorf("failed to initialize flow publisher: %w", err)
-		}
-		log.Warn().Err(err).Msg("Failed to initialize flow publisher, continuing without it")
-	}
-
 	return s, nil
 }
 
@@ -230,6 +212,9 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	}
 	if s.config.EndpointInventory != nil && s.config.EndpointInventory.Enabled {
 		s.services = append(s.services, NewEndpointInventorySpoolService(s.config.AgentID, s.config.EndpointInventory))
+	}
+	if s.config.K8sPublicEndpoints != nil && s.config.K8sPublicEndpoints.Enabled {
+		s.services = append(s.services, NewK8sPublicEndpointsSpoolService(s.config.AgentID, s.config.K8sPublicEndpoints))
 	}
 
 	return nil
@@ -584,11 +569,6 @@ func (s *Server) Stop(_ context.Context) error {
 		if err := s.sidecarManager.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop sidecar manager")
 		}
-	}
-
-	// Drain and close the NATS flow publisher connection if present.
-	if s.flowPublisher != nil {
-		s.flowPublisher.Close()
 	}
 
 	if s.addonManager != nil {

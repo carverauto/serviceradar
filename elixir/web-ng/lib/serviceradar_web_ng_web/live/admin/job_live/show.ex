@@ -165,8 +165,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               <.icon name="hero-arrow-left" class="size-4" />
             </.ui_button>
             <div>
-              <h1 class="text-2xl font-semibold text-base-content">{@job.name}</h1>
-              <p class="text-sm text-base-content/60">
+              <h1 class="text-2xl font-semibold text-sr-ink">{@job.name}</h1>
+              <p class="text-sm text-sr-muted">
                 {@job.description}
               </p>
             </div>
@@ -178,13 +178,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             <.ui_badge variant={if @job.enabled, do: "success", else: "warning"} size="sm">
               {if @job.enabled, do: "Enabled", else: "Paused"}
             </.ui_badge>
-            <div class="flex items-center gap-1 text-xs text-base-content/60">
+            <div class="flex items-center gap-1 text-xs text-sr-muted">
               <.icon
                 name="hero-arrow-path"
                 class={["size-3", @refresh_interval > 0 && "animate-spin"]}
               />
               <select
-                class="select select-xs select-ghost"
+                class={
+                  ui_field_class(
+                    size: "xs",
+                    class: "w-auto border-transparent bg-transparent shadow-none"
+                  )
+                }
                 phx-change="set_refresh_interval"
                 name="interval"
               >
@@ -233,12 +238,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                 <:header>
                   <div>
                     <div class="text-sm font-semibold">Execution History</div>
-                    <p class="text-xs text-base-content/60">
+                    <p class="text-xs text-sr-muted">
                       Last {@chart_hours} hours
                     </p>
                   </div>
                   <select
-                    class="select select-xs select-bordered"
+                    class={ui_field_class(size: "xs")}
                     phx-change="set_chart_hours"
                     name="hours"
                   >
@@ -251,10 +256,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                 </:header>
 
                 <%= if @chart_data == [] do %>
-                  <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                    <.icon name="hero-chart-bar" class="size-8 mx-auto text-base-content/30" />
-                    <div class="mt-2 text-sm font-semibold text-base-content/70">No data</div>
-                    <p class="mt-1 text-xs text-base-content/50">
+                  <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
+                    <.icon name="hero-chart-bar" class="size-8 mx-auto text-sr-ink/30" />
+                    <div class="mt-2 text-sm font-semibold text-sr-muted">No data</div>
+                    <p class="mt-1 text-xs text-sr-muted">
                       No executions in the selected time period.
                     </p>
                   </div>
@@ -268,25 +273,25 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               <:header>
                 <div>
                   <div class="text-sm font-semibold">Recent Runs</div>
-                  <p class="text-xs text-base-content/60">
+                  <p class="text-xs text-sr-muted">
                     Last {@recent_runs_limit} executions
                   </p>
                 </div>
               </:header>
 
               <%= if @recent_runs == [] do %>
-                <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                  <.icon name="hero-clock" class="size-8 mx-auto text-base-content/30" />
-                  <div class="mt-2 text-sm font-semibold text-base-content/70">No runs yet</div>
-                  <p class="mt-1 text-xs text-base-content/50">
+                <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-6 text-center">
+                  <.icon name="hero-clock" class="size-8 mx-auto text-sr-ink/30" />
+                  <div class="mt-2 text-sm font-semibold text-sr-muted">No runs yet</div>
+                  <p class="mt-1 text-xs text-sr-muted">
                     This job hasn't executed any runs yet.
                   </p>
                 </div>
               <% else %>
-                <div class="overflow-x-auto">
-                  <table class="table table-sm">
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm")}>
                     <thead>
-                      <tr class="text-[11px] uppercase tracking-wide text-base-content/50">
+                      <tr class="text-[11px] uppercase tracking-wide text-sr-muted">
                         <th>State</th>
                         <th>Enqueued</th>
                         <th>Started</th>
@@ -297,25 +302,25 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                     </thead>
                     <tbody>
                       <%= for run <- @recent_runs do %>
-                        <tr class="hover:bg-base-200/30">
+                        <tr class="hover:bg-sr-subtle/30">
                           <td>
                             <.ui_badge variant={run_state_variant(run.state)} size="xs">
                               {run_state_label(run.state)}
                             </.ui_badge>
                           </td>
-                          <td class="font-mono text-xs text-base-content/70">
+                          <td class="font-mono text-xs text-sr-muted">
                             {format_datetime(run.inserted_at)}
                           </td>
-                          <td class="font-mono text-xs text-base-content/70">
+                          <td class="font-mono text-xs text-sr-muted">
                             {format_datetime(run.attempted_at)}
                           </td>
-                          <td class="font-mono text-xs text-base-content/70">
+                          <td class="font-mono text-xs text-sr-muted">
                             {format_datetime(run.completed_at)}
                           </td>
-                          <td class="text-xs text-base-content/70">
+                          <td class="text-xs text-sr-muted">
                             {format_duration(run)}
                           </td>
-                          <td class="text-xs text-base-content/70 text-center">
+                          <td class="text-xs text-sr-muted text-center">
                             {run.attempt}/{run.max_attempts}
                           </td>
                         </tr>
@@ -324,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                             <td colspan="6" class="py-2">
                               <div class="text-xs">
                                 <div class="font-semibold text-error mb-1">Error Details</div>
-                                <pre class="bg-base-200 p-2 rounded text-[11px] overflow-x-auto max-h-32"><%= format_errors(run.errors) %></pre>
+                                <pre class="bg-sr-subtle p-2 rounded text-[11px] overflow-x-auto max-h-32"><%= format_errors(run.errors) %></pre>
                               </div>
                             </td>
                           </tr>
@@ -370,15 +375,15 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             <.ui_panel>
               <:header>
                 <div class="text-sm font-semibold">Execution Stats</div>
-                <span class="text-xs text-base-content/60">Last {@chart_hours}h</span>
+                <span class="text-xs text-sr-muted">Last {@chart_hours}h</span>
               </:header>
               <div class="space-y-4">
                 <div class="grid grid-cols-2 gap-3">
-                  <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3 text-center">
-                    <div class="text-[11px] uppercase tracking-wide text-base-content/60">
+                  <div class="rounded-lg border border-sr-line/60 bg-sr-subtle/30 p-3 text-center">
+                    <div class="text-[11px] uppercase tracking-wide text-sr-muted">
                       Total Runs
                     </div>
-                    <div class="mt-1 text-xl font-bold text-base-content">
+                    <div class="mt-1 text-xl font-bold text-sr-ink">
                       {@stats.total}
                     </div>
                   </div>
@@ -409,17 +414,17 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                 </div>
 
                 <%= if @stats.total > 0 do %>
-                  <div class="text-xs text-base-content/60 space-y-1">
+                  <div class="text-xs text-sr-muted space-y-1">
                     <div class="flex justify-between">
                       <span>Success Rate</span>
-                      <span class="font-semibold text-base-content">
+                      <span class="font-semibold text-sr-ink">
                         {Float.round(@stats.completed / @stats.total * 100, 1)}%
                       </span>
                     </div>
                     <%= if @stats.avg_duration do %>
                       <div class="flex justify-between">
                         <span>Avg Duration</span>
-                        <span class="font-semibold text-base-content">
+                        <span class="font-semibold text-sr-ink">
                           {format_ms(@stats.avg_duration)}
                         </span>
                       </div>
@@ -433,7 +438,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               <:header>
                 <div class="text-sm font-semibold">Job ID</div>
               </:header>
-              <code class="text-xs font-mono bg-base-200 p-2 rounded block break-all">
+              <code class="text-xs font-mono bg-sr-subtle p-2 rounded block break-all">
                 {@job.id}
               </code>
             </.ui_panel>
@@ -486,14 +491,14 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             stroke-opacity="0.1"
             stroke-width="0.5"
           />
-          
-    <!-- Bars -->
+
+          <!-- Bars -->
           <%= for {bucket, idx} <- Enum.with_index(@data) do %>
             <% x = idx * @bar_width %>
             <% completed_height = bucket.completed / @max_val * 100 %>
             <% failed_height = bucket.failed / @max_val * 100 %>
-            
-    <!-- Completed (green) -->
+
+            <!-- Completed (green) -->
             <rect
               x={x + @bar_width * 0.1}
               y={100 - completed_height}
@@ -504,8 +509,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             >
               <title>Completed: {bucket.completed}</title>
             </rect>
-            
-    <!-- Failed (red) -->
+
+            <!-- Failed (red) -->
             <rect
               x={x + @bar_width * 0.55}
               y={100 - failed_height}
@@ -519,9 +524,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <% end %>
         </svg>
       </div>
-      
-    <!-- Legend -->
-      <div class="flex items-center justify-center gap-4 text-xs text-base-content/60">
+
+      <!-- Legend -->
+      <div class="flex items-center justify-center gap-4 text-xs text-sr-muted">
         <div class="flex items-center gap-1">
           <div class="w-3 h-3 rounded bg-success"></div>
           <span>Completed</span>
@@ -531,9 +536,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <span>Failed</span>
         </div>
       </div>
-      
-    <!-- Time axis -->
-      <div class="flex justify-between text-[10px] text-base-content/40 px-1">
+
+      <!-- Time axis -->
+      <div class="flex justify-between text-[10px] text-sr-muted px-1">
         <%= if length(@data) > 0 do %>
           <span>{format_chart_time(List.first(@data).hour)}</span>
           <span>{format_chart_time(List.last(@data).hour)}</span>
@@ -554,9 +559,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     ~H"""
     <div>
-      <div class="text-[11px] uppercase tracking-wide text-base-content/60">{@label}</div>
+      <div class="text-[11px] uppercase tracking-wide text-sr-muted">{@label}</div>
       <div class={[
-        "mt-1 text-sm text-base-content",
+        "mt-1 text-sm text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
         {@value}

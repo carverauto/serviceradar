@@ -3,6 +3,8 @@ defmodule ServiceRadar.DataService.ClientTest do
 
   alias ServiceRadar.DataService.Client
 
+  @moduletag :requires_app
+
   test "get_channel returns not_started when the supervised client is unavailable" do
     refute Process.whereis(Client)
 

@@ -106,5 +106,5 @@ go_library(
 go_test(
     name = "probes_test",
     srcs = ["selftest_test.go"],
-    embed = [":probes"],
+    deps = [":probes"],
 )

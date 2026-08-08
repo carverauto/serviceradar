@@ -9,6 +9,7 @@ mod sql;
 mod translate;
 mod types;
 
+mod addon_fleet;
 mod addon_statuses;
 mod agents;
 mod alerts;
@@ -35,6 +36,7 @@ mod memory_metrics;
 mod otel_metric_points;
 mod otel_metrics;
 mod process_metrics;
+mod public_endpoints;
 mod services;
 mod timeseries_metrics;
 mod trace_summaries;

@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
       </div>
 
       <div>
-        <label class="text-sm font-medium text-base-content">Seed Targets</label>
+        <label class="text-sm font-medium text-sr-ink">Seed Targets</label>
         <.input
           name="seeds"
           type="textarea"
@@ -88,15 +88,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
         />
       </div>
 
-      <div :if={@show_api} class="rounded-xl border border-base-200 p-4 space-y-4">
+      <div :if={@show_api} class="rounded-xl border border-sr-line p-4 space-y-4">
         <div class="grid gap-4 xl:grid-cols-2">
-          <div class="rounded-lg border border-base-200/80 bg-base-100 p-4 space-y-4">
+          <div class="rounded-lg border border-sr-line/80 bg-sr-surface p-4 space-y-4">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="text-sm font-semibold">UniFi Controller</h3>
-                <p class="text-xs text-base-content/60">API discovery integration.</p>
+                <p class="text-xs text-sr-muted">API discovery integration.</p>
               </div>
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-sr-muted">
                 <%= if @unifi_present do %>
                   API key stored
                 <% else %>
@@ -126,13 +126,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm do
             </div>
           </div>
 
-          <div class="rounded-lg border border-base-200/80 bg-base-100 p-4 space-y-4">
+          <div class="rounded-lg border border-sr-line/80 bg-sr-surface p-4 space-y-4">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="text-sm font-semibold">MikroTik RouterOS</h3>
-                <p class="text-xs text-base-content/60">RouterOS REST API discovery integration.</p>
+                <p class="text-xs text-sr-muted">RouterOS REST API discovery integration.</p>
               </div>
-              <span class="text-xs text-base-content/60">
+              <span class="text-xs text-sr-muted">
                 <%= if @mikrotik.password_present do %>
                   Password stored
                 <% else %>

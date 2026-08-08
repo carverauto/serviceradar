@@ -26,20 +26,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
       |> assign(:running_count, running_count)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-squares-2x2" class="size-4 text-primary" />
+          <.icon name="hero-squares-2x2" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Guests</span>
-          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <span class="rounded-full bg-sr-brand/10 px-2 py-0.5 text-[11px] font-semibold text-sr-brand">
             {length(@guests)} total
           </span>
         </div>
-        <span class="text-xs text-base-content/60">{@running_count} running</span>
+        <span class="text-xs text-sr-muted">{@running_count} running</span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
+      <div class="sr-ui-table-shell">
+        <table class={ui_table_class(size: "sm")}>
           <thead>
             <tr>
               <th>Name</th>
@@ -61,20 +61,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
               <td class="text-right font-mono">{format_virtualization_pct(guest.cpu_ratio)}</td>
               <td class="text-right font-mono">
                 {format_bytes(guest.memory_used_bytes)}
-                <span class="text-base-content/40">/ {format_bytes(guest.memory_total_bytes)}</span>
+                <span class="text-sr-muted">/ {format_bytes(guest.memory_total_bytes)}</span>
               </td>
               <td class="text-right font-mono">
                 {virtualization_guest_disk_value(guest)}
-                <span class="text-base-content/40">{virtualization_guest_disk_subvalue(guest)}</span>
+                <span class="text-sr-muted">{virtualization_guest_disk_subvalue(guest)}</span>
               </td>
               <td class="text-right">
-                <.link
+                <.ui_button
                   :if={is_binary(guest.device_uid) and guest.device_uid != ""}
                   navigate={~p"/devices/#{guest.device_uid}"}
-                  class="btn btn-ghost btn-xs"
+                  size="xs"
+                  variant="ghost"
                 >
                   Open
-                </.link>
+                </.ui_button>
               </td>
             </tr>
           </tbody>
@@ -127,16 +128,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
       |> assign(:provider_label, provider_label)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+    <div class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <.icon name="hero-server-stack" class="size-4 text-primary" />
+          <.icon name="hero-server-stack" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Virtualization</span>
-          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+          <span class="rounded-full bg-sr-brand/10 px-2 py-0.5 text-[11px] font-semibold text-sr-brand">
             {@provider_label}
           </span>
         </div>
-        <span class="text-xs text-base-content/50 font-mono">{format_timestamp(@observed_at)}</span>
+        <span class="text-xs text-sr-muted font-mono">{format_timestamp(@observed_at)}</span>
       </div>
 
       <div class="p-4 space-y-4">
@@ -167,14 +168,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
           />
         </div>
 
-        <div :if={@cluster} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+        <div :if={@cluster} class="rounded-lg border border-sr-line bg-sr-subtle/30 px-3 py-2">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0 flex items-center gap-2">
               <.icon name="hero-cube-transparent" class="size-4 text-info" />
               <span class="truncate text-sm font-medium">{@cluster.name}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span :if={@cluster.version} class="font-mono text-xs text-base-content/60">
+              <span :if={@cluster.version} class="font-mono text-xs text-sr-muted">
                 {@cluster.version}
               </span>
               <.virtualization_health_badge value={@cluster.status} />
@@ -210,25 +211,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
 
         <div
           :if={@guest && @parent_host_label}
-          class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2"
+          class="rounded-lg border border-sr-line bg-sr-subtle/30 px-3 py-2"
         >
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0 flex items-center gap-2">
               <.icon name="hero-server-stack" class="size-4 text-info" />
-              <span class="text-xs text-base-content/60">Hypervisor</span>
+              <span class="text-xs text-sr-muted">Hypervisor</span>
               <span class="truncate text-sm font-medium">{@parent_host_label}</span>
             </div>
-            <.link
+            <.ui_button
               :if={@parent_host_uid}
               navigate={~p"/devices/#{@parent_host_uid}"}
-              class="btn btn-ghost btn-xs"
+              size="xs"
+              variant="ghost"
             >
               Open node
-            </.link>
+            </.ui_button>
           </div>
         </div>
 
-        <div :if={@ceph} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+        <div :if={@ceph} class="rounded-lg border border-sr-line bg-sr-subtle/30 px-3 py-2">
           <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-2">
               <.icon name="hero-circle-stack" class="size-4 text-info" />
@@ -239,9 +241,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
         </div>
 
         <div :if={@datastores != []} class="space-y-2">
-          <h4 class="text-xs font-semibold uppercase text-base-content/50">Datastores</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <h4 class="text-xs font-semibold uppercase text-sr-muted">Datastores</h4>
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -256,9 +258,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                   <td class="font-medium">{store.name}</td>
                   <td>{store.storage_type || "—"}</td>
                   <td>
-                    <span class={["badge badge-xs", store.active && "badge-success"]}>
+                    <.ui_badge
+                      size="xs"
+                      variant={if(store.active, do: "success", else: "ghost")}
+                    >
                       {virtualization_datastore_status(store)}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="text-right font-mono">{format_bytes(store.used_bytes)}</td>
                   <td class="text-right font-mono">{format_bytes(store.total_bytes)}</td>
@@ -269,9 +274,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
         </div>
 
         <div :if={@disks != []} class="space-y-2">
-          <h4 class="text-xs font-semibold uppercase text-base-content/50">Host Disks</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <h4 class="text-xs font-semibold uppercase text-sr-muted">Host Disks</h4>
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Path</th>
@@ -295,9 +300,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
         </div>
 
         <div :if={@network_interfaces != []} class="space-y-2">
-          <h4 class="text-xs font-semibold uppercase text-base-content/50">Network</h4>
-          <div class="overflow-x-auto">
-            <table class="table table-xs">
+          <h4 class="text-xs font-semibold uppercase text-sr-muted">Network</h4>
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs")}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -312,9 +317,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
                   <td class="font-medium">{iface.name}</td>
                   <td>{iface.interface_type || "—"}</td>
                   <td>
-                    <span class={["badge badge-xs", iface.active && "badge-success"]}>
+                    <.ui_badge
+                      size="xs"
+                      variant={if(iface.active, do: "success", else: "ghost")}
+                    >
                       {if iface.active, do: "active", else: "inactive"}
-                    </span>
+                    </.ui_badge>
                   </td>
                   <td class="font-mono">{virtualization_interface_address(iface)}</td>
                   <td>{iface.bridge_ports || "—"}</td>
@@ -335,13 +343,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
 
   defp virtualization_stat(assigns) do
     ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-      <div class="flex items-center gap-2 text-xs text-base-content/60">
+    <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
+      <div class="flex items-center gap-2 text-xs text-sr-muted">
         <.icon name={@icon} class="size-4" />
         <span>{@label}</span>
       </div>
       <div class="mt-2 text-lg font-semibold">{@value}</div>
-      <div :if={present?(@subvalue)} class="text-xs text-base-content/50">{@subvalue}</div>
+      <div :if={present?(@subvalue)} class="text-xs text-sr-muted">{@subvalue}</div>
     </div>
     """
   end
@@ -354,10 +362,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
     assigns =
       assigns
       |> assign(:label, label)
-      |> assign(:class, virtualization_health_class(label))
+      |> assign(:variant, virtualization_health_variant(label))
 
     ~H"""
-    <span class={["badge badge-xs", @class]}>{@label}</span>
+    <.ui_badge size="xs" variant={@variant}>{@label}</.ui_badge>
     """
   end
 
@@ -435,21 +443,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   def virtualization_guests?(%{guests: guests}) when is_list(guests), do: guests != []
   def virtualization_guests?(_summary), do: false
 
-  defp virtualization_health_class(value) do
+  defp virtualization_health_variant(value) do
     normalized = value |> to_string() |> String.downcase()
 
     cond do
       normalized in ["passed", "ok", "health_ok", "online"] ->
-        "badge-success"
+        "success"
 
       String.contains?(normalized, "warn") ->
-        "badge-warning"
+        "warning"
 
       String.contains?(normalized, "fail") or String.contains?(normalized, "crit") ->
-        "badge-error"
+        "error"
 
       true ->
-        "badge-ghost"
+        "ghost"
     end
   end
 

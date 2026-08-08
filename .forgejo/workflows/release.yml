@@ -89,6 +89,16 @@ jobs:
       OCI_CHART_REPOSITORY: serviceradar/charts
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      # Harbor above is where this job PUSHES. These two are where Bazel PULLS base images
+      # from: MODULE.bazel fetches 7 from docker.io and 3 from ghcr.io. Without them the
+      # release path pulls all ten anonymously, against Docker Hub's 100-per-6h-per-IP limit
+      # and ghcr's equivalent -- a throttled fetch surfaces as a Bazel "no such package"
+      # loading error, which does not look like a rate limit at all. main.yml already passes
+      # these; buildbuddy_setup_docker_auth.sh writes an entry per registry.
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
@@ -162,9 +172,6 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
@@ -288,6 +295,14 @@ jobs:
             chmod +x "${RUNNER_TEMP}/check-oci-image-tags-exist.sh"
           fi
 
+          # Manual retries intentionally execute the current protected workflow
+          # while publishing an older immutable tag. Preserve the current signer
+          # before detaching to that tag so retry-safety fixes remain available.
+          if [[ -x scripts/sign-oci-publish.sh ]]; then
+            cp scripts/sign-oci-publish.sh "${RUNNER_TEMP}/sign-oci-publish.sh"
+            chmod +x "${RUNNER_TEMP}/sign-oci-publish.sh"
+          fi
+
           git checkout --detach "${RELEASE_COMMIT}"
           echo "Checked out release commit ${RELEASE_COMMIT}"
 
@@ -362,7 +377,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
-          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -400,8 +415,14 @@ jobs:
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
+            # --config=ci, matching buildbuddy.yaml, plus the one flag the deleted
+            # `remote_push` config carried that `ci` does not: --remote_download_outputs=all.
+            # ci inherits --remote_download_minimal from remote_base, which leaves the image
+            # layer tars in the CAS -- and sign-oci-publish.sh below reads them back out of
+            # `bazel info bazel-bin`. A later flag beats the one the config sets, which is why
+            # this belongs on the command line rather than in a publish-only config.
             run_remote_publish() {
-              bazel run --config=remote_push --stamp //:push "${extra_args[@]}"
+              bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push "${extra_args[@]}"
             }
 
             if ! run_remote_publish; then
@@ -414,6 +435,7 @@ jobs:
               elif [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
                 echo "Remote bazel retry failed; retrying locally without remote executor/cache" >&2
                 bazel run \
+                  -c opt \
                   --remote_executor= \
                   --remote_cache= \
                   --noremote_accept_cached \
@@ -427,11 +449,6 @@ jobs:
                 exit 1
               fi
             fi
-          else
-            mapfile -t image_targets < <(
-              python3 -c 'import ast, re, sys; from pathlib import Path; text = Path(sys.argv[1]).read_text(); match = re.search(r"PUBLISHABLE_IMAGES\s*=\s*(\[[\s\S]*?\])\n\n", text); assert match, "unable to parse image inventory"; [print("//docker/images:" + entry.get("push_image", entry["image"])) for entry in ast.literal_eval(match.group(1))]' docker/images/image_inventory.bzl
-            )
-            bazel build --config=remote_push --stamp "${image_targets[@]}"
           fi
 
           echo "Rechecking release image digest equality after publish/build handling."
@@ -448,7 +465,14 @@ jobs:
             verify_tags+=("${RELEASE_TAG}")
           fi
           source ./scripts/ci/prepare-openbao-cosign-env.sh
-          ./scripts/sign-oci-publish.sh
+          sign_script="./scripts/sign-oci-publish.sh"
+          if [[ -x "${RUNNER_TEMP}/sign-oci-publish.sh" ]]; then
+            sign_script="${RUNNER_TEMP}/sign-oci-publish.sh"
+          fi
+          SERVICERADAR_COSIGN_COMMON="${PWD}/scripts/cosign_common.sh" \
+            SERVICERADAR_REPO_ROOT="${PWD}" \
+            SERVICERADAR_SIGN_REGISTRY_TAG="${release_sha_tag}" \
+            "${sign_script}"
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
@@ -541,7 +565,9 @@ jobs:
 
           run_remote() {
             bazel run \
-              --config=remote \
+              -c opt \
+              --config=ci \
+              --remote_download_outputs=all \
               --platforms=//build/platforms:linux_pkg_local \
               --stamp \
               //build/release:publish_packages \
@@ -550,6 +576,7 @@ jobs:
 
           run_local() {
             bazel run \
+              -c opt \
               --config=no_remote \
               --host_platform=@local_config_platform//:host \
               --platforms=//build/platforms:linux_pkg_local \
@@ -756,6 +783,15 @@ jobs:
             "${FORGEJO_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases/${RELEASE_ID}" \
             -d '{"draft": false}' >/dev/null
           echo "Published release ${RELEASE_TAG}"
+
+      - name: Prune old fat Forgejo release assets
+        if: ${{ steps.finalize_release.outcome == 'success' }}
+        env:
+          PRUNE_KEEP: "10"
+          PRUNE_DELETE_DRAFTS: "true"
+        run: |
+          set -euo pipefail
+          bash scripts/prune-forgejo-releases.sh --keep "${PRUNE_KEEP}"
 
       - name: Advance demo release source branch
         if: ${{ needs.publish.outputs.prerelease != 'true' && steps.parallel_assets.outcome == 'success' && steps.finalize_release.outcome == 'success' }}

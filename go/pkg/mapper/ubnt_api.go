@@ -89,6 +89,8 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 
 var errUniFiClientsFetchFailed = errors.New("failed to fetch clients")
 
+// fetchUniFiClientsForSite returns every client the Integration v1 /clients
+// endpoint reports (wired and wireless); callers split by normalizedType().
 func (*DiscoveryEngine) fetchUniFiClientsForSite(
 	ctx context.Context,
 	client *http.Client,
@@ -109,16 +111,7 @@ func (*DiscoveryEngine) fetchUniFiClientsForSite(
 		return nil, fmt.Errorf("%w: %w", errUniFiClientsFetchFailed, err)
 	}
 
-	wirelessClients := make([]UniFiClient, 0, len(clients))
-	for i := range clients {
-		client := clients[i]
-		if client.normalizedType() != "WIRELESS" {
-			continue
-		}
-		wirelessClients = append(wirelessClients, client)
-	}
-
-	return wirelessClients, nil
+	return clients, nil
 }
 
 // fetchDeviceDetails fetches detailed information for a specific device

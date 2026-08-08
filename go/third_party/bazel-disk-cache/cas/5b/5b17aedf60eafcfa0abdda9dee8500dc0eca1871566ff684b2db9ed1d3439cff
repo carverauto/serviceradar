@@ -1,6 +1,0 @@
-
-/usr/bin/libtool
-t@bazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/protobuf+/upb/reflection/libinternal_stage1.a-0.params$
-PATH/bin:/usr/bin:/usr/local/bin
-PWD/proc/self/cwd
-ZERO_AR_DATE1:jbazel-out/darwin_arm64-opt-exec-ST-9cacdbe66e22/bin/external/protobuf+/upb/reflection/libinternal_stage1.a

@@ -1,0 +1,104 @@
+name: Rust Static musl
+
+# netprobe ships as a static musl binary, and "it compiled" does not prove that: the
+# assertions here are the actual contract -- statically linked, no interpreter, no NEEDED
+# entries, no libpcap.
+#
+# Its own workflow because it fails for its own reasons. This is the only Rust job that
+# cross-compiles, so a break here is a toolchain or linkage problem, not a test problem, and
+# it should be attributable without reading a log. Keeping it out of rust-tests.yml also
+# means a linkage regression neither blocks nor is blocked by the test sweep.
+on:
+  push:
+    branches: [staging]
+    paths: &musl_paths
+      - 'rust/netprobe/**'
+      - 'third_party/crates/**'
+      - 'build/platforms/**'
+      - 'build/rbe/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - '.forgejo/workflows/rust-musl.yml'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+  pull_request:
+    branches: [staging]
+    paths: *musl_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  musl:
+    name: Static musl (netprobe)
+    runs-on: ubuntu24
+    env:
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+    # No matrix any more. The two architectures used to be separate runners because the
+    # assertions shelled out to file/readelf/ldd against a locally materialized artifact, so
+    # each build had to happen on the machine doing the checking.
+    # //rust/netprobe:static_linkage_test carries both platforms as declared inputs through a
+    # platform transition and reads them with Go's debug/elf, which is architecture-neutral,
+    # so one job now covers what two did. fail-fast is moot for the same reason: both
+    # architectures are subtests of a single test and both report in one run.
+    #
+    # This whole workflow is a deletion candidate once the master CI workflow lands
+    # (openspec/notes/bazel-ci.md); the test below rides a plain `bazel test //...`.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # Required. --config=ci points the remote cache, BES and executor at the org's
+      # BuildBuddy, which rejects anonymous access, so without this header the first bazel
+      # call dies with `PERMISSION_DENIED: Anonymous access disabled` -- a failure that reads
+      # nothing like the missing credential it actually is.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      # One `bazel test` replaces the previous Build + "Verify static linkage" pair.
+      #
+      # The target owns everything those two steps did by hand. It builds both musl
+      # architectures through a platform transition, so no --platforms here; it takes the
+      # artifacts as declared `data`, so no `bazel cquery --output=files | tail -n 1` to
+      # rediscover them and no --remote_download_outputs=all to drag them back from the CAS;
+      # and it asserts on them with Go's debug/elf rather than file/readelf/ldd, which the
+      # RBE executor image does not carry anyway.
+      #
+      # It also caches. The old steps re-ran the assertions on every push regardless of
+      # whether netprobe changed.
+      - name: Verify static musl linkage
+        run: bazel test -c opt --config=ci //rust/netprobe:static_linkage_test

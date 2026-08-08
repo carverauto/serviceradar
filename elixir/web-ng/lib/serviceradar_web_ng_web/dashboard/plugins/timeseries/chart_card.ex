@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.UIComponents
+
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
   @series_encodings [
@@ -227,7 +229,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           r={if Map.get(overlay, :selected), do: 4.5, else: 3.5}
           fill={overlay.color}
           stroke="currentColor"
-          class="text-base-100"
+          class="text-sr-surface"
           stroke-width="1"
           opacity="0.98"
         >
@@ -293,7 +295,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
     <div
       id={"chart-#{@id}-#{@data.idx}"}
       class={[
-        "rounded-lg border border-base-200 bg-base-100 relative group",
+        "rounded-lg border border-sr-line bg-sr-surface relative group",
         @compact && "p-3",
         not @compact && "p-4"
       ]}
@@ -313,23 +315,26 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           <span class={["font-medium truncate", @compact && "text-xs", not @compact && "text-sm"]}>
             {@data.series}
           </span>
-          <span
+          <.ui_badge
             :if={@data.utilization}
-            class={["badge badge-xs font-mono", Metrics.utilization_badge_class(@data.utilization)]}
+            size="xs"
+            variant={Metrics.utilization_badge_variant(@data.utilization)}
+            class="font-mono"
             title={"#{@data.utilization}% of interface capacity"}
           >
             {@data.utilization}%
-          </span>
-          <span
+          </.ui_badge>
+          <.ui_badge
             :if={Map.get(@data, :overlays, []) != []}
-            class="badge badge-xs badge-outline"
+            size="xs"
+            variant="outline"
             title={"#{length(@data.overlays)} chart overlays"}
           >
             {length(@data.overlays)}
-          </span>
+          </.ui_badge>
         </div>
         <div class={[
-          "text-base-content/60 font-mono shrink-0",
+          "text-sr-muted font-mono shrink-0",
           @compact && "text-[10px]",
           not @compact && "text-xs"
         ]}>
@@ -353,7 +358,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             </linearGradient>
           </defs>
 
-          <g stroke="currentColor" class="text-base-content/10" stroke-dasharray="3 4">
+          <g stroke="currentColor" class="text-sr-ink/10" stroke-dasharray="3 4">
             <%= for {y, _label} <- @data.y_ticks do %>
               <line x1={@effective_chart_left_pad} x2={@chart_width - @chart_right_pad} y1={y} y2={y} />
             <% end %>
@@ -362,7 +367,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             <% end %>
           </g>
 
-          <g stroke="currentColor" class="text-base-content/40">
+          <g stroke="currentColor" class="text-sr-muted">
             <line
               x1={@effective_chart_left_pad}
               x2={@effective_chart_left_pad}
@@ -377,7 +382,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             />
           </g>
 
-          <g stroke="currentColor" class="text-base-content/40">
+          <g stroke="currentColor" class="text-sr-muted">
             <%= for {y, _label} <- @data.y_ticks do %>
               <line x1={@effective_chart_left_pad - 3} x2={@effective_chart_left_pad} y1={y} y2={y} />
             <% end %>
@@ -391,13 +396,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
             <% end %>
           </g>
 
-          <g class="text-[12px] fill-base-content/70 font-mono">
+          <g class="text-[12px] fill-sr-muted font-mono">
             <%= for {y, label} <- @data.y_ticks do %>
               <text x={@effective_chart_left_pad - 10} y={y + 4} text-anchor="end">{label}</text>
             <% end %>
           </g>
 
-          <g class="text-[11px] fill-base-content/70 font-mono">
+          <g class="text-[11px] fill-sr-muted font-mono">
             <%= for {x, label} <- @data.x_ticks do %>
               <text x={x} y={@chart_height - 4} text-anchor="middle">{label}</text>
             <% end %>
@@ -442,12 +447,12 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
         </svg>
 
         <div
-          class="absolute hidden pointer-events-none bg-base-300 text-base-content text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-nowrap"
+          class="absolute hidden pointer-events-none bg-sr-control text-sr-ink text-xs px-2 py-1 rounded shadow-lg z-10 font-mono whitespace-nowrap"
           data-tooltip
         >
         </div>
         <div
-          class="absolute hidden pointer-events-none w-px bg-base-content/30 top-0 bottom-0"
+          class="absolute hidden pointer-events-none w-px bg-sr-muted/30 top-0 bottom-0"
           data-hover-line
         >
         </div>
@@ -456,20 +461,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       <div
         :if={@annotation_window_notice}
         data-testid="timeseries-marker-window-note"
-        class="mt-1 text-[10px] leading-snug text-base-content/60"
+        class="mt-1 text-[10px] leading-snug text-sr-muted"
       >
         {@annotation_window_notice}
       </div>
 
       <div class={[
-        "flex items-center justify-between text-base-content/50 mt-1",
+        "flex items-center justify-between text-sr-muted mt-1",
         @compact && "text-[10px]",
         not @compact && "text-xs"
       ]}>
         <span>
           avg: <span class="font-mono">{Metrics.format_value(@data.paths.avg, @data.unit)}</span>
         </span>
-        <span :if={@data.max_speed} class="text-base-content/40">
+        <span :if={@data.max_speed} class="text-sr-muted">
           interface rate:
           <span class="font-mono">{Metrics.format_value(@data.max_speed, :bytes_per_sec)}</span>
         </span>
@@ -478,7 +483,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
         </span>
       </div>
       <div class={[
-        "flex items-center justify-between text-base-content/40 mt-1 font-mono",
+        "flex items-center justify-between text-sr-muted mt-1 font-mono",
         @compact && "text-[9px]",
         not @compact && "text-[10px]"
       ]}>

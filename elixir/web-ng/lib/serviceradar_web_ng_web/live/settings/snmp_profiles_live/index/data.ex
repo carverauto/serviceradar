@@ -2,6 +2,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Credentials.CredentialSecretBuilder
+  alias ServiceRadar.Credentials.NativeDescriptors
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -117,9 +120,95 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     end
   end
 
+  @doc """
+  Reusable SNMP credentials a profile or target can bind instead of holding its
+  own encrypted copy.
+
+  Filtered to `credential_kind == :snmp`, because that is the only kind whose
+  payload `SNMPProfiles.CredentialResolver` knows how to read. Offering an
+  `:api_token` here would produce a rule that resolves to material SNMP cannot
+  use, and the failure would surface at poll time rather than at selection.
+
+  Returns `{label, id}` pairs for a select. The label carries the provider so
+  two credentials named "core switches" from different sources stay
+  distinguishable.
+  """
+  def load_snmp_credentials(scope) do
+    NetworkCredentialSecret
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(credential_kind == :snmp)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, secrets} -> secrets
+      _ -> []
+    end
+  end
+
+  @doc "Select options for `load_snmp_credentials/1`, with a profile-local default."
+  def snmp_credential_options(secrets) do
+    [{"Store on this profile (encrypted here)", ""}] ++
+      Enum.map(secrets, fn secret ->
+        {"#{secret.name} (#{secret.provider})", secret.id}
+      end)
+  end
+
+  @doc """
+  Creates a reusable SNMP credential from the credential fields already on the
+  profile form.
+
+  The operator types the community string or v3 user exactly as before; ticking
+  "save as reusable" additionally stores it in the shared inventory and binds
+  the profile to it, instead of encrypting a private copy onto the profile.
+
+  The values are routed through `CredentialSecretBuilder` against the native
+  SNMP descriptor rather than being assembled here, so a shared SNMP credential
+  is validated, encoded, fingerprinted and redacted by exactly the same code as
+  a package-owned one. Choosing the auth method from the SNMP version is the
+  only SNMP-specific decision, and it is the same decision the form already
+  makes when it picks which fields to show.
+  """
+  def create_snmp_credential(scope, version, name, field_values) do
+    auth_method = if to_string(version) in ["v1", "v2c"], do: "community", else: "v3"
+
+    values =
+      field_values
+      |> Enum.reject(fn {_key, value} -> is_nil(value) or String.trim(to_string(value)) == "" end)
+      |> Map.new(fn {key, value} -> {to_string(key), to_string(value)} end)
+
+    with {:ok, descriptor} <- NativeDescriptors.fetch("snmp"),
+         {:ok, attrs} <-
+           CredentialSecretBuilder.build(descriptor, auth_method, values, %{
+             name: name,
+             description: "Created from SNMP profile #{name}"
+           }),
+         {:ok, secret} <-
+           NetworkCredentialSecret
+           |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+           |> Ash.create(scope: scope) do
+      {:ok, secret}
+    else
+      :error -> {:error, :snmp_descriptor_unavailable}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # The agent selector ships a hidden empty entry so unchecking every box still
   # submits the field. Strip blanks so the persisted array is clean ([] = legacy
   # all-agents, otherwise exactly the checked agent UIDs).
+  # "Store on this profile" is the empty option of the credential select, so an
+  # unselected credential arrives as "". `credential_secret_id` is a :uuid, and
+  # Ash does not cast "" to nil for that type the way it does for :string -- it
+  # fails to cast. Blank means "no shared credential", so send nil.
+  def normalize_credential_secret_param(%{"credential_secret_id" => value} = params) when is_binary(value) do
+    case String.trim(value) do
+      "" -> Map.put(params, "credential_secret_id", nil)
+      trimmed -> Map.put(params, "credential_secret_id", trimmed)
+    end
+  end
+
+  def normalize_credential_secret_param(params), do: params
+
   def normalize_agent_ids_param(%{"agent_ids" => agent_ids} = params) when is_list(agent_ids) do
     Map.put(params, "agent_ids", Enum.reject(agent_ids, &(&1 in [nil, ""])))
   end

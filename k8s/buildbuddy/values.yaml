@@ -1,25 +1,44 @@
 image:
   repository: gcr.io/flame-public/buildbuddy-executor-enterprise
-  tag: enterprise-v2.206.0
+  # Do not go back below v2.290.0 without reading openspec/notes/UPSTREAM_BB.md.
+  #
+  # v2.206.0 carried a 12 KB VM log tail buffer. When guest init dies -- for example
+  # because the action image has no `docker` binary and `init-dockerd` was requested --
+  # it kills PID 1, which panics the kernel, and the panic dump evicts the one "die: "
+  # line that explains the failure before the executor can read it. The operator is left
+  # with "failed to connect to VM: context deadline exceeded" and no cause.
+  #
+  # Upstream ecf5e118 (#11901, 2026-04-16) raised that buffer to 128 KB in v2.290.0 ,
+  # which is what makes the real error survive.
+  tag: enterprise-v2.290.0
   imagePullPolicy: IfNotPresent
 
 replicas: 3
 
+# Disabled in favour of ./scaledobject.yaml (KEDA).
+#
+# The chart's HPA reads buildbuddy_remote_execution_queue_length as a Pods metric from
+# custom.metrics.k8s.io, which is not registered on this cluster -- there is no
+# prometheus-adapter. It therefore reported `<unknown>/5` and logged FailedGetPodsMetric
+# 163,082 times over 28 days while the fleet sat pinned at minReplicas=3 and builds queued.
+#
+# KEDA is already installed and already serves external.metrics.k8s.io, so the scaler there
+# reads the same series without adding another component. Leave this false: with both
+# enabled, two controllers drive the same Deployment's replica count and fight.
+#
+# Scaling bounds now live in scaledobject.yaml (min 3 / max 10, unchanged).
 autoscaler:
-  enabled: true
-  minReplicas: 3
-  maxReplicas: 10
-  averageQueueLength: 5
+  enabled: false
 
 resources:
   requests:
-    cpu: "8"
-    memory: "16Gi"
-    ephemeral-storage: "20Gi"
-  limits:
     cpu: "16"
+    memory: "16Gi"
+    ephemeral-storage: "45Gi"
+  limits:
+    cpu: "32"
     memory: "32Gi"
-    ephemeral-storage: "25Gi"
+    ephemeral-storage: "50Gi"
 
 affinity:
   nodeAffinity:
@@ -54,14 +73,43 @@ extraVolumeMounts:
 
 config:
   executor:
-    app_target: grpcs://remote.buildbuddy.io:443
+    # Makes goinit pass -enable_rootfs, so the guest mounts a single ext4 root
+    # instead of overlayfs-over-ext4. Required for Docker-in-Firecracker: on an
+    # overlayfs root, docker's overlay2 driver is nested and cannot set
+    # trusted.overlay.opaque, so any image with an opaque dir fails to extract
+    # ("failed to convert whiteout file ... operation not supported").
+    enable_local_snapshot_sharing: true
+    # The org's own BuildBuddy instance, not BuildBuddy cloud.
+    #
+    # This is the executor's control AND data plane, not a reporting link: over it the
+    # executor registers with the scheduler, receives task assignments, and reads action
+    # inputs from / writes outputs to the CAS. `local_cache_directory` below is a local
+    # cache OF that remote CAS.
+    #
+    # It therefore has to name the same instance the Bazel client talks to
+    # (build:ci in //.bazelrc). Pointed at remote.buildbuddy.io -- BuildBuddy's cloud --
+    # this fleet registers with a scheduler that CI never sends work to, so the executors
+    # sit idle while builds run locally on the CI runner.
+    app_target: grpcs://carverauto.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
+    enable_firecracker: true
+    firecracker_debug_stream_vm_logs: true
+    # Floor for VM sizing; without it predicted sizes are used verbatim and a
+    # Firecracker VM can end up too small to unpack its own 49 MB initrd
+    # ("Initramfs unpacking failed" -> "No working init found" panic).
+    #
+    # estimated_memory_bytes is an int64 COUNT OF BYTES (scheduler.proto TaskSize),
+    # not a k8s quantity. "2Gi" here does not parse. That syntax belongs to the
+    # separate EstimatedMemory exec_property in the Bazel platform definitions.
+    default_task_size:
+      estimated_milli_cpu: 2000
+      estimated_memory_bytes: 2147483648 # 2 GiB
     image_pull_timeout: 15m
     startup_warmup_max_wait_secs: 300
     warmup_timeout_secs: 300
     warmup_additional_images:
-      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.23
+      - registry.carverauto.dev/serviceradar/rbe-executor:v1.0.24.3
     oci:
       mounts:
         - source: /cache
@@ -71,6 +119,24 @@ config:
             - rbind
             - rw
     local_cache_directory: /cache
-    local_cache_size_bytes: 50000000000
+    # Read-through cache OF the remote CAS named by app_target above. Every eviction here
+    # becomes a re-fetch across the WAN, so this wants to be as large as the node disk
+    # tolerates rather than as small as it can get away with.
+    #
+    # Raised 50 -> 150 GB: at 50 GB two of the three executors sat pinned exactly at the cap
+    # (48 GB and 53 GB measured) while their disks had 275-340 GB free -- the fleet was
+    # paying for GCP round trips it had the local capacity to avoid.
+    #
+    # Sizing, per node: 589 GB total, of which ~170-230 GB is non-cache baseline (containerd
+    # images, kubelet, other pods). 150 GB of filecache puts the worst node at ~345 GB used,
+    # leaving ~240 GB -- well clear of the kubelet DiskPressure eviction threshold (10% free,
+    # i.e. ~530 GB used). There is room to go to 200 GB later; raise it only while watching
+    # `kubectl get nodes` for DiskPressure, because `root_directory` below shares this
+    # filesystem and is NOT counted against this budget -- concurrent action working dirs
+    # spike outside it.
+    #
+    # Plain int64 byte count, not a k8s quantity: "150Gi" does not parse here. It also does
+    # NOT draw against the ephemeral-storage limit above, because /cache is a hostPath.
+    local_cache_size_bytes: 150000000000
     root_directory: /cache/remotebuilds/
     api_key: ""

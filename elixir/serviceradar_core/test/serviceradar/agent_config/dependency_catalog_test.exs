@@ -17,6 +17,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
 
+  @moduletag :requires_app
+
   defmodule CommandBus do
     @moduledoc false
     def push_config(agent_id) do

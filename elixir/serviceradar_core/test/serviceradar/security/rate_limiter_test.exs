@@ -3,6 +3,8 @@ defmodule ServiceRadar.Security.RateLimiterTest do
 
   alias ServiceRadar.Security.RateLimiter
 
+  @moduletag :requires_app
+
   setup_all do
     case Process.whereis(RateLimiter) do
       nil -> start_supervised!(RateLimiter)

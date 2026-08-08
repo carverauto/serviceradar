@@ -28,6 +28,8 @@ jobs:
   publish:
     runs-on: serviceradar-signing
     container:
+      # Pin digest: floating :latest is not published for forgejo-ci and fails job
+      # startup in ~0-4s (same pin as release.yml / native-addons.yml).
       image: registry.carverauto.dev/serviceradar/forgejo-ci@sha256:4da98b050cbbbc66e6c823977a80a7b67db51a610e48c28fc2e066c1bb164a79
       options: --user 1000:1000 --group-add 2375 --volume /var/run/secrets/kubernetes.io/serviceaccount/token:/var/run/secrets/kubernetes.io/serviceaccount/token:ro
     enable-openid-connect: true
@@ -89,9 +91,20 @@ jobs:
           release_tag="${publish_tag}"
           ./scripts/validate-release-tag.sh "${release_tag}"
           expected_ref="refs/tags/${release_tag}"
-          if [[ "${GITHUB_REF}" != "${expected_ref}" ]]; then
+          # Tag-push must run on the annotated tag ref. workflow_dispatch may
+          # use staging (or another branch) to recover a failed tag publish so
+          # long as the tag still points at a staging-reachable release commit.
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
             echo "Release tag ${release_tag} must be published from ${expected_ref}, got ${GITHUB_REF}" >&2
             exit 1
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF}" != "${expected_ref}" ]]; then
+            echo "workflow_dispatch recovery for ${release_tag} from ${GITHUB_REF} (expected tag ref ${expected_ref})."
+          fi
+
+          git fetch --no-tags origin "+${expected_ref}:${expected_ref}" || true
+          if ! git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            git fetch --no-tags origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
           fi
 
           tag_commit="$(git rev-list -n1 "refs/tags/${release_tag}^{commit}")"
@@ -119,9 +132,6 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
@@ -177,7 +187,7 @@ jobs:
       - name: Publish Wasm plugin OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release

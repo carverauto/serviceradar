@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
             Run SRQL once, inspect returned fields, then add one or more compatible outputs to the dashboard canvas.
           </p>
         </div>
-        <span class="badge badge-outline border-slate-700 text-slate-300">
+        <.ui_badge size="sm" variant="outline" class="border-slate-700 text-slate-300">
           {length(@source_queries)} sources
-        </span>
+        </.ui_badge>
       </div>
 
       <div class="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -55,20 +55,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
           <.input field={@form[:caption]} type="text" label="Caption" />
 
           <div class="flex flex-wrap items-center gap-2">
-            <button type="submit" class="btn btn-sm btn-primary" disabled={!@can_manage?}>
+            <.ui_button type="submit" disabled={!@can_manage?} size="sm" variant="primary">
               <.icon name="hero-play" class="size-4" /> Run Source Query
-            </button>
-            <button
+            </.ui_button>
+            <.ui_button
               :for={template <- @templates}
               type="button"
-              class="btn btn-sm"
               phx-click="apply_source_template"
               phx-value-key={template.key}
               disabled={!@can_manage?}
               title={template.description}
+              size="sm"
+              variant="neutral"
             >
               {template.label}
-            </button>
+            </.ui_button>
           </div>
         </.form>
 
@@ -84,16 +85,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
 
             <div :if={@preview} class="mt-3 space-y-3">
               <div class="flex flex-wrap gap-2">
-                <span class="badge badge-outline border-slate-700 text-slate-300">
+                <.ui_badge size="sm" variant="outline" class="border-slate-700 text-slate-300">
                   {@preview.row_count} rows
-                </span>
-                <span class="badge badge-outline border-slate-700 text-slate-300">
+                </.ui_badge>
+                <.ui_badge size="sm" variant="outline" class="border-slate-700 text-slate-300">
                   {length(@preview.fields)} fields
-                </span>
+                </.ui_badge>
               </div>
 
               <div class="max-h-44 overflow-auto rounded border border-slate-800">
-                <table class="table table-xs">
+                <table class={ui_table_class(size: "xs")}>
                   <thead>
                     <tr>
                       <th>Field</th>
@@ -118,14 +119,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
               Add output
             </h4>
             <div class="mt-3 grid grid-cols-1 gap-2">
-              <button
+              <.ui_button
                 :for={output <- @preview.outputs}
                 type="button"
-                class="btn h-auto min-h-12 justify-start py-2"
                 phx-click="create_source_output"
                 phx-value-visual-type={output["visual_type"]}
                 disabled={!@can_manage?}
                 title={output["description"]}
+                size="sm"
+                variant="neutral"
+                class="h-auto min-h-12 justify-start py-2"
               >
                 <.icon name="hero-plus" class="size-4 shrink-0" />
                 <span class="flex min-w-0 flex-col items-start text-left leading-tight">
@@ -137,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
                     {output["summary"]}
                   </span>
                 </span>
-              </button>
+              </.ui_button>
             </div>
           </div>
 
@@ -160,18 +163,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
                     </div>
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
-                    <button
+                    <.ui_button
                       type="button"
-                      class="btn btn-xs"
                       phx-click="load_source_query"
                       phx-value-id={source.id}
                       disabled={!@can_manage?}
+                      size="xs"
+                      variant="neutral"
                     >
                       Load
-                    </button>
-                    <button
+                    </.ui_button>
+                    <.ui_button
                       type="button"
-                      class="btn btn-xs btn-error btn-outline"
                       phx-click="remove_source_query"
                       phx-value-id={source.id}
                       disabled={!@can_manage? or source.panel_count > 0}
@@ -180,9 +183,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
                           do: "Remove linked panels before deleting this source",
                           else: "Remove source"
                       }
+                      size="xs"
+                      variant="outline"
                     >
                       Remove
-                    </button>
+                    </.ui_button>
                   </div>
                 </div>
                 <div class="mt-1 truncate font-mono text-[11px] text-cyan-300">

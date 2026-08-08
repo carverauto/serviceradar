@@ -7,6 +7,8 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
   alias ServiceRadar.Plugins.StorageToken
   alias ServiceRadarAgentGateway.ReleaseArtifactServer
 
+  @moduletag :requires_app
+
   test "returns forbidden when core authorization rejects the download" do
     conn =
       :get

@@ -43,38 +43,42 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       current_path="/security"
       page_title={@page_title}
     >
-      <div class="mx-auto w-full max-w-7xl min-w-0 space-y-6 overflow-x-hidden pb-24 lg:pb-0">
-        <section class="rounded-lg border border-white/10 bg-slate-950/70 text-slate-100 overflow-hidden">
+      <div class="sr-security-page mx-auto w-full max-w-7xl min-w-0 space-y-6 overflow-x-hidden pb-24 font-sans lg:pb-0">
+        <section class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface text-sr-ink shadow-sr-surface">
           <div class="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
             <div class="p-6 sm:p-8">
-              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-error">Security</p>
-              <h1 class="mt-2 text-3xl font-semibold tracking-normal text-slate-100">
+              <p class="sr-security-eyebrow text-error">Security</p>
+              <h1 class="mt-2 text-sr-ink">
                 Security analytics workbench
               </h1>
-              <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              <p class="mt-3 max-w-2xl text-sm leading-relaxed text-sr-muted">
                 Start from the packaged security dashboard for scanner coverage, findings, and DNS activity. Use scoped event links for raw investigation without loading duplicate dashboard frames on this page.
               </p>
 
               <div class="mt-6 flex flex-wrap gap-2">
-                <.link navigate={~p"/dashboards/security-findings"} class="btn btn-sm btn-primary">
+                <.ui_button navigate={~p"/dashboards/security-findings"} size="sm" variant="primary">
                   <.icon name="hero-squares-2x2" class="size-4" /> Security Findings
-                </.link>
-                <.link
+                </.ui_button>
+                <.ui_button
                   navigate={observability_href("in:security_findings sort:time:desc limit:100")}
-                  class="btn btn-sm btn-outline border-white/20 text-slate-100 hover:border-info hover:bg-info hover:text-info-content"
+                  size="sm"
+                  variant="outline"
+                  class="border-sr-line-strong text-sr-ink hover:border-sr-brand hover:bg-sr-brand/10 hover:text-sr-brand"
                 >
                   <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Raw Findings
-                </.link>
-                <.link
+                </.ui_button>
+                <.ui_button
                   navigate={~p"/settings/security/vulnerability-feeds"}
-                  class="btn btn-sm btn-ghost"
+                  size="sm"
+                  variant="ghost"
+                  class="text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
                 >
                   <.icon name="hero-cog-6-tooth" class="size-4" /> Advisory Feeds
-                </.link>
+                </.ui_button>
               </div>
             </div>
 
-            <div class="border-t border-white/10 bg-white/5 p-6 lg:border-l lg:border-t-0">
+            <div class="border-t border-sr-line bg-sr-subtle/50 p-6 lg:border-l lg:border-t-0">
               <div class="grid gap-3 sm:grid-cols-2">
                 <.workflow_card
                   title="Posture dashboard"
@@ -112,17 +116,22 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
         <.security_overview_panel overview={@security_overview} />
 
-        <section class="rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100">
+        <section class="rounded-sr-surface border border-sr-line bg-sr-surface p-5 text-sr-ink shadow-sr-surface">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 class="text-base font-semibold">Investigation Shortcuts</h2>
-              <p class="text-xs text-slate-400">
+              <h2 class="text-sr-ink">Investigation Shortcuts</h2>
+              <p class="text-xs leading-relaxed text-sr-muted">
                 Scoped views for common security analytics pivots
               </p>
             </div>
-            <.link navigate={~p"/dashboards"} class="btn btn-xs btn-ghost text-slate-300">
+            <.ui_button
+              navigate={~p"/dashboards"}
+              size="xs"
+              variant="ghost"
+              class="text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
+            >
               Dashboard Library
-            </.link>
+            </.ui_button>
           </div>
 
           <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -153,20 +162,22 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp security_overview_panel(assigns) do
     ~H"""
-    <section class="rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100">
+    <section class="rounded-sr-surface border border-sr-line bg-sr-surface p-5 text-sr-ink shadow-sr-surface">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="text-base font-semibold">Live Posture</h2>
-          <p class="text-xs text-slate-400">
+          <h2 class="text-sr-ink">Live Posture</h2>
+          <p class="text-xs leading-relaxed text-sr-muted">
             Recent security findings from the latest indexed rows
           </p>
         </div>
-        <.link
+        <.ui_button
           navigate={observability_href(@overview.query)}
-          class="btn btn-xs btn-ghost text-slate-300"
+          size="xs"
+          variant="ghost"
+          class="text-sr-muted hover:bg-sr-subtle hover:text-sr-ink"
         >
           Open findings
-        </.link>
+        </.ui_button>
       </div>
 
       <div class="mt-4 grid gap-3 md:grid-cols-3">
@@ -195,14 +206,14 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
           <.security_count_list title="Source" rows={@overview.source_counts} />
         </div>
 
-        <div class="min-w-0 rounded-lg border border-white/10 bg-white/5">
-          <div class="border-b border-white/10 px-4 py-3">
-            <h3 class="text-sm font-semibold">Critical / High Findings</h3>
+        <div class="min-w-0 rounded-sr-control border border-sr-line bg-sr-subtle/40">
+          <div class="border-b border-sr-line px-4 py-3">
+            <h3 class="text-sr-ink">Critical / High Findings</h3>
           </div>
-          <div :if={@overview.recent == []} class="px-4 py-6 text-sm text-slate-400">
+          <div :if={@overview.recent == []} class="px-4 py-6 text-sm text-sr-muted">
             No critical or high findings in the latest indexed rows.
           </div>
-          <div :if={@overview.recent != []} class="divide-y divide-white/10">
+          <div :if={@overview.recent != []} class="divide-y divide-sr-line">
             <.recent_security_finding :for={finding <- @overview.recent} finding={finding} />
           </div>
         </div>
@@ -217,9 +228,11 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp security_metric(assigns) do
     ~H"""
-    <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">{@label}</div>
-      <div class={["mt-2 text-2xl font-semibold", metric_tone_class(@tone)]}>{@value}</div>
+    <div class="rounded-sr-control border border-sr-line bg-sr-subtle/40 p-4">
+      <div class="sr-security-eyebrow text-sr-muted">{@label}</div>
+      <div class={["sr-security-metric-value mt-2", metric_tone_class(@tone)]}>
+        {@value}
+      </div>
     </div>
     """
   end
@@ -229,13 +242,13 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp security_count_list(assigns) do
     ~H"""
-    <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-      <h3 class="text-sm font-semibold">{@title}</h3>
-      <div :if={@rows == []} class="mt-3 text-sm text-slate-400">No findings</div>
+    <div class="rounded-sr-control border border-sr-line bg-sr-subtle/40 p-4">
+      <h3 class="text-sr-ink">{@title}</h3>
+      <div :if={@rows == []} class="mt-3 text-sm text-sr-muted">No findings</div>
       <div :if={@rows != []} class="mt-3 space-y-2">
         <div :for={row <- @rows} class="flex items-center justify-between gap-3 text-sm">
-          <span class="truncate text-slate-300">{row.label}</span>
-          <span class="font-semibold text-slate-100">{row.count}</span>
+          <span class="truncate text-sr-muted">{row.label}</span>
+          <span class="font-semibold tabular-nums tracking-tight text-sr-ink">{row.count}</span>
         </div>
       </div>
     </div>
@@ -248,19 +261,21 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     ~H"""
     <.link
       navigate={~p"/events/#{@finding.event_id}"}
-      class="block min-w-0 px-4 py-3 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-info/60"
+      class="block min-w-0 px-4 py-3 transition hover:bg-sr-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sr-focus"
       aria-label={"View event details for #{@finding.title}"}
     >
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
-          <div class="truncate text-sm font-semibold text-slate-100">{@finding.title}</div>
-          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+          <div class="truncate text-sm font-semibold tracking-tight text-sr-ink">
+            {@finding.title}
+          </div>
+          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-sr-muted">
             <span>{@finding.source}</span>
             <span :if={@finding.resource}>{@finding.resource}</span>
             <span :if={@finding.time}>{@finding.time}</span>
           </div>
         </div>
-        <span class={["badge badge-xs", severity_badge_class(@finding.severity)]}>
+        <span class={["px-1.5 py-0.5 text-[0.65rem]", severity_badge_class(@finding.severity)]}>
           {@finding.severity || "Unknown"}
         </span>
       </div>
@@ -277,15 +292,15 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     ~H"""
     <.link
       navigate={@href}
-      class="block min-w-0 rounded-lg border border-white/10 bg-slate-900/80 p-4 transition hover:-translate-y-0.5 hover:border-info/40 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-info/60"
+      class="block min-w-0 rounded-sr-control border border-sr-line bg-sr-raised p-4 transition hover:-translate-y-0.5 hover:border-sr-brand/50 hover:bg-sr-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus"
     >
       <div class="flex items-start gap-3">
-        <span class="rounded-md bg-white/10 p-2 text-info">
+        <span class="rounded-sr-small border border-sr-line bg-sr-subtle p-2 text-sr-brand">
           <.icon name={@icon} class="size-5" />
         </span>
         <div class="min-w-0">
-          <div class="text-sm font-semibold text-slate-100">{@title}</div>
-          <p class="mt-1 text-xs leading-5 text-slate-400">{@description}</p>
+          <div class="text-sm font-semibold tracking-tight text-sr-ink">{@title}</div>
+          <p class="mt-1 text-xs leading-relaxed text-sr-muted">{@description}</p>
         </div>
       </div>
     </.link>
@@ -299,10 +314,10 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     ~H"""
     <.link
       navigate={observability_href(@query)}
-      class="block rounded-lg border border-white/10 bg-white/5 p-4 transition hover:border-info/40 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-info/60"
+      class="block rounded-sr-control border border-sr-line bg-sr-subtle/50 p-4 transition hover:border-sr-brand/50 hover:bg-sr-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-sr-focus"
     >
-      <div class="text-sm font-semibold">{@label}</div>
-      <code class="mt-2 block truncate text-[0.68rem] text-slate-500">{@query}</code>
+      <div class="text-sm font-semibold tracking-tight text-sr-ink">{@label}</div>
+      <code class="mt-2 block truncate font-mono text-[11px] text-sr-muted">{@query}</code>
     </.link>
     """
   end
@@ -314,21 +329,21 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     <section
       :if={@finding}
       id="trivy-finding-detail"
-      class="min-w-0 rounded-lg border border-warning/30 bg-slate-950/80 p-5 text-slate-100"
+      class="min-w-0 rounded-sr-surface border border-warning/35 bg-sr-surface p-5 text-sr-ink shadow-sr-surface"
     >
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-warning">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-warning">
             Vulnerability Finding
           </p>
-          <h2 class="mt-2 text-lg font-semibold leading-tight">
+          <h2 class="mt-2 text-lg font-semibold tracking-tight text-sr-ink">
             {@finding.finding_id || short_uuid(@finding.finding_uuid)}
           </h2>
-          <p class="mt-1 line-clamp-2 text-sm text-slate-300">
+          <p class="mt-1 line-clamp-2 text-sm text-sr-muted">
             {@finding.title || @finding.description || "No finding title provided"}
           </p>
         </div>
-        <span class={["badge badge-sm", severity_badge_class(@finding.severity_text)]}>
+        <span class={["px-2 py-0.5 text-xs", severity_badge_class(@finding.severity_text)]}>
           {@finding.severity_text || "Unknown"}
         </span>
       </div>
@@ -355,21 +370,23 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       </div>
 
       <div class="mt-5 flex flex-wrap gap-2">
-        <a
+        <.ui_button
           :for={reference <- Enum.take(finding_references(@finding), 3)}
           href={reference}
+          size="xs"
+          variant="outline"
+          class="border-sr-line-strong text-sr-ink hover:border-sr-brand hover:bg-sr-brand/10 hover:text-sr-brand"
           target="_blank"
           rel="noopener noreferrer"
-          class="btn btn-xs btn-outline border-white/20 text-slate-100 hover:border-info hover:bg-info hover:text-info-content"
         >
           Reference
-        </a>
-        <.link navigate={~p"/events/#{@finding.event_uuid}"} class="btn btn-xs btn-ghost">
+        </.ui_button>
+        <.ui_button navigate={~p"/events/#{@finding.event_uuid}"} size="xs" variant="ghost">
           Raw report
-        </.link>
-        <.link patch={~p"/security"} class="btn btn-xs btn-ghost">
+        </.ui_button>
+        <.ui_button patch={~p"/security"} size="xs" variant="ghost">
           Clear selection
-        </.link>
+        </.ui_button>
       </div>
     </section>
     """
@@ -387,23 +404,23 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     <section
       :if={@detection}
       id="runtime-detection-detail"
-      class="min-w-0 rounded-lg border border-error/30 bg-slate-950/80 p-5 text-slate-100"
+      class="min-w-0 rounded-sr-surface border border-error/35 bg-sr-surface p-5 text-sr-ink shadow-sr-surface"
     >
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-error">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-error">
             Runtime Detection Evidence
           </p>
-          <h2 class="mt-2 text-lg font-semibold leading-tight">
+          <h2 class="mt-2 text-lg font-semibold tracking-tight text-sr-ink">
             {@evidence.rule || value(@detection, "short_message") || value(@detection, "message") ||
               "Detection"}
           </h2>
-          <p class="mt-1 line-clamp-2 text-sm text-slate-300">
+          <p class="mt-1 line-clamp-2 text-sm text-sr-muted">
             {value(@detection, "short_message") || value(@detection, "message") ||
               "No detection message provided"}
           </p>
         </div>
-        <span class={["badge badge-sm", severity_badge(@detection)]}>
+        <span class={["px-2 py-0.5 text-xs", severity_badge(@detection)]}>
           {value(@detection, "severity") || "Unknown"}
         </span>
       </div>
@@ -420,16 +437,17 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       </div>
 
       <div class="mt-5 flex flex-wrap gap-2">
-        <.link
+        <.ui_button
           :if={@detection_id}
           navigate={~p"/events/#{@detection_id}"}
-          class="btn btn-xs btn-ghost"
+          size="xs"
+          variant="ghost"
         >
           Raw event
-        </.link>
-        <.link patch={~p"/security"} class="btn btn-xs btn-ghost">
+        </.ui_button>
+        <.ui_button patch={~p"/security"} size="xs" variant="ghost">
           Clear selection
-        </.link>
+        </.ui_button>
       </div>
     </section>
     """
@@ -441,14 +459,14 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp security_fact(assigns) do
     ~H"""
-    <div class="min-w-0 rounded-md border border-white/10 bg-white/5 p-3">
-      <div class="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">
+    <div class="min-w-0 rounded-sr-small border border-sr-line bg-sr-subtle/40 p-3">
+      <div class="text-[11px] font-semibold uppercase tracking-wider text-sr-muted">
         {@label}
       </div>
       <div class={[
-        "mt-1 truncate text-sm text-slate-100",
-        if(@mono, do: "font-mono", else: nil),
-        if(blank?(@value), do: "text-slate-500", else: nil)
+        "mt-1 truncate text-sm tracking-tight text-sr-ink",
+        if(@mono, do: "font-mono text-[13px]", else: nil),
+        if(blank?(@value), do: "text-sr-muted", else: nil)
       ]}>
         {display_value(@value)}
       </div>
@@ -805,11 +823,12 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     end
   end
 
-  defp severity_tone("Critical"), do: "badge-error"
-  defp severity_tone("High"), do: "badge-warning"
-  defp severity_tone("Medium"), do: "badge-info"
-  defp severity_tone("Low"), do: "badge-success"
-  defp severity_tone(_), do: "badge-ghost"
+  # Severity palette: Critical=red, High=orange (not amber), Medium=amber, Low=green.
+  defp severity_tone("Critical"), do: "sr-sev-critical"
+  defp severity_tone("High"), do: "sr-sev-high"
+  defp severity_tone("Medium"), do: "sr-sev-medium"
+  defp severity_tone("Low"), do: "sr-sev-low"
+  defp severity_tone(_), do: "sr-sev-unknown"
 
   defp severity_rank("Critical"), do: 0
   defp severity_rank("Fatal"), do: 0
@@ -820,7 +839,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp metric_tone_class("error"), do: "text-error"
   defp metric_tone_class("info"), do: "text-info"
-  defp metric_tone_class(_tone), do: "text-slate-100"
+  defp metric_tone_class(_tone), do: "text-sr-ink"
 
   defp normalize_string(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
   defp normalize_string(_), do: ""
@@ -839,5 +858,5 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
-  defp observability_href(query), do: ~p"/observability?#{%{tab: "events", q: query}}"
+  defp observability_href(query), do: ~p"/observability/events?#{%{q: query}}"
 end

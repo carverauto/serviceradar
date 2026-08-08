@@ -1,0 +1,25 @@
+load(":elixir_as_app.bzl", "elixir_as_app")
+
+elixir_as_app(
+    name = "elixir",
+    app = "elixir",
+    visibility = ["//visibility:public"],
+)
+
+elixir_as_app(
+    name = "iex",
+    app = "iex",
+    visibility = ["//visibility:public"],
+)
+
+elixir_as_app(
+    name = "logger",
+    app = "logger",
+    visibility = ["//visibility:public"],
+)
+
+elixir_as_app(
+    name = "mix",
+    app = "mix",
+    visibility = ["//visibility:public"],
+)

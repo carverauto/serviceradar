@@ -202,37 +202,12 @@ if [ -n "${admin_url}" ]; then
   export PGSSLCERT="${PGSSLCERT:-${SERVICERADAR_TEST_DATABASE_CERT:-${SRQL_TEST_DATABASE_CERT:-}}}"
   export PGSSLKEY="${PGSSLKEY:-${SERVICERADAR_TEST_DATABASE_KEY:-${SRQL_TEST_DATABASE_KEY:-}}}"
 
-  reset_cmd=("${REPO_ROOT}/scripts/reset-test-db.sh" "${admin_url}" "${db_url}")
-
-  if [ "${SERVICERADAR_USE_SRQL_FIXTURE_RESET:-0}" = "1" ]; then
-    reset_cmd=("${REPO_ROOT}/scripts/reset-srql-fixture-test-db.sh")
-  fi
-
+  # Database provisioning is //rust/integration-db now, not scripts/reset-test-db.sh, and it
+  # happens below as part of the Bazel sequence. All this block still has to do is decide
+  # whether the fixture is reachable at all -- the reset itself moved.
   if [ "${SERVICERADAR_SKIP_UNREACHABLE_INTEGRATION_DB:-0}" = "1" ] &&
     ! database_endpoint_reachable "${admin_url}"; then
     skip_unreachable_integration_db
-  fi
-
-  if ! "${reset_cmd[@]}"; then
-    if command -v kubectl >/dev/null 2>&1; then
-      echo "reset-test-db failed, refreshing srql-fixture port-forward and retrying once" >&2
-      refresh_srql_fixture_env
-      if [ "${SERVICERADAR_USE_SRQL_FIXTURE_RESET:-0}" = "1" ]; then
-        cleanup_srql_fixture_port_forward
-        start_srql_fixture_port_forward
-      fi
-      db_url="${SERVICERADAR_TEST_DATABASE_URL:-${SRQL_TEST_DATABASE_URL:-}}"
-      admin_url="${SERVICERADAR_TEST_ADMIN_URL:-${SRQL_TEST_ADMIN_URL:-}}"
-      export PGSSLROOTCERT="${PGSSLROOTCERT:-${SERVICERADAR_TEST_DATABASE_CA_CERT_FILE:-${SRQL_TEST_DATABASE_CA_CERT_FILE:-${CNPG_CA_FILE:-}}}}"
-      if [ "${SERVICERADAR_USE_SRQL_FIXTURE_RESET:-0}" = "1" ]; then
-        "${REPO_ROOT}/scripts/reset-srql-fixture-test-db.sh"
-      else
-        "${REPO_ROOT}/scripts/reset-test-db.sh" "${admin_url}" "${db_url}"
-      fi
-    else
-      skip_unreachable_integration_db
-      exit 1
-    fi
   fi
 fi
 
@@ -240,7 +215,76 @@ export SERVICERADAR_TEST_DATABASE_URL="${db_url}"
 export SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS="${SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS:-600000}"
 export SERVICERADAR_CORE_RUN_MIGRATIONS=false
 
-cd "${REPO_ROOT}/elixir/serviceradar_core"
-env MIX_ENV=test mix deps.get
-env MIX_ENV=test mix ash.migrate
-env MIX_ENV=test mix test --include integration --no-start --max-cases 1
+if [ ! -f "${REPO_ROOT}/elixir/serviceradar_core/test/serviceradar/prefix_tags/integration_test.exs" ]; then
+  echo "prefix-tags integration suite missing; expected test/serviceradar/prefix_tags/integration_test.exs" >&2
+  exit 1
+fi
+
+# Tests run through Bazel so the compiled dependency tree and unchanged targets come from
+# the remote cache. //elixir/serviceradar_core:integration_tests sets
+# SERVICERADAR_ONLY_INTEGRATION=1, so test_helper.exs selects only the tests that need a
+# running application -- include: [:integration, :requires_app], max_cases: 1 -- rather than
+# `--include integration`, which ADDED to the default set and re-ran the whole unit tier
+# that //elixir/serviceradar_core:unit_tests already covers.
+#
+# SERVICERADAR_ONLY_INTEGRATION and the fixture URLs reach the test through the --test_env
+# list in .bazelrc; SERVICERADAR_TEST_DATABASE_URL is exported above.
+cd "${REPO_ROOT}"
+
+bazel_config=()
+if [ -f .bazelrc.remote ]; then
+  bazel_config=(--config=ci)
+else
+  echo "no .bazelrc.remote; running without the remote cache" >&2
+fi
+
+bazel_test_env=(
+  --test_output=errors
+  --test_env=SERVICERADAR_TEST_DATABASE_URL
+  --test_env=SERVICERADAR_TEST_ADMIN_URL
+  --test_env=SERVICERADAR_CORE_RUN_MIGRATIONS
+  --test_env=SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS
+)
+
+# Sequential invocations, because Bazel deliberately does not order tests. prepare_template
+# applies the schema (what `mix ash.migrate` used to do), :integration_tests runs against
+# it, :teardown_db drops the per-run database. All three are tagged `external`, so none of
+# them can be served from the test cache.
+# The same sequence .forgejo/workflows/elixir-integration-sr-core.yml runs, in the same order.
+# Keep the two in step -- this script exists so `make test-integration` reproduces CI locally,
+# and it is worse than useless if it exercises a different graph.
+#
+#   sweep -> prepare_template -> [migrate_template] -> provision -> suite -> teardown
+#
+# migrate_template is conditional in CI on prepare_template's needs_migration output. Here it
+# runs unconditionally: Ecto.Migrator applies only what is pending, so on a current template
+# it is a no-op that costs a BEAM start, and skipping it locally is not worth reproducing the
+# GITHUB_OUTPUT plumbing.
+echo "Sweeping stale integration databases (Bazel)"
+bazel test "${bazel_config[@]}" "${bazel_test_env[@]}" \
+  //rust/integration-db:sweep_stale_dbs
+
+echo "Preparing the template database (Bazel)"
+bazel run "${bazel_config[@]}" //rust/integration-db:prepare_template
+
+echo "Applying migrations to the template (Bazel)"
+bazel test "${bazel_config[@]}" "${bazel_test_env[@]}" \
+  //elixir/serviceradar_core:migrate_template
+
+echo "Cloning per-shard integration databases (Bazel)"
+bazel test "${bazel_config[@]}" "${bazel_test_env[@]}" \
+  //rust/integration-db:provision_db
+
+echo "Running serviceradar_core integration suite (Bazel, sharded)"
+integration_status=0
+bazel test "${bazel_config[@]}" "${bazel_test_env[@]}" \
+  //elixir/serviceradar_core:integration_tests || integration_status=$?
+
+# Teardown runs even when the suite fails, so a red run does not leak its databases. It drops
+# every `<run>_<shard>` this run created. The workflow keeps its own cleanup step as a
+# backstop for a cancelled or dead runner, which never reaches this line at all.
+echo "Dropping the per-run integration databases (Bazel)"
+bazel test "${bazel_config[@]}" "${bazel_test_env[@]}" \
+  //rust/integration-db:teardown_db || echo "teardown failed; workflow backstop will retry" >&2
+
+exit "${integration_status}"

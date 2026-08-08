@@ -1,0 +1,33 @@
+[package]
+name = "hmac"
+version = "0.13.0"
+description = "Generic implementation of Hash-based Message Authentication Code (HMAC)"
+authors = ["RustCrypto Developers"]
+license = "MIT OR Apache-2.0"
+edition = "2024"
+readme = "README.md"
+documentation = "https://docs.rs/hmac"
+repository = "https://github.com/RustCrypto/MACs"
+keywords = ["crypto", "mac", "hmac", "digest"]
+categories = ["cryptography", "no-std"]
+rust-version = "1.85"
+
+[dependencies]
+digest = { version = "0.11.2", features = ["mac"] }
+
+[dev-dependencies]
+digest = { version = "0.11.2", features = ["dev"] }
+md-5 = { version = "0.11", default-features = false }
+sha1 = { version = "0.11", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+streebog = { version = "0.11", default-features = false }
+hex-literal = "1"
+
+[features]
+zeroize = ["digest/zeroize"]
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

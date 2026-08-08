@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         name="target"
         value={@filter_target}
         placeholder="Filter by target..."
-        class="input input-sm input-bordered w-full sm:w-48"
+        class={ui_field_class(size: "sm", class: "w-full sm:w-48")}
         phx-debounce="300"
       />
       <input
@@ -27,13 +27,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         name="agent"
         value={@filter_agent}
         placeholder="Filter by agent..."
-        class="input input-sm input-bordered w-full sm:w-48"
+        class={ui_field_class(size: "sm", class: "w-full sm:w-48")}
         phx-debounce="300"
       />
     </form>
 
-    <div class="overflow-x-auto">
-      <table class="table table-sm sr-mtr-table">
+    <div class="sr-ui-table-shell">
+      <table class={ui_table_class(size: "sm", class: "sr-mtr-table")}>
         <thead>
           <tr>
             <th>Time</th>
@@ -70,17 +70,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         <div class="font-mono text-sm">{job.payload[Config.payload_target_key()] || "-"}</div>
       </td>
       <td>
-        <span class={["badge badge-sm w-28 justify-center", pending_status_class(job.status)]}>
+        <.ui_badge
+          size="sm"
+          variant={pending_status_variant(job.status)}
+          class="w-28 justify-center"
+        >
           {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
-        </span>
+        </.ui_badge>
       </td>
       <td class="text-center">-</td>
       <td>
-        <span class="badge badge-ghost badge-sm">
+        <.ui_badge size="sm" variant="ghost">
           {String.upcase(
             (job.payload || %{})[Config.payload_protocol_key()] || Config.protocol_icmp()
           )}
-        </span>
+        </.ui_badge>
       </td>
       <td class="text-xs font-mono max-w-[120px] truncate" title={job.agent_id}>{job.agent_id}</td>
       <td class="text-xs max-w-[120px] truncate" title={job.command_type}>pending</td>
@@ -105,18 +109,27 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         </div>
       </td>
       <td>
-        <span class={["badge badge-sm w-32 justify-center", trace_status_class(trace)]}>
+        <.ui_badge
+          size="sm"
+          variant={trace_status_variant(trace)}
+          class="w-32 justify-center"
+        >
           {trace_status_label(trace)}
-        </span>
+        </.ui_badge>
       </td>
       <td class="text-center">{trace["total_hops"]}</td>
       <td>
-        <span class="badge badge-ghost badge-sm">
+        <.ui_badge size="sm" variant="ghost">
           {String.upcase(trace[Config.payload_protocol_key()] || Config.protocol_icmp())}
-        </span>
-        <span :if={trace[Config.payload_ip_version_key()] == 6} class="badge badge-info badge-sm ml-1">
+        </.ui_badge>
+        <.ui_badge
+          :if={trace[Config.payload_ip_version_key()] == 6}
+          size="sm"
+          variant="info"
+          class="ml-1"
+        >
           IPv6
-        </span>
+        </.ui_badge>
       </td>
       <td
         class="text-xs font-mono max-w-[120px] truncate"
@@ -128,15 +141,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
         {trace[Config.payload_check_name_key()] || "-"}
       </td>
       <td class="flex items-center gap-1">
-        <button
+        <.ui_button
           type="button"
-          class="btn btn-xs btn-ghost"
           phx-click="run_again"
           phx-value-target={trace[Config.payload_target_key()] || ""}
           phx-value-agent_id={trace[Config.payload_agent_id_key()] || ""}
           phx-value-protocol={trace[Config.payload_protocol_key()] || Config.protocol_icmp()}
           title="Run again"
           aria-label="Run MTR trace again"
+          size="xs"
+          variant="ghost"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -152,10 +166,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
               d="M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006.34 5.34L4 8m16 8l-2.34 2.66A8 8 0 013.99 15"
             />
           </svg>
-        </button>
-        <.link navigate={~p"/diagnostics/mtr/#{trace["id"]}"} class="btn btn-xs btn-ghost">
+        </.ui_button>
+        <.ui_button navigate={~p"/diagnostics/mtr/#{trace["id"]}"} size="xs" variant="ghost">
           View
-        </.link>
+        </.ui_button>
       </td>
     </tr>
     """

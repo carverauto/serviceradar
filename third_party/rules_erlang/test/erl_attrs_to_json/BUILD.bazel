@@ -1,0 +1,47 @@
+load(
+    "@rules_erlang//:xref2.bzl",
+    "xref",
+)
+load(
+    "@rules_erlang//:dialyze.bzl",
+    "DEFAULT_PLT_APPS",
+    "dialyze",
+    "plt",
+)
+load(
+    "@rules_erlang//:ct.bzl",
+    "assert_suites2",
+    "ct_suite",
+)
+
+alias(
+    name = "erlang_app",
+    actual = "@rules_erlang//gazelle/erl_attrs_to_json:erlang_app",
+)
+
+alias(
+    name = "test_erlang_app",
+    actual = "@rules_erlang//gazelle/erl_attrs_to_json:test_erlang_app",
+)
+
+xref()
+
+plt(
+    name = "base_plt",
+    apps = DEFAULT_PLT_APPS,
+    deps = ["@thoas//:erlang_app"],
+)
+
+dialyze(
+    plt = ":base_plt",
+)
+
+ct_suite(
+    name = "erl_attrs_to_json_SUITE",
+    size = "small",
+    deps = [
+        "@thoas//:erlang_app",
+    ],
+)
+
+assert_suites2()

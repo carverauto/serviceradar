@@ -1,11 +1,11 @@
 use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
-    addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts, cpu_metrics,
-    dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
-    flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics,
-    otel_metric_points, otel_metrics, process_metrics, services, timeseries_metrics,
-    trace_summaries, traces, translate_request, virtualization, wifi_map,
+    addon_fleet, addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
+    cpu_metrics, dashboard_service_views, dashboards, device_graph, devices, disk_metrics,
+    downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events,
+    field_survey, flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs,
+    memory_metrics, otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    timeseries_metrics, trace_summaries, traces, translate_request, virtualization, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -63,7 +63,9 @@ impl QueryEngine {
         } else {
             match plan.entity {
                 Entity::Agents => agents::execute(&mut conn, &plan).await?,
+                Entity::AddonFleet => addon_fleet::execute(&mut conn, &plan).await?,
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
+                Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
                 Entity::EndpointInventoryScans => {
                     endpoint_inventory_scans::execute(&mut conn, &plan).await?
                 }

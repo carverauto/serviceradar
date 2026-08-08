@@ -82,7 +82,7 @@ defmodule ServiceRadarCore.MixProject do
 
       # NATS JetStream for event publishing
       {:gnat, "~> 1.15"},
-      {:connection, path: "../connection", override: true},
+      {:connection, path: "../../third_party/hex_vendored/connection", override: true},
 
       # Broadway for high-throughput event processing
       {:broadway, "~> 1.1"},
@@ -109,7 +109,8 @@ defmodule ServiceRadarCore.MixProject do
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"},
-      {:opentelemetry_oban, path: "../vendor/opentelemetry_oban", override: true},
+      {:opentelemetry_oban,
+       path: "../../third_party/hex_vendored/opentelemetry_oban", override: true},
       # Override: opentelemetry_oban declares ~> 0.2 but works fine with 1.27;
       # upstream fix pending (open-telemetry/opentelemetry-erlang-contrib#528).
       {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
@@ -120,9 +121,9 @@ defmodule ServiceRadarCore.MixProject do
 
       # Utilities
       {:jason, "~> 1.4"},
-      {:rustler, "~> 0.37"},
+      {:rustler, "~> 0.38"},
       {:ex_json_schema, "~> 0.10"},
-      {:elixir_uuid, path: "../elixir_uuid"},
+      {:elixir_uuid, path: "../../third_party/hex_vendored/elixir_uuid"},
       {:file_system, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:req, "~> 0.5"},

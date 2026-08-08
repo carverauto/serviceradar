@@ -1,9 +1,11 @@
-package fastsum
+package fastsum_test
 
 import (
 	"encoding/binary"
 	"syscall"
 	"testing"
+
+	"github.com/carverauto/serviceradar/go/internal/fastsum"
 )
 
 func TestTCPv6MatchesReference(t *testing.T) {
@@ -23,7 +25,7 @@ func TestTCPv6MatchesReference(t *testing.T) {
 	}
 	payload := []byte{0x01, 0x02, 0x03}
 
-	got := TCPv6(src, dst, tcpHdr, payload)
+	got := fastsum.TCPv6(src, dst, tcpHdr, payload)
 	want := refTCPv6(src, dst, tcpHdr, payload)
 	if got != want {
 		t.Fatalf("TCPv6 checksum = %#04x, want %#04x", got, want)

@@ -4,6 +4,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.VerdictEmitterTest do
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.SeasonalDisposition.VerdictEmitter
 
+  @moduletag :requires_app
+
   defmodule ExistingTimeRepo do
     def query(_sql, [ids]) do
       # Mirror the real DB: production binds 16-byte UUID binaries and `SELECT id::text`,

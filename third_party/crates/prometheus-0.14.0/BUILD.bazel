@@ -63,15 +63,18 @@ rust_library(
     target_compatible_with = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [],
         "@rules_rust//rust/platform:aarch64-apple-ios": [],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [],
         "@rules_rust//rust/platform:aarch64-linux-android": [],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [],
+        "@rules_rust//rust/platform:aarch64-unknown-none": [],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [],
         "@rules_rust//rust/platform:armv7-linux-androideabi": [],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [],
         "@rules_rust//rust/platform:i686-apple-darwin": [],
@@ -79,13 +82,23 @@ rust_library(
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:riscv32imac-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-netbsd": [],
+        "@rules_rust//rust/platform:sparc64-unknown-openbsd": [],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [],
+        "@rules_rust//rust/platform:thumbv7m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabihf": [],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [],
         "@rules_rust//rust/platform:wasm32-wasip1": [],
@@ -93,6 +106,7 @@ rust_library(
         "@rules_rust//rust/platform:wasm32-wasip2": [],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [],
         "@rules_rust//rust/platform:x86_64-apple-ios": [],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:x86_64-linux-android": [],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [],
@@ -105,15 +119,15 @@ rust_library(
     }),
     version = "0.14.0",
     deps = [
+        ":build_script_build",
         "//third_party/crates/cfg-if-1.0.4:cfg_if",
         "//third_party/crates/fnv-1.0.7:fnv",
         "//third_party/crates/lazy_static-1.5.0:lazy_static",
-        "//third_party/crates/libc-0.2.186:libc",
-        "//third_party/crates/memchr-2.8.1:memchr",
+        "//third_party/crates/libc-0.2.189:libc",
+        "//third_party/crates/memchr-2.8.3:memchr",
         "//third_party/crates/parking_lot-0.12.5:parking_lot",
-        "//third_party/crates/prometheus-0.14.0:build_script_build",
         "//third_party/crates/protobuf-3.7.2:protobuf",
-        "//third_party/crates/thiserror-2.0.18:thiserror",
+        "//third_party/crates/thiserror-2.0.19:thiserror",
     ] + select({
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # aarch64-unknown-linux-gnu
@@ -124,11 +138,20 @@ rust_library(
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [
             "//third_party/crates/procfs-0.17.0:procfs",  # arm-unknown-linux-gnueabi
         ],
+        "@rules_rust//rust/platform:arm-unknown-linux-musleabi": [
+            "//third_party/crates/procfs-0.17.0:procfs",  # arm-unknown-linux-musleabi
+        ],
         "@rules_rust//rust/platform:armv7-unknown-linux-gnueabi": [
             "//third_party/crates/procfs-0.17.0:procfs",  # armv7-unknown-linux-gnueabi
         ],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # i686-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "//third_party/crates/procfs-0.17.0:procfs",  # loongarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [
+            "//third_party/crates/procfs-0.17.0:procfs",  # mips-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # powerpc-unknown-linux-gnu
@@ -138,6 +161,9 @@ rust_library(
         ],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [
+            "//third_party/crates/procfs-0.17.0:procfs",  # sparc64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
             "//third_party/crates/procfs-0.17.0:procfs",  # x86_64-unknown-linux-gnu
@@ -155,6 +181,9 @@ cargo_build_script(
         include = ["**/*.rs"],
         allow_empty = False,
     ),
+    build_script_env_files = [
+        ":cargo_toml_env_vars",
+    ],
     compile_data = glob(
         include = ["**"],
         allow_empty = True,
@@ -190,6 +219,7 @@ cargo_build_script(
         ],
     ),
     edition = "2018",
+    emit_warnings = False,
     pkg_name = "prometheus",
     rustc_env_files = [
         ":cargo_toml_env_vars",

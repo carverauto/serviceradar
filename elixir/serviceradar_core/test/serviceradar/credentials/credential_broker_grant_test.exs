@@ -7,6 +7,8 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.SecretBroker
 
+  @moduletag :requires_app
+
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
 
   test "grant resource is state-machine backed and system issued" do

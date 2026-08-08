@@ -12,6 +12,7 @@ go_library(
         "addon_otlp_relay.go",
         "addon_systemd.go",
         "addon_telemetry.go",
+        "adhoc_scan.go",
         "agent_updater_command.go",
         "app_tcp_route.go",
         "automation_launch_envelope_resolver.go",
@@ -35,6 +36,7 @@ go_library(
         "errors.go",
         "gateway_artifact_download.go",
         "icmp_checker.go",
+        "k8s_public_endpoints_spool_service.go",
         "interfaces.go",
         "ipv4_sorter.go",
         "json_helpers.go",
@@ -46,7 +48,6 @@ go_library(
         "mtr_bulk.go",
         "mtr_checker.go",
         "multi_sweep_service.go",
-        "nats_publisher.go",
         "plugin_artifact_gateway.go",
         "plugin_condition_debounce.go",
         "plugin_http_trust.go",
@@ -64,6 +65,7 @@ go_library(
         "plugin_runtime_media.go",
         "plugin_runtime_memory.go",
         "plugin_runtime_network.go",
+        "plugin_runtime_oauth.go",
         "plugin_runtime_telemetry.go",
         "plugin_runtime_wazero.go",
         "proxmox_console.go",
@@ -123,6 +125,7 @@ go_library(
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/endpointinventory",
+        "//go/pkg/k8sinventory",
         "//go/pkg/grpc",
         "//go/pkg/hashutil",
         "//go/pkg/logger",
@@ -145,7 +148,6 @@ go_library(
         "@com_github_bluenviron_mediacommon_v2//pkg/codecs/h264",
         "@com_github_google_uuid//:uuid",
         "@com_github_gorilla_websocket//:websocket",
-        "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_pion_rtp//:rtp",
         "@com_github_tetratelabs_wazero//:wazero",
         "@com_github_tetratelabs_wazero//api",
@@ -162,6 +164,21 @@ go_library(
 
 go_test(
     name = "agent_test",
+    # keep
+    #
+    # The largest Go test target in the repo by a wide margin: 77 files, 702 test functions,
+    # ~33k lines. Unsharded it is a single test action, so it is one executor doing all of it
+    # while the rest of the fleet idles -- and under the race pass in //buildbuddy.yaml, which
+    # repeats every function, that is ~3,500 executions serialised into one action.
+    #
+    # Sharding splits it into 8 independent test actions that RBE runs concurrently. Bazel
+    # assigns functions to shards by index, so this is not a source-layout change and no test
+    # needs to know about it. Both the plain sweep and the race pass benefit.
+    #
+    # 8 rather than more: each shard loads the whole test binary, so shard count trades
+    # parallelism against repeated startup. Bazel caps this at 50; going near that for a binary
+    # this size spends more on loading than it saves.
+    shard_count = 8,
     srcs = [
         "addon_activation_test.go",
         "addon_capabilities_test.go",
@@ -170,6 +187,7 @@ go_test(
         "addon_delivery_test.go",
         "addon_otlp_relay_test.go",
         "addon_systemd_test.go",
+        "adhoc_scan_test.go",
         "automation_launch_envelope_resolver_test.go",
         "awx_callback_credential_test.go",
         "banner_grab_handler_test.go",
@@ -191,7 +209,6 @@ go_test(
         "mtr_bulk_test.go",
         "mtr_config_test.go",
         "multi_sweep_service_test.go",
-        "nats_publisher_test.go",
         "netprobe_systemd_unit_test.go",
         "plugin_condition_debounce_test.go",
         "plugin_http_trust_test.go",
@@ -224,6 +241,12 @@ go_test(
         "remote_file_transfer_test.go",
         "server_metrics_test.go",
         "server_test.go",
+        # Named *_integration_test.go but built entirely on mockSNMPServiceFactory: it needs no
+        # SNMP agent, no network and no privileges, and runs in under a second. It carried a
+        # //go:build integration constraint that no workflow and no Makefile target ever
+        # passed, so its 10 tests had never run anywhere. Constraint removed rather than wired
+        # behind a tag, because this is a unit test.
+        "snmp_integration_test.go",
         "snmp_service_test.go",
         "sweep_config_gateway_test.go",
         "sweep_performance_test.go",
@@ -277,7 +300,6 @@ go_test(
         "@com_github_bluenviron_gortsplib_v5//:gortsplib",
         "@com_github_bluenviron_gortsplib_v5//pkg/base",
         "@com_github_gorilla_websocket//:websocket",
-        "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_rs_zerolog//:zerolog",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",

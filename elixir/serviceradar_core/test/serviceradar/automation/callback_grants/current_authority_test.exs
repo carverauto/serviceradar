@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   @action "remote_access.ssh_ca.bundle.read"
   @permissions ["ansible.runs.launch", "devices.remote_access.ssh.ca_bundle.read"]
   @now ~U[2026-07-12 22:00:00.000000Z]
+  @source_fingerprint "sha256:" <> String.duplicate("d", 64)
 
   defmodule Source do
     @moduledoc false
@@ -189,6 +190,19 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   test "fails closed when exact target membership generation drifts", %{fixture: fixture} do
     [membership] = fixture.memberships
     drifted = %{fixture | memberships: [%{membership | source_generation: "generation-8"}]}
+    assert {:error, :target_no_longer_authorized} = authorize(drifted)
+  end
+
+  test "fails closed when exact target membership source fingerprint drifts", %{fixture: fixture} do
+    [membership] = fixture.memberships
+
+    drifted = %{
+      fixture
+      | memberships: [
+          %{membership | source_fingerprint: "sha256:" <> String.duplicate("e", 64)}
+        ]
+    }
+
     assert {:error, :target_no_longer_authorized} = authorize(drifted)
   end
 
@@ -391,6 +405,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       host_name: "linux-01",
       ansible_host: "192.168.2.22",
       source_generation: "generation-7",
+      source_fingerprint: @source_fingerprint,
       current: true,
       enabled: true,
       link_disposition: :approved
@@ -406,8 +421,22 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       host_name: membership.host_name,
       awx_host_name: membership.host_name,
       ansible_host: membership.ansible_host,
-      membership_generation: membership.source_generation
+      membership_generation: membership.source_generation,
+      source_fingerprint: membership.source_fingerprint
     }
+
+    target_snapshot =
+      Map.take(target, [
+        :membership_id,
+        :canonical_device_uid,
+        :controller_id,
+        :inventory_id,
+        :awx_host_id,
+        :membership_generation,
+        :source_fingerprint,
+        :host_name,
+        :ansible_host
+      ])
 
     target_digest = Targeting.target_digest([target])
     snapshot_digest = String.duplicate("e", 64)
@@ -440,7 +469,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
           "canonical_device_uid" => membership.canonical_device_uid,
           "host_name" => membership.host_name,
           "ansible_host" => membership.ansible_host,
-          "membership_generation" => membership.source_generation
+          "membership_generation" => membership.source_generation,
+          "source_fingerprint" => membership.source_fingerprint
         }
       ],
       "binding_id" => ids.binding,
@@ -644,8 +674,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
           awx_host_id: 100,
           canonical_device_uid: "device:linux-01",
           membership_generation: "generation-7",
+          source_fingerprint: @source_fingerprint,
           host_name: "linux-01",
-          ansible_host: "192.168.2.22"
+          ansible_host: "192.168.2.22",
+          snapshot_digest: Targeting.snapshot_digest(target_snapshot)
         }
       ],
       memberships: [membership],

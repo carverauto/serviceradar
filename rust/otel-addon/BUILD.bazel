@@ -1,5 +1,6 @@
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//third_party/crates:defs.bzl", "all_crate_deps")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -9,6 +10,7 @@ package(default_visibility = ["//visibility:public"])
 # crate_universe deps.
 rust_binary(
     name = "serviceradar-otel-addon",
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     deps = all_crate_deps(normal = True) + [

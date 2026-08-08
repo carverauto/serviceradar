@@ -155,26 +155,26 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
           <div class="space-y-4">
             <div>
               <h1 class="text-xl font-semibold">FieldSurvey Dashboard Playlist</h1>
-              <p class="text-sm text-base-content/60">
+              <p class="text-sm text-sr-muted">
                 Define SRQL-backed heatmap candidates for the dashboard card.
               </p>
             </div>
 
-            <div class="rounded-xl border border-base-200 bg-base-100">
-              <div class="flex items-center justify-between border-b border-base-200 px-4 py-3">
+            <div class="rounded-xl border border-sr-line bg-sr-surface">
+              <div class="flex items-center justify-between border-b border-sr-line px-4 py-3">
                 <div>
                   <h2 class="text-sm font-semibold">Playlist Entries</h2>
-                  <p class="text-xs text-base-content/50">
+                  <p class="text-xs text-sr-muted">
                     Entries rotate by sort order and dwell interval.
                   </p>
                 </div>
-                <button type="button" class="btn btn-sm" phx-click="new">
+                <.ui_button type="button" phx-click="new" size="sm" variant="neutral">
                   <.icon name="hero-plus" class="size-4" /> New
-                </button>
+                </.ui_button>
               </div>
 
-              <div class="divide-y divide-base-200">
-                <div :if={@entries == []} class="p-4 text-sm text-base-content/60">
+              <div class="divide-y divide-sr-line">
+                <div :if={@entries == []} class="p-4 text-sm text-sr-muted">
                   No playlist entries yet. The dashboard will use the latest floorplan-backed Wi-Fi raster fallback.
                 </div>
 
@@ -185,40 +185,47 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <span class="font-medium">{entry.label}</span>
-                      <span class={[
-                        "badge badge-sm",
-                        if(entry.enabled, do: "badge-success", else: "badge-ghost")
-                      ]}>
+                      <.ui_badge
+                        size="sm"
+                        variant={if(entry.enabled, do: "success", else: "ghost")}
+                      >
                         {if entry.enabled, do: "enabled", else: "disabled"}
-                      </span>
-                      <span class="badge badge-sm badge-outline">#{entry.sort_order}</span>
+                      </.ui_badge>
+                      <.ui_badge size="sm" variant="outline">#{entry.sort_order}</.ui_badge>
                     </div>
-                    <div class="mt-1 truncate font-mono text-xs text-base-content/60">
+                    <div class="mt-1 truncate font-mono text-xs text-sr-muted">
                       {entry.srql_query}
                     </div>
-                    <div class="mt-1 text-xs text-base-content/50">
+                    <div class="mt-1 text-xs text-sr-muted">
                       {entry.overlay_type} · {entry.display_mode} · {entry.dwell_seconds}s dwell · max age {entry.max_age_seconds}s
                     </div>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <button type="button" class="btn btn-xs" phx-click="edit" phx-value-id={entry.id}>
-                      <.icon name="hero-pencil-square" class="size-4" /> Edit
-                    </button>
-                    <button
+                    <.ui_button
                       type="button"
-                      class="btn btn-xs btn-error btn-outline"
+                      phx-click="edit"
+                      phx-value-id={entry.id}
+                      size="xs"
+                      variant="neutral"
+                    >
+                      <.icon name="hero-pencil-square" class="size-4" /> Edit
+                    </.ui_button>
+                    <.ui_button
+                      type="button"
                       phx-click="delete"
                       phx-value-id={entry.id}
+                      size="xs"
+                      variant="outline"
                     >
                       <.icon name="hero-trash" class="size-4" /> Delete
-                    </button>
+                    </.ui_button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="rounded-xl border border-base-200 bg-base-100 p-4">
+          <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
             <.form
               :if={@playlist_form}
               for={@playlist_form}
@@ -231,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
                 <h2 class="text-sm font-semibold">
                   {if @editing_id, do: "Edit Entry", else: "New Entry"}
                 </h2>
-                <p class="text-xs text-base-content/50">
+                <p class="text-xs text-sr-muted">
                   Saving requires the SRQL query to resolve to at least one persisted raster.
                 </p>
               </div>
@@ -271,12 +278,12 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
               </div>
 
               <div class="flex justify-end gap-2">
-                <button type="button" class="btn btn-sm" phx-click="preview">
+                <.ui_button type="button" phx-click="preview" size="sm" variant="neutral">
                   <.icon name="hero-magnifying-glass" class="size-4" /> Preview
-                </button>
-                <button type="submit" class="btn btn-sm btn-primary">
+                </.ui_button>
+                <.ui_button type="submit" size="sm" variant="primary">
                   <.icon name="hero-check" class="size-4" /> Save
-                </button>
+                </.ui_button>
               </div>
             </.form>
           </div>

@@ -43,17 +43,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
-    limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
+    # Cursor may arrive from legacy URLs or from session-position paginate/3.
+    # New navigation never writes cursor into the shareable address bar.
     cursor = normalize_optional_string(Map.get(params, "cursor"))
+    pagination_page = resolve_pagination_page(params, socket, cursor)
 
-    builder = build_builder_state(params, srql, entity, limit, builder_available)
-    default_query = default_query_for(builder_available, builder, entity, limit)
+    # Limit resolution: SRQL limit:N (preferred) → URL limit= (legacy) → default.
+    # Avoid double-encoding the same value in both places when writing URLs.
+    provisional_limit = resolve_limit(nil, Map.get(params, "limit"), default_limit, max_limit)
+    builder = build_builder_state(params, srql, entity, provisional_limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, provisional_limit)
 
     query =
       params
       |> Map.get("q")
       |> normalize_query_param(default_query)
       |> ensure_default_time_window(entity)
+
+    limit = resolve_limit(query, Map.get(params, "limit"), default_limit, max_limit)
 
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
@@ -66,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
-    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
+    display_limit = limit
 
     srql =
       Map.merge(srql, %{
@@ -82,13 +89,58 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_supported: builder_supported,
         builder_sync: builder_sync,
         builder: builder_state,
-        pagination: pagination
+        pagination: pagination,
+        # Session-position pagination context for srql_paginate events.
+        list_assign_key: list_assign_key,
+        load_opts: %{default_limit: default_limit, max_limit: max_limit, limit_assign_key: limit_assign_key}
       })
 
     socket
     |> Phoenix.Component.assign(:srql, srql)
     |> Phoenix.Component.assign(limit_assign_key, display_limit)
     |> Phoenix.Component.assign(list_assign_key, results)
+    |> Phoenix.Component.assign(:pagination_page, pagination_page)
+  end
+
+  @doc """
+  Advance keyset pagination without encoding cursor/page into the URL.
+
+  Position lives in LiveView assigns (`pagination_page`, SRQL pagination tokens).
+  Shareable intent stays as tab + q only.
+  """
+  def paginate(socket, event_params, opts \\ []) when is_map(event_params) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    load_opts = Map.get(srql, :load_opts, %{})
+
+    list_assign_key =
+      Keyword.get(opts, :list_assign_key) ||
+        Map.get(srql, :list_assign_key) ||
+        raise ArgumentError, "paginate/3 requires list_assign_key (pass opts or load_list first)"
+
+    default_limit =
+      Keyword.get(opts, :default_limit) || Map.get(load_opts, :default_limit, 20)
+
+    max_limit = Keyword.get(opts, :max_limit) || Map.get(load_opts, :max_limit, 100)
+
+    limit_assign_key =
+      Keyword.get(opts, :limit_assign_key) || Map.get(load_opts, :limit_assign_key, :limit)
+
+    cursor = normalize_optional_string(Map.get(event_params, "cursor"))
+    page = parse_pagination_page(Map.get(event_params, "page"), 1)
+
+    query = Map.get(srql, :query, "")
+    page_path = Map.get(srql, :page_path) || Keyword.get(opts, :fallback_path, "/")
+
+    params =
+      then(%{"q" => query, "page" => Integer.to_string(page)}, fn p ->
+        if cursor, do: Map.put(p, "cursor", cursor), else: p
+      end)
+
+    load_list(socket, params, page_path, list_assign_key,
+      default_limit: default_limit,
+      max_limit: max_limit,
+      limit_assign_key: limit_assign_key
+    )
   end
 
   def sync_from_params(socket, params, uri, opts \\ []) do
@@ -100,9 +152,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     max_limit = Keyword.get(opts, :max_limit, 100)
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
 
-    limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
-    builder = build_builder_state(params, srql, entity, limit, builder_available)
-    default_query = default_query_for(builder_available, builder, entity, limit)
+    provisional_limit = resolve_limit(nil, Map.get(params, "limit"), default_limit, max_limit)
+    builder = build_builder_state(params, srql, entity, provisional_limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, provisional_limit)
 
     query =
       params
@@ -110,11 +162,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       |> normalize_query_param(default_query)
       |> ensure_default_time_window(entity)
 
+    display_limit = resolve_limit(query, Map.get(params, "limit"), default_limit, max_limit)
+
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
-    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
 
     srql =
       Map.merge(srql, %{
@@ -143,6 +196,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def handle_event(socket, event, params, opts \\ [])
 
+  def handle_event(socket, "srql_paginate", params, opts) when is_map(params) do
+    paginate(socket, params, opts)
+  end
+
   def handle_event(socket, "srql_change", params, _opts) do
     case normalize_param_to_string(extract_param(params, "q")) do
       nil ->
@@ -168,14 +225,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       |> shortcut_query()
       |> sanitize_query()
 
-    limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-    limit = Map.get(socket.assigns, limit_assign_key)
-
     # Extract entity from query and determine the target route
     {target_path, route_params} = route_target_for_query(query, fallback_path)
     current_path = srql[:page_path] || fallback_path
 
-    nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
+    # Shareable URL = intent only (tab + q). Limit lives in SRQL (limit:N);
+    # cursor/page stay out of navigation patches.
+    nav_params = navigation_params(extra_params, route_params, target_path, current_path, query)
 
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
@@ -235,13 +291,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       config = Catalog.entity(entity)
       boolean_fields = Map.get(config, :boolean_fields, [])
 
-      # Use appropriate defaults based on field type
-      {default_op, default_value} =
-        if field in boolean_fields do
-          {"equals", "true"}
-        else
-          {"contains", ""}
-        end
+      # Use appropriate defaults based on field type. `default_filter_op/2` keeps
+      # the seeded operator in step with the operator list the UI offers for the
+      # field -- notably `equals` for addresses, where `contains` would substring
+      # match (10.0.0.1 also matching 110.0.0.1).
+      default_op = Catalog.default_filter_op(config, field)
+      default_value = if field in boolean_fields, do: "true", else: ""
 
       next = %{
         "field" => field,
@@ -331,15 +386,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       builder = Map.get(srql, :builder, %{})
       query = builder |> Builder.build() |> sanitize_query()
 
-      limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
-      limit = Map.get(socket.assigns, limit_assign_key)
-
       # Extract entity from builder and determine the target route
       queried_entity = Map.get(builder, "entity", "devices")
       {target_path, route_params} = route_target_for_entity(queried_entity, fallback_path)
       current_path = srql[:page_path] || fallback_path
 
-      nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
+      nav_params = navigation_params(extra_params, route_params, target_path, current_path, query)
 
       # Close builder and navigate with the new query
       socket
@@ -412,9 +464,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   def route_target_for_entity(entity, fallback_path) when is_binary(entity) do
     config = Catalog.entity(entity)
+    route = Map.get(config, :route)
+
+    # Blank routes must fall back — empty string is truthy in Elixir and would
+    # make push_navigate receive only a query string ("?q=...").
+    path =
+      if is_binary(route) and String.trim(route) != "" do
+        route
+      else
+        fallback_path
+      end
 
     {
-      Map.get(config, :route) || fallback_path,
+      path,
       config |> Map.get(:route_params, %{}) |> normalize_extra_params()
     }
   end
@@ -443,11 +505,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end
   end
 
-  defp navigation_params(extra_params, route_params, target_path, current_path, query, limit) do
+  # Intent-only shareable params: q + scoped extras (e.g. tab). No limit/cursor/page.
+  defp navigation_params(extra_params, route_params, target_path, current_path, query) do
     extra_params
     |> scoped_extra_params(route_params, target_path, current_path)
     |> Map.merge(route_params)
-    |> Map.merge(%{"q" => query, "limit" => limit})
+    |> Map.put("q", query)
+    |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
   end
 
   defp scoped_extra_params(extra_params, route_params, target_path, current_path) do
@@ -771,12 +835,59 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp parse_limit(_limit, default, _max), do: default
 
-  defp extract_limit_from_srql(query, fallback, default, max) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
-      [_, raw] -> parse_limit(raw, default, max)
-      _ -> fallback
+  # Prefer limit:N inside the SRQL string; fall back to legacy URL limit=; then default.
+  defp resolve_limit(query, url_limit, default, max) when is_binary(query) do
+    case extract_limit_from_srql(query, max) do
+      nil -> parse_limit(url_limit, default, max)
+      limit -> limit
     end
   end
+
+  defp resolve_limit(_query, url_limit, default, max) do
+    parse_limit(url_limit, default, max)
+  end
+
+  defp extract_limit_from_srql(query, max) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)limit:(\d+)(?:\s|$)/, query) do
+      [_, raw] ->
+        case Integer.parse(raw) do
+          {value, ""} when value > 0 -> min(value, max)
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_limit_from_srql(_query, _max), do: nil
+
+  # Intent reloads (no cursor) reset to page 1. Session paginate and legacy
+  # ?page= URLs keep an explicit page number.
+  defp resolve_pagination_page(params, socket, cursor) do
+    case Map.get(params, "page") do
+      nil when is_nil(cursor) ->
+        1
+
+      nil ->
+        Map.get(socket.assigns, :pagination_page, 1)
+
+      raw ->
+        parse_pagination_page(raw, 1)
+    end
+  end
+
+  defp parse_pagination_page(nil, default), do: default
+
+  defp parse_pagination_page(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {page, ""} when page > 0 -> page
+      _ -> default
+    end
+  end
+
+  defp parse_pagination_page(value, _default) when is_integer(value) and value > 0, do: value
+  defp parse_pagination_page(_value, default), do: default
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
@@ -831,7 +942,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "memory_metrics",
          "disk_metrics",
          "process_metrics",
-         "attributed_flows"
+         "attributed_flows",
+         "capacity_forecasts"
        ] do
       tokens ++ ["time:last_7d"]
     else

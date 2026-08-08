@@ -257,6 +257,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   Options:
     - `:alert` - map of overrides (title, description, severity, metadata)
     - `:actor` - Ash actor to use for policy checks (optional)
+    - `:notify?` - whether to send the immediate webhook notification (defaults to true)
   """
   @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
   def from_event(event, opts \\ []) when is_map(event) do
@@ -420,8 +421,10 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
          |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
          |> Ash.create() do
       {:ok, alert} ->
-        # Also send webhook notification
-        send_webhook_notification(alert, opts)
+        if Keyword.get(opts, :notify?, true) do
+          send_webhook_notification(alert, opts)
+        end
+
         {:ok, alert}
 
       {:error, error} ->

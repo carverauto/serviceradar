@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
 
   def ipinfo_line(assigns) do
     ~H"""
-    <div class="mt-1 text-base-content/70">
+    <div class="mt-1 text-sr-muted">
       {@label}:
       <%= if @info do %>
         <span class="font-mono">
@@ -50,8 +50,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
               phx-value-asn={@info.as_number}
               phx-value-rir-hint={asn_rir_hint(Map.get(@info, :country_code))}
               class={[
-                "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-primary",
-                Map.get(@arin_lookup, :asn) == @info.as_number && "text-primary"
+                "ml-2 font-mono underline decoration-dotted underline-offset-2 hover:text-sr-brand",
+                Map.get(@arin_lookup, :asn) == @info.as_number && "text-sr-brand"
               ]}
             >
               AS{@info.as_number}
@@ -59,13 +59,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
           <% end %>
           <span
             :if={is_binary(@info.as_name) and @info.as_name != ""}
-            class="ml-2 text-base-content/60"
+            class="ml-2 text-sr-muted"
           >
             {@info.as_name}
           </span>
         </span>
       <% else %>
-        <span class="text-base-content/50">n/a</span>
+        <span class="text-sr-muted">n/a</span>
       <% end %>
     </div>
     """
@@ -76,13 +76,13 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPane
 
   def rdns_line(assigns) do
     ~H"""
-    <div class="mt-1 text-base-content/70">
+    <div class="mt-1 text-sr-muted">
       {@label}:
       <span class="font-mono">
         <%= if @rdns && @rdns.status == "ok" && is_binary(@rdns.hostname) && @rdns.hostname != "" do %>
           {@rdns.hostname}
         <% else %>
-          <span class="text-base-content/50">n/a</span>
+          <span class="text-sr-muted">n/a</span>
         <% end %>
       </span>
     </div>

@@ -163,39 +163,39 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <div class="sr-observability-page mx-auto max-w-screen-2xl space-y-6 px-4 py-6 font-sans sm:px-6 lg:px-8">
         <.observability_chrome active_pane="bgp" />
-        
-    <!-- Header -->
+
+        <!-- Header -->
         <div class="flex justify-between items-center">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">
+            <h1 class="text-2xl font-semibold text-sr-ink">
               BGP Routing
             </h1>
-            <p class="text-sm text-base-content/60 mt-1">
+            <p class="text-sm text-sr-muted mt-1">
               BGP routing information from NetFlow, sFlow, and BMP sources
             </p>
           </div>
-          
-    <!-- Filters -->
+
+          <!-- Filters -->
           <div class="flex gap-3">
             <!-- Time Range Selector -->
             <select
               phx-change="change_time_range"
               name="time_range"
-              class="select select-sm select-bordered"
+              class={ui_field_class(size: "sm")}
             >
               <option value="last_1h" selected={@time_range == "last_1h"}>Last 1 Hour</option>
               <option value="last_6h" selected={@time_range == "last_6h"}>Last 6 Hours</option>
               <option value="last_24h" selected={@time_range == "last_24h"}>Last 24 Hours</option>
               <option value="last_7d" selected={@time_range == "last_7d"}>Last 7 Days</option>
             </select>
-            
-    <!-- Source Protocol Selector -->
+
+            <!-- Source Protocol Selector -->
             <select
               phx-change="change_source_protocol"
               name="source_protocol"
-              class="select select-sm select-bordered"
+              class={ui_field_class(size: "sm")}
             >
               <option value="all" selected={is_nil(@source_protocol)}>All Sources</option>
               <option value="netflow" selected={@source_protocol == "netflow"}>NetFlow</option>
@@ -204,28 +204,28 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
                 BGP Peering
               </option>
             </select>
-            
-    <!-- Clear Filters Button -->
+
+            <!-- Clear Filters Button -->
             <%= if @selected_as || @selected_community do %>
-              <button phx-click="clear_filters" class="btn btn-sm btn-ghost">
+              <.ui_button phx-click="clear_filters" size="sm" variant="ghost">
                 Clear Filters
-              </button>
+              </.ui_button>
             <% end %>
           </div>
         </div>
-        
-    <!-- Active Filters Display -->
+
+        <!-- Active Filters Display -->
         <%= if @selected_as || @selected_community do %>
-          <div class="alert alert-info">
+          <div class={ui_alert_class("info")}>
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">Active Filters:</span>
               <%= if @selected_as do %>
-                <span class="badge badge-primary">AS {@selected_as}</span>
+                <.ui_badge size="sm" variant="primary">AS {@selected_as}</.ui_badge>
               <% end %>
               <%= if @selected_community do %>
-                <span class="badge badge-primary">
+                <.ui_badge size="sm" variant="primary">
                   Community {format_community(@selected_community)}
-                </span>
+                </.ui_badge>
               <% end %>
             </div>
           </div>
@@ -234,18 +234,18 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
         <%= if @has_data do %>
           <!-- Export Button -->
           <div class="flex justify-end mb-4">
-            <button phx-click="export_csv" class="btn btn-sm btn-outline gap-2">
+            <.ui_button phx-click="export_csv" size="sm" variant="outline" class="gap-2">
               <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-            </button>
+            </.ui_button>
           </div>
-          
-    <!-- Data Sources Panel -->
+
+          <!-- Data Sources Panel -->
           <.data_sources_panel sources={@data_sources} />
-          
-    <!-- Traffic Time Series -->
+
+          <!-- Traffic Time Series -->
           <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
-          
-    <!-- Main Statistics Grid -->
+
+          <!-- Main Statistics Grid -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Traffic by AS -->
             <.bgp_traffic_by_as_view
@@ -253,31 +253,31 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
               max_bytes={@max_bytes}
               selected_as={@selected_as}
             />
-            
-    <!-- Top BGP Communities -->
+
+            <!-- Top BGP Communities -->
             <.bgp_top_communities_view
               communities={@communities}
               max_bytes={@max_bytes}
               selected_community={@selected_community}
             />
-            
-    <!-- AS Path Diversity -->
+
+            <!-- AS Path Diversity -->
             <.bgp_path_diversity_panel path_diversity={@path_diversity} />
-            
-    <!-- AS Topology Graph -->
+
+            <!-- AS Topology Graph -->
             <.bgp_topology_visualization topology={@topology} />
           </div>
-          
-    <!-- AS Path Details Table -->
+
+          <!-- AS Path Details Table -->
           <.as_path_details_table paths={@as_path_details} />
-          
-    <!-- Prefix Analysis Table -->
+
+          <!-- Prefix Analysis Table -->
           <.prefix_analysis_table prefixes={@prefix_analysis} />
         <% else %>
           <!-- Empty State -->
           <div class="text-center py-16">
             <svg
-              class="mx-auto h-12 w-12 text-base-content/40"
+              class="mx-auto h-12 w-12 text-sr-muted"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -289,13 +289,13 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <h3 class="mt-2 text-sm font-medium text-base-content">
+            <h3 class="mt-2 text-sm font-medium text-sr-ink">
               No BGP Routing Data
             </h3>
-            <p class="mt-1 text-sm text-base-content/60">
+            <p class="mt-1 text-sm text-sr-muted">
               No BGP observations found for the selected time range and filters.
             </p>
-            <p class="mt-1 text-xs text-base-content/40">
+            <p class="mt-1 text-xs text-sr-muted">
               BGP data is populated from NetFlow, sFlow, or BMP sources.
             </p>
           </div>

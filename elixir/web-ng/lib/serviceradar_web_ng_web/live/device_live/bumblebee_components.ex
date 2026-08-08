@@ -17,25 +17,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
     ~H"""
     <section
       :if={@has_exposure or is_binary(@error)}
-      class="rounded-lg border border-base-300 bg-base-100 shadow-sm"
+      class="rounded-lg border border-sr-line bg-sr-surface shadow-sm"
     >
-      <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-col gap-3 border-b border-sr-line px-4 py-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-base-content">Bumblebee Exposure</h2>
-          <p class="text-xs text-base-content/60">
+          <h2 class="text-sm font-semibold text-sr-ink">Bumblebee Exposure</h2>
+          <p class="text-xs text-sr-muted">
             {@finding_count} active finding rows | {length(@postures || [])} scanner postures
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <span class={["badge badge-sm", state_badge_class(field(@latest_posture, :state))]}>
+          <.ui_badge size="sm" variant={state_badge_variant(field(@latest_posture, :state))}>
             {empty_dash(field(@latest_posture, :state))}
-          </span>
-          <span class={[
-            "badge badge-sm",
-            severity_badge_class(field(@latest_posture, :highest_severity))
-          ]}>
+          </.ui_badge>
+          <.ui_badge
+            size="sm"
+            variant={severity_badge_variant(field(@latest_posture, :highest_severity))}
+          >
             {severity_label(field(@latest_posture, :highest_severity))}
-          </span>
+          </.ui_badge>
         </div>
       </div>
 
@@ -58,8 +58,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
             />
           </div>
 
-          <div class="overflow-hidden rounded border border-base-300">
-            <table class="table table-sm">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "sm")}>
               <tbody>
                 <.posture_row label="Agent" value={field(@latest_posture, :agent_id)} mono />
                 <.posture_row label="Run" value={field(@latest_posture, :run_id)} mono />
@@ -78,19 +78,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
             </table>
           </div>
 
-          <div :if={skipped_roots(@latest_posture) != []} class="rounded border border-base-300 p-3">
-            <h3 class="mb-2 text-xs font-semibold uppercase text-base-content/60">Skipped Roots</h3>
+          <div :if={skipped_roots(@latest_posture) != []} class="rounded border border-sr-line p-3">
+            <h3 class="mb-2 text-xs font-semibold uppercase text-sr-muted">Skipped Roots</h3>
             <div class="space-y-1">
               <div :for={root <- skipped_roots(@latest_posture)} class="text-xs">
                 <span class="font-mono">{field(root, :path)}</span>
-                <span class="text-base-content/60">{field(root, :reason)}</span>
+                <span class="text-sr-muted">{field(root, :reason)}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="overflow-hidden rounded border border-base-300">
-          <table class="table table-sm">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
             <thead>
               <tr>
                 <th>Finding</th>
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
             </thead>
             <tbody>
               <tr :if={@findings == []}>
-                <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
+                <td colspan="4" class="py-6 text-center text-sm text-sr-muted">
                   No active Bumblebee findings.
                 </td>
               </tr>
@@ -111,14 +111,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
                 </td>
                 <td>
                   <div class="font-medium">{empty_dash(field(finding, :package_name))}</div>
-                  <div class="font-mono text-xs text-base-content/60">
+                  <div class="font-mono text-xs text-sr-muted">
                     {empty_dash(field(finding, :package_version))}
                   </div>
                 </td>
                 <td>
-                  <span class={["badge badge-sm", severity_badge_class(field(finding, :severity))]}>
+                  <.ui_badge size="sm" variant={severity_badge_variant(field(finding, :severity))}>
                     {severity_label(field(finding, :severity))}
-                  </span>
+                  </.ui_badge>
                 </td>
                 <td class="font-mono text-xs">{format_timestamp(field(finding, :last_seen_at))}</td>
               </tr>
@@ -135,8 +135,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
 
   defp summary_stat(assigns) do
     ~H"""
-    <div class="rounded border border-base-300 bg-base-200/30 px-3 py-2">
-      <div class="text-[0.65rem] font-semibold uppercase text-base-content/50">{@label}</div>
+    <div class="rounded border border-sr-line bg-sr-subtle/30 px-3 py-2">
+      <div class="text-[0.65rem] font-semibold uppercase text-sr-muted">{@label}</div>
       <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
     </div>
     """
@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   defp posture_row(assigns) do
     ~H"""
     <tr>
-      <th class="w-32 text-xs text-base-content/60">{@label}</th>
+      <th class="w-32 text-xs text-sr-muted">{@label}</th>
       <td class={["text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
     </tr>
     """
@@ -184,18 +184,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
   defp format_timestamp(value), do: to_string(value)
 
-  defp state_badge_class("scanned"), do: "badge-success"
-  defp state_badge_class("scan_failed"), do: "badge-error"
-  defp state_badge_class("not_scanned"), do: "badge-ghost"
-  defp state_badge_class(_), do: "badge-outline"
+  defp state_badge_variant("scanned"), do: "success"
+  defp state_badge_variant("scan_failed"), do: "error"
+  defp state_badge_variant("not_scanned"), do: "ghost"
+  defp state_badge_variant(_), do: "outline"
 
-  defp severity_badge_class(value) do
+  defp severity_badge_variant(value) do
     case value |> to_string() |> String.downcase() do
-      "critical" -> "badge-error"
-      "high" -> "badge-warning"
-      "medium" -> "badge-info"
-      "low" -> "badge-success"
-      _ -> "badge-ghost"
+      "critical" -> "error"
+      "high" -> "warning"
+      "medium" -> "info"
+      "low" -> "success"
+      _ -> "ghost"
     end
   end
 

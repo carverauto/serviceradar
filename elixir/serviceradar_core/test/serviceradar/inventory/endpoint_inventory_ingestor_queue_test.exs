@@ -3,6 +3,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest do
 
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
 
+  @moduletag :requires_app
+
   @missing_queue_name ServiceRadar.Inventory.EndpointInventoryIngestorQueueTest.MissingQueue
 
   defmodule TestIngestor do

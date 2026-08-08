@@ -8,6 +8,10 @@ load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_vendor")
 # clash. Consumers load //third_party/crates:defs.bzl and keep their existing
 # all_crate_deps()/crate_deps([...]) calls unchanged.
 #
+# The `packages` list below is the one deliberate exception to "manifest-based". See
+# the comment on that attribute: those three entries are host build tools / a codegen
+# runtime that no crate under /rust/ declares, so a Cargo manifest cannot pull them in.
+#
 # Regenerate with: scripts/vendor.sh  (runs the vendor target AND re-applies the
 # openssl-src / pq-src source patches, which crates_vendor local mode does not apply).
 # Do NOT run `bazel run //third_party:crates_vendor` directly — it leaves those two
@@ -20,7 +24,37 @@ crates_vendor(
     manifests = ["//:Cargo.toml"],
     vendor_path = "crates",
     repository_name = "rust_crates",
+    # Crates the manifests cannot express. //:Cargo.toml is a virtual workspace, so a
+    # crate reaches the vendored graph only when some member declares it — an entry in
+    # [workspace.dependencies] alone is an inert version catalog and vendors nothing.
+    #
+    #   protoc-gen-prost / protoc-gen-tonic  protoc plugins run by rules_rust_prost.
+    #       They are host tools, not library deps: no crate under /rust/ links them, so
+    #       there is no honest manifest to put them in. Consumed by
+    #       //build/rust/prost_toolchain via their gen_binaries aliases below.
+    #   prost-types  already in //:Cargo.lock transitively, but crates_vendor only emits
+    #       a top-level //third_party/crates:<name> alias for DIRECT deps of the spliced
+    #       manifests. Listing it here yields the stable alias instead of forcing the
+    #       prost_toolchain to hardcode //third_party/crates/prost-types-<version>:.
+    #
+    # Keep these versions in step with the prost/tonic pins in //:Cargo.toml's
+    # [workspace.dependencies] — the generated code links against the workspace prost,
+    # so a plugin from a different prost generation would emit code that does not match.
+    packages = {
+        "prost-types": crate.spec(version = "0.14"),
+        "protoc-gen-prost": crate.spec(version = "0.5"),
+        "protoc-gen-tonic": crate.spec(version = "0.5"),
+    },
     annotations = {
+        # Render the plugin binaries (and their //third_party/crates:<crate>__<bin>
+        # aliases). Without gen_binaries, crates_vendor emits only the lib targets and
+        # the prost toolchain's plugin labels do not exist.
+        "protoc-gen-prost": [crate.annotation(
+            gen_binaries = ["protoc-gen-prost"],
+        )],
+        "protoc-gen-tonic": [crate.annotation(
+            gen_binaries = ["protoc-gen-tonic"],
+        )],
         # openssl-sys: perl wrapper + point the build at the vendored openssl-src
         # runfiles/readme. openssl-sys now builds a from-source (vendored) OpenSSL for
         # libpq (pq-sys bundled), so the build is portable. The Cargo.lock version is

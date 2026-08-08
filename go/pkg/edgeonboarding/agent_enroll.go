@@ -32,18 +32,14 @@ const (
 	bundleAgentOverridesName  = "/config/agent-env-overrides.env"
 	releasePublicKeyEnv       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 
-	// bundleAgentNATSCredsName is the tar entry written by
-	// elixir/web-ng/lib/serviceradar_web_ng/edge/bundle_generator.ex
-	// when the onboarding package has a per-agent flow-collector NATS
-	// credential provisioned (B-5 sub-issue 1). It is optional: gateway /
-	// checker / sync packages have no such file and the enrollment must
-	// still succeed.
+	// bundleAgentNATSCredsName identifies the legacy tar entry accepted by
+	// older onboarding bundles. Agent enrollment reads it only to preserve
+	// parser compatibility; it is never installed or activated.
 	bundleAgentNATSCredsName = "/creds/nats.creds"
 
-	// defaultAgentNATSCredsPath is where the agent NATS client expects
-	// to load the per-agent flow-collector creds via
-	// `nats.UserCredentials(path)`. Keep this role-scoped so co-located
-	// collector enrollment cannot overwrite agent credentials.
+	// defaultAgentNATSCredsPath is the legacy agent credential location that
+	// re-enrollment may move aside during migration. It is not written by the
+	// agent enrollment path.
 	defaultAgentNATSCredsPath = "/etc/serviceradar/creds/nats-agent.creds"
 
 	agentConfigKeyNATSURL       = "nats_url"
@@ -58,9 +54,9 @@ type EnrollOptions struct {
 	ConfigPath    string
 	CertDir       string
 	OverridesPath string
-	// NATSCredsPath is where a per-agent flow-collector NATS .creds file
-	// (if shipped in the bundle) lands on disk. When empty, defaults to
-	// defaultAgentNATSCredsPath ("/etc/serviceradar/creds/nats-agent.creds").
+	// NATSCredsPath optionally identifies a legacy agent credential file to
+	// move aside during re-enrollment. It is retained for migration tooling;
+	// new bundles never install agent NATS credentials.
 	NATSCredsPath string
 	HTTPClient    *http.Client
 	Logf          func(string, ...interface{})
@@ -75,9 +71,10 @@ type EnrollOptions struct {
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
 //
-//nolint:gocyclo // enrollment is an end-to-end orchestration step covering token parsing,
 // bundle download, certificate/credential placement, config merging, and atomic install;
 // the branching reflects required environment validation rather than incidental complexity.
+//
+//nolint:gocyclo // enrollment is an end-to-end orchestration step covering token parsing,
 func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
 	if err != nil {
@@ -124,6 +121,9 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	if err != nil {
 		return err
 	}
+	if len(bundle.NATSCreds) > 0 && opts.Logf != nil {
+		opts.Logf("Ignoring legacy agent NATS credentials in onboarding bundle")
+	}
 
 	updatedConfig, certDir, err := updateAgentConfig(bundle.ConfigJSON, opts.HostIP, opts.CertDir)
 	if err != nil {
@@ -133,12 +133,10 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
 	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 	natsCredsPath := resolveAgentNATSCredsPath(opts.NATSCredsPath)
-	updatedConfig, err = mergeAgentNATSConfig(
-		updatedConfig,
-		opts.ConfigPath,
-		natsCredsPath,
-		len(bundle.NATSCreds) > 0,
-	)
+	if err := backupLegacyAgentNATSCreds(opts.ConfigPath, natsCredsPath, opts.Logf); err != nil {
+		return err
+	}
+	updatedConfig, err = stripLegacyAgentNATSConfig(updatedConfig)
 	if err != nil {
 		return err
 	}
@@ -160,19 +158,6 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 			}
 			if opts.Logf != nil && backupDir != "" {
 				opts.Logf("Existing agent certs backed up to %s", backupDir)
-			}
-		}
-		// Only back up an existing nats.creds when the new bundle actually
-		// ships replacement creds; otherwise leave the file in place so
-		// re-enrolling for a non-flow-collector reason doesn't clobber
-		// a working credential.
-		if len(bundle.NATSCreds) > 0 && fileExists(natsCredsPath) {
-			backupPath, err := backupFile(natsCredsPath)
-			if err != nil {
-				return err
-			}
-			if opts.Logf != nil && backupPath != "" {
-				opts.Logf("Existing agent NATS creds backed up to %s", backupPath)
 			}
 		}
 	}
@@ -201,16 +186,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		}
 	}
 
-	if len(bundle.NATSCreds) > 0 {
-		if err := writeFileAtomic(natsCredsPath, bundle.NATSCreds, 0600); err != nil {
-			return fmt.Errorf("write agent NATS creds: %w", err)
-		}
-		if opts.Logf != nil {
-			opts.Logf("Wrote per-agent flow-collector NATS creds to %s", natsCredsPath)
-		}
-	}
-
-	if err := chownAgentAssets(opts.ConfigPath, certDir, overridesPath, natsCredsPath, opts.Logf); err != nil {
+	if err := chownAgentAssets(opts.ConfigPath, certDir, overridesPath, opts.Logf); err != nil {
 		return err
 	}
 
@@ -237,10 +213,9 @@ type bundlePayload struct {
 	ComponentKey  []byte
 	CAChain       []byte
 	EnvOverrides  []byte
-	// NATSCreds is optional: present only for agent packages whose
-	// onboarding row has a per-agent flow-collector credential
-	// provisioned server-side (B-5 sub-issue 1). When absent, the agent
-	// runs without NATS publish authority for `flow.host-slice.<agent-id>`.
+	// NATSCreds is retained only so older bundles can be parsed and tested.
+	// Enrollment deliberately ignores it and never grants the agent NATS
+	// publish authority.
 	NATSCreds []byte
 }
 
@@ -345,9 +320,8 @@ func resolveAgentOverridesPath(path string) string {
 	return strings.TrimSpace(path)
 }
 
-// resolveAgentNATSCredsPath returns the on-disk location for a per-agent
-// flow-collector NATS .creds file. Falls back to
-// defaultAgentNATSCredsPath when the caller did not override it.
+// resolveAgentNATSCredsPath returns the legacy credential location to inspect
+// during migration. It is never used as an installation destination.
 func resolveAgentNATSCredsPath(path string) string {
 	if strings.TrimSpace(path) == "" {
 		return defaultAgentNATSCredsPath
@@ -356,28 +330,14 @@ func resolveAgentNATSCredsPath(path string) string {
 	return strings.TrimSpace(path)
 }
 
-func mergeAgentNATSConfig(configJSON []byte, liveConfigPath, natsCredsPath string, hasReplacementCreds bool) ([]byte, error) {
+func stripLegacyAgentNATSConfig(configJSON []byte) ([]byte, error) {
 	var next map[string]interface{}
 	if err := json.Unmarshal(configJSON, &next); err != nil {
 		return nil, fmt.Errorf("parse updated agent config: %w", err)
 	}
 
-	live, err := readAgentConfigMap(liveConfigPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if hasReplacementCreds {
-		next[agentConfigKeyNATSCredsFile] = natsCredsPath
-	} else if value := stringConfigValue(live, agentConfigKeyNATSCredsFile); value != "" &&
-		stringConfigValue(next, agentConfigKeyNATSCredsFile) == "" {
-		next[agentConfigKeyNATSCredsFile] = value
-	}
-
-	if value := stringConfigValue(live, agentConfigKeyNATSURL); value != "" &&
-		stringConfigValue(next, agentConfigKeyNATSURL) == "" {
-		next[agentConfigKeyNATSURL] = value
-	}
+	delete(next, agentConfigKeyNATSCredsFile)
+	delete(next, agentConfigKeyNATSURL)
 
 	updated, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
@@ -385,6 +345,39 @@ func mergeAgentNATSConfig(configJSON []byte, liveConfigPath, natsCredsPath strin
 	}
 
 	return updated, nil
+}
+
+func backupLegacyAgentNATSCreds(configPath, configuredPath string, logf func(string, ...interface{})) error {
+	live, err := readAgentConfigMap(configPath)
+	if err != nil {
+		return err
+	}
+
+	candidates := []string{configuredPath, stringConfigValue(live, agentConfigKeyNATSCredsFile)}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, path := range candidates {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		if !fileExists(path) {
+			continue
+		}
+
+		backupPath, err := backupFile(path)
+		if err != nil {
+			return err
+		}
+		if logf != nil && backupPath != "" {
+			logf("Legacy agent NATS creds backed up to %s", backupPath)
+		}
+	}
+
+	return nil
 }
 
 func readAgentConfigMap(path string) (map[string]interface{}, error) {
@@ -679,7 +672,7 @@ func backupName(path string) string {
 	return fmt.Sprintf("%s.bak.%s", path, ts)
 }
 
-func chownAgentAssets(configPath, certDir, overridesPath, natsCredsPath string, logf func(string, ...interface{})) error {
+func chownAgentAssets(configPath, certDir, overridesPath string, logf func(string, ...interface{})) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
@@ -702,8 +695,6 @@ func chownAgentAssets(configPath, certDir, overridesPath, natsCredsPath string, 
 		filepath.Join(certDir, "component.pem"),
 		filepath.Join(certDir, "component-key.pem"),
 		filepath.Join(certDir, "ca-chain.pem"),
-		natsCredsPath,
-		filepath.Dir(natsCredsPath),
 	}
 
 	for _, path := range paths {

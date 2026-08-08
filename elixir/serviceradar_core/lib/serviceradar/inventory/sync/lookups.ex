@@ -24,15 +24,11 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
     |> Enum.flat_map(fn update ->
       ids = SourcePolicy.effective_identifiers(update)
       partition = ids.partition
-      include_agent? = SourcePolicy.include_agent_identifier?(update, ids)
       include_mac? = SourcePolicy.include_mac_identifier?(update)
 
       mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
 
-      id_types =
-        Ids.identifier_priority()
-        |> Enum.reject(&(&1 == :mac))
-        |> Enum.reject(&(&1 == :agent_id and not include_agent?))
+      id_types = SourcePolicy.identifier_types(update, ids)
 
       id_types
       |> Enum.reduce([], fn id_type, acc ->

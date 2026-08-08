@@ -9,6 +9,8 @@ defmodule ServiceRadarAgentGateway.CameraMediaNegotiationIntegrationTest do
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaGatewayTestEndpoint
   alias ServiceRadarAgentGateway.TestSupport.CameraMediaIdentityResolverStub
 
+  @moduletag :requires_app
+
   setup do
     previous_forwarder = Application.get_env(:serviceradar_agent_gateway, :camera_media_forwarder)
 

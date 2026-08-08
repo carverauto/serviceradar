@@ -956,6 +956,78 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert reconciled.neighbor_device_id == "sr:aruba-10-154"
       assert reconciled.metadata["source_target_uid"] == "default:192.168.10.154"
     end
+
+    test "neighbor binds via an identifier-graph-provided secondary MAC entry" do
+      records = [
+        %{
+          local_device_id: "sr:switch",
+          local_device_ip: "192.0.2.10",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: nil,
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "aa:bb:cc:dd:ee:55"
+        }
+      ]
+
+      # mac_to_uid entry as merged from platform.device_identifiers: the MAC is
+      # a registered secondary identifier, not the device's primary ocsf mac.
+      index = %{
+        uid_to_uid: %{"sr:switch" => "sr:switch"},
+        ip_to_uid: %{},
+        name_to_uid: %{},
+        mac_to_uid: %{"AABBCCDDEE55" => "sr:registered-owner"}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+      assert resolved.neighbor_device_id == "sr:registered-owner"
+    end
+  end
+
+  describe "build_topology_device_index_maps/2 (identifier precedence)" do
+    test "identifier-derived base entries win over ocsf direct-column rows" do
+      base = %{
+        uid_to_uid: %{},
+        ip_to_uid: %{"192.0.2.50" => "sr:identifier-ip-device"},
+        name_to_uid: %{},
+        mac_to_uid: %{"AABBCCDDEE55" => "sr:identifier-mac-device"}
+      }
+
+      rows = [
+        %{
+          uid: "sr:ocsf-device",
+          ip: "192.0.2.50",
+          name: nil,
+          hostname: nil,
+          mac: "AA:BB:CC:DD:EE:55",
+          metadata: %{"identity_state" => "canonical"}
+        }
+      ]
+
+      index = MapperResultsIngestor.build_topology_device_index_maps(rows, base)
+
+      assert index.mac_to_uid["AABBCCDDEE55"] == "sr:identifier-mac-device"
+      assert index.ip_to_uid["192.0.2.50"] == "sr:identifier-ip-device"
+      # The ocsf row still fills keys the identifier graph does not claim.
+      assert index.uid_to_uid["sr:ocsf-device"] == "sr:ocsf-device"
+    end
+
+    test "ocsf rows remain the fallback for keys absent from the identifier graph" do
+      rows = [
+        %{
+          uid: "sr:ocsf-device",
+          ip: "192.0.2.51",
+          name: nil,
+          hostname: nil,
+          mac: "AA:BB:CC:DD:EE:56",
+          metadata: %{}
+        }
+      ]
+
+      index = MapperResultsIngestor.build_topology_device_index_maps(rows)
+
+      assert index.mac_to_uid["AABBCCDDEE56"] == "sr:ocsf-device"
+      assert index.ip_to_uid["192.0.2.51"] == "sr:ocsf-device"
+    end
   end
 
   describe "topology_candidate_metadata/1" do

@@ -308,6 +308,22 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
+        name: "K8S_INVENTORY",
+        stream_name: "k8s_inventory",
+        # Must overlap stream subjects from k8s-inventory publisher
+        # (inventory.k8s.public_endpoints[+.>] — not the broader inventory.k8s.>).
+        subject: "inventory.k8s.public_endpoints",
+        processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
+        # Full-cluster snapshots; process one message at a time.
+        batch_size: 1,
+        batch_timeout: 2_000,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 1_073_741_824,
+        stream_max_age: 86_400_000_000_000
+      },
+      %{
         name: "OTEL_METRICS",
         stream_name: "events",
         subject: "otel.metrics.>",
@@ -354,6 +370,21 @@ defmodule ServiceRadar.EventWriter.Config do
         # so back-pressure is unchanged.
         consumer_pull_batch_size: 64,
         consumer_max_deliver: 5
+      },
+      %{
+        name: "SCAN_RESULTS",
+        stream_name: "scan_results",
+        subject: "scans.results.>",
+        processor: ServiceRadar.EventWriter.Processors.AdhocScan,
+        batch_size: 200,
+        batch_timeout: 500,
+        # Ad-hoc scan results are interactive and low-volume; keep a small,
+        # short-lived stream (results are also persisted durably in CNPG).
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 268_435_456,
+        stream_max_age: 3_600_000_000_000
       },
       %{
         name: "BMP_CAUSAL",

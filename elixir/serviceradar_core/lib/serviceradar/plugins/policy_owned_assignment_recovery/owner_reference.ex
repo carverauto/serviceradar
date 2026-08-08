@@ -2,19 +2,13 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery.OwnerReference do
   @moduledoc false
 
   @credential_prefix "network-credential-rule:"
-  @purposes %{
-    "inventory_enrichment" => :inventory_enrichment,
-    "console_access" => :console_access,
-    "discovery" => :discovery,
-    "generic" => :generic,
-    "camera_inventory" => :camera_inventory,
-    "camera_stream" => :camera_stream
-  }
+  @legacy_default_purpose "inventory_enrichment"
+  @purpose_regex ~r/^[a-z0-9][a-z0-9_.-]{0,127}$/
 
   @type owner_reference :: %{
           required(:kind) => :plugin_target_policy | :credential_rule,
           required(:id) => String.t(),
-          optional(:purpose) => atom() | nil
+          optional(:purpose) => String.t() | nil
         }
 
   @spec parse(String.t()) :: {:ok, owner_reference()} | {:error, :invalid_policy_owner}
@@ -52,12 +46,11 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery.OwnerReference do
 
   def matches_request?(_request), do: false
 
-  @spec purpose_from_string(String.t()) :: {:ok, atom()} | :error
+  @spec purpose_from_string(String.t()) :: {:ok, String.t()} | :error
   def purpose_from_string(value) when is_binary(value) do
-    case Map.fetch(@purposes, value) do
-      {:ok, purpose} -> {:ok, purpose}
-      :error -> :error
-    end
+    purpose = String.trim(value)
+
+    if Regex.match?(@purpose_regex, purpose), do: {:ok, purpose}, else: :error
   end
 
   def purpose_from_string(_value), do: :error
@@ -66,8 +59,11 @@ defmodule ServiceRadar.Plugins.PolicyOwnedAssignmentRecovery.OwnerReference do
     case String.split(value, ":", parts: 2) do
       [rule_id] ->
         case uuid(rule_id) do
-          {:ok, id} -> {:ok, %{kind: :credential_rule, id: id, purpose: :inventory_enrichment}}
-          :error -> {:error, :invalid_policy_owner}
+          {:ok, id} ->
+            {:ok, %{kind: :credential_rule, id: id, purpose: @legacy_default_purpose}}
+
+          :error ->
+            {:error, :invalid_policy_owner}
         end
 
       [rule_id, purpose] ->

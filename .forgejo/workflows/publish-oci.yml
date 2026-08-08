@@ -37,6 +37,14 @@ jobs:
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
+      # Pull-side credentials, distinct from the Harbor push target above: MODULE.bazel
+      # fetches 7 base images from docker.io and 3 from ghcr.io. Anonymous pulls here are
+      # rate limited, and a throttled fetch fails during Bazel's loading phase as
+      # "no such package" rather than anything resembling a 429.
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
@@ -67,9 +75,6 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-            third_party/bazel-repo-cache
-            third_party/bazel-disk-cache
-            third_party/distdir
           key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
           restore-keys: |
             ${{ runner.os }}-bazel-
@@ -160,23 +165,26 @@ jobs:
       - name: Build (no publish)
         run: |
           bazel build \
-            --config=remote \
             -c opt \
+            --config=ci \
             //:images
 
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
+        run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=ci
 
       - name: Publish images
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
-          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          cmd=(bazel run --config=remote -c opt --stamp //:push)
+          # --remote_download_outputs=all overrides the --remote_download_minimal that
+          # --config=ci inherits: sign-oci-publish.sh below reads the image metadata back out
+          # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
+          cmd=(bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi

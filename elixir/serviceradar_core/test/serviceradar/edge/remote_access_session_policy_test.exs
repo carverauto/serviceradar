@@ -4,6 +4,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionPolicyTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.RemoteAccessSession
 
+  @moduletag :requires_app
+
   @ssh_permission "devices.remote_access.ssh.open"
   @rdp_permission "devices.remote_access.rdp.open"
   @moduletag :db_free

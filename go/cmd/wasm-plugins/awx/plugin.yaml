@@ -1,10 +1,11 @@
 id: awx
 name: AWX / AAP Bridge
-version: 0.1.7
+version: 0.1.10
 description: >
   Network bridge between ServiceRadar core and an AWX/AAP controller in the
   customer's network. Dispatches per-call REST verbs (ping, list inventories /
   hosts / inventory groups / projects / templates, current-user, exact launch,
+  reviewed live-launch preflight,
   bounded ephemeral callback-credential create/verify/reconcile/delete, recent-job and
   job-host-summary reconciliation, cancel, and event fetch)
   for Elixir's AwxClient via AgentCommandBus, and emits a DeviceDiscovery
@@ -30,3 +31,31 @@ resources:
   requested_memory_mb: 64
   requested_cpu_ms: 10000
   max_open_connections: 4
+integrations:
+  credential_profiles:
+    - provider: awx
+      label: AWX / AAP
+      description: OAuth2 bearer tokens used by approved AWX and Ansible controller operations.
+      supports_rules: false
+      auth_methods:
+        - id: bearer_token
+          label: API token
+          credential_kind: api_token
+          fields:
+            - id: api_token
+              label: API token
+              control: password
+              required: true
+              secret: true
+              public: false
+          payload:
+            format: scalar
+            field: api_token
+      purposes:
+        - automation_execution
+      scope_types:
+        - agent
+      rule_defaults: {}
+      rule_controls: {}
+      provisioning:
+        mode: credential_only

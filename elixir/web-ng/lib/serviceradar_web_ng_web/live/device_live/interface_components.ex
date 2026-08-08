@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:favorited_interfaces, :any, required: true)
   attr(:device_uid, :string, required: true)
   attr(:interface_metrics, :map, default: nil)
+  attr(:loading, :boolean, default: false)
+  attr(:metrics_loading, :boolean, default: false)
   attr(:discovery_job, :any, default: nil)
   attr(:northbound_actions, :list, default: [])
   attr(:northbound_actions_loading, :boolean, default: false)
@@ -59,20 +61,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       |> assign(:run_task_title, run_task_title)
 
     ~H"""
+    <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
+      <.ui_spinner size="md" />
+      <p class="mt-3 text-sm font-semibold">Loading network interfaces</p>
+      <p class="mt-1 text-xs text-sr-muted">
+        You can keep using the rest of this device page.
+      </p>
+    </div>
+
+    <div
+      :if={!@loading && @metrics_loading}
+      class="mb-4 rounded-xl border border-sr-line bg-sr-surface p-5"
+    >
+      <div class="flex items-center gap-3 text-sm text-sr-muted">
+        <.ui_spinner size="sm" /> Loading favorited interface metrics&hellip;
+      </div>
+    </div>
+
     <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
     <.interface_metrics_section
-      :if={@interface_metrics}
+      :if={!@loading && @interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
     />
 
-    <%= if @interfaces == [] and is_nil(@error) do %>
-      <div class="rounded-xl border border-base-200 bg-base-100 p-6 text-center">
-        <.icon name="hero-arrows-right-left" class="size-8 text-base-content/30 mx-auto" />
-        <p class="text-sm font-semibold text-base-content/80 mt-3">
+    <%= if !@loading && @interfaces == [] and is_nil(@error) do %>
+      <div class="rounded-xl border border-sr-line bg-sr-surface p-6 text-center">
+        <.icon name="hero-arrows-right-left" class="size-8 text-sr-ink/30 mx-auto" />
+        <p class="text-sm font-semibold text-sr-ink/90 mt-3">
           No interface data yet.
         </p>
-        <p class="text-xs text-base-content/60 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Discovery is configured for this device, but no interface observations were returned.
         </p>
         <div :if={@discovery_job} class="mt-4 inline-flex flex-col gap-2 text-xs">
@@ -82,12 +101,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
               {mapper_run_status_label(@discovery_job)}
             </.ui_badge>
           </div>
-          <div class="text-base-content/60">
+          <div class="text-sr-muted">
             Last run: {format_timestamp(Map.get(@discovery_job, :last_run_at))}
           </div>
           <div
             :if={is_integer(@discovery_job.last_run_interface_count)}
-            class="text-base-content/60"
+            class="text-sr-muted"
           >
             Interfaces observed: {@discovery_job.last_run_interface_count}
           </div>
@@ -104,68 +123,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         </div>
       </div>
     <% else %>
-      <div class="rounded-xl border border-base-200 bg-base-100">
-        <div class="px-4 py-3 border-b border-base-200">
+      <div :if={!@loading} class="rounded-xl border border-sr-line bg-sr-surface">
+        <div class="px-4 py-3 border-b border-sr-line">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <.icon name="hero-signal" class="size-4 text-primary" />
+              <.icon name="hero-signal" class="size-4 text-sr-brand" />
               <span class="text-sm font-semibold">Network Interfaces</span>
-              <span class="text-xs text-base-content/50">({length(@interfaces)} interfaces)</span>
+              <span class="text-xs text-sr-muted">({length(@interfaces)} interfaces)</span>
             </div>
             <%!-- Bulk action toolbar --%>
             <div :if={@selected_count > 0} class="flex items-center gap-2">
-              <span class="text-xs text-base-content/70">
+              <span class="text-xs text-sr-muted">
                 {@selected_count} selected
               </span>
-              <button
+              <.ui_button
                 type="button"
                 phx-click="clear_interface_selection"
-                class="btn btn-xs btn-ghost"
+                size="xs"
+                variant="ghost"
               >
                 Clear
-              </button>
-              <button
+              </.ui_button>
+              <.ui_button
                 :if={@can_launch_northbound}
                 type="button"
                 phx-click="run_task_for_interface_selection"
-                class="btn btn-xs btn-primary"
                 disabled={@run_task_disabled?}
                 title={@run_task_title}
+                size="xs"
+                variant="primary"
               >
                 <.icon name="hero-play" class="size-3" />
                 {if @northbound_actions_loading, do: "Checking jobs...", else: "Run Task"}
-              </button>
-              <button
+              </.ui_button>
+              <.ui_button
                 type="button"
                 phx-click="open_interfaces_bulk_edit"
-                class="btn btn-xs btn-outline"
+                size="xs"
+                variant="outline"
               >
                 <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
-              </button>
+              </.ui_button>
             </div>
           </div>
         </div>
         <div class="p-4">
-          <div :if={is_binary(@error)} class="mb-3 text-xs text-error">
-            {@error}
+          <div :if={is_binary(@error)} class="mb-3 flex items-center gap-2 text-xs text-error">
+            <span>{@error}</span>
+            <.ui_button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="interfaces"
+              size="xs"
+              variant="outline"
+            >
+              Retry
+            </.ui_button>
           </div>
-          <div class="overflow-x-auto max-h-[600px] overflow-y-auto">
-            <table class="table table-xs w-full">
-              <thead class="sticky top-0 bg-base-100">
+          <div class="sr-ui-table-shell">
+            <table class={ui_table_class(size: "xs", class: "w-full")}>
+              <thead class="sticky top-0 bg-sr-surface">
                 <tr>
                   <th class="w-8">
                     <input
                       type="checkbox"
-                      class="checkbox checkbox-xs checkbox-primary"
+                      class={ui_checkbox_class(size: "xs")}
                       checked={@all_selected}
                       phx-click="toggle_select_all_interfaces"
                     />
                   </th>
                   <th class="w-8 text-center" title="Favorite">
-                    <.icon name="hero-star" class="size-3 text-base-content/50" />
+                    <.icon name="hero-star" class="size-3 text-sr-muted" />
                   </th>
                   <th class="w-8 text-center" title="Metrics Collection">
-                    <.icon name="hero-chart-bar" class="size-3 text-base-content/50" />
+                    <.icon name="hero-chart-bar" class="size-3 text-sr-muted" />
                   </th>
                   <th class="text-xs">Interface</th>
                   <th class="text-xs">ID</th>
@@ -183,25 +214,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                     is_binary(iface_uid) and MapSet.member?(@selected_interfaces, iface_uid) %>
                   <% is_favorited =
                     is_binary(iface_uid) and MapSet.member?(@favorited_interfaces, iface_uid) %>
-                  <tr class={["hover:bg-base-200/50", is_selected && "bg-primary/5"]}>
+                  <tr class={["hover:bg-sr-subtle/50", is_selected && "bg-sr-brand/5"]}>
                     <td class="w-8">
                       <input
                         :if={iface_uid}
                         type="checkbox"
-                        class="checkbox checkbox-xs checkbox-primary"
+                        class={ui_checkbox_class(size: "xs")}
                         checked={is_selected}
                         phx-click="toggle_interface_select"
                         phx-value-uid={iface_uid}
                       />
                     </td>
                     <td class="w-8 text-center">
-                      <button
+                      <.ui_button
                         :if={iface_uid}
                         type="button"
                         phx-click="toggle_interface_favorite"
                         phx-value-uid={iface_uid}
-                        class="btn btn-ghost btn-xs p-0"
                         title={if is_favorited, do: "Remove from favorites", else: "Add to favorites"}
+                        size="xs"
+                        variant="ghost"
+                        class="p-0"
                       >
                         <.icon
                           name={if is_favorited, do: "hero-star-solid", else: "hero-star"}
@@ -209,11 +242,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                             "size-4",
                             if(is_favorited,
                               do: "text-warning",
-                              else: "text-base-content/30 hover:text-warning/70"
+                              else: "text-sr-ink/30 hover:text-warning/70"
                             )
                           ]}
                         />
-                      </button>
+                      </.ui_button>
                     </td>
                     <td class="w-8 text-center">
                       <% metrics_enabled = Map.get(iface, "metrics_enabled", false) %>
@@ -236,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <.icon
                         :if={!metrics_enabled}
                         name="hero-chart-bar"
-                        class="size-4 text-base-content/20"
+                        class="size-4 text-sr-ink/20"
                         title="Metrics collection disabled"
                       />
                     </td>
@@ -244,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <.link
                         :if={iface_uid}
                         navigate={~p"/devices/#{@device_uid}/interfaces/#{iface_uid}"}
-                        class="font-mono link link-hover link-primary"
+                        class="font-mono text-sr-brand hover:underline"
                         title={iface_uid}
                       >
                         {interface_label(iface)}
@@ -252,11 +285,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
                       <div :if={!iface_uid} class="font-mono" title="">
                         {interface_label(iface)}
                       </div>
-                      <div :if={interface_secondary(iface)} class="text-[11px] text-base-content/60">
+                      <div :if={interface_secondary(iface)} class="text-[11px] text-sr-muted">
                         {interface_secondary(iface)}
                       </div>
                     </td>
-                    <td class="text-xs font-mono text-base-content/60">
+                    <td class="text-xs font-mono text-sr-muted">
                       {format_interface_id(iface)}
                     </td>
                     <td class="text-xs font-mono">{format_ip_addresses(iface)}</td>
@@ -286,12 +319,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   defp interface_metrics_section(assigns) do
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 mb-4">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+    <div class="rounded-xl border border-sr-line bg-sr-surface mb-4">
+      <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-chart-bar" class="size-4 text-primary" />
+          <.icon name="hero-chart-bar" class="size-4 text-sr-brand" />
           <span class="text-sm font-semibold">Favorited Interface Metrics</span>
-          <span :if={@metrics.favorited_count > 0} class="text-xs text-base-content/50">
+          <span :if={@metrics.favorited_count > 0} class="text-xs text-sr-muted">
             ({@metrics.favorited_count} favorited)
           </span>
         </div>
@@ -299,18 +332,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
       <%!-- No favorited interfaces --%>
       <div :if={!@metrics.has_favorited} class="p-6 text-center">
-        <.icon name="hero-star" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">
+        <.icon name="hero-star" class="size-10 text-sr-ink/20 mx-auto" />
+        <p class="text-sm text-sr-muted mt-2">
           No favorited interfaces yet.
         </p>
-        <p class="text-xs text-base-content/50 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Star interfaces in the table below to see their metrics here.
         </p>
       </div>
 
       <%!-- Error state --%>
       <div :if={@metrics.error} class="p-4">
-        <div class="alert alert-error alert-sm">
+        <div class={ui_alert_class("error")}>
           <.icon name="hero-exclamation-triangle" class="size-4" />
           <span class="text-sm">{@metrics.error}</span>
         </div>
@@ -321,11 +354,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
         :if={@metrics.has_favorited && @metrics.panels == [] && !@metrics.error}
         class="p-6 text-center"
       >
-        <.icon name="hero-chart-bar" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">
+        <.icon name="hero-chart-bar" class="size-10 text-sr-ink/20 mx-auto" />
+        <p class="text-sm text-sr-muted mt-2">
           {Map.get(@metrics, :message, "No metrics data available for favorited interfaces.")}
         </p>
-        <p class="text-xs text-base-content/50 mt-1">
+        <p class="text-xs text-sr-muted mt-1">
           Metrics will appear once SNMP polling collects data for these interfaces.
         </p>
       </div>
@@ -357,157 +390,148 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   def interfaces_bulk_edit_modal(assigns) do
     ~H"""
-    <dialog id="interfaces_bulk_edit_modal" class="modal modal-open">
-      <div class="modal-box max-w-md">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_interfaces_bulk_edit"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="interfaces_bulk_edit_modal" size="sm" on_cancel="close_interfaces_bulk_edit">
+      <:title>Bulk Edit Interfaces</:title>
 
-        <h3 class="text-lg font-bold">Bulk Edit Interfaces</h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Apply action to {@selected_count} selected interface(s).
-        </p>
+      <p class="text-sm text-sr-muted">
+        Apply action to {@selected_count} selected interface(s).
+      </p>
 
-        <.form
-          for={@form}
-          id="interfaces-bulk-form"
-          phx-submit="apply_interfaces_bulk_edit"
-          class="space-y-4"
+      <.form
+        for={@form}
+        id="interfaces-bulk-form"
+        phx-submit="apply_interfaces_bulk_edit"
+        class="space-y-4"
+      >
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Action</span>
+          </label>
+          <div class="space-y-2">
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="favorite"
+                class="radio radio-primary radio-sm"
+                checked
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-star-solid" class="size-4 text-amber-500" />
+                  <span class="font-medium text-sr-ink">Add to Favorites</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Mark selected interfaces as favorites for quick access
+                </p>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="unfavorite"
+                class="radio radio-primary radio-sm"
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-star" class="size-4 text-sr-muted" />
+                  <span class="font-medium text-sr-ink">Remove from Favorites</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Remove selected interfaces from favorites
+                </p>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="enable_metrics"
+                class="radio radio-primary radio-sm"
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-chart-bar-solid" class="size-4 text-emerald-500" />
+                  <span class="font-medium text-sr-ink">Enable Metrics Collection</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Start collecting metrics for selected interfaces
+                </p>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="disable_metrics"
+                class="radio radio-primary radio-sm"
+              />
+              <div>
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-chart-bar" class="size-4 text-sr-muted" />
+                  <span class="font-medium text-sr-ink">Disable Metrics Collection</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Stop collecting metrics for selected interfaces
+                </p>
+              </div>
+            </label>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-sr-line p-3 hover:bg-sr-subtle/70">
+              <input
+                type="radio"
+                name="bulk[action]"
+                value="add_tags"
+                class="radio radio-primary radio-sm"
+              />
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-tag-solid" class="size-4 text-sr-brand" />
+                  <span class="font-medium text-sr-ink">Add Tags</span>
+                </div>
+                <p class="mt-1 text-xs text-sr-muted">
+                  Add tags to selected interfaces (comma-separated)
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div
+          id="tags-input-container"
+          class="flex flex-col gap-1.5 hidden"
+          phx-hook="BulkEditTagsToggle"
         >
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Action</span>
-            </label>
-            <div class="space-y-2">
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
-                <input
-                  type="radio"
-                  name="bulk[action]"
-                  value="favorite"
-                  class="radio radio-primary radio-sm"
-                  checked
-                />
-                <div>
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-star-solid" class="size-4 text-warning" />
-                    <span class="font-medium">Add to Favorites</span>
-                  </div>
-                  <p class="text-xs text-base-content/60 mt-1">
-                    Mark selected interfaces as favorites for quick access
-                  </p>
-                </div>
-              </label>
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Tags</span>
+          </label>
+          <input
+            type="text"
+            name="bulk[tags]"
+            class={ui_field_class()}
+            placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
+          />
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Tags will be added to existing tags
+            </span>
+          </label>
+        </div>
 
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
-                <input
-                  type="radio"
-                  name="bulk[action]"
-                  value="unfavorite"
-                  class="radio radio-primary radio-sm"
-                />
-                <div>
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-star" class="size-4 text-base-content/50" />
-                    <span class="font-medium">Remove from Favorites</span>
-                  </div>
-                  <p class="text-xs text-base-content/60 mt-1">
-                    Remove selected interfaces from favorites
-                  </p>
-                </div>
-              </label>
-
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
-                <input
-                  type="radio"
-                  name="bulk[action]"
-                  value="enable_metrics"
-                  class="radio radio-primary radio-sm"
-                />
-                <div>
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-chart-bar-solid" class="size-4 text-success" />
-                    <span class="font-medium">Enable Metrics Collection</span>
-                  </div>
-                  <p class="text-xs text-base-content/60 mt-1">
-                    Start collecting metrics for selected interfaces
-                  </p>
-                </div>
-              </label>
-
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
-                <input
-                  type="radio"
-                  name="bulk[action]"
-                  value="disable_metrics"
-                  class="radio radio-primary radio-sm"
-                />
-                <div>
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-chart-bar" class="size-4 text-base-content/50" />
-                    <span class="font-medium">Disable Metrics Collection</span>
-                  </div>
-                  <p class="text-xs text-base-content/60 mt-1">
-                    Stop collecting metrics for selected interfaces
-                  </p>
-                </div>
-              </label>
-
-              <label class="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-base-200 hover:bg-base-200/50">
-                <input
-                  type="radio"
-                  name="bulk[action]"
-                  value="add_tags"
-                  class="radio radio-primary radio-sm"
-                />
-                <div class="flex-1">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-tag-solid" class="size-4 text-info" />
-                    <span class="font-medium">Add Tags</span>
-                  </div>
-                  <p class="text-xs text-base-content/60 mt-1">
-                    Add tags to selected interfaces (comma-separated)
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div id="tags-input-container" class="form-control hidden" phx-hook="BulkEditTagsToggle">
-            <label class="label">
-              <span class="label-text font-medium">Tags</span>
-            </label>
-            <input
-              type="text"
-              name="bulk[tags]"
-              class="input input-bordered"
-              placeholder="Enter tags separated by commas (e.g., wan, critical, primary)"
-            />
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                Tags will be added to existing tags
-              </span>
-            </label>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-4">
-            <button type="button" phx-click="close_interfaces_bulk_edit" class="btn btn-ghost">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              Apply
-            </button>
-          </div>
-        </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_interfaces_bulk_edit">close</button>
-      </form>
-    </dialog>
+        <div class="flex justify-end gap-2 pt-2">
+          <.ui_button type="button" phx-click="close_interfaces_bulk_edit" size="sm" variant="ghost">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">
+            Apply
+          </.ui_button>
+        </div>
+      </.form>
+    </.ui_modal>
     """
   end
 
@@ -600,24 +624,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   defp oper_status_badge(assigns) do
     ~H"""
-    <span
+    <.ui_badge
       :if={@status != nil}
-      class={[
-        "badge badge-xs gap-1 min-w-[4.5rem] justify-center",
-        oper_status_class(@status)
-      ]}
+      size="xs"
+      variant={oper_status_variant(@status)}
+      class="min-w-[4.5rem]"
       title="Operational Status"
     >
       <.icon name={oper_status_icon(@status)} class="size-3" />
       {oper_status_text(@status)}
-    </span>
-    <span
+    </.ui_badge>
+    <.ui_badge
       :if={@status == nil}
-      class="badge badge-xs badge-ghost gap-1 min-w-[4.5rem] justify-center"
+      size="xs"
+      variant="ghost"
+      class="min-w-[4.5rem]"
       title="Operational Status"
     >
       <.icon name="hero-question-mark-circle" class="size-3" /> Unknown
-    </span>
+    </.ui_badge>
     """
   end
 
@@ -625,25 +650,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   defp admin_status_badge(assigns) do
     ~H"""
-    <span
+    <.ui_badge
       :if={@status != nil}
-      class={[
-        "badge badge-xs badge-outline gap-1 min-w-[5rem] justify-center",
-        admin_status_class(@status)
-      ]}
+      size="xs"
+      variant={admin_status_variant(@status)}
+      class="min-w-[5rem]"
       title="Admin Status"
     >
       <.icon name={admin_status_icon(@status)} class="size-3" />
       {admin_status_text(@status)}
-    </span>
+    </.ui_badge>
     """
   end
 
   # Operational status styling (1=up, 2=down, 3=testing)
-  defp oper_status_class(1), do: "badge-success"
-  defp oper_status_class(2), do: "badge-error"
-  defp oper_status_class(3), do: "badge-warning"
-  defp oper_status_class(_), do: "badge-ghost"
+  defp oper_status_variant(1), do: "success"
+  defp oper_status_variant(2), do: "error"
+  defp oper_status_variant(3), do: "warning"
+  defp oper_status_variant(_), do: "ghost"
 
   # Use distinct icons for color-blind accessibility
   defp oper_status_icon(1), do: "hero-arrow-up-circle"
@@ -657,10 +681,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   defp oper_status_text(_), do: "Unknown"
 
   # Admin status styling
-  defp admin_status_class(1), do: "border-success text-success"
-  defp admin_status_class(2), do: "border-warning text-warning"
-  defp admin_status_class(3), do: "border-info text-info"
-  defp admin_status_class(_), do: "border-base-content/30 text-base-content/50"
+  defp admin_status_variant(1), do: "success"
+  defp admin_status_variant(2), do: "warning"
+  defp admin_status_variant(3), do: "info"
+  defp admin_status_variant(_), do: "ghost"
 
   defp admin_status_icon(1), do: "hero-check-circle"
   defp admin_status_icon(2), do: "hero-pause-circle"

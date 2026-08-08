@@ -36,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
 
     ~H"""
     <.ui_badge :if={@label != "—"} variant={@variant} size="xs">{@label}</.ui_badge>
-    <span :if={@label == "—"} class="text-base-content/40">—</span>
+    <span :if={@label == "—"} class="text-sr-muted">—</span>
     """
   end
 
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       <.link
         :if={@has_snmp and is_binary(@device_path)}
         navigate={@device_path}
-        class="tooltip inline-flex hover:opacity-90"
+        class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="SNMP metrics available (last 24h)"
         aria-label="View device details (SNMP metrics available)"
       >
@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       </.link>
       <span
         :if={@has_snmp and not is_binary(@device_path)}
-        class="tooltip"
+        class="sr-ui-tooltip"
         data-tip="SNMP metrics available (last 24h)"
       >
         <.icon name="hero-chart-bar" class="size-4 text-info" />
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       <.link
         :if={@has_sysmon and is_binary(@device_path)}
         navigate={@device_path}
-        class="tooltip inline-flex hover:opacity-90"
+        class="sr-ui-tooltip inline-flex hover:opacity-90"
         data-tip="Host Health metrics available (last 24h)"
         aria-label="View device details (Host Health metrics available)"
       >
@@ -89,13 +89,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
       </.link>
       <span
         :if={@has_sysmon and not is_binary(@device_path)}
-        class="tooltip"
+        class="sr-ui-tooltip"
         data-tip="Host Health metrics available (last 24h)"
       >
         <.icon name="hero-cpu-chip" class="size-4 text-success" />
       </span>
     </div>
-    <span :if={not @has_snmp and not @has_sysmon} class="text-base-content/40">—</span>
+    <span :if={not @has_snmp and not @has_sysmon} class="text-sr-muted">—</span>
     """
   end
 
@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges do
         data-testid="sysmon-profile-label"
         class={[
           "text-xs truncate max-w-[8rem]",
-          if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
+          if(@source == :direct, do: "font-medium text-sr-ink", else: "text-sr-muted")
         ]}
       >
         {@label}

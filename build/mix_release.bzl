@@ -2,30 +2,27 @@
 
 def _mix_release_impl(ctx):
     toolchain = ctx.toolchains["@rules_elixir//:toolchain_type"]
-    rust_toolchain = ctx.toolchains["@rules_rust//rust:toolchain"]
 
     otp = toolchain.otpinfo
     elixir = toolchain.elixirinfo
-    cargo = rust_toolchain.cargo
-    rustc = rust_toolchain.rustc
     bun = ctx.file.bun
     sfw = ctx.file.sfw
-    workspace_cargo_toml = ctx.file.workspace_cargo_toml
 
     erlang_home = otp.erlang_home
     otp_tar = getattr(otp, "release_dir_tar", None)
 
     # Use short_path for tree artifacts so the symlink forest in the sandbox
     # can find the binaries reliably.
-    elixir_home = elixir.elixir_home or elixir.release_dir.short_path
+    # release_dir.path, not short_path: these run as build ACTIONS whose cwd is the
+    # execroot, where .path resolves and ../<repo>/... does not. elixir_home is only
+    # non-None for a genuinely externally-installed Elixir.
+    elixir_home = elixir.elixir_home or elixir.release_dir.path
 
     tar_out = ctx.outputs.out
 
     toolchain_inputs = [
         otp.version_file,
         elixir.version_file,
-        cargo,
-        rustc,
     ]
     if getattr(otp, "release_dir_tar", None):
         toolchain_inputs.append(otp.release_dir_tar)
@@ -33,18 +30,31 @@ def _mix_release_impl(ctx):
         toolchain_inputs.append(elixir.release_dir)
 
     transitive_inputs = []
-    if getattr(rust_toolchain, "rustc_lib", None):
-        # rustc depends on its own shared libraries (e.g. librustc_driver); make
-        # sure they are available to the action sandbox, especially on remote
-        # executors where runfiles are not automatically present.
-        transitive_inputs.append(rust_toolchain.rustc_lib)
-    if getattr(rust_toolchain, "rust_std", None):
-        # Provide the Rust stdlib for the host/exec toolchain so cargo can find
-        # the core/std crates when compiling NIFs on remote Linux builders.
-        transitive_inputs.append(rust_toolchain.rust_std)
+
+    # Bazel-built NIFs, staged into the source tree before `mix deps.compile` so Rustler
+    # finds them already built. Paired with `extra_config` setting `skip_compilation?: true`,
+    # this is what keeps cargo out of the action entirely -- exactly what //build:mix_app.bzl
+    # already does for the same four NIFs.
+    native_lib_files = []
+    native_lib_cmds = []
+    for target, dest in ctx.attr.native_libs.items():
+        files = target[DefaultInfo].files.to_list()
+        if len(files) != 1:
+            fail("native_libs entry {} must produce exactly one file, got {}".format(
+                target.label,
+                files,
+            ))
+        native_lib_files.append(files[0])
+        native_lib_cmds.append(
+            'mkdir -p "$WORKDIR/{parent}"\ncp "$EXECROOT/{src}" "$WORKDIR/{dest}"\n'.format(
+                parent = dest.rpartition("/")[0] or ".",
+                src = files[0].path,
+                dest = dest,
+            ),
+        )
 
     hex_cache = ctx.file.hex_cache
-    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs + ctx.files.precompiled_os_deps + [workspace_cargo_toml]
+    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs + ctx.files.precompiled_os_deps + native_lib_files
     if hex_cache:
         direct_inputs.append(hex_cache)
     if bun:
@@ -83,9 +93,23 @@ def _mix_release_impl(ctx):
         'export BUNDLEX_LOCAL_PRECOMPILED_DIR="$WORKDIR/.bundlex_precompiled"\n'
     ) if precompiled_stage_cmds else ""
 
+    # Appended to the SANDBOX copy of config/config.exs, never the checked-in file. The
+    # motivating case is Rustler: `use Rustler` reads Application.compile_env/2 and merges it
+    # OVER its own options, so `skip_compilation?: true` set here keeps cargo out of the
+    # action without changing what a plain `mix release` does outside Bazel.
+    extra_config_cmds = ""
+    if ctx.attr.extra_config:
+        extra_config_cmds = "\n".join([
+            'mkdir -p "$WORKDIR/config"',
+            '[ -f "$WORKDIR/config/config.exs" ] || echo "import Config" > "$WORKDIR/config/config.exs"',
+            'cat >> "$WORKDIR/config/config.exs" <<\'__BAZEL_EXTRA_CONFIG__\'',
+        ] + ctx.attr.extra_config + [
+            "__BAZEL_EXTRA_CONFIG__",
+        ])
+
     run_assets = "true" if ctx.attr.run_assets else "false"
     bootstrap_inputs = "\\n".join(sorted(
-        [f.short_path for f in ctx.files.bootstrap_srcs] + [workspace_cargo_toml.short_path],
+        [f.short_path for f in ctx.files.bootstrap_srcs],
     ))
     patch_script = """python3 - <<'PY'
 from pathlib import Path
@@ -478,7 +502,6 @@ else
 fi
 
 mkdir -p "$MIX_GLOBAL_CACHE/.mix_home"
-mkdir -p "$MIX_GLOBAL_CACHE/_cargo_target"
 mkdir -p "$MIX_GLOBAL_CACHE/node_modules"
 mkdir -p "$MIX_GLOBAL_CACHE/component_node_modules"
 
@@ -509,9 +532,7 @@ export MIX_ENV=prod
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export ELIXIR_ERL_OPTIONS="+fnu"
-export CARGO="$EXECROOT/{cargo_path}"
-export RUSTC="$EXECROOT/{rustc_path}"
-export PATH="$(dirname "$CARGO"):$(dirname "$RUSTC"):/opt/homebrew/bin:$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
+export PATH="/opt/homebrew/bin:$ELIXIR_HOME/bin:$ERLANG_HOME/bin:$PATH"
 BUN_BIN="{bun_path}"
 if [ -n "$BUN_BIN" ] && [ -f "$EXECROOT/$BUN_BIN" ]; then
   chmod +x "$EXECROOT/$BUN_BIN" || true
@@ -529,8 +550,6 @@ SFW_BIN="{sfw_path}"
 if [ -n "$SFW_BIN" ] && [ -f "$EXECROOT/$SFW_BIN" ]; then
   chmod +x "$EXECROOT/$SFW_BIN" || true
 fi
-RUST_LIB_ROOT="$(cd "$(dirname "$RUSTC")/.." && pwd)"
-export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unknown-linux-gnu/lib:${{LD_LIBRARY_PATH:-}}"
 echo "PATH=$PATH"
 ls -la "$ELIXIR_HOME/bin" || true
 which mix || true
@@ -564,7 +583,6 @@ if [ ! -x "$ERLANG_HOME/bin/erl" ]; then
 fi
 
 mkdir -p "$HOME"
-export CARGO_TARGET_DIR="$MIX_GLOBAL_CACHE/_cargo_target"
 TMPROOT="$WORKDIR/_tmp"
 mkdir -p "$TMPROOT"
 export TMPDIR="$TMPROOT"
@@ -584,12 +602,6 @@ if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
   # This avoids the need to manually regenerate hex_cache.tar.gz every time
   # dependencies change.
 fi
-if [ -d /cache ] && [ -w /cache ]; then
-  export CARGO_HOME="/cache/cargo"
-else
-  export CARGO_HOME="$HOME/.cargo"
-fi
-mkdir -p "$CARGO_HOME"
 copy_dir "{src_dir}/" "$WORKDIR/"
 {extra_copy}
 
@@ -603,74 +615,18 @@ ln -sf "$MIX_GLOBAL_CACHE/node_modules" "$WORKDIR/assets/node_modules"
 mkdir -p "$WORKDIR/assets/component"
 ln -sf "$MIX_GLOBAL_CACHE/component_node_modules" "$WORKDIR/assets/component/node_modules"
 
-if [ -d "$EXECROOT/rust/srql" ] || [ -d "$EXECROOT/rust/kvutil" ]; then
-  if [ -d "$EXECROOT/rust/srql" ]; then
-    mkdir -p "$WORKDIR/rust/srql"
-    copy_dir "$EXECROOT/rust/srql/" "$WORKDIR/rust/srql/"
-  fi
-  if [ -d "$EXECROOT/rust/kvutil" ]; then
-    mkdir -p "$WORKDIR/rust/kvutil"
-    copy_dir "$EXECROOT/rust/kvutil/" "$WORKDIR/rust/kvutil/"
-  fi
-  if [ -d "$EXECROOT/proto" ]; then
-    mkdir -p "$TMPROOT/rust/kvutil/proto"
-    copy_dir "$EXECROOT/proto/" "$TMPROOT/rust/kvutil/proto/"
-    mkdir -p "$SYS_TMP/rust/kvutil/proto"
-    copy_dir "$EXECROOT/proto/" "$SYS_TMP/rust/kvutil/proto/"
-  fi
-
-  if [ -d "$WORKDIR/rust" ]; then
-    if [ ! -f "$EXECROOT/{workspace_cargo_toml}" ]; then
-      echo "missing root Cargo.toml workspace dependency input" >&2
-      exit 1
-    fi
-
-    workspace_manifest="$EXECROOT/{workspace_cargo_toml}"
-
-    # Copy a complete TOML section without copying the root workspace's member
-    # list. The release sandbox intentionally stages only srql and kvutil, so
-    # a verbatim root manifest would refer to crates that are unavailable here.
-    extract_toml_section() {{
-      section="$1"
-      awk -v section="$section" '
-        $0 == section {{ in_section = 1 }}
-        in_section && $0 ~ /^\\[/ && $0 != section {{ exit }}
-        in_section {{ print }}
-      ' "$workspace_manifest"
-    }}
-
-    cat > "$WORKDIR/Cargo.toml" <<'EOF'
-[workspace]
-resolver = "2"
-members = ["rust/srql", "rust/kvutil"]
-EOF
-
-    # SRQL and kvutil use workspace-inherited metadata and dependencies. Keep
-    # the reduced release workspace synchronized with the authoritative root
-    # manifest rather than duplicating a table that can silently become stale.
-    # Do not copy [patch.crates-io]: its local patch paths are not staged into
-    # the Rustler release sandbox.
-    extract_toml_section "[workspace.package]" >> "$WORKDIR/Cargo.toml"
-    printf '\\n' >> "$WORKDIR/Cargo.toml"
-    extract_toml_section "[workspace.dependencies]" >> "$WORKDIR/Cargo.toml"
-    printf '\\n' >> "$WORKDIR/Cargo.toml"
-    extract_toml_section "[profile.release]" >> "$WORKDIR/Cargo.toml"
-
-    NIF_LOCK="$WORKDIR/elixir/serviceradar_srql/native/srql_nif/Cargo.lock"
-    if [ -f "$NIF_LOCK" ]; then
-      cp "$NIF_LOCK" "$WORKDIR/Cargo.lock"
-    else
-      rm -f "$WORKDIR/Cargo.lock"
-    fi
-
-    mkdir -p /tmp/rust
-    rm -rf /tmp/rust/srql /tmp/rust/kvutil
-    [ -d "$WORKDIR/rust/srql" ] && ln -s "$WORKDIR/rust/srql" /tmp/rust/srql
-    [ -d "$WORKDIR/rust/kvutil" ] && ln -s "$WORKDIR/rust/kvutil" /tmp/rust/kvutil
-    cp "$WORKDIR/Cargo.toml" /tmp/rust/Cargo.toml
-
-  fi
-fi
+# NOTE: the Rust NIFs are NOT built here. Bazel builds each one as a rust_shared_library
+# and hands it over through `native_libs` (staged below), with `extra_config` setting
+# `skip_compilation?: true` so Rustler does not shell out to cargo.
+#
+# What used to live here: copies of rust/srql + rust/kvutil into the sandbox, a reduced
+# Cargo.toml synthesised by string-extracting [workspace.*] sections out of the root
+# manifest, and /tmp/rust symlinks -- roughly 70 lines whose only purpose was to make an
+# in-action cargo build resolve. It also pulled the whole Rust toolchain (cargo, rustc,
+# rustc_lib, rust_std) into a release action and kept a mutable CARGO_TARGET_DIR and
+# CARGO_HOME under /cache, outside the action key.
+{native_libs}
+{extra_config}
 
 cd "$WORKDIR"
 chmod -R u+w .
@@ -679,7 +635,7 @@ mkdir -p /tmp/elixir
 rm -rf /tmp/elixir/datasvc
 ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
 rm -rf /tmp/connection
-ln -s "$WORKDIR/elixir/connection" /tmp/connection
+ln -s "$WORKDIR/third_party/hex_vendored/connection" /tmp/connection
 rm -rf /tmp/elixir/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/elixir/serviceradar_core
 rm -rf /tmp/elixir/serviceradar_srql
@@ -706,21 +662,10 @@ fi
 {precompiled_stage}
 mix deps.get --only prod
 {patch_script}
-# Compile the minimal dependency chain for the SRQL path dependency first so
-# later dependent compilation can load its Rustler NIF from _build/prod/lib.
-EARLY_DEPS=""
-if grep -q '{{:serviceradar_srql,' mix.exs; then
-  EARLY_DEPS="$EARLY_DEPS boundary decimal jason rustler serviceradar_srql"
-fi
-if [ -n "$EARLY_DEPS" ]; then
-  mix deps.compile $EARLY_DEPS
-fi
-if [ -d "$WORKDIR/elixir/serviceradar_srql/priv/native" ]; then
-  SRQL_BUILD_PRIV="$WORKDIR/_build/prod/lib/serviceradar_srql/priv"
-  rm -rf "$SRQL_BUILD_PRIV"
-  mkdir -p "$SRQL_BUILD_PRIV"
-  cp -aL "$WORKDIR/elixir/serviceradar_srql/priv/." "$SRQL_BUILD_PRIV/"
-fi
+# No EARLY_DEPS ordering and no hand-staging of serviceradar_srql's priv/native. Both existed
+# because the NIF was cargo-built DURING this action, so serviceradar_srql had to compile
+# before anything that loads it. The .so is now a Bazel input already sitting in priv/native
+# (see {{native_libs}} above), so a single ordinary deps.compile is enough.
 mix deps.compile
 
 if [ "{run_assets}" = "true" ]; then
@@ -822,12 +767,10 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             erlang_home = erlang_home,
             src_dir = ctx.attr.src_dir,
             tar_out = tar_out.path,
-            cargo_path = cargo.path,
-            rustc_path = rustc.path,
-            cargo_dir = cargo.dirname,
-            rustc_dir = rustc.dirname,
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
+            native_libs = "".join(native_lib_cmds),
+            extra_config = extra_config_cmds,
             precompiled_stage = precompiled_stage,
             run_assets = run_assets,
             bootstrap_inputs = bootstrap_inputs,
@@ -836,7 +779,6 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             bun_path = bun.path if bun else "",
             sfw_path = sfw.path if sfw else "",
             app_name = ctx.attr.workdir_name,
-            workspace_cargo_toml = workspace_cargo_toml.short_path,
         ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
     )
@@ -868,15 +810,22 @@ mix_release = rule(
         ),
         "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
         "sfw": attr.label(allow_single_file = True, doc = "Optional Socket Firewall binary for supported package manager commands"),
-        "workspace_cargo_toml": attr.label(
-            allow_single_file = True,
-            default = Label("//:Cargo.toml"),
-            doc = "Authoritative root Cargo workspace manifest used by Rustler path dependencies",
-        ),
+        # Bazel-built NIF shared libraries, keyed by target with the WORKDIR-relative
+        # destination, e.g. "elixir/serviceradar_srql/priv/native/srql_nif.so". The
+        # destination is explicit rather than derived because a release stages several apps
+        # and the NIF usually belongs to a DEPENDENCY, not to the release's own project.
+        #
+        # Extension is ".so" on macOS too, not ".dylib": rustler resolves a NIF as
+        # Application.app_dir(otp_app, "priv/native/<crate>") and :erlang.load_nif appends
+        # ".so" on every platform.
+        "native_libs": attr.label_keyed_string_dict(allow_files = True),
+        # Config lines appended to the SANDBOX copy of config/config.exs. Used to set
+        # Rustler's `skip_compilation?: true` so the checked-in config, and what a plain
+        # `mix release` does outside Bazel, stay untouched.
+        "extra_config": attr.string_list(),
         "workdir_name": attr.string(doc = "Legacy stable workdir/cache name for compatibility"),
     },
     toolchains = [
         "@rules_elixir//:toolchain_type",
-        "@rules_rust//rust:toolchain",
     ],
 )

@@ -75,6 +75,17 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       refute Enum.any?(Config.default_streams(), &(&1.subject == "flow.attributed.>"))
     end
 
+    test "routes ad-hoc scan results from a dedicated stream" do
+      scan = Enum.find(Config.default_streams(), &(&1.name == "SCAN_RESULTS"))
+
+      assert scan.stream_name == "scan_results"
+      assert scan.subject == "scans.results.>"
+      assert scan.processor == ServiceRadar.EventWriter.Processors.AdhocScan
+      # Must NOT overlap the metrics stream, or the Metrics processor would
+      # try to decode scan rows as protobuf metric envelopes.
+      refute String.starts_with?(scan.subject, "metrics.")
+    end
+
     test "consumes analytics prediction verdicts from a dedicated retention stream" do
       analytics_predictions =
         Enum.find(Config.default_streams(), &(&1.name == "ANALYTICS_PREDICTIONS"))

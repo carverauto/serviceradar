@@ -1,0 +1,84 @@
+name: Rust Add-on Interop Test
+
+# Exercises the Go<->Rust native add-on interop test
+# (go/pkg/agent/addon/manager_rust_addon_test.go), which is skip-gated unless a
+# prebuilt Rust reference add-on is supplied. This lane builds
+# serviceradar-rust-sample-addon with cargo and points the test at it via
+# SERVICERADAR_RUST_ADDON_BIN so the polyglot proof actually runs in CI.
+on:
+  push:
+    branches: [staging]
+    paths:
+      - 'rust/addon-sdk/**'
+      - 'go/pkg/agent/addon/**'
+      - 'proto/agent/addon/v1/**'
+      - 'Cargo.lock'
+      - '.forgejo/workflows/rust-tests-addon-interop.yml'
+  pull_request:
+    branches: [staging]
+    paths:
+      - 'rust/addon-sdk/**'
+      - 'go/pkg/agent/addon/**'
+      - 'proto/agent/addon/v1/**'
+      - 'Cargo.lock'
+      - '.forgejo/workflows/rust-tests-addon-interop.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    runs-on: ubuntu24
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache Cargo registry
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      # Build the Rust reference add-on through the socket firewall (matches the
+      # repo's other cargo lanes). Output lands at target/debug/ in the workspace.
+      - name: Build Rust reference add-on
+        run: sfw cargo build -p addon-sdk --bin serviceradar-rust-sample-addon
+
+      # Run only the interop tests, pointed at the prebuilt binary (absolute path,
+      # since `go test` runs with the package dir as CWD). No sfw wrapper here: the
+      # test drives a local UDS + AutoMTLS go-plugin handshake, not external network.
+      - name: Run Go<->Rust interop test
+        env:
+          SERVICERADAR_RUST_ADDON_BIN: ${{ github.workspace }}/target/debug/serviceradar-rust-sample-addon
+        run: go test -timeout=300s -count=1 -run 'RustAddon' ./go/pkg/agent/addon/... -v

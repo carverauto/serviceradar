@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     as: Attempt
 
   alias ServiceRadar.Automation.Ansible.AwxClient
+  alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
@@ -37,8 +38,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
     with :ok <- before_deadline(attempt, now),
          {:ok, resources} <- load_resources(attempt, opts),
          :ok <- ensure_non_callback(resources.operation),
-         :ok <- verify_controller_boundary(attempt, resources),
          :ok <- ensure_lifecycle_state(attempt, resources.operation, resources.execution),
+         :ok <- verify_controller_boundary(attempt, resources, now, opts),
          {:ok, request} <- rebuild_request(attempt, resources),
          true <-
            Contract.request_matches?(attempt, request) ||
@@ -87,7 +88,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
 
       with {:ok, resources} <- load_resources(attempt, opts),
            :ok <- ensure_non_callback(resources.operation),
-           :ok <- verify_controller_boundary(attempt, resources),
+           :ok <- verify_controller_boundary(attempt, resources, now, opts),
            :ok <- ensure_lifecycle_state(attempt, resources.operation, resources.execution),
            :ok <- authorize_current_attempt(attempt, resources, now, opts) do
         :ok
@@ -144,7 +145,32 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
   defp ensure_non_callback(%{callback_actions: []}), do: :ok
   defp ensure_non_callback(_operation), do: {:error, :callback_execution_isolated}
 
-  defp verify_controller_boundary(attempt, resources) do
+  # `:launch_job` is the only secure-dispatcher stage that can create an AWX
+  # job. It must be backed by the matching immutable operation/execution
+  # attestation and independently persisted evidence; a legacy metadata
+  # snapshot is deliberately not an authority for a new launch.
+  defp verify_controller_boundary(%Attempt{stage: :launch_job} = attempt, resources, now, opts) do
+    with {:ok, attestation} <-
+           AwxLaunchPreflightAttestation.verify_persisted(
+             value(resources, :operation),
+             value(resources, :execution),
+             value(resources, :controller),
+             now,
+             preflight_verification_opts(opts)
+           ) do
+      AwxLaunchPreflightAttestation.verify_dispatch_principal(
+        attestation,
+        attempt.dispatch_agent_id,
+        attempt.dispatch_partition_id
+      )
+    end
+  end
+
+  # Reconciliation, polling, and cancellation never route to
+  # `AwxClient.launch_job/5`. Keeping their existing legacy controller
+  # snapshot boundary permits safe cleanup of pre-attestation children while
+  # ensuring it cannot be reused to create a new job.
+  defp verify_controller_boundary(attempt, resources, _now, _opts) do
     metadata = value(resources.execution, :metadata) || %{}
 
     with partition when is_binary(partition) and partition != "" <-
@@ -160,6 +186,13 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandDispatcher do
       false -> {:error, :secure_execution_dispatch_partition_drift}
       {:error, _reason} = error -> error
       _ -> {:error, :secure_execution_dispatch_partition_required}
+    end
+  end
+
+  defp preflight_verification_opts(opts) do
+    case Keyword.fetch(opts, :preflight_evidence_reader) do
+      {:ok, reader} -> [evidence_reader: reader]
+      :error -> []
     end
   end
 

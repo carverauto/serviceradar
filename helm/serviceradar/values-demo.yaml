@@ -36,6 +36,17 @@ trivySidecar:
   enabled: true
   clusterId: demo
 
+# Public VIP ownership inventory (cluster-plane only; host agents stay without kube API).
+# Image must exist as serviceradar-k8s-inventory before the Deployment becomes Ready.
+k8sInventory:
+  enabled: true
+  clusterId: demo
+  gatewayAPI:
+    enabled: true
+  # MetalLB + Envoy Gateway demo; CRD optional for ownership (Service status is enough).
+  envoyProxyCRD:
+    enabled: false
+
 natsCreds:
   autoGenerate: true
 
@@ -162,9 +173,8 @@ agentGateway:
   enabled: true
   replicas: 3
   publicHostname: "demo-gw.serviceradar.cloud"
-  # Persist the live kubectl-set memory limits (argo would otherwise revert to
-  # the chart default 1Gi, which OOMKills under reconnect-storm spikes; the
-  # gateway sits at ~800Mi steady-state). cpu left at template defaults.
+  # Demo HA headroom above the chart default (1Gi/2Gi). Reconnect-storm spikes
+  # still push the gateway past 2Gi; steady-state is ~850–900Mi.
   resources:
     requests:
       memory: "1Gi"
@@ -392,7 +402,10 @@ webNg:
     syncReleaseLimit: 20
     syncIntervalSeconds: 1800
     autoApproveAddonIds:
+      - bumblebee
       - netprobe
+      - powerdns
+      - rdp
       - workload-identity
       - scalibr-endpoint-inventory
       # anomaly: so the rebuilt 0.1.1 bundle (config_schema with metric_feed)
@@ -490,9 +503,8 @@ gobgp:
 
 core:
   replicas: 3
-  # Persist the live kubectl-set memory limit (argo would otherwise revert to
-  # the chart default 4Gi, which OOMKills core-elx under load; live core runs
-  # at 16Gi). cpu left at template defaults.
+  # Demo HA headroom above the chart default (1Gi/8Gi). Live core sits around
+  # 1.4–1.5Gi RSS but spikes well past 8Gi under full demo load.
   resources:
     requests:
       memory: "2Gi"
@@ -592,11 +604,12 @@ core:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
-# Enable only the reviewed, ephemeral AWX callback contract in demo. The
-# response policy itself is operator-owned and remains in a Kubernetes Secret;
-# these values contain only the exact non-secret AWX binding identifiers.
+# Keep mutable AWX callbacks disabled until a ServiceRadar-initiated live
+# preflight canary has passed and its redacted evidence is retained. The
+# non-secret identifiers and operator-owned policy Secret remain staged here
+# so the enablement procedure can be reviewed without reconstructing custody.
 automationCallbacks:
-  enabled: true
+  enabled: false
   canonicalOrigin: "https://demo.serviceradar.cloud"
   envelopeKeyId: "current"
   awxCredentialTypeId: 68

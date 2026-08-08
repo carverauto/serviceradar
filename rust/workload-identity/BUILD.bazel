@@ -1,6 +1,7 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//third_party/crates:defs.bzl", "crate_deps")
+load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -53,6 +54,7 @@ rust_binary(
 
 rust_binary(
     name = "workload_identity_daemon",
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = ["src/bin/workload-identity.rs"],
     crate_root = "src/bin/workload-identity.rs",
     deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],

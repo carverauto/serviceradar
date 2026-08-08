@@ -83,26 +83,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         <BulkActions.render {assigns} />
         <Table.render {assigns} />
       </div>
-      
-    <!-- Add Device Modal -->
+
+      <!-- Add Device Modal -->
       <.add_device_modal :if={@show_add_device_modal} form={@add_device_form} />
-      
-    <!-- Import CSV Modal -->
+
+      <!-- Import CSV Modal -->
       <.import_csv_modal
         :if={@show_import_modal}
         uploads={@uploads}
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
       />
-      
-    <!-- Bulk Edit Modal -->
+
+      <!-- Bulk Edit Modal -->
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
         form={@bulk_edit_form}
         selected_count={@effective_count}
       />
-      
-    <!-- Bulk Delete Modal -->
+
+      <!-- Bulk Delete Modal -->
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}

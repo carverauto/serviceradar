@@ -97,6 +97,9 @@ func processScanDetails(result *models.Result, builders *scanBuilders, states *b
 		buildTCPDetails(result, builders.tcp, &states.firstTCP)
 	case models.ModeTCPConnect:
 		buildTCPDetails(result, builders.tcp, &states.firstTCP)
+	case models.ModeMTR:
+		// MTR is handled by the agent's ad-hoc scan path and has no persistent
+		// sweeper result detail.
 	}
 }
 

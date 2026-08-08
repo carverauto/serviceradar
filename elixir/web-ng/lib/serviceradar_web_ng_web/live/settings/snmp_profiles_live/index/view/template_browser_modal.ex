@@ -67,31 +67,33 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
       |> assign(:is_custom_tab, is_custom_tab)
 
     ~H"""
-    <dialog id="template_browser_modal" class="modal modal-open">
-      <div class="modal-box max-w-3xl max-h-[80vh]">
+    <dialog id="template_browser_modal" class="sr-ui-modal sr-ui-modal-open" phx-hook="DialogTopLayer">
+      <div class="sr-ui-modal-box sr-ui-modal-box-lg max-h-[80vh]">
         <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          <.ui_icon_button
             type="button"
             phx-click="close_template_browser"
+            size="sm"
+            variant="ghost"
+            class="absolute right-2 top-2"
           >
             x
-          </button>
+          </.ui_icon_button>
         </form>
 
         <h3 class="font-bold text-lg mb-4">OID Templates</h3>
-        <p class="text-sm text-base-content/60 mb-4">
+        <p class="text-sm text-sr-muted mb-4">
           Select a template to add pre-configured OIDs for common device types.
         </p>
-        
-    <!-- Search and Vendor Filter -->
+
+        <!-- Search and Vendor Filter -->
         <div class="flex flex-col md:flex-row gap-4 mb-4">
           <div class="flex-1">
             <input
               type="text"
               value={@search}
               placeholder="Search templates..."
-              class="input input-bordered w-full"
+              class={ui_field_class(class: "w-full")}
               phx-keyup="search_templates"
               phx-value-search=""
               name="search"
@@ -108,13 +110,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </.ui_button>
           </div>
         </div>
-        
-    <!-- Vendor Tabs -->
-        <div class="tabs tabs-boxed mb-4">
+
+        <!-- Vendor Tabs -->
+        <div class="sr-ui-tabs sr-ui-tabs-boxed mb-4">
           <%= for vendor <- @vendors do %>
             <button
               type="button"
-              class={"tab #{if @selected_vendor == vendor.id, do: "tab-active", else: ""}"}
+              class={"sr-ui-tab #{if @selected_vendor == vendor.id, do: "sr-ui-tab-active", else: ""}"}
               phx-click="select_vendor"
               phx-value-vendor={vendor.id}
             >
@@ -122,25 +124,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </button>
           <% end %>
         </div>
-        
-    <!-- Templates List -->
+
+        <!-- Templates List -->
         <div class="overflow-y-auto max-h-[40vh] space-y-2">
-          <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-base-content/60">
+          <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-sr-muted">
             <.icon name="hero-document-magnifying-glass" class="size-10 mx-auto mb-2 opacity-50" />
             <p>No templates found</p>
           </div>
 
-          <div :if={@templates == [] && @is_custom_tab} class="text-center py-8 text-base-content/60">
+          <div :if={@templates == [] && @is_custom_tab} class="text-center py-8 text-sr-muted">
             <.icon name="hero-document-plus" class="size-10 mx-auto mb-2 opacity-50" />
             <p>No custom templates yet</p>
             <p class="text-xs mt-1">Create your own template or copy from a built-in template</p>
           </div>
 
           <%= for template <- @templates do %>
-            <div class="flex items-center justify-between p-3 bg-base-200/30 rounded-lg hover:bg-base-200/50">
+            <div class="flex items-center justify-between p-3 bg-sr-subtle/30 rounded-lg hover:bg-sr-subtle/50">
               <div class="flex-1">
                 <div class="font-medium text-sm">{template.name}</div>
-                <p :if={template.description} class="text-xs text-base-content/60 mt-0.5">
+                <p :if={template.description} class="text-xs text-sr-muted mt-0.5">
                   {template.description}
                 </p>
                 <div class="flex items-center gap-2 mt-1">
@@ -211,15 +213,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             </div>
           <% end %>
         </div>
-        
-    <!-- Modal Actions -->
-        <div class="modal-action">
+
+        <!-- Modal Actions -->
+        <div class="sr-ui-modal-action">
           <.ui_button type="button" variant="ghost" phx-click="close_template_browser">
             Close
           </.ui_button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="sr-ui-modal-backdrop">
         <button type="button" phx-click="close_template_browser">close</button>
       </form>
     </dialog>

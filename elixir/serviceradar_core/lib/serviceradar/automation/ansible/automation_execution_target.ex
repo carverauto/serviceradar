@@ -2,9 +2,9 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
   @moduledoc """
   Frozen AWX membership tuple selected for one child execution.
 
-  Controller, inventory, host ID, canonical device UID, source generation,
-  host name, and address are copied into the snapshot. Later membership drift
-  cannot silently retarget the child.
+  Controller, inventory, host ID, canonical device UID, source generation and
+  fingerprint, host name, and address are copied into the snapshot. Later
+  membership drift cannot silently retarget the child.
   """
 
   use Ash.Resource,
@@ -25,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
     :inventory_id,
     :awx_host_id,
     :membership_generation,
+    :source_fingerprint,
     :host_name,
     :ansible_host,
     :status,
@@ -124,6 +125,7 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
         :inventory_id,
         :awx_host_id,
         :membership_generation,
+        :source_fingerprint,
         :host_name,
         :ansible_host,
         :snapshot_digest
@@ -178,6 +180,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationExecutionTarget do
       allow_nil? false
       public? true
       constraints min: 1
+    end
+
+    attribute :source_fingerprint, :string do
+      allow_nil? false
+      public? true
+      constraints match: ~r/\Asha256:[0-9a-f]{64}\z/
     end
 
     attribute :host_name, :string, allow_nil?: false, public?: true

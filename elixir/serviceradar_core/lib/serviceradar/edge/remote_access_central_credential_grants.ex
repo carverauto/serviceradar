@@ -78,7 +78,8 @@ defmodule ServiceRadar.Edge.RemoteAccessCentralCredentialGrants do
   end
 
   defp ensure_rule_purpose(%NetworkCredentialRule{purpose: purpose})
-       when purpose in [:console_access, :generic], do: :ok
+       when purpose in ["console_access", "generic"],
+       do: :ok
 
   defp ensure_rule_purpose(_rule), do: {:error, :credential_rule_purpose_mismatch}
 

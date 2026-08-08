@@ -6,6 +6,8 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.CapacityForecastConfig
 
+  @moduletag :requires_app
+
   @migration_path "priv/repo/migrations/20260612100000_create_anomaly_capacity_configs.exs"
 
   test "resource is managed in the platform schema" do

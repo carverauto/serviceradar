@@ -133,7 +133,7 @@ enum VisibilityStartupMode {
 enum VisibilityRuntime {
     Disabled,
     #[cfg(target_os = "linux")]
-    Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
+    Ebpf(Box<ebpf_runtime::NetprobeEbpfRuntime>),
 }
 
 #[tokio::main(worker_threads = 2)]
@@ -207,7 +207,7 @@ async fn main() -> Result<()> {
                     "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
                     config.capture_interfaces.len()
                 );
-                VisibilityRuntime::Ebpf(runtime)
+                VisibilityRuntime::Ebpf(Box::new(runtime))
             }
         }
     };

@@ -45,8 +45,10 @@
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) $pg.image }}
-  {{- /* known-good 18.3.0-sr5 (c349a1d); c70e6cf6 is the broken re-push — see _helpers.tpl / 2026-06-17 outage */ -}}
-  {{- $imageTag := default "18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9" $pg.imageTag }}
+  {{- /* Shared with cnpg-cluster.yaml. These two templates each used to hardcode their
+         own copy of this pin and drifted apart, leaving this cluster on 18.3.0-sr5
+         while the main one moved on. Keep the single definition in _helpers.tpl. */ -}}
+  {{- $imageTag := default (include "serviceradar.cnpgDefaultImageTag" .) $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}

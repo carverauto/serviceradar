@@ -1,0 +1,252 @@
+name: Elixir Integration Tests
+
+# The serviceradar_core integration suite, against the shared SRQL/CNPG fixture.
+#
+# Every step is a Bazel target. The database lifecycle that used to live in
+# scripts/{reset,drop,sweep-stale-core}-test-db.sh is //rust/integration-db, and the
+# migrations are //elixir/serviceradar_core:migrate_template. There is no orchestration
+# script, no mix, and no Beam install.
+#
+# WHY THE SPLIT IS WHERE IT IS
+# An ex_unit_test that depends on serviceradar_core costs 28.8-45.6s before running a single
+# test -- staging a 140-application ERL_LIBS tree, copying data, starting the BEAM, loading
+# the app. Measured, not estimated: unit_tests_external ran zero tests and still took that
+# long. A rust_test in this repo starts in 0.1s. So provisioning, sweeping and teardown are
+# Rust, and only the migrations are Elixir -- they are `use Ecto.Migration` modules, and
+# nothing but Ecto.Migrator can apply them.
+#
+# THE TEMPLATE DATABASE
+# serviceradar_core carries 368 migrations, and that set only grows. Applying them per run
+# to rebuild a schema that did not change is waste that compounds, so they are applied once
+# to a long-lived `sr_core_template` and each run takes a physical copy:
+#
+#   CREATE DATABASE sr_core_test_<run> TEMPLATE sr_core_template;
+#
+# A file copy, not a replay -- which also makes it faithful in a way a schema dump would not
+# be, because TimescaleDB hypertables/caggs/retention policies and AGE graphs keep state in
+# their own catalogs that pg_dump does not round-trip.
+#
+# Whether the template needs migrating is decided by comparing the migration versions on disk
+# against its schema_migrations -- the same predicate Ecto.Migrator uses, and deliberately not
+# a recorded digest, which would go stale exactly when a migration failed half way. On a
+# branch that adds no migrations `needs_migration` is false, the Elixir step is skipped, and
+# the BEAM is off the critical path entirely.
+#
+# ORDERING
+# Bazel deliberately does not order tests, so the sequence is these separate invocations:
+#   sweep_stale_dbs -> prepare_template -> [migrate_template] -> provision_db
+#     -> integration_tests -> teardown_db
+# Each LIFECYCLE target is tagged `external`, which disables test caching. Without that a
+# rerun would be a cache hit that provisioned nothing and dropped nothing, and the job would
+# go green having done neither. They are also `manual`, so an ordinary `bazel test //...`
+# can never point DDL at the shared fixture.
+#
+# integration_tests is deliberately NOT `external`: its result is a function of its declared
+# inputs, so a BuildBuddy cache hit is a real hit and a branch that touches nothing under
+# serviceradar_core gets the suite for free.
+#
+# It is SHARDED, with a database per shard. These tests share a mutable database and Ecto's
+# SQL sandbox isolates within a BEAM VM but not across OS processes, so parallel shards
+# against ONE database deadlock (measured: 25 failures across 6 of 7 groups, mostly
+# 40P01 deadlock_detected, where each group passed run on its own). A database each is only
+# affordable because provisioning is a template file copy now; provision_db clones one per
+# shard from //build:integration_shards.bzl, which is also what generates the targets.
+#
+# Sizing, from the unsharded run: ~36s fixed per target (sandbox, 149-app ERL_LIBS staging,
+# BEAM boot) + ~39s ExUnit load + ~165s tests. Only the last two divide, so 8 shards is
+# ~36 + 204/8 ~= 62s against 240s unsharded.
+#
+# provision_db re-checks the pending set itself and refuses to clone a template that is
+# behind, so a mistake in the skip condition above fails loudly here rather than running the
+# suite against a schema that does not match the code under test.
+#
+# The per-run database name is derived from GITHUB_RUN_ID/GITHUB_RUN_ATTEMPT by every step
+# independently, so nothing is handed between steps through GITHUB_ENV.
+#
+# ONLY the tests that need a running application run here:
+# //elixir/serviceradar_core:integration_tests sets SERVICERADAR_ONLY_INTEGRATION=1, so
+# test_helper.exs selects include: [:integration, :requires_app] rather than ADDING to the
+# default set. `mix test --include integration` used to re-run the ~2700 database-free tests
+# that elixir-unit-tests.yml already covers.
+#
+# Its own workflow because it fails for its own reasons -- a fixture outage, a migration
+# break, a flaky remote database -- and folding those into main.yml made them
+# indistinguishable from a compile failure.
+#
+# Concurrency with main.yml is safe. The fixture's consumers use disjoint databases:
+#   * //rust/srql tests take pg_advisory_lock on the shared fixture and reset it
+#   * this suite creates sr_core_test_<run_id>_<attempt> and drops it again
+# That isolation already has to hold, because concurrent pull requests hit the same fixture.
+#
+# EVERY STEP CLEARS THE `manual` TAG FILTER, AND MUST
+# `--config=ci` carries `--test_tag_filters=-manual` (and `--build_tag_filters=-manual`), and
+# those filters apply to targets named EXPLICITLY on the command line -- not only to what a
+# `//...` pattern expands to. Every target in this job is tagged `manual` on purpose, so
+# without the override each step resolves to nothing and Bazel exits 4:
+#
+#   WARNING: All specified test targets were excluded by filters
+#   ERROR: No test targets were found, yet testing was requested
+#
+# which reads like a missing target rather than a filtered one. `bazel run` is filtered the
+# same way, exiting 2 with "No targets found to run". So the test steps pass
+# `--test_tag_filters=` and the run step passes `--build_tag_filters=`, both empty, which
+# disables filtering for that invocation only. Naming the target is the authorization here;
+# `manual` exists to keep it out of wildcards, which it still does.
+#
+# NOTE ON `paths`: if this workflow is made a required status check, confirm how Forgejo
+# treats a path-skipped run before relying on the filter -- a skipped required check can
+# block merges.
+on:
+  push:
+    branches: [staging]
+    paths: &core_integration_paths
+      - 'elixir/serviceradar_core/**'
+      - 'elixir/serviceradar_srql/**'
+      - 'elixir/connection/**'
+      - 'elixir/datasvc/**'
+      - 'elixir/elixir_uuid/**'
+      - 'elixir/vendor/**'
+      - 'proto/**'
+      - 'rust/anomaly-core/**'
+      - 'rust/anomaly-disposition/**'
+      - 'rust/integration-db/**'
+      - 'rust/kvutil/**'
+      - 'rust/srql/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build/elixir_test_config_loader.exs'
+      - 'build/elixir_tests.bzl'
+      - 'build/mix_app.bzl'
+      - 'third_party/crates/**'
+      - 'third_party/hex/**'
+      - '.tool-versions'
+      - '.bazelrc'
+      - 'MODULE.bazel'
+      - 'MODULE.bazel.lock'
+      - 'scripts/ci/configure-srql-fixture.sh'
+      - 'scripts/install-bazelisk.sh'
+      - '.forgejo/workflows/elixir-integration-sr-core.yml'
+  pull_request:
+    branches: [staging]
+    paths: *core_integration_paths
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core-integration:
+    name: serviceradar_core integration
+    runs-on: ubuntu24
+    env:
+      ImageOS: ubuntu24
+      BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+
+      # Reaches the tests through the --test_env list in .bazelrc.
+      SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
+      SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      # --config=ci is what supplies the BuildBuddy remote cache, the remote executors and
+      # the BES invocation link. Fail rather than silently fall back to a local-only build.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+      # Writes the fixture CA to disk and exports PGSSLROOTCERT (and friends) through
+      # GITHUB_ENV, which .bazelrc then forwards to the tests as --test_env. A Bazel action
+      # cannot do this for itself: an action that read a secret out of the environment would
+      # bake it into its action cache key.
+      - name: Configure SRQL fixture
+        if: ${{ env.SRQL_TEST_DATABASE_URL != '' && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_CA_CERT != '' }}
+        run: ./scripts/ci/configure-srql-fixture.sh
+
+      # --//build:enable_integration_tests is repeated on every bazel call below, and all six
+      # need it. Every target in this chain carries target_compatible_with =
+      # requires_shared_fixture() (build/integration_tests.bzl), which resolves to
+      # @platforms//:incompatible unless the flag is set. A wildcard would merely skip such a
+      # target; naming one explicitly, which is what this job does, is a hard error.
+      #
+      # It is not a default and should not become one. The guard exists because these targets
+      # run DDL against a CNPG fixture that concurrent pull requests share, where an accidental
+      # run is destructive rather than slow. Setting it in .bazelrc would arm every
+      # `bazel test //...` on every workstation.
+      #
+      # Regression note: the guard landed in f14be4eba (2026-08-02), two days after the last
+      # fix to this file, so until this was added step 1 exited 1 immediately with
+      #
+      #   Target //rust/integration-db:sweep_stale_dbs is incompatible and cannot be built,
+      #   but was explicitly requested.
+      #     <-- target platform (//build/rbe:rbe_platform) didn't satisfy constraint
+      #         @@platforms//:incompatible
+      #
+      # and the whole chain never ran.
+
+      # 1. Collect databases leaked by cancelled runs, before this one adds to the fixture.
+      - name: Sweep stale integration databases
+        if: ${{ env.SRQL_TEST_ADMIN_URL != '' }}
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
+
+      # 2. Create sr_core_template if absent, and report whether it is behind the migrations
+      # on disk. `bazel run`, not `bazel test`: it writes needs_migration to $GITHUB_OUTPUT,
+      # and under --config=ci a test executes on a remote executor with no access to the
+      # runner's filesystem. `bazel run` builds remotely and runs locally.
+      - name: Prepare template database
+        id: template
+        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        run: bazel run -c opt --config=ci --//build:enable_integration_tests --build_tag_filters= //rust/integration-db:prepare_template
+
+      # 3. Apply the Ecto migrations to the template. The one step that needs the BEAM, and
+      # the reason step 2 exists: on a branch that adds no migrations this is skipped and
+      # nothing in the job starts an Erlang VM until the suite itself.
+      - name: Migrate template database
+        if: ${{ steps.template.outputs.needs_migration == 'true' }}
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:migrate_template
+
+      # 4. Clone sr_core_test_<run_id>_<attempt> from the template. Re-checks the pending set
+      # itself, so a wrong skip in step 3 fails here rather than silently running the suite
+      # against a stale schema.
+      - name: Provision integration database
+        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
+
+      # 5. The suite.
+      - name: serviceradar_core integration tests
+        if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
+
+      # 6. Drop the per-run database. always() rather than success(): a red suite must not
+      # leak its database. A cancelled job never reaches this at all, which is what the sweep
+      # in step 1 is for. The template is not a `sr_core_test_*` name, so neither this nor the
+      # sweep can drop it.
+      - name: Drop integration database
+        if: ${{ always() && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
+        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db

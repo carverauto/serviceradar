@@ -525,6 +525,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
 
   defp launched_by(_payload), do: :error
 
+  # Launch responses may omit dispatch markers when AWX ignores request
+  # extra_vars (template ask_variables_on_launch disabled). Markers remain
+  # required when present so forged partial marker maps cannot pass.
+  defp dispatch_markers(nil), do: {:ok, %{}}
+  defp dispatch_markers(payload) when is_map(payload) and map_size(payload) == 0, do: {:ok, %{}}
+
   defp dispatch_markers(payload) when is_map(payload) do
     with {:ok, dispatch_id} <- uuid(value(payload, :serviceradar_dispatch_id)),
          {:ok, snapshot_digest} <- digest(value(payload, :serviceradar_snapshot_digest)) do
@@ -563,6 +569,12 @@ defmodule ServiceRadar.Automation.Ansible.AutomationResultSanitizer do
   end
 
   defp callback_name(_value), do: :error
+
+  # Pending/new launches often report an empty scm_revision before the project
+  # checkout is recorded. Accept empty/absent; non-empty values must still be
+  # exact 40- or 64-char hex revisions.
+  defp revision(nil), do: {:ok, ""}
+  defp revision(""), do: {:ok, ""}
 
   defp revision(value) when is_binary(value),
     do: if(Regex.match?(@scm_revision, value), do: {:ok, value}, else: :error)

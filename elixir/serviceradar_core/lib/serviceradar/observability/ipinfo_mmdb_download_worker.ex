@@ -11,13 +11,12 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    # Exclude :executing so the self-reschedule in perform/1 isn't deduped
-    # against the still-running job (double-seed guarded by check_existing_job).
     unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
   alias ServiceRadar.Repo
@@ -146,7 +145,11 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   end
 
   defp schedule_next(seconds) when is_integer(seconds) do
-    _ = ObanSupport.safe_insert(new(%{}, schedule_in: max(seconds, 3_600)))
+    _ =
+      ObanSupport.safe_insert(
+        SelfScheduling.successor_changeset(__MODULE__, %{}, max(seconds, 3_600))
+      )
+
     :ok
   end
 

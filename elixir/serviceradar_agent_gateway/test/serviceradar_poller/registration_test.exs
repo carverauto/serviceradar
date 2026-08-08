@@ -16,6 +16,8 @@ defmodule ServiceRadarGateway.RegistrationTest do
   alias ServiceRadar.Gateway.RegistrationWorker
   alias ServiceRadar.GatewayRegistry
 
+  @moduletag :requires_app
+
   @moduletag :integration
 
   @partition_id "test-partition"

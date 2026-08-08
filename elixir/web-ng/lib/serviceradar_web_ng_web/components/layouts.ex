@@ -75,25 +75,44 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp standard_app(assigns) do
     ~H"""
-    <div class="drawer lg:drawer-open">
-      <input id="sr-sidebar" type="checkbox" class="drawer-toggle" />
+    <div class="sr-ui-drawer lg:sr-ui-drawer-open bg-sr-canvas text-sr-ink">
+      <input id="sr-sidebar" type="checkbox" class="sr-ui-drawer-toggle" />
 
-      <div class="drawer-content flex min-h-screen flex-col">
-        <header class="sticky top-0 z-20 border-b border-base-200 bg-base-100/90 backdrop-blur">
-          <div class="px-4 sm:px-6 lg:px-8 py-3 flex flex-col gap-2">
-            <%!-- Top row: hamburger, SRQL bar, and auth buttons --%>
-            <div class="flex items-center gap-3">
+      <div class="sr-ui-drawer-content flex min-h-screen flex-col">
+        <%!-- Public shell topbar aligned with marketing/control brand chrome --%>
+        <header id="standard-topbar" class="sr-public-topbar">
+          <div class="sr-public-topbar-inner flex-col gap-2 sm:flex-row sm:items-center">
+            <div class="flex w-full items-center gap-3">
               <label
                 :if={@signed_in?}
                 for="sr-sidebar"
-                class="btn btn-ghost btn-sm lg:hidden shrink-0"
+                class="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-sr-control border border-sr-line bg-sr-control text-sr-ink shadow-sr-control outline-none transition-[transform,border-color,background-color] duration-200 ease-sr-out hover:border-sr-line-hover hover:bg-sr-subtle focus-visible:ring-2 focus-visible:ring-sr-focus active:translate-y-px lg:hidden"
                 aria-label="Open navigation"
                 title="Open navigation"
               >
                 <.icon name="hero-bars-3" class="size-5" />
               </label>
 
-              <div :if={Map.get(@srql, :enabled, false)} class="flex-1 min-w-0">
+              <.link href={~p"/"} id="standard-brand-link" class="sr-public-brand">
+                <span class="sr-public-brand-mark">
+                  <img
+                    id="standard-brand-logo"
+                    src={~p"/images/logo-animated.svg"}
+                    alt=""
+                    aria-hidden="true"
+                    width="28"
+                    height="28"
+                  />
+                </span>
+                <span class="sr-public-brand-text">
+                  <span class="sr-public-brand-name">ServiceRadar</span>
+                  <span class="sr-public-brand-tagline">
+                    Network Management, Security, and Observability
+                  </span>
+                </span>
+              </.link>
+
+              <div :if={Map.get(@srql, :enabled, false)} class="ml-auto min-w-0 flex-1 max-w-2xl">
                 <.srql_query_bar
                   query={Map.get(@srql, :query)}
                   draft={Map.get(@srql, :draft)}
@@ -105,10 +124,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   builder={Map.get(@srql, :builder, %{})}
                 />
               </div>
-              <div :if={not Map.get(@srql, :enabled, false)} class="flex-1"></div>
+              <div :if={not Map.get(@srql, :enabled, false)} class="ml-auto flex-1"></div>
 
-              <div class="flex items-center gap-2 shrink-0">
-                <.theme_toggle :if={not @signed_in?} />
+              <div class="flex shrink-0 items-center gap-2">
+                <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
 
                 <%= if not @signed_in? do %>
                   <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
@@ -116,14 +135,13 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </div>
             </div>
 
-            <%!-- Second row: breadcrumb navigation (all on one line) --%>
             <.breadcrumb_nav :if={@current_path && !@hide_breadcrumb} current_path={@current_path} />
           </div>
         </header>
 
         <div
           :if={Map.get(@srql, :builder_open, false) or Map.get(@srql, :error)}
-          class="border-b border-base-200 bg-base-100"
+          class="border-b border-sr-line bg-sr-surface"
         >
           <div class="px-4 sm:px-6 lg:px-8 py-4">
             <div :if={Map.get(@srql, :error)} class="mb-3 text-xs text-error">
@@ -146,22 +164,24 @@ defmodule ServiceRadarWebNGWeb.Layouts do
         <.flash_group flash={@flash} />
       </div>
 
-      <div :if={@signed_in?} class="drawer-side z-30 overflow-visible">
-        <label for="sr-sidebar" class="drawer-overlay" aria-label="Close navigation"></label>
-        <aside class="w-48 bg-base-100 border-r border-base-200 min-h-full flex flex-col overflow-visible">
+      <div :if={@signed_in?} class="sr-ui-drawer-side z-30 overflow-visible">
+        <label for="sr-sidebar" class="sr-ui-drawer-overlay" aria-label="Close navigation"></label>
+        <aside class="flex min-h-full w-48 flex-col overflow-visible border-r border-sr-line bg-sr-surface">
           <div class="p-3">
-            <.link href={~p"/"} class="flex items-center gap-2 mb-4">
-              <img
-                src={~p"/images/logo.svg"}
-                alt="ServiceRadar"
-                class="size-6 opacity-95"
-                width="24"
-                height="24"
-              />
-              <span class="font-semibold text-sm tracking-tight">ServiceRadar</span>
+            <.link href={~p"/"} class="sr-public-brand mb-4">
+              <span class="sr-public-brand-mark">
+                <img
+                  src={~p"/images/logo-animated.svg"}
+                  alt=""
+                  aria-hidden="true"
+                  width="28"
+                  height="28"
+                />
+              </span>
+              <span class="sr-public-brand-name">ServiceRadar</span>
             </.link>
 
-            <ul class="menu menu-sm">
+            <ul class="sr-ui-menu sr-ui-menu-sm">
               <li>
                 <.sidebar_link
                   href={~p"/dashboard"}
@@ -191,7 +211,11 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/services"}
                   label="Services"
                   icon="hero-cog-6-tooth"
-                  active={@current_path in ["/services", "/gateways"]}
+                  active={
+                    @current_path in ["/services", "/gateways"] or
+                      (@current_path &&
+                         String.starts_with?(@current_path, "/inventory/public-endpoints"))
+                  }
                 />
               </li>
               <li :if={FeatureFlags.god_view_enabled?()}>
@@ -252,60 +276,46 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             </ul>
           </div>
 
-          <div class="mt-auto p-3 border-t border-base-200">
-            <div class="dropdown dropdown-top w-full">
-              <div
-                tabindex="0"
-                role="button"
-                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 cursor-pointer w-full"
-              >
-                <div class="avatar avatar-placeholder">
-                  <div class="bg-neutral text-neutral-content w-8 rounded-full">
-                    <span class="text-xs">{user_initials(@current_scope.user.email)}</span>
+          <div class="mt-auto border-t border-sr-line p-3">
+            <.ui_dropdown
+              align="start"
+              placement="top"
+              class="w-full"
+              menu_class="w-56 max-w-56 left-0 right-auto"
+            >
+              <:trigger>
+                <div class="flex w-full cursor-pointer items-center gap-2 rounded-lg p-2 hover:bg-sr-subtle">
+                  <div class="flex size-8 items-center justify-center rounded-full bg-sr-subtle text-xs font-semibold text-sr-ink">
+                    {user_initials(@current_scope.user.email)}
                   </div>
+                  <.icon name="hero-chevron-up" class="ml-auto size-3 text-sr-muted" />
                 </div>
-                <.icon name="hero-chevron-up" class="size-3 text-base-content/50 ml-auto" />
-              </div>
-              <ul
-                tabindex="0"
-                class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
-              >
-                <li :if={@current_scope && @current_scope.user}>
-                  <div class="flex flex-col gap-1">
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
-                      Signed in as
-                    </span>
-                    <span class="text-sm font-medium truncate max-w-[180px]">
-                      {@current_scope.user.email}
-                    </span>
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/50 mt-1">
-                      Role
-                    </span>
-                    <span class="text-xs font-medium">
-                      {format_role(@current_scope.user.role)}
-                    </span>
-                  </div>
-                </li>
-                <li>
-                  <div class="flex flex-col gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
-                      Theme
-                    </span>
-                    <.theme_toggle />
-                  </div>
-                </li>
-                <li>
-                  <.link href={~p"/settings/profile"} class="text-sm">
-                    <.icon name="hero-cog-6-tooth" class="size-4" /> Account
-                  </.link>
-                </li>
-                <li>
-                  <.link href={~p"/users/log-out"} method="delete" class="text-sm">
-                    <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
-                  </.link>
-                </li>
-              </ul>
-            </div>
+              </:trigger>
+              <:item :if={@current_scope && @current_scope.user}>
+                <div class="flex flex-col gap-1 px-1 py-1">
+                  <span class="text-[10px] uppercase tracking-wider text-sr-muted">
+                    Signed in as
+                  </span>
+                  <span class="max-w-[180px] truncate text-sm font-medium text-sr-ink">
+                    {@current_scope.user.email}
+                  </span>
+                  <span class="mt-1 text-[10px] uppercase tracking-wider text-sr-muted">Role</span>
+                  <span class="text-xs font-medium text-sr-ink">
+                    {format_role(@current_scope.user.role)}
+                  </span>
+                </div>
+              </:item>
+              <:item>
+                <.link href={~p"/settings/profile"}>
+                  <.icon name="hero-cog-6-tooth" class="size-4" /> Account
+                </.link>
+              </:item>
+              <:item>
+                <.link href={~p"/users/log-out"} method="delete">
+                  <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
+                </.link>
+              </:item>
+            </.ui_dropdown>
           </div>
         </aside>
       </div>
@@ -362,12 +372,20 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       </aside>
 
       <div class="sr-ops-main">
-        <header class="sr-ops-topbar">
+        <header id="ops-topbar" class="sr-ops-topbar">
           <div class="sr-ops-topbar-title">
             <div class="sr-ops-topbar-brand">
-              <img src={~p"/images/logo.svg"} alt="" class="size-7" width="28" height="28" />
+              <span class="sr-ops-brand-mark" aria-hidden="true">
+                <img
+                  id="ops-brand-logo"
+                  src={~p"/images/logo-animated.svg"}
+                  alt=""
+                  width="28"
+                  height="28"
+                />
+              </span>
               <span class="sr-ops-brand-name">{@brand_name}</span>
-              <span :if={@show_page_title?} class="sr-ops-topbar-divider"></span>
+              <span :if={@show_page_title?} class="sr-ops-topbar-divider" aria-hidden="true"></span>
             </div>
             <h1 :if={@show_page_title?} class="sr-ops-page-title">
               {@page_title}
@@ -391,47 +409,42 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           </div>
 
           <div class="sr-ops-topbar-actions">
-            <.theme_toggle />
+            <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
             <.link
-              navigate={~p"/alerts"}
+              navigate={~p"/observability/alerts"}
               class="sr-ops-topbar-icon"
               aria-label="Alerts"
               title="Alerts"
             >
               <.icon name="hero-bell-alert" class="size-5" />
             </.link>
-            <div class="dropdown dropdown-end">
-              <div
-                tabindex="0"
-                role="button"
-                class="sr-ops-avatar"
+            <details id="ops-profile-menu" class="group relative">
+              <summary
+                id="ops-profile-menu-toggle"
+                class="sr-ops-avatar cursor-pointer list-none outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden"
                 aria-label="Open profile menu"
-                aria-haspopup="true"
                 title={profile_title(@current_scope)}
               >
                 <.icon name="hero-user-circle" class="size-6" />
-              </div>
-              <ul
-                tabindex="0"
-                class="dropdown-content menu bg-base-200 rounded-box z-[60] mt-2 w-52 p-2 shadow-lg"
-              >
-                <li>
-                  <.link navigate={~p"/settings/profile"} class="text-sm">
+              </summary>
+              <ul class="sr-ops-profile-menu" role="menu">
+                <li role="none">
+                  <.link navigate={~p"/settings/profile"} role="menuitem">
                     <.icon name="hero-user-circle" class="size-4" /> Profile
                   </.link>
                 </li>
-                <li>
-                  <a href="/api/v2/swaggerui" target="_blank" rel="noopener" class="text-sm">
+                <li role="none">
+                  <a href="/api/v2/swaggerui" target="_blank" rel="noopener" role="menuitem">
                     <.icon name="hero-code-bracket" class="size-4" /> API docs
                   </a>
                 </li>
-                <li>
-                  <.link href={~p"/users/log-out"} method="delete" class="text-sm">
+                <li role="none">
+                  <.link href={~p"/users/log-out"} method="delete" role="menuitem">
                     <.icon name="hero-arrow-right-on-rectangle" class="size-4" /> Log out
                   </.link>
                 </li>
               </ul>
-            </div>
+            </details>
           </div>
         </header>
 
@@ -510,9 +523,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       href == "/observability" ->
         current_path in ["/observability", "/logs", "/events", "/alerts"] or
-          String.starts_with?(current_path, "/observability/flows") or
-          String.starts_with?(current_path, "/observability/bmp") or
-          String.starts_with?(current_path, "/observability/bgp") or
+          String.starts_with?(current_path, "/observability/") or
           String.starts_with?(current_path, "/logs/") or
           String.starts_with?(current_path, "/events/") or
           String.starts_with?(current_path, "/alerts/")
@@ -540,6 +551,12 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/events"), do: "Events"
   defp operations_page_title("/alerts"), do: "Alerts"
   defp operations_page_title("/observability"), do: "Observability"
+  defp operations_page_title("/observability/logs"), do: "Logs"
+  defp operations_page_title("/observability/traces"), do: "Traces"
+  defp operations_page_title("/observability/metrics"), do: "Metrics"
+  defp operations_page_title("/observability/events"), do: "Events"
+  defp operations_page_title("/observability/alerts"), do: "Alerts"
+  defp operations_page_title("/observability/netflows"), do: "Network Flows"
   defp operations_page_title("/observability/flows"), do: "Network Flows"
   defp operations_page_title("/observability/flows/attributed"), do: "Attributed Flows"
   defp operations_page_title("/security"), do: "Security"
@@ -592,38 +609,39 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     assigns = assign(assigns, :crumbs, crumbs)
 
     ~H"""
-    <nav class="text-xs sm:text-sm">
-      <div class="breadcrumbs">
-        <ul class="flex items-center flex-wrap min-w-0">
-          <li>
-            <.link
-              href={~p"/dashboard"}
-              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-              title="Home"
-            >
-              <.icon name="hero-home-micro" class="size-3.5" />
-            </.link>
-          </li>
-          <li :for={crumb <- @crumbs}>
-            <.link
-              :if={crumb.href != nil}
-              href={crumb.href}
-              class="flex items-center gap-1.5 text-base-content/60 hover:text-base-content"
-              title={crumb.label}
-            >
-              <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
-              <span>{crumb.label}</span>
-            </.link>
-            <span
-              :if={crumb.href == nil}
-              class="flex items-center gap-1.5 font-medium text-base-content truncate max-w-[20rem]"
-              title={crumb.label}
-            >
-              {crumb.label}
-            </span>
-          </li>
-        </ul>
-      </div>
+    <nav aria-label="Breadcrumb" class="w-full text-xs sm:text-sm">
+      <ol class="flex min-w-0 flex-wrap items-center gap-1.5 text-sr-muted">
+        <li class="flex items-center gap-1.5">
+          <.link
+            href={~p"/dashboard"}
+            class="inline-flex items-center gap-1.5 rounded-sr-small px-1 py-0.5 outline-none transition-colors hover:text-sr-ink focus-visible:ring-2 focus-visible:ring-sr-focus"
+            title="Home"
+          >
+            <.icon name="hero-home-micro" class="size-3.5" />
+            <span class="sr-only">Home</span>
+          </.link>
+        </li>
+        <li :for={crumb <- @crumbs} class="flex min-w-0 items-center gap-1.5">
+          <span class="text-sr-line-strong" aria-hidden="true">/</span>
+          <.link
+            :if={crumb.href != nil}
+            href={crumb.href}
+            class="inline-flex min-w-0 items-center gap-1.5 rounded-sr-small px-1 py-0.5 outline-none transition-colors hover:text-sr-ink focus-visible:ring-2 focus-visible:ring-sr-focus"
+            title={crumb.label}
+          >
+            <.icon :if={crumb.icon} name={crumb.icon} class="size-3.5 shrink-0" />
+            <span class="truncate">{crumb.label}</span>
+          </.link>
+          <span
+            :if={crumb.href == nil}
+            class="inline-flex min-w-0 max-w-[20rem] items-center gap-1.5 truncate px-1 py-0.5 font-medium text-sr-ink"
+            title={crumb.label}
+            aria-current="page"
+          >
+            {crumb.label}
+          </span>
+        </li>
+      </ol>
     </nav>
     """
   end
@@ -782,37 +800,50 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   @doc """
-  Provides dark vs light theme toggle based on themes defined in app.css.
+  Dark / light / system theme toggle.
+
+  **Not rendered in the topbar by default** — the app forces dark mode via
+  `theme_init.js`. Keep this component and the `phx:set-theme` listener so the
+  control can be dropped back into layouts later if needed.
 
   See <head> in root.html.heex which applies the theme before page load.
   """
   def theme_toggle(assigns) do
     ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+    <div
+      id="theme-toggle"
+      class="relative flex flex-row items-center rounded-full border border-sr-line bg-sr-subtle shadow-sr-control"
+    >
+      <div class="absolute left-0 h-full w-1/3 rounded-full border border-sr-line bg-sr-raised shadow-sr-control transition-[left] duration-200 ease-sr-out [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3" />
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
+        aria-label="System theme"
       >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-computer-desktop-micro" class="size-4" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
+        aria-label="Light theme"
       >
-        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-sun-micro" class="size-4" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="relative z-[1] flex w-1/3 cursor-pointer p-2 text-sr-muted outline-none transition-colors hover:text-sr-ink focus-visible:text-sr-ink"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
+        aria-label="Dark theme"
       >
-        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
+        <.icon name="hero-moon-micro" class="size-4" />
       </button>
     </div>
     """

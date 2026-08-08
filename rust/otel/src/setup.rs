@@ -42,18 +42,20 @@ pub fn parse_bind_address(config: &Config) -> Result<SocketAddr, Box<dyn std::er
 /// Logs configuration information
 pub fn log_configuration_info(config: &Config) {
     // Log NATS configuration
-    if let Some(nats) = config.nats_config() {
-        info!(
-            "NATS output enabled - URL: {}, Subject: {}, Stream: {}",
-            nats.url, nats.subject, nats.stream
-        );
-        debug!("NATS timeout: {:?}", nats.timeout);
-        debug!("NATS creds file: {:?}", nats.creds_file);
-        debug!("NATS TLS cert: {:?}", nats.tls_cert);
-        debug!("NATS TLS key: {:?}", nats.tls_key);
-        debug!("NATS TLS CA: {:?}", nats.tls_ca);
-    } else {
-        info!("NATS output disabled (no [nats] section in config)");
+    match config.nats_config() {
+        Ok(Some(nats)) => {
+            info!(
+                "NATS output enabled - URL: {}, Subject: {}, Stream: {}",
+                nats.url, nats.subject, nats.stream
+            );
+            debug!("NATS timeout: {:?}", nats.timeout);
+            debug!("NATS creds file: {:?}", nats.creds_file);
+            debug!("NATS TLS cert: {:?}", nats.tls_cert);
+            debug!("NATS TLS key: {:?}", nats.tls_key);
+            debug!("NATS TLS CA: {:?}", nats.tls_ca);
+        }
+        Ok(None) => info!("NATS output disabled (no [nats] section in config)"),
+        Err(error) => log::error!("NATS output configuration is invalid: {error:#}"),
     }
 
     // Log gRPC TLS configuration (delegated to tls module)

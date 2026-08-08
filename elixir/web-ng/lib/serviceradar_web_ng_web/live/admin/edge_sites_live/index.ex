@@ -107,8 +107,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       >
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Edge Sites & NATS</h1>
-            <p class="text-sm text-base-content/60">
+            <h1 class="text-2xl font-semibold text-sr-ink">Edge Sites & NATS</h1>
+            <p class="text-sm text-sr-muted">
               Manage edge sites and NATS leaf deployments.
             </p>
           </div>
@@ -128,14 +128,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
           <:header>
             <div>
               <div class="text-sm font-semibold">Edge Sites</div>
-              <p class="text-xs text-base-content/60">
+              <p class="text-xs text-sr-muted">
                 {@sites |> length()} site(s)
               </p>
             </div>
             <div class="flex gap-2">
               <select
                 name="status"
-                class="select select-sm select-bordered"
+                class={ui_field_class(size: "sm")}
                 phx-change="filter"
               >
                 <option value="">All Statuses</option>
@@ -148,12 +148,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
           <div class="overflow-x-auto">
             <%= if @sites == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
-                  <.icon name="hero-building-office-2" class="size-6 text-primary" />
+              <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-sr-brand/10 mb-4">
+                  <.icon name="hero-building-office-2" class="size-6 text-sr-brand" />
                 </div>
-                <div class="text-sm font-semibold text-base-content">No edge sites</div>
-                <p class="mt-1 text-xs text-base-content/60">
+                <div class="text-sm font-semibold text-sr-ink">No edge sites</div>
+                <p class="mt-1 text-xs text-sr-muted">
                   Create an edge site to deploy a NATS leaf server in your network.
                 </p>
                 <div class="mt-4">
@@ -163,9 +163,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                 </div>
               </div>
             <% else %>
-              <table class="table table-sm">
+              <table class={ui_table_class(size: "sm")}>
                 <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
                     <th>Site</th>
                     <th>Status</th>
                     <th>NATS Leaf</th>
@@ -176,10 +176,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                 </thead>
                 <tbody>
                   <%= for site <- @sites do %>
-                    <tr class="hover:bg-base-200/30">
+                    <tr class="hover:bg-sr-subtle/30">
                       <td>
                         <div class="font-medium">{site.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">{site.slug}</div>
+                        <div class="text-xs text-sr-muted font-mono">{site.slug}</div>
                       </td>
                       <td>
                         <.site_status_badge status={site.status} />
@@ -187,10 +187,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                       <td>
                         <.leaf_status site={site} />
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_relative_time(site.last_seen_at)}
                       </td>
-                      <td class="text-xs text-base-content/70">
+                      <td class="text-xs text-sr-muted">
                         {format_datetime(site.inserted_at)}
                       </td>
                       <td>
@@ -218,11 +218,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   defp info_card(assigns) do
     ~H"""
-    <div class="alert alert-info">
+    <div class={ui_alert_class("info")}>
       <.icon name="hero-information-circle" class="size-5" />
       <div>
         <div class="font-semibold">Edge NATS Leaf Deployment</div>
-        <div class="text-xs text-base-content/70">
+        <div class="text-xs text-sr-muted">
           Edge sites deploy NATS leaf servers in your network. Collectors connect to the local
           leaf server for low latency and WAN resilience. The leaf forwards messages to the
           SaaS cluster.
@@ -234,82 +234,71 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   defp create_modal(assigns) do
     ~H"""
-    <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_create_modal"
-          >
-            x
-          </button>
-        </form>
+    <.ui_modal id="create_modal" on_cancel="close_create_modal">
+      <:title>Create Edge Site</:title>
 
-        <h3 class="text-lg font-bold">Create Edge Site</h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Create a new edge site to deploy a NATS leaf server in your network.
-        </p>
+      <p class="text-sm text-sr-muted">
+        Create a new edge site to deploy a NATS leaf server in your network.
+      </p>
 
-        <form phx-submit="create_site" class="mt-4 space-y-4">
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Site Name</span>
-            </label>
-            <input
-              type="text"
-              name="name"
-              class="input input-bordered w-full"
-              placeholder="e.g., NYC Office, Factory Floor 3"
-              required
-            />
-          </div>
+      <form phx-submit="create_site" class="space-y-4">
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Site Name</span>
+          </label>
+          <input
+            type="text"
+            name="name"
+            class={ui_field_class(class: "w-full")}
+            placeholder="e.g., NYC Office, Factory Floor 3"
+            required
+          />
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Slug</span>
-            </label>
-            <input
-              type="text"
-              name="slug"
-              class="input input-bordered w-full font-mono"
-              placeholder="e.g., nyc-office, factory-3"
-              pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]|[a-z0-9]"
-            />
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                Lowercase letters, numbers, and dashes only. Leave blank to auto-generate.
-              </span>
-            </label>
-          </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Slug</span>
+          </label>
+          <input
+            type="text"
+            name="slug"
+            class={ui_field_class(mono: true, class: "w-full")}
+            placeholder="e.g., nyc-office, factory-3"
+            pattern="[a-z0-9][a-z0-9\-]*[a-z0-9]|[a-z0-9]"
+          />
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              Lowercase letters, numbers, and dashes only. Leave blank to auto-generate.
+            </span>
+          </label>
+        </div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Local NATS URL (optional)</span>
-            </label>
-            <input
-              type="text"
-              name="nats_leaf_url"
-              class="input input-bordered w-full font-mono"
-              placeholder="e.g., nats://10.0.1.50:4222"
-            />
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                The URL collectors will use to connect to the local NATS leaf.
-                Update after deployment if unknown.
-              </span>
-            </label>
-          </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Local NATS URL (optional)</span>
+          </label>
+          <input
+            type="text"
+            name="nats_leaf_url"
+            class={ui_field_class(mono: true, class: "w-full")}
+            placeholder="e.g., nats://10.0.1.50:4222"
+          />
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-xs text-sr-muted">
+              The URL collectors will use to connect to the local NATS leaf.
+              Update after deployment if unknown.
+            </span>
+          </label>
+        </div>
 
-          <div class="modal-action">
-            <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Create Site</button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_create_modal">close</button>
+        <div class="flex justify-end gap-2 pt-1">
+          <.ui_button type="button" phx-click="close_create_modal" size="sm" variant="neutral">
+            Cancel
+          </.ui_button>
+          <.ui_button type="submit" size="sm" variant="primary">Create Site</.ui_button>
+        </div>
       </form>
-    </dialog>
+    </.ui_modal>
     """
   end
 
@@ -348,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
             <span class="status status-error"></span>
             <span class="text-xs">Disconnected</span>
           <% :pending -> %>
-            <span class="loading loading-spinner loading-xs"></span>
+            <.ui_spinner size="xs" />
             <span class="text-xs">Provisioning</span>
           <% _ -> %>
             <span class="status status-neutral"></span>
@@ -356,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         <% end %>
       </div>
     <% else %>
-      <span class="text-xs text-base-content/50">-</span>
+      <span class="text-xs text-sr-muted">-</span>
     <% end %>
     """
   end
