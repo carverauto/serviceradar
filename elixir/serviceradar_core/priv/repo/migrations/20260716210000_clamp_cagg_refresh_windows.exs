@@ -41,6 +41,12 @@ defmodule ServiceRadar.Repo.Migrations.ClampCaggRefreshWindows do
   ]
 
   def up do
+    # serviceradar:allow-startup-maintenance - this only re-registers Timescale
+    # continuous-aggregate refresh POLICIES; it does not refresh or backfill any
+    # materialized view. add_continuous_aggregate_policy writes a background-job
+    # catalog row and returns -- the refresh happens later on the job's own
+    # schedule. Bounded at eleven views, and a no-op on first boot, where the
+    # EXISTS guard finds no continuous aggregates to clamp.
     for {view, start_offset, end_offset, schedule} <- @clamps do
       execute(reset_policy_sql(view, start_offset, end_offset, schedule))
     end
