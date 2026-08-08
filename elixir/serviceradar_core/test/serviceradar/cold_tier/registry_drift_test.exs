@@ -8,7 +8,16 @@ defmodule ServiceRadar.ColdTier.RegistryDriftTest do
   database (`mix test --include integration` with a test database configured).
   """
 
-  use ExUnit.Case, async: false
+  # DataCase, not a bare ExUnit.Case: this is the only cold-tier test that queries the
+  # Repo, and a bare case checks out no sandbox connection, so the query died with
+  #
+  #   ** (DBConnection.OwnershipError) cannot find ownership process for #PID<...>
+  #      (ServiceRadar.Repo) using mode :manual.
+  #
+  # It never surfaced locally because the whole module is `:integration` and therefore
+  # excluded from every run without a database. DataCase also carries `:requires_app`,
+  # which the integration target already includes.
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.ColdTier.Registry
 
