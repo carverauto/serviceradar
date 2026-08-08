@@ -210,16 +210,24 @@ jobs:
       #
       # and the whole chain never ran.
 
-      # `--strategy=TestRunner=local` on every //rust/integration-db step below.
+      # `--strategy=TestRunner=local` on every step below that talks to the fixture.
       #
-      # These reach the shared fixture over the network, and a BuildBuddy RBE executor cannot
-      # resolve its hostname:
+      # The fixture is addressed by a KUBERNETES-INTERNAL name, so no BuildBuddy RBE executor
+      # can ever reach it -- this is structural, not a flaky executor:
       #
       #   sweep failed: error connecting to server
       #       failed to lookup address information: Name or service not known
       #
-      # The runner can; it is inside the cluster. //elixir/serviceradar_core:migrate_template
-      # already sits on the runner for the same reason, via a `no-remote-exec` tag.
+      #   tcp connect (srql-fixture-rw.srql-fixtures.svc.cluster.local:5432):
+      #       non-existing domain - :nxdomain
+      #   Executed 8 out of 8 tests: 8 fail remotely.
+      #
+      # The runner resolves it; it is inside the cluster.
+      # //elixir/serviceradar_core:migrate_template already sits on the runner for this exact
+      # reason, via a `no-remote-exec` tag. Everything else that opens a connection now
+      # matches it, including the sharded suite -- the second error above is what proved the
+      # shards need it too, and it is why the note further down in
+      # //rust/integration-db/BUILD.bazel claiming the shards "run fully remote" was wrong.
       #
       # The tag is deliberately NOT the fix here -- see the long comment in
       # //rust/integration-db/BUILD.bazel. Tags propagate from a *_test rule to its COMPILE
@@ -230,6 +238,10 @@ jobs:
       # `--strategy=` selects per MNEMONIC, and `TestRunner` is the test action alone. Compiles
       # stay remote and cached; only the test binary runs where the fixture is reachable. Scoped
       # to these invocations rather than //.bazelrc so it cannot leak into other jobs.
+      #
+      # This does NOT serialize the shards: the local strategy still runs actions concurrently
+      # up to --jobs. It trades RBE's executor count for the runner's cores, which is the price
+      # of the tests being able to open a connection at all.
 
       # 1. Collect databases leaked by cancelled runs, before this one adds to the fixture.
       - name: Sweep stale integration databases
@@ -262,7 +274,7 @@ jobs:
       # 5. The suite.
       - name: serviceradar_core integration tests
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
+        run: bazel test -c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors //elixir/serviceradar_core:integration_tests
 
       # 6. Drop the per-run database. always() rather than success(): a red suite must not
       # leak its database. A cancelled job never reaches this at all, which is what the sweep
