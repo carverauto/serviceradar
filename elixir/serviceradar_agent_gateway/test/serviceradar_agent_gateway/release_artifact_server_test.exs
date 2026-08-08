@@ -1,13 +1,13 @@
 defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   import Plug.Conn
   import Plug.Test
 
   alias ServiceRadar.Plugins.StorageToken
   alias ServiceRadarAgentGateway.ReleaseArtifactServer
+
+  @moduletag :requires_app
 
   test "returns forbidden when core authorization rejects the download" do
     conn =

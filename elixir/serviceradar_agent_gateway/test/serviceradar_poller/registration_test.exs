@@ -13,10 +13,10 @@ defmodule ServiceRadarGateway.RegistrationTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Gateway.RegistrationWorker
   alias ServiceRadar.GatewayRegistry
+
+  @moduletag :requires_app
 
   @moduletag :integration
 

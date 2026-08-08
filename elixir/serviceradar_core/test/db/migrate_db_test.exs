@@ -26,14 +26,14 @@ defmodule ServiceRadar.DB.MigrateTest do
   """
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Repo
+
   @moduletag :migrate_db
   # Bazel already bounds this target's wall clock (size = "enormous"). A second, shorter
   # ExUnit budget on top of it is not a safety net -- it kills the migrator mid-run and
   # leaves a half-applied schema that the next attempt trips over ("relation ... already
   # exists"). One owner for the deadline, and it is Bazel.
   @moduletag timeout: :infinity
-
-  alias ServiceRadar.Repo
 
   test "migrations apply cleanly to the integration database" do
     # with_repo starts the repo and its dependencies, runs the function, and stops it
@@ -52,7 +52,7 @@ defmodule ServiceRadar.DB.MigrateTest do
         migrations failed: #{inspect(reason)}
 
         Repo config in effect:
-        #{inspect(Application.get_env(:serviceradar_core, Repo) |> Keyword.drop([:password]))}
+        #{:serviceradar_core |> Application.get_env(Repo) |> Keyword.delete(:password) |> inspect()}
         """)
     end
   end

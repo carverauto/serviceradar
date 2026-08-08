@@ -1483,9 +1483,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       with {:ok, credentials} <-
              resolve_controller_credentials(params, controller_credentials(ctrl)),
            {:ok, updated} <-
-             Controller.update_controller(ctrl, controller_attrs(params, credentials),
-               actor: actor()
-             ) do
+             Controller.update_controller(ctrl, controller_attrs(params, credentials), actor: actor()) do
         updated
       else
         {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
@@ -1567,11 +1565,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp optional_credential_purpose("execution_credential_secret_id"), do: :execution
   defp optional_credential_purpose("callback_credential_secret_id"), do: :callback
 
-  defp optional_credential_token_param("execution_credential_secret_id"),
-    do: "execution_awx_api_token"
+  defp optional_credential_token_param("execution_credential_secret_id"), do: "execution_awx_api_token"
 
-  defp optional_credential_token_param("callback_credential_secret_id"),
-    do: "callback_awx_api_token"
+  defp optional_credential_token_param("callback_credential_secret_id"), do: "callback_awx_api_token"
 
   defp create_awx_token_secret(params, token, purpose) do
     case NetworkCredentialSecret.create_secret(
@@ -1872,11 +1868,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
-    do: PlaybookSchedule.disable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
-    do: PlaybookSchedule.enable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
 
   defp validate_and_normalize_schedule(params) do
     with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
@@ -2022,14 +2016,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     %{
       run_detail_days: base.run_detail_days,
       run_summary_days: base.run_summary_days,
-      interval_seconds:
-        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
       catalog_base_dir:
         Application.get_env(
           :serviceradar_core,
@@ -2109,8 +2099,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp format_ash_error(other), do: String.slice(inspect(other), 0, 240)
 
-  defp format_ash_error_detail(%{field: field, message: message})
-       when not is_nil(field) and is_binary(message) do
+  defp format_ash_error_detail(%{field: field, message: message}) when not is_nil(field) and is_binary(message) do
     "#{field} #{message}"
   end
 

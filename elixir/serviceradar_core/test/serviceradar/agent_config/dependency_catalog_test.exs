@@ -1,8 +1,6 @@
 defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Notifier.Notification
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
@@ -18,6 +16,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
+
+  @moduletag :requires_app
 
   defmodule CommandBus do
     @moduledoc false

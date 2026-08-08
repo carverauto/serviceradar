@@ -597,6 +597,11 @@ func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {
 }
 
 func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
+	// A redirect rejection is not a status error, so isRetryableReleaseDownloadError
+	// classifies it transient and downloadReleaseArtifact burns the full 1s+2s+4s
+	// backoff before returning it. Without this the test costs 7s.
+	shrinkReleaseDownloadBackoff(t)
+
 	binaryData := []byte("binary")
 	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
@@ -631,6 +636,8 @@ func TestStageAgentReleaseRejectsRedirectToDifferentHTTPSHost(t *testing.T) {
 }
 
 func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
+	shrinkReleaseDownloadBackoff(t)
+
 	binaryData := []byte("binary")
 	insecureServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))
@@ -659,6 +666,8 @@ func TestStageAgentReleaseRejectsRedirectToHTTP(t *testing.T) {
 }
 
 func TestStageAgentReleaseRejectsGatewayRedirectToDifferentHost(t *testing.T) {
+	shrinkReleaseDownloadBackoff(t)
+
 	binaryData := []byte("gateway-binary")
 	artifactServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "artifact", time.Unix(0, 0), bytes.NewReader(binaryData))

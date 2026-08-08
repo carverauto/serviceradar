@@ -66,8 +66,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
             </div>
           </div>
         </.link>
-        
-    <!-- Availability -->
+
+        <!-- Availability -->
         <.link
           navigate={~p"/devices?q=in:devices is_available:true"}
           class="block group"
@@ -106,8 +106,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
             </div>
           </div>
         </.link>
-        
-    <!-- Top Device Type -->
+
+        <!-- Top Device Type -->
         <Breakdown.device_breakdown_card
           title="By Type"
           items={@by_type}
@@ -116,8 +116,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
           filter_field="type"
           empty_text="No type data"
         />
-        
-    <!-- Top Vendor -->
+
+        <!-- Top Vendor -->
         <Breakdown.device_breakdown_card
           title="By Vendor"
           items={@by_vendor}

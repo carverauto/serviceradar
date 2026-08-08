@@ -38,7 +38,7 @@ base_name =
 database =
   case System.get_env("SERVICERADAR_TEST_DB_SHARD") do
     shard when is_binary(shard) and shard != "" ->
-      unless String.match?(shard, ~r/\A[a-z0-9_]+\z/) do
+      if !String.match?(shard, ~r/\A[a-z0-9_]+\z/) do
         raise "SERVICERADAR_TEST_DB_SHARD must be [a-z0-9_]+, got #{inspect(shard)}"
       end
 
@@ -52,10 +52,11 @@ database =
 # target, so a developer pointing at their own database is never overridden.
 base = System.get_env("SRQL_TEST_DATABASE_URL")
 
-if is_binary(base) and base != "" and System.get_env("SERVICERADAR_TEST_DATABASE_URL") in [nil, ""] do
+if is_binary(base) and base != "" and
+     System.get_env("SERVICERADAR_TEST_DATABASE_URL") in [nil, ""] do
   uri = URI.parse(base)
 
-  unless uri.scheme in ["postgres", "postgresql", "ecto"] do
+  if uri.scheme not in ["postgres", "postgresql", "ecto"] do
     raise "SRQL_TEST_DATABASE_URL has unexpected scheme #{inspect(uri.scheme)}"
   end
 

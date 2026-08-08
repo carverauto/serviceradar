@@ -1,17 +1,19 @@
-package metricpoint
+package metricpoint_test
 
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/carverauto/serviceradar/go/pkg/metricpoint"
 )
 
 func TestGaugeShape(t *testing.T) {
-	m := Gauge("cpu.usage", 42.5, 1000, WithUnit("%"), WithMetricType("cpu"))
+	m := metricpoint.Gauge("cpu.usage", 42.5, 1000, metricpoint.WithUnit("%"), metricpoint.WithMetricType("cpu"))
 
-	if m.Schema != Schema || m.SchemaVersion != SchemaVersion {
+	if m.Schema != metricpoint.Schema || m.SchemaVersion != metricpoint.SchemaVersion {
 		t.Fatalf("schema/version = %s/%d", m.Schema, m.SchemaVersion)
 	}
-	if m.Kind != KindGauge || m.IsMonotonic != nil {
+	if m.Kind != metricpoint.KindGauge || m.IsMonotonic != nil {
 		t.Fatalf("gauge kind/monotonic = %s/%v (monotonic must be absent for a gauge)", m.Kind, m.IsMonotonic)
 	}
 	if m.Unit != "%" || m.MetricType != "cpu" {
@@ -23,10 +25,10 @@ func TestGaugeShape(t *testing.T) {
 }
 
 func TestCounterIsCumulativeMonotonicSum(t *testing.T) {
-	m := Counter("net.bytes", 4_000_000_000, 2000, 1000, WithUnit("By"))
+	m := metricpoint.Counter("net.bytes", 4_000_000_000, 2000, 1000, metricpoint.WithUnit("By"))
 
-	if m.Kind != KindSum || m.IsMonotonic == nil || !*m.IsMonotonic ||
-		m.Temporality != TemporalityCumulative {
+	if m.Kind != metricpoint.KindSum || m.IsMonotonic == nil || !*m.IsMonotonic ||
+		m.Temporality != metricpoint.TemporalityCumulative {
 		t.Fatalf("counter shape = %s/%v/%s", m.Kind, m.IsMonotonic, m.Temporality)
 	}
 	if m.Points[0].StartTimeUnixNano != 1000 {
@@ -38,8 +40,8 @@ func TestCounterIsCumulativeMonotonicSum(t *testing.T) {
 // than omitting it — otherwise it is indistinguishable from a kind where
 // monotonicity is irrelevant. Regression test for fj #3788 review (REC7a).
 func TestNonMonotonicSumSerializesFalse(t *testing.T) {
-	m := Multi("queue.depth", KindSum, false, TemporalityCumulative,
-		[]DataPoint{Point(5, 1000, nil)})
+	m := metricpoint.Multi("queue.depth", metricpoint.KindSum, false, metricpoint.TemporalityCumulative,
+		[]metricpoint.DataPoint{metricpoint.Point(5, 1000, nil)})
 
 	if m.IsMonotonic == nil || *m.IsMonotonic {
 		t.Fatalf("non-monotonic sum monotonic = %v, want non-nil false", m.IsMonotonic)
@@ -60,10 +62,10 @@ func TestNonMonotonicSumSerializesFalse(t *testing.T) {
 }
 
 func TestMultiPointDimensions(t *testing.T) {
-	m := Multi("cpu.usage", KindGauge, false, "", []DataPoint{
-		Point(10, 1000, map[string]string{"core_id": "0"}),
-		Point(20, 1000, map[string]string{"core_id": "1"}),
-	}, WithUnit("%"))
+	m := metricpoint.Multi("cpu.usage", metricpoint.KindGauge, false, "", []metricpoint.DataPoint{
+		metricpoint.Point(10, 1000, map[string]string{"core_id": "0"}),
+		metricpoint.Point(20, 1000, map[string]string{"core_id": "1"}),
+	}, metricpoint.WithUnit("%"))
 
 	if len(m.Points) != 2 {
 		t.Fatalf("want 2 points, got %d", len(m.Points))
@@ -74,9 +76,9 @@ func TestMultiPointDimensions(t *testing.T) {
 }
 
 func TestMarshalsCanonicalFields(t *testing.T) {
-	m := Counter("io.rbytes", 100, 2000, 1000,
-		WithUnit("By"),
-		WithResource(Resource{ServiceName: "sysmon", Attributes: map[string]string{"host_id": "h1"}}),
+	m := metricpoint.Counter("io.rbytes", 100, 2000, 1000,
+		metricpoint.WithUnit("By"),
+		metricpoint.WithResource(metricpoint.Resource{ServiceName: "sysmon", Attributes: map[string]string{"host_id": "h1"}}),
 	)
 
 	b, err := json.Marshal(m)
@@ -94,7 +96,7 @@ func TestMarshalsCanonicalFields(t *testing.T) {
 			t.Errorf("missing canonical field %q in %s", key, b)
 		}
 	}
-	if decoded["schema"] != Schema {
+	if decoded["schema"] != metricpoint.Schema {
 		t.Errorf("schema = %v", decoded["schema"])
 	}
 }

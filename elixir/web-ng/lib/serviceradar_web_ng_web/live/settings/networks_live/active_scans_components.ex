@@ -41,8 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
           <div class="text-xs text-sr-muted uppercase tracking-wide">Running</div>
           <div class="text-2xl font-bold mt-1 flex items-center gap-2">
             {length(@running)}
-            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse">
-            </span>
+            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
           </div>
         </div>
         <div class="bg-sr-subtle/50 rounded-lg p-4">
@@ -67,8 +66,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
           <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
         </div>
       </div>
-      
-    <!-- Scanner Metrics Summary (only if we have metrics) -->
+
+      <!-- Scanner Metrics Summary (only if we have metrics) -->
       <div :if={@aggregate_metrics.has_data} class="bg-sr-subtle/30 rounded-lg p-4">
         <div class="flex items-center gap-2 mb-3">
           <.icon name="hero-chart-bar" class="size-4 text-sr-muted" />
@@ -329,8 +328,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
           </div>
         </div>
       </div>
-      
-    <!-- Progress bar with real-time updates -->
+
+      <!-- Progress bar with real-time updates -->
       <div class="mt-3">
         <div class="h-1.5 bg-sr-control rounded-full overflow-hidden">
           <div

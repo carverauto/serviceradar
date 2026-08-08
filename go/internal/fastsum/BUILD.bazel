@@ -17,5 +17,5 @@ go_library(
 go_test(
     name = "fastsum_test",
     srcs = ["api_test.go"],
-    embed = [":fastsum"],
+    deps = [":fastsum"],
 )

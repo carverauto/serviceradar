@@ -359,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     # incidental numbers (size-7, py-2, ring offsets), so `html =~ "7"` passes
     # on an undecorated render and proves nothing.
     defp badge_counts(html) do
-      Regex.scan(~r/ml-auto[^>]*>\s*(\d+)\s*</, html) |> Enum.map(&List.last/1)
+      ~r/ml-auto[^>]*>\s*(\d+)\s*</ |> Regex.scan(html) |> Enum.map(&List.last/1)
     end
 
     test "a decorated view renders its count in the nav" do

@@ -115,8 +115,7 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
             <span class={[
               "mt-1 size-1.5 shrink-0 rounded-full",
               severity_dot_class(entry.severity)
-            ]}>
-            </span>
+            ]}></span>
             <div class="min-w-0 flex-1 overflow-hidden">
               <div class="flex min-w-0 items-baseline justify-between gap-2">
                 <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>

@@ -56,8 +56,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     <.icon name="hero-arrow-top-right-on-square" class="size-3" />
                   </.ui_button>
                 </div>
-                
-    <!-- Traffic Bar -->
+
+                <!-- Traffic Bar -->
                 <div class="flex-1">
                   <div class="relative h-6 bg-sr-subtle rounded overflow-hidden">
                     <div
@@ -72,8 +72,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     </div>
                   </div>
                 </div>
-                
-    <!-- Flow Count -->
+
+                <!-- Flow Count -->
                 <div class="w-20 text-right text-xs text-sr-muted">
                   {item.flow_count} flows
                 </div>
@@ -119,8 +119,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     {decode_community(item.community)}
                   </.ui_button>
                 </div>
-                
-    <!-- Traffic Bar -->
+
+                <!-- Traffic Bar -->
                 <div class="flex-1">
                   <div class="relative h-6 bg-sr-subtle rounded overflow-hidden">
                     <div
@@ -135,8 +135,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
                     </div>
                   </div>
                 </div>
-                
-    <!-- Flow Count -->
+
+                <!-- Flow Count -->
                 <div class="w-20 text-right text-xs text-sr-muted">
                   {item.flow_count} flows
                 </div>
@@ -166,8 +166,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
             <div class="sr-ui-stat-value text-sr-brand">{@path_diversity.unique_paths}</div>
             <div class="sr-ui-stat-title">Unique Paths</div>
           </div>
-          
-    <!-- Average Path Length -->
+
+          <!-- Average Path Length -->
           <div class="stat bg-sr-subtle rounded-lg">
             <div class="sr-ui-stat-value text-secondary">
               {Float.round(@path_diversity.avg_path_length, 1)}
@@ -175,8 +175,8 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
             <div class="sr-ui-stat-title">Avg Hops</div>
           </div>
         </div>
-        
-    <!-- Hop Distribution -->
+
+        <!-- Hop Distribution -->
         <%= if map_size(@path_diversity.hop_distribution) > 0 do %>
           <div class="mt-4">
             <h4 class="text-sm font-medium text-sr-muted mb-2">

@@ -411,8 +411,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                         :for={cell <- coverage_cells(@review, @overlay)}
                         class="sr-fieldsurvey-review-coverage-cell"
                         style={coverage_cell_style(cell, @overlay)}
-                      >
-                      </span>
+                      ></span>
                     </div>
 
                     <svg
@@ -436,16 +435,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                       :for={point <- @review.path_points}
                       class="sr-fieldsurvey-review-path-point"
                       style={path_style(point)}
-                    >
-                    </span>
+                    ></span>
 
                     <span
                       :for={point <- map_points(@review, @overlay)}
                       class="absolute rounded-full border border-white/70 shadow-lg"
                       title={point_title(point, @overlay)}
                       style={point_style(point, @overlay)}
-                    >
-                    </span>
+                    ></span>
 
                     <span
                       :for={ap <- ap_markers(@review)}
@@ -1179,8 +1176,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
               class="block h-2 min-w-0"
               title={waterfall_bin_title(bin)}
               style={"background: #{waterfall_color(bin.intensity)};"}
-            >
-            </span>
+            ></span>
           </div>
         </div>
         <div class="flex items-center justify-between text-xs text-sr-muted">

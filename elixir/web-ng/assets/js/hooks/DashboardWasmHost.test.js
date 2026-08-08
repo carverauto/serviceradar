@@ -302,6 +302,15 @@ describe("DashboardWasmHost browser-module boot validation", () => {
     ).rejects.toThrow("dashboard browser module renderer must declare trust: trusted")
   })
 
+  // These two are the only tests here that actually dynamic-import() a data: URL renderer and
+  // await the mount, so they pay for compiling that module. Vitest's 5s default is ample once
+  // the module graph is warm (~230ms and ~101ms), but on a COLD cache -- which is every CI run,
+  // right after `bun install` -- transforming 57 test files concurrently pushed both past 5s and
+  // they failed as "Test timed out in 5000ms". Neither asserts anything about wall-clock speed:
+  // one asserts the error state renders, the other that a 100ms renderer timeout fires. Give
+  // them room so a cold cache is not a red build.
+  const COLD_IMPORT_TIMEOUT_MS = 30_000
+
   test("renders a native error state when a browser module crashes during mount", async () => {
     const hook = hookContext()
     const rendererUrl = "data:text/javascript,export function mountDashboard() { throw new Error('renderer boom') }"
@@ -319,7 +328,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
 
     expect(hook.el.innerHTML).toContain("Dashboard renderer failed")
     expect(hook.el.innerHTML).toContain("renderer boom")
-  })
+  }, COLD_IMPORT_TIMEOUT_MS)
 
   test("times out slow browser module renderers", async () => {
     const hook = hookContext()
@@ -340,7 +349,7 @@ describe("DashboardWasmHost browser-module boot validation", () => {
 
     await expect(boot).rejects.toThrow("dashboard renderer timed out after 100ms")
     expect(hook.connectFrameStream).not.toHaveBeenCalled()
-  })
+  }, COLD_IMPORT_TIMEOUT_MS)
 
   test("reconnects the frame stream when a browser module host update changes the stream token", () => {
     const rendererUrl = "data:text/javascript,export function mountDashboard() {}"

@@ -51,7 +51,7 @@ pub async fn create_collector_from_config(
     use crate::config::OutputBackend;
 
     match config.output.backend {
-        OutputBackend::Jetstream => Ok(create_collector(config.nats_config()).await?),
+        OutputBackend::Jetstream => Ok(create_collector(config.nats_config()?).await?),
         OutputBackend::Agent => {
             let agent_forward = config.agent_forward.clone().unwrap_or_default();
             info!(

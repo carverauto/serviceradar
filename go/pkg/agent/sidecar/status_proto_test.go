@@ -14,19 +14,21 @@
  * limitations under the License.
  */
 
-package sidecar
+package sidecar_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 )
 
 func TestToProtoStatuses(t *testing.T) {
 	lastHealth := time.Unix(1_800_000_000, 123).UTC()
 
-	got := ToProtoStatuses([]Status{{
+	got := sidecar.ToProtoStatuses([]sidecar.Status{{
 		Name:         "netprobe",
-		State:        StateRunning,
+		State:        sidecar.StateRunning,
 		PID:          1234,
 		LastHealthAt: lastHealth,
 		RestartCount: 2,
@@ -40,8 +42,8 @@ func TestToProtoStatuses(t *testing.T) {
 	if status.GetName() != "netprobe" {
 		t.Fatalf("Name = %q, want netprobe", status.GetName())
 	}
-	if status.GetState() != string(StateRunning) {
-		t.Fatalf("State = %q, want %q", status.GetState(), StateRunning)
+	if status.GetState() != string(sidecar.StateRunning) {
+		t.Fatalf("State = %q, want %q", status.GetState(), sidecar.StateRunning)
 	}
 	if status.GetPid() != 1234 {
 		t.Fatalf("Pid = %d, want 1234", status.GetPid())
@@ -58,7 +60,7 @@ func TestToProtoStatuses(t *testing.T) {
 }
 
 func TestToProtoStatusesCapsRestartCount(t *testing.T) {
-	got := ToProtoStatuses([]Status{{
+	got := sidecar.ToProtoStatuses([]sidecar.Status{{
 		Name:         "netprobe",
 		RestartCount: int(^uint32(0)) + 1,
 	}})

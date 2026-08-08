@@ -223,9 +223,17 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         {"CNPG_SSL_MODE", sslmode},
         {"CNPG_TLS_SERVER_NAME",
          System.get_env("CNPG_TLS_SERVER_NAME") || uri.host || "localhost"},
+        # The CONTENT form, alongside the paths below. System.cmd merges `env:` with the
+        # parent environment so this would be inherited anyway, but every other credential
+        # here is passed explicitly and this one is load-bearing on a remote executor, where
+        # ca_file/0 is nil and the paths below are all dropped by the reject/2. Leaving the
+        # child's only CA to inheritance is how it ends up with CNPG_SSL_MODE=verify-full and
+        # nothing to verify against.
+        {"SERVICERADAR_TEST_DATABASE_CA_CERT", ca_pem()},
         {"SERVICERADAR_TEST_DATABASE_CA_CERT_FILE", ca_file()},
         {"SERVICERADAR_TEST_DATABASE_CERT", cert_file()},
         {"SERVICERADAR_TEST_DATABASE_KEY", key_file()},
+        {"SRQL_TEST_DATABASE_CA_CERT", ca_pem()},
         {"SRQL_TEST_DATABASE_CA_CERT_FILE", ca_file()},
         {"SRQL_TEST_DATABASE_CERT", cert_file()},
         {"SRQL_TEST_DATABASE_KEY", key_file()},
@@ -316,10 +324,31 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         System.get_env("CNPG_SSL_MODE")
 
     case mode do
-      nil -> "disable"
+      nil -> default_sslmode()
       value -> String.downcase(value)
     end
   end
+
+  # Nothing named a mode. If a CA was supplied then TLS was intended, and defaulting to
+  # "disable" here connects in plaintext to a fixture that refuses it:
+  #
+  #   FATAL 28000 no pg_hba.conf entry for host "...", user "srql_hydra", ..., no encryption
+  #
+  # which surfaces as `connection not available ... dropped from queue after 4000ms`, because
+  # Postgrex retries the failed connect behind the scenes and the first query dies on the pool
+  # queue rather than on the connect. Reproduced against a TLS-only local fixture.
+  #
+  # This mirrors config/test.exs, where the presence of a CA enables `:ssl` on its own. An
+  # explicit sslmode still wins: the case above only reaches here when nothing set one.
+  #
+  # "require" rather than "verify-ca", also matching the Repo -- with no mode named, it turns
+  # TLS on without demanding verification. The CI fixture certificate carries no IP SANs, so a
+  # verifying default would fail whenever the executor addresses CNPG by address.
+  defp default_sslmode do
+    if present?(ca_pem()) or present?(ca_file()), do: "require", else: "disable"
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp username(%URI{userinfo: nil}), do: System.get_env("CNPG_USERNAME") || "postgres"
 
@@ -352,10 +381,51 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
     []
     |> Keyword.put(:verify, verify)
-    |> maybe_put(:cacertfile, ca_file())
+    |> put_ca()
     |> maybe_put(:certfile, cert_file())
     |> maybe_put(:keyfile, key_file())
     |> maybe_put(:server_name_indication, host && to_charlist(host))
+  end
+
+  # `:cacerts` (the decoded certificate) wins over `:cacertfile` (a path), mirroring
+  # config/test.exs. Never both -- :ssl rejects the combination.
+  #
+  # Only the content form survives on a remote executor. //:buildbuddy_setup_fixture_env
+  # exports the fixture CA as PEM CONTENT in SRQL_TEST_DATABASE_CA_CERT and sets none of the
+  # *_CA_CERT_FILE / CNPG_CA_FILE / PGSSLROOTCERT paths that ca_file/0 looks for, because a
+  # path names a file on the machine that launched the build and an executor has no such file.
+  #
+  # Without this, a DSN carrying sslmode=verify-full produced `verify: :verify_peer` with NO
+  # certificate to verify against. The handshake then never completes, Postgrex keeps retrying
+  # behind the scenes, and the first query dies on the pool queue instead:
+  #
+  #   ** (DBConnection.ConnectionError) connection not available and request was dropped
+  #      from queue after 4000ms
+  #
+  # which is exactly the misleading shape the sslmode/0 comment above warns about. The note
+  # there that "CI is unaffected either way" was true only of the Forgejo tier, which runs
+  # scripts/ci/configure-srql-fixture.sh and does export the file paths.
+  defp put_ca(opts) do
+    case ca_certs() do
+      [_ | _] = certs -> Keyword.put(opts, :cacerts, certs)
+      _ -> maybe_put(opts, :cacertfile, ca_file())
+    end
+  end
+
+  defp ca_pem do
+    System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT") ||
+      System.get_env("SRQL_TEST_DATABASE_CA_CERT")
+  end
+
+  defp ca_certs do
+    pem = ca_pem()
+
+    if is_binary(pem) and String.trim(pem) != "" do
+      pem
+      |> :public_key.pem_decode()
+      |> Enum.filter(&match?({:Certificate, _der, _cipher}, &1))
+      |> Enum.map(fn {:Certificate, der, _cipher} -> der end)
+    end
   end
 
   defp maybe_put(opts, _key, nil), do: opts

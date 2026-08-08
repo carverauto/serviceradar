@@ -279,29 +279,29 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
           <div class="sr-ui-stat-title text-xs">Uptime</div>
           <div class="sr-ui-stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
-        
-    <!-- Processes -->
+
+        <!-- Processes -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Processes</div>
           <div class="sr-ui-stat-value text-lg">{@node_info.process_count}</div>
         </div>
-        
-    <!-- Schedulers -->
+
+        <!-- Schedulers -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Schedulers</div>
           <div class="sr-ui-stat-value text-lg">
             {@node_info.schedulers_online}/{@node_info.schedulers}
           </div>
         </div>
-        
-    <!-- OTP Release -->
+
+        <!-- OTP Release -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">OTP Release</div>
           <div class="sr-ui-stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
-      
-    <!-- Memory breakdown -->
+
+      <!-- Memory breakdown -->
       <div class="px-4 pb-4">
         <div class="text-xs text-sr-muted mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">

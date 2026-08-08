@@ -58,8 +58,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             placeholder="e.g., My Router Monitoring"
           />
         </div>
-        
-    <!-- Description -->
+
+        <!-- Description -->
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
             <span class="text-sm font-medium text-sr-ink">Description</span>
@@ -72,8 +72,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             placeholder="Describe what this template monitors..."
           />
         </div>
-        
-    <!-- Category -->
+
+        <!-- Category -->
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
             <span class="text-sm font-medium text-sr-ink">Category</span>
@@ -85,8 +85,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             <% end %>
           </select>
         </div>
-        
-    <!-- OIDs Section -->
+
+        <!-- OIDs Section -->
         <div class="flex flex-col gap-1.5">
           <div class="flex items-center justify-between mb-2">
             <label class="flex items-center justify-between gap-2">
@@ -131,8 +131,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       name="oid"
                     />
                   </div>
-                  
-    <!-- Name -->
+
+                  <!-- Name -->
                   <div>
                     <label class="flex items-center justify-between gap-2 py-0">
                       <span class="text-xs font-medium text-sr-ink">Name</span>
@@ -148,8 +148,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       name="name"
                     />
                   </div>
-                  
-    <!-- Data Type -->
+
+                  <!-- Data Type -->
                   <div>
                     <label class="flex items-center justify-between gap-2 py-0">
                       <span class="text-xs font-medium text-sr-ink">Data Type</span>
@@ -166,8 +166,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       <% end %>
                     </select>
                   </div>
-                  
-    <!-- Scale -->
+
+                  <!-- Scale -->
                   <div>
                     <label class="flex items-center justify-between gap-2 py-0">
                       <span class="text-xs font-medium text-sr-ink">Scale</span>
@@ -183,8 +183,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                       name="scale"
                     />
                   </div>
-                  
-    <!-- Delta checkbox -->
+
+                  <!-- Delta checkbox -->
                   <div class="col-span-2 flex items-center gap-2 mt-1">
                     <input
                       type="checkbox"
@@ -201,8 +201,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
                     </span>
                   </div>
                 </div>
-                
-    <!-- Remove button -->
+
+                <!-- Remove button -->
                 <.ui_icon_button
                   type="button"
                   variant="ghost"
@@ -217,8 +217,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.CustomTempla
             <% end %>
           </div>
         </div>
-        
-    <!-- Modal Actions -->
+
+        <!-- Modal Actions -->
         <div class="flex justify-end gap-2 pt-1">
           <.ui_button type="button" variant="ghost" phx-click="close_custom_template_modal">
             Cancel

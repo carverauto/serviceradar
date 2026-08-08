@@ -35,6 +35,10 @@ def main() -> int:
         pathlib.PurePosixPath("third_party/crates/.serviceradar-vendor-inputs"),
         pathlib.PurePosixPath("third_party/crates/BUILD.bazel"),
         pathlib.PurePosixPath("third_party/crates/alias_rules.bzl"),
+        # crates_vendor emits crates.bzl alongside defs.bzl and alias_rules.bzl. It
+        # appeared with the rules_rust bump and this allowlist predated it, so the
+        # snapshot check failed on staging for every commit after bad32bfc5e.
+        pathlib.PurePosixPath("third_party/crates/crates.bzl"),
         pathlib.PurePosixPath("third_party/crates/defs.bzl"),
     }
     for checksum_path in checksum_files:

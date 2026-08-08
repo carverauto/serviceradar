@@ -14,8 +14,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       <p class="text-sm text-sr-muted">
         Upload a CSV file to bulk import devices into your inventory.
       </p>
-      
-    <!-- Error Display -->
+
+      <!-- Error Display -->
       <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
         <div>
@@ -27,8 +27,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           </ul>
         </div>
       </div>
-      
-    <!-- CSV Format Guide (collapsed when preview is shown) -->
+
+      <!-- CSV Format Guide (collapsed when preview is shown) -->
       <div :if={is_nil(@csv_preview)} class="my-4 p-4 bg-sr-subtle/60 rounded-lg">
         <h4 class="font-medium text-sm mb-2">CSV Format</h4>
         <p class="text-xs text-sr-muted mb-3">
@@ -76,8 +76,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           </table>
         </div>
       </div>
-      
-    <!-- File Upload -->
+
+      <!-- File Upload -->
       <.form for={%{}} phx-change="validate_csv" phx-submit="preview_csv" class="space-y-4">
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
@@ -118,8 +118,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           </.ui_button>
         </div>
       </.form>
-      
-    <!-- Preview Table -->
+
+      <!-- Preview Table -->
       <div :if={is_list(@csv_preview) and @csv_preview != []} class="mt-4">
         <div class="flex items-center justify-between mb-2">
           <h4 class="font-medium text-sm">

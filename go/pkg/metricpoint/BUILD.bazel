@@ -10,5 +10,5 @@ go_library(
 go_test(
     name = "metricpoint_test",
     srcs = ["metricpoint_test.go"],
-    embed = [":metricpoint"],
+    deps = [":metricpoint"],
 )

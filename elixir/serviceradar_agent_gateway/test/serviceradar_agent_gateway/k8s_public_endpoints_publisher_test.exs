@@ -4,6 +4,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisherTest do
   alias ServiceRadarAgentGateway.K8sPublicEndpointsPublisher
 
   defmodule FakeNATS do
+    @moduledoc false
     def publish(subject, payload, opts) do
       send(self(), {:published, subject, payload, opts})
       :ok
@@ -11,6 +12,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisherTest do
   end
 
   defmodule FailingNATS do
+    @moduledoc false
     def publish(_subject, _payload, _opts), do: {:error, :nats_down}
   end
 

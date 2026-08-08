@@ -380,8 +380,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
           %{
             package: package,
             join_token: join_token,
-            bundle_pem: bundle_pem,
-            nats_creds: nats_creds
+            bundle_pem: bundle_pem
           }} <-
            OnboardingPackages.deliver(id, token_context.download_token,
              actor: token_context.actor,
@@ -392,18 +391,12 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
            wrap_bundle_error(
              bundle_generator().create_tarball(package, bundle_pem || "", join_token,
                download_token: token_context.download_token,
-               base_url: base_url,
-               nats_creds: nats_creds,
-               nats_url: default_nats_url()
+               base_url: base_url
              )
            ) do
       filename = BundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
     end
-  end
-
-  defp default_nats_url do
-    Application.get_env(:serviceradar_web_ng, :default_nats_url, "nats://127.0.0.1:4222")
   end
 
   defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}

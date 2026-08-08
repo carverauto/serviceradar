@@ -1,10 +1,9 @@
 defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Observability.AnomalyConfigSeeder
 
+  @moduletag :requires_app
 
   test "anomaly seed attrs default to the Helm-backed first-boot values" do
     attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(fn _ -> nil end)

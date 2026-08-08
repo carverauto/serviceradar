@@ -16,10 +16,10 @@ defmodule ServiceRadar.Edge.AddonConfigContractFixturesTest do
 
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Plugins.AddonConfigContractFixtures, as: Fixtures
   alias ServiceRadar.Plugins.ConfigSchema
+
+  @moduletag :requires_app
 
   test "covers every bundled add-on named by the spec" do
     assert Fixtures.addon_ids() == [

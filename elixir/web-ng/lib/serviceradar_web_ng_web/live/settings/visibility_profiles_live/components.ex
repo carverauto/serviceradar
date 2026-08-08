@@ -60,13 +60,11 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     phx-value-id={profile.id}
                     class="flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
-                    </span>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </button>
                   <div :if={not @can_write} class="flex items-center gap-1.5">
-                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
-                    </span>
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
                   </div>
                 </td>

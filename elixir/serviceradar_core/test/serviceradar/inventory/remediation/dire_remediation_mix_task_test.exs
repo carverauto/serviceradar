@@ -1,9 +1,9 @@
 defmodule Mix.Tasks.Serviceradar.DireRemediationTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias Mix.Tasks.Serviceradar.DireRemediation, as: DireRemediationTask
+
+  @moduletag :requires_app
 
   setup do
     original_shell = Mix.shell()

@@ -3,28 +3,40 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 
 # SRQL integration tests.
 #
-# These wire heavy, cross-cutting dependencies — notably the CNPG Postgres OCI image
-# (AGE + TimescaleDB) used as test `data` to run real queries. That wiring lives HERE,
-# in the dedicated root-level integration_tests/ subtree, and nowhere else: keeping it
-# out of //rust/... means `bazel build //rust/...` no longer drags in a whole Postgres
-# image build.
+# THESE RUN FULLY REMOTE, and there is nothing local about them. They talk to the SHARED
+# CNPG fixture over the network -- the same one //elixir/serviceradar_core's integration
+# shards use, which already run on RBE -- via SRQL_TEST_DATABASE_URL / SRQL_TEST_ADMIN_URL.
+# tests/support/harness.rs applies tests/fixtures/{schema,seed}.sql itself and SKIPS
+# outright when those two variables are absent, so no target here ever starts a database.
 #
-# The image layers are Linux-only (they compile PG extensions by executing Linux ELF
-# binaries from an extracted Debian rootfs), so these targets are automatically skipped
-# as incompatible on non-Linux hosts (see docker/images/cnpg_image.bzl).
+# `manual` stays: they need the fixture credentials in the environment and they run DDL
+# against a fixture concurrent branches share, so a step that wants them must name them
+# explicitly AND pass an empty --test_tag_filters=.
 #
-# That incompatibility guard only covers a LOCAL build. Under --config=remote the target
-# platform is //build/rbe:rbe_platform, i.e. Linux, whatever the host is -- so these stay
-# compatible on a macOS workstation and Bazel will happily try to build them there. They
-# are therefore tagged like the rest of the DB-backed tier (`manual` + `no-remote-exec`,
-# matching //rust/integration-db and //elixir/serviceradar_core:migrate_template): they
-# need a real Postgres, so they cannot run on RBE, and `manual` keeps them out of the
-# //... wildcard sweep. A step that WANTS them must name them explicitly AND pass an
-# empty --test_tag_filters=.
+# WHAT WAS HERE BEFORE, and why it is gone:
 #
-# Do NOT tag these `local`. On a *_test rule that applies to the compile actions too, so
-# rustc gets invoked on the host with the Linux exec-platform process_wrapper and dies
-# with "cannot execute binary file" (Exit 126).
+#   //docker/images:cnpg_image_amd64_tar in `data` -- vestigial. Nothing in tests/ reads it;
+#   the only runfiles lookup in the harness resolves the two .sql fixtures. It dragged a
+#   full Postgres image build (AGE + TimescaleDB, compiled from an extracted Debian rootfs)
+#   into the graph of every build that touched this package, for nothing.
+#
+#   `no-remote-exec` -- followed from the image, and cost more than it looks. The tag
+#   propagates from a *_test rule to its COMPILE actions, so rustc ran wherever the client
+#   was. rustc bundles LLVM for codegen but no linker: on linux-gnu it shells out to the
+#   cc_toolchain's linker driver, which under --config=ci is @buildbuddy_toolchain's
+#   /usr/bin/gcc. That path exists in //docker/Dockerfile.rbe and not on the workflow
+#   runner, so the compile died with `linker /usr/bin/gcc not found` -- and on a macOS
+#   workstation with `cannot execute binary file` (Exit 126), because the process_wrapper
+#   is built for the Linux exec platform. Both symptoms, one cause. Remote execution has
+#   the toolchain the exec platform actually describes.
+#
+# So: do not reintroduce either. If a test here ever genuinely needs its own database,
+# that is a design change to discuss, not a `data` entry -- the shared fixture is the
+# contract, and //rust/integration-db owns its lifecycle.
+#
+# TLS travels as PEM CONTENT, which is what makes remote execution work: //.bazelrc
+# forwards SRQL_TEST_DATABASE_CA_CERT, and the harness materializes it to a temp file when
+# PGSSLROOTCERT does not name a readable path (it never does on an executor).
 #
 # `all_crate_deps(package_name = "integration_tests/srql")` resolves this crate's own
 # dev-dependencies from //integration_tests/srql/Cargo.toml.
@@ -32,7 +44,6 @@ load("//third_party/crates:defs.bzl", "all_crate_deps")
 SRQL_IT_DATA = [
     "tests/fixtures/schema.sql",
     "tests/fixtures/seed.sql",
-    "//docker/images:cnpg_image_amd64_tar",
 ]
 
 SRQL_IT_DEPS = ["//rust/srql:srql_lib"] + all_crate_deps(
@@ -57,10 +68,7 @@ rust_test(
     data = SRQL_IT_DATA,
     edition = "2021",
     proc_macro_deps = SRQL_IT_PROC_MACROS,
-    tags = [
-        "manual",
-        "no-remote-exec",
-    ],
+    tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )
 
@@ -76,9 +84,6 @@ rust_test(
     data = SRQL_IT_DATA,
     edition = "2021",
     proc_macro_deps = SRQL_IT_PROC_MACROS,
-    tags = [
-        "manual",
-        "no-remote-exec",
-    ],
+    tags = ["manual"],
     deps = SRQL_IT_DEPS,
 )

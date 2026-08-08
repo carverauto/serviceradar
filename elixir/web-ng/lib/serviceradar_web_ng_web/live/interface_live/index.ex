@@ -99,8 +99,8 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
             Search and browse network interfaces across all devices
           </p>
         </div>
-        
-    <!-- Quick Filters -->
+
+        <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-sr-muted mr-1">Quick filters:</span>
           <.ui_button

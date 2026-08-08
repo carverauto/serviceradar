@@ -3,9 +3,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
+
+  @moduletag :requires_app
 
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:req)

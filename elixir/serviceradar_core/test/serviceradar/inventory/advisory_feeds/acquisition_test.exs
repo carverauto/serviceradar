@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
+
+  @moduletag :requires_app
 
   setup do
     root = Path.join(System.tmp_dir!(), "advisory-acq-#{System.unique_integer([:positive])}")

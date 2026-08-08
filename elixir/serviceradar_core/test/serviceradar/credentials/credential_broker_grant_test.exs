@@ -1,13 +1,13 @@
 defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Credentials.SecretBroker
+
+  @moduletag :requires_app
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
 

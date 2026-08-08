@@ -1,11 +1,11 @@
 defmodule ServiceRadar.PrefixTags.RegistryTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.PrefixTags.Registry
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.PrefixTags.Trie
+
+  @moduletag :requires_app
 
   @registry Registry
   @table ServiceRadar.PrefixTags.Store.Sources

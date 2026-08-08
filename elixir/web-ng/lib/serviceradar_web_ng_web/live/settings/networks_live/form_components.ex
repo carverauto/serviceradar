@@ -86,8 +86,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             />
           </div>
         </div>
-        
-    <!-- Schedule Section -->
+
+        <!-- Schedule Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">Schedule</h3>
 
@@ -144,8 +144,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             </div>
           </div>
         </div>
-        
-    <!-- Target Criteria Section -->
+
+        <!-- Target Criteria Section -->
         <div class="space-y-4">
           <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -300,8 +300,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             </span>
           </div>
         </div>
-        
-    <!-- Static Targets Section -->
+
+        <!-- Static Targets Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold text-sr-ink/90 uppercase tracking-wide">
             Static Targets
@@ -318,14 +318,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;10.0.0.10-10.0.0.50"
           />
         </div>
-        
-    <!-- Enable Toggle -->
+
+        <!-- Enable Toggle -->
         <div class="flex items-center gap-2 pt-2">
           <.input type="checkbox" field={@form[:enabled]} class={ui_checkbox_class()} />
           <label class="text-sm font-medium text-sr-ink">Enable this sweep group</label>
         </div>
-        
-    <!-- Actions -->
+
+        <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-sr-line">
           <.link navigate={~p"/settings/networks"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
@@ -710,8 +710,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <div>
             <div class="text-xs text-sr-muted uppercase">Status</div>
             <div class="flex items-center gap-1.5 mt-1">
-              <span class={"size-2 rounded-full #{if @group.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
-              </span>
+              <span class={"size-2 rounded-full #{if @group.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
               <span>{if @group.enabled, do: "Enabled", else: "Disabled"}</span>
             </div>
           </div>
