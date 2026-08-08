@@ -227,6 +227,25 @@ jobs:
       - name: Edge unknown-field/enum compatibility corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/wire_compat_corpus_test.exs
+      # The VERSION corpus (tasks 1.5-b, 1.6-a, 1.6-b): one exhaustive Appendix A object
+      # inventory, and for every member the artifact a peer on the NEXT grammar version would
+      # emit. Gated because the inventory guard is what makes "exhaustive" checkable -- a
+      # generator that lost an object regenerates a self-consistent manifest, and only the
+      # hand-written inventory notices. It also asserts the EXACT set of members with no Elixir
+      # consumer -- mtr_completion (task 1.6-c) and the three recovery scope transcripts
+      # (task 1.6-d) -- so those gaps stay visible instead of becoming exemptions.
+      - name: Edge version corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/version_corpus_test.exs
+      # The OPTIONAL-PRESENCE corpus (task 1.5-d): absent versus present-zero for every explicitly
+      # optional scalar. Gated because a DECODE-SIDE coercion is invisible to every digest -- the
+      # bytes and the digests over them stay valid while the decoded meaning is gone -- and
+      # because the meaning is per field: fifteen are measurements, three are required authority
+      # and window statements their consumers refuse when absent. The inventory is
+      # descriptor-derived on both sides, so a new optional field fails this suite until covered.
+      - name: Edge optional-presence corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/presence_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps
