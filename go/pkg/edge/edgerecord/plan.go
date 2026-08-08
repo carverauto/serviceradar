@@ -83,9 +83,21 @@ const (
 // RangeDigest computes the canonical content digest of a target range over every
 // field except range_sha256 itself.
 func RangeDigest(r *edgev1.TargetRangeV1) []byte {
+	return rangeDigestWithVersion(r, PlanDigestVersion)
+}
+
+// rangeDigestWithVersion is RangeDigest with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func rangeDigestWithVersion(r *edgev1.TargetRangeV1, version uint64) []byte {
 	d := newDigest()
 	d.str(planRangeDomain)
-	d.u64(PlanDigestVersion)
+	d.u64(version)
 	d.bytes(r.GetRangeId())
 	d.str(r.GetCidr())
 	d.str(r.GetFirstAddress())
@@ -131,9 +143,21 @@ func PlanPageDigest(p *edgev1.ScheduledPlanPageV1) []byte {
 // PlanRoot composes the constant-size ordered root over a validated plan page
 // chain: SHA-256(version || page_count || concat(page_sha256 in page order)).
 func PlanRoot(pages []*edgev1.ScheduledPlanPageV1) []byte {
+	return planRootWithVersion(pages, PlanDigestVersion)
+}
+
+// planRootWithVersion is PlanRoot with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func planRootWithVersion(pages []*edgev1.ScheduledPlanPageV1, version uint64) []byte {
 	d := newDigest()
 	d.str(planRootDomain)
-	d.u64(PlanDigestVersion)
+	d.u64(version)
 	d.u64(uint64(len(pages)))
 	for _, p := range pages {
 		d.bytes(p.GetPageSha256())

@@ -160,9 +160,21 @@ func identityDigest(d *digestWriter, id *edgev1.EdgeAttributedSpanIdentityV1) {
 // ManifestRoot composes the ordered root over a validated page chain:
 // SHA-256(version || page_count || concat(page_sha256 in page order)).
 func ManifestRoot(pages []*edgev1.EdgeLossManifestPageV1) []byte {
+	return manifestRootWithVersion(pages, RecoveryDigestVersion)
+}
+
+// manifestRootWithVersion is ManifestRoot with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func manifestRootWithVersion(pages []*edgev1.EdgeLossManifestPageV1, version uint64) []byte {
 	d := newDigest()
 	d.str(manifestRootDomain)
-	d.u64(RecoveryDigestVersion)
+	d.u64(version)
 	d.u64(uint64(len(pages)))
 	for _, p := range pages {
 		d.bytes(p.GetPageSha256())
@@ -519,8 +531,20 @@ const RecoveryScopeDigestVersion = 1
 // spool pair and manifest root it authorizes. The loss interval and coarsening
 // flag it used to cover are retired -- the manifest root is the loss commitment.
 func TombstoneScopeDigest(t *edgev1.SpoolLossTombstoneV1) []byte {
+	return tombstoneScopeDigestWithVersion(t, RecoveryScopeDigestVersion)
+}
+
+// tombstoneScopeDigestWithVersion is TombstoneScopeDigest with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func tombstoneScopeDigestWithVersion(t *edgev1.SpoolLossTombstoneV1, version uint64) []byte {
 	d := newDigest()
-	d.u64(RecoveryScopeDigestVersion)
+	d.u64(version)
 	d.u64(0) // body kind: tombstone
 	d.bytes(t.GetRecoveryId())
 	d.bytes(t.GetPriorSpoolId())
@@ -535,8 +559,20 @@ func TombstoneScopeDigest(t *edgev1.SpoolLossTombstoneV1) []byte {
 // recovery_id || page_sha256. The u64 body-kind discriminant keeps it distinct from
 // the tombstone (0) and resolved (2) scope digests.
 func ManifestPageScopeDigest(p *edgev1.EdgeLossManifestPageV1) []byte {
+	return manifestPageScopeDigestWithVersion(p, RecoveryScopeDigestVersion)
+}
+
+// manifestPageScopeDigestWithVersion is ManifestPageScopeDigest with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func manifestPageScopeDigestWithVersion(p *edgev1.EdgeLossManifestPageV1, version uint64) []byte {
 	d := newDigest()
-	d.u64(RecoveryScopeDigestVersion)
+	d.u64(version)
 	d.u64(1)
 	d.bytes(p.GetRecoveryId())
 	d.bytes(p.GetPageSha256())
@@ -547,8 +583,20 @@ func ManifestPageScopeDigest(p *edgev1.EdgeLossManifestPageV1) []byte {
 // body: RecoveryScopeDigestVersion || u64(2) [body kind: resolved] || recovery_id ||
 // manifest_root_sha256 || applied_through_sequence.
 func ResolvedScopeDigest(rv *edgev1.RecoveryResolvedV1) []byte {
+	return resolvedScopeDigestWithVersion(rv, RecoveryScopeDigestVersion)
+}
+
+// resolvedScopeDigestWithVersion is ResolvedScopeDigest with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func resolvedScopeDigestWithVersion(rv *edgev1.RecoveryResolvedV1, version uint64) []byte {
 	d := newDigest()
-	d.u64(RecoveryScopeDigestVersion)
+	d.u64(version)
 	d.u64(2)
 	d.bytes(rv.GetRecoveryId())
 	d.bytes(rv.GetManifestRootSha256())

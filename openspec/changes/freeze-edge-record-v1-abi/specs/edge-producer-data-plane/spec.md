@@ -2784,3 +2784,119 @@ no position on what the refusal is then called.
 - **WHEN** a record carries `traffic_class` = 0 (`UNSPECIFIED`), which the enum declares
 - **THEN** the value decodes as a DECLARED member rather than as a raw number
 - **AND** the record is still refused, because the permitted set for that field excludes it
+
+### Requirement: Every versioned object fails closed, by one of two proof classes
+Every versioned object in this ABI SHALL REFUSE an artifact produced under a version it does
+not support, and each object SHALL belong to EXACTLY ONE of two proof classes.
+
+CLASS A -- the object DECODES a version from its input. It SHALL refuse an input carrying an
+unsupported version.
+
+CLASS B -- the version is a COMPILE-TIME CONSTANT inside a preimage and the received value is a
+digest or an opaque identifier. There is no version input to corrupt, so the object SHALL
+refuse an artifact RECOMPUTED under a different version constant, as a mismatch.
+
+THE PARTITION IS PER OBJECT, NOT PER GRAMMAR OR PER VERSION FIELD. One grammar may contain
+several objects, and one version field may govern two grammars: `CompiledSweepAssignmentV1`'s
+`digest_version` governs both the body digest and the artifact address, and is therefore ONE
+Class-A member rather than two. Conversely the three recovery-operation scope transcripts share
+a version constant and are THREE Class-B members, because each is separately computed and
+separately compared.
+
+AN OBJECT LISTED IN BOTH CLASSES IS DOUBLE-COUNTED, and an object listed in neither is
+unproven. Asking a Class-B object for an unsupported-INPUT vector is not merely redundant --
+it cannot be satisfied, because no version reaches that object from the wire.
+
+THE CLASS IS DECIDED BY WHERE THE VERSION ENTERS, not by what the object is used for. A digest
+OVER a message that itself carries `digest_version` belongs to Class A, because the version the
+digest commits is the field the message already exposes, and the Class-A vector exercises both.
+
+EVIDENCE SHALL BE A COMMITTED ARTIFACT, NOT A REGENERATED ONE. The alternate-version artifact
+SHALL be committed bytes read by both runtimes, and SHALL be driven through the SAME verifier
+that trusts that value in production. A version check written for a test suite proves only that
+the suite can refuse its own inputs, and an artifact regenerated at test time proves only that
+the generator agrees with itself.
+
+THE INVENTORY SHALL BE ASSERTED AGAINST AN INDEPENDENT STATEMENT of its membership, in both
+directions, and its classes checked. A count derived from the same artifact that lists the
+objects cannot detect an object's removal: the count and the list move together.
+
+#### Scenario: A Class-A object refuses an unsupported input version
+- **WHEN** an object that decodes a version from its input receives one outside the supported set
+- **THEN** the object is refused
+- **AND** an otherwise identical artifact carrying a supported version is accepted
+
+#### Scenario: A Class-B object refuses an artifact built under another version constant
+- **WHEN** a digest or identifier is recomputed with the grammar version altered, and every
+  enclosing digest is rebuilt so it is the only unreconciled value
+- **THEN** the object carrying it is refused as a mismatch
+- **AND** the same object carrying the artifact built under the frozen constant is accepted
+
+#### Scenario: The inventory is exhaustive
+- **WHEN** the committed inventory is compared against an independently written list of every
+  versioned object and its class
+- **THEN** every object appears exactly once, in exactly one class, with the expected class
+- **AND** no object appears that the independent list does not name
+
+### Requirement: Optional-scalar presence is preserved, and its meaning is per field
+An explicitly optional scalar SHALL preserve its PRESENCE through decode. An implementation
+SHALL NOT coerce an absent field to zero, nor drop a present zero, in either direction.
+
+THE TWO STATES ARE DISTINGUISHABLE ON THE WIRE: absent emits nothing, present-zero emits a tag
+and a zero. Preserving that distinction is the rule; WHAT the distinction means is a property of
+the individual field, and this ABI carries two kinds.
+
+MEASUREMENTS -- the per-hop MTR timings, the ICMP and MTR summaries' loss and round-trip values,
+the open port's response time, and the host observation's first/last-seen deltas. For these,
+ABSENT MEANS NOT MEASURED and PRESENT-ZERO MEANS MEASURED, AND THE ANSWER WAS ZERO. A producer
+that encodes the zero spends bytes to say so.
+
+REQUIRED AUTHORITY AND WINDOW STATEMENTS -- `EdgeProducerContext.authority_epoch`,
+`SweepMtrExpectationV1.plan_ordinal_offset`, and `TargetRangeV1.mtr_ordinal_count`. These are NOT
+measurements and their absence is not "not measured": each is a value a consumer cannot proceed
+without, so its consumer SHALL refuse the artifact when it is absent, while present-zero remains
+a legitimate value. They are optional in the schema so that ABSENT is distinguishable from ZERO,
+not so that they may be omitted.
+
+A DECODE-SIDE COLLAPSE IS INVISIBLE TO EVERY DIGEST. Whether presence is committed depends on the
+carrier -- `semantic_envelope_sha256` frames `authority_epoch`'s presence directly, and a
+payload-carried field's presence changes the payload bytes and therefore `payload_sha256` -- so a
+PRODUCER that drops the zero emits a different, self-consistent artifact. What no digest can see
+is a READER that coerces after verifying: the bytes and every digest over them remain valid while
+the decoded meaning is gone.
+
+WHETHER PRESENCE IS REQUIRED IS PER FIELD, and is a property of the validator that consumes it,
+not of the type. An implementation SHALL NOT generalise from one field to its siblings, and
+evidence SHALL be per-field: a vector that toggles a carrier's optional fields TOGETHER cannot
+distinguish a field that became required from siblings that stayed indifferent, and would record
+a policy it cannot observe.
+
+THE FIELD SET SHALL BE DERIVED FROM THE GENERATED DESCRIPTORS rather than maintained by hand. An
+explicit proto3 `optional` scalar is exactly a field whose containing oneof is synthetic, so the
+complete set is mechanically knowable; a hand-written list falls behind the schema silently, and
+the count derived from it agrees with itself while doing so.
+
+WHAT IS NOT REQUIRED is that both runtimes reach an admission verdict for every field. Where a
+runtime has no production validator for a carrier, it SHALL claim only what it can observe --
+that the encodings differ, that decoded presence differs, and that a present value is exactly
+zero -- and SHALL NOT introduce a check written for the test suite in order to appear at parity.
+
+#### Scenario: A present zero survives decode as present
+- **WHEN** an optional scalar is encoded explicitly as zero
+- **THEN** it decodes as PRESENT with the value zero
+- **AND** an otherwise identical message omitting it decodes as ABSENT
+
+#### Scenario: An absent measurement is not a measured zero
+- **WHEN** a measurement field is omitted rather than encoded as zero
+- **THEN** the artifact is admitted, and the field reads as NOT MEASURED
+- **AND** it is not reported as a measurement whose value was zero
+
+#### Scenario: A required authority or window value is refused when absent
+- **WHEN** `authority_epoch`, `plan_ordinal_offset` or `mtr_ordinal_count` is omitted
+- **THEN** the artifact is refused by the validator that consumes it
+- **AND** the refusal comes from that validator, not from an inability to construct the input
+
+#### Scenario: Presence policy is observed per field, not per carrier
+- **WHEN** one optional field of a carrier is omitted while its siblings remain present-zero
+- **THEN** the verdict reflects that field's own policy
+- **AND** the artifacts differ in that field's presence and in nothing else
