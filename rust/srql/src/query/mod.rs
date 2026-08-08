@@ -2,6 +2,7 @@
 mod filters_common;
 
 mod cagg;
+mod cold;
 mod engine;
 mod plan;
 mod sql;

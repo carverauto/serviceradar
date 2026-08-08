@@ -1,0 +1,56 @@
+# Copyright 2026 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Boot-smokes the serviceradar-cnpg-analytics base (the @pgduckdb_18 digest
+# pinned in MODULE.bazel): C-collation/UTF8 initdb, CREATE EXTENSION
+# pg_duckdb, duckdb.query(), and a local Parquet COPY + read_parquet
+# round-trip. The published image is the pinned base plus an inert marker
+# layer (docker/images/analytics_image.bzl), so smoking the base gates
+# everything material in a digest pin bump.
+
+name: Cold Analytics Image Smoke
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  push:
+    branches: [ staging ]
+    paths:
+      - 'docker/images/**'
+      - 'MODULE.bazel'
+      - 'scripts/ci/cold-analytics-image-smoke.sh'
+      - '.forgejo/workflows/cold-analytics-image-smoke.yml'
+  pull_request:
+    branches: [ staging ]
+    paths:
+      - 'docker/images/**'
+      - 'MODULE.bazel'
+      - 'scripts/ci/cold-analytics-image-smoke.sh'
+      - '.forgejo/workflows/cold-analytics-image-smoke.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Analytics image boot smoke
+    runs-on: ubuntu24
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Boot-smoke pinned pgduckdb analytics base
+        run: ./scripts/ci/cold-analytics-image-smoke.sh
