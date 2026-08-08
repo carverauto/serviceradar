@@ -59,22 +59,54 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
   )
 
   def up do
+    # Role DDL is a CLUSTER-admin privilege, and the migration user does not
+    # have it on a default CNPG cluster -- the app user is the database owner,
+    # not a superuser and not CREATEROLE. `CREATE ROLE` there fails with
+    # "permission denied to create role", and because Ecto aborts the whole run
+    # on a failed migration, an unguarded CREATE ROLE here does not just skip
+    # the cold tier: it takes down every migration after it, so a fresh install
+    # cannot provision and an upgrade cannot proceed. Verified against the
+    # srql-fixtures cluster (current_user srql: rolsuper=f, rolcreaterole=f).
+    #
+    # So the role is created only where the migration is actually entitled to.
+    # Everywhere else there is a designated owner that IS entitled: CNPG
+    # `managed.roles` in Kubernetes (rendered by the chart when
+    # coldTier.exportRole.enabled), or a superuser bootstrap in compose. The
+    # grants below then apply to whatever created it.
     execute("""
     DO $$
+    DECLARE
+      may_manage_roles boolean;
     BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '#{@role}') THEN
-        CREATE ROLE #{@role} NOLOGIN CONNECTION LIMIT #{@connection_limit};
-      ELSE
+      SELECT rolsuper OR rolcreaterole
+      INTO may_manage_roles
+      FROM pg_roles
+      WHERE rolname = current_user;
+
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '#{@role}') THEN
         -- CONNECTION LIMIT only. Login state belongs to whoever provisioned
         -- the credential (CNPG managed.roles, or the password branch below);
         -- re-running migrations must not revoke a working cold tier's access.
-        ALTER ROLE #{@role} CONNECTION LIMIT #{@connection_limit};
+        IF may_manage_roles THEN
+          ALTER ROLE #{@role} CONNECTION LIMIT #{@connection_limit};
+        END IF;
+      ELSIF may_manage_roles THEN
+        CREATE ROLE #{@role} NOLOGIN CONNECTION LIMIT #{@connection_limit};
+      ELSE
+        RAISE NOTICE
+          'Skipping cold-tier % role: % lacks CREATEROLE. This is expected on a '
+          'default CNPG cluster and only matters if you enable the cold tier, '
+          'where CNPG managed.roles (coldTier.exportRole.enabled) creates it '
+          'instead. Re-run migrations afterwards to attach the grants.',
+          '#{@role}', current_user;
       END IF;
     END $$;
     """)
 
     # Read-only scope: usage on the schema, SELECT on registry tables + the
-    # manifest. No writes, no other tables.
+    # manifest. No writes, no other tables. All guarded on the role existing,
+    # since it legitimately may not (see above) -- granting to a missing role
+    # is an error, and this migration must never be the thing that fails.
     #
     # No `_timescaledb_internal` grant is needed: TimescaleDB propagates the
     # hypertable parent's ACL to every chunk, including chunks created AFTER
@@ -82,35 +114,50 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
     # schema instead would (a) expose chunks of NON-registry hypertables the
     # export never touches and (b) create an `ALTER DEFAULT PRIVILEGES`
     # dependency that blocks `DROP ROLE` (review F24/F25).
-    execute("GRANT USAGE ON SCHEMA platform TO #{@role}")
+    execute(if_role_exists("EXECUTE 'GRANT USAGE ON SCHEMA platform TO #{@role}';"))
 
     for table <- @registry_tables ++ ~w(cold_chunk_exports cold_tier_boundaries) do
-      execute("""
-      DO $$
-      BEGIN
+      execute(
+        if_role_exists("""
         IF EXISTS (
           SELECT 1 FROM information_schema.tables
           WHERE table_schema = 'platform' AND table_name = '#{table}'
         ) THEN
           EXECUTE 'GRANT SELECT ON platform.#{table} TO #{@role}';
         END IF;
-      END $$;
-      """)
+        """)
+      )
     end
 
     # Role-level bounds: a stuck export must not pin the vacuum horizon or
     # hold a connection forever. Export units are chunk-sized (seconds to
     # tens of seconds); these are generous ceilings, not tuning knobs.
-    execute("ALTER ROLE #{@role} SET statement_timeout = '300s'")
-    execute("ALTER ROLE #{@role} SET idle_in_transaction_session_timeout = '120s'")
-    execute("ALTER ROLE #{@role} SET lock_timeout = '10s'")
+    #
+    # ALTER ROLE ... SET on ANOTHER role also needs CREATEROLE, so these carry
+    # the same guard as the creation above.
+    #
+    # Issued as PLAIN statements rather than EXECUTE. They are not dynamic --
+    # the role name is a compile-time constant -- and their values contain
+    # quotes, which under EXECUTE have to survive two levels of literal
+    # escaping. Getting that wrong is not a subtle failure: it is a syntax
+    # error that aborts the migration, i.e. the exact thing this migration must
+    # never do. Not nesting removes the hazard rather than escaping around it.
+    for setting <- [
+          "statement_timeout = '300s'",
+          "idle_in_transaction_session_timeout = '120s'",
+          "lock_timeout = '10s'"
+        ] do
+      execute(if_role_manageable("ALTER ROLE #{@role} SET #{setting};"))
+    end
 
     # Supplying the FDW credential IS the local enablement signal, so this is
     # where LOGIN is granted -- the role gains the ability to connect and the
     # means to do it in one step, and never one without the other.
     case fdw_password() do
       password when is_binary(password) and password != "" ->
-        execute("ALTER ROLE #{@role} LOGIN PASSWORD '#{String.replace(password, "'", "''")}'")
+        escaped = String.replace(password, "'", "''")
+
+        execute(if_role_manageable("ALTER ROLE #{@role} LOGIN PASSWORD '#{escaped}';"))
 
       _ ->
         :ok
@@ -119,17 +166,45 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
 
   def down do
     # No default-ACL dependency to unwind (see up/0), so DROP ROLE succeeds
-    # after the explicit grants are revoked.
-    execute("""
+    # after the explicit grants are revoked. Same privilege guard: a migration
+    # user that could not create the role cannot drop it either, and rolling
+    # back must not fail on that.
+    execute(
+      if_role_manageable("""
+      REVOKE ALL ON ALL TABLES IN SCHEMA platform FROM #{@role};
+      REVOKE ALL ON SCHEMA platform FROM #{@role};
+      DROP ROLE #{@role};
+      """)
+    )
+  end
+
+  # Wraps `body` so it runs only when the export role is present.
+  defp if_role_exists(body) do
+    """
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '#{@role}') THEN
-        EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA platform FROM #{@role}';
-        EXECUTE 'REVOKE ALL ON SCHEMA platform FROM #{@role}';
-        DROP ROLE #{@role};
+        #{body}
       END IF;
     END $$;
-    """)
+    """
+  end
+
+  # Wraps `body` so it runs only when the export role is present AND this
+  # connection is entitled to alter it.
+  defp if_role_manageable(body) do
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '#{@role}')
+         AND EXISTS (
+           SELECT 1 FROM pg_roles
+           WHERE rolname = current_user AND (rolsuper OR rolcreaterole)
+         ) THEN
+        #{body}
+      END IF;
+    END $$;
+    """
   end
 
   # The migrations container does not always receive the raw env (the compose
