@@ -72,8 +72,8 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-TWO unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including NINE of 1.5's
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including EIGHT of 1.5's
 eleven obligations. COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
 focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
@@ -714,7 +714,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-a..1.5-d and 1.5-g..1.5-k. 1.5-e and 1.5-f are CLOSED. The subtask list is
+  - REMAINING: 1.5-a, 1.5-b, 1.5-d and 1.5-g..1.5-k. 1.5-c, 1.5-e and 1.5-f are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
@@ -750,8 +750,10 @@ here.
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
   - [ ] 1.5-b unsupported-version compatibility rules
-  - [ ] 1.5-c TIMESTAMP UNITS -- projection-boundary canonicalization. SPEC, RUNTIME AND
-        VECTORS LANDED; unchecked pending review.
+  - [x] 1.5-c TIMESTAMP UNITS -- projection-boundary canonicalization. SPEC, RUNTIME AND
+        VECTORS LANDED, and SIGNED OFF at 47e3c2a7 after an uncached, retry-disabled Bazel run
+        (`--nocache_test_results --flaky_test_attempts=1`) passed all three gating targets on
+        the FIRST attempt -- an honest result rather than a green status hiding a retry.
         THE RULE is the requirement "Nanosecond time is canonicalized to microseconds only at
         the projection boundary" -- containing-bucket mathematics, the order against the two
         contract hashes, and the consumer list. Not restated here.
