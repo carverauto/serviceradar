@@ -29,6 +29,9 @@ on:
       # execstate builds the lifecycle events that carry the completion proof, so a
       # producer change there can break the frozen ABI without touching edgerecord.
       - 'go/pkg/edge/execstate/**'
+      # 1.5-c's canonicalization helper lives here. Without this a helper-only
+      # regression skips the very workflow that gates its shared vectors.
+      - 'go/pkg/edge/projection/**'
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
@@ -56,6 +59,9 @@ on:
       # execstate builds the lifecycle events that carry the completion proof, so a
       # producer change there can break the frozen ABI without touching edgerecord.
       - 'go/pkg/edge/execstate/**'
+      # 1.5-c's canonicalization helper lives here. Without this a helper-only
+      # regression skips the very workflow that gates its shared vectors.
+      - 'go/pkg/edge/projection/**'
       - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
       - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
       - 'elixir/serviceradar_core/test/serviceradar/proto/**'
@@ -149,7 +155,7 @@ jobs:
       - name: Elixir binding regeneration drift guard
         run: make verify-proto-elixir
       - name: Edge ABI golden parity (Go)
-        run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/... ./go/pkg/edge/execstate/...
+        run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/... ./go/pkg/edge/execstate/... ./go/pkg/edge/projection/...
       - name: Edge ABI golden parity (Elixir cross-language)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
@@ -204,6 +210,13 @@ jobs:
       - name: Edge ASN observation corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/asn_corpus_test.exs
+      # The ns->us canonicalization corpus (task 1.5-c). One hand-written table holds both
+      # runtimes to the same containing-bucket mathematics. Gated because the table is the only
+      # thing that can catch a helper being wrong: a manifest generated from the implementation
+      # cannot, and that is precisely the failure that was live in Go until this slice.
+      - name: Edge ns->us canonicalization corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/canonical_micros_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps

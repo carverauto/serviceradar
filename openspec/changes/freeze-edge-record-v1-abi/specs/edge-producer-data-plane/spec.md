@@ -2551,3 +2551,151 @@ requirement constrains the ABI; it SHALL NOT be read as specifying DDL.
   under the UTF-8, string-length, batch and wire bounds
 - **THEN** both fields are admitted on their own terms
 - **AND** neither is altered or refused on account of the other's content
+
+### Requirement: Nanosecond time is canonicalized to microseconds only at the projection boundary
+Every wire timestamp SHALL remain UNMODIFIED NANOSECONDS through decode, through both contract
+hashes, and through every PRE-PROJECTION comparison -- those that decide CONTRACT IDENTITY and
+admission. Conversion to microseconds SHALL happen ONLY where a value crosses into the
+projection domain, and SHALL yield the CONTAINING microsecond bucket, computed without forming
+an unrepresentable intermediate for any `int64` input.
+
+THE ORDER IS THE RULE, and it is the part an implementation gets wrong silently:
+
+1. `payload_sha256` hashes the EXACT CARRIED PAYLOAD BYTES.
+2. `semantic_envelope_sha256` hashes the frozen FIELD-FRAMED TRANSCRIPT, which commits
+   `payload_sha256` and the RAW NANOSECOND values.
+3. ONLY THEN may a value be canonicalized, and only for a database-derived key or ordering.
+
+NEITHER HASH MAY EVER SEE A CANONICALIZED TIME. CONTRACT IDENTITY is defined over what was
+received; a
+digest taken over a normalized value would make identity depend on the normalization step, and
+two implementations rounding differently would disagree about whether they hold the same
+record while both believing they conform.
+
+FLOOR, NOT TRUNCATION TOWARD ZERO -- and the reason is the CONTAINING-BUCKET INVARIANT, not
+monotonicity. Both methods are monotonic, so monotonicity cannot distinguish them and is not
+the argument.
+
+The requirement is that the canonical value `u` names the microsecond bucket the instant falls
+in: `u * 1000 <= ns < (u + 1) * 1000`. That inequality is MATHEMATICAL, stated in widened
+arithmetic -- near the extremes of `int64` both bounds overflow the type, so an implementation
+checks it by reasoning about the division, not by evaluating the products. Floor satisfies it
+everywhere. Truncation toward zero
+satisfies it only for non-negative inputs: `-1500ns` truncates to `-1us`, whose bucket spans
+`[-1000, 0)` and does not contain `-1500`. Floor gives `-2us`, spanning `[-2000, -1000)`, which
+does. A coordinate naming a bucket that does not contain its own instant places the row in the
+WRONG PROJECTED BUCKET and compares equal to instants it did not share a microsecond with.
+
+THE COMPUTATION SHALL NOT FORM AN UNREPRESENTABLE INTERMEDIATE. That is the language-neutral
+requirement: an implementation SHALL NOT compute the positive magnitude of the operand, because
+the minimum `int64` has no representable positive counterpart. Floor division applied directly
+to the signed value never forms one.
+
+CONCRETELY IN GO, where signed overflow is DEFINED as wrapping rather than undefined, a
+negation-then-add implementation fails across `[MinInt64, MinInt64 + 999]` -- but for TWO
+DIFFERENT REASONS, and conflating them hides one of the cases:
+
+- At EXACTLY `MinInt64`, the unary negation itself wraps, because the value has no representable
+  positive counterpart. The subsequent `+999` then does NOT overflow.
+- For `MinInt64 + 1` through `MinInt64 + 999`, the negation IS representable -- it lands in
+  `MaxInt64 - 998 .. MaxInt64` -- and it is the `+999` bias that wraps.
+
+Either way the result is not a rounding error but a SIGN FLIP: the earliest representable
+instants yield large POSITIVE microsecond values, so an ordering coordinate built on them sorts
+those instants as the latest.
+
+WHAT CONSUMES THIS IS ENUMERATED, and the list is exactly the projection-domain STORAGE AND
+ORDERING coordinates -- not hashes, and not identity comparisons. No projection hash or identity
+comparison consumes a canonicalized time, and none SHALL be added by inference; if one is ever
+built, it joins this list in the same change.
+
+- `mtr_traces.time` (`TIMESTAMPTZ`): the AUTHORITATIVE OBSERVATION TIME, floor-canonicalized
+  for storage and ordering.
+- `mtr_hops.time` (`TIMESTAMPTZ`): likewise.
+
+`timestamptz` carries MICROSECOND resolution, so a nanosecond value cannot round-trip through
+either column, which is why the conversion exists at all.
+
+THESE ARE NOT THE PARTITION IDENTITY. `trace_identity_time` is, and it derives from the UUIDv7
+MILLISECOND timestamp rather than from any wire nanosecond -- so it SHALL NEVER be routed
+through this conversion. `mtr_hops` references the trace's physical identity rather than
+re-deriving one. Conflating the two would send a millisecond-derived partition key through a
+nanosecond canonicalizer and change what the row is, not merely where it sorts.
+
+AGE GRAPH ORDERING STAYS IN RAW NANOSECONDS, deliberately. The `(observed_at, trace_id)`
+comparison that decides whether a property update is newer than the stored order is NOT bounded
+by `timestamptz`, so it has no reason to lose precision. Canonicalizing it would collapse
+observations within one microsecond into ties broken arbitrarily by `trace_id`, turning a
+determinate order into an arbitrary one. It is named here so its absence from the list above is
+a decision rather than an oversight.
+
+SUB-MICROSECOND FIDELITY IS NOT DISCARDED. Where it is part of the domain or audit contract,
+the original signed nanosecond value SHALL be retained separately from the canonicalized key,
+because the canonical value is a storage coordinate and not a replacement for the observation.
+
+PROJECTOR INTEGRATION AND SCHEMA ARE NOT THIS TASK'S. Wiring the conversion into the consumers,
+and any DDL it implies, belong to `unify-sweep-results-proto`. This requirement fixes the
+mathematics, the ordering relative to the hashes, and the list of consumers.
+
+#### Scenario: Two instants in one bucket share a projection-time coordinate, not an identity
+THE TWO VALUES MUST ENCODE TO THE SAME WIDTH, or the vector proves less than it appears to.
+`observed_at_unix_nano` is an `int64` and encodes as a base-128 varint, so 1 ns occupies one
+byte while 999 ns occupies two. That difference propagates into `encoded_size` and
+`uncompressed_size`, which the semantic transcript frames directly -- so the digests would
+differ even if the transcript's dependency on `payload_sha256` were deleted, and the vector
+would survive the very regression it exists to catch.
+
+**128 ns and 999 ns are both two-byte varints.** With them, `payload_sha256` is the only
+transcript member that moves.
+
+- **WHEN** two valid payloads differ ONLY in `MtrTraceEventV1.observed_at_unix_nano`, carrying
+  128 ns and 999 ns, with every enclosing transcript member -- `event_id`, `payload_family`,
+  `compression`, `encoded_size`, `uncompressed_size`, the output contract, the producer context
+  and the capability -- held IDENTICAL
+- **THEN** their canonicalized PROJECTION-TIME COORDINATES are EQUAL, both naming bucket 0
+  (equal time alone does not make the full projection keys equal -- the other key members are
+  not constrained by this scenario)
+- **AND** their carried payload bytes differ
+- **AND** their `payload_sha256` values differ
+- **AND** their `semantic_envelope_sha256` values differ, which -- since nothing else in the
+  transcript moved -- is attributable to `payload_sha256` alone
+
+#### Scenario: A framed capability nanosecond moves the semantic digest on its own
+This is a DIGEST-ONLY construction and is NOT an admission scenario. Moving a signed timestamp
+while retaining the original signature makes the record cryptographically invalid; the pair
+exists solely to isolate the digest's dependence on a raw nanosecond value, and neither member
+is expected to be admitted.
+
+THE FIELD IS NAMED, because "a capability timestamp" could otherwise be implemented against
+delivery authority, which the semantic envelope deliberately EXCLUDES -- and such an
+implementation would show no digest movement at all. The transcript frames
+`production_capability.not_before_unix_nano` directly.
+
+- **WHEN** `production_capability.not_before_unix_nano` is 128 ns in one member and 999 ns in
+  the other -- again equal-width varints -- with `expires_at_unix_nano`, the payload bytes,
+  `payload_sha256`, the claims and a fixed dummy signature all held IDENTICAL
+- **THEN** the `semantic_envelope_sha256` values differ
+- **AND** the difference is attributable to the raw nanosecond value, since nothing else moved
+
+#### Scenario: Canonicalization floors toward negative infinity
+- **WHEN** a wire value of `-1500` nanoseconds is canonicalized
+- **THEN** the result is `-2` microseconds
+- **AND** a value of `1500` nanoseconds canonicalizes to `1` microsecond
+- **AND** the mapping is monotonic: no two inputs in true order produce outputs in reverse
+
+#### Scenario: The bottom of the int64 range canonicalizes to literal values
+These are stated as LITERAL input/output pairs, not as a described neighbourhood, and they
+straddle the exact bucket edge at `MinInt64 + 808`. An implementation SHALL produce exactly:
+
+| nanoseconds | microseconds |
+|---|---|
+| `MinInt64` (-9223372036854775808) | -9223372036854776 |
+| `MinInt64 + 807` | -9223372036854776 |
+| `MinInt64 + 808` | -9223372036854775 |
+| `MinInt64 + 999` | -9223372036854775 |
+| `MinInt64 + 1000` | -9223372036854775 |
+
+- **WHEN** any of the above nanosecond values is canonicalized
+- **THEN** the result is exactly the paired microsecond value
+- **AND** every result remains NEGATIVE, rather than the large POSITIVE value a wrapped
+  negation or a wrapped `+999` bias produces

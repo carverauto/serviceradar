@@ -72,8 +72,8 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-THREE unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including TEN of 1.5's
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including EIGHT of 1.5's
 eleven obligations. COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
 focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
@@ -693,8 +693,9 @@ here.
   placement, spool coordinates, and renewable delivery proof; define broker
   publication identity separately. Make projected row cost cover every
   synchronous ledger/domain/outbox/work/current-state mutation, and canonicalize
-  nanoseconds to PostgreSQL microseconds ONLY for DATABASE-DERIVED keys, hashes, identity
-  comparison and ordering, and only AFTER the two contract hashes are taken. `payload_sha256`
+  nanoseconds to PostgreSQL microseconds ONLY for projection-domain STORAGE AND ORDERING
+  coordinates -- no projection hash or identity comparison consumes a canonicalized time --
+  and only AFTER the two contract hashes are taken. `payload_sha256`
   hashes the EXACT CARRIED PAYLOAD BYTES; `semantic_envelope_sha256` hashes the frozen
   FIELD-FRAMED TRANSCRIPT, which commits `payload_sha256` and the RAW NANOSECOND values.
   Neither may see a canonicalized timestamp.
@@ -713,7 +714,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-a..1.5-d and 1.5-g..1.5-k. 1.5-e and 1.5-f are CLOSED. The subtask list is
+  - REMAINING: 1.5-a, 1.5-b, 1.5-d and 1.5-g..1.5-k. 1.5-c, 1.5-e and 1.5-f are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
@@ -737,19 +738,54 @@ here.
     `.forgejo/workflows/proto-abi.yml`. No ASN-SPECIFIC allocation-status filter exists in
     either runtime, by decision -- the generic validators still run over these records, and the
     corpus asserts they admit every value.
+    TIMESTAMP CANONICALIZATION (1.5-c): the requirement "Nanosecond time is canonicalized to
+    microseconds only at the projection boundary"; `projection.CanonicalMicros` and
+    `ServiceRadar.Edge.ProjectionTime.canonical_micros/1`; the hand-written table
+    `proto/edge/v1/testdata/canonical_micros_corpus.txt` plus the four
+    `canonical_hash_*.bin` records, exercised by
+    `go/pkg/edge/edgerecord/canonical_micros_corpus_test.go` and
+    `elixir/serviceradar_core/test/serviceradar/edge/canonical_micros_corpus_test.exs`, both
+    gated in `.forgejo/workflows/proto-abi.yml`.
 
   SUBTASKS (parent stays unchecked until all close)
   - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
   - [ ] 1.5-b unsupported-version compatibility rules
-  - [ ] 1.5-c TIMESTAMP UNITS -- projection-domain canonicalization. DEFERRED.
-        LANDED: nothing.
-        REMAINING: freeze the ORDER. `payload_sha256` hashes the exact carried payload bytes.
-        `semantic_envelope_sha256` hashes the frozen field-framed transcript, committing
-        `payload_sha256` and the RAW NANOSECOND values. Canonicalization to microseconds
-        happens only AFTERWARD, for database-derived keys and ordering, and never feeds either
-        hash.
-        OWNER NOTE: prior art `CanonicalMicros` (`go/pkg/edge/projection/projection.go:47`) is
-        inert -- nothing imports that package -- and its negative branch overflows at MinInt64.
+  - [x] 1.5-c TIMESTAMP UNITS -- projection-boundary canonicalization. SPEC, RUNTIME AND
+        VECTORS LANDED, and SIGNED OFF at 47e3c2a7 after an uncached, retry-disabled Bazel run
+        (`--nocache_test_results --flaky_test_attempts=1`) passed all three gating targets on
+        the FIRST attempt -- an honest result rather than a green status hiding a retry.
+        THE RULE is the requirement "Nanosecond time is canonicalized to microseconds only at
+        the projection boundary" -- containing-bucket mathematics, the order against the two
+        contract hashes, and the consumer list. Not restated here.
+        THE HELPER IS FIXED. `projection.CanonicalMicros` adjusts the quotient after a direct
+        signed division, forming no unrepresentable intermediate; its package doc no longer
+        claims it runs "BEFORE any identity or ordering comparison".
+        `ServiceRadar.Edge.ProjectionTime.canonical_micros/1` is the peer.
+        CONSUMERS: `mtr_traces.time` and `mtr_hops.time` only, both `TIMESTAMPTZ`. NOT the
+        partition identity -- `trace_identity_time` is, and is UUIDv7 MILLISECOND derived, so it
+        is permanently excluded. AGE's `(observed_at, trace_id)` ordering stays in raw
+        nanoseconds, normative in `age-graph/spec.md`.
+        VECTORS: 14 hand-written rows in `canonical_micros_corpus.txt`, verified against the
+        invariant with independent arbitrary-precision arithmetic -- NOT generated from either
+        helper, since a table produced by calling the implementation cannot detect the
+        implementation being wrong. EXACT membership and uniqueness are gated in both suites; a
+        count-only gate would accept a boundary row replaced by a duplicate.
+        HASH CONTROLS on four committed records both runtimes read byte-for-byte:
+        `canonical_hash_observed_{128,999}.bin` carry REAL MTR bodies differing only in
+        `MtrTraceEventV1.observed_at_unix_nano`, and `canonical_hash_capability_{128,999}.bin`
+        move `production_capability.not_before_unix_nano` with payload, hash, expiry and
+        signature fixed (DIGEST-ONLY, not admission -- the signature no longer covers the moved
+        timestamp). 128/999 because both are two-byte varints, and the records are UNCOMPRESSED
+        so the width argument applies to the bytes actually hashed.
+        MUTATION-VERIFIED: restoring the old negation-based Go implementation is killed at
+        MinInt64; truncating instead of flooring is killed at -1500 in BOTH runtimes.
+        GATED in `go_test.srcs` (with the `//go/pkg/edge/projection` dep the import needs), the
+        Elixir unit shard, and `proto-abi.yml` -- whose path filters and Go sweep now include
+        `go/pkg/edge/projection/**`, without which a helper-only regression skipped the very
+        workflow gating its vectors.
+        NOT OWNED HERE: projector integration and schema, both `unify-sweep-results-proto` task
+        5.4's. Nothing calls the conversion from a projector yet, so SQL agreement is not
+        established.
   - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
   - [x] 1.5-e ASN OBSERVATION SEMANTICS (renamed from "ASN RANGE admission").
         LANDED: the requirement "An MTR hop's ASN is diagnostic enrichment, not an allocation
