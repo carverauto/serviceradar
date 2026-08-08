@@ -310,7 +310,14 @@ defmodule ServiceRadar.ColdTier.Registry do
         {"dst_mac_vendor_source", "text", :none},
         {"packets_in", "bigint", :none},
         {"packets_out", "bigint", :none},
-        {"sampling_rate", "bigint", :none}
+        {"sampling_rate", "bigint", :none},
+        # Prefix-tag flow enrichment (add-flow-prefix-tag-enrichment), added after
+        # this registry was written. jsonb exports as text, matching every other
+        # jsonb column here. Caught by RegistryDriftTest.
+        {"src_prefix_tags", "jsonb", :text},
+        {"dst_prefix_tags", "jsonb", :text},
+        {"src_prefix_tags_source", "text", :none},
+        {"dst_prefix_tags_source", "text", :none}
       ]
     }
   ]
