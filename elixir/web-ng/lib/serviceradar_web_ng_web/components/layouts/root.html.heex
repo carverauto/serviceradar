@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
+    <%!-- Demo is for evaluation, not organic search. --%>
+    <meta name="robots" content="noindex, nofollow" />
     <.live_title default="ServiceRadar" suffix=" · ServiceRadar">
       {assigns[:page_title]}
     </.live_title>
