@@ -217,6 +217,16 @@ jobs:
       - name: Edge ns->us canonicalization corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/canonical_micros_corpus_test.exs
+      # The unknown-field / unknown-enum compatibility corpus (task 1.5-a). Gated because it is
+      # the only place the two runtimes meet on the SAME BYTES for these rules: the structural
+      # cases were previously proven by bytes hand-built inside the Elixir suite, which cannot
+      # show that Go reaches the same verdict on them. It also pins the two shapes where the
+      # runtimes reject at DIFFERENT layers, and the retained enum VALUE and FORM -- a decoder
+      # that clamped an unknown enum would still be rejected by the closed sets, so no verdict
+      # assertion anywhere else can see it.
+      - name: Edge unknown-field/enum compatibility corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/wire_compat_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps

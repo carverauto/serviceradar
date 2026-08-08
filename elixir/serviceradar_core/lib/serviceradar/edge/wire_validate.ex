@@ -243,9 +243,14 @@ defmodule ServiceRadar.Edge.WireValidate do
   end
 
   # ONLY a REPEATED scalar field can carry a packed payload. A SINGULAR scalar that arrives
-  # length-delimited is a wire-type MISMATCH, which Go does NOT reject: it preserves the bytes as an
-  # unknown field. Validating such a payload as packed would poison a message Go accepts, so the
-  # `repeated?: true` gate is load-bearing, not decoration.
+  # length-delimited is a wire-type MISMATCH, which Go's PARSER does not reject: it preserves the
+  # bytes as an unknown field. Composed Go admission then DOES reject the message -- `DecodeRecord`
+  # returns `ErrUnknownFields` for exactly that shape -- so the gate is not about matching an
+  # accept. It is about WHERE the refusal comes from: applying the packed rules here would refuse
+  # it as a malformed PACKED PAYLOAD, a claim about bytes Go's parser reads happily, and would do
+  # so on any singular field a future schema adds. The refusal is left to the decoder, which raises
+  # `Protobuf.DecodeError` -> `:poison`, matching Go's verdict. Shared vector:
+  # `wire_compat_wire_type_mismatch.bin`.
   defp descend(%{repeated?: true, type: type}, payload, _depth), do: packed_payload(type, payload)
   defp descend(_fprops, _payload, _depth), do: :ok
 

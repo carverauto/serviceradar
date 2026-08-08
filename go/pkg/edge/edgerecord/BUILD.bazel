@@ -39,6 +39,7 @@ go_test(
         "canonical_micros_corpus_test.go",
         "compression_corpus_test.go",
         "record_admit_corpus_test.go",
+        "wire_compat_corpus_test.go",
         "domain_test.go",
         "principal_test.go",
         "publication_identity_test.go",
