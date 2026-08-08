@@ -210,10 +210,31 @@ jobs:
       #
       # and the whole chain never ran.
 
+      # `--strategy=TestRunner=local` on every //rust/integration-db step below.
+      #
+      # These reach the shared fixture over the network, and a BuildBuddy RBE executor cannot
+      # resolve its hostname:
+      #
+      #   sweep failed: error connecting to server
+      #       failed to lookup address information: Name or service not known
+      #
+      # The runner can; it is inside the cluster. //elixir/serviceradar_core:migrate_template
+      # already sits on the runner for the same reason, via a `no-remote-exec` tag.
+      #
+      # The tag is deliberately NOT the fix here -- see the long comment in
+      # //rust/integration-db/BUILD.bazel. Tags propagate from a *_test rule to its COMPILE
+      # actions, so tagging these would drag rustc onto the runner, which has no compiler
+      # (`linker /usr/bin/gcc not found`) and onto macOS workstations, which cannot execute the
+      # Linux process_wrapper (Exit 126). Both were live failures; that is why it was removed.
+      #
+      # `--strategy=` selects per MNEMONIC, and `TestRunner` is the test action alone. Compiles
+      # stay remote and cached; only the test binary runs where the fixture is reachable. Scoped
+      # to these invocations rather than //.bazelrc so it cannot leak into other jobs.
+
       # 1. Collect databases leaked by cancelled runs, before this one adds to the fixture.
       - name: Sweep stale integration databases
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' }}
-        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
+        run: bazel test -c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:sweep_stale_dbs
 
       # 2. Create sr_core_template if absent, and report whether it is behind the migrations
       # on disk. `bazel run`, not `bazel test`: it writes needs_migration to $GITHUB_OUTPUT,
@@ -236,7 +257,7 @@ jobs:
       # against a stale schema.
       - name: Provision integration database
         if: ${{ env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
+        run: bazel test -c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:provision_db
 
       # 5. The suite.
       - name: serviceradar_core integration tests
@@ -249,4 +270,4 @@ jobs:
       # sweep can drop it.
       - name: Drop integration database
         if: ${{ always() && env.SRQL_TEST_ADMIN_URL != '' && env.SRQL_TEST_DATABASE_URL != '' }}
-        run: bazel test -c opt --config=ci --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db
+        run: bazel test -c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests --test_tag_filters= --test_output=errors //rust/integration-db:teardown_db

@@ -47,8 +47,13 @@ rust_test(
 # neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
 # the shared fixture.
 #
-# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE. These run fully remote, like the
-# //elixir/serviceradar_core integration shards that use the same fixture.
+# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE -- but note that the TEST actions
+# are nonetheless pinned to the runner, by `--strategy=TestRunner=local` on the workflow's
+# invocations rather than by a tag here. An RBE executor cannot resolve the fixture hostname
+# ("failed to lookup address information: Name or service not known"), so a fully remote run
+# fails at step 1. `--strategy=` selects per mnemonic, so compiles stay remote and cached
+# while only the test binary moves; a tag cannot make that distinction, which is exactly why
+# it was removed (below).
 #
 # It was load-bearing once. The CA reached the test as a PATH -- PGSSLROOTCERT and friends,
 # written by scripts/ci/configure-srql-fixture.sh into ${RUNNER_TEMP} -- and --test_env forwards
