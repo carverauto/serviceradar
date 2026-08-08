@@ -2699,3 +2699,88 @@ straddle the exact bucket edge at `MinInt64 + 808`. An implementation SHALL prod
 - **THEN** the result is exactly the paired microsecond value
 - **AND** every result remains NEGATIVE, rather than the large POSITIVE value a wrapped
   negation or a wrapped `+999` bias produces
+
+### Requirement: An unknown field is refused and an unknown enum is retained, and both runtimes reach the same verdict
+A record carrying a RETAINED UNKNOWN FIELD SHALL be REFUSED, at EVERY message depth. An
+UNKNOWN ENUM VALUE SHALL instead be RETAINED with its exact number through decode and refused
+SEMANTICALLY, by the closed per-field member sets. Both runtimes SHALL reach the SAME
+accept/reject verdict on the SAME BYTES.
+
+"EVERY MESSAGE DEPTH" MEANS ONE GRAPH, AND THE BOUNDARY IS THE SCHEMA. The rule applies to
+the message being validated and to every message reachable from it through SCHEMA-DECLARED
+MESSAGE FIELDS -- at any depth, and including oneof members, repeated messages, and
+message-valued map entries. Three exclusions make that a boundary rather than a slogan:
+
+- A `bytes` FIELD IS OPAQUE, even when its content is itself protobuf. The record's `payload`
+  carries a CONTRACT message admitted by its own payload-family rules; walking it here would
+  apply the record's field inventory to a different schema and refuse valid contract bytes.
+- EACH RECEIVED CARRIER IS ITS OWN GRAPH. The client message, the delivery frame, the record,
+  the plan page and the compiled assignment are validated when each is received, on its own
+  schema. This requirement does not merge them into a single walk, and satisfying it for one
+  carrier does not satisfy it for another.
+- A MESSAGE THE SCHEMA DOES NOT DECLARE IS NOT DESCENDED INTO. It is refused as an unknown
+  field, which is the rule above, so there is no schema to walk it against.
+
+THESE TWO RULES POINT IN OPPOSITE DIRECTIONS, DELIBERATELY. The edge ABI is frozen closed, so
+an unknown field is a record a later reader might reinterpret and is refused. An unknown enum
+is refused too, but only AFTER the effective value is resolved by a real decoder: a raw wire
+walk cannot reproduce LAST-ONE-WINS, oneof resolution, or embedded-message merging, so a
+first-occurrence verdict would refuse messages whose effective value is valid.
+
+THE VERDICT IS FROZEN; THE LAYER IS NOT. The two runtimes refuse the same bytes through
+different mechanisms, and requiring one mechanism would freeze an implementation detail:
+
+- An out-of-range field number (above 2^29-1) and a 10-BYTE UINT64-OVERFLOW VARINT are refused
+  by Go's WIRE PARSER, while the generated Elixir decoder ACCEPTS both -- masking a `2^64 + N`
+  varint to its low 64 bits -- so a project-owned structural preflight is what refuses them
+  there.
+- An ordinary unknown field and a well-formed GROUP are PARSED AND RETAINED by Go and refused
+  by its own unknown-field walk, while the Elixir decoder silently DISCARDS a group, so
+  nothing downstream of the decoder could ever see it.
+
+A CONFORMING IMPLEMENTATION MAY REFUSE AT EITHER LAYER. What it SHALL NOT do is admit.
+
+THE RETAINED ENUM NUMBER IS PART OF THE CONTRACT, not an implementation artifact. An
+implementation SHALL NOT clamp, substitute, or drop an unknown enum value on decode. This is
+NOT implied by the refusal: the closed member sets refuse a clamped value exactly as they
+refuse the original, so a decoder that silently rewrote 99 to 0 would pass every admission
+check while corrupting what a reject audit reports.
+
+A DECLARED-BUT-EXCLUDED MEMBER IS STILL REFUSED. `UNSPECIFIED` is declared by every edge enum
+and permitted by none of the closed sets, so it is refused by the FIELD POLICY rather than by
+unknown-value retention -- a distinction that matters because only the latter can be
+recognised by "the field holds a raw integer".
+
+WHAT IS NOT FROZEN HERE is anything about a refusal beyond the fact of it: the CLASSIFICATION
+it carries -- whether the bytes are dead, the deployment is broken, or a schema is simply not
+deployed yet -- the DISPOSITION it resolves to, and the stream or dead-letter queue it routes
+to. Those decide RETRYABILITY rather than admissibility, they are stage- and slot-specific, and
+they are owned separately (see task 1.5-l). This requirement is satisfied by refusing; it takes
+no position on what the refusal is then called.
+
+#### Scenario: An unknown field is refused at every depth
+- **WHEN** a record carries a field number the schema does not declare, at the record's top
+  level or nested inside a signed capability
+- **THEN** the record is refused by both runtimes
+- **AND** the refusal does not depend on the field's wire type, including a well-formed group
+
+#### Scenario: The field-number bound is inclusive
+- **WHEN** one record carries field number 2^29-1 and another carries 2^29
+- **THEN** both are refused
+- **AND** neither refusal depends on which layer produced it
+
+#### Scenario: An unknown field two messages deep is refused
+- **WHEN** a record carries an undeclared field number inside the claims of its production
+  capability -- two schema-declared message fields below the record
+- **THEN** the record is refused
+- **AND** the refusal does not depend on the depth at which the field appears
+
+#### Scenario: An unknown enum survives decode with its exact value and is then refused
+- **WHEN** a record carries a `traffic_class` of 99 or -1, neither declared by the enum
+- **THEN** the decoded value is exactly 99 or -1, with no clamping or substitution
+- **AND** the record is refused by the closed member set for that field
+
+#### Scenario: A declared member outside the permitted set is refused by the field policy
+- **WHEN** a record carries `traffic_class` = 0 (`UNSPECIFIED`), which the enum declares
+- **THEN** the value decodes as a DECLARED member rather than as a raw number
+- **AND** the record is still refused, because the permitted set for that field excludes it
