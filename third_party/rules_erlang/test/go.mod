@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/bazelbuild/buildtools v0.0.0-20230831140646-386244e73fc4
+	github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
