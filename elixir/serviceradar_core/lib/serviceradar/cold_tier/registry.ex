@@ -60,7 +60,11 @@ defmodule ServiceRadar.ColdTier.Registry do
         {"source", "text", :none},
         {"ingest_identity", "text", :none},
         {"ingest_agent_id", "text", :none},
-        {"ingest_partition", "text", :none}
+        {"ingest_partition", "text", :none},
+        # Added by 20260715120000_add_logs_source_ip, i.e. after this registry was
+        # first written, so it is physically last. Caught by RegistryDriftTest --
+        # without it the cold tier would export `logs` minus this column.
+        {"source_ip", "text", :none}
       ]
     },
     %Table{
