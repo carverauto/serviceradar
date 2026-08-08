@@ -322,7 +322,33 @@ func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 	}
 }
 
+// TestEndpointInventorySpoolPayloadCapDefaultsToTransportLimit pins the tunable to the
+// real transport constant. shrinkEndpointInventorySpoolPayloadCap lets tests move it, so
+// without this a wrong default would ship and every cap test would still pass.
+func TestEndpointInventorySpoolPayloadCapDefaultsToTransportLimit(t *testing.T) {
+	if endpointInventorySpoolPayloadCap != endpointinventory.MaxSpoolPayloadBytes {
+		t.Fatalf("production cap = %d, want %d",
+			endpointInventorySpoolPayloadCap, endpointinventory.MaxSpoolPayloadBytes)
+	}
+}
+
+// shrinkEndpointInventorySpoolPayloadCap lowers the status-transport size budget for the
+// duration of one test. Building a fixture at the real 32 MiB cap costs two marshals of a
+// 32 MiB document plus a disk round trip, which under -race was 5.75s -- 20% of this
+// package's entire test runtime for one assertion about a size comparison.
+func shrinkEndpointInventorySpoolPayloadCap(t *testing.T, limit int64) {
+	t.Helper()
+
+	orig := endpointInventorySpoolPayloadCap
+	endpointInventorySpoolPayloadCap = limit
+	t.Cleanup(func() { endpointInventorySpoolPayloadCap = orig })
+}
+
 func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing.T) {
+	const capBytes = int64(8192)
+
+	shrinkEndpointInventorySpoolPayloadCap(t, capBytes)
+
 	root := t.TempDir()
 	spoolPath := filepath.Join(root, "latest.json")
 	payload := map[string]any{
@@ -333,13 +359,13 @@ func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing
 		"coverage_state": "not_scanned",
 		"metadata":       map[string]any{"padding": ""},
 	}
-	padding := strings.Repeat("p", int(endpointinventory.MaxSpoolPayloadBytes)-1024)
+	padding := strings.Repeat("p", int(capBytes)-1024)
 	payload["metadata"].(map[string]any)["padding"] = padding
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	remaining := int(endpointinventory.MaxSpoolPayloadBytes) - len(raw)
+	remaining := int(capBytes) - len(raw)
 	if remaining < 0 {
 		t.Fatalf("test fixture exceeded cap before final mutation: %d", len(raw))
 	}
@@ -348,8 +374,8 @@ func TestEndpointInventorySpoolServiceEnforcesCapAfterAgentIDMutation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if int64(len(raw)) != endpointinventory.MaxSpoolPayloadBytes {
-		t.Fatalf("fixture size = %d, want %d", len(raw), endpointinventory.MaxSpoolPayloadBytes)
+	if int64(len(raw)) != capBytes {
+		t.Fatalf("fixture size = %d, want %d", len(raw), capBytes)
 	}
 	if err := os.WriteFile(spoolPath, raw, 0600); err != nil {
 		t.Fatal(err)

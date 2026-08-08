@@ -47,29 +47,29 @@ rust_test(
 # neither. `manual` keeps them out of //... so an ordinary `bazel test` never points DDL at
 # the shared fixture.
 #
-# `no-remote-exec` pins execution to the runner, and is load-bearing under --config=ci.
-# scripts/ci/configure-srql-fixture.sh writes the fixture CA to ${RUNNER_TEMP}/srql-fixture-ca.crt
-# and exports FOUR variables that are paths to it -- PGSSLROOTCERT, CNPG_CA_FILE,
-# SERVICERADAR_TEST_DATABASE_CA_CERT_FILE, SRQL_TEST_DATABASE_CA_CERT_FILE. --test_env forwards
-# the path, never the file, so on a BuildBuddy executor the test dies with
+# THERE IS DELIBERATELY NO `no-remote-exec` HERE ANY MORE. These run fully remote, like the
+# //elixir/serviceradar_core integration shards that use the same fixture.
+#
+# It was load-bearing once. The CA reached the test as a PATH -- PGSSLROOTCERT and friends,
+# written by scripts/ci/configure-srql-fixture.sh into ${RUNNER_TEMP} -- and --test_env forwards
+# the path, never the file, so an executor died with
 #
 #   FAILED: failed to open PGSSLROOTCERT
 #   Caused by: No such file or directory (os error 2)
 #
-# The secret cannot become an action input without baking it into the action cache key, and the
-# fixture-reachability probe in that same script tests the route from the RUNNER, which is the
-# client this whole design assumes. Only execution is pinned: `no-remote-exec` leaves remote
-# CACHING intact (that would be `no-remote`).
+# src/lib.rs ca_pem_from_env() now prefers SRQL_TEST_DATABASE_CA_CERT, which carries the PEM
+# CONTENT (//.bazelrc forwards it), and falls back to the path only for a developer pointing at
+# a local fixture. The tag outlived the reason for it by some margin.
 #
-# These read the three SRQL_TEST_* variables from the runner's environment, through the
-# `test --test_env=` list in //.bazelrc. scripts/ci/configure-srql-fixture.sh puts them there
-# in CI; //:buildbuddy_setup_fixture_env does it on a workstation. That is now the only
-# mechanism in the repo: //elixir/serviceradar_core:integration_tests_s* used to get the same
-# three from BuildBuddy's `test.env-secrets` platform property, which was removed because no
-# other remote-execution backend implements it.
+# Keeping it was not free. Tags propagate from a *_test rule to its COMPILE actions, so rustc
+# ran wherever the client was: on the workflow runner that means `linker /usr/bin/gcc not found`
+# (the runner image has no compiler), and on a macOS workstation `cannot execute binary file`
+# (Exit 126, the process_wrapper is built for the Linux exec platform). Both were live failures.
+# It survived on CI only because remote CACHING still applied and the compile was always a hit --
+# which stopped being true the moment the cc toolchain changed and re-keyed every action.
 #
-# The path variables described above are the reason this pinning survives even though the
-# Elixir side moved to PEM content -- the Rust side still opens a file.
+# These read the SRQL_TEST_* variables through the `test --test_env=` list in //.bazelrc:
+# //:buildbuddy_setup_fixture_env puts them in the environment on CI and on a workstation.
 #
 # Sequencing lives in the workflow, because Bazel deliberately does not order tests:
 #   sweep_stale_dbs -> prepare_template -> (elixir) migrate_template -> provision_db
@@ -87,7 +87,6 @@ rust_test(
         tags = [
             "external",
             "manual",
-            "no-remote-exec",
         ],
         target_compatible_with = requires_shared_fixture(),
         deps = all_crate_deps(
@@ -123,7 +122,6 @@ rust_test(
     tags = [
         "external",
         "manual",
-        "no-remote-exec",
     ],
     target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(

@@ -70,7 +70,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisher do
         Logger.warning(
           "AgentGateway: k8s_public_endpoints payload too large",
           agent_id: status[:agent_id],
-          size: byte_size(message)
+          message_size: byte_size(message)
         )
 
         {:error, :inventory_payload_too_large}
@@ -82,7 +82,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisher do
 
   defp publish_payload(status, message, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
-    subject = Keyword.get(config, :subject, @default_subject) |> to_string()
+    subject = config |> Keyword.get(:subject, @default_subject) |> to_string()
     headers = inventory_headers(status)
 
     case connection.publish(subject, message, headers: headers) do
@@ -92,7 +92,7 @@ defmodule ServiceRadarAgentGateway.K8sPublicEndpointsPublisher do
           agent_id: status[:agent_id],
           partition: status[:partition],
           subject: subject,
-          bytes: byte_size(message)
+          message_size: byte_size(message)
         )
 
         :ok

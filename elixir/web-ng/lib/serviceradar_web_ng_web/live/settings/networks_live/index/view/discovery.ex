@@ -81,8 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
                       phx-value-id={job.id}
                       class="flex items-center gap-1.5 cursor-pointer"
                     >
-                      <span class={"size-2 rounded-full #{if job.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}>
-                      </span>
+                      <span class={"size-2 rounded-full #{if job.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                       <span class="text-xs">{if job.enabled, do: "Enabled", else: "Disabled"}</span>
                     </button>
                   </td>

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package sshca
+package sshca_test
 
 import (
 	"bytes"
@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/carverauto/serviceradar/go/pkg/remoteaccess/sshca"
 )
 
 func TestSignUserCertificate(t *testing.T) {
@@ -37,16 +39,16 @@ func TestSignUserCertificate(t *testing.T) {
 	caSigner, caPrivateKey := newTestSigner(t)
 	userSigner, _ := newTestSigner(t)
 
-	ca, err := New(privateKeyPEM(t, caPrivateKey), nil,
-		WithClock(func() time.Time { return now }),
-		WithMaxTTL(2*time.Hour),
+	ca, err := sshca.New(privateKeyPEM(t, caPrivateKey), nil,
+		sshca.WithClock(func() time.Time { return now }),
+		sshca.WithMaxTTL(2*time.Hour),
 	)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
 	userPublicKey := ssh.MarshalAuthorizedKey(userSigner.PublicKey())
-	signed, err := ca.SignUserCertificate(UserCertificateRequest{
+	signed, err := ca.SignUserCertificate(sshca.UserCertificateRequest{
 		PublicKey:  userPublicKey,
 		KeyID:      "session-1:actor-1:target-1",
 		Principals: []string{" root ", "ubuntu", "root", ""},
@@ -78,7 +80,7 @@ func TestSignUserCertificate(t *testing.T) {
 	if got, want := cert.ValidPrincipals, []string{"root", "ubuntu"}; !equalStrings(got, want) {
 		t.Fatalf("principals = %#v, want %#v", got, want)
 	}
-	if got, want := int64(cert.ValidAfter), now.Add(-DefaultBackdate).Unix(); got != want {
+	if got, want := int64(cert.ValidAfter), now.Add(-sshca.DefaultBackdate).Unix(); got != want {
 		t.Fatalf("valid after = %d, want %d", got, want)
 	}
 	if got, want := int64(cert.ValidBefore), now.Add(time.Hour).Unix(); got != want {
@@ -103,90 +105,90 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 
 	caSigner, _ := newTestSigner(t)
 	userSigner, _ := newTestSigner(t)
-	ca := NewFromSigner(caSigner, WithClock(func() time.Time {
+	ca := sshca.NewFromSigner(caSigner, sshca.WithClock(func() time.Time {
 		return time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)
-	}), WithMaxTTL(time.Hour))
+	}), sshca.WithMaxTTL(time.Hour))
 
 	validPublicKey := ssh.MarshalAuthorizedKey(userSigner.PublicKey())
 	certPublicKey := signedPublicKey(t, caSigner, userSigner)
 
 	tests := []struct {
 		name string
-		req  UserCertificateRequest
+		req  sshca.UserCertificateRequest
 		want error
 	}{
 		{
 			name: "public key",
-			req:  UserCertificateRequest{KeyID: "session-1", Principals: []string{"root"}, TTL: time.Minute},
-			want: ErrPublicKeyRequired,
+			req:  sshca.UserCertificateRequest{KeyID: "session-1", Principals: []string{"root"}, TTL: time.Minute},
+			want: sshca.ErrPublicKeyRequired,
 		},
 		{
 			name: "public key is certificate",
-			req: UserCertificateRequest{
+			req: sshca.UserCertificateRequest{
 				PublicKey:  certPublicKey,
 				KeyID:      "session-1",
 				Principals: []string{"root"},
 				TTL:        time.Minute,
 			},
-			want: ErrPublicKeyIsCert,
+			want: sshca.ErrPublicKeyIsCert,
 		},
 		{
 			name: "key id",
-			req:  UserCertificateRequest{PublicKey: validPublicKey, Principals: []string{"root"}, TTL: time.Minute},
-			want: ErrKeyIDRequired,
+			req:  sshca.UserCertificateRequest{PublicKey: validPublicKey, Principals: []string{"root"}, TTL: time.Minute},
+			want: sshca.ErrKeyIDRequired,
 		},
 		{
 			name: "principals",
-			req:  UserCertificateRequest{PublicKey: validPublicKey, KeyID: "session-1", TTL: time.Minute},
-			want: ErrPrincipalRequired,
+			req:  sshca.UserCertificateRequest{PublicKey: validPublicKey, KeyID: "session-1", TTL: time.Minute},
+			want: sshca.ErrPrincipalRequired,
 		},
 		{
 			name: "ttl",
-			req:  UserCertificateRequest{PublicKey: validPublicKey, KeyID: "session-1", Principals: []string{"root"}},
-			want: ErrTTLRequired,
+			req:  sshca.UserCertificateRequest{PublicKey: validPublicKey, KeyID: "session-1", Principals: []string{"root"}},
+			want: sshca.ErrTTLRequired,
 		},
 		{
 			name: "ttl maximum",
-			req: UserCertificateRequest{
+			req: sshca.UserCertificateRequest{
 				PublicKey:  validPublicKey,
 				KeyID:      "session-1",
 				Principals: []string{"root"},
 				TTL:        2 * time.Hour,
 			},
-			want: ErrTTLExceedsMaximum,
+			want: sshca.ErrTTLExceedsMaximum,
 		},
 		{
 			name: "validity",
-			req: UserCertificateRequest{
+			req: sshca.UserCertificateRequest{
 				PublicKey:  validPublicKey,
 				KeyID:      "session-1",
 				Principals: []string{"root"},
 				TTL:        time.Minute,
 				ValidAfter: time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC),
 			},
-			want: ErrInvalidValidity,
+			want: sshca.ErrInvalidValidity,
 		},
 		{
 			name: "critical option",
-			req: UserCertificateRequest{
+			req: sshca.UserCertificateRequest{
 				PublicKey:       validPublicKey,
 				KeyID:           "session-1",
 				Principals:      []string{"root"},
 				TTL:             time.Minute,
 				CriticalOptions: map[string]string{"force-command": "/bin/sh"},
 			},
-			want: ErrUnsupportedCritical,
+			want: sshca.ErrUnsupportedCritical,
 		},
 		{
 			name: "extension",
-			req: UserCertificateRequest{
+			req: sshca.UserCertificateRequest{
 				PublicKey:  validPublicKey,
 				KeyID:      "session-1",
 				Principals: []string{"root"},
 				TTL:        time.Minute,
 				Extensions: map[string]string{"permit-port-forwarding": ""},
 			},
-			want: ErrUnsupportedExtension,
+			want: sshca.ErrUnsupportedExtension,
 		},
 	}
 
@@ -215,15 +217,15 @@ func TestSignUserCertificateRejectsWeakCASignerKey(t *testing.T) {
 	}
 	userSigner, _ := newTestSigner(t)
 
-	ca := NewFromSigner(caSigner, WithMaxTTL(time.Hour))
-	_, err = ca.SignUserCertificate(UserCertificateRequest{
+	ca := sshca.NewFromSigner(caSigner, sshca.WithMaxTTL(time.Hour))
+	_, err = ca.SignUserCertificate(sshca.UserCertificateRequest{
 		PublicKey:  ssh.MarshalAuthorizedKey(userSigner.PublicKey()),
 		KeyID:      "session-1",
 		Principals: []string{"root"},
 		TTL:        time.Minute,
 	})
-	if !errors.Is(err, ErrUnsupportedSignerKey) {
-		t.Fatalf("error = %v, want %v", err, ErrUnsupportedSignerKey)
+	if !errors.Is(err, sshca.ErrUnsupportedSignerKey) {
+		t.Fatalf("error = %v, want %v", err, sshca.ErrUnsupportedSignerKey)
 	}
 }
 

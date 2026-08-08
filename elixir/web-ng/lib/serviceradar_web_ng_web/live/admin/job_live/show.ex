@@ -491,14 +491,14 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             stroke-opacity="0.1"
             stroke-width="0.5"
           />
-          
-    <!-- Bars -->
+
+          <!-- Bars -->
           <%= for {bucket, idx} <- Enum.with_index(@data) do %>
             <% x = idx * @bar_width %>
             <% completed_height = bucket.completed / @max_val * 100 %>
             <% failed_height = bucket.failed / @max_val * 100 %>
-            
-    <!-- Completed (green) -->
+
+            <!-- Completed (green) -->
             <rect
               x={x + @bar_width * 0.1}
               y={100 - completed_height}
@@ -509,8 +509,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             >
               <title>Completed: {bucket.completed}</title>
             </rect>
-            
-    <!-- Failed (red) -->
+
+            <!-- Failed (red) -->
             <rect
               x={x + @bar_width * 0.55}
               y={100 - failed_height}
@@ -524,8 +524,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <% end %>
         </svg>
       </div>
-      
-    <!-- Legend -->
+
+      <!-- Legend -->
       <div class="flex items-center justify-center gap-4 text-xs text-sr-muted">
         <div class="flex items-center gap-1">
           <div class="w-3 h-3 rounded bg-success"></div>
@@ -536,8 +536,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
           <span>Failed</span>
         </div>
       </div>
-      
-    <!-- Time axis -->
+
+      <!-- Time axis -->
       <div class="flex justify-between text-[10px] text-sr-muted px-1">
         <%= if length(@data) > 0 do %>
           <span>{format_chart_time(List.first(@data).hour)}</span>

@@ -277,36 +277,66 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
     {:error, failure}
   end
 
-  defp exchange_tokens(token_endpoint, body) do
+  # A pooled keep-alive connection the identity provider (or an intermediary) has
+  # already closed surfaces as %Req.TransportError{reason: :closed} when the next
+  # request tries to use it. The request never reaches the server, so retrying on
+  # a fresh connection turns what the user sees as a failed login into a
+  # transparent recovery. Observed on demo as repeated
+  # `token_exchange_failed` immediately after a successful authentication at the
+  # IdP -- the credential was fine, only the back-channel exchange died.
+  #
+  # Only *transport* errors are retried, never an HTTP response. The
+  # authorization code is single-use, so if the provider did process the first
+  # attempt the retry comes back `invalid_grant` and the user sees exactly the
+  # failure they would have seen without the retry -- this is never worse than
+  # not retrying, and usually better.
+  @token_exchange_max_attempts 2
+  @token_exchange_retry_delay_ms 150
+
+  defp exchange_tokens(token_endpoint, body), do: exchange_tokens(token_endpoint, body, 1)
+
+  defp exchange_tokens(token_endpoint, body, attempt) do
     case OutboundFetch.post(token_endpoint, form: body) do
-      {:ok, response} ->
-        case response do
-          %{status: 200, body: tokens} ->
-            {:ok, tokens}
+      {:ok, %{status: 200, body: tokens}} ->
+        {:ok, tokens}
 
-          %{status: status, body: response_body} ->
-            Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(response_body)}")
+      {:ok, %{status: status, body: response_body}} ->
+        Logger.error("OIDC token exchange failed: status=#{status}, body=#{inspect(response_body)}")
 
-            {:error, :token_exchange_failed}
-        end
-
-      {:error, :disallowed_scheme} ->
         {:error, :token_exchange_failed}
 
-      {:error, :disallowed_host} ->
-        {:error, :token_exchange_failed}
-
-      {:error, :invalid_url} ->
-        {:error, :token_exchange_failed}
-
-      {:error, :dns_resolution_failed} ->
+      {:error, reason}
+      when reason in [
+             :disallowed_scheme,
+             :disallowed_host,
+             :invalid_url,
+             :dns_resolution_failed
+           ] ->
         {:error, :token_exchange_failed}
 
       {:error, reason} ->
-        Logger.error("OIDC token exchange error: #{inspect(reason)}")
-        {:error, :token_exchange_failed}
+        if attempt < @token_exchange_max_attempts and stale_connection?(reason) do
+          Logger.warning(
+            "OIDC token exchange transport error on attempt #{attempt}, retrying on a fresh connection: #{inspect(reason)}"
+          )
+
+          Process.sleep(@token_exchange_retry_delay_ms)
+          exchange_tokens(token_endpoint, body, attempt + 1)
+        else
+          Logger.error("OIDC token exchange error: #{inspect(reason)}")
+          {:error, :token_exchange_failed}
+        end
     end
   end
+
+  # Deliberately narrow. `:closed` is the signal that the socket was gone before
+  # the request was written; a timeout could mean the provider processed it, and
+  # retrying that would only trade one failure message for another while
+  # doubling how long the user waits.
+  @doc false
+  @spec stale_connection?(term()) :: boolean()
+  def stale_connection?(%Req.TransportError{reason: :closed}), do: true
+  def stale_connection?(_reason), do: false
 
   defp validate_redirect_endpoint(url) when is_binary(url) do
     case OutboundURLPolicy.validate(url) do

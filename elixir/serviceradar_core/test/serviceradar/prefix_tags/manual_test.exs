@@ -1,14 +1,14 @@
 defmodule ServiceRadar.PrefixTags.ManualTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.PrefixTags.Changes.BroadcastManualInvalidation
   alias ServiceRadar.PrefixTags.Manual
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Snapshot
+
+  @moduletag :requires_app
 
   @manager %{
     id: "prefix-tag-manager",

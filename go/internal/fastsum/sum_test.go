@@ -1,12 +1,14 @@
 //go:build fastsumtest
 // +build fastsumtest
 
-package fastsum
+package fastsum_test
 
 import (
 	"bytes"
 	"math/rand"
 	"testing"
+
+	"github.com/carverauto/serviceradar/go/internal/fastsum"
 )
 
 func refChecksum(b []byte) uint16 { // simple reference
@@ -31,7 +33,7 @@ func TestChecksumMatchesRef(t *testing.T) {
 	for n := 0; n < 4096; n++ {
 		buf := make([]byte, n)
 		r.Read(buf)
-		got := Checksum(buf)
+		got := fastsum.Checksum(buf)
 		want := refChecksum(buf)
 
 		if got != want {
@@ -56,6 +58,6 @@ func benchN(b *testing.B, n int) {
 	b.SetBytes(int64(len(buf)))
 
 	for i := 0; i < b.N; i++ {
-		_ = Checksum(buf)
+		_ = fastsum.Checksum(buf)
 	}
 }

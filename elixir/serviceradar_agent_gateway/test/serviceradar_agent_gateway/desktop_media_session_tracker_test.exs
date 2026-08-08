@@ -1,12 +1,12 @@
 defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   import ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry, only: [assert_receive_telemetry: 2]
 
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
   alias ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry
+
+  @moduletag :requires_app
 
   setup do
     previous_agent_limit =

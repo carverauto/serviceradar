@@ -3,9 +3,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   Context module for native add-on (feature set) assignments (issue 3425).
 
   Wraps the serviceradar_core ServiceRadar.Plugins.AddonAssignment Ash resource.
-  The UI supplies only agent_uid, addon_package_id, params, and args — addon_id is
-  denormalized server-side by the SetAssignmentAddonId change. No secret-ref or
-  service-state handling is needed (those are Wasm-plugin specific).
+  The UI supplies agent_uid, addon_package_id, optional edge_site_id, params, and
+  args — addon_id is denormalized server-side by the SetAssignmentAddonId change.
+  No secret-ref or service-state handling is needed (those are Wasm-plugin
+  specific).
   """
 
   alias ServiceRadar.Plugins.AddonAssignment
@@ -69,7 +70,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
     actor = Keyword.get(opts, :actor)
-    attrs = attrs |> drop_nil_values() |> drop_update_only_values()
+    # `edge_site_id: nil` is meaningful: the UI uses it to move an existing
+    # direct-leaf assignment back to the default gateway-relay path.
+    attrs = attrs |> drop_nil_values([:edge_site_id, "edge_site_id"]) |> drop_update_only_values()
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
@@ -265,9 +268,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     end
   end
 
-  defp drop_nil_values(attrs) do
+  defp drop_nil_values(attrs, preserve_keys \\ []) do
     attrs
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Enum.reject(fn {key, value} -> is_nil(value) and key not in preserve_keys end)
     |> Map.new()
   end
 

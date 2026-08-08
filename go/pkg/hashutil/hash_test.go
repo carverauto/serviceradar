@@ -1,4 +1,4 @@
-package hashutil
+package hashutil_test
 
 import (
 	"crypto/sha256"
@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/carverauto/serviceradar/go/pkg/hashutil"
 )
 
 func TestDecodeSHA256String(t *testing.T) {
@@ -49,7 +51,7 @@ func TestDecodeSHA256String(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			decoded, err := DecodeSHA256String(tc.input)
+			decoded, err := hashutil.DecodeSHA256String(tc.input)
 			if tc.shouldFail {
 				require.Error(t, err)
 				return
@@ -66,7 +68,7 @@ func TestCanonicalHexSHA256(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	base64Digest := base64.StdEncoding.EncodeToString(sum[:])
 
-	hexDigest, err := CanonicalHexSHA256(base64Digest)
+	hexDigest, err := hashutil.CanonicalHexSHA256(base64Digest)
 	require.NoError(t, err)
 	require.Equal(t, hex.EncodeToString(sum[:]), hexDigest)
 }
@@ -77,8 +79,8 @@ func TestEqualSHA256(t *testing.T) {
 	hexDigest := hex.EncodeToString(sum[:])
 	base64Digest := base64.StdEncoding.EncodeToString(sum[:])
 
-	require.True(t, EqualSHA256(hexDigest, sum))
-	require.True(t, EqualSHA256(strings.ToUpper(hexDigest), sum))
-	require.True(t, EqualSHA256(base64Digest, sum))
-	require.False(t, EqualSHA256("invalid", sum))
+	require.True(t, hashutil.EqualSHA256(hexDigest, sum))
+	require.True(t, hashutil.EqualSHA256(strings.ToUpper(hexDigest), sum))
+	require.True(t, hashutil.EqualSHA256(base64Digest, sum))
+	require.False(t, hashutil.EqualSHA256("invalid", sum))
 }

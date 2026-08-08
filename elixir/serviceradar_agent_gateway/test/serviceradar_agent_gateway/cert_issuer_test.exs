@@ -1,10 +1,10 @@
 defmodule ServiceRadarAgentGateway.CertIssuerTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.CertIssuer
+
+  @moduletag :requires_app
 
   test "issues bundles using secure temp staging under the configured parent and cleans up" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-test")
@@ -39,6 +39,34 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       |> Enum.filter(fn name -> String.starts_with?(name, "serviceradar-cert-") end)
 
     assert leftover_dirs == []
+  end
+
+  test "issues a distinct add-on identity without changing agent certificate defaults" do
+    parent_dir = unique_tmp_dir!("gateway-addon-cert-issuer-test")
+
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    assert {:ok, bundle} =
+             CertIssuer.issue_agent_bundle(
+               "addon-assignment-1",
+               "default",
+               :addon,
+               validity_days: 30,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+
+    assert bundle.cn == "addon-assignment-1.default.serviceradar"
+
+    assert bundle.spiffe_id ==
+             "spiffe://serviceradar.local/addon/default/addon-assignment-1"
   end
 
   test "rejects invalid and over-limit validity days before loading CA files" do

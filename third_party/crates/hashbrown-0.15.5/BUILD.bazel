@@ -74,6 +74,18 @@ rust_library(
             "equivalent",  # i686-unknown-linux-gnu
             "raw-entry",  # i686-unknown-linux-gnu
         ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "allocator-api2",  # loongarch64-unknown-linux-gnu
+            "default",  # loongarch64-unknown-linux-gnu
+            "equivalent",  # loongarch64-unknown-linux-gnu
+            "raw-entry",  # loongarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [
+            "allocator-api2",  # mips-unknown-linux-gnu
+            "default",  # mips-unknown-linux-gnu
+            "equivalent",  # mips-unknown-linux-gnu
+            "raw-entry",  # mips-unknown-linux-gnu
+        ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "allocator-api2",  # powerpc-unknown-linux-gnu
             "default",  # powerpc-unknown-linux-gnu
@@ -91,6 +103,12 @@ rust_library(
             "default",  # s390x-unknown-linux-gnu
             "equivalent",  # s390x-unknown-linux-gnu
             "raw-entry",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [
+            "allocator-api2",  # sparc64-unknown-linux-gnu
+            "default",  # sparc64-unknown-linux-gnu
+            "equivalent",  # sparc64-unknown-linux-gnu
+            "raw-entry",  # sparc64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
             "allocator-api2",  # x86_64-unknown-linux-gnu
@@ -124,12 +142,14 @@ rust_library(
     target_compatible_with = select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [],
         "@rules_rust//rust/platform:aarch64-apple-ios": [],
+        "@rules_rust//rust/platform:aarch64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:aarch64-apple-ios-sim": [],
         "@rules_rust//rust/platform:aarch64-linux-android": [],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:aarch64-unknown-fuchsia": [],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:aarch64-unknown-nixos-gnu": [],
+        "@rules_rust//rust/platform:aarch64-unknown-none": [],
         "@rules_rust//rust/platform:aarch64-unknown-nto-qnx710": [],
         "@rules_rust//rust/platform:aarch64-unknown-uefi": [],
         "@rules_rust//rust/platform:arm-unknown-linux-gnueabi": [],
@@ -141,13 +161,23 @@ rust_library(
         "@rules_rust//rust/platform:i686-pc-windows-msvc": [],
         "@rules_rust//rust/platform:i686-unknown-freebsd": [],
         "@rules_rust//rust/platform:i686-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:riscv32imac-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv32imc-unknown-none-elf": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-linux-gnu": [],
         "@rules_rust//rust/platform:riscv64gc-unknown-none-elf": [],
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [],
+        "@rules_rust//rust/platform:sparc64-unknown-netbsd": [],
+        "@rules_rust//rust/platform:sparc64-unknown-openbsd": [],
+        "@rules_rust//rust/platform:thumbv6m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv7em-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv7em-none-eabihf": [],
+        "@rules_rust//rust/platform:thumbv7m-none-eabi": [],
         "@rules_rust//rust/platform:thumbv8m.main-none-eabi": [],
+        "@rules_rust//rust/platform:thumbv8m.main-none-eabihf": [],
         "@rules_rust//rust/platform:wasm32-unknown-emscripten": [],
         "@rules_rust//rust/platform:wasm32-unknown-unknown": [],
         "@rules_rust//rust/platform:wasm32-wasip1": [],
@@ -155,6 +185,7 @@ rust_library(
         "@rules_rust//rust/platform:wasm32-wasip2": [],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [],
         "@rules_rust//rust/platform:x86_64-apple-ios": [],
+        "@rules_rust//rust/platform:x86_64-apple-ios-macabi": [],
         "@rules_rust//rust/platform:x86_64-linux-android": [],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [],
         "@rules_rust//rust/platform:x86_64-unknown-freebsd": [],
@@ -193,6 +224,14 @@ rust_library(
             "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # i686-unknown-linux-gnu
             "//third_party/crates/equivalent-1.0.2:equivalent",  # i686-unknown-linux-gnu
         ],
+        "@rules_rust//rust/platform:loongarch64-unknown-linux-gnu": [
+            "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # loongarch64-unknown-linux-gnu
+            "//third_party/crates/equivalent-1.0.2:equivalent",  # loongarch64-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:mips-unknown-linux-gnu": [
+            "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # mips-unknown-linux-gnu
+            "//third_party/crates/equivalent-1.0.2:equivalent",  # mips-unknown-linux-gnu
+        ],
         "@rules_rust//rust/platform:powerpc-unknown-linux-gnu": [
             "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # powerpc-unknown-linux-gnu
             "//third_party/crates/equivalent-1.0.2:equivalent",  # powerpc-unknown-linux-gnu
@@ -204,6 +243,10 @@ rust_library(
         "@rules_rust//rust/platform:s390x-unknown-linux-gnu": [
             "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # s390x-unknown-linux-gnu
             "//third_party/crates/equivalent-1.0.2:equivalent",  # s390x-unknown-linux-gnu
+        ],
+        "@rules_rust//rust/platform:sparc64-unknown-linux-gnu": [
+            "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # sparc64-unknown-linux-gnu
+            "//third_party/crates/equivalent-1.0.2:equivalent",  # sparc64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
             "//third_party/crates/allocator-api2-0.2.21:allocator_api2",  # x86_64-unknown-linux-gnu

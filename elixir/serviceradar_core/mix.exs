@@ -109,7 +109,8 @@ defmodule ServiceRadarCore.MixProject do
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"},
-      {:opentelemetry_oban, path: "../../third_party/hex_vendored/opentelemetry_oban", override: true},
+      {:opentelemetry_oban,
+       path: "../../third_party/hex_vendored/opentelemetry_oban", override: true},
       # Override: opentelemetry_oban declares ~> 0.2 but works fine with 1.27;
       # upstream fix pending (open-telemetry/opentelemetry-erlang-contrib#528).
       {:opentelemetry_semantic_conventions, "~> 1.27", override: true},

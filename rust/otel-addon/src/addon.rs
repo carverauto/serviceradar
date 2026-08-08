@@ -189,6 +189,27 @@ fn parse_config(config_json: &[u8]) -> Result<CollectorConfig, String> {
         config.output.backend = OutputBackend::Agent;
     }
 
+    if explicit_backend
+        && config.output.backend == OutputBackend::Jetstream
+        && config.nats.is_none()
+    {
+        return Err("direct JetStream output requires an explicit local NATS endpoint".to_string());
+    }
+
+    if explicit_backend
+        && config.output.backend == OutputBackend::Jetstream
+        && config
+            .nats
+            .as_ref()
+            .and_then(|nats| nats.creds_file.as_deref())
+            .is_some_and(|path| !path.trim().is_empty())
+    {
+        return Err(
+            "direct JetStream output does not accept NATS .creds material; use assignment-scoped mTLS"
+                .to_string(),
+        );
+    }
+
     Ok(config)
 }
 
@@ -682,6 +703,7 @@ mod tests {
     fn direct_leaf_config_json() -> Vec<u8> {
         serde_json::json!({
             "output": { "backend": "jetstream" },
+            "nats": { "url": "tls://nats.edge.internal:4222" },
             "server": {
                 "bind_address": "127.0.0.1",
                 "port": 0,
@@ -753,6 +775,30 @@ mod tests {
     fn parse_config_with_explicit_jetstream_preserves_direct_leaf_backend() {
         let config = parse_config(&direct_leaf_config_json()).unwrap();
         assert_eq!(config.output.backend, OutputBackend::Jetstream);
+    }
+
+    #[test]
+    fn parse_config_rejects_direct_jetstream_without_nats_endpoint() {
+        let config = serde_json::json!({
+            "output": { "backend": "jetstream" }
+        });
+
+        let error = parse_config(config.to_string().as_bytes()).unwrap_err();
+        assert!(error.contains("requires an explicit local NATS endpoint"));
+    }
+
+    #[test]
+    fn parse_config_rejects_direct_jetstream_creds_file() {
+        let config = serde_json::json!({
+            "output": { "backend": "jetstream" },
+            "nats": {
+                "url": "tls://leaf.example:4222",
+                "creds_file": "/run/serviceradar/nats.creds"
+            }
+        });
+
+        let error = parse_config(config.to_string().as_bytes()).unwrap_err();
+        assert!(error.contains("does not accept NATS .creds"));
     }
 
     /// fj#4383 add-on config contract test: decodes the committed
@@ -829,28 +875,37 @@ mod tests {
         assert_eq!(again.config_hash, result.config_hash);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn configure_accepts_direct_leaf_jetstream_without_relay_spool() {
-        let addon = OtelCollectorAddon::default();
+    // Asserted against the parsed config rather than a live `configure`, deliberately.
+    //
+    // Direct JetStream now requires an explicit NATS endpoint, so this fixture has to name
+    // one -- and `configure` reaches `prepare_direct_runtime`, which calls
+    // `create_collector_from_config` and connects eagerly (`ConnectOptions::connect`, no
+    // `retry_on_initial_connect`). That needs a live broker: in a hermetic sandbox the
+    // hostname fails DNS resolution, and pointing it at loopback only trades that for
+    // connection-refused. There is no URL that makes a `configure`-level assertion hermetic.
+    //
+    // The claim this test exists to make is still provable without connecting: a relay spool
+    // is built ONLY under `OutputBackend::Agent` (see `configure`), so a config that parses to
+    // `Jetstream` with no `[agent_forward]` section cannot reach the spool-creating arm at all.
+    // Asserting that is stronger than asserting the spool happens to be absent afterwards,
+    // because it holds regardless of runtime state.
+    //
+    // What is NOT covered here, and needs a broker to cover: the post-configure runtime
+    // assertions (health reports Healthy, and relay_otlp refuses with Unavailable /
+    // "not configured for agent relay"). Those belong in an integration test with a real NATS.
+    #[test]
+    fn direct_leaf_jetstream_config_cannot_build_a_relay_spool() {
+        let config = parse_config(&direct_leaf_config_json()).expect("direct leaf config accepted");
 
-        let result = addon.configure(&direct_leaf_config_json()).await.unwrap();
-        assert!(result.accepted, "error: {}", result.error);
-        assert!(addon.spool_for_tests().is_none());
-        assert!(addon.lock_state().monitor.is_none());
-
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let health = addon.health().await.unwrap();
-        assert_eq!(
-            health.status,
-            HealthStatus::Healthy,
-            "reason: {}",
-            health.degradation_reason
+        assert_eq!(config.output.backend, OutputBackend::Jetstream);
+        assert!(
+            config.agent_forward.is_none(),
+            "a direct-leaf config must not carry [agent_forward]; a spool would be built for it"
         );
-
-        let (_ack_tx, acks) = ack_stream();
-        let err = addon.relay_otlp(acks).err().expect("relay disabled");
-        assert_eq!(err.code(), tonic::Code::Unavailable);
-        assert!(err.message().contains("not configured for agent relay"));
+        assert!(
+            config.nats.is_some(),
+            "direct JetStream requires an explicit NATS endpoint"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

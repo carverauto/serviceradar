@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package sdk
+package sdk_test
 
 import (
 	"testing"
@@ -22,10 +22,12 @@ import (
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/carverauto/serviceradar/go/pkg/addon/sdk"
 )
 
 func TestServiceRadarMetricRecordWrapsCanonicalMetricBatch(t *testing.T) {
-	record, err := ServiceRadarMetricRecord("evt-1", 123, 456, &metricpb.MetricBatch{
+	record, err := sdk.ServiceRadarMetricRecord("evt-1", 123, 456, &metricpb.MetricBatch{
 		Resource: &metricpb.MetricResource{
 			AgentId:     "agent-1",
 			ServiceName: "sample-native-addon",
@@ -87,10 +89,10 @@ func TestServiceRadarMetricRecordWrapsCanonicalMetricBatch(t *testing.T) {
 	if err := gproto.Unmarshal(record.GetPayload(), &decoded); err != nil {
 		t.Fatalf("unmarshal metric batch: %v", err)
 	}
-	if decoded.GetSchemaVersion() != MetricEnvelopeSchemaVersion {
+	if decoded.GetSchemaVersion() != sdk.MetricEnvelopeSchemaVersion {
 		t.Fatalf("schema_version = %q", decoded.GetSchemaVersion())
 	}
-	if decoded.GetIngestIdentity().GetPayloadKind() != MetricEnvelopeSchemaVersion {
+	if decoded.GetIngestIdentity().GetPayloadKind() != sdk.MetricEnvelopeSchemaVersion {
 		t.Fatalf("ingest payload_kind = %q", decoded.GetIngestIdentity().GetPayloadKind())
 	}
 	if got := decoded.GetResource().GetAttributes()[0]; got.GetKey() != "rack" || got.GetValue() != "rack-7" {
@@ -112,7 +114,7 @@ func TestServiceRadarMetricRecordWrapsCanonicalMetricBatch(t *testing.T) {
 }
 
 func TestServiceRadarMetricRecordRejectsNilBatch(t *testing.T) {
-	if _, err := ServiceRadarMetricRecord("evt-1", 0, 0, nil); err == nil {
+	if _, err := sdk.ServiceRadarMetricRecord("evt-1", 0, 0, nil); err == nil {
 		t.Fatal("expected nil batch error")
 	}
 }

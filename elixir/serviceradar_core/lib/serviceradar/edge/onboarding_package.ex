@@ -28,9 +28,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban, AshCloak]
 
-  alias ServiceRadar.Changes.AfterAction
-  alias ServiceRadar.Edge.Workers.ProvisionAgentWorker
-
   @package_fields [
     :label,
     :component_id,
@@ -134,6 +131,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       filter expr(partition_id == ^arg(:partition_id))
     end
 
+    read :with_legacy_nats do
+      description "Packages that still retain legacy NATS credential material"
+      filter expr(not is_nil(nats_credential_id) or not is_nil(nats_creds_ciphertext))
+    end
+
     read :needs_expiration do
       description "Packages with expired tokens that need to be marked as expired"
       # Find packages that are still "issued" but both tokens have expired
@@ -148,27 +150,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     create :create do
       accept @package_fields
-
-      change fn changeset, _context ->
-        # Mirror Edge.CollectorPackage's after_action: enqueue per-package
-        # NATS-creds provisioning so the agent enrollment bundle carries
-        # a per-agent flow-collector JWT (closes Pass 15 B-5).
-        # Gated on component_type == :agent because OnboardingPackage also
-        # backs :gateway / :checker / :sync packages — only :agent rows
-        # need per-agent flow-collector creds.
-        AfterAction.after_action_result(changeset, fn package ->
-          case package.component_type do
-            :agent ->
-              case ProvisionAgentWorker.enqueue(package.id) do
-                {:ok, _job} -> {:ok, package}
-                {:error, reason} -> {:error, reason}
-              end
-
-            _other ->
-              {:ok, package}
-          end
-        end)
-      end
     end
 
     update :update_tokens do
@@ -183,7 +164,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     update :attach_nats_creds do
-      description "Attach per-agent flow-collector NATS creds minted by the provisioning worker."
+      description "Attach legacy NATS creds for an explicitly provisioned transport."
 
       # Encrypts via AshCloak and sets a relationship FK in one transition.
       require_atomic? false
@@ -199,6 +180,25 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         changeset
         |> Ash.Changeset.change_attribute(:nats_credential_id, credential_id)
         |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+      end
+    end
+
+    update :clear_legacy_nats do
+      description "Remove legacy NATS credential material after migration review"
+      require_atomic? false
+      accept []
+
+      argument :reason, :string, allow_nil?: false
+
+      change fn changeset, _context ->
+        changeset
+        |> Ash.Changeset.force_change_attribute(:nats_credential_id, nil)
+        |> Ash.Changeset.force_change_attribute(:nats_creds_ciphertext, nil)
+        |> Ash.Changeset.change_attribute(:legacy_nats_cleanup_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(
+          :legacy_nats_cleanup_reason,
+          Ash.Changeset.get_argument(changeset, :reason)
+        )
       end
     end
 
@@ -266,6 +266,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     # Operators can also deliver and update tokens
     operator_action(@operator_actions)
+
+    # Legacy credential removal is an explicit migration operation. It is not
+    # available to operators or API callers because it irreversibly removes
+    # the encrypted credential payload from the package.
+    policy action(:clear_legacy_nats) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
   end
 
   changes do
@@ -458,6 +465,18 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       public? false
       sensitive? true
       description "Encrypted per-agent flow-collector NATS .creds file content"
+    end
+
+    attribute :legacy_nats_cleanup_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "When legacy NATS credential material was removed"
+    end
+
+    attribute :legacy_nats_cleanup_reason, :string do
+      allow_nil? true
+      public? true
+      description "Audit reason for removing legacy NATS credential material"
     end
 
     attribute :notes, :string do

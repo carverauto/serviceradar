@@ -52,8 +52,7 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.Index do
               phx-update="ignore"
               data-api-url={~p"/api/spatial/scene"}
               class="sr-spatial-canvas"
-            >
-            </canvas>
+            ></canvas>
 
             <div class="sr-spatial-legend absolute bottom-4 left-4 z-20 pointer-events-auto flex gap-2 rounded px-3 py-2 text-xs shadow-md">
               <div class="flex items-center gap-1">

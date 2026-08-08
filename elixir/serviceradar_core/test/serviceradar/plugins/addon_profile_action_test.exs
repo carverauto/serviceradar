@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Plugins.AddonProfileActionTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
+
+  @moduletag :requires_app
 
   test "preview and reconcile actions return structured errors instead of treating context as Access" do
     actor = SystemActor.system(:addon_profile_action_test)

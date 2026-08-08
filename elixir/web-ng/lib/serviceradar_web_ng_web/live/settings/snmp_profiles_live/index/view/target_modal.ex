@@ -90,8 +90,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             </div>
           </div>
         </div>
-        
-    <!-- Authentication based on version -->
+
+        <!-- Authentication based on version -->
         <div class="space-y-4">
           <h4 class="text-sm font-semibold text-sr-muted">Authentication</h4>
 
@@ -251,8 +251,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             </p>
           <% end %>
         </div>
-        
-    <!-- OIDs Section -->
+
+        <!-- OIDs Section -->
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <h4 class="text-sm font-semibold text-sr-muted">OIDs to Monitor</h4>
@@ -366,8 +366,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             Configure which SNMP OIDs to poll from this target. Use templates for common device types.
           </p>
         </div>
-        
-    <!-- Test Connection -->
+
+        <!-- Test Connection -->
         <div class="space-y-3">
           <div class="flex items-center gap-3">
             <.ui_button
@@ -387,8 +387,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
               Verify connectivity to the SNMP agent
             </span>
           </div>
-          
-    <!-- Test Result -->
+
+          <!-- Test Result -->
           <%= if @test_connection_result do %>
             <div class={[
               "flex items-center gap-2 p-3 rounded-lg text-sm",
@@ -404,8 +404,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TargetModal 
             </div>
           <% end %>
         </div>
-        
-    <!-- Modal Actions -->
+
+        <!-- Modal Actions -->
         <div class="sr-ui-modal-action">
           <.ui_button type="button" variant="ghost" phx-click="close_target_modal">
             Cancel

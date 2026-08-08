@@ -23,9 +23,9 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
   """
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Jobs.SelfScheduling
+
+  @moduletag :requires_app
 
   # Every worker that reschedules itself, i.e. every caller of
   # SelfScheduling.successor_changeset/3. Keep in step with that call site list; the three

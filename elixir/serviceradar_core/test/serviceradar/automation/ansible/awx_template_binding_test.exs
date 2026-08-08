@@ -1,14 +1,14 @@
 defmodule ServiceRadar.Automation.Ansible.AwxTemplateBindingTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
   alias ServiceRadar.Automation.Ansible.DispatchMarkerContract
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
+
+  @moduletag :requires_app
 
   @system_actor SystemActor.system(:awx_template_binding_test)
   @catalog_viewer %{

@@ -683,8 +683,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <%= for {cap, info} <- @available_caps do %>
             <div class="min-w-0 border-b border-sr-line p-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:[&:nth-child(odd)]:border-r">
               <div class="flex min-w-0 items-start gap-2">
-                <span class="status status-success status-xs mt-1.5 shrink-0" title="Available">
-                </span>
+                <span class="status status-success status-xs mt-1.5 shrink-0" title="Available"></span>
                 <code class="min-w-0 break-all text-xs font-semibold text-sr-ink">{cap}</code>
               </div>
               <p class="mt-1 pl-4 text-xs leading-5 text-sr-muted">{info.description}</p>
@@ -705,8 +704,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div class="sr-ui-collapse-content pb-3">
             <ul class="divide-y divide-sr-line/60 rounded-md bg-sr-surface px-3">
               <li :for={cap <- @unavailable_caps} class="flex min-w-0 items-start gap-2 py-2">
-                <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable">
-                </span>
+                <span class="status status-warning status-xs mt-1.5 shrink-0" title="Unavailable"></span>
                 <code class="min-w-0 break-all text-xs text-sr-muted">{cap}</code>
               </li>
             </ul>
@@ -833,29 +831,29 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div class="sr-ui-stat-title text-xs">Uptime</div>
           <div class="sr-ui-stat-value text-lg">{format_uptime(@node_info.uptime_ms)}</div>
         </div>
-        
-    <!-- Processes -->
+
+        <!-- Processes -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Processes</div>
           <div class="sr-ui-stat-value text-lg">{@node_info.process_count}</div>
         </div>
-        
-    <!-- Schedulers -->
+
+        <!-- Schedulers -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">Schedulers</div>
           <div class="sr-ui-stat-value text-lg">
             {@node_info.schedulers_online}/{@node_info.schedulers}
           </div>
         </div>
-        
-    <!-- OTP Release -->
+
+        <!-- OTP Release -->
         <div class="stat bg-sr-subtle/30 rounded-lg p-3">
           <div class="sr-ui-stat-title text-xs">OTP Release</div>
           <div class="sr-ui-stat-value text-lg">OTP {@node_info.otp_release}</div>
         </div>
       </div>
-      
-    <!-- Memory breakdown -->
+
+      <!-- Memory breakdown -->
       <div class="px-4 pb-4">
         <div class="text-xs text-sr-muted mb-2">Memory Usage</div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1140,8 +1138,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                         addon_status_indicator_class(row.drift_state)
                       ]}
                       title={drift_state_text(row.drift_state)}
-                    >
-                    </span>
+                    ></span>
                     <div class="min-w-0">
                       <div class="break-words text-sm font-medium">{addon_row_name(row)}</div>
                       <code class="block break-all text-xs text-sr-muted">{row.addon_id}</code>

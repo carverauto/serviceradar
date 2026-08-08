@@ -1,3 +1,20 @@
+# Started explicitly, matching elixir/serviceradar_core/test/test_helper.exs.
+#
+# `:telemetry.attach/4` is a call into :telemetry's handler-table gen_server, so it needs the
+# APPLICATION running, not merely loaded. This target runs the files with `elixir -r`, which
+# starts nothing, so the five attach sites here (control_stream_session_test,
+# control_stream_telemetry_test, desktop_media_server_test, status_buffer_test and
+# support/media_session_tracker_telemetry) only worked when some earlier async test had already
+# started something that pulled :telemetry up -- Horde, typically. Which test runs first depends
+# on the ExUnit seed, so this failed intermittently:
+#
+#   ** (exit) exited in: :gen_server.call(:telemetry_handler_table, {:insert, ...})
+#      ** (EXIT) no process: the process is not alive or there's no process currently
+#      associated with the given name, possibly because its application isn't started
+#
+# `mix test` never showed it because Mix starts the application, and :telemetry with it.
+Application.ensure_all_started(:telemetry)
+
 # The serviceradar_core Application starts:
 # - PubSub for cluster events
 # - PollerRegistry and AgentRegistry for registration support

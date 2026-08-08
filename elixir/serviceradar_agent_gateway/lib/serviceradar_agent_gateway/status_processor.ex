@@ -72,20 +72,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           {:error, :otlp_relay_publisher_disabled}
 
         :not_otlp_relay ->
-          case maybe_publish_k8s_public_endpoints(status) do
-            :not_k8s_public_endpoints ->
-              publish_then_forward(status, opts)
-
-            :disabled ->
-              {:error, :k8s_public_endpoints_publisher_disabled}
-
-            :ok ->
-              track_agent(status)
-              :ok
-
-            {:error, _reason} = error ->
-              error
-          end
+          route_non_otlp_relay_status(status, opts)
 
         :ok ->
           track_agent(status)
@@ -94,6 +81,27 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
         {:error, _reason} = error ->
           error
       end
+    end
+  end
+
+  # Extracted from process/2 to keep each publisher's dispatch one `case` deep. The chain is
+  # ordered, not parallel: a status owned by a specific publisher must not also be forwarded
+  # down the generic gateway-metrics path, so each publisher gets the chance to claim the
+  # status and only `:not_*` falls through to the next one.
+  defp route_non_otlp_relay_status(status, opts) do
+    case maybe_publish_k8s_public_endpoints(status) do
+      :not_k8s_public_endpoints ->
+        publish_then_forward(status, opts)
+
+      :disabled ->
+        {:error, :k8s_public_endpoints_publisher_disabled}
+
+      :ok ->
+        track_agent(status)
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

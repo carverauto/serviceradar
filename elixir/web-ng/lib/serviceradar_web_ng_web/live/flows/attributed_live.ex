@@ -937,28 +937,25 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp process_label(%{pid: pid}) when is_integer(pid), do: "PID #{pid}"
   defp process_label(_), do: "No process match"
 
-  defp public_endpoint_label(%{
-         public_endpoint_service: service,
-         public_endpoint_class: class
-       })
+  defp public_endpoint_label(%{public_endpoint_service: service, public_endpoint_class: class})
        when is_binary(service) and service != "" do
     if is_binary(class) and class != "", do: "#{class}: #{service}", else: service
   end
 
-  defp public_endpoint_label(%{public_endpoint_gateway: gateway})
-       when is_binary(gateway) and gateway != "",
-       do: gateway
+  defp public_endpoint_label(%{public_endpoint_gateway: gateway}) when is_binary(gateway) and gateway != "", do: gateway
 
   defp public_endpoint_label(_), do: nil
 
   defp public_endpoint_sublabel(flow) do
-    [
-      flow.public_endpoint_route,
-      flow.public_endpoint_namespace && flow.public_endpoint_service &&
-        "#{flow.public_endpoint_namespace}/#{flow.public_endpoint_service}",
-      flow.public_endpoint_gateway
-    ]
-    |> Enum.find(&(is_binary(&1) and &1 != ""))
+    Enum.find(
+      [
+        flow.public_endpoint_route,
+        flow.public_endpoint_namespace && flow.public_endpoint_service &&
+          "#{flow.public_endpoint_namespace}/#{flow.public_endpoint_service}",
+        flow.public_endpoint_gateway
+      ],
+      &(is_binary(&1) and &1 != "")
+    )
   end
 
   defp workload_label(%{pod_namespace: ns, pod_name: pod} = flow) when is_binary(ns) and is_binary(pod) do

@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
   use ExUnit.Case, async: false
 
-  @moduletag :requires_app
-
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadar.Security.RateLimiter
+
+  @moduletag :requires_app
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
   @principal "srp_v1_6d8b1e49fbe24ad487ce2c5c"

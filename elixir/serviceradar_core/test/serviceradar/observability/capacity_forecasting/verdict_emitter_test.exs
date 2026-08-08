@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
   use ExUnit.Case, async: true
 
-  @moduletag :requires_app
-
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+
+  @moduletag :requires_app
 
   defmodule ExistingTimeRepo do
     def query(_sql, [ids]) do
