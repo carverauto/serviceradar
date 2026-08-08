@@ -221,12 +221,18 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
   # A last_value gauge with a dedicated event name matching the full metric
   # name and a fixed :value measurement, so each storage gauge is emitted
   # independently (per-table tags on some, none on others).
+  #
+  # `:event_name` is handed the name as a STRING rather than a hand-split list
+  # of atoms. Telemetry.Metrics accepts `String.t() | :telemetry.event_name()`
+  # and runs either through the same `validate_metric_or_event_name!/1` it uses
+  # for the metric name, so this is the library's own parsing rather than a
+  # second copy of it -- and it keeps `String.to_atom/1` out of the source,
+  # which sobelow flags (DOS.StringToAtom) regardless of the argument being a
+  # compile-time literal here.
   defp storage_gauge(metric_name, opts) do
-    event_name = metric_name |> String.split(".") |> Enum.map(&String.to_atom/1)
-
     last_value(
       metric_name,
-      Keyword.merge([event_name: event_name, measurement: :value], opts)
+      Keyword.merge([event_name: metric_name, measurement: :value], opts)
     )
   end
 
