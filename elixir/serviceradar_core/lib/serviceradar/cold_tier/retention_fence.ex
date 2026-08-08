@@ -42,6 +42,23 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   # verified<->pending between the gate's checks and its drop (review F02).
   @advisory_namespace 0x0C01D
 
+  # Continuous aggregates that retain less than a cold-tier deployment can
+  # usefully look back, with the window they need once raw history is served
+  # from the cold tier. Raw-granularity history beyond the hot window comes
+  # from cold objects; stats/downsample surfaces stay on in-database CAGGs, so
+  # a 90-day cold window over a 24-hour rollup leaves those surfaces blank for
+  # the range the raw data covers.
+  #
+  # These are compile-time constants, never user input -- they are interpolated
+  # into DDL below, which is the same pattern the rest of this module uses.
+  @cagg_cold_windows [
+    {"ocsf_events_hourly_stats", 90},
+    {"traces_stats_5m", 90},
+    {"ocsf_network_activity_hourly_proto", 90},
+    {"ocsf_network_activity_hourly_talkers", 90},
+    {"ocsf_network_activity_hourly_ports", 90}
+  ]
+
   @doc """
   Run `fun` while holding the per-table cold-tier drop lock (a transaction
   scoped `pg_advisory_xact_lock`). Serializes the retention drop against the
@@ -305,6 +322,142 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   end
 
   defp parse_interval_days(_), do: nil
+
+  @doc """
+  Widen under-retained continuous-aggregate windows to what a cold-tier
+  deployment needs (design task 2.8).
+
+  This runs from the retention worker rather than from a migration on purpose.
+  Widening a rollup's retention costs storage on EVERY deployment, and the
+  reason to pay it only exists once raw history is being served from the cold
+  tier -- so it is gated on `Config.enabled?/0` and follows the flag instead of
+  being a one-way schema change that every operator inherits.
+
+  Deliberately asymmetric -- it only ever WIDENS:
+
+    * cold tier enabled, current window shorter than the target -> widen;
+    * cold tier disabled -> returns immediately, touching nothing. A window
+      widened by an earlier enabled period STAYS widened: shrinking it back
+      would DELETE the materialized history between the two windows, and a
+      flag toggle must never be a data-deletion event. An operator who wants
+      that storage back narrows the policy by hand (see the cold-tier runbook);
+    * no retention policy on the CAGG at all -> left alone. Installing one
+      would delete everything past the window, which is the opposite of what
+      this is for;
+    * CAGG absent, or TimescaleDB absent -> skipped.
+
+  Only touches the policy when the window actually differs. That is not just
+  an optimisation: `add_retention_policy` resets the job's `next_start`, so
+  re-adding it on every hourly worker pass would push the retention job's next
+  run past the worker's own period and it would never fire.
+  """
+  @spec reconcile_cagg_windows(keyword()) :: :ok
+  def reconcile_cagg_windows(opts \\ []) do
+    if Config.enabled?() do
+      repo = Keyword.get(opts, :repo, Repo)
+
+      Enum.each(@cagg_cold_windows, fn {view, target_days} ->
+        case current_cagg_window(repo, view, target_days) do
+          {:ok, current, false} -> widen_cagg_window(repo, view, current, target_days)
+          _ -> :ok
+        end
+      end)
+    else
+      :ok
+    end
+  end
+
+  # {:ok, rendered_window, at_or_above_target?} | :skip
+  #
+  # `timescaledb_information.jobs` records a CAGG's retention policy against its
+  # materialization hypertable, not the user-facing view, so the join accepts
+  # either name -- the documented `continuous_aggregates` view supplies both and
+  # this stays correct whichever one the running TimescaleDB uses.
+  defp current_cagg_window(repo, view, target_days) do
+    sql = """
+    SELECT j.config->>'drop_after',
+           (j.config->>'drop_after')::interval >= make_interval(days => $2::int)
+    FROM timescaledb_information.continuous_aggregates ca
+    LEFT JOIN timescaledb_information.jobs j
+      ON j.proc_name = 'policy_retention'
+     AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
+     AND j.hypertable_name IN (ca.materialization_hypertable_name, ca.view_name)
+    WHERE ca.view_schema = 'platform'
+      AND ca.view_name = $1
+    LIMIT 1
+    """
+
+    case SQL.query(repo, sql, [view, target_days], timeout: @query_timeout_ms) do
+      # CAGG present with a retention policy.
+      {:ok, %{rows: [[current, at_target]]}} when is_binary(current) ->
+        {:ok, current, at_target}
+
+      # CAGG present, no retention policy -- see the doc: never install one.
+      {:ok, %{rows: [[nil, _]]}} ->
+        :skip
+
+      # CAGG absent on this deployment.
+      {:ok, %{rows: []}} ->
+        :skip
+
+      # No TimescaleDB, or the catalog is unreadable. Failing to widen is the
+      # conservative direction (nothing is dropped that would not already have
+      # been), so unlike the drop gate this skips quietly rather than holding.
+      {:error, _} ->
+        :skip
+    end
+  end
+
+  defp widen_cagg_window(repo, view, current, target_days) do
+    sql = """
+    DO $$
+    DECLARE
+      ts_schema text;
+    BEGIN
+      SELECT n.nspname
+      INTO ts_schema
+      FROM pg_extension e
+      JOIN pg_namespace n ON n.oid = e.extnamespace
+      WHERE e.extname = 'timescaledb';
+
+      IF ts_schema IS NULL THEN
+        RETURN;
+      END IF;
+
+      EXECUTE format(
+        'SELECT %I.remove_retention_policy(%L::regclass, if_exists => true)',
+        ts_schema,
+        'platform.#{view}'
+      );
+
+      EXECUTE format(
+        'SELECT %I.add_retention_policy(%L::regclass, INTERVAL ''#{target_days} days'', if_not_exists => true)',
+        ts_schema,
+        'platform.#{view}'
+      );
+    END;
+    $$;
+    """
+
+    case SQL.query(repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, _} ->
+        Logger.info(
+          "Cold tier enabled: widened continuous-aggregate retention on #{view} " <>
+            "from #{current} to #{target_days} days",
+          view: view
+        )
+
+        :ok
+
+      {:error, error} ->
+        Logger.warning("Cold tier: could not widen continuous-aggregate retention",
+          view: view,
+          reason: Exception.message(error)
+        )
+
+        :ok
+    end
+  end
 
   @doc """
   Registry tables carrying invalidation-log entries older than their hot

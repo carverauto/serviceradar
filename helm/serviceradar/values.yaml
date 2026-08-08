@@ -930,6 +930,25 @@ cnpg:
 # (object-store location/credentials + this analytics head); there is no
 # supported OSS enablement path.
 coldTier:
+  # The read-only role the analytics head uses to reach hot rows on the primary
+  # over postgres_fdw. Migration 20260716220000 always creates it NOLOGIN with
+  # SELECT-only grants; setting `enabled` here hands login + password to CNPG
+  # `managed.roles`, which is what actually makes it connectable. Leave it off
+  # unless you are running the cold tier: an off deployment carries the role as
+  # an inert grant set that cannot authenticate.
+  exportRole:
+    enabled: false
+    name: cold_reader
+    # Name of a Secret of type kubernetes.io/basic-auth whose `username`
+    # matches `name` above and whose `password` CNPG will set. Required when
+    # enabled; there is no default, because a defaulted database password is
+    # worse than a failed render.
+    passwordSecret: ""
+    # Bounds concurrent cold_reader sessions so a runaway cannot exhaust the
+    # primary's connection slots. Sized for the exporter's export/verify
+    # sessions plus concurrent stitched-view reads; raise alongside
+    # analyticsHead.poolSize.
+    connectionLimit: 10
   analyticsHead:
     enabled: false
     # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT

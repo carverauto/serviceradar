@@ -12,12 +12,26 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
 
   Grants and settings live here (schema concerns); the password lives in the
   deployment. In Kubernetes the reliable owner is CNPG `managed.roles` +
-  a password Secret (reconciled continuously, survives migration ordering);
-  the local compose/dev loop bootstraps it from
+  a password Secret (reconciled continuously, survives migration ordering),
+  rendered by the chart only when `coldTier.exportRole.enabled` is set; the
+  local compose/dev loop bootstraps it from
   `SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD[_FILE]` here.
 
-  Idempotent and safe on deployments that never enable the cold tier: the
-  role exists but nothing connects as it.
+  ## Unusable by construction on deployments that never enable the cold tier
+
+  The role is created `NOLOGIN`. `LOGIN` is granted only in the same step that
+  sets a password, i.e. only when a deployment supplies the FDW credential.
+
+  This matters because the two are not equivalent. A `LOGIN` role with no
+  password is unusable only as long as the cluster's `pg_hba.conf` demands one
+  -- it is an absence of a credential, not an absence of capability, so a
+  `trust`/`peer` line, a `.pgpass`, or a later `ALTER ROLE` reaches straight
+  through it. `NOLOGIN` is refused before authentication is consulted at all.
+  On the overwhelmingly common deployment, which never turns the cold tier on,
+  the role should not be a thing that could connect.
+
+  An existing role's login state is deliberately NOT reset on re-run: a live
+  cold tier whose password CNPG owns must not be locked out by a migration.
   """
 
   use Ecto.Migration
@@ -49,8 +63,11 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '#{@role}') THEN
-        CREATE ROLE #{@role} LOGIN CONNECTION LIMIT #{@connection_limit};
+        CREATE ROLE #{@role} NOLOGIN CONNECTION LIMIT #{@connection_limit};
       ELSE
+        -- CONNECTION LIMIT only. Login state belongs to whoever provisioned
+        -- the credential (CNPG managed.roles, or the password branch below);
+        -- re-running migrations must not revoke a working cold tier's access.
         ALTER ROLE #{@role} CONNECTION LIMIT #{@connection_limit};
       END IF;
     END $$;
@@ -88,9 +105,12 @@ defmodule ServiceRadar.Repo.Migrations.CreateColdTierExportRole do
     execute("ALTER ROLE #{@role} SET idle_in_transaction_session_timeout = '120s'")
     execute("ALTER ROLE #{@role} SET lock_timeout = '10s'")
 
+    # Supplying the FDW credential IS the local enablement signal, so this is
+    # where LOGIN is granted -- the role gains the ability to connect and the
+    # means to do it in one step, and never one without the other.
     case fdw_password() do
       password when is_binary(password) and password != "" ->
-        execute("ALTER ROLE #{@role} PASSWORD '#{String.replace(password, "'", "''")}'")
+        execute("ALTER ROLE #{@role} LOGIN PASSWORD '#{String.replace(password, "'", "''")}'")
 
       _ ->
         :ok

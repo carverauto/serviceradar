@@ -50,6 +50,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     reconcile_timescale_tables(config)
+    # Widening rollup retention costs storage on every deployment and only pays
+    # for itself once raw history is served from the cold tier, so it follows
+    # the enable flag from here instead of being a one-way migration. Returns
+    # immediately without querying when the cold tier is not enabled.
+    RetentionFence.reconcile_cagg_windows()
     alert_on_cagg_refresh_hazards()
     alert_on_undrained_cold_tier()
     alert_on_misconfigured_cold_tier()

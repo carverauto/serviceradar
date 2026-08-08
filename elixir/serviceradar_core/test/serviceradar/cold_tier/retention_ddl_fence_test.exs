@@ -42,17 +42,34 @@ defmodule ServiceRadar.ColdTier.RetentionDdlFenceTest do
     20260611040000_align_otel_chunks_retention.exs
     20260611050000_create_spans_red_1h_cagg.exs
     20260611060000_create_otel_metric_points.exs
-    20260612090000_add_timeseries_interface_hourly_cagg.exs
     20260613070000_add_capacity_forecast_retention_policy.exs
-    20260619090000_rebuild_timeseries_interface_hourly_cagg.exs
     20260620120000_add_remaining_high_volume_retention_policies.exs
-    20260621143000_add_flow_traffic_caggs.exs
     20260621143000_rebuild_flow_caggs_with_sampling_rate.exs
     20260622183000_fix_timeseries_series_identity_cardinality.exs
     20260622202000_shrink_ocsf_events_chunk_interval.exs
-    20260716200200_align_cagg_retention_windows.exs
     20260716210000_clamp_cagg_refresh_windows.exs
   )
+
+  test "the grandfather list has no stale entries" do
+    present =
+      @migrations_dir
+      |> Path.expand()
+      |> Path.join("*.exs")
+      |> Path.wildcard()
+      |> MapSet.new(&Path.basename/1)
+
+    stale = Enum.reject(@grandfathered, &MapSet.member?(present, &1))
+
+    assert stale == [],
+           """
+           These entries name migrations that no longer exist:
+
+             #{Enum.join(stale, "\n  ")}
+
+           A stale allowlist entry is not inert -- it silently pre-approves any
+           future migration that happens to reuse the filename. Delete them.
+           """
+  end
 
   test "new migrations route registry-table retention DDL through the fence" do
     offenders =

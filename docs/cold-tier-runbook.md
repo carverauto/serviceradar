@@ -102,6 +102,77 @@ bin/serviceradar_core rpc 'ServiceRadar.ColdTier.Admin.emergency_drop(
 The call reports how many dropped chunks had no verified export. Prefer
 volume expansion and fixing the export path first.
 
+## What the cold tier costs a deployment that never enables it
+
+Nothing that runs, and nothing that grows. The feature ships in every build but
+is inert until switched on:
+
+- no supervised processes and no Oban workers -- the exporter, pruner and
+  pressure monitor are only reachable from the retention worker's cold-tier
+  branches, which return immediately when the tier is disabled;
+- two empty tables (`platform.cold_tier_boundaries`,
+  `platform.cold_chunk_exports`) from the manifest migration;
+- a `cold_reader` role created `NOLOGIN`, carrying SELECT-only grants and
+  role-level timeouts but no ability to connect (see below);
+- no image, no extension, no `postgres_fdw` server, no object-store client;
+- retention behaves exactly as it did before: the fence only engages once the
+  tier is enabled, so `drop_chunks` runs on the plain retention cutoff.
+
+Rollup retention windows are NOT widened until the tier is enabled -- see
+"Rollup retention widening" below.
+
+## Enabling the cold tier
+
+The analytics head, the export role, and the runtime are three separate
+switches; turning on only one leaves the others inert (by design -- an idle
+head is cheaper to diagnose than a half-live pipeline).
+
+1. **Export role.** In Kubernetes set `coldTier.exportRole.enabled=true` and
+   point `coldTier.exportRole.passwordSecret` at a `kubernetes.io/basic-auth`
+   Secret whose `username` is `cold_reader`. CNPG's `managed.roles` then owns
+   the role's login and password, reconciled continuously so it survives
+   migration ordering and failover. The render fails rather than defaulting the
+   Secret name.
+
+   In compose/dev, set `SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD` (or
+   `..._FILE`) before running migrations; the migration grants `LOGIN` in the
+   same statement that sets the password.
+
+   Until one of those happens the role stays `NOLOGIN` and cannot authenticate
+   regardless of `pg_hba.conf`.
+
+2. **Analytics head.** `coldTier.analyticsHead.enabled=true`. Never point it at
+   the primary image: pg_duckdb is structurally incompatible with a
+   TimescaleDB-loaded instance.
+
+3. **Runtime.** `SERVICERADAR_COLD_TIER_ENABLED=true` plus the bucket and
+   head/primary connection settings. Incomplete config resolves to
+   `:misconfigured`, which does NOT fence retention -- the retention worker
+   logs loudly instead, so a dead exporter cannot silently fill the primary.
+
+## Rollup retention widening
+
+Once the tier is enabled, the retention worker widens the continuous aggregates
+whose windows are shorter than a cold deployment can usefully look back
+(`ocsf_events_hourly_stats`, `traces_stats_5m`,
+`ocsf_network_activity_hourly_{proto,talkers,ports}`) to 90 days. Raw history
+past the hot window comes from cold objects, but the stats surfaces over that
+same range are served by these in-database rollups, so a 24-hour rollup under a
+90-day cold window leaves them blank.
+
+This is widen-only, and it is deliberately not reversed on disable: shrinking a
+window back would DELETE the materialized history between the two, and toggling
+a flag must never be a data-deletion event. To reclaim that storage after
+disabling, narrow the policy yourself, e.g.:
+
+```sql
+SELECT remove_retention_policy('platform.ocsf_events_hourly_stats', if_exists => true);
+SELECT add_retention_policy('platform.ocsf_events_hourly_stats', INTERVAL '1 day');
+```
+
+A CAGG with no retention policy at all is left alone -- installing one would
+delete everything past the window.
+
 ## Disabling the cold tier (two-phase)
 
 1. Unset `SERVICERADAR_COLD_TIER_ENABLED`. Retention stays FENCED: only
@@ -117,7 +188,13 @@ bin/serviceradar_core rpc 'ServiceRadar.ColdTier.Admin.waive(
 
 After the waive, standard retention policies re-arm on the next retention
 run. Archived Parquet already in the bucket is untouched (prune it manually
-if the deployment is being retired).
+if the deployment is being retired). Widened rollup windows also stay widened
+-- see "Rollup retention widening" for why, and how to reclaim the storage.
+
+To take the export role's login away again, set
+`coldTier.exportRole.enabled=false`. Note that CNPG only manages roles it is
+told about, so removing the block stops it reconciling the role but does not
+revoke the login it already granted; `ALTER ROLE cold_reader NOLOGIN` does.
 
 ## Secret rotation
 
