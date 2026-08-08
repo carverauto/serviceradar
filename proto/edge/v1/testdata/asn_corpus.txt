@@ -1,0 +1,14 @@
+asn_absent.bin 0 -
+asn_explicit_zero.bin 0 -
+asn_1.bin 1 -
+asn_23456.bin 23456 -
+asn_64512.bin 64512 -
+asn_65534.bin 65534 -
+asn_65535.bin 65535 -
+asn_2147483647.bin 2147483647 -
+asn_2147483648.bin 2147483648 -
+asn_4200000000.bin 4200000000 -
+asn_4294967294.bin 4294967294 -
+asn_4294967295.bin 4294967295 -
+asn_zero_with_org.bin 0 AS-Example-Org
+asn_nonzero_with_org.bin 64512 AS-Example-Org

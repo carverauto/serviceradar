@@ -196,6 +196,14 @@ jobs:
       - name: Edge record-admission shared corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/record_admit_corpus_test.exs
+      # The ASN observation corpus (task 1.5-e). Gated for the same reason as the others: it
+      # is the Elixir half of a frozen ABI rule. It pins the DECODED NUMBER rather than a
+      # rejection, because the rule refuses nothing -- and it pins, at the SemanticValidate
+      # stage only, that nothing starts filtering on allocation status. Full-ingress filtering
+      # is downstream (unify-sweep-results-proto 5.1/5.4) and is not covered here.
+      - name: Edge ASN observation corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/asn_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps
