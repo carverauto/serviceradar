@@ -929,3 +929,51 @@ OVERFLOW-SAFETY plus the ORDER -- an unbound `uint32` denominator times 100 does
 bits, so a runtime evaluating the ratio before the binding would need a wider accumulator to
 stay correct. Freezing a width would have frozen an implementation detail and missed the
 reason it is safe.
+
+## The 1.5-a unknown-field / unknown-enum audit (2026-08-08)
+
+Recorded here rather than in the ledger, which states rules and evidence, not findings.
+
+Both runtimes already enforced every clause before 1.5-a began, so the slice is a FREEZE of
+what the audit found. Nothing in it changes behaviour: no validator, no inventory, no runtime
+edit. What the audit established, by RUNNING each input through both runtimes rather than by
+reading the code:
+
+- Eleven inputs were put through Go's `DecodeRecord` + `ValidateRecord` and Elixir's
+  `WireDecode.decode_record` + `SemanticValidate` before any test was written. Every one
+  agreed on accept versus refuse. There was no behavioural divergence to fix.
+- What was missing was SHARED evidence. Every structural case was proven by bytes hand-built
+  INSIDE the Elixir suite, so the two runtimes were asserted to agree on inputs neither had
+  seen from the other. The two group vectors that predated the slice are both TOP-LEVEL.
+- The two runtimes refuse the same bytes at DIFFERENT layers, in both directions. Go's wire
+  parser refuses an out-of-range field number and a 10-byte overflow varint, while the pinned
+  protobuf-elixir decoder accepts both -- masking `2^64 + 1` to `1`, which the peer now asserts
+  as the number rather than as "a struct came back". Conversely Go PARSES and retains an
+  ordinary unknown field and a well-formed group and refuses them on its own walk, while
+  protobuf-elixir DISCARDS a group entirely, so nothing downstream of the decoder could see it.
+- A CORRECTION to what the code said about itself: `WireValidate`'s comment claimed Go does not
+  reject a singular scalar arriving length-delimited. That is true of Go's PARSER, which
+  preserves the bytes as an unknown field -- and `DecodeRecord` then refuses it. Measured, not
+  reasoned: Go returns `ErrUnknownFields` for that shape.
+- That same vector is the one place the Elixir gate's halves swap roles. The preflight passes
+  it deliberately (the packed rules are `repeated?`-gated) and the decoder raises
+  `Protobuf.DecodeError`, which `classify/1` maps to `:poison`. One clause away is `:systemic`,
+  which at a known delivery slot is retryable forever against Go's permanent refusal.
+- An UNOWNED OBLIGATION surfaced: this change's task 1.5 body requires a typed malformed-wire
+  preflight, and no subtask carried it. It became 1.5-l rather than being absorbed into 1.5-a,
+  because 1.5-a freezes whether bytes are refused and 1.5-l owns what a refusal is called.
+
+### Mutation record (1.5-a)
+
+Four mutations, each killed:
+
+| mutation | killed by |
+|---|---|
+| drop Elixir's unknown-field clause in `WireValidate` | the Elixir corpus, 2 of 10 tests |
+| disable Go's `hasUnknownFields` | the Go corpus, on `wire_compat_unknown_field_top.bin` |
+| move ONE runtime's manifest column to `accept`, leaving the other | BOTH suites, on the class invariant |
+| add an orphan `wire_compat_orphan.bin` | BOTH suites, on manifest-versus-disk |
+
+Reachability was proven rather than assumed: corrupting the manifest fails both
+`//go/pkg/edge/edgerecord:edgerecord_test` and
+`//elixir/serviceradar_core:unit_tests_serviceradar_edge`.
