@@ -248,6 +248,10 @@ test:macos --config=darwin_local
 try-import %workspace%/.bazelrc.local
 
 # Remote credentials and local overrides live in .bazelrc.remote (kept out of version control).
-# CI jobs generate it to carry the BuildBuddy API key; selected jobs may also opt in with
-# `build:ci --config=cache_proxy`. Keeping this import last makes that explicit override win.
+# CI jobs generate it to carry the BuildBuddy API key. No cache opt-in is written there any
+# more: the proxy is `build:remote_base --remote_cache` above, which every remote build inherits.
+#
+# KEEP THIS IMPORT LAST. An rc file can only override configs defined before it, so an override
+# placed above build:remote_base is silently overwritten by it -- the build looks entirely
+# normal and simply ignores the override.
 try-import %workspace%/.bazelrc.remote

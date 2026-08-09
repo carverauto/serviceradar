@@ -426,60 +426,68 @@ kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=
 # want: Connecting to cache target "grpc://bb-cache-proxy-...svc.cluster.local:1985"
 ```
 
-### 2. Bazel clients through the public TLS edge (opt-in)
+### 2. Bazel clients through the public TLS edge (the default)
 
-`build:cache_proxy` in `//.bazelrc` moves only `--remote_cache` to
+`build:remote_base` in `//.bazelrc` moves only `--remote_cache` to
 `grpcs://cache-proxy.carverauto.dev:443`. That hostname terminates TLS on the shared Envoy
-gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP service on port 1985. This solves the
-topology mismatch that prevented BuildBuddy workflow action namespaces and developer laptops
-from reaching a Kubernetes ClusterIP.
+gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP Service on port 1985. This is what
+solves the topology mismatch that a ClusterIP could not: BuildBuddy workflow action namespaces
+and developer laptops both have ordinary internet egress and neither can route to the cluster
+service CIDR (see **Where the runner runs decides what it can reach**).
 
-The client route remains deliberately opt-in. Neither `build:ci` nor `build:remote` selects it,
-and the normal `make build-workspace` and `make test` commands retain their existing behavior.
-Use the shared Make recipes for an explicit canary:
-
-```bash
-make build-workspace-cache
-make test-cache
-```
-
-The equivalent direct commands are:
+**There is nothing to opt into.** `--config=ci` and `--config=remote` both inherit
+`remote_base`, so every remote build takes the proxy path — CI, the workflow runner, and a
+laptop running `make test` alike. The ordinary commands are the proxied commands:
 
 ```bash
-bazel build -c opt --config=ci --config=cache_proxy //...
-bazel test -c opt --config=ci --config=cache_proxy //... \
-  --test_tag_filters=-integration_test,-acceptance_test
+make build-workspace          # bazel build --config=remote //...
+make test                     # bazel test -c opt --config=ci //... (unit tiers)
 ```
+
+`make build-workspace-cache` and `make test-cache` still exist, but only as aliases that swap in
+the CI flags — `BAZEL_CACHE_PROXY_CONFIG` in `//Makefile` is deliberately **empty**.
+
+> **Do not write `--config=cache_proxy`.** That profile was folded into `build:remote_base` and
+> no longer exists. Bazel treats an undefined config as a hard error, not a warning:
+>
+> ```
+> ERROR: Config value 'cache_proxy' is not defined in any .rc file   (exit 2)
+> ```
+>
+> so a stale reference takes out an entire entrypoint rather than quietly skipping the proxy.
+> `//buildbuddy_cache_proxy_config_test.py` asserts that every `--config` named by `//Makefile`
+> or `//buildbuddy.yaml` is defined in `//.bazelrc`, precisely because this already happened
+> once.
 
 The routes are intentionally different:
 
 | hop | endpoint | purpose |
 |---|---|---|
 | executor `cache_target` | `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985` | bulk CAS/ActionCache traffic stays inside the cluster |
-| Bazel `build:cache_proxy` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
+| Bazel `build:remote_base` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
 | Bazel executor and BES | `grpcs://carverauto.buildbuddy.io` | scheduling and build-event services remain upstream |
 
+The executors keep the in-cluster FQDN rather than the public edge, and that asymmetry is
+deliberate: they are ordinary pods, so their traffic never leaves the cluster and never pays for
+TLS termination at the gateway.
+
 Do not point `--remote_executor`, `--bes_backend`, or `--bes_results_url` at the proxy. It hosts
-none of those services. `--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` is also
-required: Bazel derives `bytestream://` artifact URIs from `--remote_cache`, while the BES and UI
-still retrieve those artifacts through the upstream BuildBuddy hostname.
+none of those services, and the failure is silent rather than loud — the proxy is a BuildBuddy
+server too, so it accepts the RPCs and the build simply stops appearing where anyone looks for
+it. `--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` is likewise required: Bazel derives
+`bytestream://` artifact URIs from `--remote_cache`, while the BES and UI still fetch those
+artifacts through the upstream BuildBuddy hostname. Get it wrong and builds still pass — only the
+timing profile quietly fails to load.
 
-CI jobs may opt in after the manual canary is green by adding the config selection to the
-gitignored `.bazelrc.remote`. Forgejo appends it to the file that already holds the API-key
-header; the BuildBuddy workflow runner receives its header from `buildbuddy.bazelrc`, so its
-selection-only file can be created with `>`:
+Keep the `try-import` entries at the bottom of `//.bazelrc`. An rc file can only override
+configs defined before it, so an override in `.bazelrc.remote` placed above `build:remote_base`
+is silently overwritten by it.
 
-```bash
-# Forgejo, after writing the credential header:
-printf 'build:ci --config=cache_proxy\n' >> .bazelrc.remote
-
-# BuildBuddy workflow runner (credential supplied separately by the runner):
-printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
-```
-
-The opt-in in `//buildbuddy.yaml` stays commented during rollout. Keep the `try-import` entries
-at the bottom of `//.bazelrc`; that ordering lets `.bazelrc.remote` apply after the checked-in
-profiles.
+Measured on a full `//...` from a workstation: **~11 min direct, ~3-4 min through the proxy.**
+The win is round-trip latency, not bandwidth — a `//...` build issues thousands of
+`GetActionResult` and `FindMissingBlobs` calls, each costing a WAN RTT to BuildBuddy Cloud
+against roughly a millisecond to the proxy. Reasoning about bytes predicts a small win and is
+wrong by ~3x, because `--remote_download_minimal` already suppressed the byte volume.
 
 ### Authentication and transport boundary
 
@@ -497,8 +505,9 @@ values, or the GitOps route. The proxy's own upstream key is separate, lives in 
 
 Do not use a TCP connect or an anonymous Capabilities response as proof of authorization:
 Capabilities may be readable without a credential. A validation canary MUST execute a protected
-ActionCache/CAS operation. A real authenticated Bazel build or test through `--config=cache_proxy`
-does that and is the preferred end-to-end check.
+ActionCache/CAS operation. Any real authenticated build — `make build-workspace` or
+`bazel test -c opt --config=ci //...` — does that and is the preferred end-to-end check, since
+both now route through the proxy by default.
 
 ### Staged rollout and rollback
 
@@ -512,16 +521,21 @@ does that and is the preferred end-to-end check.
      -servername cache-proxy.carverauto.dev -alpn h2 </dev/null
    ```
 
-3. With a local ignored `.bazelrc.remote`, run `make build-workspace-cache`, then
-   `make test-cache`. Confirm the BuildBuddy invocation and cache-proxy hit/read/write metrics.
+3. With a local ignored `.bazelrc.remote` holding the credential header, run
+   `make build-workspace`, then `make test`. Confirm the BuildBuddy invocation and the
+   cache-proxy hit/read/write metrics.
 4. Run `bazel test //:buildbuddy_cache_proxy_config_test` to catch endpoint, bytestream-prefix,
-   default-profile, or Make-alias drift.
-5. Only after the canary is green, enable selected CI jobs by adding the opt-in line above.
+   dangling-`--config`, or Make-alias drift.
 
-Rollback is client-first: remove the workflow opt-in and use `make build-workspace` / `make test`,
-which continue talking directly to `carverauto.buildbuddy.io`. The executor fleet keeps using the
-internal ClusterIP path throughout, so removing the public GitOps route after clients have rolled
-back does not interrupt remote execution or its high-volume cache traffic.
+**Rollback** is a one-line revert of `build:remote_base --remote_cache` in `//.bazelrc` back to
+`grpcs://carverauto.buildbuddy.io`. Because the proxy is now the default rather than an opt-in,
+there is no per-job switch to flip: an edge outage affects every remote build until that line
+changes, which is the trade accepted in exchange for nobody having to remember a flag.
+
+Rollback is still client-first, because that one line is the only client-side dependency on the
+public route. The executor fleet reaches the proxy over the internal ClusterIP path throughout
+and is untouched by it, so the public GitOps route can be withdrawn after clients have reverted
+without interrupting remote execution or its high-volume cache traffic.
 
 The backend service itself must remain private after every chart upgrade:
 

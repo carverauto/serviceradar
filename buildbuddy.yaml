@@ -82,23 +82,24 @@ actions:
       disk: "40GB"
 
     steps:
-      # CACHE-PROXY CLIENT ROUTE: PUBLIC TLS, STILL OPT-IN DURING THE CANARY.
+      # CACHE-PROXY CLIENT ROUTE: PUBLIC TLS, AND NOTHING TO DO HERE.
       #
-      # //.bazelrc's `build:cache_proxy` profile names
-      # grpcs://cache-proxy.carverauto.dev:443. The shared Envoy gateway terminates TLS and
-      # forwards gRPC to the proxy's private Service; BuildBuddy's native proxy authentication,
-      # not Envoy, remains authoritative.
+      # //.bazelrc's `build:remote_base` sends --remote_cache to
+      # grpcs://cache-proxy.carverauto.dev:443, and `--config=ci` inherits remote_base -- so
+      # every bazel call below already takes the proxy path with no step of its own. The shared
+      # Envoy gateway terminates TLS and forwards gRPC to the proxy's private Service;
+      # BuildBuddy's native proxy authentication, not Envoy, remains authoritative.
       #
-      # The runner already injects `common --remote_header=x-buildbuddy-api-key=...` through its
-      # own buildbuddy.bazelrc. Never write that credential here. After the staged canary in
-      # //k8s/buildbuddy/README.md passes, enable this workflow by writing only the config
-      # selection into the ignored .bazelrc.remote:
+      # THE PUBLIC EDGE IS WHAT MAKES THIS WORK HERE AT ALL. A ClusterIP does not: the Bazel
+      # client runs inside a per-action network namespace with no route to the service CIDR
+      # (see "Where the runner runs decides what it can reach" in //k8s/buildbuddy/README.md).
+      # A public hostname it can reach over ordinary egress is the whole point.
       #
-      #   printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
-      #
-      # This stays commented until that rollout step is approved. A TCP or anonymous
-      # Capabilities probe is deliberately absent: it cannot prove a protected cache RPC is
-      # authorized. The authenticated Bazel build/test canary is the end-to-end validation.
+      # DO NOT write a `--config=cache_proxy` opt-in into .bazelrc.remote. That profile was
+      # folded into build:remote_base and no longer exists; naming it fails the run outright
+      # with "Config value 'cache_proxy' is not defined in any .rc file". The runner injects
+      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc --
+      # never write that credential here.
 
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three

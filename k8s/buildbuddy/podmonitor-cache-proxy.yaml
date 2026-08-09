@@ -23,8 +23,8 @@
 #     / sum(rate(buildbuddy_proxy_byte_stream_read_bytes[1h]))
 #
 # A near-zero denominator means nothing is addressing the proxy at all -- check
-# `executor.cache_target` in ./values.yaml and the `--config=cache_proxy` opt-in described in
-# //.bazelrc before looking anywhere else.
+# `executor.cache_target` in ./values.yaml and `build:remote_base --remote_cache` in //.bazelrc
+# before looking anywhere else.
 #
 # BuildBuddy ships a Grafana dashboard for these series at
 # //../buildbuddy/tools/metrics/grafana/dashboards/cache-proxy.json in the upstream checkout.
