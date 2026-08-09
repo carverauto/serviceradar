@@ -977,3 +977,46 @@ Four mutations, each killed:
 Reachability was proven rather than assumed: corrupting the manifest fails both
 `//go/pkg/edge/edgerecord:edgerecord_test` and
 `//elixir/serviceradar_core:unit_tests_serviceradar_edge`.
+
+## The 1.5-g payload-family audit (2026-08-09)
+
+Recorded here rather than in the ledger, which states rules and evidence, not findings.
+
+The subtask offered two outcomes -- freeze a family-to-contract relation with vectors, or record
+that v1 needs none. The audit found that neither was correct, and that the second would have
+frozen an omission as protocol behaviour.
+
+What the audit established, by RUNNING records through the validators rather than reading them:
+
+- `dispatchContract` compares the four `EdgeOutputContractRef` members and never reads
+  `payload_family`. That part was already known and is deliberate.
+- `ValidateSweepRecord` and `ValidateMtrRecord` did not read the family EITHER. Measured, all
+  four declared non-recovery families were admitted identically at the typed sweep ingress: a
+  record declaring `SNAPSHOT_PAGE_V1` while carrying a sweep body was admitted AND authenticated
+  with contradictory metadata.
+- Only `RECOVERY_CONTROL_V1` was refused, and not by contract dispatch -- by
+  `validateRecoveryLane`'s biconditional against `route_profile`, a different rule.
+- `ValidateLifecycleRecord` and `ValidateRecoveryControl` DID check their families, so the
+  invariant existed at two of four typed ingresses and was missing at the other two.
+- Nothing at that revision invoked `ValidateLifecycleRecord`, so even the check that existed was
+  unexercised. "Already covered" would have rested on an unrun branch.
+
+Protobuf bytes are not intrinsically type-tagged, so a body decodes under an unintended schema
+without complaint. Recording the observed behaviour as the contract would therefore have
+authenticated contradictory metadata and made future decoder selection unsafe -- which is why
+the resolution is a third outcome: no contract-to-family mapping, but the family bound to the
+typed entry point and enforced at each one.
+
+### Mutation record (1.5-g)
+
+| mutation | killed by |
+|---|---|
+| move the sweep framing gate after `unmarshalPayload` | the precedence control (`record bytes do not decode`) |
+| remove ONLY the MTR call-site check | the MTR entry-point test, sweep corpus unaffected |
+| remove the lifecycle family check | the lifecycle control |
+| drop a declared family from the manifest | the descriptor-derived coverage guard, both runtimes |
+| flip a typed verdict in the manifest | the Elixir peer |
+
+A first attempt at the precedence mutation moved the gate after `innerPayload` only, which
+extracts without interpreting, so the gate still ran first and the test passed. That is a
+mutation that did not apply, not a passing test.
