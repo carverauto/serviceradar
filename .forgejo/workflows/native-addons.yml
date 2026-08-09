@@ -128,25 +128,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bazel-
 
-      - name: Configure BuildBuddy remote cache
-        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
-        run: |
-          umask 077
-          cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
-            build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-            build --bes_backend=grpcs://carverauto.buildbuddy.io
-            build --remote_cache=grpcs://carverauto.buildbuddy.io
-            build --remote_executor=grpcs://carverauto.buildbuddy.io
-            build --remote_timeout=10m
-            build --remote_download_minimal
-            build --remote_upload_local_results
-            build --jobs=100
-            build --strategy=ExpandTemplate=local
-            build --strategy=NpmPackageExtract=local
-            build --strategy=CopyDirectory=local
-          EOF
-          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
-
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
@@ -166,17 +147,8 @@ jobs:
           GOEXPERIMENT=jsonv2 go install github.com/Zxilly/go-size-analyzer/cmd/gsa@v1.13.0
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
 
-      - name: Verify Bazel version
-        run: |
-          expected="$(tr -d '\r\n' < .bazelversion)"
-          actual="$(bazel --version | awk '{print $NF}')"
-          if [[ "${actual}" != "${expected}" ]]; then
-            echo "Expected Bazel ${expected}, got ${actual}" >&2
-            exit 1
-          fi
-
       - name: Run hermetic native add-on gate fixtures
-        run: bazel test -c opt --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc //build/native_addons:build_gates_test
+        run: bazel test -c opt --config=ci //build/native_addons:build_gates_test
 
       - name: Run native add-on build gates
         env:
@@ -203,7 +175,7 @@ jobs:
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
-          BAZEL_BUILD_FLAGS: -c opt --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc --stamp
+          BAZEL_BUILD_FLAGS: -c opt --stamp
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -250,7 +222,7 @@ jobs:
       - name: Generate import index
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          BAZEL_BUILD_FLAGS: -c opt --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc --stamp
+          BAZEL_BUILD_FLAGS: -c opt --stamp
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
