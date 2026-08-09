@@ -134,7 +134,8 @@ build:no_remote --bes_results_url=
 build:remote_base --jobs=100
 # Remote Cache CDC https://www.buildbuddy.io/blog/content-defined-chunking
 build:remote_base  --experimental_remote_cache_chunking
-# Remote Cache compression
+# Remote Cache reduction and compression
+build:remote_base --remote_download_minimal
 build:remote_base --remote_cache_compression
 build:remote_base --experimental_remote_cache_compression_threshold=100
 # Remote Build and Remote Cache
