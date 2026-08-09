@@ -499,7 +499,12 @@ func TestWireCompatManifestMatchesDisk(t *testing.T) {
 
 	onDisk := map[string]bool{}
 
-	matches, err := filepath.Glob(goldenPath("wire_compat_*.bin"))
+	// Glob the directory the MANIFEST resolved to, not a wildcard passed through goldenPath.
+	// goldenPath probes its argument with os.Stat, and a literal `wire_compat_*.bin` never
+	// exists, so passing a pattern skips every fallback and returns the last candidate. It
+	// happens to work because rules_go runs this test from its package-relative directory --
+	// but it would fail silently under any runner that does not.
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(goldenPath(wireCompatManifest)), "wire_compat_*.bin"))
 	if err != nil {
 		t.Fatalf("glob fixtures: %v", err)
 	}

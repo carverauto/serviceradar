@@ -120,8 +120,20 @@ func (d *digestWriter) finish() []byte {
 // messages are framed FIELD-BY-FIELD (no proto.Marshal at any depth), so the
 // transcript is byte-identical across protobuf-go and protobuf-elixir.
 func SemanticEnvelopeDigest(r *edgev1.EdgeRecordV1) []byte {
+	return semanticEnvelopeDigestWithVersion(r, semanticDigestVersion)
+}
+
+// semanticEnvelopeDigestWithVersion is SemanticEnvelopeDigest with the grammar version supplied rather than
+// baked in. The exported wrapper is the ONLY production caller and always passes the frozen
+// constant, so no shipped behaviour is parameterised.
+//
+// It exists so the shared version corpus can author the artifact a peer running a DIFFERENT
+// grammar version would emit -- and can do so WITHOUT a second copy of this transcript. A
+// re-implemented grammar is the failure mode this avoids: it agrees on the day it is written
+// and drifts silently afterwards, which is exactly what a version freeze must not rely on.
+func semanticEnvelopeDigestWithVersion(r *edgev1.EdgeRecordV1, version uint64) []byte {
 	d := newDigest()
-	d.u64(semanticDigestVersion)
+	d.u64(version)
 	d.bytes(r.GetEventId())
 	d.u64(uint64(r.GetPayloadFamily()))
 	d.u64(uint64(r.GetCompression()))

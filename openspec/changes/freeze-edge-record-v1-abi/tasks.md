@@ -72,8 +72,8 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including EIGHT of 1.5's
+The remaining freeze is NOT one to two weeks. SEVEN open parents and NINETEEN unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including SIX of 1.5's
 TWELVE obligations -- twelve, not eleven, because the body's refusal-classification
 obligation had no subtask and the exhaustiveness rule below requires one (1.5-l). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
@@ -715,7 +715,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-b, 1.5-d and 1.5-g..1.5-l. 1.5-a, 1.5-c, 1.5-e and 1.5-f are CLOSED. The subtask list is
+  - REMAINING: 1.5-g..1.5-l. 1.5-a..1.5-f are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
@@ -804,7 +804,16 @@ here.
         MANIFEST-VERSUS-DISK runs in both directions in both runtimes, so an orphaned
         `wire_compat_*.bin` cannot be staged by Bazel and read by nobody.
         GATED in `go_test.srcs`, the Elixir unit shard, and `proto-abi.yml`.
-  - [ ] 1.5-b unsupported-version compatibility rules
+  - [x] 1.5-b UNSUPPORTED-VERSION COMPATIBILITY -- the rule and its object partition.
+        THE RULE is the requirement "Every versioned object fails closed, by one of two proof
+        classes". Class A decodes a version from its input; Class B carries a compile-time
+        constant inside a preimage whose received value is a digest, so it is proven by an
+        artifact RECOMPUTED under a different constant. Each object belongs to exactly one.
+        EVIDENCE is the shared corpus described under 1.6-a/1.6-b -- one manifest, nineteen
+        objects, a committed control and alternate artifact each, every row driven through the
+        verifier that trusts that value in production.
+        NOT CLOSED HERE: what a refusal is CALLED. This subtask freezes that an unsupported
+        version is refused; the `:poison`/`:systemic` classification is 1.5-l's.
   - [x] 1.5-c TIMESTAMP UNITS -- projection-boundary canonicalization. SPEC, RUNTIME AND
         VECTORS LANDED, and SIGNED OFF at 47e3c2a7 after an uncached, retry-disabled Bazel run
         (`--nocache_test_results --flaky_test_attempts=1`) passed all three gating targets on
@@ -841,7 +850,42 @@ here.
         NOT OWNED HERE: projector integration and schema, both `unify-sweep-results-proto` task
         5.4's. Nothing calls the conversion from a projector yet, so SQL agreement is not
         established.
-  - [ ] 1.5-d OPTIONAL ZERO-VALUED MEASUREMENTS -- absent versus present-zero
+  - [x] 1.5-d OPTIONAL-SCALAR PRESENCE -- absent versus present-zero. SIGNED OFF at b9dad266.
+        THE RULE is the requirement "Optional-scalar presence is preserved, and its meaning is
+        per field". Presence survives decode in both directions; whether presence is REQUIRED is
+        per field and per validator, never generalised from a sibling.
+        NOT ALL EIGHTEEN ARE MEASUREMENTS. Fifteen are, and for those absent means NOT MEASURED.
+        The other three -- `authority_epoch`, `plan_ordinal_offset`, `mtr_ordinal_count` -- are
+        required AUTHORITY AND WINDOW statements: optional in the schema so absent is
+        distinguishable from zero, not so they may be omitted. Calling all eighteen measurements
+        would have frozen the wrong rule for the three the validators refuse.
+        THE INVENTORY IS DESCRIPTOR-PINNED IN BOTH RUNTIMES: an explicit proto3 optional is
+        exactly a field whose containing oneof is SYNTHETIC (Go) / carries `proto3_optional?`
+        (Elixir), so the set is mechanically knowable and a new optional field fails both suites
+        until it is covered. EIGHTEEN scalars across EIGHT carriers, plus FIVE optional MESSAGE
+        fields recorded as out of scope with reasons -- an absent submessage is not a measurement
+        that was or was not taken, and each already has its own normative statement.
+        The hand-written count was wrong twice before the descriptor settled it, which is the
+        reason the guard exists rather than a list.
+        SHAPE: 8 controls (all optionals present-zero) + 18 one-field-absent variants = 26
+        artifacts, 18 rows. ONE AXIS PER ROW. A carrier pair toggling its optionals together
+        cannot distinguish a field that became required from siblings that stayed indifferent --
+        it can only say "this carrier changed" -- so it would record a policy it cannot observe.
+        MEASURED POLICY, not assumed: THREE required (`EdgeProducerContext.authority_epoch`,
+        `SweepMtrExpectationV1.plan_ordinal_offset`, `TargetRangeV1.mtr_ordinal_count`) and
+        FIFTEEN indifferent. Each verdict comes from the production validator: the plan row is
+        driven through `ValidatePlanPages` with a well-shaped header whose MTR commitment comes
+        from the CONTROL pages, so the refusal is `ErrPlanMtrWindow` raised by `PlanMtrWindows`
+        and NOT a header the corpus failed to build. `TestPresencePlanWindowIsTheProductionVerdict`
+        pins that, because the row would look identical either way.
+        ELIXIR CLAIMS ONLY WHAT IT CAN: there is no record validator and no MTR batch validator
+        in that runtime, so `EdgeProducerContext` and `MtrTraceHopV1` are marked `observation` in
+        the manifest and the peer asserts wire distinction, decoded presence and exact-zero
+        preservation for them -- not an admission verdict. The other six run
+        `SweepBodyValidate` / `AssignmentValidate` / `PlanValidate` and must match Go's verdict.
+        Inventing an Elixir check to manufacture parity would prove only that a test can refuse
+        its own inputs.
+        GATED in `go_test.srcs`, the Elixir unit shard, and `proto-abi.yml`.
   - [x] 1.5-e ASN OBSERVATION SEMANTICS (renamed from "ASN RANGE admission").
         LANDED: the requirement "An MTR hop's ASN is diagnostic enrichment, not an allocation
         claim". Implementations SHALL NOT apply allocation-status filtering; zero means
@@ -1097,23 +1141,93 @@ here.
 
   STATUS
   - LANDED: Go and Elixir generation is single-sourced through `make generate-proto`, with
-    `verify-proto-edge-go` / `verify-proto-edge-elixir` as manifest+byte drift guards.
-  - REMAINING: see subtasks 1.6-a..b below; not restated here.
+    `verify-proto-edge-go` / `verify-proto-edge-elixir` as manifest+byte drift guards. The
+    nineteen-object version corpus is complete: 1.6-a and 1.6-b are CLOSED, and every member
+    has a committed control and alternate artifact driven through a production verifier.
+  - REMAINING: 1.6-c and 1.6-d. This parent stays UNCHECKED because its rule is that BOTH
+    runtimes prove every inventory member, and FIFTEEN OF NINETEEN do. The four exceptions are
+    recorded as the `go_only` column of `version_corpus.txt` and asserted as an EXACT set by
+    both suites, so none can quietly become an exemption: `mtr_completion` (1.6-c) and the three
+    recovery scope transcripts (1.6-d).
+    ELIXIR DOES NOT YET ENFORCE MTR COMPLETION OR THE RECOVERY SCOPE COMPARISON; nothing in
+    1.6-a/1.6-b claims otherwise.
   - DEPENDS ON: nothing open.
   - EVIDENCE: `Makefile` verify-proto-edge-* targets, `hash_grammar.ex`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.6-a unsupported-version fail-closed vectors for every CLASS-A OBJECT, per the
-        object-level Class-A/Class-B partition this task owns. The partition is per OBJECT,
-        not per grammar: one grammar may contain several objects, and one version field may
-        govern two grammars. `CompiledSweepAssignmentV1.digest_version`
-        is one of those members, covering BOTH compiled-assignment grammars, and is NOT a
-        separate subtask -- naming it twice would let 1.6-a be checked while it is missing
-  - [ ] 1.6-b CLASS-B MISMATCH vectors for every Class-B object: an altered version in the
-        PREIMAGE, the DIGEST, or the HEADER must be REJECTED. Class B means "no input
-        version", which forbids an unsupported-INPUT-version vector -- it does NOT mean no
-        vector at all, and a checkbox that only confirms absence would let every Class-B
-        object ship with its version unproven
+  - [x] 1.6-a CLASS-A FAIL-CLOSED VECTORS -- all eight members.
+        `capability`, `manifest_page`, `tombstone`, `plan_header`, `plan_page`,
+        `compiled_assignment`, `mtr_completion`, and `transport_provenance`.
+        `CompiledSweepAssignmentV1.digest_version` is ONE member covering BOTH Appendix A
+        grammars 9 and 10, per the partition's per-OBJECT rule.
+        `transport_provenance`'s artifact ALREADY EXISTED as the `unknown-version` row of
+        `pubid_reject_vectors.txt`. The corpus REFERENCES it as `file#row` and EXECUTES it
+        through `DecodeTransportProvenance` rather than re-authoring the bytes: a second copy
+        would be a second source of truth, and a bare pointer would be a row nothing runs.
+        EACH row commits a CONTROL and an ALTERED artifact and asserts accept-then-refuse. The
+        control half is load-bearing -- without it a row stays green when a verifier starts
+        refusing everything.
+  - [x] 1.6-b CLASS-B ALTERED-VERSION VECTORS -- all eleven members.
+        `semantic_envelope`, `manifest_root`, `plan_root`, `range_digest`, the three recovery
+        scope transcripts (`tombstone_scope`, `manifest_page_scope`, `resolved_scope` -- three
+        objects, not one family), and the four publication identities (`nats_msgid_edge`,
+        `nats_msgid_service`, `delivery_id_edge`, `delivery_id_service`).
+        HOW THE ARTIFACTS ARE AUTHORED, since Class B has no version input to corrupt: each of
+        the seven digest builders is split into an exported wrapper that passes its frozen
+        constant and an unexported `...WithVersion` helper. The corpus generator is the ONLY
+        caller that passes anything else. NO public API changed, and NO grammar is restated --
+        a re-implemented transcript agrees on the day it is written and drifts afterwards,
+        which is the failure a version freeze cannot be built on. The four publication
+        identities stay on their existing PREIMAGE path, patching the version in the committed
+        preimage and re-deriving the identifier.
+        EVERY ENCLOSING DIGEST IS REBUILT so the altered value is the only unreconciled one.
+        Without that, `range_digest` would be refused for a stale page hash and the row would
+        prove nothing about versions.
+        THE THREE SCOPE ROWS are reachable only through a signature: `ValidateRecoveryControl`
+        calls `ValidateRecordSigned` first, and that ORDERING is part of the boundary. Each row
+        asserts the signed path ACCEPTS BOTH records under one committed issuer key
+        (`version_recovery_scope_issuer.pub`, from a dedicated test-only seed) before requiring
+        the scope comparison to refuse the altered one -- so a broken signature or a stale
+        envelope can never be what makes a row pass. Isolation is proven MECHANICALLY: the
+        claim is carried twice and moves two derived values with it, and normalising all four
+        must leave the pair EQUAL.
+        THE SCOPE ROWS ARE GO-ONLY TODAY, and the manifest says so. Elixir has no signed
+        recovery-control path, and recomputing the scope digest there would be a check written
+        for the corpus rather than the boundary production trusts -- Go reaches that comparison
+        only through `ValidateRecordSigned`. The peer suite therefore runs NOTHING for them, in
+        preference to something that resembles a verifier. Task 1.6-d supplies the boundary.
+  - [ ] 1.6-c ELIXIR LIFECYCLE-VALIDATION PEER for `SweepExecutionEventV1`.
+        WHY IT EXISTS: `mtr_completion` is the ONE inventory member no Elixir consumer
+        enforces. `mtr_completion_digest_version` appears in that tree only in the generated
+        struct and in golden assertions that READ it; nothing refuses an unsupported value. The
+        corpus records this as a `go_only` column rather than prose, and the Elixir suite
+        asserts it is the SOLE such member -- so the gap is visible, not absent. This is the
+        live remainder that keeps parent 1.6 open.
+        SCOPE -- Go's `ValidateSweepExecutionEvent` STRUCTURAL boundary, and nothing else:
+        canonical execution / plan / target-range identities; plan digest and emission-time
+        shape; known lifecycle kind, REUSING the existing enum policy rather than a second
+        list; completed-event counter relations and completion-proof version/digest/root shape;
+        non-terminal proof ABSENCE; aborted-reason bounds; and retained decoded unknown fields
+        where observable.
+        EXPLICITLY OUT OF SCOPE: `ValidateLifecycleRecord`'s signature and trust resolution,
+        contract dispatch, raw extraction, the authority join, and plan-state verification.
+        Those are distinct boundaries; pulling them in would make this slice sprawl.
+        NO NEW VECTORS: when it lands, the `mtr_completion` row flips from `go_only` to `both`
+        and REUSES the committed control and alternate artifacts. Then parent 1.6 closes.
+  - [ ] 1.6-d ELIXIR SIGNED RECOVERY-CONTROL BOUNDARY, for the three scope transcripts.
+        WHY IT EXISTS: `tombstone_scope`, `manifest_page_scope` and `resolved_scope` have
+        committed alternate-version artifacts that GO refuses through `ValidateRecoveryControl`,
+        but Elixir has no signed recovery-control path to run them against. The scope comparison
+        is reachable in Go ONLY after `ValidateRecordSigned`, and that ordering is half of what
+        the rows freeze: a bare digest recomputation in the peer would be a different boundary
+        wearing the same name, so the peer suite runs nothing for them and the manifest records
+        `go_only`.
+        SCOPE: verify the record's signature and trust under a supplied policy, then resolve the
+        recovery-control body and compare the recomputed scope digest to the SIGNED claim --
+        the same order Go uses. `HashGrammar` already supplies all three digests; what is
+        missing is the signed path that reaches them.
+        NO NEW VECTORS: when it lands, the three rows flip from `go_only` to `both` and REUSE
+        the committed records and the committed issuer key.
 
 - [x] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
   Replace the ad-hoc `lost_ranges` + `affected` pairing on
