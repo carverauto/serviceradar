@@ -192,6 +192,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Notifications.ActionLinks
   alias ServiceRadar.Notifications.Dedupe
   alias ServiceRadar.Notifications.Escalation
   alias ServiceRadar.Notifications.NotificationChannel
@@ -1048,24 +1049,65 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   defp render(delivery, provider, scope, format, opts) do
     template = resolve_template(delivery, provider, format, scope.actor)
 
-    render_opts = [
-      supported_formats: field(provider, :payload_formats),
-      context: render_context(delivery, scope, opts),
-      links: Keyword.get(opts, :links, %{}),
-      include_action_links?: field(provider, :provider_type) != :stream,
-      dedupe_key: delivery.dedupe_key,
-      provider_version: field(provider, :definition_version)
-    ]
+    with {:ok, links} <- issue_action_links(delivery, provider, scope, opts) do
+      render_opts =
+        [
+          supported_formats: field(provider, :payload_formats),
+          context: render_context(delivery, scope, opts),
+          dedupe_key: delivery.dedupe_key,
+          provider_version: field(provider, :definition_version),
+          # ActionRedaction matches on KEY names, and a capability token sits
+          # inside a `url` VALUE where there is no sensitive key to match. Without
+          # this second value-based pass the plaintext token survives into
+          # `rendered.redacted_payload`, which is the form persisted and shown in
+          # the Delivery Log - a live capability sitting in the audit trail.
+          sensitive_values: ActionLinks.sensitive_values(links)
+        ] ++ ActionLinks.to_renderer_opts(links)
 
-    case Renderer.render(delivery.alert_snapshot || %{}, template, format, render_opts) do
-      {:ok, rendered} ->
-        {:ok, rendered}
+      case Renderer.render(delivery.alert_snapshot || %{}, template, format, render_opts) do
+        {:ok, rendered} ->
+          {:ok, rendered}
 
-      {:error, reason} ->
-        {:failed,
-         Result.permanent_failure("render_failed",
-           error_message: Renderer.describe_error(reason)
-         )}
+        {:error, reason} ->
+          {:failed,
+           Result.permanent_failure("render_failed",
+             error_message: Renderer.describe_error(reason)
+           )}
+      end
+    end
+  end
+
+  # Mints the acknowledge/snooze/resolve capabilities for this delivery and
+  # persists them (sha256 only). `ActionLinks` decides eligibility from an
+  # ALLOWLIST of provider types, so a `:stream` channel - and any provider type
+  # added later that nobody remembers to exclude - mints nothing and reaches the
+  # token table not at all. A caller may pre-supply `opts[:links]` (tests do);
+  # in that case nothing new is minted.
+  defp issue_action_links(delivery, provider, scope, opts) do
+    case Keyword.fetch(opts, :links) do
+      {:ok, %ActionLinks{} = links} ->
+        {:ok, links}
+
+      {:ok, _other} ->
+        # A bare map of links carries no minted capabilities, so there is
+        # nothing to persist and nothing sensitive to scrub.
+        {:ok, %ActionLinks{}}
+
+      :error ->
+        case ActionLinks.issue(delivery, provider, actor: scope.actor) do
+          {:ok, links} ->
+            {:ok, links}
+
+          {:error, reason} ->
+            # A capability that cannot be persisted must not be rendered into a
+            # notification: the recipient would get a link that verifies against
+            # nothing. Retryable, because the usual cause is a transient write
+            # failure rather than a bad delivery.
+            {:failed,
+             Result.retryable_failure("action_link_mint_failed",
+               error_message: "could not issue notification action links: #{inspect(reason)}"
+             )}
+        end
     end
   end
 

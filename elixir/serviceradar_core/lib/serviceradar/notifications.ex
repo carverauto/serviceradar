@@ -38,6 +38,7 @@ defmodule ServiceRadar.Notifications do
     resource ServiceRadar.Notifications.NotificationTemplate
     resource ServiceRadar.Notifications.NotificationDelivery
     resource ServiceRadar.Notifications.NotificationAcknowledgement
+    resource ServiceRadar.Notifications.NotificationActionToken
   end
 
   authorization do

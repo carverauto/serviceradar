@@ -87,31 +87,6 @@ type GatewayConfig struct {
 	GatewayID     string                     `json:"gateway_id"`     // Unique identifier for this gateway
 }
 
-// WebhookConfig represents a webhook notification configuration.
-type WebhookConfig struct {
-	Enabled  bool     `json:"enabled"`
-	URL      string   `json:"url"`
-	Cooldown Duration `json:"cooldown"`
-	Template string   `json:"template"`
-	Headers  []Header `json:"headers,omitempty"` // Optional custom headers
-}
-
-// Header represents a custom HTTP header.
-type Header struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// CloudConfig represents the configuration for the cloud service.
-type CloudConfig struct {
-	ListenAddr     string          `json:"listen_addr"`
-	GrpcAddr       string          `json:"grpc_addr,omitempty"`
-	DBPath         string          `json:"db_path"`
-	AlertThreshold Duration        `json:"alert_threshold"`
-	KnownGateways   []string        `json:"known_gateways"`
-	Webhooks       []WebhookConfig `json:"webhooks,omitempty"`
-}
-
 var (
 	errInvalidDuration                  = fmt.Errorf("invalid duration")
 	errLoggingConfigRequired            = fmt.Errorf("logging configuration is required")

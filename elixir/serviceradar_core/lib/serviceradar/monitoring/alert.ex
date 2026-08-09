@@ -7,6 +7,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   - `pending` -> `escalated` (via timeout)
   - `acknowledged` -> `resolved`
   - `acknowledged` -> `escalated`
+  - `escalated` -> `acknowledged`
 
   ## Alert Severities
 
@@ -97,7 +98,16 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     transitions do
       # Normal lifecycle
-      transition :acknowledge, from: :pending, to: :acknowledged
+      #
+      # `:escalated` is an acknowledgeable source state, and it is the important
+      # one. `auto_escalate` moves a critical alert out of `:pending` after 30
+      # minutes, and `Notifications.Suppression.acknowledged?/1` keys strictly on
+      # `status == :acknowledged` (`notifications/suppression.ex:306`). With
+      # `from: :pending` alone, the alerts that escalated - exactly the ones a
+      # human most needs to take ownership of - were the ones no acknowledgement
+      # could reach, so an `:if_unacknowledged` ladder could never be halted by
+      # answering it. `resolve` and `suppress` already accept `:escalated`.
+      transition :acknowledge, from: [:pending, :escalated], to: :acknowledged
       transition :resolve, from: [:pending, :acknowledged, :escalated], to: :resolved
       transition :escalate, from: [:pending, :acknowledged], to: :escalated
       transition :suppress, from: [:pending, :acknowledged, :escalated], to: :suppressed

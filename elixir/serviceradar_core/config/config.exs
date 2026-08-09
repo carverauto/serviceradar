@@ -238,7 +238,13 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   remote_access_desktop_rdp_enabled: false,
-  northbound_callback_base_url: nil
+  northbound_callback_base_url: nil,
+  # Base URL the signed notification action links point at (design D7 Phase 1).
+  # Unset means no action links are rendered at all: a bare
+  # "/api/notifications/actions/..." path is a dead link in a mail client, and a
+  # notification with no links is better than one that looks broken.
+  # `SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` is read as a fallback.
+  notification_action_base_url: nil
 
 config :serviceradar_core,
   remote_access_ssh_certificate_policy: %{}

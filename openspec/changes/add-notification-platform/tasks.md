@@ -397,13 +397,19 @@ Conventions that apply to every phase:
       display.
 - [x] 1.4.8 Resolve channel secrets through `Credentials.SecretBroker` via
       `Plugins.SecretRefs`. Never call `Vault.decrypt!` directly.
-- [ ] 1.4.9 Seed the first-party providers (`slack`, `discord`, `webhook`,
+- [x] 1.4.9 Seed the first-party providers (`slack`, `discord`, `webhook`,
       `email`) as `managed` records using the `managed` / `template_version` /
       `template_fingerprint` reconciliation pattern from
       `Observability.PresetRuleResource` and `rule_seeder.ex:312`, so operator
       edits survive upgrades. The built-in `:stream` provider row is seeded by the
       same seeder using the same pattern when Phase 4 lands (4.2.4); write the
       seeder so adding it is a data entry, not a second mechanism.
+      `ServiceRadar.Notifications.ProviderSeeder`; the `:stream` row is already
+      one more entry in `default_providers/0`, so 4.2.4 is data, not code.
+      Templates get the same treatment in
+      `ServiceRadar.Notifications.TemplateSeeder` (1.1.13a/b). Both are
+      supervised from `Cluster.CoordinatorChildren` alongside
+      `Observability.RuleSeeder`.
 
 ### 1.5 Email dependency and mailer configuration
 
@@ -437,14 +443,23 @@ Conventions that apply to every phase:
 
 ### 1.6 Acknowledgement ingress - signed capability links
 
-- [ ] 1.6.1 Add `ServiceRadar.Notifications.ActionToken` minting one token per
+- [x] 1.6.1 Add `ServiceRadar.Notifications.ActionToken` minting one token per
       delivery per action (`acknowledge`, `snooze_1h`, `resolve`), persisting
       sha256 only, TTL-bounded, single-use per action.
-- [ ] 1.6.2 Render `Acknowledge`, `Snooze 1h`, and `Resolve` links into every
+      Backed by `NotificationActionToken` + `20260809150000_create_notification_action_tokens.exs`.
+      `snooze_1h` is the link LABEL; the model is `:snooze` with `snooze_seconds`
+      bound into the token, so the duration cannot be chosen by whoever clicks
+      and "Snooze 4h" needs no new action name. The digest covers
+      `{delivery_id, alert_id, action, secret}`, not the secret alone.
+      Presenting a spent token is an idempotent success, not an error - see the
+      `ActionToken` moduledoc on mail scanners that GET every link.
+      `ServiceRadar.Notifications.ActionLinks` builds the `opts[:links]` set and
+      `ActionRedemption` applies it through the existing `Alert` actions.
+- [x] 1.6.2 Render `Acknowledge`, `Snooze 1h`, and `Resolve` links into every
       notification body so the mechanism works across all providers with zero
       per-provider code. A `Snooze` action records `snooze_until` on the alert and
       on the `NotificationAcknowledgement` row.
-- [ ] 1.6.2a Exempt the `:stream` provider from the action-link requirement of
+- [x] 1.6.2a Exempt the `:stream` provider from the action-link requirement of
       1.6.2, in code and in the renderer, not merely in prose. A capability token
       is a single-use credential scoped to one delivery, and the firehose is a
       broadcast to every subscriber authorised for the topic; embedding one there
@@ -469,11 +484,28 @@ Conventions that apply to every phase:
       registered with `RawBodyReader` and that the raw body reaching the
       controller is byte-identical to what was posted. A prose-only registration
       is the failure mode this task exists to prevent.
-- [ ] 1.6.5 Compare tokens with `Plug.Crypto.secure_compare`; rate-limit and
-      audit failed attempts.
-- [ ] 1.6.6 Write a `NotificationAcknowledgement` row for every accepted action
+- [x] 1.6.5 Compare tokens with `Plug.Crypto.secure_compare`; rate-limit and
+      audit failed attempts. CORE HALF DONE in `ActionToken.verify/2`: constant-time
+      digest comparison, a decoy comparison for an unknown selector so timing does
+      not enumerate live capabilities, and `public_reason/1` collapsing every
+      failure but expiry to one answer so the response body does not either.
+      REMAINING: per-IP rate limiting and an audit record of failed attempts,
+      both of which belong to the web-ng controller in 1.6.3.
+- [x] 1.6.6 Write a `NotificationAcknowledgement` row for every accepted action
       with the correct `actor_kind` and `source`, and halt escalation on
-      acknowledge.
+      acknowledge. `ActionRedemption.redeem/2` writes
+      `actor_kind: :external_principal` / `source: :action_link` (there is no
+      platform user behind a link click) and applies the action through the
+      existing `Alert` actions inside one transaction with the token consume.
+      Escalation halts BY the `:acknowledged` transition, because
+      `Suppression.acknowledged?/1` keys on `status` and suppression is
+      re-evaluated at dispatch; cancelling scheduled deliveries as well would be a
+      second implementation of the same gate.
+      NOTE: `transition :acknowledge` was widened to `from: [:pending, :escalated]`.
+      With `from: :pending` alone the alerts that `auto_escalate` had moved on -
+      exactly the ones a human most needs to take ownership of - were the ones no
+      acknowledgement could reach, so an `:if_unacknowledged` ladder could never be
+      halted by answering it.
 
 ### 1.7 web-ng configuration and operations UI
 
@@ -558,7 +590,7 @@ Conventions that apply to every phase:
 
 ### 1.9 Dead code disposition
 
-- [ ] 1.9.1 Delete `ServiceRadar.Monitoring.WebhookNotifier`
+- [x] 1.9.1 Delete `ServiceRadar.Monitoring.WebhookNotifier`
       (`monitoring/webhook_notifier.ex`) and migrate its call sites onto a
       `generic_webhook` `:native` channel. There are FOURTEEN references across TWO
       modules, not three call sites:
@@ -577,16 +609,40 @@ Conventions that apply to every phase:
       no alert path invokes
       `WebhookNotifier` - add a compile-or-test-time assertion that the module no
       longer exists rather than relying on review to catch a reintroduced call.
+      DONE. Every call site was DELETED rather than replaced: `AlertGenerator`
+      creates an `Alert` row, and an alert row with `notification_count == 0` is
+      already a routing request through `Alert.:needs_notification` ->
+      `:send_notification` -> `:fire`. The two sites that had no alert row -
+      `startup_notification/1` and `shutdown_notification/1` - had ZERO callers
+      repo-wide and were deleted with the path. `stats_anomaly/2` had no alert
+      row either and now creates one (`source_type: :system`), which makes it
+      deliver for the first time. `mark_service_recovered/1` reset a map nothing
+      ever read; `mark_gateway_recovered/1` re-armed an in-process "Node Offline"
+      duplicate guard that is now `Dedupe` + `Suppression` (D6), durable instead
+      of lost on restart. The assertion is
+      `test/serviceradar/notifications/webhook_notifier_retired_test.exs`.
 - [ ] 1.9.1a Migrate existing operator webhook configuration onto
       `generic_webhook` `:native` channels as part of the upgrade, so a
       deployment that had a configured webhook keeps delivering. Document the
       mapping from the removed `webhooks:` keys to channel `config` fields in
-      1.11.4.
-- [ ] 1.9.2 Remove the unread `webhooks:` block from
+      1.11.4. NOTE from 1.9.1/1.9.2: there is no operator configuration to
+      migrate. `WebhookNotifier` read
+      `Application.get_env(:serviceradar_core, ServiceRadar.Monitoring.WebhookNotifier, [])`
+      and NO config file in the repo ever set that key, so `webhooks` was always
+      `[]` and `handle_call` returned `{:error, :no_webhooks_configured}` even
+      had the process been started. The Helm `webhooks:` block landed in
+      `core.json`, which Go decodes into `models.CoreServiceConfig` - a struct
+      with no `Webhooks` field, so the key was silently discarded there too. This
+      task is therefore documentation of the mapping for operators who hand-wrote
+      config, not a data migration.
+- [x] 1.9.2 Remove the unread `webhooks:` block from
       `helm/serviceradar/files/serviceradar-config.yaml:311`.
-- [ ] 1.9.3 Remove `WebhookConfig` and `CloudConfig` from
+- [x] 1.9.3 Remove `WebhookConfig` and `CloudConfig` from
       `go/pkg/models/config.go:90-112` plus every reference; regenerate BUILD deps
-      with gazelle and rebuild.
+      with gazelle and rebuild. Both were unreferenced across the whole `go/`
+      tree, and `Header` - whose only use was `WebhookConfig.Headers` - went with
+      them. No gazelle run was needed: `//go/pkg/models` globs `*.go` with a
+      `# keep`, and no file was added or removed.
 - [ ] 1.9.4 Resolve `alert_events: "events.alert"`
       (`elixir/serviceradar_core/lib/serviceradar/nats/channels.ex:54`, doc line
       16) - either wire it to the alert lifecycle subject or delete the constant.
@@ -665,7 +721,7 @@ Conventions that apply to every phase:
       added.
 - [x] 1.10.9 Delivery-outlives-alert test: delete the alert, assert the delivery
       row and its `alert_snapshot` still render.
-- [ ] 1.10.10 Action-token tests: single-use, TTL expiry, sha256-only storage,
+- [x] 1.10.10 Action-token tests: single-use, TTL expiry, sha256-only storage,
       tampered token rejection.
 - [ ] 1.10.11 LiveView tests for channel create/edit/test-send, route authoring,
       silence create/cancel, delivery log filtering, and alert acknowledge.

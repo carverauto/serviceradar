@@ -56,8 +56,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     with {:ok, ocsf_event} <- record_event(event, actor) do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
-             alert: alert_config(rule, record),
-             notify?: not synthetic_liveness_check?
+             alert: alert_config(rule, record)
            ) do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
@@ -65,8 +64,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
             # Inside the guard on purpose. A synthetic liveness probe is an
             # internal check on the anomaly pipeline, not an incident anyone is
-            # on call for - it is already created with `notify?: false`, and
-            # routing it would page for ServiceRadar watching itself.
+            # on call for, and routing it would page for ServiceRadar watching
+            # itself.
             enqueue_routing(alert.id, :fire)
           end
 

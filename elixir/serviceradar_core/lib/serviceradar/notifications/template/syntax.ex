@@ -52,6 +52,26 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
   `{:not_atomic, _}` rather than let through unchecked; a template body computed
   in SQL is not something this validator can inspect, and failing loudly beats
   persisting an unvalidated one.
+
+  Presence in `changeset.atomics` is NOT evidence of an expression, and treating
+  it as such is the trap here. On an action with `require_atomic? true` Ash
+  rebuilds the changeset through `Ash.Changeset.fully_atomic_changeset/4`, which
+  parks every accepted attribute in `changeset.atomics` - including a plain
+  literal string. An ordinary `%{body_template: "..."}` update therefore leaves
+  nothing for `Ash.Changeset.fetch_change/2` to find, and refusing everything
+  found in `atomics` made `NotificationTemplate`'s `:update` and
+  `:reconcile_managed` fail outright with `MustBeAtomic`: an operator could not
+  edit a template and the seeder could not reconcile one, while every
+  database-free test still passed because nothing pure writes a row.
+  `ServiceRadar.Notifications.MatchExpression` guards the same boundary the same
+  way for the predicate document.
+
+  The literal is read back out and checked. Ash additionally folds the other
+  validations' atomic error expressions into each atomic, so on a resource that
+  has one the atomic is a `type(...)` cast tree wrapped around the same literal;
+  the parameters the atomic changeset was built from still carry it, and it is
+  what will be stored, so it is what gets checked. Only a value that is neither
+  is genuinely computed, and that is the case `{:not_atomic, _}` exists for.
   """
 
   use Ash.Resource.Validation
@@ -229,20 +249,62 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
   def atomic(changeset, opts, _context) do
     attribute = Keyword.fetch!(opts, :attribute)
 
-    case Ash.Changeset.fetch_change(changeset, attribute) do
+    case fetch_incoming(changeset, attribute) do
       {:ok, value} ->
         check(value, attribute)
 
+      :computed ->
+        {:not_atomic,
+         "#{inspect(__MODULE__)} cannot validate an expression-valued update of " <>
+           "`#{attribute}`; set the template as a literal value"}
+
+      :unset ->
+        :ok
+    end
+  end
+
+  defp fetch_incoming(changeset, attribute) do
+    case Ash.Changeset.fetch_change(changeset, attribute) do
+      {:ok, value} ->
+        {:ok, value}
+
       :error ->
-        if Keyword.has_key?(changeset.atomics, attribute) do
-          {:not_atomic,
-           "#{inspect(__MODULE__)} cannot validate an expression-valued update of " <>
-             "`#{attribute}`; set the template as a literal value"}
-        else
-          :ok
+        case Keyword.fetch(changeset.atomics, attribute) do
+          {:ok, value} -> atomic_literal(changeset, attribute, value)
+          :error -> :unset
         end
     end
   end
+
+  # The atomic value is normally the literal itself, and is checked directly.
+  # It is not always: Ash folds the other validations' atomic error expressions
+  # into every atomic, so a resource that grows one turns this into a `type(...)`
+  # cast tree wrapped around the same literal. The parameters the atomic
+  # changeset was built from still carry that literal, and it is what will be
+  # stored, so it is what gets checked. Only a parameter that is not a plain
+  # string is genuinely computed.
+  defp atomic_literal(changeset, attribute, value) do
+    if Ash.Expr.expr?(value) do
+      case fetch_param(changeset.params, attribute) do
+        {:ok, param} when is_binary(param) or is_nil(param) -> {:ok, param}
+        _other -> :computed
+      end
+    else
+      {:ok, value}
+    end
+  end
+
+  # Parameters arrive with string keys from a form and atom keys from Elixir.
+  # Neither is looked up with `String.to_atom/1`: the attribute name is a
+  # compile-time atom from the validation's own options.
+  defp fetch_param(params, attribute) when is_map(params) do
+    case Map.fetch(params, attribute) do
+      {:ok, value} -> {:ok, value}
+      :error -> Map.fetch(params, Atom.to_string(attribute))
+    end
+  end
+
+  defp fetch_param(_params, _attribute), do: :error
 
   defp check(value, attribute) do
     case validate_template(value) do
