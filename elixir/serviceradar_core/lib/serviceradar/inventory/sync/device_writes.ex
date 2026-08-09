@@ -2,6 +2,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   @moduledoc """
   Bulk device upserts with active-IP-conflict recovery and inventory
   rollup refresh.
+
+  Known active-IP claims are resolved *before* the first `insert_all` so
+  recurring integration syncs (for example AWX host inventory claiming an IP
+  already held by an agent device) do not trip
+  `ocsf_devices_unique_active_ip_idx` on every cycle. A reactive retry remains
+  for true races with concurrent writers.
   """
 
   import Ecto.Query
@@ -17,6 +23,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   @inventory_rollup_refresh_lock_key 20_240_306
   @default_inventory_rollup_bulk_refresh_threshold 100
+  # Concurrent cross-handoffs can deadlock on per-row release UPDATEs; retry a
+  # few times after locking UIDs in a deterministic order.
+  @deadlock_retries 3
   @identity_anchor_types [
     :agent_id,
     :armis_device_id,
@@ -38,9 +47,17 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+    # Resolve predictable active-IP collisions up front so the first insert
+    # succeeds. Reactive recovery below only covers concurrent writers that
+    # land between this prepare step and insert_all.
+    {prepared_records, remap, releases} =
+      prepare_active_ip_claims(records, strong_uids, :precheck)
 
-    {:ok, %{}}
+    # Test-only barrier point (Application env :device_writes_test_hooks).
+    run_test_hook(:after_active_ip_precheck)
+
+    insert_devices_with_releases(prepared_records, releases, update_query, refresh_rollups?)
+    {:ok, remap}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
@@ -58,34 +75,77 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          original_error,
          refresh_rollups?
        ) do
-    {remapped_records, remap} = remap_records_to_existing_ip(records, strong_uids)
-    recovered_records = DeviceRecords.merge_records_by_uid(remapped_records)
+    {recovered_records, remap, releases} =
+      prepare_active_ip_claims(records, strong_uids, :retry)
 
-    if map_size(remap) == 0 and recovered_records == records do
+    run_test_hook(:after_active_ip_precheck)
+
+    conflict_ip = unique_violation_ip(original_error)
+
+    if map_size(remap) == 0 and not active_ip_claims_changed?(records, recovered_records) do
       Logger.warning(
-        "Bulk device upsert hit active-IP conflict without an identity remap; " <>
-          "retrying once after the concurrent insert: #{inspect(original_error)}"
+        "Bulk device upsert hit active-IP conflict without an identity remap" <>
+          "#{optional_ip_suffix(conflict_ip)}; retrying once after the concurrent insert: " <>
+          "#{inspect(original_error)}"
       )
     else
       Logger.warning(
-        "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records " <>
-          "to #{length(recovered_records)} and retrying: #{inspect(original_error)}"
+        "Bulk device upsert hit active-IP conflict after precheck" <>
+          "#{optional_ip_suffix(conflict_ip)}; uid_remaps=#{map_size(remap)} " <>
+          "records=#{length(records)}->#{length(recovered_records)} and retrying: " <>
+          "#{inspect(original_error)}"
       )
     end
 
-    case do_bulk_upsert_devices_once(recovered_records, update_query, refresh_rollups?) do
+    case do_bulk_upsert_devices_once(
+           recovered_records,
+           releases,
+           update_query,
+           refresh_rollups?
+         ) do
       :ok -> {:ok, remap}
       {:error, _} = error -> error
     end
   end
 
-  defp do_bulk_upsert_devices_once(records, update_query, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+  defp do_bulk_upsert_devices_once(records, releases, update_query, refresh_rollups?) do
+    insert_devices_with_releases(records, releases, update_query, refresh_rollups?)
     :ok
   rescue
     error ->
       Logger.warning("Bulk device upsert retry failed: #{inspect(error)}")
       {:error, error}
+  end
+
+  # When a batch moves device A off IP X while device B claims X, multi-row
+  # INSERT ... ON CONFLICT can still trip the unique index depending on row
+  # order. Clear the relinquished IPs first, then apply the final claims, in
+  # one transaction so a failed upsert cannot leave owners IP-less.
+  defp insert_devices_with_releases(records, releases, update_query, refresh_rollups?) do
+    with_deadlock_retry(fn ->
+      do_insert_devices_with_releases(records, releases, update_query, refresh_rollups?)
+    end)
+  end
+
+  defp do_insert_devices_with_releases(records, [], update_query, refresh_rollups?) do
+    insert_devices(records, update_query, refresh_rollups?)
+  end
+
+  defp do_insert_devices_with_releases(records, releases, update_query, true) do
+    with_inventory_rollup_bypassed(fn ->
+      lock_and_clear_for_upsert(records, releases)
+      insert_devices(records, update_query, false)
+    end)
+  end
+
+  defp do_insert_devices_with_releases(records, releases, update_query, false) do
+    Repo.transaction(
+      fn ->
+        lock_and_clear_for_upsert(records, releases)
+        insert_devices(records, update_query, false)
+      end,
+      timeout: :infinity
+    )
   end
 
   defp insert_devices(records, update_query, true) do
@@ -101,75 +161,332 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
-  # Returns `{remapped_records, remap}` where `remap` is a map of
+  # Lock the sorted union of release-owner UIDs *and* prepared-record UIDs that
+  # already exist, then clear released (uid, ip) pairs set-wise. Locking only
+  # release owners left a cross-lock cycle with insert_all's ON CONFLICT updates
+  # of other prepared rows (PostgreSQL 40P01 under concurrent cross-handoffs).
+  defp lock_and_clear_for_upsert(_records, []), do: :ok
+
+  defp lock_and_clear_for_upsert(records, releases) do
+    releases =
+      releases
+      |> Enum.uniq()
+      |> Enum.sort_by(fn {uid, ip} -> {uid, ip} end)
+
+    lock_uids = upsert_lock_uids(records, releases)
+
+    if lock_uids != [] do
+      _locked =
+        Repo.all(
+          from(d in Device,
+            where: d.uid in ^lock_uids and is_nil(d.deleted_at),
+            select: d.uid,
+            order_by: [asc: d.uid],
+            lock: "FOR UPDATE"
+          )
+        )
+    end
+
+    {uids_col, ips_col} = Enum.unzip(releases)
+
+    Repo.update_all(
+      from(d in Device,
+        where:
+          is_nil(d.deleted_at) and
+            fragment(
+              "(?, ?) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
+              d.uid,
+              d.ip,
+              ^uids_col,
+              ^ips_col
+            )
+      ),
+      set: [ip: nil]
+    )
+  end
+
+  @doc false
+  # Sorted unique UIDs that this upsert will touch via release clear and/or
+  # ON CONFLICT updates. New (not-yet-inserted) UIDs are included in the set but
+  # simply produce no FOR UPDATE rows.
+  def upsert_lock_uids(records, releases) do
+    release_uids = Enum.map(releases, &elem(&1, 0))
+    record_uids = Enum.map(records, &Map.fetch!(&1, :uid))
+
+    release_uids
+    |> Kernel.++(record_uids)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc false
+  def with_deadlock_retry(fun, attempts_left \\ @deadlock_retries)
+
+  def with_deadlock_retry(fun, attempts_left) when attempts_left > 0 do
+    fun.()
+  rescue
+    e in Postgrex.Error ->
+      if deadlock_detected?(e) and attempts_left > 1 do
+        Logger.warning(
+          "Bulk device upsert hit deadlock while applying active-IP releases; " <>
+            "retrying (#{attempts_left - 1} left): #{inspect(e)}"
+        )
+
+        # Brief jitter so concurrent cross-handoffs do not re-collide immediately.
+        Process.sleep(10 + :rand.uniform(40))
+        with_deadlock_retry(fun, attempts_left - 1)
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  @doc false
+  def deadlock_detected?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    postgres[:code] == :deadlock_detected or postgres[:pg_code] == "40P01"
+  end
+
+  def deadlock_detected?(_), do: false
+
+  # Optional test hooks via Application env:
+  #   config :serviceradar_core, :device_writes_test_hooks, %{after_active_ip_precheck: fn -> ... end}
+  # Production leaves this unset so the call is a no-op.
+  defp run_test_hook(event) do
+    case Application.get_env(:serviceradar_core, :device_writes_test_hooks) do
+      %{^event => fun} when is_function(fun, 0) -> fun.()
+      _ -> :ok
+    end
+  end
+
+  # Apply the same active-IP policy used by conflict recovery *before* insert so
+  # recurring sync batches do not pay a unique_violation + retry every cycle.
+  # Returns `{prepared_records, remap, releases}` where `remap` is
+  # `original_uid => canonical_uid` and `releases` is a list of
+  # `{owner_uid, ip}` pairs that this batch moves off an IP (staged before
+  # insert so same-batch handoffs are atomic).
+  defp prepare_active_ip_claims(records, strong_uids, reason) do
+    {remapped_records, remap, releases} = remap_records_to_existing_ip(records, strong_uids)
+    prepared_records = DeviceRecords.merge_records_by_uid(remapped_records)
+
+    if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
+         releases != [] do
+      Logger.info(
+        "SyncIngestor: #{active_ip_prepare_label(reason)} active-IP claims " <>
+          "(uid_remaps=#{map_size(remap)}, releases=#{length(releases)}, " <>
+          "records=#{length(records)}->#{length(prepared_records)})"
+      )
+    end
+
+    {prepared_records, remap, releases}
+  end
+
+  defp active_ip_prepare_label(:precheck), do: "pre-resolved"
+  defp active_ip_prepare_label(:retry), do: "re-resolved"
+
+  defp active_ip_claims_changed?(original, prepared) do
+    original_claims =
+      MapSet.new(original, fn record -> {record.uid, Map.get(record, :ip)} end)
+
+    prepared_claims =
+      MapSet.new(prepared, fn record -> {record.uid, Map.get(record, :ip)} end)
+
+    original_claims != prepared_claims
+  end
+
+  defp unique_violation_ip(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    detail = postgres[:detail] || postgres["detail"] || ""
+
+    case Regex.run(~r/Key \(ip\)=\(([^)]*)\)/, detail) do
+      [_, ip] -> ip
+      _ -> nil
+    end
+  end
+
+  defp unique_violation_ip(_), do: nil
+
+  defp optional_ip_suffix(nil), do: ""
+  defp optional_ip_suffix(ip), do: " on #{ip}"
+
+  # Returns `{remapped_records, remap, releases}` where `remap` is a map of
   # `original_uid => canonical_uid` for every record whose uid was rewritten to
-  # match an existing active device sharing the same IP. Callers must apply the
-  # same mapping to any other record set referencing those uids (identifier
-  # rows, alias-state updates) before issuing dependent inserts.
+  # match an existing active device sharing the same IP, and `releases` lists
+  # `{owner_uid, ip}` for owners that this batch moves onto a different IP.
+  # Callers must apply the same mapping to any other record set referencing
+  # those uids (identifier rows, alias-state updates) before issuing dependent
+  # inserts.
   defp remap_records_to_existing_ip(records, strong_uids) do
+    # Align blank-IP representation with the upsert SQL: whitespace-only becomes
+    # an explicit clear (""), nil remains "omit / keep current".
+    records = Enum.map(records, &normalize_record_ip/1)
+
     ips =
       records
       |> Enum.map(&Map.get(&1, :ip))
       |> Enum.filter(&SourcePolicy.valid_ip?/1)
       |> Enum.uniq()
 
-    existing_by_ip =
-      if ips == [] do
-        %{}
-      else
-        query =
-          from(d in Device,
-            where: d.ip in ^ips and is_nil(d.deleted_at),
-            select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
-          )
+    existing_by_ip = load_active_ip_owners(ips)
+    batch_ip_by_uid = batch_intended_ips(records)
 
-        query |> Repo.all() |> Map.new()
-      end
+    # Owners that this batch vacates an IP (move to another valid address or
+    # explicit blank clear) no longer hold it for conflict purposes — otherwise
+    # a same-batch handoff would clear the claimant and leave the IP unowned.
+    {active_holders, releases} =
+      partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid)
 
-    anchored_uids = anchored_device_uids(existing_by_ip)
     incoming_ip_owners = incoming_ip_owners(records)
 
-    {remapped_records, {remap, conflicts}} =
-      Enum.map_reduce(records, {%{}, []}, fn record, {remap, conflicts} ->
-        ip = Map.get(record, :ip)
-
-        case Map.get(existing_by_ip, ip) do
-          nil ->
-            drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
-
-          %{uid: existing_uid} when existing_uid == record.uid ->
-            {record, {remap, conflicts}}
-
-          %{uid: existing_uid} = existing ->
-            if MapSet.member?(strong_uids, record.uid) do
-              if provisional_ip_seed?(existing, anchored_uids) do
-                {Map.put(record, :uid, existing_uid),
-                 {Map.put(remap, record.uid, existing_uid), conflicts}}
-              else
-                # Strong identities never adopt an arbitrary IP owner. A
-                # truly provisional seed is the sole exception and is safe
-                # only while it has no registered identity anchor.
-                Logger.info(
-                  "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                    "device #{record.uid} (held by #{existing_uid})"
-                )
-
-                conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
-
-                {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
-              end
-            else
-              {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts}}
-            end
-        end
+    {remapped_records, {remap, conflicts, _anchors}} =
+      Enum.map_reduce(records, {%{}, [], :not_loaded}, fn record, acc ->
+        resolve_record_active_ip(
+          record,
+          strong_uids,
+          active_holders,
+          existing_by_ip,
+          incoming_ip_owners,
+          acc
+        )
       end)
 
     # One batched diagnostic write instead of an insert per IP collision.
     _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
 
-    {remapped_records, remap}
+    {remapped_records, remap, Enum.uniq(releases)}
   end
+
+  # Match the partial unique index predicate exactly so Postgres can use
+  # ocsf_devices_unique_active_ip_idx (index-only) instead of a sequential scan.
+  defp load_active_ip_owners([]), do: %{}
+
+  defp load_active_ip_owners(ips) do
+    from(d in Device,
+      where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
+      select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  defp batch_intended_ips(records) do
+    Map.new(records, fn record -> {record.uid, Map.get(record, :ip)} end)
+  end
+
+  # Explicit blank and nil are distinct under the upsert SQL:
+  # - nil EXCLUDED.ip → keep current IP (omit)
+  # - blank EXCLUDED.ip → write NULL (clear; vacates unique active-IP slot)
+  # - other value → set that IP
+  defp normalize_record_ip(record) do
+    case Map.get(record, :ip) do
+      ip when is_binary(ip) ->
+        trimmed = String.trim(ip)
+        Map.put(record, :ip, if(trimmed == "", do: "", else: trimmed))
+
+      other ->
+        Map.put(record, :ip, other)
+    end
+  end
+
+  defp blank_ip?(ip) when is_binary(ip), do: String.trim(ip) == ""
+  defp blank_ip?(_ip), do: false
+
+  # True when the batch intended IP vacates `held_ip` under upsert SQL semantics.
+  defp batch_releases_held_ip?(new_ip, held_ip) do
+    cond do
+      blank_ip?(new_ip) ->
+        true
+
+      SourcePolicy.valid_ip?(new_ip) and new_ip != held_ip ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid) do
+    Enum.reduce(existing_by_ip, {%{}, []}, fn {ip, holder}, {keepers, releases} ->
+      case Map.fetch(batch_ip_by_uid, holder.uid) do
+        {:ok, new_ip} ->
+          if batch_releases_held_ip?(new_ip, ip) do
+            dest =
+              if blank_ip?(new_ip) do
+                "blank clear"
+              else
+                new_ip
+              end
+
+            Logger.info(
+              "SyncIngestor: batch releases active IP #{ip} from device #{holder.uid} " <>
+                "(moving to #{dest})"
+            )
+
+            {keepers, [{holder.uid, ip} | releases]}
+          else
+            # nil/omit keeps the current IP via the upsert CASE; same IP keeps
+            # the holder. Either way the owner still claims the unique slot.
+            {Map.put(keepers, ip, holder), releases}
+          end
+
+        :error ->
+          {Map.put(keepers, ip, holder), releases}
+      end
+    end)
+  end
+
+  defp resolve_record_active_ip(
+         record,
+         strong_uids,
+         active_holders,
+         existing_by_ip,
+         incoming_ip_owners,
+         {remap, conflicts, anchors}
+       ) do
+    ip = Map.get(record, :ip)
+
+    case Map.get(active_holders, ip) do
+      nil ->
+        {resolved, {remap, conflicts}} =
+          drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
+
+        {resolved, {remap, conflicts, anchors}}
+
+      %{uid: existing_uid} when existing_uid == record.uid ->
+        {record, {remap, conflicts, anchors}}
+
+      %{uid: existing_uid} = existing ->
+        if MapSet.member?(strong_uids, record.uid) do
+          # Defer identifier-anchor lookup until a strong identity actually
+          # collides with a different active owner (provisional-seed path).
+          {anchors, anchored_uids} = ensure_anchored_uids(anchors, existing_by_ip)
+
+          if provisional_ip_seed?(existing, anchored_uids) do
+            {Map.put(record, :uid, existing_uid),
+             {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+          else
+            # Strong identities never adopt an arbitrary IP owner. A
+            # truly provisional seed is the sole exception and is safe
+            # only while it has no registered identity anchor.
+            Logger.info(
+              "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                "device #{record.uid} (held by #{existing_uid})"
+            )
+
+            conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+
+            {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+          end
+        else
+          {Map.put(record, :uid, existing_uid),
+           {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+        end
+    end
+  end
+
+  defp ensure_anchored_uids(:not_loaded, existing_by_ip) do
+    set = anchored_device_uids(existing_by_ip)
+    {set, set}
+  end
+
+  defp ensure_anchored_uids(%MapSet{} = set, _existing_by_ip), do: {set, set}
 
   defp anchored_device_uids(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
@@ -320,7 +637,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     from(d in Device,
       update: [
         set: [
-          ip: fragment("COALESCE(EXCLUDED.ip, ?)", d.ip),
+          # nil EXCLUDED.ip = omit (keep current). Blank EXCLUDED.ip = explicit
+          # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
+          # COALESCE would treat '' as present and store empty strings, which
+          # diverged from the release classifier and broke blank-IP handoffs.
+          ip:
+            fragment(
+              """
+              CASE
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                ELSE EXCLUDED.ip
+              END
+              """,
+              d.ip
+            ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
