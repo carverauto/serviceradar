@@ -245,13 +245,16 @@ verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signature
 	fi; \
 	./scripts/verify-wasm-plugin-publish.sh "$${primary_tag}"
 
-.PHONY: validate_addon_manifests
-validate_addon_manifests: ## Validate native add-on manifests (addon.yaml) against the manifest JSON-Schema (fails closed)
-	@go run ./go/tools/addon-manifest-validator
-
-.PHONY: check_addon_dependency_isolation
-check_addon_dependency_isolation: ## Assert the base agent's transitive deps exclude every add-on implementation package
-	@./scripts/check-addon-dependency-isolation.sh
+# validate_addon_manifests and check_addon_dependency_isolation are GONE. Both were
+# second implementations of gates Bazel already owns, and CI ran each twice:
+#   //build/native_addons:validate_addon_manifests_test  runs the same Bazel-built
+#     //go/tools/addon-manifest-validator over the addon.yaml files, which it takes as
+#     declared data rather than globbing the worktree.
+#   //build/native_addons:dependency_isolation_test  asserts the identical contract --
+#     deps(//go/cmd/agent:agent) must not reach //go/pkg/addon/sdk or
+#     //go/cmd/serviceradar-*-addon -- via a genquery over the real build graph instead
+#     of shelling out to `go list -deps`, so it needs no Go toolchain on the runner.
+# Both are members of :build_gates_test. Use `make check_addon_hermetic_build_gates`.
 
 .PHONY: check_addon_no_stdlib_plugin
 check_addon_no_stdlib_plugin: ## Forbid the Go stdlib `plugin` package in the agent + add-on builds
@@ -286,7 +289,7 @@ check_addon_hermetic_build_gates: ## Run Bazel-owned native add-on gate fixtures
 # The make check_addon_binary_size_bazel path (bazel build + a separate cquery + stat of
 # the cross-config output paths) is NOT RBE-safe — those outputs aren't reliably
 # materialized locally under remote execution — so it is intentionally not a prerequisite.
-addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin check_addon_deadcode_elimination ## Run all add-on build/CI hygiene gates that need no secrets
+addon_build_gates: check_addon_no_stdlib_plugin check_addon_deadcode_elimination ## Run all add-on build/CI hygiene gates that need no secrets
 	@echo "add-on build gates passed"
 
 .PHONY: build_native_addons

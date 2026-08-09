@@ -68,6 +68,9 @@ jobs:
       FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
       FORGEJO_REPOSITORY: carverauto/serviceradar
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # Used by the publish, import-index and release-asset steps, which must all agree on
+      # the tag they are naming. Computed once here rather than repeated per step.
+      EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
     steps:
       - name: Checkout
@@ -124,9 +127,14 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          # Keyed on .bazelversion ONLY. This cache holds BAZELISK_HOME, which contains just
+          # the downloaded bazel binaries -- nothing in it depends on .bazelrc, MODULE.bazel or
+          # the lockfile, so hashing those only busted the key (and re-uploaded an identical
+          # ~200MB entry) on every unrelated build-config edit. Bazel's own action cache lives
+          # remotely on BuildBuddy, not here.
+          key: ${{ runner.os }}-bazelisk-${{ hashFiles('.bazelversion') }}
           restore-keys: |
-            ${{ runner.os }}-bazel-
+            ${{ runner.os }}-bazelisk-
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
@@ -165,23 +173,20 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install go-size-analyzer
-        run: |
-          GOEXPERIMENT=jsonv2 go install github.com/Zxilly/go-size-analyzer/cmd/gsa@v1.13.0
-          echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
-
       - name: Run hermetic native add-on gate fixtures
         run: bazel test -c opt --config=ci //build/native_addons:build_gates_test
 
+      # Only check_addon_no_stdlib_plugin and check_addon_deadcode_elimination remain here;
+      # both shell out to `go list -deps` / `go build -ldflags=-dumpdep`, which is why the
+      # Setup Go step above stays. Manifest validation and dependency isolation moved to
+      # :build_gates_test (step above) -- see the Makefile for why.
+      #
+      # No REQUIRE_GSA and no go-size-analyzer install: REQUIRE_GSA is read ONLY by
+      # scripts/check-addon-binary-size.sh, which is deliberately not an addon_build_gates
+      # prerequisite (binary size is //build/native_addons:binary_size_test). The env var
+      # and the gsa install it guarded were both no-ops in this job.
       - name: Run native add-on build gates
-        env:
-          REQUIRE_GSA: "1"
-        run: |
-          export PATH="$(go env GOPATH)/bin:${PATH}"
-          make addon_build_gates
-
-      - name: Negative-test native add-on release verifier
-        run: ./scripts/test-verify-native-addon-publish-negative.sh
+        run: make addon_build_gates
 
       - name: Login to Harbor
         run: |
@@ -196,7 +201,6 @@ jobs:
 
       - name: Publish native add-on OCI artifacts
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
           # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=ci).
           # Every flag that differs forks the configuration, and a forked configuration
@@ -272,32 +276,10 @@ jobs:
 
       - name: Generate import index
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=ci).
-          # Every flag that differs forks the configuration, and a forked configuration
-          # shares no remote cache entries with the one CI just warmed -- it rebuilds the
-          # world. That is what the log means by
-          #   "Build options --compilation_mode and --stamp have changed, discarding
-          #    analysis cache"
-          #
-          # --config=ci is REQUIRED, not tidiness. With NO config these targets build
-          # locally on the forgejo-ci runner, which has no linker, so the first Rust tool
-          # bazel needs (rules_rust's process_wrapper) dies with
-          #   collect2: fatal error: cannot find 'ld'
-          # Dropping `--config=el9` moved the publish path to no profile at all rather
-          # than to the ci profile; this restores it.
-          #
-          # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
-          # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
-          # sets `stamp` or `x_defs`. Version comes from addons/<name>/addon.yaml (enforced
-          # by the version-bump gate) and the OCI tag is passed as an argument. It bought
-          # nothing and split the cache.
-          #
-          # --remote_download_outputs=all overrides --remote_download_minimal (inherited
-          # from build:remote_base) because these are `bazel run` targets: the sh_binary and
-          # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
-          # local disk for oras to upload them. build:el9 carried the same flag for the same
-          # reason (.bazelrc, "Native-addons / EL9 publish path").
+          # Same flags as the publish step above -- see the comment there for why. This step
+          # runs `bazel build //build/native_addons:all_metadata` inside
+          # generate-native-addon-import-index.sh and then READS the metadata.json files out
+          # of bazel-bin, so --remote_download_outputs=all is what puts them on local disk.
           BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
         run: |
           set -euo pipefail
@@ -308,7 +290,6 @@ jobs:
 
       - name: Upload import index release asset
         env:
-          EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           set -euo pipefail
           if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
