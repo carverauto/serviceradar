@@ -119,13 +119,13 @@ affinity:
 # two of them sharing a path means two eviction loops deleting each other's entries while both
 # believe they are under budget. The three in this namespace must stay distinct:
 #
-#   /var/lib/buildbuddy/cache             build executors   (./values.yaml)
-#   /var/lib/buildbuddy/cache-workflows   workflow executor (./values-workflows.yaml)
-#   /var/lib/buildbuddy/cache-proxy       this release
+#   /mnt/buildbuddy/cache             build executors   (./values.yaml)
+#   /mnt/buildbuddy/cache-workflows   workflow executor (./values-workflows.yaml)
+#   /mnt/buildbuddy/cache-proxy       this release
 #
 # Without this key the chart uses an emptyDir and the entire cache is lost on every pod restart
 # -- which reads as a proxy that never warms up rather than as a misconfiguration.
-cacheProxyDataVolumeHostPath: /var/lib/buildbuddy/cache-proxy
+cacheProxyDataVolumeHostPath: /mnt/buildbuddy/cache-proxy
 
 resources:
   requests:

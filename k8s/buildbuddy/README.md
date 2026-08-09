@@ -37,7 +37,7 @@ resources:
 extraVolumes:
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache
+      path: /mnt/buildbuddy/cache
       type: DirectoryOrCreate
 
 extraVolumeMounts:
@@ -58,7 +58,7 @@ config:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
   - Ephemeral Storage: 20-25Gi (request-limit)
-- **Cache path**: `/cache` (hostPath `/var/lib/buildbuddy/cache` on each node)
+- **Cache path**: `/cache` (hostPath `/mnt/buildbuddy/cache` on each node)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
@@ -168,8 +168,10 @@ If pods are being evicted due to resource pressure:
 ### Cache Backing Storage
 
 - Executors mount a hostPath volume named `cache-volume` at `/cache`.
-- The host path (`/var/lib/buildbuddy/cache`) is created per node and is not shared across nodes.
-- If a node runs out of disk, resize the node storage or adjust `local_cache_size_bytes`.
+- The host path (`/mnt/buildbuddy/cache`) is created per node and is not shared across nodes.
+- **Must stay on `/mnt/buildbuddy` (dedicated ~1.2T disk).** Never use `/var/lib/buildbuddy` — that is on the OS root volume and previously caused node DiskPressure / pod evictions.
+- After a Proxmox resize of the BB volume: `sudo xfs_growfs /mnt/buildbuddy` on each worker.
+- If a node runs out of disk, grow `/mnt/buildbuddy` or adjust `local_cache_size_bytes` / cache-proxy `max_size_bytes`.
 
 ### Connection Issues
 
@@ -213,8 +215,8 @@ confused:
 
 | release | values | pool | replicas | mem requests | hostPath cache | runs |
 |---|---|---|---|---|---|---|
-| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/var/lib/buildbuddy/cache` | build actions |
-| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/var/lib/buildbuddy/cache-workflows` | the CI runner |
+| `buildbuddy` | `values.yaml` | default (`""`) | 3, KEDA 3-10 | 16Gi | `/mnt/buildbuddy/cache` | build actions |
+| `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
 
 The workflow runner wants ~32GB — a Bazel server over ~2,000 targets, `--jobs=100` of input
 uploads over the WAN, and every `no-remote-exec` target executing locally. Putting that on the
@@ -535,7 +537,7 @@ executor fleets in **Two fleets** above, so the warnings there about matching re
 `-f` apply with one addition: the proxy's API key is not in the file, so an upgrade that omits
 `--set config.cache_proxy.api_key=...` leaves it unable to authenticate upstream.
 
-Each of the three keeps its own hostPath — `/var/lib/buildbuddy/cache`, `cache-workflows`, and
+Each of the three keeps its own hostPath — `/mnt/buildbuddy/cache`, `cache-workflows`, and
 `cache-proxy` — for the reason `values-workflows.yaml` spells out: two caches sharing a
 directory run two eviction loops that delete each other's entries while both believe they are
 under budget. Their size budgets do stack on one disk, though; see the `max_size_bytes` note in

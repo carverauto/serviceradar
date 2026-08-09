@@ -133,7 +133,8 @@ extraVolumes:
   # under budget -- cache thrash at best, and each one's accounting is wrong.
   - name: cache-volume
     hostPath:
-      path: /var/lib/buildbuddy/cache-workflows
+      # Dedicated BB disk on each worker (xfs /mnt/buildbuddy). Do not use /var/lib (root).
+      path: /mnt/buildbuddy/cache-workflows
       type: DirectoryOrCreate
   - name: dockerhub-auth
     secret:
