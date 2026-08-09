@@ -625,13 +625,27 @@ read.
 
 ## Alert Lifecycle Changes
 
-- Add a `:snooze` transition to the `Alert` `AshStateMachine`. The current
-  machine (`alert.ex:96-103`) has `acknowledge`, `resolve`, `escalate`,
-  `suppress`, and `reopen` - there is no snooze.
-- Generalise `read :needs_notification` (`alert.ex:188-200`). It currently
-  filters `notification_count == 0`, so it fires exactly once per alert and can
-  never drive renotify, escalation, or retry. It becomes a delivery-driven scan
-  covering first-notify, renotify, escalation-step-due, and retry-due.
+- Snooze is a plain `update :snooze` action that sets a new `snooze_until`
+  timestamp. It is deliberately **NOT** a state-machine state. The machine
+  (`alert.ex:90-104`) declares `state_attribute :status` with states
+  pending/acknowledged/resolved/escalated/suppressed and transitions
+  `acknowledge`, `resolve`, `escalate`, `suppress`, `reopen`; there is no state
+  a `:snooze` transition could target. "Snoozed" is a **derived** condition -
+  `status in [:pending, :escalated] and snooze_until > now()`.
+
+  Rationale: adding a `:snoozed` state would force an audit of every existing
+  `status` renderer, filter, and read action (`alert.ex:162-200`) for the new
+  value, whereas the derived form keeps snooze-expiry resumption a pure
+  timestamp comparison.
+- Generalise `read :needs_notification` (`alert.ex:188-200`) to first-notify
+  only. It currently filters `notification_count == 0`, so it fires exactly
+  once per alert and can never drive renotify, escalation, or retry.
+
+  Continuation work - retry-due, escalation-step-due, and renotify - is keyed on
+  **deliveries**, not alerts, so it cannot be driven from an alert-keyed scan. A
+  second, delivery-keyed scheduler on the same `:notifications` queue is
+  therefore explicitly sanctioned; the two are not redundant because they select
+  over different tables.
 - Implement `update :send_notification` (`alert.ex:314`) to **enqueue routing**,
   not to deliver inline.
 - Add `acknowledged_by_user_id` as a real FK alongside the existing free-text
@@ -784,9 +798,20 @@ what would let a future implementer wire an alert back into a path that returns
 
 - `ServiceRadar.Monitoring.WebhookNotifier` - never supervised, never
   configured, no tests. Removed, after migrating its configuration onto the
-  `generic_webhook` `:native` provider; its per-webhook cooldown and
-  `%WebhookNotifier.Alert{}` struct are the de-facto current contract that three
-  call sites already build.
+  `generic_webhook` `:native` provider.
+
+  There are **14 references across two modules**, not three:
+  `alert_lifecycle.ex:104` and `:114`; `alert_generator.ex:97`, `:176`, `:320`,
+  `:334`, `:369`, `:382`, `:395`, `:407`, `:437`, `:447`. The nested modules
+  `WebhookNotifier.Alert` (`webhook_notifier.ex:57`) and
+  `WebhookNotifier.WebhookConfig` (`:83`) are part of the surface those sites
+  depend on.
+
+  The replacement MUST be designed from the alert data, **not** from the dead
+  struct shapes. Because nothing supervises the GenServer and nothing tests it,
+  every call already takes the `:not_running` branch
+  (`webhook_notifier.ex:133`) - so `%WebhookNotifier.Alert{}` is not a
+  battle-tested contract, it is a shape that has never executed in production.
 - The `webhooks:` block in `helm/serviceradar/files/serviceradar-config.yaml:311`
   is consumed by nothing. Removed.
 - `go/pkg/models/config.go:90-112` `WebhookConfig` / `CloudConfig` - removed.
@@ -826,23 +851,102 @@ Explicitly out of scope for this change, recorded so the contracts leave room.
 - **On-call rotations**, if integration with PagerDuty and Opsgenie proves
   insufficient in practice.
 
+## Resolved Questions
+
+### R1. Site egress means the site agent, and the edge route is first class
+
+**RESOLVED.** "Egress from the customer's own network" means exactly what it
+says: the customer installs a `serviceradar-agent` inside their network, assigns
+a notification plugin to that agent, and every notification for the channels
+bound to it routes through that agent over the bidirectional gRPC tunnel. It
+does not mean "customer-controlled infrastructure" in the looser sense, and a
+self-hosted control plane does not substitute for it.
+
+Consequences, all normative:
+
+- `:edge_agent` is a first-class deployment model, not a minority escape hatch.
+  Documentation SHALL present it as the supported answer for "notifications must
+  leave from my network", while still recommending `:control_plane` as the
+  default when no such constraint exists.
+- A notification plugin assignment to a specific agent is the unit of
+  configuration. Channel binding follows the existing `PluginAssignment` +
+  partition model rather than inventing a parallel targeting scheme.
+- The offline-agent mitigations in D3 remain mandatory, because a first-class
+  route is used more, not less. See R2 for how their weight changes over time.
+
+### R2. usp-01 does NOT make the command plane durable
+
+**RESOLVED, against the initial assumption.** The `unify-sweep-results-proto`
+(`usp-01`) work does not improve `ServiceRadar.Edge.AgentCommandBus`. It is a
+one-directional **observation/data plane** change - producer to agent spool to
+gateway to JetStream to projector - and it excludes the command plane by design,
+not by omission:
+
+- "Live media, interactive tunnels, **commands**, credentials, update plans, and
+  large opaque artifacts retain their dedicated transports."
+  (`unify-sweep-results-proto/proposal.md:73-75`)
+- Stated non-goal: "Turning the record data plane into a universal workflow,
+  command, media, tunnel, or artifact-byte transport."
+  (`unify-sweep-results-proto/design.md:68`)
+- "The command/execution plane, coalescible ephemeral state plane, and blob/media
+  plane SHALL remain separate from this durable record plane."
+  (`specs/edge-producer-data-plane/spec.md:20-21`)
+- The frozen wire contract confirms it: `EdgeRecordServerMessage`
+  (gateway to agent) carries exactly `lane_open_ack` and `ack`
+  (`proto/edge/v1/record.proto:728-734`). No command message exists in either
+  direction.
+
+Its durability guarantees - crash-safe spool, at-least-once, resume-after-
+reconnect - describe an **agent-resident spool of agent-produced records flowing
+upstream**. There is no core-side outbox, no command spool, and no drain-on-
+reconnect. After `usp-01` lands in full, `dispatch/4` remains at-most-once and
+`offline` remains terminal, written with a `completed_at` timestamp.
+
+Consequences, all normative:
+
+- Every D3 mitigation - `fallback_channel_id`, the edge-only escalation warning,
+  and "the delivery row is the system of record, the command result is only a
+  wake-up signal" - is **permanent**, not transitional. The reconciler pattern
+  they encode is the same one `CallbackCommandResultCoordinator` already uses.
+- Because R1 makes `:edge_agent` a first-class route rather than a minority
+  escape hatch, command-plane durability becomes a **prerequisite of Phase 3**,
+  owned by a companion change and tracked as **forgejo issue #4902**
+  ("AgentCommandBus is at-most-once: commands to a disconnected agent are
+  silently lost"). It is not inherited from `usp-01`. Phase 3 SHALL NOT ship an
+  `:edge_agent` route that silently drops a notification when an agent is
+  briefly disconnected.
+- The minimum Phase 3 addition is a core-side dispatch outbox: an edge-routed
+  delivery whose dispatch returns `{:error, {:agent_offline, _}}` remains
+  `:pending` with `next_attempt_at` set, and a reconnect signal or a bounded
+  periodic scan re-drives it, rather than failing over immediately. Failover
+  remains the fallback after the spool window expires.
+- No requirement in this change may be written such that it only holds after
+  `usp-01` lands.
+
+Phase 1 and Phase 2 are entirely control-plane and are unaffected by any of this.
+
+### R3. Sequencing is accepted
+
+**RESOLVED.** The overlap with `add-northbound-action-integrations`,
+`add-signed-northbound-action-callbacks`, `add-long-running-northbound-actions`,
+and `add-automation-callback-grants` on the callback and HMAC surface is
+acknowledged and accepted. This change reuses those mechanisms rather than
+forking them, and lands alongside them.
+
 ## Open Questions
 
-1. Does "egress from the customer's own network" mean the request must originate
-   from the **site agent**, or merely from customer-controlled infrastructure?
-   If ServiceRadar core is self-hosted in the customer cluster, the control-plane
-   route already satisfies the requirement and the `:edge_agent` route drops from
-   Phase 3 to a later phase.
+1. **External chat identity mapping.** When a Slack user clicks Acknowledge, what
+   platform identity is recorded? A Slack interaction payload is authenticated to
+   the *workspace* by the signing secret, not to an individual, so an unbound
+   mapping lets any workspace member forge another member's acknowledgement. The
+   candidate designs are an explicit external-identity mapping resource,
+   verified-email matching, or refusing to map at all and requiring a signed
+   action link that carries a platform session. This is a v1 blocker for native
+   Slack interactivity (Phase 4) but not for Phase 1, whose signed action links
+   already carry their own authorisation.
 2. Do notifications need to survive a **core** outage? The entire alert engine is
    in core today, so a core outage means no alerts at all - implying edge-only
    delivery is not a true high-availability story without an edge-resident rule
    engine. Is core availability the accepted failure domain?
-3. When a Slack user clicks Acknowledge, what identity is recorded? Map external
-   identities to platform users, store an opaque external principal, or require
-   a signed link carrying a platform session?
-4. Where do delivery records live long-term - a plain `platform` table with its
+3. Where do delivery records live long-term - a plain `platform` table with its
    own retention, or a Timescale hypertable? Volume depends on fan-out breadth.
-5. Sequencing against the merge queue: `add-northbound-action-integrations` is
-   still active, and `add-signed-northbound-action-callbacks`,
-   `add-long-running-northbound-actions`, and `add-automation-callback-grants`
-   all touch the callback and HMAC surface this change reuses.

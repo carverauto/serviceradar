@@ -6,9 +6,14 @@ the previous phase's quality gates are green.
 
 Conventions that apply to every phase:
 
-- All schema changes go through the Ash codegen workflow
-  (`mix ash.codegen <name>` then `mix ash.migrate`). NEVER `mix ecto.gen.migration`
-  or `mix ecto.migrate`.
+- All schema changes are HAND-WRITTEN migrations under
+  `elixir/serviceradar_core/priv/repo/migrations/`, applied with `mix ash.migrate`
+  and reverted with `mix ash.rollback`. NEVER `mix ecto.gen.migration`,
+  `mix ecto.migrate`, or `mix ash.codegen`. (This repo deliberately diverges from
+  the generic Ash codegen guidance in `AGENTS.md`: `priv/resource_snapshots/` was
+  deleted in commit 607b40f584 and does not exist, so `mix ash.codegen` has no
+  baseline to diff against and would emit a whole-application migration. Of the
+  377 migrations in the tree, exactly one references snapshots or codegen.)
 - All tables, indexes, and constraints are created with `prefix: "platform"`.
 - Docs are ASCII only.
 - Cross-repository work is called out explicitly; it does not land in this repo.
@@ -17,10 +22,15 @@ Conventions that apply to every phase:
 
 ### 1.1 Notifications domain, Ash resources, and migration
 
-- [ ] 1.1.1 Create the domain module `elixir/serviceradar_core/lib/serviceradar/notifications.ex`
-      (`use Ash.Domain`) and register it in the `ash_domains` list in
-      `elixir/serviceradar_core/config/config.exs`.
-- [ ] 1.1.2 Add `ServiceRadar.Notifications.NotificationProvider`
+- [x] 1.1.1 Create the domain module `elixir/serviceradar_core/lib/serviceradar/notifications.ex`
+      (`use Ash.Domain`) and register `ServiceRadar.Notifications` in ALL FOUR
+      `ash_domains` lists, not just the core one:
+      `elixir/serviceradar_core/config/config.exs:179`,
+      `elixir/serviceradar_core/config/test.exs:300`,
+      `elixir/web-ng/config/config.exs:129`, and
+      `elixir/web-ng/config/config.exs:316`. Missing any one of the four leaves the
+      domain invisible to that environment or that app.
+- [x] 1.1.2 Add `ServiceRadar.Notifications.NotificationProvider`
       (`lib/serviceradar/notifications/notification_provider.ex`) with
       `provider_key`, `provider_type` (`:native | :declarative | :wasm_plugin | :stream`),
       `display_name`, `description`, `icon`, `config_schema`, `capabilities`,
@@ -32,43 +42,56 @@ Conventions that apply to every phase:
       `:wasm_plugin`) PLUS the built-in `:stream` provider type; `:stream` is a
       `provider_type` but is not an extensibility tier, because operators cannot
       author one.
-- [ ] 1.1.2a Constrain `NotificationProvider.action_key` so that it equals a `key`
+- [x] 1.1.2a Constrain `NotificationProvider.action_key` to what PHASE 1 can
+      actually enforce: an `action_key` without a `plugin_package_id` is invalid,
+      and `provider_type: :wasm_plugin` is REJECTED outright until Phase 3. Those
+      two rules together mean nothing can be configured in Phase 1 that dispatch
+      cannot resolve. The stronger cross-check - that `action_key` equals a `key`
       value in the `notifications:` block of the referenced package's validated
-      manifest. `action_key` is meaningless without `plugin_package_id`; validate
-      the pair together and reject an `action_key` the manifest does not declare.
-- [ ] 1.1.3 Add `ServiceRadar.Notifications.NotificationChannel`
+      manifest - is a PHASE 3 task (3.1.1b), because the manifest block itself does
+      not exist until 3.1.1 adds it.
+- [x] 1.1.3 Add `ServiceRadar.Notifications.NotificationChannel`
       (`notification_channel.ex`) with `name`, `provider_id`, `enabled`, `config`,
       `secret_refs`, `execution_route` (default `:control_plane`), `agent_uid`,
       `partition_id`, `fallback_channel_id`, `fail_closed`, `max_attempts`,
       `rate_limit_per_minute`, `health`, `last_success_at`, `last_failure_at`,
       `last_error`.
-- [ ] 1.1.3a Make `max_attempts` an attribute of `NotificationChannel`, defaulted
+- [x] 1.1.3a Make `max_attempts` an attribute of `NotificationChannel`, defaulted
       from the bound provider. It is the transport retry bound consumed by
       retry-due selection in 1.3.8a; it is not an escalation or failover bound.
-- [ ] 1.1.4 Force-bind `NotificationChannel.partition_id` server-side from the
+- [x] 1.1.4 Force-bind `NotificationChannel.partition_id` server-side from the
       mTLS-derived context, mirroring
       `lib/serviceradar/plugins/changes/bind_assignment_partition.ex:15`. The
       operator MUST NOT be able to supply it.
-- [ ] 1.1.5 Add `ServiceRadar.Notifications.NotificationRoute`
+- [x] 1.1.5 Add `ServiceRadar.Notifications.NotificationRoute`
       (`notification_route.ex`) with `name`, `enabled`, `priority`,
       `match_expression`, `escalation_policy_id`, `dedupe_key_template`,
       `throttle_seconds`, `group_wait_seconds`, `group_interval_seconds`,
-      `schedule_id`, and `continue` (Alertmanager semantics). Lift the field set
-      from `automation/northbound/action_event_handler.ex:154-198`.
-- [ ] 1.1.6 Add `ServiceRadar.Notifications.NotificationEscalationPolicy`
+      `schedule_id`, and `continue` (Alertmanager semantics). This is NEW work, not
+      a lift: `automation/northbound/action_event_handler.ex:154-198` declares
+      `match_expression`, `target_resolver`, `input_template`,
+      `dedupe_key_template`, `cooldown_seconds`, `rate_limit`, `approval_mode`, and
+      `service_principal` - it has NO `priority`, `continue`, `throttle_seconds`,
+      `group_wait_seconds`, `group_interval_seconds`, `escalation_policy_id`, or
+      `schedule_id`. Only about four of these eleven fields have prior art there
+      (`match_expression` and `dedupe_key_template` transfer directly;
+      `cooldown_seconds` and `rate_limit` are prior art for `throttle_seconds`).
+      Plan the remaining seven as fresh design, and read that handler as a
+      reference for predicate shape only, never as a copy source.
+- [x] 1.1.6 Add `ServiceRadar.Notifications.NotificationEscalationPolicy`
       (`name`, `repeat_count`, `repeat_interval_seconds`, `resolve_notifies`) and
       `ServiceRadar.Notifications.NotificationEscalationStep` (`step_number`,
       `delay_seconds`, `condition` of `:always | :if_unacknowledged`).
-- [ ] 1.1.7 Add the fan-out join resource
+- [x] 1.1.7 Add the fan-out join resource
       `ServiceRadar.Notifications.NotificationEscalationStepChannel` so a step
       holds a *set* of channels (many-to-many), not a single channel.
-- [ ] 1.1.8 Add `ServiceRadar.Notifications.NotificationSchedule` (`name`,
+- [x] 1.1.8 Add `ServiceRadar.Notifications.NotificationSchedule` (`name`,
       `timezone`, `windows` as a list of `{days, start_time, end_time}`, `mode` of
       `:active_within | :active_outside`). Do not model rotations.
-- [ ] 1.1.9 Add `ServiceRadar.Notifications.NotificationSilence` (`matchers`,
+- [x] 1.1.9 Add `ServiceRadar.Notifications.NotificationSilence` (`matchers`,
       `starts_at`, `ends_at`, `created_by_user_id`, `comment`, state
       `:scheduled | :active | :expired | :cancelled`).
-- [ ] 1.1.10 Add `ServiceRadar.Notifications.NotificationDelivery` with the state
+- [x] 1.1.10 Add `ServiceRadar.Notifications.NotificationDelivery` with the state
       vocabulary copied from `ActionInvocationTarget`: `:pending`, `:dispatching`,
       `:sent`, `:failed`, `:expired`, `:cancelled`, `:suppressed`, `:skipped`;
       and fields `alert_id`, `route_id`, `policy_id`, `step_number`, `channel_id`,
@@ -78,7 +101,7 @@ Conventions that apply to every phase:
       `rendered_payload_digest`, `originating_delivery_id`, `payload_format`,
       `provider_version`, `is_test`, `execution_route`, `agent_uid`, `command_id`,
       `queued_at`, `started_at`, `finished_at`, `alert_snapshot`.
-- [ ] 1.1.10a Define the four delivery attributes added above so implementers
+- [x] 1.1.10a Define the four delivery attributes added above so implementers
       cannot guess at them:
       - `originating_delivery_id` is the failover back-reference. A successor
         delivery created by a one-hop failover points at the row that failed, so
@@ -93,74 +116,99 @@ Conventions that apply to every phase:
         package version for a `:wasm_plugin` provider.
       - `is_test` marks a delivery produced by the test action rather than by an
         alert.
-- [ ] 1.1.10b Exclude `is_test` deliveries from every alert-facing count. A test
+- [x] 1.1.10b Exclude `is_test` deliveries from every alert-facing count. A test
       delivery MUST NOT increment `Alert.notification_count`, MUST NOT appear in
       any delivery or notification total shown against an alert, and MUST NOT
       drive dedupe, throttle, escalation, or renotify state. It is still written,
       audited, and redacted like any other delivery.
-- [ ] 1.1.11 Make `NotificationDelivery.alert_snapshot` required. It is not an
+- [x] 1.1.11 Make `NotificationDelivery.alert_snapshot` required. It is not an
       optimisation: `Jobs.AlertsRetentionWorker` hard-deletes resolved and
       suppressed alerts after a default of 3 days, so a delivery outlives its alert.
-- [ ] 1.1.12 Add `ServiceRadar.Notifications.NotificationAcknowledgement`
+- [x] 1.1.12 Add `ServiceRadar.Notifications.NotificationAcknowledgement`
       (`delivery_id`, `alert_id`, `action` of
       `:acknowledge | :snooze | :resolve | :suppress | :unacknowledge`,
       `actor_kind` of `:platform_user | :external_principal | :system`,
       `actor_user_id`, `external_principal`, `note`, `snooze_until`, `source` of
       `:ui | :api | :callback | :action_link`, `received_at`).
-- [ ] 1.1.13 Add `ServiceRadar.Notifications.NotificationTemplate`
+- [x] 1.1.13 Add `ServiceRadar.Notifications.NotificationTemplate`
       (`provider_key` or `format`, `alert_class`, `payload_format`,
       `subject_template`, `body_template`, `managed`, `template_version`,
       `template_fingerprint`).
-- [ ] 1.1.13a Make template selection resolve per (alert class x payload format),
+- [x] 1.1.13a Make template selection resolve per (alert class x payload format),
       falling back to a default template for the format when no alert-class
       specific template exists. Every payload format declared in 1.4.6 MUST have a
       resolvable managed default, so no alert class can render an empty body.
-- [ ] 1.1.13b Ship the first-party templates as `managed` records reconciled on
+- [x] 1.1.13b Ship the first-party templates as `managed` records reconciled on
       upgrade with the same `managed` / `template_version` / `template_fingerprint`
       pattern used for providers in 1.4.9. An operator override MUST survive an
       upgrade: reconciliation refreshes a managed template only when its stored
       fingerprint still matches the shipped one.
-- [ ] 1.1.13c Render every template through the restricted substitution engine in
+- [x] 1.1.13c Render every template through the restricted substitution engine in
       1.4.5. A template is data, never code; template bodies are subject to the
       same whitelisted-path and fixed-filter rules as declarative definitions.
-- [ ] 1.1.14 Enable `AshPaperTrail` on provider, channel, route, policy, step,
+- [x] 1.1.14 Enable `AshPaperTrail` on provider, channel, route, policy, step,
       schedule, and silence resources so version tables are generated.
-- [ ] 1.1.15 Add `Ash.Policy.Authorizer` policies to every resource; scope reads
+- [x] 1.1.15 Add `Ash.Policy.Authorizer` policies to every resource; scope reads
       and writes to the notification RBAC keys defined in 1.8.
-- [ ] 1.1.16 Generate the migration with
-      `cd elixir/serviceradar_core && mix ash.codegen create_notification_platform_tables`,
-      then apply with `mix ash.migrate`.
-- [ ] 1.1.17 Review the generated migration against the reference shape in
-      `elixir/serviceradar_core/priv/repo/migrations/20260515193000_create_northbound_action_tables.exs`:
-      `@prefix "platform"`, `primary_key: false`, `add(:id, :uuid, null: false,
-      default: fragment("uuid_generate_v7()"), primary_key: true)`, explicit
-      `prefix: @prefix` on every `create table` / `create index` /
-      `references(...)`, and a `*_versions` paper-trail table per audited resource.
-- [ ] 1.1.18 Add indexes for the hot paths: deliveries by
+- [x] 1.1.16 HAND-WRITE the migration
+      `elixir/serviceradar_core/priv/repo/migrations/<timestamp>_create_notification_platform_tables.exs`,
+      modeled on
+      `elixir/serviceradar_core/priv/repo/migrations/20260515193000_create_northbound_action_tables.exs`,
+      then apply it with `cd elixir/serviceradar_core && mix ash.migrate`. Do NOT
+      run `mix ash.codegen`: `priv/resource_snapshots/` does not exist in this repo
+      (deleted in 607b40f584), so codegen has no baseline and would emit a
+      whole-application migration instead of this change's tables.
+- [x] 1.1.17 Match the reference shape in
+      `elixir/serviceradar_core/priv/repo/migrations/20260515193000_create_northbound_action_tables.exs`
+      exactly: `@prefix "platform"`, `primary_key: false`, `add(:id, :uuid,
+      null: false, default: fragment("uuid_generate_v7()"), primary_key: true)`,
+      `fragment("now()")` defaults on the `inserted_at` / `updated_at` timestamps,
+      explicit `prefix: @prefix` on every `create table` / `create index` /
+      `references(...)`, a private `create_version_table/2` helper emitting one
+      `*_versions` paper-trail table per audited resource, and a `down` that drops
+      in reverse creation order.
+- [x] 1.1.18 Add indexes for the hot paths: deliveries by
       `(alert_id, step_number, channel_id)`, deliveries by `(state, next_attempt_at)`,
       deliveries by `dedupe_key`, deliveries by `originating_delivery_id` (the
       failover chain lookup), silences by `(state, ends_at)`, routes by
       `(enabled, priority)`.
-- [ ] 1.1.18a Add a unique index over the suppression decision identity
+- [x] 1.1.18a Add a unique index over the suppression decision identity
       `(alert_id, policy_id, step_number, channel_id, dedupe_key, suppression_reason)`
-      so the upsert in 1.3.5a cannot race two workers into duplicate rows.
-- [ ] 1.1.19 Verify rollback with `mix ash.rollback` and re-apply.
+      so the upsert in 1.3.5a cannot race two workers into duplicate rows. The
+      index MUST be declared `NULLS NOT DISTINCT` (PostgreSQL 15+), or built as an
+      expression index over COALESCE sentinels for the nullable columns. A plain
+      unique index does NOT dedupe NULLs in PostgreSQL, and `policy_id`,
+      `step_number`, and `channel_id` are all NULL on a `:no_matching_route` row
+      (1.3.2a) - so without this, two identical unrouted-alert decisions both
+      INSERT and the occurrence collapsing silently fails for exactly the case it
+      exists to make visible. Cover it with the test in 1.10.2c.
+- [x] 1.1.19 Verify rollback with `mix ash.rollback` and re-apply.
 
 ### 1.2 Alert lifecycle changes
 
-- [ ] 1.2.1 Add a `:snooze` transition plus `snooze_until` to the `Alert`
-      `AshStateMachine` in
-      `elixir/serviceradar_core/lib/serviceradar/monitoring/alert.ex:96-103`
-      (today it has only `acknowledge`, `resolve`, `escalate`, `suppress`,
-      `reopen`). The attribute is `snooze_until` everywhere - the alert resource,
-      `NotificationAcknowledgement`, the API, and the UI. `snoozed_until` is not a
-      spelling this change uses anywhere.
+- [ ] 1.2.1 Add the `snooze_until` attribute to `Alert` plus a plain
+      `update :snooze` action that sets it. Snooze SHALL NOT add a state-machine
+      state. `elixir/serviceradar_core/lib/serviceradar/monitoring/alert.ex`
+      declares `state_attribute :status` (line 93) over the states `pending`,
+      `acknowledged`, `resolved`, `escalated`, `suppressed`, with the transitions
+      `acknowledge`, `resolve`, `escalate`, `suppress`, `reopen` (lines 98-102);
+      there is no target state a `:snooze` transition could move to, so none is
+      added. `update :snooze` leaves `status` untouched and "snoozed" is a DERIVED
+      condition: `status in [:pending, :escalated] and snooze_until > now()`.
+      Rationale: it keeps snooze-expiry resumption a pure timestamp comparison
+      (1.2.9), and it avoids auditing every existing alert query and status
+      renderer for a new state. The attribute is `snooze_until` everywhere - the
+      alert resource, `NotificationAcknowledgement`, the API, and the UI.
+      `snoozed_until` is not a spelling this change uses anywhere.
 - [ ] 1.2.2 Add `acknowledged_by_user_id` as a real foreign key to
       `ServiceRadar.Identity.User` while retaining the existing free-text
       `acknowledged_by` / `resolved_by` columns for external principals.
-- [ ] 1.2.3 Generalise `read :needs_notification` (`alert.ex:188-200`) from the
-      `notification_count == 0` filter into a delivery-driven scan covering
-      first-notify, renotify, escalation-step-due, and retry-due.
+- [ ] 1.2.3 Split the scan by what it is keyed on. Keep `read :needs_notification`
+      (`alert.ex:188-200`) ALERT-keyed and FIRST-NOTIFY ONLY, replacing the
+      `notification_count == 0` filter with one that also excludes alerts that
+      already have delivery rows. Renotify, escalation-step-due, and retry-due are
+      properties of a DELIVERY, not of an alert, so they get their own
+      delivery-keyed read rather than being folded into this one (1.2.6).
 - [ ] 1.2.4 Implement `update :send_notification` (`alert.ex:314`, currently a
       `# TODO` stub) to enqueue routing, never to deliver inline.
 - [ ] 1.2.5 Wire the routing request into
@@ -172,27 +220,45 @@ Conventions that apply to every phase:
       callback, an Oban retry, an overlapping scheduler tick) MUST resolve to the
       existing work rather than produce a second dispatch.
 - [ ] 1.2.5a Enforce the two-part routing trigger rule in code and in the module
-      docs: `AlertLifecycle` is the only path that emits a routing request for a
-      NEW incident notification, and the AshOban scheduler drives CONTINUATION
-      work only - escalation-step-due, retry-due, and renotify - against
-      deliveries that already exist. The scheduler MUST NOT originate a first
-      notification for an alert that has no delivery rows.
-- [ ] 1.2.6 Confirm the existing AshOban trigger `:send_notifications`
-      (`alert.ex:128-137`) and the declared `:notifications` Oban queue
-      (`config/config.exs:36`) drive the continuation body described in 1.2.5a; do
-      not add a second scheduler.
+      docs, split by what each path is keyed on:
+      - `AlertLifecycle`, together with the ALERT-keyed AshOban trigger
+        `:send_notifications` acting as its catch-up safety net, is the only way a
+        FIRST notification for a new incident is originated.
+      - The DELIVERY-keyed scheduler added in 1.2.6 drives CONTINUATION work only -
+        escalation-step-due, retry-due, and renotify - against deliveries that
+        already exist.
+      Neither crosses into the other's job: the delivery-keyed scheduler MUST NOT
+      originate a first notification for an alert that has no delivery rows, and
+      the alert-keyed trigger MUST NOT advance an escalation step or a retry.
+- [ ] 1.2.6 Keep the existing AshOban trigger `:send_notifications`
+      (`alert.ex:128-137`) responsible for FIRST-NOTIFY ONLY. It scans ALERTS
+      through `read_action :needs_notification`, and continuation work is keyed on
+      DELIVERIES, so that scan structurally cannot drive it. Add a SECOND,
+      DELIVERY-KEYED scheduler for retry-due, escalation-step-due, and renotify.
+      This second scheduler is explicitly sanctioned - "do not add a second
+      scheduler" contradicts the delivery-keyed continuation model and is not the
+      rule here. Both schedulers run on the already-declared `:notifications` Oban
+      queue (`config/config.exs:36`); no new queue is needed.
 - [ ] 1.2.7 Route the two engine-bypassing alert creators through the
       notification-layer dedupe and suppression path:
       `LogPromotion.update_alert_counts/2` (`log_promotion.ex:711-717`) and
       `TrivyReports.maybe_create_priority_alert/3` (`trivy_reports.ex:992`).
 - [ ] 1.2.8 Implement resolve-time notification close-out for channels that
       already fired, gated on `NotificationEscalationPolicy.resolve_notifies`.
-- [ ] 1.2.9 Add a snooze-expiry path that resumes the notification cadence when
-      `snooze_until` passes. On resumption, the remaining escalation step delays
-      are measured from the snooze expiry instant, which is the single exception
-      to the alert-fire-time origin fixed in 1.3.7a.
-- [ ] 1.2.10 Ensure every alert action stays atomic. Implement `atomic/3` where
-      needed; do not add `require_atomic? false`.
+- [ ] 1.2.9 Add a snooze-expiry path that resumes the notification cadence once
+      `snooze_until` passes. Because snooze is a derived condition rather than a
+      state (1.2.1), resumption is a pure timestamp comparison: no transition
+      fires and nothing has to be moved back out of a snoozed state. On
+      resumption, the remaining escalation step delays are measured from the snooze
+      expiry instant, which is the single exception to the alert-fire-time origin
+      fixed in 1.3.7a.
+- [ ] 1.2.10 Keep every alert action ADDED BY THIS CHANGE atomic: implement
+      `atomic/3` where needed and do not add `require_atomic? false`. This is a
+      constraint on new actions only. `alert.ex` already carries
+      `require_atomic? false` on four existing actions (lines 257, 291, 301, 326);
+      those four are OUT OF SCOPE for this change, because converting them is a
+      standalone refactor with its own regression surface, not a guard this change
+      can satisfy in passing.
 
 ### 1.3 Decision engine
 
@@ -272,11 +338,15 @@ Conventions that apply to every phase:
 - [ ] 1.3.9 Add `ServiceRadar.Notifications.RateLimiter` enforcing
       `rate_limit_per_minute` against a durable, restart-surviving counter (not
       in-memory GenServer state as `WebhookNotifier` used).
-- [ ] 1.3.10 Add Oban workers under
-      `lib/serviceradar/notifications/workers/`: `DispatchWorker`,
-      `EscalationWorker`, `SilenceExpiryWorker`, `SnoozeExpiryWorker`,
-      `DeliveryRetentionWorker`. All jobs idempotent, string-keyed args, no
-      structs in args.
+- [ ] 1.3.10 Add the Oban workers FLAT in `lib/serviceradar/notifications/`:
+      `dispatch_worker.ex`, `escalation_worker.ex`, `silence_expiry_worker.ex`,
+      `snooze_expiry_worker.ex`, `delivery_retention_worker.ex`. Repo convention
+      puts workers directly in the domain directory
+      (`lib/serviceradar/jobs/alerts_retention_worker.ex`,
+      `lib/serviceradar/plugins/addon_rollout_worker.ex`); the only subdirectories
+      used under a domain are `changes/` and `checks/`, so a `workers/`
+      subdirectory has no precedent in this repo and is not introduced here. All
+      jobs idempotent, string-keyed args, no structs in args.
 - [ ] 1.3.11 Give `NotificationDelivery` its own retention policy independent of
       `Jobs.AlertsRetentionWorker`, configurable and defaulting longer than 3 days.
 - [ ] 1.3.12 Emit `:telemetry` events for routed, suppressed, dispatched, sent,
@@ -438,7 +508,7 @@ Conventions that apply to every phase:
 
 ### 1.8 RBAC and settings catalog consistency
 
-- [ ] 1.8.1 Add a TOP-LEVEL `notifications` section to
+- [x] 1.8.1 Add a TOP-LEVEL `notifications` section to
       `elixir/serviceradar_core/lib/serviceradar/identity/rbac/catalog.ex` using
       the existing three-part `<section>.<noun>.<verb>` convention that
       `observability.alerts.manage` already follows. The section holds exactly
@@ -452,7 +522,7 @@ Conventions that apply to every phase:
       `notifications.test.send`,
       `notifications.silences.manage`,
       `notifications.stream.subscribe`.
-- [ ] 1.8.1a Do not introduce four-part keys and do not nest notifications under
+- [x] 1.8.1a Do not introduce four-part keys and do not nest notifications under
       `observability`. `observability.notifications.*` in any form is wrong; the
       catalog test in 1.8.3 and the RBAC catalog's own shape both assume the
       three-part convention.
@@ -467,23 +537,40 @@ Conventions that apply to every phase:
       egress; `notifications.silences.manage` gates silence authoring and
       cancellation; `notifications.stream.subscribe` gates the firehose topic
       (4.2.2).
-- [ ] 1.8.2 Reuse the existing `observability.alerts.manage` permission for
+- [x] 1.8.2 Reuse the existing `observability.alerts.manage` permission for
       acknowledge / snooze / resolve; its description ("Acknowledge and resolve
       alerts") finally becomes true. Do not add a notifications-section duplicate
       of it.
-- [ ] 1.8.3 Ensure the Settings.Catalog entry's permission key exists in the RBAC
-      catalog - `elixir/serviceradar_core/test/serviceradar/identity/rbac/catalog_test.exs`
-      rejects a Settings view whose permission key is unknown.
-- [ ] 1.8.4 Grant the new keys to the default administrator and operator roles in
+- [ ] 1.8.3 Satisfy the Settings.Catalog gate at
+      `elixir/web-ng/test/phoenix/settings/catalog_test.exs` - NOT the core RBAC
+      `test/serviceradar/identity/rbac/catalog_test.exs`, which is a different
+      test. That gate asserts every catalog view's `permission` is in
+      `RBAC.Catalog.permission_keys/0` (line 30) AND, critically, that every view's
+      `live_view` is reachable in the Phoenix router (the orphan detector, line
+      80). ORDERING: the LiveView module (1.7.2) and its router entry MUST land
+      BEFORE the catalog entry (1.7.1), or the orphan detector fails.
+- [x] 1.8.4 Grant the new keys to the default administrator and operator roles in
       the RBAC seed data.
 
 ### 1.9 Dead code disposition
 
 - [ ] 1.9.1 Delete `ServiceRadar.Monitoring.WebhookNotifier`
-      (`monitoring/webhook_notifier.ex`) and migrate its three call sites onto a
-      `generic_webhook` `:native` channel. Preserve the de-facto contract those
-      call sites build: the `%WebhookNotifier.Alert{}` shape and per-webhook
-      cooldown semantics. After this task, no alert path invokes
+      (`monitoring/webhook_notifier.ex`) and migrate its call sites onto a
+      `generic_webhook` `:native` channel. There are FOURTEEN references across TWO
+      modules, not three call sites:
+      `observability/stateful_alert_engine/alert_lifecycle.ex:104` and `:114`;
+      `monitoring/alert_generator.ex:97`, `:176`, `:320`, `:334`, `:369`, `:382`,
+      `:395`, `:407`, `:437`, and `:447`; plus the nested modules
+      `WebhookNotifier.Alert` (`webhook_notifier.ex:57`) and
+      `WebhookNotifier.WebhookConfig` (`:83`). Nothing supervises
+      `WebhookNotifier` and nothing tests it, so EVERY one of those calls already
+      takes the `:not_running` branch (`webhook_notifier.ex:133`) and delivers
+      nothing. Design the replacement from the ALERT DATA available at each call
+      site, NOT from the `%WebhookNotifier.Alert{}` / `%WebhookNotifier.WebhookConfig{}`
+      struct shapes or the per-webhook cooldown code - those are dead shapes with
+      no proven runtime behaviour to preserve, and treating them as a contract
+      would carry a never-executed design into the replacement. After this task,
+      no alert path invokes
       `WebhookNotifier` - add a compile-or-test-time assertion that the module no
       longer exists rather than relying on review to catch a reintroduced call.
 - [ ] 1.9.1a Migrate existing operator webhook configuration onto
@@ -517,6 +604,12 @@ Conventions that apply to every phase:
 - [ ] 1.10.2b Unrouted-alert test: an alert matching zero enabled routes produces
       a `:no_matching_route` suppressed row that is visible through the same
       Delivery Log query as every other withheld notification.
+- [ ] 1.10.2c Unrouted-alert COLLAPSE test, distinct from 1.10.2b: repeating the
+      same `:no_matching_route` decision - the tuple whose `policy_id`,
+      `step_number`, and `channel_id` are all NULL - leaves exactly ONE row with an
+      incremented `suppression_occurrence_count`, not a new row per evaluation.
+      This is the test that proves the NULL handling required by 1.1.18a is
+      actually in the index; a plain unique index passes 1.10.2a and fails here.
 - [ ] 1.10.3 A regression test proving suppression is re-evaluated at dispatch:
       device marked inactive between routing and the escalation step.
 - [ ] 1.10.4 Retry / failover / escalation separation tests asserting a transport
@@ -559,8 +652,13 @@ Conventions that apply to every phase:
       naming the missing piece and does not fall back to a local or test adapter.
 - [ ] 1.10.7 Redaction test proving no secret reaches a persisted delivery row or
       log line.
-- [ ] 1.10.8 Alert state-machine tests for the new `:snooze` transition and for
-      `acknowledged_by_user_id` population.
+- [ ] 1.10.8 Alert tests for the new `update :snooze` action and for
+      `acknowledged_by_user_id` population: `update :snooze` sets `snooze_until`
+      and leaves `status` UNCHANGED; the derived snoozed condition
+      (`status in [:pending, :escalated] and snooze_until > now()`) is true before
+      expiry and false after; and the state machine still declares exactly the five
+      states and five transitions it had before, proving no snoozed state was
+      added.
 - [ ] 1.10.9 Delivery-outlives-alert test: delete the alert, assert the delivery
       row and its `alert_snapshot` still render.
 - [ ] 1.10.10 Action-token tests: single-use, TTL expiry, sha256-only storage,
@@ -993,7 +1091,13 @@ Conventions that apply to every phase:
       spellings are fixed and a near-miss is a defect, not a synonym:
       - RBAC: top-level three-part `notifications.*` keys only (1.8.1). Never
         `observability.notifications.*`, never four-part.
-      - Alert snooze timestamp: `snooze_until`. Never `snoozed_until`.
+      - Alert snooze timestamp: `snooze_until`. Never `snoozed_until`. Snooze is a
+        plain `update :snooze` action plus a derived condition; there is no
+        `:snooze` state-machine transition and no snoozed status value.
+      - Migrations are hand-written and applied with `mix ash.migrate`. Never
+        `mix ash.codegen`; this repo has no `priv/resource_snapshots/`.
+      - Oban workers live flat in `lib/serviceradar/notifications/`. There is no
+        `workers/` subdirectory.
       - Transport callbacks: `deliver/2`, `validate_config/1`, `capabilities/0`,
         `test/2`. Never `send/2`.
       - Routing-request idempotency key:

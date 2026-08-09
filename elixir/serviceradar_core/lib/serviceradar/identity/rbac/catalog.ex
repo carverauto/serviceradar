@@ -801,6 +801,80 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         }
       ]
+    },
+    %{
+      section: "notifications",
+      label: "Notifications",
+      permissions: [
+        %{
+          key: "notifications.channels.view",
+          label: "View notification channels",
+          description: "View configured notification channels and their health.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.channels.manage",
+          label: "Manage notification channels",
+          description:
+            "Create, edit, disable, and delete notification channels, " <>
+              "including their provider configuration and secret references.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.routes.view",
+          label: "View notification routes",
+          description: "View notification routing rules and escalation policies.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.routes.manage",
+          label: "Manage notification routes",
+          description:
+            "Create and edit notification routing rules, escalation policies, " <>
+              "escalation steps, and schedules.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.providers.manage",
+          label: "Manage notification providers",
+          description:
+            "Upload, version, enable, and disable notification provider " <>
+              "definitions, including declarative channel definitions.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.deliveries.view",
+          label: "View notification delivery log",
+          description:
+            "View notification delivery attempts, including suppressed " <>
+              "deliveries and their suppression reason.",
+          default_roles: @helpdesk_roles
+        },
+        %{
+          key: "notifications.test.send",
+          label: "Send test notifications",
+          description:
+            "Send a test notification through a channel using its real " <>
+              "configuration and secrets.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "notifications.silences.manage",
+          label: "Manage notification silences",
+          description:
+            "Create, edit, and cancel notification silences and maintenance " <>
+              "windows.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "notifications.stream.subscribe",
+          label: "Subscribe to the notification stream",
+          description:
+            "Subscribe to the authenticated notification firehose over the " <>
+              "stream provider topic.",
+          default_roles: @operator_roles
+        }
+      ]
     }
   ]
 
