@@ -116,10 +116,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
       assert Agent.get(counter, & &1) == 2
     end
 
-    test "re-raises after deadlock retries are exhausted" do
+    test "exhausts the configured attempt budget before re-raising" do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
       assert_raise Postgrex.Error, fn ->
-        DeviceWrites.with_deadlock_retry(fn -> raise deadlock_error() end, 2)
+        DeviceWrites.with_deadlock_retry(
+          fn ->
+            Agent.update(counter, &(&1 + 1))
+            raise deadlock_error()
+          end,
+          3
+        )
       end
+
+      # attempts_left starts at 3: try, retry (2 left), retry (1 left) → 3 calls.
+      assert Agent.get(counter, & &1) == 3
     end
 
     test "does not retry non-deadlock Postgrex errors" do
@@ -139,13 +150,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
     end
   end
 
-  test "deadlock_detected?/1 recognizes pg_code and atom code" do
-    assert DeviceWrites.deadlock_detected?(deadlock_error())
+  test "deadlock_detected?/1 matches atom-only and pg_code-only postgres maps" do
+    assert DeviceWrites.deadlock_detected?(
+             postgrex_error(%{code: :deadlock_detected, message: "deadlock detected"})
+           )
 
-    assert DeviceWrites.deadlock_detected?(%Postgrex.Error{
-             message: "deadlock",
-             postgres: %{code: :deadlock_detected, pg_code: "40P01", message: "deadlock"}
-           })
+    assert DeviceWrites.deadlock_detected?(
+             postgrex_error(%{pg_code: "40P01", message: "deadlock detected"})
+           )
+
+    assert DeviceWrites.deadlock_detected?(deadlock_error())
 
     refute DeviceWrites.deadlock_detected?(unique_violation_error())
     refute DeviceWrites.deadlock_detected?(:other)
@@ -153,26 +167,24 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWritesTest do
 
   # Postgrex.Error.message/1 requires :message in the postgres map.
   defp deadlock_error do
-    %Postgrex.Error{
-      message: nil,
-      postgres: %{
-        code: :deadlock_detected,
-        pg_code: "40P01",
-        message: "deadlock detected",
-        severity: "ERROR"
-      }
-    }
+    postgrex_error(%{
+      code: :deadlock_detected,
+      pg_code: "40P01",
+      message: "deadlock detected",
+      severity: "ERROR"
+    })
   end
 
   defp unique_violation_error do
-    %Postgrex.Error{
-      message: nil,
-      postgres: %{
-        code: :unique_violation,
-        pg_code: "23505",
-        message: "duplicate key value violates unique constraint",
-        severity: "ERROR"
-      }
-    }
+    postgrex_error(%{
+      code: :unique_violation,
+      pg_code: "23505",
+      message: "duplicate key value violates unique constraint",
+      severity: "ERROR"
+    })
+  end
+
+  defp postgrex_error(postgres) do
+    %Postgrex.Error{message: nil, postgres: postgres}
   end
 end

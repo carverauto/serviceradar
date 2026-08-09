@@ -203,7 +203,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     {:ok, owner} = Device.get_by_uid(owner_uid, false, actor: actor)
     {:ok, claimer} = Device.get_by_uid(claimer_uid, false, actor: actor)
 
-    assert owner.ip in [nil, ""]
+    # Upsert SQL maps blank EXCLUDED.ip to NULL, not empty string.
+    assert owner.ip == nil
     assert claimer.ip == ip_x
 
     {:ok, at_x} =
@@ -279,21 +280,39 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     first_id = "race-a-#{System.unique_integer([:positive])}"
     second_id = "race-b-#{System.unique_integer([:positive])}"
 
-    # Barrier so both tasks leave the starting gate together (raises the odds
-    # of a true precheck→insert race rather than serializing by scheduling).
-    ready = self()
+    # Barrier after both prechecks complete (not merely task entry), so both
+    # writers observe a free IP before either insert_all runs.
+    parent = self()
     barrier = make_ref()
+    precheck_count = :atomics.new(1, signed: false)
+
+    previous_hooks = Application.get_env(:serviceradar_core, :device_writes_test_hooks)
+
+    Application.put_env(:serviceradar_core, :device_writes_test_hooks, %{
+      after_active_ip_precheck: fn ->
+        n = :atomics.add_get(precheck_count, 1, 1)
+
+        if n <= 2 do
+          send(parent, {:precheck_done, barrier, n})
+
+          receive do
+            {:go, ^barrier} -> :ok
+          after
+            10_000 -> flunk("post-precheck barrier timeout")
+          end
+        end
+      end
+    })
+
+    on_exit(fn ->
+      case previous_hooks do
+        nil -> Application.delete_env(:serviceradar_core, :device_writes_test_hooks)
+        hooks -> Application.put_env(:serviceradar_core, :device_writes_test_hooks, hooks)
+      end
+    end)
 
     task_a =
       Task.async(fn ->
-        send(ready, {:ready, barrier, :a})
-
-        receive do
-          {:go, ^barrier} -> :ok
-        after
-          5_000 -> flunk("race barrier timeout for a")
-        end
-
         SyncIngestor.ingest_updates(
           [integration_update(first_id, ip, "race-a")],
           actor: actor
@@ -302,22 +321,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     task_b =
       Task.async(fn ->
-        send(ready, {:ready, barrier, :b})
-
-        receive do
-          {:go, ^barrier} -> :ok
-        after
-          5_000 -> flunk("race barrier timeout for b")
-        end
-
         SyncIngestor.ingest_updates(
           [integration_update(second_id, ip, "race-b")],
           actor: actor
         )
       end)
 
-    assert_receive {:ready, ^barrier, :a}, 5_000
-    assert_receive {:ready, ^barrier, :b}, 5_000
+    assert_receive {:precheck_done, ^barrier, 1}, 10_000
+    assert_receive {:precheck_done, ^barrier, 2}, 10_000
     send(task_a.pid, {:go, barrier})
     send(task_b.pid, {:go, barrier})
 

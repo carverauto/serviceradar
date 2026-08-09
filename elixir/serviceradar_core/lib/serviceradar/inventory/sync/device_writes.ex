@@ -53,6 +53,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     {prepared_records, remap, releases} =
       prepare_active_ip_claims(records, strong_uids, :precheck)
 
+    # Test-only barrier point (Application env :device_writes_test_hooks).
+    run_test_hook(:after_active_ip_precheck)
+
     insert_devices_with_releases(prepared_records, releases, update_query, refresh_rollups?)
     {:ok, remap}
   rescue
@@ -74,6 +77,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
        ) do
     {recovered_records, remap, releases} =
       prepare_active_ip_claims(records, strong_uids, :retry)
+
+    run_test_hook(:after_active_ip_precheck)
 
     conflict_ip = unique_violation_ip(original_error)
 
@@ -241,6 +246,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   def deadlock_detected?(_), do: false
+
+  # Optional test hooks via Application env:
+  #   config :serviceradar_core, :device_writes_test_hooks, %{after_active_ip_precheck: fn -> ... end}
+  # Production leaves this unset so the call is a no-op.
+  defp run_test_hook(event) do
+    case Application.get_env(:serviceradar_core, :device_writes_test_hooks) do
+      %{^event => fun} when is_function(fun, 0) -> fun.()
+      _ -> :ok
+    end
+  end
 
   # Apply the same active-IP policy used by conflict recovery *before* insert so
   # recurring sync batches do not pay a unique_violation + retry every cycle.
