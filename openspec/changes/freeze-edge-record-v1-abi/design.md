@@ -1,12 +1,27 @@
 # Design — edge record v1 wire ABI
 
-This change owns FOUR things and nothing else:
+This change owns FIVE things and nothing else:
 
 1. the authority of the actual proto files;
 2. the exact raw byte bounds;
-3. Appendix A's byte-exact grammars, the identity semantics, and the
+3. the residual DOMAIN-SEMANTIC admission bounds -- the per-family string, count and
+   relational limits that are part of the contract rather than of a deployment's policy;
+4. Appendix A's byte-exact grammars, the identity semantics, and the
    version/proof-class inventory;
-4. the cross-language freeze gates.
+5. the cross-language freeze gates.
+
+Item 3 was implicit until the 1.5-h ownership audit, and "the exact raw byte bounds" was
+read as covering it. It does not: a host-count ceiling and a lane credit cap are neither raw
+nor bytes, and several such bounds turned out to be owned by nothing. Section 2h is the
+ownership index for all of them. The line item 3 does NOT cross is transport POLICY -- a
+value a deployment may set, such as an acknowledgement's disposition budget or the local
+clock-skew tolerance. An acknowledgement's disposition budget is the case where a value stays
+unfrozen while the OBLIGATION TO HAVE ONE will be frozen -- a receiver SHALL impose a finite
+limit. 1.7-f authors that obligation; it does not exist yet. What is missing is the NORMATIVE
+RULE, not the checks: Go's `ValidateAckRawSize` and `ValidateAck` constrain budgets today, as
+candidate behaviour nothing requires and nothing forbids changing. The local clock-skew
+tolerance is not even that: it is deliberately local policy, carries no interoperability
+obligation, and this change states nothing about it.
 
 Operational behaviour -- ordering, PubAck and DLQ routing, caching, source-ACK,
 persistence, projection -- belongs to `unify-sweep-results-proto` and is NOT
@@ -60,10 +75,17 @@ decompression:
 | `MaxCompiledAssignmentBytes` | 64 KiB | one raw `CompiledSweepAssignmentV1` (fetched standalone by digest) |
 | `MaxExecutionGrantBytes` | 16 KiB | one raw `EdgeSignedCapabilityV1` carrying an ASSIGNMENT_EXECUTION claim (travels standalone) |
 
-THIS DOCUMENT IS THE CANONICAL BOUNDS INVENTORY -- both this table and the WORK CEILINGS
-below. The task list states the GATE (which vectors must exist before 1.7 may be checked)
-and points here for the values, so there is one place to change a bound and one place to
-read one.
+THIS DOCUMENT IS NOT THE NORMATIVE SOURCE FOR ANY VALUE. The applied OpenSpec requirement
+owns the exact number; this document is the consolidated OWNERSHIP INDEX -- which task owns
+each bound, at which stage it is taken, and what evidence exists. Section 2h below is that
+index, and it is the entry point. The tables here restate values for readability only, and a
+disagreement between a table here and the spec resolves in the SPEC's favour.
+
+Calling this document canonical was a defect, not a shortcut. It was demonstrably incomplete
+-- it carried no string-bytes table at all, and its count table carried three rows while
+seven further count ceilings existed in code -- so "canonical" meant a reader who found
+nothing here concluded no bound existed. Tasks SHALL reference bound NAMES and SHALL NOT copy numbers, so there is exactly
+one place a value can be changed.
 
 ## 2b. Extracted-body work ceilings (frozen)
 
@@ -119,8 +141,362 @@ questions.
 
 Every row must be applied before the work it bounds -- the page list before its pages
 are decoded, a page's range count before its ranges are walked, and the ordinal total
-before any hashing. The stage column says when each value first EXISTS, never how long
+before COMMITMENT HASHING. Not before all hashing: a page's own digests are computed to
+validate it, and `MaxPlanMtrOrdinals` bounds the per-ordinal commitment fold specifically. The stage column says when each value first EXISTS, never how long
 enforcement may be deferred.
+
+## 2h. Bound OWNERSHIP INDEX (task 1.5-h audit)
+
+The entry point for every bound this change freezes. It exists because "which task proves
+this?" had no answer for most rows, and an unowned bound is how a ceiling ships inside a
+freeze with nothing exercising it.
+
+NO FROZEN VALUE IS RESTATED HERE. The applied requirement owns the number; this index owns
+WHO PROVES IT. A row's value is read FROM THE SPEC, and from nowhere else -- not from this
+document's readability tables, and not from a constant in either runtime.
+AN ABSENT SPEC VALUE IS AN IMPLEMENTED CANDIDATE, NOT A FROZEN ONE. Most rows below have no
+requirement today; their constants are what the code happens to do, and calling them "the
+value" would make the implementation its own authority, which is the failure this rule
+exists to prevent. Sections 2 and 2b restate values for readability, so they are a
+convenience for a reader and never a source for a task. The one place numbers do appear is the
+MEASURED-MAXIMA table below, where the number IS the finding: those are not frozen bounds
+but measurements of what a valid input can actually reach, and the gap between the two is the
+whole point of that table.
+
+Read the ACTION column as the audit's verdict, not as a plan 1.5-h may revise silently.
+
+### Referenced only -- another task owns the proof
+
+| Bound | Quantity and stage | Owner | Production gate (Go / Elixir) | Evidence today |
+| --- | --- | --- | --- | --- |
+| `MaxRecordBytes` | raw received bytes, pre-decode | 1.7-a | `DecodeRecord` / `decode_record` | 1.7-a owes the N/N+1 pair |
+| `MaxDeliveryEnvelopeBytes` | raw frame minus record bytes | 1.7-a | `ValidateFrameRawEnvelope` / `raw_frame_envelope_check` | 1.7-a owes the pair |
+| `MaxFrameBytes` | raw received bytes, pre-decode | 1.7-a | `ValidateFrameRawEnvelope` / `decode_frame` | 1.7-a owes it |
+| `MaxClientMessageBytes` | raw received bytes, pre-decode | 1.7-a | **no edge-ABI gate in Go** / `decode_client_message` | 1.7-a owes it, and cannot pass in Go today |
+| relational envelope budget | frame total vs its parts | 1.7-b | `ValidateFrameRawEnvelope` / `raw_frame_envelope_check` | 1.7-b owes it |
+| `MaxUncompressedBytes` | extracted-body output size | 1.5-f | `Compression` both runtimes | CLOSED -- shared `zstd_*` vectors |
+| `MaxCompressionRatio` | output over encoded input | 1.5-f | `Compression` both runtimes | CLOSED -- shared vectors |
+| `MaxZstdWindowBytes` | advertised frame window | 1.5-f | `Compression` both runtimes | CLOSED -- shared vectors |
+| `MaxPayloadBytes` | DERIVED defensive guard, equal to `MaxRecordBytes` | 1.5-f | `validatePayloadBinding` / `Compression` | CLOSED -- literal-pinned in both runtimes |
+| `MaxPlanPageBytes` | raw page bytes, pre-decode | 1.3 | `ValidatePlanFromRaw` / `decode_plan_page` | CLOSED -- `assignment_test.go` |
+| `MaxCompiledAssignmentBytes` | raw carrier bytes, pre-decode | 1.3 | `ValidateCompiledSweepAssignmentBytes` / `decode_compiled_assignment` | CLOSED -- `assignment_test.go` |
+| `MaxExecutionGrantBytes` | raw grant bytes, pre-decode | 1.3 | `verifyExecutionGrantSignature` / `decode_execution_grant` | CLOSED -- `assignment_test.go` |
+| `MaxManifestBytes` | per-page AND summed raw page bytes | **1.6a** | `ValidateManifestChainFromRaw` / `RecoveryValidate` | CLOSED -- boundary tests both runtimes |
+| `MaxSweepHostsPerBatch` | host count, post-decode | **1.3 (evidence) / 1.5-h (normative closure)** | `ValidateSweepObservationBatch` / `SweepBodyValidate` | VECTORS COMPLETE and 1.3's; **NOT CLOSED** -- no requirement states the value, which is 1.5-h's only debt here |
+| `MaxTracesPerBatch`, `MaxHopsPerTrace`, `MaxEcmpPerHop`, `MaxMplsPerHop`, `MaxMtrBatchBytes`, and `MaxTraceStrBytes` at its FOUR MTR predicates (trace target, trace error code, hop hostname, hop ASN org) | MTR counts, strings, canonical body | **1.4-a** | `domain.go` / **no Elixir MTR body validator** | 1.4-a owes them |
+| `MaxPlanMtrOrdinals` | admitted ordinal total per plan, post-decode; TWO Go sites, and a Go/Elixir ARITHMETIC ASYMMETRY in the second | 1.4 / 1.15 | `PlanMtrWindows` running total; `MtrWindowCommitment` count/offset. Elixir: `HashGrammar` peers of both | **RUNNING TOTAL CLOSED** -- the shared `plan_page_ordinals_at_max/over_max.bin` fixtures are MULTI-RANGE, so they exercise that gate. For `MtrWindowCommitment`: Go has BOTH a load-bearing COUNT control and an offset control; this runtime has ONLY the offset control, and its count conjunct is SHADOWED because bignum subtraction goes negative where Go's uint64 underflows. Go's arm is load-bearing, Elixir's is not, from identical-looking code |
+| `MaxMtrCompletionOrdinals` | what the ordinal space may REPRESENT; **EIGHT predicate arms** -- five Go, three Elixir. TWO are SHADOWED (Go's plan-total, Elixir's expected-ceiling); Elixir's offset arm is the load-bearing predicate that shadows expected | 1.4 / 1.15 | Go: `ValidateMtrExpectation` count; `PlanMtrWindows` per-range count; `PlanMtrWindows` running-total overflow; `NewMtrCompletionAccumulator` expected AND offset arms. Elixir: `AssignmentValidate` count; `HashGrammar` expected AND offset arms | PARTIAL -- the ASSIGNMENT EXPECTATION ceiling has OVER-CEILING REFUSAL in both runtimes and NO ACCEPTED-AT-CEILING control in either, so TIGHTENING `>` to `>=` survives both suites; the accumulator and commitment arms have nothing. The missing control is **1.4-a's**, named in its entry. Each UNSHADOWED arm owes a control AND a negative |
+| projected cost COVERAGE | does declared cost cover every real mutation | **1.5-k** | -- | 1.5-k owes it |
+
+`MaxPayloadBytes` is NOT a ninth raw ceiling and SHALL NOT be added to the section 2 table.
+It is a per-field defensive guard whose value is `MaxRecordBytes`, taken on the inner payload
+before the whole-record ceiling is reachable. Section 2's table has eight rows because it names eight
+BOUNDARIES, not because eight independent values exist -- `MaxFrameBytes` and
+`MaxClientMessageBytes` are both derived from `MaxRecordBytes` already. A ninth row for
+`MaxPayloadBytes` would add no boundary, only a second name for one that is listed, and would
+invite the two values to drift apart.
+
+The MTR row is the audit's sharpest exclusion. Those six bounds have no Elixir peer because
+this runtime has NO MTR BODY VALIDATOR AT ALL -- not a missing bound inside an existing
+validator, an absent boundary. Shared vectors would therefore be Go-only rows wearing a
+shared-corpus shape. They stay with 1.4-a unless ownership is explicitly moved.
+
+### Owned by 1.5-h -- residual domain-semantic admission
+
+| Bound | Quantity and stage | Production gate (Go / Elixir) | Evidence today | Action |
+| --- | --- | --- | --- | --- |
+| `MaxPolicyIDBytes` | string bytes, post-decode; **TWO provable carriers** -- plan header (`ValidatePlanHeader`) and `SweepAssignmentRecordV1` (`ValidateSweepAssignmentRecord`) | `plan.go`, `assignment.go` / `PlanValidate`, `AssignmentValidate` | NONE, and no normative statement | freeze; N/N+1 pair; accepted control AND over-limit negative PER CARRIER |
+| `MaxPolicyIDBytes` at a plan RANGE | DERIVED, not independently provable | `plan.go` range check | -- | the range predicate is `len > Max OR != headerPolicy`, and the header is already bounded, so no input reaches the length arm alone. CENTRALIZE or REMOVE it, or record it as derived. It SHALL NOT get a site row: a row that cannot fail for its own reason is a vacuous row |
+| `MaxPrincipalBytes` | string bytes, post-decode; **THREE sites** -- record producer context, edge publication slot, service publication slot | `ValidateAuthenticatedPrincipal` from `validateProducerContext` and both slots / `PublicationIdentity` slots ONLY -- **no record-level check** | Go only, and SELF-ADJUSTING (built from the constant) | freeze; literal-pin; per-site control+negative; the Elixir record site attaches to **1.5-n**'s structural record boundary |
+| `MaxTraceStrBytes` at `abort_reason` | string bytes, post-decode; LIFECYCLE, not MTR | `ValidateSweepExecutionEvent` / **none** (1.6-c owns the peer) | NONE | freeze the lifecycle site; the FOUR MTR predicates -- target, error code, hop hostname, hop ASN org -- stay 1.4-a |
+| `MaxPlanHeaderBytes` | raw header bytes, pre-decode -- **NAMED SCOPE EXCEPTION** | `ValidatePlanFromRaw` / `decode_plan_header` | **NORMATIVE ALREADY** -- "Only a raw-byte plan boundary may claim physical enforcement" states the header ceiling on received bytes. Go VECTOR COMPLETE (`TestPlanHeaderExactByteCeiling`, literal-pinned, production entrypoint); no shared vector | shared evidence and a NAMED Elixir ceiling ONLY. It SHALL NOT author a second requirement |
+| `MaxRangeStrBytes` | string bytes, PRE-PARSE guard; THREE fields (`cidr`, `first`, `last`) | `plan.go` x3 predicates before `rangeSpanSize` / `PlanValidate` x3 | NONE, and no normative statement | forbid IPv6 ZONES normatively; then the THREE-PART shape below -- **NOT** an N/N+1 pair |
+| `MaxTransportProvenanceHeaderBytes` | header bytes, PRE-PARSE guard; **ONE testable site** -- `DecodeTransportProvenance` on receive. The emit-side check in `TransportProvenance` is DEFENCE IN DEPTH over output it just built and is not independently testable through any input | `DecodeTransportProvenance` / `PublicationIdentity` | task **1.14** defined and implemented this grammar and is `[x]`; it left NO requirement stating the bound and NO evidence for it | 1.5-h is REMEDIATION, not first ownership: author the requirement and stage-sensitive evidence |
+| `MaxManifestPages` **(recovery, RAW)** | supplied page-list length, pre-decode | `ValidateManifestChainFromRaw` -- **correctly staged** / `RecoveryValidate.bound_received` -- **`length/1` over the whole list** | NONE | N/N+1 pair; fix the Elixir traversal only |
+| `MaxManifestPages` **(recovery, DECODED)** | page-list length on decoded pages | `recovery.go` decoded path -- **after content inspection** / `RecoveryValidate` | NONE | N/N+1 pair; fix the stage |
+| `MaxManifestPages` **(plan, RAW)** | supplied page-list length, pre-decode | `ValidatePlanFromRaw` -- **correctly staged** / `AssignmentValidate.bound_page_count/2` -- **`length/1`** | NONE, and no normative statement for the plan use | author the plan requirement; N/N+1 pair; fix the Elixir traversal |
+| `MaxManifestPages` **(plan, DECODED)** | page-list length in `ValidatePlanPages` | **after `hasUnknownFields` recurses every page and range** / `PlanValidate` | NONE | N/N+1 pair; fix the stage |
+| `MaxRangesPerPage` | range count, post-decode per page | `plan.go` -- **after that page's ranges were walked** / `PlanValidate` | NONE, and no normative statement | author the requirement; N/N+1 pair; fix the stage |
+| `MaxSpansPerPage` **(chain)** | span count, post-decode per page | `ValidateManifestChain` / `RecoveryValidate` | NONE | N/N+1 pair; fix the stage; both-runtime |
+| `MaxSpansPerPage` **(single page)** | span count on ONE page | `validateSingleManifestPage`, reached from the recovery-control path / **no Elixir peer** | NONE | single-runtime row; the peer is **1.6-d**'s, added to its scope |
+| `MaxReasonBytes` | tombstone reason bytes, on the SIGNED recovery-control body path | `recoveryControlBody`, reached only via `ValidateRecoveryControl` / **no signed path exists** (1.6-d) | NONE, and the lower bound is unfrozen | decide whether EMPTY is invalid; then N/N+1 pair; Elixir peer BLOCKED on 1.6-d |
+| declared projected cost vs the capability's DECLARED maxima | relational, **STRUCTURAL and PRE-SIGNATURE** -- nothing has verified those maxima when the comparison runs | `validateProductionCapability` from `ValidateRecord`, which performs NO cryptographic verification / **no production peer** | PARTIAL -- the accepted-equality control ALREADY EXISTS (`validate_test.go` builds every valid record with the capability maxima equal to the declared values), and `projected_row_count` at ceiling+1 is covered | add `projected_write_bytes` overflow and `cost_model_version` mismatch; Elixir recorded as **1.5-n** |
+
+### Which ordinal arms can be mutation-killed, measured -- PER BOUND
+
+The two ordinal ceilings are different bounds with different arms, and an earlier revision of
+this section mixed them. They are separated here because a shadowed arm of one is not evidence
+about the other.
+
+#### `MaxMtrCompletionOrdinals` -- the ordinal SPACE
+
+`PlanMtrWindows` checks a range's count and the running total against this ceiling, then checks
+the accumulated total against the lower `MaxPlanMtrOrdinals` work ceiling two statements later.
+Both return the SAME error, so the question is which arms change a VERDICT when removed --
+every mutation column, not just the convenient ones:
+
+| input | all arms | per-range arm removed | plan-total arm removed | both removed |
+| --- | --- | --- | --- | --- |
+| count one over the space ceiling | per-range | work ceiling | per-range | work ceiling |
+| count = 2^64-1 | per-range | work ceiling | per-range | work ceiling |
+| first range 1, second at the space ceiling | **plan-total** | plan-total | work ceiling | work ceiling |
+| count one over the work ceiling | work ceiling | work ceiling | work ceiling | work ceiling |
+| two ranges whose counts wrap uint64 | per-range | **ADMITTED** | per-range | **ADMITTED** |
+
+**The plan-total arm DOES fire** -- row three is exactly that case, and an earlier revision
+claimed it never fired because the inputs chosen never reached it. The correct statement is
+narrower and is what matters for evidence: REMOVING IT NEVER CHANGES THE FINAL VERDICT, because
+the work ceiling refuses the same input two statements later. SHADOWED; no evidence row.
+
+**The per-range arm is load-bearing for one INPUT CLASS**: two or more ranges whose counts sum
+to a uint64 wrap, where the total lands back under the work ceiling and everything is ADMITTED
+without it. One row instantiates the class; the class is not one input. That row must assert admitted-versus-refused, not error identity.
+
+**This runtime's expected-ceiling arm is SHADOWED by its offset arm.**
+`mtr_completion_verify` checks `expected <= @max_mtr_ordinals`, then
+`plan_ordinal_offset > @max_mtr_ordinals - expected`. Under arbitrary precision an
+over-ceiling `expected` makes that right-hand side NEGATIVE, so any non-negative offset
+satisfies it and the later arm refuses anyway. Only the arm's `is_integer` TYPE check is
+load-bearing. **The offset arm is the load-bearing predicate** -- it is what shadows expected,
+so it is not itself a candidate for classification.
+
+So this bound has TWO shadowed arms: Go's plan-total arm and this runtime's expected-ceiling
+arm.
+
+**Both runtimes test the expectation ceiling from one side only.** Go asserts
+`MaxMtrCompletionOrdinals + 1` is refused; this runtime asserts the same value. NEITHER accepts
+exactly the ceiling, so TIGHTENING `>` to `>=` in either validator leaves both suites green --
+the boundary is asserted as "too big is refused", never as "the ceiling itself is legal". Note
+the direction: the surviving mutation makes the validator STRICTER, refusing a legal ceiling
+value, which is why a refusal-only pair cannot catch it.
+The accepted-at-ceiling control is RETAINED AS DEBT and assigned to **1.4-a specifically**, in
+both runtimes -- NOT to 1.15, whose only open subtask is shared per-value LEAF vectors and
+closes no validator-boundary control. This index SHALL NOT record the arm as closed on the
+refusal alone.
+
+#### `MaxPlanMtrOrdinals` -- the validation WORK ceiling, and a Go/Elixir arithmetic asymmetry
+
+`MtrWindowCommitment` guards `count <= ceiling AND offset <= ceiling - count` in both runtimes
+-- the same relation, written the same way. Removing the count conjunct does OPPOSITE things:
+
+| input | Go, count conjunct present | Go, count conjunct REMOVED | this runtime, conjunct removed |
+| --- | --- | --- | --- |
+| offset 0, count = ceiling+1 | refused (count) | **ADMITTED** | refused (offset) |
+| offset 0, count = ceiling | admitted | admitted | admitted |
+| offset = ceiling, count 1 | refused (offset) | refused (offset) | refused (offset) |
+
+**Go's count conjunct is LOAD-BEARING and this runtime's is SHADOWED, from one line of
+identical-looking code.** `ceiling - count` UNDERFLOWS uint64 to 2^64-1 in Go, so the offset
+comparison passes and the value is admitted; in Elixir the same expression is -1, and any
+non-negative offset exceeds it, so the offset conjunct refuses. THE ARM IS THE SAME; THE
+INTEGER MODEL IS NOT. A shadowing verdict is therefore not portable between runtimes and must
+be established separately in each -- which is the general lesson, not a note about one guard.
+
+Go already HAS the load-bearing count control (`MtrWindowCommitment(0, ceiling+1, ...)` in
+`assignment_test.go`). This runtime has only an OFFSET control, and its count conjunct cannot
+be mutation-killed at all. That is the third shadowed arm across both ceilings, and it belongs
+to THIS bound -- not to `MaxMtrCompletionOrdinals`, where an earlier revision filed it.
+
+### Two NAMED exceptions to 1.5-h's "no raw bounds" scope
+
+1.5-h's scope says it does not own raw or pre-parse bounds, and it owns two anyway:
+`MaxPlanHeaderBytes` (raw, pre-decode) and `MaxTransportProvenanceHeaderBytes` (pre-parse).
+They are here for different reasons. `MaxPlanHeaderBytes` is normatively stated but has no
+shared evidence, and 1.7-a is scoped to the four transport ceilings rather than to it. The
+provenance guard WAS claimed -- task 1.14 defined and implemented that grammar and is `[x]` --
+but left neither a requirement for the bound nor evidence, so 1.5-h is REMEDIATION rather than
+first ownership. They are EXCEPTIONS BY NAME, not a widening:
+any further raw bound belongs to a raw-bound owner, and adding a third to this list requires
+saying which owner declined it.
+
+### The range-string guard is REACHABLE, and the runtimes disagree
+
+The first version of this index called `MaxRangeStrBytes` unreachable on a measurement that
+enumerated only UNSCOPED addresses. `netip.ParseAddr` also accepts SCOPED IPv6 addresses, and
+a zone is arbitrary-length text:
+
+    fe80::1%eeeeeeee...   (8-byte prefix + a 56-byte zone) = EXACTLY 64 bytes
+
+It round-trips canonically through `Addr.String()`, so Go's spelling check passes, and
+`rangeSpanSize` accepts `first == last`, so the span is 1 and `target_count == 1` matches. The
+bound is reachable AT the ceiling in Go, through the first/last form. It is NOT reachable
+through the CIDR form: `netip.ParsePrefix` rejects zones outright, so that arm's maximum stays
+43 bytes.
+
+**The runtimes disagree, and not by rejecting at different lengths.**
+`:inet.parse_strict_address/1` ACCEPTS the zoned text and SILENTLY DISCARDS the zone --
+`fe80::1%eth0` and `fe80::1` both parse to the same tuple. The refusal then comes from
+`canonical_addr?/2`, which compares `:inet.ntoa(tuple)` against the input and finds
+`"fe80::1"` unequal to `"fe80::1%eth0"`. So this runtime refuses a scoped address as a
+NON-CANONICAL SPELLING while Go accepts it as a canonical one. Two parsers, one contract,
+opposite verdicts on the same bytes.
+
+**Decide the syntax before the bound.** A zone is node-local: it names an interface on the
+machine that wrote it and cannot be interpreted by any other agent, so a scoped address in a
+scheduler plan target range has no meaning at the receiver. FORBID ZONES NORMATIVELY in plan
+range strings. That closes the parity gap and restores 43 bytes as the maximum canonical range
+string.
+
+**Which then makes 64 unreachable again, so the proof shape follows the RULE, not the
+constant.** Forbidding zones and then demanding an at-ceiling/one-over pair would
+be asking for a vector the chosen rule forbids. The corpus for this bound is three parts:
+
+1. **zone-present refusal in BOTH runtimes** -- the new rule, and the only row that would
+   change verdict if the prohibition were dropped;
+2. **accepted controls at the largest valid syntax** -- 43 bytes for `cidr`, 39 for `first`
+   and `last`, each its own field;
+3. **one over-limit control per field, stage-sensitive** -- the parser was not entered.
+
+Only part 1 is a semantic rule. Parts 2 and 3 are what a defensive guard can honestly prove:
+that valid input passes and that over-limit input is refused before parsing, never that the
+ceiling is an attainable maximum.
+
+### One bound that admits no N/N+1 pair, measured rather than argued
+
+`MaxTransportProvenanceHeaderBytes` is a DEFENSIVE PRE-PARSE GUARD, not an inclusive semantic
+maximum. The largest valid header is **468 bytes** against a 512-byte guard -- measured by
+composing `TransportProvenance` over a 128-byte principal (the `MaxPrincipalBytes` maximum) in
+RENEWAL mode, the only variable-length composition. There is no accepted-at-512 control to
+build.
+
+The guard runs before `base64.RawURLEncoding.Strict()`, so the evidence it admits is
+stage-sensitive: THE PARSER WAS NOT ENTERED. An accepted-512 row would be a vector passing for
+a reason it does not name, and a reader would take it as proof that 512 is a legal header
+length. Only one of its two sites is defending against anything -- `DecodeTransportProvenance`
+on receive; `TransportProvenance` on emit is checking output it just built.
+
+### Every removable site needs BOTH directions
+
+A site row that carries only an over-limit negative stays green when that validator rejects
+EVERYTHING -- a mis-wired site, a stale digest, an unrelated precondition. It proves the site
+is reachable and refusing; it does not prove the site is refusing FOR THIS REASON. Each site
+therefore gets an accepted control at a legal value AND its own over-limit negative. That is
+what makes a site row independently removable, which is the property the corpus is for.
+
+### Six findings that contradict the audit's own starting assumptions
+
+**The count ceilings are not proven anywhere, and the stage defect affects HALF the sites
+rather than all of them.** A repository-wide search for `MaxManifestPages`, `MaxRangesPerPage` and
+`MaxSpansPerPage` across every `_test.go` returns nothing, and no `1025`/`257` construction
+exists in either runtime. The staging is not one defect but four different situations, which
+is why the index gives each its own row:
+
+- **Go RAW entrypoints are already correct.** `ValidatePlanFromRaw` and
+  `ValidateManifestChainFromRaw` compare the supplied list length against `MaxManifestPages`
+  BEFORE decoding anything. Saying these run late was wrong.
+- **Go DECODED validators run late.** `ValidatePlanPages` runs `hasUnknownFields(p)` -- which
+  recurses into every range of every page -- across the whole list BEFORE comparing
+  `len(pages)`, and the per-page range count is checked after that page's ranges were walked.
+- **This runtime's RAW gates traverse to count.** `AssignmentValidate.bound_page_count/2` and
+  `RecoveryValidate.bound_received/1` call `length/1` on the entire attacker-supplied list, so
+  a ten-million-element list is fully walked to discover it is too long. The stage is right;
+  the traversal is not. A comparison bounded at N+1 elements fixes it without moving the check.
+- **This runtime's DECODED checks run late**, matching Go's decoded validators.
+
+Both runtimes return the CORRECT VERDICT at every one of those sites, which is why no
+VERDICT-ONLY N/N+1 vector would have caught the two that are mis-staged: such a pair passes in
+both directions while the work the ceiling exists to prevent has already been done. Only
+stage-sensitive evidence separates them, and only per site -- a single "the count gates run
+late" row is false for the two Go raw entrypoints, which are already correct.
+
+**`MaxReasonBytes` is attached to a different boundary than the index first claimed.** Neither
+Go's `ValidateTombstone` nor this runtime's `RecoveryValidate.tombstone/2` reads `reason` at
+all. Go bounds it inside `recoveryControlBody`, reachable only through `ValidateRecoveryControl`
+-- the SIGNED path. So the Elixir gap is not a missing line in an existing validator; it is the
+same absent-boundary situation as the three recovery scope transcripts, and its peer is blocked
+on 1.6-d. The first version of this index said "absent from `RecoveryValidate.tombstone/2`",
+which named a real function that was simply not the boundary in question.
+Separately, the spec freezes the MAXIMUM and says nothing about a lower bound, while Go refuses
+length 0. WHETHER AN EMPTY REASON IS VALID IS UNDECIDED, and must be decided before a vector is
+written -- otherwise the vector freezes whichever behaviour happened to be convenient.
+
+**`MaxClientMessageBytes` has no edge-ABI gate in Go**, and this belongs to 1.7-a rather than
+to 1.5-h. The constant is declared, `ErrClientMessageTooLarge` is declared beside it, and a
+repository-wide search finds NO call site for either: the error is never returned by any code
+path. Elixir enforces the ceiling in `decode_client_message/1` before its scan. This does NOT
+establish that Go accepts unbounded input, and it does NOT establish that anything else stops
+it either. EXACTLY ONE THING IS ESTABLISHED: the ABI's own ceiling has no enforcement site.
+Whether an outer gRPC receive-message limit is configured on that path is UNKNOWN and was not
+examined, so no conclusion follows about what does bound that message -- including the
+conclusion that a transport setting does. 1.7-a SHALL DETERMINE the effective bound. "A gRPC
+limit probably catches it" is the assumption under which this gap sat unnoticed, and
+"a transport setting bounds it instead" is the same assumption with a confident tone. Found only because the index has a production-gate column: a bounds inventory
+listing names and values renders a declared constant and an enforced one identically.
+
+**One bound cannot have the pair the vector rules ask for, and the OTHER one can.** The audit
+assumed every bound in its residue was an inclusive semantic maximum, then over-corrected and
+called two of them unreachable. `MaxTransportProvenanceHeaderBytes` genuinely is a defensive
+guard. `MaxRangeStrBytes` is NOT: it is reachable at exactly 64 through a scoped IPv6 address,
+which the first measurement missed by enumerating only the address shapes it thought of. See
+the section above. A measurement establishes what the sample reached, never what the parser
+accepts -- the parser's grammar is the thing to read.
+
+**The projected-cost comparison is STRUCTURAL and PRE-SIGNATURE, not post-signature.**
+`ValidateRecord` performs no cryptographic verification at all; `validateProductionCapability`
+runs inside it, comparing a record's DECLARED cost against the maxima carried in an
+UNVERIFIED capability. Calling the row "post-signature" described a boundary that does not
+exist here. The accepted-equality control also already exists and was recorded as missing:
+`validate_test.go` builds every valid record with the signed maxima set EQUAL to the declared
+values, so every passing test is an equality control at both operands. What is genuinely
+missing in Go is `projected_write_bytes` overflow and a `cost_model_version` mismatch.
+
+**No validator on either side of this ABI has a live ingress caller, so "production-shaped"
+is defined ONCE and applied everywhere.** `SemanticValidate.validate_record/1` has no
+production caller -- every reference is in an `.exs` test file. Neither do Go's transport
+validators: `ValidateLaneOpenAck` and `ValidateAck` have ZERO non-test callers, and
+`ValidateLaneOpen`'s only non-test caller is `ValidateLaneOpenAck` itself.
+
+THE DEFINITION FOR THIS CHANGE: a COMPLETE VALIDATOR API -- one that applies the full rule and
+is callable by an ingress -- is sufficient, and a COMPOSED API SET counts, provided its ORDER
+is not left to the caller. Live ingress attachment is downstream and is NOT a closure condition
+here. This change freezes a contract, and a contract is testable before it is wired.
+
+That qualifier is not decoration. Go exposes `ValidateAckRawSize` and `ValidateAck` separately
+and composes them nowhere, so the sequence that makes the raw guard meaningful lives in each
+caller. 1.7-f owns supplying a composed entrypoint or attaching the two to a real ingress that
+composes them. THERE IS NO ORDERING-EVIDENCE FALLBACK: no vector can oblige a caller to invoke
+the raw guard first, so a suite calling them in order proves the functions work and nothing
+about a caller that skips one. The plan boundary reached this conclusion already and unexported
+its page-only path.
+
+That resolves what were two definitions. An earlier revision rejected an Elixir validator API
+for lacking a live caller while accepting Go's zero-caller validators, which is the same
+artifact judged twice. What 1.5-n owes is therefore a COMPLETE structural record boundary --
+not a comparator bolted into a function that applies no other record rule -- and the Elixir
+record-level `MaxPrincipalBytes` check attaches to that same boundary.
+
+### Deliberately excluded, with the reason
+
+| Excluded | Why |
+| --- | --- |
+| `MinNonceBytes` / `MaxNonceBytes`, `MaxByteCredits`, `MaxFrameCredits` | LANE-OPEN admission -- task 1.7's subject is the frame AND LANE HANDSHAKE. Not raw bytes, so 1.7-a does not reach them either. NOW OWNED BY 1.7-e |
+| `MaxRejectionCodeLen` | the DELIVERY-ACK path, which is not the lane-open handshake -- a different message on a different leg. NOW OWNED BY 1.7-f, kept separate from 1.7-e for that reason. Go-only; no Elixir ack validator. It is NOT YET FROZEN: no requirement states its value or its `[A-Z0-9_]` machine-token grammar, and a constant in one runtime is an implementation detail until the spec says otherwise |
+| `DefaultMaxDispositions`, `DefaultMaxDispositionBytes` | CALLER-OVERRIDABLE policy defaults, not ABI ceilings. `ValidateAck` accepts them as parameters and substitutes the default only for a non-positive argument. A freeze cannot freeze a value a deployment sets. The ABI SHALL still require FINITE limits at all three stages -- raw ACK bytes, decoded disposition count, decoded canonical bytes -- which is 1.7-f's requirement to author. The three are not substitutes: `proto.Size` collapses the duplicate and non-minimal fields that inflate received bytes, so a canonical budget cannot bound parse cost |
+| `MaxClockToleranceNano` | NOT FROZEN, and not this change's. The 300-second cap is LOCAL AUTHORIZATION POLICY -- how stale a signed authority a deployment will still honour -- which sits outside a wire ABI. It is excluded from 1.5-h and from 1.5-i. If it must become interoperable it needs a dedicated signed-authority-currentness subtask with a normative literal and real runtime evidence, not a home in a residue bucket |
+| whether projected cost COVERS every real mutation | explicitly 1.5-k; 1.5-h verifies only that the declared value is compared against the capability's DECLARED maxima. Not "signed": the comparison runs pre-signature, so nothing has verified those maxima at that point |
+
+### What this audit opened
+
+| Opened | Why it was owned by nothing |
+| --- | --- |
+| **1.7-e** lane-open admission, BOTH halves | 1.7's body covers the lane handshake, but its subtasks were the four raw bounds, the relational envelope, fixture coverage and the gate -- none reaches a nonce length or a credit cap. It covers the REQUEST (`EdgeRecordLaneOpen`) and the RETURN half (`EdgeRecordLaneOpenAck`, validated by `ValidateLaneOpenAck`), which is independently removable and distinct from the `EdgeDeliveryAckV1` path in 1.7-f |
+| **1.7-f** acknowledgement bounds | the ACK path is not the lane-open handshake; folding `MaxRejectionCodeLen` and the finite-receiver-limit requirement into 1.7-e would have put two legs under one subtask |
+| **1.5-n** the Elixir structural record boundary | Go compares declared cost to the capability maxima in `ValidateRecord`; this runtime only DIGESTS the three fields. The deliverable is a COMPLETE boundary, not a comparator: `SemanticValidate.validate_record/1` applies no production record rule beyond enum and shape checks, so a cost comparison bolted onto it would sit next to none of the rules it must run with. Its lack of a live caller is NOT the objection -- no validator on either side of this ABI has one. It also carries the record-level `MaxPrincipalBytes` check. Filed under 1.5, NOT 1.6: parent 1.6 is the version-corpus parity task, and a non-inventory member there would make its 15/19 figure mean two things at once |
+
+WHY THE OPEN COUNT WENT UP. This audit was expected to reduce work by finding that most bounds
+were already proven elsewhere. It did the opposite: three subtasks opened; three count ceilings
+found unproven in BOTH runtimes, with the stage defect at HALF their sites -- Go's raw
+entrypoints are already correct, its decoded validators are not, and this runtime traverses to
+count at gates that are otherwise correctly staged; three runtime divergences
+(`MaxReasonBytes`, `MaxClientMessageBytes`, the projected-cost comparison); TWO bounds that admit no
+at-ceiling/one-over pair -- the provenance guard, and the range string once zones are forbidden,
+which was itself found REACHABLE after being called unreachable; three ordinal arms shown unable to carry an independent verdict row;
+and one bound (`MaxSweepHostsPerBatch`) fully vectored in both runtimes yet not closeable
+because no requirement states its value.
+
+The ledger records the resulting obligations; this section records how they were found, per
+rule N4. A count that only ever falls is measuring closure, not coverage -- every one of these
+was invisible to each earlier count precisely because nothing owned it.
 
 ## 3. Identity semantics, grammars, and version inventory
 
