@@ -136,15 +136,12 @@ build:remote_base --jobs=100
 build:remote_base  --experimental_remote_cache_chunking
 # Remote Cache compression
 build:remote_base --remote_cache_compression
-#build:remote_base --remote_download_minimal
-#build:remote_base --remote_upload_local_results
 build:remote_base --experimental_remote_cache_compression_threshold=100
 # Remote Build and Remote Cache
 # The BuildBuddy cache proxy's public TLS edge (//k8s/buildbuddy/README.md, "Cache proxy").
-build:remote_base --remote_cache=grpcs://cache-proxy.carverauto.dev:443
 build:remote_base --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
 build:remote_base --remote_executor=grpcs://carverauto.buildbuddy.io
-build:remote_base --remote_cache=grpcs://carverauto.buildbuddy.io
+build:remote_base --remote_cache=grpcs://cache-proxy.carverauto.dev:443
 build:remote_base --bes_backend=grpcs://carverauto.buildbuddy.io
 build:remote_base --bes_results_url=https://carverauto.buildbuddy.io/invocation/
 # Remote platforms
