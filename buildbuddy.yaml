@@ -121,10 +121,32 @@ actions:
       # run. It reports.
       #
       # DELETE THE PROBE once the client hop has been green for a while. Keep the printf.
+      # THE OPT-IN IS OFF. Uncommenting the printf below points --remote_cache at the proxy:
+      #
+      #   printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
+      #
+      # DO NOT re-enable it against a ClusterIP. The Bazel client here does not run on the
+      # executor pod; it runs inside a per-action NETWORK NAMESPACE that BuildBuddy allocates
+      # from 192.168.0.0/16 in /30 blocks (NewHostNetAllocator in
+      # server/util/networking/networking.go). The failing run proves it -- Bazel's own error
+      # reported the client's source address as 192.168.0.14, which is a namespaced IP from that
+      # allocator, not a pod IP. That namespace is NAT'd and has no route into the cluster
+      # service CIDR, so 10.43.59.152:1985 is refused, and its resolver is 8.8.8.8 (the
+      # executor.oci.dns default), so the Service FQDN does not resolve either.
+      #
+      # This is not the failure that made the proxy look broken earlier -- that one was a
+      # placeholder API key, which cost the proxy its health check and therefore its endpoints.
+      # Both are fixed; this one is topology and cannot be fixed by an executor flag.
+      #
+      # IF THE CLIENT HOP IS EVER WANTED, the proxy needs an address reachable from that
+      # namespace's normal egress path -- i.e. a LAN address, not a cluster-internal one. That
+      # means restoring a MetalLB VIP (192.168.6.86 was allocated before, from k3s-lan-pool)
+      # with `loadBalancerSourceRanges` and, because the chart serves PLAINTEXT gRPC on 1985,
+      # ideally ssl.enable_ssl + externalGRPCSPort. Weigh that against the payoff: this hop is
+      # only the runner's own uploads, and build:remote_base sets --remote_download_minimal, so
+      # it is a small fraction of what the executors already route through the proxy.
       - run: |
           set -uo pipefail
-
-          printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
 
           probe() { timeout 5 bash -c "cat < /dev/null > /dev/tcp/$1/$2" 2>/dev/null \
             && echo "  reachable   $1:$2" || echo "  UNREACHABLE $1:$2"; }

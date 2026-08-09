@@ -424,9 +424,40 @@ kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=
 # want: Connecting to cache target "grpc://bb-cache-proxy-...svc.cluster.local:1985"
 ```
 
-### 2. The Bazel client in CI
+### 2. The Bazel client in CI — currently OFF, and not for a fixable reason
 
-`--remote_cache`, via the `build:cache_proxy` config in `//.bazelrc`.
+`--remote_cache`, via the `build:cache_proxy` config in `//.bazelrc`. The opt-in in
+`//buildbuddy.yaml` is commented out.
+
+**The Bazel client does not run on the executor pod.** It runs inside a per-action network
+namespace that BuildBuddy allocates from `192.168.0.0/16` in `/30` blocks
+(`NewHostNetAllocator`, `server/util/networking/networking.go`). The failing run proved it —
+Bazel reported the client's own source address as `192.168.0.14`, a namespaced IP from that
+allocator, not a pod IP.
+
+That namespace is NAT'd and has **no route into the cluster service CIDR**, and its resolver is
+`8.8.8.8` (the `executor.oci.dns` default). So both address forms fail from there:
+
+```
+Service FQDN -> UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local
+ClusterIP    -> finishConnect(..) failed: Connection refused: /10.43.59.152:1985
+```
+
+The executors are unaffected because they are ordinary pods — which is why hop 1 works and hop 2
+does not, against the very same proxy.
+
+**Do not confuse this with the API-key failure.** Separately, the proxy was once deployed with a
+placeholder key; it then failed its health check, lost its endpoints, and kube-proxy REJECTed
+the Service — producing an identical `Connection refused` at the client. Both are fixed now;
+only the topology one blocks this hop.
+
+**To enable it later**, the proxy needs an address reachable from that namespace's normal egress
+path — a LAN address, not a cluster-internal one. That means restoring a MetalLB VIP
+(`192.168.6.86` from `k3s-lan-pool` was allocated before) with `loadBalancerSourceRanges`, and
+ideally `ssl.enable_ssl` + `externalGRPCSPort`, since the chart otherwise serves plaintext gRPC.
+Weigh it against the payoff: this hop carries only the runner's own uploads, and
+`build:remote_base` sets `--remote_download_minimal`, so it is a small fraction of what the
+executors already route through the proxy.
 
 **It is deliberately not part of `build:ci`.** `make test` is `bazel test -c opt --config=ci
 //...` and AGENTS.md tells every developer to run it before opening a PR — from a laptop, which
