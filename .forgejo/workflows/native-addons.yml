@@ -289,7 +289,6 @@ jobs:
           jq '.addons | length' "${RUNNER_TEMP:-/tmp}/serviceradar-native-addon-index.json"
 
       - name: Upload import index release asset
-        env:
         run: |
           set -euo pipefail
           if [[ -z "${FORGEJO_TOKEN:-}" ]]; then
