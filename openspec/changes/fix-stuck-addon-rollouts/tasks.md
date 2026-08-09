@@ -3,7 +3,7 @@
 - [ ] 1.1 Capture the demo fleet's paused rollouts, observed versions, and
       `addon_statuses.degradation_reason` strings as test fixtures, so every
       case below is driven by a real reported status rather than an invented one
-- [ ] 1.2 Add a regression fixture for each distinct reason string currently in
+- [x] 1.2 Add a regression fixture for each distinct reason string currently in
       the fleet: `no PowerDNS Recursor protobuf producer connected`,
       `resource limits not enforced ... need cpu,memory,pids`,
       `systemd unit failed`, `dial netprobe socket: connection refused`
@@ -16,7 +16,7 @@
       blocking, and keep the freshness requirement unchanged
 - [x] 2.3 Surface the advisory from the reported status rather than copying it
       onto the rollout, so there is no second copy to drift
-- [ ] 2.4 Unit-test that anomaly's `resource limits not enforced` no longer
+- [x] 2.4 Unit-test that anomaly's `resource limits not enforced` no longer
       pauses while bumblebee's `systemd unit failed` and netprobe's
       `connection refused` still do
 - [ ] 2.5 Give the add-on status contract a not-ready state distinct from
@@ -37,15 +37,15 @@
 
 ## 4. Superseded-rollout reaping
 
-- [ ] 4.1 Add a supersession check that resolves a rollout when every in-scope
+- [x] 4.1 Add a supersession check that resolves a rollout when every in-scope
       target's observed version already equals or exceeds the candidate version
-- [ ] 4.2 Drive it from observed fleet state so convergence outside the rollout
+- [x] 4.2 Drive it from observed fleet state so convergence outside the rollout
       counts
-- [ ] 4.3 Make superseded terminal: no resume, roll back, or cancel
-- [ ] 4.4 Run it during normal rollout evaluation, not as a one-off cleanup
-- [ ] 4.5 Test partial convergence is left alone (scalibr at 0.1.2 against a
+- [x] 4.3 Make superseded terminal: no resume, roll back, or cancel
+- [x] 4.4 Run it during normal rollout evaluation, not as a one-off cleanup
+- [x] 4.5 Test partial convergence is left alone (scalibr at 0.1.2 against a
       0.1.3 candidate must not be reaped)
-- [ ] 4.6 Test a fleet that has moved past the candidate (workload-identity on
+- [x] 4.6 Test a fleet that has moved past the candidate (workload-identity on
       0.1.7 against a 0.1.5 candidate) reaps without rolling anything back
 
 ## 5. Version truthfulness

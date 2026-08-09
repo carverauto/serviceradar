@@ -104,26 +104,46 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
     active? = value(status, :active, false) == true
 
     case supervision do
-        model when model in [:agent_sidecar, :systemd_service] ->
-          active? and state in ["active", "healthy", "running"]
+      model when model in [:agent_sidecar, :systemd_service] ->
+        active? and state in ["active", "healthy", "running"]
 
-        :systemd_timer ->
-          state in ["active", "enabled", "healthy", "ready", "running", "waiting"]
+      :systemd_timer ->
+        state in ["active", "enabled", "healthy", "ready", "running", "waiting"]
 
-        :ephemeral_helper ->
-          state in ["healthy", "ready", "registered", "staged", "verified"]
+      :ephemeral_helper ->
+        state in ["healthy", "ready", "registered", "staged", "verified"]
 
-        :config_toggle ->
-          state in ["active", "applied", "healthy", "ready", "running"]
+      :config_toggle ->
+        state in ["active", "applied", "healthy", "ready", "running"]
 
-        _ ->
-          false
-      end
+      _ ->
+        false
+    end
   end
 
   @doc "Whether the add-on reported an advisory degradation alongside its state."
   @spec degraded?(map()) :: boolean()
   def degraded?(status), do: present?(value(status, :degradation_reason))
+
+  @doc """
+  Whether `observed` is at least `target`, by semantic version.
+
+  Deliberately NOT a string comparison: `"0.2.7" >= "0.2.26"` is true
+  lexically and false in fact, and the fleet routinely runs versions where that
+  distinction decides whether a rollout is finished.
+
+  Returns false when either side is unparseable, so an add-on that cannot report
+  a usable version is never mistaken for one that has reached the target.
+  """
+  @spec version_at_least?(String.t() | nil, String.t() | nil) :: boolean()
+  def version_at_least?(observed, target) do
+    with {:ok, observed_version} <- parse_version(observed),
+         {:ok, target_version} <- parse_version(target) do
+      Version.compare(observed_version, target_version) in [:gt, :eq]
+    else
+      _ -> false
+    end
+  end
 
   defp same_addon?(%AddonPackage{addon_id: addon_id}, %AddonPackage{addon_id: addon_id}), do: true
 

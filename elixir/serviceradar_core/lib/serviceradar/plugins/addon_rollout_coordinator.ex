@@ -123,11 +123,75 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
          true <- rollout.state in @active_rollout_states,
          {:ok, targets} <- rollout_targets(rollout.id, actor),
          {:ok, packages} <- packages_for_rollout(rollout, targets, actor),
+         :continue <- supersede_if_converged(rollout, targets, packages, actor, now),
          {:ok, targets} <- evaluate_targets(rollout, targets, packages, actor, now) do
       finish_or_advance(rollout, targets, actor, now)
     else
       false -> :ok
+      :superseded -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Runs before anything else in advance/2, and deliberately before
+  # finish_or_advance/4's `rollout.state == :paused -> :ok` short-circuit: a
+  # paused rollout is exactly the one that needs reaping, and that clause is why
+  # four of them sat on the demo fleet for 19 days offering Resume / Roll back /
+  # Cancel for work the fleet had already done.
+  #
+  # The decision reads OBSERVED fleet state rather than this rollout's own batch
+  # progress, so convergence by any other route counts -- a later rollout, a
+  # direct assignment, an operator reinstalling on the host.
+  defp supersede_if_converged(rollout, targets, packages, actor, now) do
+    candidate = Map.get(packages, to_string(rollout.candidate_package_id))
+    in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled]))
+
+    cond do
+      is_nil(candidate) or in_scope == [] ->
+        :continue
+
+      converged_on_candidate?(in_scope, rollout.addon_id, candidate, actor) ->
+        mark_superseded(rollout, candidate, length(in_scope), actor, now)
+
+      true ->
+        :continue
+    end
+  end
+
+  defp converged_on_candidate?(targets, addon_id, candidate, actor) do
+    statuses = load_statuses(targets, addon_id, actor)
+
+    Enum.all?(targets, fn target ->
+      case Map.get(statuses, target.agent_uid) do
+        nil ->
+          false
+
+        status ->
+          Eligibility.version_at_least?(status.version, candidate.version)
+      end
+    end)
+  end
+
+  defp mark_superseded(rollout, candidate, target_count, actor, now) do
+    details = %{candidate_version: candidate.version, target_count: target_count}
+
+    case update_rollout(
+           rollout,
+           %{
+             state: :superseded,
+             completed_at: now,
+             paused_at: nil,
+             blocked_reason: "fleet_already_on_candidate"
+           },
+           actor
+         ) do
+      {:ok, updated} ->
+        audit(:supersede, updated, details)
+        emit(:superseded, updated, details)
+        :superseded
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
