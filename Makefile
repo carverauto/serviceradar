@@ -28,11 +28,23 @@ GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
 # Canonical full-workspace Bazel arguments. The cache-proxy targets below reuse the existing
-# build/test recipes with target-specific flag overrides so the opt-in path cannot drift from
-# the commands developers and CI already run.
+# build/test recipes with target-specific flag overrides so they cannot drift from the
+# commands developers and CI already run.
 BAZEL ?= bazel
 BAZEL_CI_FLAGS ?= -c opt --config=ci
-BAZEL_CACHE_PROXY_CONFIG ?= --config=cache_proxy
+# EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
+#
+# The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for
+# every remote build: //.bazelrc sends `build:remote_base --remote_cache` to the shared Envoy
+# edge, and both --config=ci and --config=remote inherit remote_base. There is nothing left to
+# opt into, so the `-cache` targets below are aliases that differ only in using the CI flags.
+#
+# Left as a variable rather than deleted so those target names keep working. Do NOT put a
+# `--config=` value here speculatively: Bazel treats an undefined config as a hard error
+# ("Config value 'cache_proxy' is not defined in any .rc file", exit 2), so a stale name takes
+# the whole target out rather than degrading it. //buildbuddy_cache_proxy_config_test.py
+# asserts that every --config this file names is defined in //.bazelrc.
+BAZEL_CACHE_PROXY_CONFIG ?=
 BAZEL_WORKSPACE_BUILD_FLAGS ?= --config=remote
 BAZEL_WORKSPACE_TARGETS ?= //...
 BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)

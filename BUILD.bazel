@@ -79,6 +79,9 @@ exports_files([
     "k8s/argocd/applications/demo-prod.yaml",
 ])
 
+###############################################################################
+# Cache proxy consistency test
+###############################################################################
 py_test(
     name = "buildbuddy_cache_proxy_config_test",
     size = "small",
