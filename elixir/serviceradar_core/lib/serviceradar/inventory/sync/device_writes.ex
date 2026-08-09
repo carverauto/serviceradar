@@ -2,6 +2,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   @moduledoc """
   Bulk device upserts with active-IP-conflict recovery and inventory
   rollup refresh.
+
+  Known active-IP claims are resolved *before* the first `insert_all` so
+  recurring integration syncs (for example AWX host inventory claiming an IP
+  already held by an agent device) do not trip
+  `ocsf_devices_unique_active_ip_idx` on every cycle. A reactive retry remains
+  for true races with concurrent writers.
   """
 
   import Ecto.Query
@@ -38,9 +44,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+    # Resolve predictable active-IP collisions up front so the first insert
+    # succeeds. Reactive recovery below only covers concurrent writers that
+    # land between this prepare step and insert_all.
+    {prepared_records, remap} = prepare_active_ip_claims(records, strong_uids, :precheck)
 
-    {:ok, %{}}
+    insert_devices(prepared_records, update_query, refresh_rollups?)
+    {:ok, remap}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
@@ -58,18 +68,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          original_error,
          refresh_rollups?
        ) do
-    {remapped_records, remap} = remap_records_to_existing_ip(records, strong_uids)
-    recovered_records = DeviceRecords.merge_records_by_uid(remapped_records)
+    {recovered_records, remap} = prepare_active_ip_claims(records, strong_uids, :retry)
 
-    if map_size(remap) == 0 and recovered_records == records do
+    conflict_ip = unique_violation_ip(original_error)
+
+    if map_size(remap) == 0 and not active_ip_claims_changed?(records, recovered_records) do
       Logger.warning(
-        "Bulk device upsert hit active-IP conflict without an identity remap; " <>
-          "retrying once after the concurrent insert: #{inspect(original_error)}"
+        "Bulk device upsert hit active-IP conflict without an identity remap" <>
+          "#{optional_ip_suffix(conflict_ip)}; retrying once after the concurrent insert: " <>
+          "#{inspect(original_error)}"
       )
     else
       Logger.warning(
-        "Bulk device upsert hit active-IP conflict; remapped #{length(records)} records " <>
-          "to #{length(recovered_records)} and retrying: #{inspect(original_error)}"
+        "Bulk device upsert hit active-IP conflict after precheck" <>
+          "#{optional_ip_suffix(conflict_ip)}; uid_remaps=#{map_size(remap)} " <>
+          "records=#{length(records)}->#{length(recovered_records)} and retrying: " <>
+          "#{inspect(original_error)}"
       )
     end
 
@@ -100,6 +114,52 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       conflict_target: [:uid]
     )
   end
+
+  # Apply the same active-IP policy used by conflict recovery *before* insert so
+  # recurring sync batches do not pay a unique_violation + retry every cycle.
+  # Returns `{prepared_records, remap}` where `remap` is `original_uid =>
+  # canonical_uid` for weak records rewritten onto the current IP owner.
+  defp prepare_active_ip_claims(records, strong_uids, reason) do
+    {remapped_records, remap} = remap_records_to_existing_ip(records, strong_uids)
+    prepared_records = DeviceRecords.merge_records_by_uid(remapped_records)
+
+    if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) do
+      Logger.info(
+        "SyncIngestor: #{active_ip_prepare_label(reason)} active-IP claims " <>
+          "(uid_remaps=#{map_size(remap)}, records=#{length(records)}->" <>
+          "#{length(prepared_records)})"
+      )
+    end
+
+    {prepared_records, remap}
+  end
+
+  defp active_ip_prepare_label(:precheck), do: "pre-resolved"
+  defp active_ip_prepare_label(:retry), do: "re-resolved"
+
+  defp active_ip_claims_changed?(original, prepared) do
+    original_claims =
+      MapSet.new(original, fn record -> {record.uid, Map.get(record, :ip)} end)
+
+    prepared_claims =
+      MapSet.new(prepared, fn record -> {record.uid, Map.get(record, :ip)} end)
+
+    original_claims != prepared_claims
+  end
+
+  defp unique_violation_ip(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    detail = postgres[:detail] || postgres["detail"] || ""
+
+    case Regex.run(~r/Key \(ip\)=\(([^)]*)\)/, detail) do
+      [_, ip] -> ip
+      _ -> nil
+    end
+  end
+
+  defp unique_violation_ip(_), do: nil
+
+  defp optional_ip_suffix(nil), do: ""
+  defp optional_ip_suffix(ip), do: " on #{ip}"
 
   # Returns `{remapped_records, remap}` where `remap` is a map of
   # `original_uid => canonical_uid` for every record whose uid was rewritten to
