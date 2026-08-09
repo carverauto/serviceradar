@@ -2,12 +2,37 @@
 
 Rebuilt the CNPG database image so its compiled extensions actually load, and
 made a `helm upgrade` across a database image bump need no manual steps. Adds
-reusable credentials for SNMP, plugins and integrations, Kubernetes public
-endpoint inventory, and a Teleport-style SSO certificate SSH console.
+opt-in cold-storage tiering, reusable credentials for SNMP, plugins and
+integrations, Kubernetes public endpoint inventory, and a Teleport-style SSO
+certificate SSH console. Fixes a live data-loss defect in which continuous
+aggregates progressively deleted their own materialized history, and clears
+eight dependency advisories.
 
 ## Whats New
 
 **1.4.30**
+- Continuous aggregates no longer delete their own history. `drop_chunks`
+  records an invalidation covering every dropped chunk, and any refresh whose
+  window reaches into that region recomputes those buckets from now-empty raw
+  -- so a policy refreshing 32 days back over 7-day-retained raw silently wiped
+  every pre-retention bucket, verified on TimescaleDB 2.24.0. Nine aggregates
+  were refreshing further back than their source retains; their windows are now
+  clamped, and the retention worker alerts on any deployment that drifts back
+  into the hazard. Already-lost buckets are not resurrected -- the raw data is
+  gone. (PR #4874)
+- Cold-storage tiering, entirely opt-in. Raw telemetry past the hot window can
+  be exported to Parquet in object storage and queried through a dedicated
+  pg_duckdb analytics head, with retention gated on verified export so nothing
+  is dropped before it is archived. A deployment that does not enable it runs
+  no additional processes or jobs, gains two empty tables and a `NOLOGIN` role,
+  and sees no change to retention or query behaviour. (PR #4881)
+- Security: eight dependency advisories cleared, including two HIGH and a
+  Postgrex SQL-injection issue reachable through the `:comment` option of
+  `Postgrex.stream/4`. (PRs #4867, #4879)
+- Agents no longer require NATS credentials to be provisioned for OTEL
+  forwarding; the collector relays through the supervising agent over the acked
+  `otlp-relay:v1` stream, and sites with a local NATS leaf opt in explicitly.
+  (PR #4705)
 - Database image: TimescaleDB and Apache AGE are now compiled *and* linked
   against the runtime's glibc rather than the build executor's, so the shipped
   `.so` files load instead of stopping PostgreSQL at startup. Both are in
@@ -33,11 +58,18 @@ endpoint inventory, and a Teleport-style SSO certificate SSH console.
   what is assignable, and only producer-schedule profiles are reconciled.
   Credential broker grants and resolution audits are now retained rather than
   growing unbounded. (PRs #4813, #4816, #4818, #4834, #4839, #4841, #4847)
-- SRQL and query UX: bidirectional `ip:`/`cidr:` flow filters, `%` wildcards
-  honoured on flow IP filters, `sort:` respected when truncating downsample
-  buckets, downsample and stats tokens no longer flagged as unknown, and address
-  filters default to equals instead of contains. (PRs #4827, #4830, #4832,
-  #4836, #4838)
+- SRQL and query UX: bidirectional `ip:`/`cidr:` flow filters, `cidr:` now
+  supported on downsampled flows, `%` wildcards honoured on flow IP filters,
+  `sort:` respected when truncating downsample buckets, downsample and stats
+  tokens no longer flagged as unknown, address filters default to equals instead
+  of contains, and the query bar keeps recent query history. (PRs #4827, #4830,
+  #4832, #4836, #4838, #4856, #4859)
+- Web UI: ops navbars are pinned and the device breakdown focus bug is fixed.
+  (PR #4858)
+- Authentication: a closed pooled connection during the OIDC token exchange is
+  retried once instead of surfacing as a login failure. (PR #4797)
+- Credentials: the agent credential reconciler no longer halts its outer reduce
+  early, so every matching rule is processed. (PR #4794)
 - Kubernetes inventory: public endpoints are collected through the agent, with
   VIP flow joins and attribution fixes so traffic resolves to the right service.
   (PR #4854)
@@ -52,6 +84,13 @@ endpoint inventory, and a Teleport-style SSO certificate SSH console.
   to 19.2.8 with dual installs eliminated, and the BuildBuddy workflow and
   Elixir integration tests were reworked. (PRs #4774, #4790, #4792, #4801,
   #4810, #4814, #4815, #4824, #4825, #4826, #4843, #4844, #4846)
+- Gates that were passing without checking anything: the add-on version gate
+  matched vacuously on every push to staging, `make lint-elixir` was inert,
+  migration compilation was never exercised by any test tier (a migration that
+  does not compile blocks the entire migration run, not just itself), and the
+  integration suite could not reach its database fixture from a remote executor
+  at all. Each is now enforced, and `make test` runs the unit suite the way CI
+  does. (PRs #4860, #4864, #4866, #4872, #4888)
 - Fixes: scan and CLI tests establish closed ports and bound NSS shell-outs;
   a stray kubeconfig committed as a file named `~` was removed. (PRs #4793,
   #4812)
