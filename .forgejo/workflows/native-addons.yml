@@ -131,6 +131,29 @@ jobs:
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
 
+      # MUST run before the first bazel invocation below. `--config=ci` points the executor,
+      # cache and BES at carverauto.buildbuddy.io, and the API key reaches Bazel ONLY through
+      # .bazelrc.remote -- which is gitignored, so it does not exist in a fresh checkout.
+      # Without it every remote call dies with `PERMISSION_DENIED: Anonymous access disabled`,
+      # a failure that reads nothing like the missing credential it actually is: the BES upload
+      # error is the only explicit symptom, while the build itself just reports targets that
+      # "FAILED TO BUILD" with no remote actions ever executed ("N processes: N internal").
+      #
+      # This step was missing here while every other --config=ci workflow had it
+      # (golang-tests, rust-musl, elixir-integration-sr-core, main, publish-oci). If you add a
+      # bazel step to a workflow, copy this one with it.
+      - name: Configure remote cache
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
+          fi
+
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
 
