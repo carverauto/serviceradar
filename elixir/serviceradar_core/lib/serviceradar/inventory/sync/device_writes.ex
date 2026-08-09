@@ -128,7 +128,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   defp do_insert_devices_with_releases(records, releases, update_query, true) do
     with_inventory_rollup_bypassed(fn ->
-      clear_released_active_ips(releases)
+      lock_and_clear_for_upsert(records, releases)
       insert_devices(records, update_query, false)
     end)
   end
@@ -136,7 +136,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp do_insert_devices_with_releases(records, releases, update_query, false) do
     Repo.transaction(
       fn ->
-        clear_released_active_ips(releases)
+        lock_and_clear_for_upsert(records, releases)
         insert_devices(records, update_query, false)
       end,
       timeout: :infinity
@@ -156,31 +156,31 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
-  # Lock all affected owners in uid order, then clear matching (uid, ip) pairs
-  # in one set-wise UPDATE. Per-row unordered UPDATEs deadlocked concurrent
-  # cross-handoffs (PostgreSQL 40P01).
-  defp clear_released_active_ips([]), do: :ok
+  # Lock the sorted union of release-owner UIDs *and* prepared-record UIDs that
+  # already exist, then clear released (uid, ip) pairs set-wise. Locking only
+  # release owners left a cross-lock cycle with insert_all's ON CONFLICT updates
+  # of other prepared rows (PostgreSQL 40P01 under concurrent cross-handoffs).
+  defp lock_and_clear_for_upsert(_records, []), do: :ok
 
-  defp clear_released_active_ips(releases) do
+  defp lock_and_clear_for_upsert(records, releases) do
     releases =
       releases
       |> Enum.uniq()
       |> Enum.sort_by(fn {uid, ip} -> {uid, ip} end)
 
-    uids =
-      releases
-      |> Enum.map(&elem(&1, 0))
-      |> Enum.uniq()
-      |> Enum.sort()
+    lock_uids = upsert_lock_uids(records, releases)
 
-    _locked =
-      Repo.all(
-        from(d in Device,
-          where: d.uid in ^uids and is_nil(d.deleted_at),
-          order_by: [asc: d.uid],
-          lock: "FOR UPDATE"
+    if lock_uids != [] do
+      _locked =
+        Repo.all(
+          from(d in Device,
+            where: d.uid in ^lock_uids and is_nil(d.deleted_at),
+            select: d.uid,
+            order_by: [asc: d.uid],
+            lock: "FOR UPDATE"
+          )
         )
-      )
+    end
 
     {uids_col, ips_col} = Enum.unzip(releases)
 
@@ -200,9 +200,24 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
-  defp with_deadlock_retry(fun, attempts_left \\ @deadlock_retries)
+  @doc false
+  # Sorted unique UIDs that this upsert will touch via release clear and/or
+  # ON CONFLICT updates. New (not-yet-inserted) UIDs are included in the set but
+  # simply produce no FOR UPDATE rows.
+  def upsert_lock_uids(records, releases) do
+    release_uids = Enum.map(releases, &elem(&1, 0))
+    record_uids = Enum.map(records, &Map.fetch!(&1, :uid))
 
-  defp with_deadlock_retry(fun, attempts_left) when attempts_left > 0 do
+    release_uids
+    |> Kernel.++(record_uids)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc false
+  def with_deadlock_retry(fun, attempts_left \\ @deadlock_retries)
+
+  def with_deadlock_retry(fun, attempts_left) when attempts_left > 0 do
     fun.()
   rescue
     e in Postgrex.Error ->
@@ -220,11 +235,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       end
   end
 
-  defp deadlock_detected?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+  @doc false
+  def deadlock_detected?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
     postgres[:code] == :deadlock_detected or postgres[:pg_code] == "40P01"
   end
 
-  defp deadlock_detected?(_), do: false
+  def deadlock_detected?(_), do: false
 
   # Apply the same active-IP policy used by conflict recovery *before* insert so
   # recurring sync batches do not pay a unique_violation + retry every cycle.
