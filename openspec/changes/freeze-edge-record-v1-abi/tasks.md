@@ -74,7 +74,8 @@ PR. Compression is the NEXT PR.
 
 The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-ONE unchecked
 named subtasks remain (1.3 and 1.17 are closed and do not count), including EIGHT of 1.5's
-eleven obligations. COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
+TWELVE obligations -- twelve, not eleven, because the body's refusal-classification
+obligation had no subtask and the exhaustiveness rule below requires one (1.5-l). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
 focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
 already implemented during closeout.
@@ -714,7 +715,7 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-a, 1.5-b, 1.5-d and 1.5-g..1.5-k. 1.5-c, 1.5-e and 1.5-f are CLOSED. The subtask list is
+  - REMAINING: 1.5-b, 1.5-d and 1.5-g..1.5-l. 1.5-a, 1.5-c, 1.5-e and 1.5-f are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
   - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
@@ -748,7 +749,61 @@ here.
     gated in `.forgejo/workflows/proto-abi.yml`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.5-a unknown-field / unknown-enum compatibility rules
+  - [x] 1.5-a UNKNOWN-FIELD / UNKNOWN-ENUM ADMISSION -- the VERDICT, not the mechanism.
+        SIGNED OFF at 7207c7b1.
+        THE RULE is the requirement "An unknown field is refused and an unknown enum is retained,
+        and both runtimes reach the same verdict". It freezes ACCEPT vs REFUSE on the same bytes,
+        the RETAINED ENUM NUMBER, and the graph boundary "every message depth" means. It freezes
+        NEITHER the layer a runtime refuses at NOR the classification a refusal carries -- the
+        latter is 1.5-l's, and the two do not overlap: 1.5-a says WHETHER the bytes are refused,
+        1.5-l says WHAT a refusal is called and therefore whether it is retryable.
+        NO RUNTIME CHANGE: the slice adds Go-authored shared bytes and the requirement above,
+        and no validator, inventory or behaviour. See design.md for the audit that established it.
+        CLAUSES OWNED HERE, each with its Go / Elixir enforcement and its shared vector:
+          (a) UNKNOWN FIELD at any depth -- `hasUnknownFields` (`canonical.go:66`, via
+              `DecodeRecord`) / the `WireValidate` walk (`wire_validate.ex:197`). VECTORS
+              `wire_compat_unknown_field_{top,nested,depth2}.bin`. The depth-2 vector is what
+              separates "the walker recurses" from "the walker looks one level into a known
+              carrier".
+          (b) GROUPS (wire type 3/4) -- Go retains the group as an unknown field; protobuf-elixir
+              silently DISCARDS it, so nothing downstream of the decoder can see it. VECTOR
+              `wire_compat_unknown_group_nested.bin`, which carries the SAME undeclared field
+              number at the SAME offset as (a)'s nested vector, so the pair isolates WIRE TYPE.
+          (c) FIELD-NUMBER BOUND, inclusive at 2^29-1. VECTORS
+              `wire_compat_field_number_{max,over}.bin` -- the PAIR is what makes the bound
+              inclusive rather than off by one.
+          (d) 10-BYTE UINT64-OVERFLOW VARINT -- `take_varint/3` (`wire_validate.ex:124`) against
+              a decoder that MASKS 2^64+1 to 1, which the peer asserts as the NUMBER 1 rather
+              than merely as "a struct came back". VECTOR `wire_compat_varint_overflow.bin`.
+          (e) WIRE-TYPE MISMATCH on a singular scalar -- Go's parser PRESERVES it and
+              `DecodeRecord` refuses it as an unknown field; Elixir's preflight passes it by
+              design (the packed rules are `repeated?`-gated) and the decoder refuses it. VECTOR
+              `wire_compat_wire_type_mismatch.bin`.
+          (f) PACKED payload rules and the NESTING BOUND (`protowire.DefaultRecursionLimit`,
+              10,000 counting the root). Enforcement only, no shared vector: the packed-element
+              rules close a protobuf-elixir leniency with no Go counterpart, and the edge roots
+              are acyclic so no committed edge message can nest 10,000 deep. UNSHAREABLE, not
+              missing.
+          (g) UNKNOWN ENUM retained then refused SEMANTICALLY -- the closed `known*` switches
+              (`validate.go:1489-1560`) / `scripts/patch_edge_enum_negatives.exs` plus
+              `@enum_field_policy` (`semantic_validate.ex:180-223`). VECTORS
+              `wire_compat_enum_positive.bin` (99, the forward-compatibility case a newer
+              producer sends), `wire_compat_enum_negative.bin` (-1, the case that RAISED before
+              the transform), `wire_compat_enum_unspecified.bin` (0, a DECLARED member the closed
+              sets still exclude, so the retained-value gate cannot be what refuses it).
+          (h) LAST-ONE-WINS effective value -- `lane_open_negative_then_valid.bin`, Go-authored
+              in `proto/edge/v1/golden_test.go` and asserted in both runtimes.
+          (i) ENUM POLICY INVENTORY parity -- `enum_policy_manifest.txt`, written by Go
+              (`validate_test.go:999`) and read by Elixir (`semantic_validate_test.exs:1102`).
+        THE MANIFEST IS THE CROSS-RUNTIME ASSERTION. Five columns; the normative one is the
+        accept/refuse CLASS, which BOTH suites derive from BOTH columns -- so moving one runtime
+        and its own column leaves the other suite failing. The reason tokens are DIAGNOSTIC and
+        labelled as such in both suites, because the spec permits refusing at either layer. The
+        retained enum VALUE and FORM are normative: a decoder that clamped an unknown enum would
+        still be refused by the closed sets, so no class assertion can see that drift.
+        MANIFEST-VERSUS-DISK runs in both directions in both runtimes, so an orphaned
+        `wire_compat_*.bin` cannot be staged by Bazel and read by nobody.
+        GATED in `go_test.srcs`, the Elixir unit shard, and `proto-abi.yml`.
   - [ ] 1.5-b unsupported-version compatibility rules
   - [x] 1.5-c TIMESTAMP UNITS -- projection-boundary canonicalization. SPEC, RUNTIME AND
         VECTORS LANDED, and SIGNED OFF at 47e3c2a7 after an uncached, retry-disabled Bazel run
@@ -954,8 +1009,27 @@ here.
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
   - [ ] 1.5-k PROJECTED ROW COST covering every synchronous ledger / domain / outbox / work
         / current-state mutation
+  - [ ] 1.5-l REFUSAL CLASSIFICATION -- `:poison` vs `:systemic` vs `:not_ready`. This task's
+        body requires it and no other subtask carries it.
+        DISTINCT FROM 1.5-a, which freezes WHETHER bytes are refused and explicitly leaves the
+        classification unfrozen. This one owns WHAT A REFUSAL IS CALLED, which decides
+        RETRYABILITY: `:poison` permanently resolves a delivery, `:systemic` pauses, `:not_ready`
+        leaves it unresolved. A malformed input classified `:systemic` at a known delivery slot is
+        RETRYABLE FOREVER while Go refuses it permanently -- the same bytes, opposite outcomes,
+        and invisible to an accept/refuse corpus because neither `:systemic` nor `:not_ready` is
+        a refusal at all.
+        NOT DELEGATED DOWNSTREAM: `unify-sweep-results-proto`'s task 1.16 names task 1.5 as its
+        PREREQUISITE for exactly this alignment, so moving it there would be circular.
+        ALREADY SATISFIED IN PART: `WireValidate` refuses truncation and short reads as `:poison`
+        BEFORE the generated decoder runs; `classify/1` maps `Protobuf.DecodeError` to `:poison`
+        and the ambiguous `MatchError` to `:systemic` deliberately; metadata and codegen failures
+        are `:systemic`/`:not_ready` and never `:poison`.
+        REMAINING: (1) a NORMATIVE requirement -- the rule lives only in module documentation and
+        this ledger today, and a ledger is deleted at archive; (2) the body's own quantified claim,
+        that roughly 3-4% of malformed inputs reached an ambiguous `MatchError`, needs FUZZ
+        EVIDENCE that the preflight now catches those first rather than an argument that it should.
 
-  EXHAUSTIVENESS: 1.5-a..k is checked against this task's own body. Every obligation the
+  EXHAUSTIVENESS: 1.5-a..l is checked against this task's own body. Every obligation the
   body names has a subtask; nothing is carried as an unlisted assumption. If the body gains
   an obligation, it gains a subtask in the same edit.
 

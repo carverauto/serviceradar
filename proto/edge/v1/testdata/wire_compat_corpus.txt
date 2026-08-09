@@ -1,0 +1,12 @@
+wire_compat_clean.bin accept accept 1 atom
+wire_compat_unknown_field_top.bin unknown_fields poison - -
+wire_compat_unknown_field_nested.bin unknown_fields poison - -
+wire_compat_unknown_field_depth2.bin unknown_fields poison - -
+wire_compat_unknown_group_nested.bin unknown_fields poison - -
+wire_compat_field_number_max.bin unknown_fields poison - -
+wire_compat_field_number_over.bin decode poison - -
+wire_compat_varint_overflow.bin decode poison - -
+wire_compat_wire_type_mismatch.bin unknown_fields poison - -
+wire_compat_enum_positive.bin enum unsupported_enum 99 integer
+wire_compat_enum_negative.bin enum unsupported_enum -1 integer
+wire_compat_enum_unspecified.bin enum unsupported_enum 0 atom
