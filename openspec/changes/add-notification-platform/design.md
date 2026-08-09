@@ -140,7 +140,8 @@ the plugin host and an uploaded definition are unavailable.
 
 - `:control_plane` + `:native` -> Elixir transport, direct call.
 - `:control_plane` + `:declarative` -> Elixir HTTP engine, guarded by
-  `Palisade.OutboundURLPolicy.validate_https_public_url/2`.
+  `Palisade.OutboundURLPolicy.validate_https_public_url/2`
+  (resolved at compile time to `ServiceRadar.Policies.OutboundURLPolicy` (the in-tree port; note `Palisade` is NOT a dependency of `serviceradar_core`, so `Palisade.OutboundURLPolicy` is undefined there)).
 - `:control_plane` + `:wasm_plugin` -> `AgentCommandBus.dispatch/4` to the
   **platform-resident** `serviceradar-agent` that already ships
   (`helm/serviceradar/templates/agent.yaml:40`), using the same

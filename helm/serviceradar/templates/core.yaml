@@ -52,6 +52,9 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $mailer := default (dict) $coreVals.mailer -}}
+{{- $mailerFrom := default (dict) $mailer.from -}}
+{{- $mailerSecret := default "" $mailer.existingSecret -}}
 {{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
 {{- include "serviceradar.validateAutomationCallbacks" . -}}
 {{- $automationCallbacksEnabled := false -}}
@@ -300,6 +303,56 @@ spec:
         {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"
+        {{- end }}
+        # Outbound mail. With none of this set the mailer resolves to
+        # Swoosh.Adapters.Test, which reports every send as successful and
+        # delivers nothing - so an email notification channel refuses to
+        # validate until a relay is configured here (or in Settings > Mail)
+        # rather than looking healthy and paging nobody.
+        {{- if $mailer.adapter }}
+        - name: SERVICERADAR_MAILER_ADAPTER
+          value: {{ $mailer.adapter | quote }}
+        {{- end }}
+        {{- if $mailer.relay }}
+        - name: SMTP_RELAY_HOST
+          value: {{ $mailer.relay | quote }}
+        - name: SMTP_RELAY_PORT
+          value: {{ default 587 $mailer.port | quote }}
+        {{- if $mailer.hostname }}
+        - name: SMTP_RELAY_HOSTNAME
+          value: {{ $mailer.hostname | quote }}
+        {{- end }}
+        - name: SMTP_RELAY_AUTH
+          value: {{ default "if_available" $mailer.auth | quote }}
+        - name: SMTP_RELAY_TLS
+          value: {{ default "if_available" $mailer.tls | quote }}
+        - name: SMTP_RELAY_SSL
+          value: {{ default false $mailer.ssl | quote }}
+        {{- end }}
+        {{- if $mailerSecret }}
+        # Relay credentials come from an existing Secret, never from values.
+        # A password in values.yaml is a password in the release manifest, in
+        # `helm get values`, and in whatever GitOps repository holds it.
+        - name: SMTP_RELAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-username" $mailer.usernameKey | quote }}
+              optional: true
+        - name: SMTP_RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $mailerSecret | quote }}
+              key: {{ default "smtp-password" $mailer.passwordKey | quote }}
+              optional: true
+        {{- end }}
+        {{- if $mailerFrom.name }}
+        - name: SERVICERADAR_MAIL_FROM_NAME
+          value: {{ $mailerFrom.name | quote }}
+        {{- end }}
+        {{- if $mailerFrom.email }}
+        - name: SERVICERADAR_MAIL_FROM_EMAIL
+          value: {{ $mailerFrom.email | quote }}
         {{- end }}
         - name: POOL_SIZE
           value: {{ default 40 $database.poolSize | quote }}

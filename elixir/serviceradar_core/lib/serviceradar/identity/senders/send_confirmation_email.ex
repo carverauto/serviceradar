@@ -5,7 +5,7 @@ defmodule ServiceRadar.Identity.Senders.SendConfirmationEmail do
   Uses Swoosh for email delivery via the configured mailer.
   """
 
-  alias ServiceRadar.Identity.Senders.EmailDelivery
+  alias ServiceRadar.OutboundMail
 
   @doc """
   Sends a confirmation email to the user.
@@ -20,7 +20,7 @@ defmodule ServiceRadar.Identity.Senders.SendConfirmationEmail do
     - {:error, reason} on failure
   """
   def send(user, token, _opts \\ []) do
-    EmailDelivery.deliver(
+    OutboundMail.deliver_transactional(
       user,
       "Confirm your ServiceRadar email",
       build_confirmation_url(token),
@@ -33,6 +33,6 @@ defmodule ServiceRadar.Identity.Senders.SendConfirmationEmail do
   end
 
   defp build_confirmation_url(token) do
-    "#{EmailDelivery.base_url()}/auth/confirm-email/#{token}"
+    "#{OutboundMail.base_url()}/auth/confirm-email/#{token}"
   end
 end

@@ -44,7 +44,12 @@ config :serviceradar_core,
     ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Automation.Callbacks,
-    ServiceRadar.Security
+    ServiceRadar.Security,
+    # The deployed core image evaluates THIS config, not serviceradar_core's, so
+    # a domain registered only there is invisible in production: runtime.exs
+    # reads `:ash_domains` to expand the AshOban scheduler, and an unregistered
+    # domain's triggers are never scheduled.
+    ServiceRadar.Notifications
   ]
 
 config :serviceradar_core_elx, :metrics,

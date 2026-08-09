@@ -23,13 +23,16 @@ Conventions that apply to every phase:
 ### 1.1 Notifications domain, Ash resources, and migration
 
 - [x] 1.1.1 Create the domain module `elixir/serviceradar_core/lib/serviceradar/notifications.ex`
-      (`use Ash.Domain`) and register `ServiceRadar.Notifications` in ALL FOUR
+      (`use Ash.Domain`) and register `ServiceRadar.Notifications` in ALL FIVE
       `ash_domains` lists, not just the core one:
       `elixir/serviceradar_core/config/config.exs:179`,
       `elixir/serviceradar_core/config/test.exs:300`,
       `elixir/web-ng/config/config.exs:129`, and
-      `elixir/web-ng/config/config.exs:316`. Missing any one of the four leaves the
-      domain invisible to that environment or that app.
+      `elixir/web-ng/config/config.exs:316`, and - CRITICALLY -
+      `elixir/serviceradar_core_elx/config/config.exs:24`, which is the config the
+      DEPLOYED core image evaluates and which `runtime.exs:862` reads to expand the
+      AshOban scheduler. Missing that fifth one leaves the domain invisible in
+      PRODUCTION with its triggers never scheduled, while every local check passes.
 - [x] 1.1.2 Add `ServiceRadar.Notifications.NotificationProvider`
       (`lib/serviceradar/notifications/notification_provider.ex`) with
       `provider_key`, `provider_type` (`:native | :declarative | :wasm_plugin | :stream`),
@@ -366,15 +369,16 @@ Conventions that apply to every phase:
       `capabilities` without both `send` and `test` is rejected.
 - [ ] 1.4.1b Mark deliveries produced by `test/2` with `is_test: true` so the
       exclusions in 1.1.10b apply automatically rather than at each call site.
-- [ ] 1.4.2 Implement `Notifications.Transports.Slack`,
+- [x] 1.4.2 Implement `Notifications.Transports.Slack`,
       `Notifications.Transports.Discord`,
       `Notifications.Transports.GenericWebhook`, and
       `Notifications.Transports.Email`.
 - [x] 1.4.3 Add `Notifications.Transports.Registry` resolving
       `implementation_module` from a compile-time module allowlist. Never
       `String.to_atom/1` on stored or user input.
-- [ ] 1.4.4 Validate every operator-supplied outbound URL with
-      `Palisade.OutboundURLPolicy.validate_https_public_url/2` before any request.
+- [x] 1.4.4 Validate every operator-supplied outbound URL with
+      `Palisade.OutboundURLPolicy.validate_https_public_url/2`
+  (resolved at compile time to `ServiceRadar.Policies.OutboundURLPolicy` (the in-tree port; note `Palisade` is NOT a dependency of `serviceradar_core`, so `Palisade.OutboundURLPolicy` is undefined there)) before any request.
       `WebhookNotifier` did not do this; the replacement must.
 - [x] 1.4.5 Add `Notifications.Renderer` implementing the restricted substitution
       engine: whitelisted variable paths plus exactly the filters `upper`,
@@ -387,11 +391,11 @@ Conventions that apply to every phase:
       and the provider definition version that rendered it as `provider_version`,
       at render time. Both are written before dispatch so a delivery stays
       explicable after the provider's format list or template version moves on.
-- [ ] 1.4.7 Pass every payload, result summary, and log line through
+- [x] 1.4.7 Pass every payload, result summary, and log line through
       `ActionRedaction` (policy `northbound-action-redaction-v1`,
       `automation/northbound/action_redaction.ex:11-32`) before persistence or
       display.
-- [ ] 1.4.8 Resolve channel secrets through `Credentials.SecretBroker` via
+- [x] 1.4.8 Resolve channel secrets through `Credentials.SecretBroker` via
       `Plugins.SecretRefs`. Never call `Vault.decrypt!` directly.
 - [ ] 1.4.9 Seed the first-party providers (`slack`, `discord`, `webhook`,
       `email`) as `managed` records using the `managed` / `template_version` /
@@ -403,32 +407,32 @@ Conventions that apply to every phase:
 
 ### 1.5 Email dependency and mailer configuration
 
-- [ ] 1.5.1 Add `{:gen_smtp, "~> 1.2"}` to `elixir/serviceradar_core/mix.exs`.
+- [x] 1.5.1 Add `{:gen_smtp, "~> 1.2"}` to `elixir/serviceradar_core/mix.exs`.
       The project has `swoosh` (`mix.exs:138`) but no `gen_smtp`, so SMTP from
       core does not work today. Commit the updated `mix.lock`.
-- [ ] 1.5.2 Select the Swoosh adapter at runtime in
+- [x] 1.5.2 Select the Swoosh adapter at runtime in
       `elixir/serviceradar_core/config/runtime.exs` from
       `SERVICERADAR_MAILER_ADAPTER` (`local` / `smtp`), reading
       `SMTP_RELAY_HOST`, `SMTP_RELAY_PORT`, `SMTP_RELAY_USERNAME`,
       `SMTP_RELAY_PASSWORD`, `SMTP_RELAY_TLS`, `SMTP_RELAY_AUTH`.
-- [ ] 1.5.3 Route native email delivery through
+- [x] 1.5.3 Route native email delivery through
       `ServiceRadar.OutboundMail.deliver/1`; do not add a second mail path.
-- [ ] 1.5.3a Fail loudly on incomplete mailer configuration. The email transport
+- [x] 1.5.3a Fail loudly on incomplete mailer configuration. The email transport
       requires both the `gen_smtp` dependency from 1.5.1 and
       deployment-supplied mailer configuration; when either is missing,
       `validate_config/1` on an email channel MUST fail with an actionable
       diagnostic naming the missing dependency or environment variable. It MUST
       NOT silently resolve to `Swoosh.Adapters.Local` or a test adapter, which
       looks like a successful send and delivers nothing.
-- [ ] 1.5.4 Add the `SERVICERADAR_MAILER_ADAPTER` and `SMTP_RELAY_*` environment
+- [x] 1.5.4 Add the `SERVICERADAR_MAILER_ADAPTER` and `SMTP_RELAY_*` environment
       to `helm/serviceradar/templates/core.yaml` with a `mailer:` block in
       `helm/serviceradar/values.yaml`, sourcing the password from a Secret
       reference rather than a plain value.
-- [ ] 1.5.5 Fold `ServiceRadar.Identity.Senders.EmailDelivery` into `OutboundMail`
+- [x] 1.5.5 Fold `ServiceRadar.Identity.Senders.EmailDelivery` into `OutboundMail`
       and delete the orphaned module; update
       `identity/senders/send_password_reset_email.ex` and
       `identity/senders/send_confirmation_email.ex` call sites.
-- [ ] 1.5.6 Verify the release still builds:
+- [x] 1.5.6 Verify the release still builds:
       `cd elixir/serviceradar_core && MIX_ENV=prod mix release`.
 
 ### 1.6 Acknowledgement ingress - signed capability links
@@ -587,7 +591,7 @@ Conventions that apply to every phase:
       (`elixir/serviceradar_core/lib/serviceradar/nats/channels.ex:54`, doc line
       16) - either wire it to the alert lifecycle subject or delete the constant.
       Zero producers and consumers exist today.
-- [ ] 1.9.5 Delete `ServiceRadar.Identity.Senders.EmailDelivery` once 1.5.5 lands.
+- [x] 1.9.5 Delete `ServiceRadar.Identity.Senders.EmailDelivery` once 1.5.5 lands.
 
 ### 1.10 Phase 1 tests
 
@@ -628,7 +632,7 @@ Conventions that apply to every phase:
 - [x] 1.10.4d Cadence-precedence test: saving a policy whose
       `repeat_interval_seconds` is below the rule's `renotify_seconds` is
       rejected with an actionable message and is not silently clamped.
-- [ ] 1.10.5 Transport tests with a stubbed HTTP client for Slack, Discord, and
+- [x] 1.10.5 Transport tests with a stubbed HTTP client for Slack, Discord, and
       generic webhook, plus an SSRF test asserting a private-IP URL is rejected by
       `Palisade.OutboundURLPolicy.validate_https_public_url/2`.
 - [x] 1.10.6 Renderer tests: whitelisted paths only, each of the seven filters,
@@ -637,7 +641,7 @@ Conventions that apply to every phase:
       payload format; an alert-class specific template wins over the format
       default; an operator-edited template survives a `template_version` bump
       while an untouched managed one is refreshed.
-- [ ] 1.10.6b Delivery-provenance test: `payload_format` and `provider_version`
+- [x] 1.10.6b Delivery-provenance test: `payload_format` and `provider_version`
       on the row match what actually rendered, and remain correct after the
       provider's `payload_formats` list or `template_version` changes.
 - [x] 1.10.6c Transport-behaviour conformance test: every registered transport
@@ -647,10 +651,10 @@ Conventions that apply to every phase:
 - [ ] 1.10.6d Test-delivery isolation test: a `test/2` send writes an
       `is_test: true` row that does not change `Alert.notification_count`, dedupe
       state, throttle state, or escalation position.
-- [ ] 1.10.6e Email-configuration test: with `gen_smtp` or the mailer environment
+- [x] 1.10.6e Email-configuration test: with `gen_smtp` or the mailer environment
       absent, `validate_config/1` on an email channel returns an actionable error
       naming the missing piece and does not fall back to a local or test adapter.
-- [ ] 1.10.7 Redaction test proving no secret reaches a persisted delivery row or
+- [x] 1.10.7 Redaction test proving no secret reaches a persisted delivery row or
       log line.
 - [x] 1.10.8 Alert tests for the new `update :snooze` action and for
       `acknowledged_by_user_id` population: `update :snooze` sets `snooze_until`

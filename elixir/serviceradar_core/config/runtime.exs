@@ -1799,3 +1799,27 @@ if config_env() == :prod do
     config :serviceradar_core, :event_writer_enabled, true
   end
 end
+
+# Outbound mail.
+#
+# The adapter is derived from the environment in exactly one place -
+# `ServiceRadar.OutboundMail.RuntimeConfig` - so this release and
+# `serviceradar_core_elx` cannot resolve different mailers from the same
+# variables. With nothing set it still resolves to `Swoosh.Adapters.Test`,
+# which is what it did before; the difference is that
+# `ServiceRadar.OutboundMail.diagnose/0` now names that state instead of
+# letting every send report success.
+if config_env() == :prod do
+  mailer_env = System.get_env()
+
+  config :serviceradar_core,
+         ServiceRadar.Mailer,
+         ServiceRadar.OutboundMail.RuntimeConfig.mailer_config(mailer_env)
+
+  # Overrides the compile-time `false` in config.exs: an API adapter with no
+  # HTTP client raises on every send, and config.exs cannot know which adapter
+  # this deployment picked because it is chosen here. `Req` is already a
+  # dependency, so this costs nothing when the adapter needs no HTTP client.
+  config :swoosh, :api_client, Swoosh.ApiClient.Req
+  config :swoosh, local: ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
+end

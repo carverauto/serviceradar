@@ -900,13 +900,14 @@ if config_env() == :prod do
 
   oban_config = add_cron_entries.(oban_config, extra_cron_entries)
 
-  local_mailer =
-    case System.get_env("SERVICERADAR_LOCAL_MAILER") do
-      "true" -> true
-      "1" -> true
-      "yes" -> true
-      _ -> false
-    end
+  # The mailer is derived from the environment by
+  # `ServiceRadar.OutboundMail.RuntimeConfig`, the same module
+  # `serviceradar_core`'s own runtime configuration uses, so one set of
+  # variables cannot resolve to two different adapters. `SERVICERADAR_LOCAL_MAILER`
+  # still selects the in-memory development mailbox; `SERVICERADAR_MAILER_ADAPTER`
+  # and `SMTP_RELAY_*` are what a deployment that actually sends mail sets.
+  mailer_env = System.get_env()
+  local_mailer = ServiceRadar.OutboundMail.RuntimeConfig.local?(mailer_env)
 
   config :serviceradar_core, AlertsRetentionWorker,
     retention_days: alerts_retention_days,
@@ -966,16 +967,16 @@ if config_env() == :prod do
     config :serviceradar_core, key, value
   end
 
-  if local_mailer do
-    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+  config :serviceradar_core,
+         ServiceRadar.Mailer,
+         ServiceRadar.OutboundMail.RuntimeConfig.mailer_config(mailer_env)
 
+  if local_mailer do
     config :swoosh, local: true
   else
-    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
-
-    config :swoosh, :api_client, false
-
-    # NATS connection configuration (core publisher)
+    # Left as prod.exs set it (`Swoosh.ApiClient.Req`) rather than forced to
+    # `false`: an API adapter with no HTTP client raises on every send, and
+    # this branch is now reached by a deployment that configured a real one.
     config :swoosh, local: false
   end
 

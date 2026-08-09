@@ -307,6 +307,38 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  # Outbound mail for the native email notification transport and the auth
+  # senders (confirmation, password reset).
+  #
+  # Left empty the mailer resolves to Swoosh.Adapters.Test, which accepts every
+  # message, reports success, and delivers nothing. That is deliberately NOT a
+  # working default: an email notification channel refuses to validate while it
+  # is in that state, so the failure surfaces when an operator saves the channel
+  # instead of during the incident the channel was supposed to page for.
+  #
+  # Setting `relay` is enough - a relay host selects the SMTP adapter.
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: ""
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    # always | never | if_available
+    auth: "if_available"
+    tls: "if_available"
+    # Implicit TLS (port 465). STARTTLS is `tls`, above.
+    ssl: false
+    from:
+      name: "ServiceRadar"
+      email: "noreply@serviceradar.cloud"
+    # Relay credentials are read from an existing Secret and are never values:
+    # a password here ends up in the rendered manifest, in `helm get values`,
+    # and in whatever GitOps repository holds this file. Create the Secret with
+    # the two keys below and name it here.
+    existingSecret: ""
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
   # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
   # VulnCheck nist-nvd2, NVD CVE 2.0). Feeds are AshOban-scheduled in core,
   # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
