@@ -356,6 +356,92 @@ if remote_access_ssh_ca_signer_enabled do
     signer: RemoteAccessSSHCACommandSigner
 end
 
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Deployment-supplied configuration; absent => every cold-tier surface is
+# inert and behavior is identical to a build without the capability.
+# Deliberately OUTSIDE the prod-only block: dev/test (compose profile,
+# integration suite) honor the same envs.
+cold_parse_int = fn name, default ->
+  case System.get_env(name) do
+    nil ->
+      default
+
+    "" ->
+      default
+
+    value ->
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> default
+      end
+  end
+end
+
+cold_secret_env = fn name ->
+  case System.get_env(name <> "_FILE") do
+    nil -> System.get_env(name)
+    path -> path |> File.read!() |> String.trim()
+  end
+end
+
+# nil when unset: a cold window must be an explicit deployment decision (D9).
+cold_window = fn name ->
+  case System.get_env(name) do
+    nil ->
+      nil
+
+    "" ->
+      nil
+
+    value ->
+      case Integer.parse(value) do
+        {days, _} -> max(days, 1)
+        :error -> nil
+      end
+  end
+end
+
+config :serviceradar_core, ServiceRadar.ColdTier,
+  enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
+  bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
+  s3_endpoint: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT"),
+  s3_endpoint_runtime: System.get_env("SERVICERADAR_COLD_TIER_S3_ENDPOINT_RUNTIME"),
+  s3_region: System.get_env("SERVICERADAR_COLD_TIER_S3_REGION"),
+  s3_url_style: System.get_env("SERVICERADAR_COLD_TIER_S3_URL_STYLE"),
+  s3_use_ssl: System.get_env("SERVICERADAR_COLD_TIER_S3_USE_SSL", "true") in ["true", "1"],
+  s3_access_key_id: cold_secret_env.("SERVICERADAR_COLD_TIER_S3_ACCESS_KEY_ID"),
+  s3_secret_access_key: cold_secret_env.("SERVICERADAR_COLD_TIER_S3_SECRET_ACCESS_KEY"),
+  head_host: System.get_env("SERVICERADAR_COLD_TIER_HEAD_HOST"),
+  head_port: cold_parse_int.("SERVICERADAR_COLD_TIER_HEAD_PORT", 5432),
+  head_database: System.get_env("SERVICERADAR_COLD_TIER_HEAD_DATABASE"),
+  head_username: System.get_env("SERVICERADAR_COLD_TIER_HEAD_USERNAME"),
+  head_password: cold_secret_env.("SERVICERADAR_COLD_TIER_HEAD_PASSWORD"),
+  primary_host: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_HOST"),
+  primary_port: cold_parse_int.("SERVICERADAR_COLD_TIER_PRIMARY_PORT", 5432),
+  primary_database: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_DATABASE"),
+  primary_fdw_username: System.get_env("SERVICERADAR_COLD_TIER_PRIMARY_FDW_USERNAME"),
+  primary_fdw_password: cold_secret_env.("SERVICERADAR_COLD_TIER_PRIMARY_FDW_PASSWORD"),
+  export_lag_hours: max(cold_parse_int.("SERVICERADAR_COLD_EXPORT_LAG_HOURS", 48), 1),
+  quarantine_attempts: max(cold_parse_int.("SERVICERADAR_COLD_QUARANTINE_ATTEMPTS", 5), 1),
+  run_chunk_budget: max(cold_parse_int.("SERVICERADAR_COLD_RUN_CHUNK_BUDGET", 24), 1),
+  # Cold windows are what the pruner DELETES archived data by, so an absent
+  # value must never materialize a default: design D9 says absent means no
+  # expiry pruning at all (manifest hygiene only). nil = keep forever until a
+  # deployment states a window explicitly.
+  cold_windows:
+    Enum.reject(
+      [
+        logs: cold_window.("SERVICERADAR_COLD_WINDOW_LOGS_DAYS"),
+        traces: cold_window.("SERVICERADAR_COLD_WINDOW_TRACES_DAYS"),
+        otel_metrics: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRICS_DAYS"),
+        otel_metric_points: cold_window.("SERVICERADAR_COLD_WINDOW_OTEL_METRIC_POINTS_DAYS"),
+        timeseries: cold_window.("SERVICERADAR_COLD_WINDOW_TIMESERIES_DAYS"),
+        events: cold_window.("SERVICERADAR_COLD_WINDOW_EVENTS_DAYS"),
+        flows: cold_window.("SERVICERADAR_COLD_WINDOW_FLOWS_DAYS")
+      ],
+      fn {_class, days} -> is_nil(days) end
+    )
+
 if config_env() == :prod do
   read_secret_env = fn env_name, file_env_name ->
     case System.get_env(env_name) do
@@ -493,6 +579,9 @@ if config_env() == :prod do
 
   ocsf_network_activity_retention_days =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  timeseries_metrics_retention_days =
+    "SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
 
   flow_attribution_retention_minutes =
     "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
@@ -1098,6 +1187,7 @@ if config_env() == :prod do
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
+    timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
@@ -1418,6 +1508,14 @@ if config_env() == :prod do
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
            {"17 3 * * *", DataRetentionWorker, queue: :maintenance},
+           # Cold-tier chunk exporter: hourly so the frontier stays ~export_lag
+           # behind now; self-guards on cold-tier config (no-op when absent).
+           # Correctness does NOT depend on running before DataRetentionWorker —
+           # the fence's drop gate alone enforces export-before-drop.
+           {"47 * * * *", ServiceRadar.ColdTier.Exporter, queue: :maintenance},
+           # Cold-window pruning + manifest/bucket reconciliation (no-op when
+           # cold-tier config is absent).
+           {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,

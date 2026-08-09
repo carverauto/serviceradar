@@ -2723,6 +2723,18 @@ oci_ext.pull(
         "linux/amd64",
     ],
 )
+
+# Official pg_duckdb image (MIT, duckdb org) — base of the analytics head
+# (serviceradar-cnpg-analytics). Digest pins docker.io/pgduckdb/pgduckdb:18-v1.1.1;
+# every bump must pass scripts/ci/cold-analytics-image-smoke.sh.
+oci_ext.pull(
+    name = "pgduckdb_18",
+    digest = "sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    image = "docker.io/pgduckdb/pgduckdb",
+    platforms = [
+        "linux/amd64",
+    ],
+)
 use_repo(
     oci_ext,
     "actions_runner",
@@ -2743,6 +2755,8 @@ use_repo(
     "debian_testing_slim_linux_amd64",
     "node_20_alpine",
     "node_20_alpine_linux_amd64",
+    "pgduckdb_18",
+    "pgduckdb_18_linux_amd64",
     "serviceradar_tools",
     "serviceradar_tools_linux_amd64",
     "ubuntu_jammy",

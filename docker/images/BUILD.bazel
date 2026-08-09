@@ -1,5 +1,6 @@
 """Bazel-native OCI images."""
 
+load("//docker/images:analytics_image.bzl", "declare_cnpg_analytics_image_amd64")
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs_amd64", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
 load("//docker/images:image_inventory.bzl", "publishable_image_labels")
@@ -574,6 +575,8 @@ declare_custom_base_service_container_amd64(
 )
 
 declare_cnpg_image_amd64()
+
+declare_cnpg_analytics_image_amd64()
 
 filegroup(
     name = "images",

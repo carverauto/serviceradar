@@ -924,6 +924,64 @@ cnpg:
   clientCAFromCerts: false
   requireClientCert: false
 
+# Tiered telemetry cold storage (OpenSpec add-tiered-telemetry-offload).
+# Everything below is DISABLED by default and renders nothing. Activation is a
+# deployment decision made by supplying complete cold-tier configuration
+# (object-store location/credentials + this analytics head); there is no
+# supported OSS enablement path.
+coldTier:
+  # The read-only role the analytics head uses to reach hot rows on the primary
+  # over postgres_fdw. Migration 20260716220000 always creates it NOLOGIN with
+  # SELECT-only grants; setting `enabled` here hands login + password to CNPG
+  # `managed.roles`, which is what actually makes it connectable. Leave it off
+  # unless you are running the cold tier: an off deployment carries the role as
+  # an inert grant set that cannot authenticate.
+  exportRole:
+    enabled: false
+    name: cold_reader
+    # Name of a Secret of type kubernetes.io/basic-auth whose `username`
+    # matches `name` above and whose `password` CNPG will set. Required when
+    # enabled; there is no default, because a defaulted database password is
+    # worse than a failed render.
+    passwordSecret: ""
+    # Bounds concurrent cold_reader sessions so a runaway cannot exhaust the
+    # primary's connection slots. Sized for the exporter's export/verify
+    # sessions plus concurrent stitched-view reads; raise alongside
+    # analyticsHead.poolSize.
+    connectionLimit: 10
+  analyticsHead:
+    enabled: false
+    # Dedicated analytics image: PostgreSQL 18 + pg_duckdb, WITHOUT
+    # TimescaleDB/AGE/PostGIS (pg_duckdb is structurally incompatible with a
+    # TimescaleDB-loaded instance — never point this at the primary image).
+    imageName: ""
+    # The analytics image is based on the official pgduckdb image, whose
+    # postgres user is UID/GID 999 — not CloudNativePG's default 26. These
+    # MUST match the image or the instance dies during initdb. Override only
+    # if you build the image on a base with a different postgres UID.
+    postgresUID: 999
+    postgresGID: 999
+    # Defaults to image.registryPullSecret; set only to use a dedicated secret.
+    registryPullSecret: ""
+    clusterName: cnpg-analytics
+    instances: 1
+    storageSize: 20Gi
+    storageClass: ""
+    # ColdRepo pool size drives the memory request:
+    # request = poolSize * duckdb.maxMemoryMb + overheadMb (per-connection
+    # DuckDB memory is NOT accounted inside PostgreSQL's own limits).
+    poolSize: 4
+    overheadMb: 1536
+    duckdb:
+      maxMemoryMb: 1536
+      threads: 2
+      # Spill lives under PGDATA (pg_duckdb default); the cap prevents a
+      # runaway query from filling the volume.
+      maxTempDirectorySize: 10GB
+    # Extra postgresql.parameters merged into the Cluster spec.
+    postgresqlParameters: {}
+    resources: {}
+
 # Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that
 # might need local lookups (web-ng). Enrichment should never do external API calls

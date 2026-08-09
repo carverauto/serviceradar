@@ -396,12 +396,21 @@ This branch adds a standalone Rust control binary for the current
 
 ```bash
 METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
+  # harness removed 2026-08-07 with rust/metrics-delta-writer; recover from git history:
+  #   git show 4f198c0831:rust/metrics-delta-writer/src/bin/metrics_protobuf_bench.rs
   sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
 ```
 
-It deliberately lives under `rust/metrics-delta-writer` and reuses the same
+It lived under `rust/metrics-delta-writer` and reused the same
 `serviceradar-metric-proto` bindings and `batch_to_rows/2` flattening path as
-the Delta writer skeleton. It reports separate phase timing for:
+the Delta writer skeleton.
+
+**The harness was removed on 2026-08-07** together with that crate: the Delta
+lakehouse design it belonged to was superseded by tiered cold storage
+(`add-tiered-telemetry-offload`), the writer never advanced past a no-op
+`LoggingSink`, and this change's benchmark work is complete (task 3.9). The
+measurements below are the durable output and remain valid; the harness is
+recoverable from git history if a re-run is ever needed. It reports separate phase timing for:
 
 - reading captured payload files;
 - protobuf decode plus row transform;
@@ -417,6 +426,8 @@ CNPG, a benchmark schema, or an explicit test window:
 METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
 METRIC_BENCH_PG_DSN='postgres://serviceradar:...@localhost:5455/serviceradar' \
 METRIC_BENCH_BATCH_ROWS=5000 \
+  # harness removed 2026-08-07 with rust/metrics-delta-writer; recover from git history:
+  #   git show 4f198c0831:rust/metrics-delta-writer/src/bin/metrics_protobuf_bench.rs
   sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
 ```
 

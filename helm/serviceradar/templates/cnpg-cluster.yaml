@@ -1,4 +1,7 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $coldTier := default (dict) .Values.coldTier -}}
+{{- $coldExportRole := default (dict) $coldTier.exportRole -}}
+{{- $coldExportRoleName := default "cold_reader" $coldExportRole.name -}}
 {{- $spire := default (dict) .Values.spire -}}
 {{- $spirePg := default (dict) $spire.postgres -}}
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
@@ -169,6 +172,12 @@ spec:
     storageClass: {{ $cnpgStorageClass | quote }}
     {{- end }}
   bootstrap:
+    # NOTE: no locale/collation keys are set here on purpose — the CNPG
+    # operator default (encoding UTF8, lc_collate/lc_ctype C) is load-bearing
+    # for the tiered-telemetry cold path: DuckDB on the analytics head sorts
+    # in binary/codepoint order, which equals C collation exactly. Adding
+    # ICU/libc locale settings here would silently split hot-vs-cold text
+    # ordering (verified in add-tiered-telemetry-offload Phase-0 spike 0.6).
     initdb:
       database: {{ default "serviceradar" $cnpg.database }}
       owner: {{ $appUser | quote }}
@@ -256,6 +265,22 @@ spec:
         login: true
         passwordSecret:
           name: {{ $appSecretName | quote }}
+      {{- if $coldExportRole.enabled }}
+      {{- /* Cold-tier FDW reader. The analytics head reads hot rows through
+             postgres_fdw as this role and nothing else does, so it exists as
+             a connectable identity ONLY while the cold tier is switched on.
+             Migration 20260716220000 creates it NOLOGIN with its SELECT-only
+             grants and role-level timeouts; CNPG owns login + password from
+             here, reconciled continuously so it survives migration ordering
+             and failover. Leaving this block out (the default) leaves the
+             role NOLOGIN -- CNPG only manages roles it is told about. */}}
+      - name: {{ $coldExportRoleName | quote }}
+        ensure: present
+        login: true
+        connectionLimit: {{ default 10 $coldExportRole.connectionLimit }}
+        passwordSecret:
+          name: {{ required "coldTier.exportRole.passwordSecret is required when coldTier.exportRole.enabled is true" $coldExportRole.passwordSecret | quote }}
+      {{- end }}
   monitoring:
     enablePodMonitor: true
   enableSuperuserAccess: true
