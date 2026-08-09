@@ -70,6 +70,10 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
 
     record = %V1.EdgeRecordV1{
       compression: :EDGE_RECORD_COMPRESSION_NONE,
+      # The FRAMING FAMILY this ingress accepts. Omitting it left the control at UNSPECIFIED --
+      # a value no real sweep record carries -- which is the same defect the comment below names
+      # for the outer mirrors: a control must be a record an authenticated boundary would admit.
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
       source_authorization: %V1.EdgeSourceAuthorizationV1{
         kind: :EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK,
         # The OUTER mirrors agree with the signed claims. This relation does not read

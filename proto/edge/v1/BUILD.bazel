@@ -70,6 +70,7 @@ go_test(
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.
         "sweep_corpus_test.go",
+        "family_corpus_test.go",
     ],
     data = glob(["testdata/**"]),
     deps = [
