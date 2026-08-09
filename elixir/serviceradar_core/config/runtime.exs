@@ -14,6 +14,10 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
+alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
+alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -1469,6 +1473,22 @@ if config_env() == :prod do
     # source list at run time. A non-empty Settings value overrides this.
     default_source_opt_ins: ProductionSchedule.capacity_source_opt_ins()
 
+  # Notification continuation, silence expiry, and delivery retention. Built by
+  # ServiceRadar.Notifications.DispatchSchedule so this tree and
+  # serviceradar_core_elx's runtime.exs cannot drift; unset env leaves each
+  # worker's own defaults authoritative.
+  config :serviceradar_core,
+         NotificationContinuationWorker,
+         DispatchSchedule.continuation_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -1527,7 +1547,8 @@ if config_env() == :prod do
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
-           ProductionSchedule.cron_entries()}
+           ProductionSchedule.cron_entries() ++
+           DispatchSchedule.cron_entries()}
     ],
     peer: Oban.Peers.Database
 

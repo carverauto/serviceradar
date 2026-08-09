@@ -7,6 +7,28 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   All Ash writes run as the `:alert_engine` system actor; the DB connection's
   search_path determines the schema.
+
+  ## Notification
+
+  This module is the single choke point where an incident fires, resolves, or is
+  re-notified, which design D8 makes the ONLY path allowed to originate a new
+  incident notification: it is where incident identity, dedup state, and the
+  alert row are already consistent. Each of the three emits one
+  `ServiceRadar.Notifications.RoutingWorker` job - `:fire`, `:resolve`,
+  `:renotify` - and decides nothing else. Matching, deduplication, escalation,
+  suppression, rendering, and the retry rule are
+  `ServiceRadar.Notifications.Dispatcher`'s, and through it the pure cores'.
+
+  Two properties are load bearing here, because this module runs inside a
+  Horde-sharded, latency-sensitive engine.
+
+  1. **The enqueue happens after the write returns, never inside it.** Each Ash
+     call opens and closes its own transaction, so calling `enqueue_routing/2`
+     on the result keeps the job insert off the incident-recording transaction.
+  2. **A notification failure never breaks incident recording.** The enqueue is
+     logged and swallowed. An incident that is recorded but not routed is
+     recoverable - `Alert.:needs_notification` still finds an alert that has
+     never notified. An incident that was never recorded is not.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.Bucketing
@@ -19,7 +41,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Monitoring.OcsfEvent
-  alias ServiceRadar.Monitoring.WebhookNotifier
+  alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
 
@@ -40,6 +62,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         {:ok, %Alert{} = alert} ->
           if !synthetic_liveness_check? do
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+
+            # Inside the guard on purpose. A synthetic liveness probe is an
+            # internal check on the anomaly pipeline, not an incident anyone is
+            # on call for - it is already created with `notify?: false`, and
+            # routing it would page for ServiceRadar watching itself.
+            enqueue_routing(alert.id, :fire)
           end
 
           {:ok, alert.id}
@@ -79,6 +107,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
           {:ok, _} ->
             if !synthetic_liveness_snapshot?(snapshot) do
               record_history(rule, snapshot, :recovered, now, alert_id, %{})
+
+              # The resolution is routed, not broadcast: design D5 sends it to
+              # the channels that received the firing notification, correlated
+              # through `external_correlation_id`, unless the policy disables
+              # resolution notices. That decision is `Dispatcher.route/3`'s.
+              enqueue_routing(alert_id, :resolve)
             end
 
             :ok
@@ -95,24 +129,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
 
   def resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
 
-  def send_renotify(alert_id, _rule, _snapshot, now) when is_binary(alert_id) do
+  def send_renotify(alert_id, _rule, _snapshot, _now) when is_binary(alert_id) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
     case Alert.get_by_id(alert_id, actor: actor) do
       {:ok, alert} ->
-        alert_key = %WebhookNotifier.Alert{
-          level: severity_to_level(alert.severity),
-          title: alert.title,
-          message: alert.description,
-          timestamp: DateTime.to_iso8601(now),
-          gateway_id: "core",
-          service_name: nil,
-          details: alert.metadata || %{}
-        }
+        enqueue_routing(alert.id, :renotify)
 
-        _ = WebhookNotifier.send_alert(alert_key)
-
+        # `:record_notification` is bookkeeping only and deliberately does not
+        # enqueue: the routing request above is this repeat's one emission, and
+        # the counter it bumps is what the renotify cadence reads.
         alert
         |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
         |> Ash.update()
@@ -125,6 +152,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   end
 
   def send_renotify(_alert_id, _rule, _snapshot, _now), do: {:error, :missing_alert_id}
+
+  # Never raises and never returns an error: see the "Notification" section of
+  # the moduledoc. A routing request that could not be enqueued is a logged
+  # notification failure, not a reason to abandon the incident record that the
+  # caller has already written.
+  defp enqueue_routing(alert_id, lifecycle_reason) do
+    case RoutingWorker.enqueue(alert_id, lifecycle_reason) do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to enqueue #{lifecycle_reason} notification routing for alert " <>
+            "#{alert_id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
 
   def sync_active_incident(snapshot, rule, now, opts \\ []) do
     if is_binary(snapshot.alert_id) do

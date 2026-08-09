@@ -206,15 +206,15 @@ Conventions that apply to every phase:
 - [x] 1.2.2 Add `acknowledged_by_user_id` as a real foreign key to
       `ServiceRadar.Identity.User` while retaining the existing free-text
       `acknowledged_by` / `resolved_by` columns for external principals.
-- [ ] 1.2.3 Split the scan by what it is keyed on. Keep `read :needs_notification`
+- [x] 1.2.3 Split the scan by what it is keyed on. Keep `read :needs_notification`
       (`alert.ex:188-200`) ALERT-keyed and FIRST-NOTIFY ONLY, replacing the
       `notification_count == 0` filter with one that also excludes alerts that
       already have delivery rows. Renotify, escalation-step-due, and retry-due are
       properties of a DELIVERY, not of an alert, so they get their own
       delivery-keyed read rather than being folded into this one (1.2.6).
-- [ ] 1.2.4 Implement `update :send_notification` (`alert.ex:314`, currently a
+- [x] 1.2.4 Implement `update :send_notification` (`alert.ex:314`, currently a
       `# TODO` stub) to enqueue routing, never to deliver inline.
-- [ ] 1.2.5 Wire the routing request into
+- [x] 1.2.5 Wire the routing request into
       `Observability.StatefulAlertEngine.AlertLifecycle` trigger points and make
       the request idempotent on
       `{alert_id, lifecycle_reason, step_number, dedupe_key}`. The field is
@@ -222,7 +222,7 @@ Conventions that apply to every phase:
       `lifecycle_event`. Re-emitting the same tuple (a duplicate lifecycle
       callback, an Oban retry, an overlapping scheduler tick) MUST resolve to the
       existing work rather than produce a second dispatch.
-- [ ] 1.2.5a Enforce the two-part routing trigger rule in code and in the module
+- [x] 1.2.5a Enforce the two-part routing trigger rule in code and in the module
       docs, split by what each path is keyed on:
       - `AlertLifecycle`, together with the ALERT-keyed AshOban trigger
         `:send_notifications` acting as its catch-up safety net, is the only way a
@@ -233,7 +233,7 @@ Conventions that apply to every phase:
       Neither crosses into the other's job: the delivery-keyed scheduler MUST NOT
       originate a first notification for an alert that has no delivery rows, and
       the alert-keyed trigger MUST NOT advance an escalation step or a retry.
-- [ ] 1.2.6 Keep the existing AshOban trigger `:send_notifications`
+- [x] 1.2.6 Keep the existing AshOban trigger `:send_notifications`
       (`alert.ex:128-137`) responsible for FIRST-NOTIFY ONLY. It scans ALERTS
       through `read_action :needs_notification`, and continuation work is keyed on
       DELIVERIES, so that scan structurally cannot drive it. Add a SECOND,
@@ -242,11 +242,11 @@ Conventions that apply to every phase:
       scheduler" contradicts the delivery-keyed continuation model and is not the
       rule here. Both schedulers run on the already-declared `:notifications` Oban
       queue (`config/config.exs:36`); no new queue is needed.
-- [ ] 1.2.7 Route the two engine-bypassing alert creators through the
+- [x] 1.2.7 Route the two engine-bypassing alert creators through the
       notification-layer dedupe and suppression path:
       `LogPromotion.update_alert_counts/2` (`log_promotion.ex:711-717`) and
       `TrivyReports.maybe_create_priority_alert/3` (`trivy_reports.ex:992`).
-- [ ] 1.2.8 Implement resolve-time notification close-out for channels that
+- [x] 1.2.8 Implement resolve-time notification close-out for channels that
       already fired, gated on `NotificationEscalationPolicy.resolve_notifies`.
 - [x] 1.2.9 Add a snooze-expiry path that resumes the notification cadence once
       `snooze_until` passes. Because snooze is a derived condition rather than a
@@ -280,16 +280,16 @@ Conventions that apply to every phase:
       Because there is no channel and no policy for an unrouted alert, the
       identity tuple in 1.3.5a carries nulls in those positions and still
       deduplicates on repeat.
-- [ ] 1.3.3 Implement the `:device_out_of_service` check against subject device
+- [x] 1.3.3 Implement the `:device_out_of_service` check against subject device
       `is_active == false` (`inventory/device.ex:558`) as defense in depth; do not
       duplicate the generation-side suppression owned by
       `add-device-active-lifecycle`.
-- [ ] 1.3.4 Re-run suppression at every dispatch, not only at routing, so an
+- [x] 1.3.4 Re-run suppression at every dispatch, not only at routing, so an
       escalation step firing minutes later sees current device and silence state.
-- [ ] 1.3.5 Guarantee that every dispatch decision that withholds a notification
+- [x] 1.3.5 Guarantee that every dispatch decision that withholds a notification
       writes a `NotificationDelivery` row with `state: :suppressed` and a
       populated `suppression_reason`. Silent drops are prohibited.
-- [ ] 1.3.5a Bound the growth that 1.3.5 would otherwise cause: a repeat of an
+- [x] 1.3.5a Bound the growth that 1.3.5 would otherwise cause: a repeat of an
       IDENTICAL decision
       `{alert_id, policy_id, step_number, channel_id, dedupe_key, suppression_reason}`
       updates the existing row - incrementing `suppression_occurrence_count` and
@@ -320,28 +320,28 @@ Conventions that apply to every phase:
       exactly ONE exception, and it must be implemented explicitly: after a snooze
       expires, the remaining step delays are measured from the snooze expiry
       instant (1.2.9).
-- [ ] 1.3.8 Keep retry, failover, and escalation as three separate mechanisms.
+- [x] 1.3.8 Keep retry, failover, and escalation as three separate mechanisms.
       Retry is transport-level and bounded by the channel's `max_attempts` plus
       Oban backoff; failover is exactly one hop to `fallback_channel_id`;
       escalation is human and gated on acknowledgement. No code path may treat one
       as another.
-- [ ] 1.3.8a Model retry so that `:failed` is TERMINAL. A retry-eligible delivery
+- [x] 1.3.8a Model retry so that `:failed` is TERMINAL. A retry-eligible delivery
       stays `:pending` with `next_attempt_at` set; it does not pass through
       `:failed` and come back. Only a non-retryable failure, or exhaustion of
       `max_attempts`, moves a row to `:failed`. Retry-due selection therefore
       selects `:pending` rows with `next_attempt_at <= now()` AND
       `attempt_count < max_attempts`, and MUST NOT select `:failed` rows - a scan
       that picks up `:failed` retries forever and defeats the attempt bound.
-- [ ] 1.3.8b On failover, create the successor delivery with
+- [x] 1.3.8b On failover, create the successor delivery with
       `originating_delivery_id` pointing at the row that failed, so the Delivery
       Log renders one failover chain rather than two unrelated attempts. Failover
       fires when a delivery reaches `:failed`, or immediately on
       `{:error, {:agent_offline, _}}`, and never when the channel is
       `fail_closed`.
-- [ ] 1.3.9 Add `ServiceRadar.Notifications.RateLimiter` enforcing
+- [x] 1.3.9 Add `ServiceRadar.Notifications.RateLimiter` enforcing
       `rate_limit_per_minute` against a durable, restart-surviving counter (not
       in-memory GenServer state as `WebhookNotifier` used).
-- [ ] 1.3.10 Add the Oban workers FLAT in `lib/serviceradar/notifications/`:
+- [x] 1.3.10 Add the Oban workers FLAT in `lib/serviceradar/notifications/`:
       `dispatch_worker.ex`, `escalation_worker.ex`, `silence_expiry_worker.ex`,
       `snooze_expiry_worker.ex`, `delivery_retention_worker.ex`. Repo convention
       puts workers directly in the domain directory
@@ -350,7 +350,7 @@ Conventions that apply to every phase:
       used under a domain are `changes/` and `checks/`, so a `workers/`
       subdirectory has no precedent in this repo and is not introduced here. All
       jobs idempotent, string-keyed args, no structs in args.
-- [ ] 1.3.11 Give `NotificationDelivery` its own retention policy independent of
+- [x] 1.3.11 Give `NotificationDelivery` its own retention policy independent of
       `Jobs.AlertsRetentionWorker`, configurable and defaulting longer than 3 days.
 - [ ] 1.3.12 Emit `:telemetry` events for routed, suppressed, dispatched, sent,
       failed, failed-over, escalated, and acknowledged, with channel and provider
@@ -614,16 +614,16 @@ Conventions that apply to every phase:
       incremented `suppression_occurrence_count`, not a new row per evaluation.
       This is the test that proves the NULL handling required by 1.1.18a is
       actually in the index; a plain unique index passes 1.10.2a and fails here.
-- [ ] 1.10.3 A regression test proving suppression is re-evaluated at dispatch:
+- [x] 1.10.3 A regression test proving suppression is re-evaluated at dispatch:
       device marked inactive between routing and the escalation step.
-- [ ] 1.10.4 Retry / failover / escalation separation tests asserting a transport
+- [x] 1.10.4 Retry / failover / escalation separation tests asserting a transport
       5xx never advances the escalation step and an unacknowledged timer never
       counts as a transport retry.
-- [ ] 1.10.4a Retry-terminality tests: a retry-eligible failure leaves the row
+- [x] 1.10.4a Retry-terminality tests: a retry-eligible failure leaves the row
       `:pending` with `next_attempt_at` set and never transits `:failed`;
       exhausting `max_attempts` moves it to `:failed`; and the retry-due query
       returns no `:failed` row even when its `next_attempt_at` is in the past.
-- [ ] 1.10.4b Failover-chain test: the successor delivery carries
+- [x] 1.10.4b Failover-chain test: the successor delivery carries
       `originating_delivery_id` pointing at the failed row, and a `fail_closed`
       channel produces no successor at all.
 - [x] 1.10.4c Escalation-timing tests: step delays are measured from alert fire
@@ -663,7 +663,7 @@ Conventions that apply to every phase:
       expiry and false after; and the state machine still declares exactly the five
       states and five transitions it had before, proving no snoozed state was
       added.
-- [ ] 1.10.9 Delivery-outlives-alert test: delete the alert, assert the delivery
+- [x] 1.10.9 Delivery-outlives-alert test: delete the alert, assert the delivery
       row and its `alert_snapshot` still render.
 - [ ] 1.10.10 Action-token tests: single-use, TTL expiry, sha256-only storage,
       tampered token rejection.
@@ -674,7 +674,7 @@ Conventions that apply to every phase:
 - [ ] 1.10.12a An RBAC catalog test asserting the `notifications` section holds
       exactly the nine keys from 1.8.1, that every one is three-part, and that no
       `observability.notifications.*` key exists anywhere in the catalog.
-- [ ] 1.10.13 Integration test (tagged `:integration`, run against the
+- [x] 1.10.13 Integration test (tagged `:integration`, run against the
       `srql-fixtures` CNPG scratch database) exercising alert created -> routed ->
       suppressed-or-delivered -> acknowledged, asserting the delivery rows.
 

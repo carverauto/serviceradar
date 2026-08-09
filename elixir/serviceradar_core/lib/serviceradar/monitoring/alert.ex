@@ -35,6 +35,8 @@ defmodule ServiceRadar.Monitoring.Alert do
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
   alias ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
   alias ServiceRadar.Monitoring.Alert.SendNotificationsWorker
+  alias ServiceRadar.Monitoring.Changes.EnqueueRoutingRequest
+  alias ServiceRadar.Monitoring.Changes.RecordNotificationSent
   alias ServiceRadar.Oban.AshObanQueueResolver
 
   @alert_trigger_fields [
@@ -124,7 +126,16 @@ defmodule ServiceRadar.Monitoring.Alert do
               )
       end
 
-      # Scheduled trigger for sending notifications on new/escalated alerts
+      # First-notification safety net for new/escalated alerts.
+      #
+      # `read :needs_notification` is `notification_count == 0` and skips a
+      # suppressed or snoozed alert, so this scan can only ever originate a
+      # FIRST notification - never a renotify, an escalation rung, or a retry.
+      # Those are keyed on NotificationDelivery rows rather than on alerts and
+      # are driven by the delivery-keyed workers that now share this queue
+      # (`:notifications`, concurrency 5, `config.exs:36`, which also carries
+      # the routing, dispatch, continuation, silence-expiry, and
+      # delivery-retention workers under `ServiceRadar.Notifications`).
       trigger :send_notifications do
         queue :notifications
         extra_args &AshObanQueueResolver.job_meta/1
@@ -340,35 +351,31 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :record_notification do
       description "Record that a notification was sent"
-      # Non-atomic: increments notification_count based on current value
-      require_atomic? false
 
-      change fn changeset, _context ->
-        increment_notification_tracking(changeset)
-      end
+      # Bookkeeping only. The caller already emitted its own routing request -
+      # `AlertLifecycle.send_renotify/4` is the one in tree - so enqueueing a
+      # second one here would page twice for one decision.
+      change RecordNotificationSent
     end
 
     update :send_notification do
-      description "Send notification for an alert (called by AshOban scheduler)"
-      # Non-atomic: increments notification_count and logs
-      require_atomic? false
+      description "Route notifications for an alert (called by AshOban scheduler)"
 
-      change fn changeset, _context ->
-        require Logger
-
-        alert = changeset.data
-        current_count = alert.notification_count || 0
-
-        # Log the notification being sent
-        Logger.info(
-          "Sending notification for alert: #{alert.title} (#{alert.id}) - severity: #{alert.severity}"
-        )
-
-        # TODO: Implement actual notification dispatch (email, webhook, PubSub, etc.)
-        # For now, just record that a notification was sent
-
-        increment_notification_tracking(changeset, current_count)
-      end
+      # Enqueue, never deliver. This action runs on the `:notifications` queue
+      # from the `:send_notifications` trigger above, and the work it starts -
+      # matching, dedup, escalation, suppression, rendering, the transport call,
+      # and the retry rule - belongs to the notification platform. Sending from
+      # here would put a network call inside the alert's transaction.
+      #
+      # `:fire` is the lifecycle reason for a first notification, and this action
+      # is reachable only through `read :needs_notification`, which is
+      # `notification_count == 0`. `AlertLifecycle` emits the same `:fire`
+      # request when the incident is created; the two converge on one
+      # `Dedupe.routing_request_key/1` and `Dispatcher.route/3` resolves the
+      # second to the work the first created rather than a second page. Using a
+      # different reason in either place is what would break that.
+      change RecordNotificationSent
+      change {EnqueueRoutingRequest, lifecycle_reason: :fire}
     end
 
     update :update_metadata do
@@ -391,14 +398,6 @@ defmodule ServiceRadar.Monitoring.Alert do
         end
       end
     end
-  end
-
-  defp increment_notification_tracking(changeset, current_count \\ nil) do
-    current_count = current_count || changeset.data.notification_count || 0
-
-    changeset
-    |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
-    |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
   end
 
   defp changeset_input(changeset, field) do

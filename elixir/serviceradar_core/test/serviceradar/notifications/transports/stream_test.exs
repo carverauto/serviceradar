@@ -290,9 +290,19 @@ defmodule ServiceRadar.Notifications.Transports.StreamTest do
     end
   end
 
-  describe "default_broadcast/2" do
-    test "returns an error instead of raising when PubSub is not running" do
-      assert {:error, message} = Stream.default_broadcast("notifications:stream", %{})
+  describe "default_broadcast/3" do
+    test "returns an error instead of raising when the PubSub server is not running" do
+      # Name a server that is guaranteed not to be registered, so this asserts
+      # the rescue branch in every test tier. Relying on ServiceRadar.PubSub
+      # being down made the result depend on whether the supervision tree was
+      # started: green database-free, red under :requires_app.
+      assert {:error, message} =
+               Stream.default_broadcast(
+                 "notifications:stream",
+                 %{},
+                 :"pubsub_not_running_#{System.unique_integer([:positive])}"
+               )
+
       assert is_binary(message)
     end
   end

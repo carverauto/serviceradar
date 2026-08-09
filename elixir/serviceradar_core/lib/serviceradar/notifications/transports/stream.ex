@@ -258,10 +258,16 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
   Subscribers receive `{#{inspect(@broadcast_event)}, envelope}`. Override with
   `opts[:broadcast]` in a test, and with a composed seam once the durable
   JetStream subject lands (tasks 4.1.x).
+
+  The third argument names the PubSub server and exists so the not-running
+  branch below is testable deterministically. Without it a test can only assert
+  that branch when `ServiceRadar.PubSub` happens to be down, which makes the
+  assertion depend on which test tier is running: green in the database-free
+  tier and red under `:requires_app`, where the supervision tree is up.
   """
-  @spec default_broadcast(String.t(), map()) :: :ok | {:error, term()}
-  def default_broadcast(topic, envelope) do
-    Phoenix.PubSub.broadcast(@default_pubsub, topic, {@broadcast_event, envelope})
+  @spec default_broadcast(String.t(), map(), atom()) :: :ok | {:error, term()}
+  def default_broadcast(topic, envelope, pubsub \\ @default_pubsub) do
+    Phoenix.PubSub.broadcast(pubsub, topic, {@broadcast_event, envelope})
   rescue
     # `broadcast/3` raises when the PubSub server is not running - during a
     # partial boot, or in a release where it has crashed. That is a transient

@@ -8,6 +8,10 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
+alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
+alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -880,7 +884,9 @@ if config_env() == :prod do
       # large deletes do not overlap.
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
        ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
-    ] ++ capacity_forecasting_crontab ++ ProductionSchedule.cron_entries()
+    ] ++
+      capacity_forecasting_crontab ++
+      ProductionSchedule.cron_entries() ++ DispatchSchedule.cron_entries()
 
   add_cron_entries = fn config, entries ->
     plugins =
@@ -940,6 +946,22 @@ if config_env() == :prod do
     endpoint_inventory_retention_days: "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     dataset_snapshot_retention_days: "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
     topology_link_retention_days: "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  # Notification continuation, silence expiry, and delivery retention. Kept in
+  # step with serviceradar_core's own runtime.exs through
+  # ServiceRadar.Notifications.DispatchSchedule -- this one is what the release
+  # actually loads.
+  config :serviceradar_core,
+         NotificationContinuationWorker,
+         DispatchSchedule.continuation_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
