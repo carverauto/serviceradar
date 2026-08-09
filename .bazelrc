@@ -201,33 +201,14 @@ build:remote --noenable_platform_specific_config
 # Cache/executor/BES come from remote_base. Do not re-point them here.
 build:remote --remote_timeout=10m
 
-# The in-cluster BuildBuddy cache proxy (//k8s/buildbuddy/README.md, "Cache proxy").
+# The BuildBuddy cache proxy's public TLS edge (//k8s/buildbuddy/README.md, "Cache proxy").
 #
-# OPT-IN. The address below is a ClusterIP
-# service; it resolves from inside the Kubernetes cluster and NOWHERE ELSE. `make test` is
-# `bazel test -c opt --config=ci //...` and AGENTS.md tells every developer to run it before
-# opening a PR -- from a laptop. Put this in build:ci and that command, plus every ad-hoc
-# `--config=ci` in the README, starts failing on a name that does not resolve.
+# OPT-IN. `build:ci`, `build:remote`, `make test`, and normal workspace builds keep their
+# existing direct BuildBuddy endpoints. Select this profile explicitly, or use the Make aliases,
+# only after cache-proxy.carverauto.dev is reachable:
 #
-# So the topology is declared by the caller that knows it. Both in-cluster CI paths opt in the
-# same way: they write `build:ci --config=cache_proxy` into the .bazelrc.remote that the
-# try-import at the bottom of this file picks up. ONE LINE PER JOB COVERS EVERY BAZEL CALL IN
-# IT -- //buildbuddy.yaml alone makes thirteen, and a per-invocation flag would be forgotten
-# by the fourteenth.
-#
-#   //buildbuddy.yaml            "Route cache traffic through the in-cluster proxy" step
-#   //.forgejo/workflows/*.yml   the "Configure remote cache" step that already writes this
-#                                file to carry the API key
-#
-# The ordering was verified with --announce_rc rather than reasoned about: .bazelrc.remote is
-# imported below, after build:ci is defined, so its expansion is applied last and for a
-# single-valued flag the last one wins. Bazel prints "WARNING: option '--remote_cache' was
-# expanded from both option '--config=ci' and option '--config=ci'" -- that warning is the
-# mechanism working, not a misconfiguration.
-#
-# A laptop is unaffected in both directions: no .bazelrc.remote line, no proxy, and the file
-# is gitignored so a developer's own copy (which carries their API key) is never overwritten
-# by anything here.
+#   make build-workspace-cache
+#   make test-cache
 #
 # WHAT MOVES AND WHAT DOES NOT. Only --remote_cache. The executor, BES and results URL stay on
 # carverauto.buildbuddy.io: the proxy is a cache, it hosts no scheduler and no build event
@@ -239,38 +220,11 @@ build:remote --remote_timeout=10m
 # the timing profile silently fail to load in the UI. It takes a bare hostname: no grpc://,
 # grpcs:// or bytestream:// scheme.
 #
-# grpc:// AND NOT grpcs:// ON PURPOSE. The chart serves plaintext gRPC on 1985 and only
-# exposes the TLS port when service.externalGRPCSPort is set, which it is not. The API key
-# therefore crosses the pod network in the clear, which is why this endpoint must stay
-# cluster-internal (see the README on keeping the Service ClusterIP rather than LoadBalancer).
-#
-# A BARE CLUSTER IP, NOT THE SERVICE DNS NAME, AND THAT IS DELIBERATE.
-#
-# The obvious address here is the Service FQDN
-# (bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local), and it is
-# what this line used to say. It fails in CI:
-#
-#   ERROR: Executing genrule //build/packaging/nats:nats_rpm_version failed: Failed to query
-#   remote execution capabilities: UNAVAILABLE: Unable to resolve host
-#   bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local
-#
-# The CI runners can route to the service CIDR but do not resolve cluster DNS -- they are not
-# pods with a kube-dns resolv.conf. BuildBuddy's own documentation says to point clients at the
-# proxy's cluster IP for exactly this reason; the DNS name only works from something that is
-# itself a pod. The EXECUTORS are pods, which is why `cache_target` in
-# //k8s/buildbuddy/values.yaml keeps the FQDN -- the two hops legitimately use different forms.
-#
-# THE COST: a ClusterIP is stable for the LIFE OF THE SERVICE, not forever. It survives
-# `helm upgrade` (including the LoadBalancer -> ClusterIP change this went through), but a
-# `helm uninstall` + `install`, or any delete/recreate of the Service, reallocates it and this
-# line goes stale. The chart exposes no `service.clusterIP` value, so it cannot be pinned from
-# //k8s/buildbuddy/values-cache-proxy.yaml. Re-read it after any such cycle:
-#
-#   kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
-#     -o jsonpath='{.spec.clusterIP}{"\n"}'
-#
-# A stale value fails the same loud way as above, naming the address, so it is self-diagnosing.
-build:cache_proxy --remote_cache=grpc://10.43.59.152:1985
+# The shared Envoy gateway terminates public TLS and forwards HTTP/2 gRPC to the ClusterIP-only
+# proxy on port 1985. The proxy's native BuildBuddy authentication remains authoritative; Envoy
+# does not replace it. Keep credentials in the ignored .bazelrc.remote or runner configuration;
+# never add a remote_header here.
+build:cache_proxy --remote_cache=grpcs://cache-proxy.carverauto.dev:443
 build:cache_proxy --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
@@ -329,8 +283,7 @@ test:macos --config=darwin_local
 # Allow developers to extend configuration locally (ignored in version control).
 try-import %workspace%/.bazelrc.local
 
-# Remote caching/execution settings live here; provide BuildBuddy endpoints in
-# .bazelrc.remote (kept out of version control until credentials are ready). The in-cluster
-# CI jobs generate this file to carry the BuildBuddy API key and to opt in to
-# `build:ci --config=cache_proxy`; that opt-in only works from this position.
+# Remote credentials and local overrides live in .bazelrc.remote (kept out of version control).
+# CI jobs generate it to carry the BuildBuddy API key; selected jobs may also opt in with
+# `build:ci --config=cache_proxy`. Keeping this import last makes that explicit override win.
 try-import %workspace%/.bazelrc.remote

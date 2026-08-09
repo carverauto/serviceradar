@@ -1,5 +1,6 @@
 load("@bazel_gazelle//:def.bzl", "gazelle")
 load("@platforms//host:extension.bzl", "host_platform")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 ###############################################################################
@@ -77,6 +78,18 @@ exports_files([
     "elixir/.credo.ex_slop.exs",
     "k8s/argocd/applications/demo-prod.yaml",
 ])
+
+py_test(
+    name = "buildbuddy_cache_proxy_config_test",
+    size = "small",
+    srcs = ["buildbuddy_cache_proxy_config_test.py"],
+    data = [
+        ".bazelrc",
+        "Makefile",
+        "buildbuddy.yaml",
+        "k8s/buildbuddy/values-cache-proxy.yaml",
+    ],
+)
 
 ###############################################################################
 # RUST RELEASE MODE OPTIMIZATION

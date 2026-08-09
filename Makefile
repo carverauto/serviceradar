@@ -27,6 +27,17 @@ GOLANGCI_LINT_TIMEOUT ?= 30m
 GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
+# Canonical full-workspace Bazel arguments. The cache-proxy targets below reuse the existing
+# build/test recipes with target-specific flag overrides so the opt-in path cannot drift from
+# the commands developers and CI already run.
+BAZEL ?= bazel
+BAZEL_CI_FLAGS ?= -c opt --config=ci
+BAZEL_CACHE_PROXY_CONFIG ?= --config=cache_proxy
+BAZEL_WORKSPACE_BUILD_FLAGS ?= --config=remote
+BAZEL_WORKSPACE_TARGETS ?= //...
+BAZEL_UNIT_TEST_FLAGS ?= $(BAZEL_CI_FLAGS)
+BAZEL_UNIT_TEST_FILTERS ?= --test_tag_filters=-integration_test,-acceptance_test
+
 # Every Mix project under elixir/, in the order CI walks them. Keep this in step with
 # run_quality in .forgejo/workflows/elixir-quality.yml -- that workflow is what gates a PR.
 #
@@ -131,7 +142,11 @@ build: ## Build all OCI images with Bazel (remote)
 
 .PHONY: build-workspace
 build-workspace: ## Build the full workspace with Bazel (remote)
-	@bazel build --config=remote //...
+	@$(BAZEL) build $(BAZEL_WORKSPACE_BUILD_FLAGS) $(BAZEL_WORKSPACE_TARGETS)
+
+.PHONY: build-workspace-cache
+build-workspace-cache: BAZEL_WORKSPACE_BUILD_FLAGS = $(BAZEL_CI_FLAGS) $(BAZEL_CACHE_PROXY_CONFIG)
+build-workspace-cache: build-workspace ## Build the full workspace through the BuildBuddy cache proxy
 
 .PHONY: build-web-ng
 build-web-ng: ## Build just the web-ng OCI image with Bazel (remote)
@@ -429,7 +444,11 @@ lint-go: get-golangcilint ## Run Go linting checks
 .PHONY: test
 test: ## Run every unit test the way CI does (bazel, remote, opt)
 	@echo "$(COLOR_BOLD)Running all unit tests via bazel$(COLOR_RESET)"
-	@bazel test -c opt --config=ci //... --test_tag_filters=-integration_test,-acceptance_test
+	@$(BAZEL) test $(BAZEL_UNIT_TEST_FLAGS) $(BAZEL_WORKSPACE_TARGETS) $(BAZEL_UNIT_TEST_FILTERS)
+
+.PHONY: test-cache
+test-cache: BAZEL_UNIT_TEST_FLAGS = $(BAZEL_CI_FLAGS) $(BAZEL_CACHE_PROXY_CONFIG)
+test-cache: test ## Run the canonical unit-test sweep through the BuildBuddy cache proxy
 
 # Everything CI runs before it will accept a release, in one command. `test-toolchains`
 # below is the per-language path (go test / cargo test / vitest / mix precommit); it is

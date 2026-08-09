@@ -424,170 +424,109 @@ kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=
 # want: Connecting to cache target "grpc://bb-cache-proxy-...svc.cluster.local:1985"
 ```
 
-### 2. The Bazel client in CI — currently OFF, and not for a fixable reason
+### 2. Bazel clients through the public TLS edge (opt-in)
 
-`--remote_cache`, via the `build:cache_proxy` config in `//.bazelrc`. The opt-in in
-`//buildbuddy.yaml` is commented out.
+`build:cache_proxy` in `//.bazelrc` moves only `--remote_cache` to
+`grpcs://cache-proxy.carverauto.dev:443`. That hostname terminates TLS on the shared Envoy
+gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP service on port 1985. This solves the
+topology mismatch that prevented BuildBuddy workflow action namespaces and developer laptops
+from reaching a Kubernetes ClusterIP.
 
-**The Bazel client does not run on the executor pod.** It runs inside a per-action network
-namespace that BuildBuddy allocates from `192.168.0.0/16` in `/30` blocks
-(`NewHostNetAllocator`, `server/util/networking/networking.go`). The failing run proved it —
-Bazel reported the client's own source address as `192.168.0.14`, a namespaced IP from that
-allocator, not a pod IP.
-
-That namespace is NAT'd and has **no route into the cluster service CIDR**, and its resolver is
-`8.8.8.8` (the `executor.oci.dns` default). So both address forms fail from there:
-
-```
-Service FQDN -> UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local
-ClusterIP    -> finishConnect(..) failed: Connection refused: /10.43.59.152:1985
-```
-
-The executors are unaffected because they are ordinary pods — which is why hop 1 works and hop 2
-does not, against the very same proxy.
-
-**Do not confuse this with the API-key failure.** Separately, the proxy was once deployed with a
-placeholder key; it then failed its health check, lost its endpoints, and kube-proxy REJECTed
-the Service — producing an identical `Connection refused` at the client. Both are fixed now;
-only the topology one blocks this hop.
-
-**To enable it later**, the proxy needs an address reachable from that namespace's normal egress
-path — a LAN address, not a cluster-internal one. That means restoring a MetalLB VIP
-(`192.168.6.86` from `k3s-lan-pool` was allocated before) with `loadBalancerSourceRanges`, and
-ideally `ssl.enable_ssl` + `externalGRPCSPort`, since the chart otherwise serves plaintext gRPC.
-Weigh it against the payoff: this hop carries only the runner's own uploads, and
-`build:remote_base` sets `--remote_download_minimal`, so it is a small fraction of what the
-executors already route through the proxy.
-
-**It is deliberately not part of `build:ci`.** `make test` is `bazel test -c opt --config=ci
-//...` and AGENTS.md tells every developer to run it before opening a PR — from a laptop, which
-cannot resolve a ClusterIP. So `build:cache_proxy` is opt-in, and the in-cluster jobs opt in by
-appending one line to the `.bazelrc.remote` they already generate for the API key:
+The client route remains deliberately opt-in. Neither `build:ci` nor `build:remote` selects it,
+and the normal `make build-workspace` and `make test` commands retain their existing behavior.
+Use the shared Make recipes for an explicit canary:
 
 ```bash
-printf 'build:ci --config=cache_proxy\n' >> .bazelrc.remote
+make build-workspace-cache
+make test-cache
 ```
 
-One line covers every bazel call in the job — `buildbuddy.yaml` alone makes thirteen.
-`wasm-plugins.yml` uses bare `build` instead of `build:ci` because it drives bazel through
-`make` with no `--config`; `release.yml` needs both because it does both.
-
-**This only works because the `try-import` lines sit at the bottom of `//.bazelrc`.** They used
-to sit ~80 lines above `build:remote_base`, and an rc file can only override configs defined
-before it — so the opt-in expanded first and `remote_base` overwrote `--remote_cache` right back
-to the cloud endpoint, silently. If those imports ever drift back up the file, the proxy stops
-being used with no error anywhere. Check the effective value rather than trusting the file:
+The equivalent direct commands are:
 
 ```bash
-bazel build --announce_rc --config=ci 2>&1 | grep 'config definition'
-# the LAST --remote_cache wins; build:cache_proxy must appear after build:remote_base
+bazel build -c opt --config=ci --config=cache_proxy //...
+bazel test -c opt --config=ci --config=cache_proxy //... \
+  --test_tag_filters=-integration_test,-acceptance_test
 ```
 
-Bazel prints `WARNING: option '--remote_cache' was expanded from both option '--config=ci' and
-option '--config=ci'`. That warning is the mechanism working, not a misconfiguration.
+The routes are intentionally different:
 
-### ⚠️ Re-check the ClusterIP after every proxy deploy
-
-**`build:cache_proxy` in `//.bazelrc` hardcodes the proxy's ClusterIP.** This is a deploy-time
-coupling between a helm release and a file in this repo, and nothing enforces it.
-
-The two hops deliberately address the proxy differently, and neither form is wrong:
-
-| hop | address | why |
+| hop | endpoint | purpose |
 |---|---|---|
-| `executor.cache_target` (`values.yaml`, `values-workflows.yaml`) | Service **FQDN** | executors are pods, with a kube-dns `resolv.conf` |
-| `build:cache_proxy` (`//.bazelrc`) | **ClusterIP literal** | CI runners route to the service CIDR but do **not** resolve cluster DNS |
+| executor `cache_target` | `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985` | bulk CAS/ActionCache traffic stays inside the cluster |
+| Bazel `build:cache_proxy` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
+| Bazel executor and BES | `grpcs://carverauto.buildbuddy.io` | scheduling and build-event services remain upstream |
 
-The FQDN was tried first for the client hop and fails in CI:
+Do not point `--remote_executor`, `--bes_backend`, or `--bes_results_url` at the proxy. It hosts
+none of those services. `--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` is also
+required: Bazel derives `bytestream://` artifact URIs from `--remote_cache`, while the BES and UI
+still retrieve those artifacts through the upstream BuildBuddy hostname.
 
-```
-ERROR: Executing genrule //build/packaging/nats:nats_rpm_version failed: Failed to query
-remote execution capabilities: UNAVAILABLE: Unable to resolve host
-bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local
-```
-
-BuildBuddy's own docs say to point clients at the cluster IP for exactly this reason.
-
-**A ClusterIP is stable for the life of the Service, not forever.** It survives `helm upgrade`
-(including the `LoadBalancer` → `ClusterIP` change this release went through), but a
-`helm uninstall` + `install`, or any delete/recreate of the Service, reallocates it. The chart
-exposes no `service.clusterIP` value, so it cannot be pinned from `values-cache-proxy.yaml`.
-
-After any `helm uninstall`/`install` of `bb-cache-proxy`, or if CI starts failing to reach the
-cache, compare the two:
+CI jobs may opt in after the manual canary is green by adding the config selection to the
+gitignored `.bazelrc.remote`. Forgejo appends it to the file that already holds the API-key
+header; the BuildBuddy workflow runner receives its header from `buildbuddy.bazelrc`, so its
+selection-only file can be created with `>`:
 
 ```bash
-kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
-  -o jsonpath='{.spec.clusterIP}{"\n"}'
-grep '^build:cache_proxy --remote_cache=' ../../.bazelrc
+# Forgejo, after writing the credential header:
+printf 'build:ci --config=cache_proxy\n' >> .bazelrc.remote
+
+# BuildBuddy workflow runner (credential supplied separately by the runner):
+printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
 ```
 
-They must name the same address. A stale value fails loudly naming the address it tried, so it
-is self-diagnosing — but it fails *every* in-cluster CI job at once, so check it as part of the
-deploy rather than discovering it from a red pipeline.
+The opt-in in `//buildbuddy.yaml` stays commented during rollout. Keep the `try-import` entries
+at the bottom of `//.bazelrc`; that ordering lets `.bazelrc.remote` apply after the checked-in
+profiles.
 
-Distinguishing the two failure shapes matters:
+### Authentication and transport boundary
 
-- `Unable to resolve host ...` — a **name** is configured where an IP belongs.
-- `UNAVAILABLE` / connection refused / timeout naming an **IP** — either the IP is stale (re-read
-  it above) or the runner cannot route to the service CIDR at all. If routing is the problem, the
-  answer is a MetalLB internal VIP, the pattern already used for `demo/cnpg-rw-internal-lb` — not
-  a different name.
+The public listener is TLS-only. Envoy terminates TLS and routes gRPC; it does not replace or
+duplicate BuildBuddy authentication. The cache proxy's native BuildBuddy authentication is the
+authoritative access decision. Clients send their existing BuildBuddy credential, and the proxy
+delegates remote authentication/JWT validation to the upstream BuildBuddy instance with JWT
+reparsing disabled.
 
-### Could the client hop use DNS instead?
+The client credential remains in BuildBuddy's runner configuration or the gitignored
+`.bazelrc.remote`; it MUST NOT be committed to `.bazelrc`, the Makefile, workflow YAML, Helm
+values, or the GitOps route. The proxy's own upstream key is separate, lives in the
+`buildbuddy-cache-proxy-api-key` Kubernetes Secret, and is injected with `--set` as documented in
+`values-cache-proxy.yaml`.
 
-Yes, and it is a one-line executor flag — but only for jobs that run **as BuildBuddy actions**,
-and it buys a new dependency. The default DNS inside an action is a public resolver, which is why
-`*.svc.cluster.local` fails:
+Do not use a TCP connect or an anonymous Capabilities response as proof of authorization:
+Capabilities may be readable without a credential. A validation canary MUST execute a protected
+ActionCache/CAS operation. A real authenticated Bazel build or test through `--config=cache_proxy`
+does that and is the preferred end-to-end check.
 
-| isolation | flag | default | for cluster DNS |
-|---|---|---|---|
-| `oci` (what both fleets set as `default_isolation_type`) | `executor.oci.dns` | `8.8.8.8` | `""` — mounts the **executor pod's** `/etc/resolv.conf`, i.e. kube-dns |
-| `firecracker` | `executor.firecracker_vm_resolv_conf` | unset → goinit falls back to `8.8.8.8`, `8.8.4.4`, `1.1.1.1` | `/etc/resolv.conf` — read **once at executor startup** and passed into each VM |
+### Staged rollout and rollback
 
-Neither applies to a **Forgejo** runner, which is not a BuildBuddy action at all — that would
-need the runner itself to carry a kube-dns `resolv.conf`, or to run as a pod.
+1. Deploy the shared-gateway route, certificate reconciliation, DNS record, cross-namespace
+   grant, and h2c edge Service from the GitOps repository. The Helm-managed proxy Service stays
+   `ClusterIP`; no listener, LoadBalancer, or NodePort is added to it.
+2. Confirm public DNS, certificate verification, and HTTP/2 ALPN before sending credentials:
 
-**Weigh it before doing it.** Routing action DNS through CoreDNS means every lookup in every
-action — including public ones, which CoreDNS then forwards — depends on CoreDNS being healthy,
-and it still requires reaching the kube-dns ClusterIP, which is the same routing assumption the
-literal IP already makes. The IP costs one grep at deploy time and has no runtime dependency.
-Prefer it unless the Service is being recreated often enough that the coupling actually hurts.
+   ```bash
+   openssl s_client -connect cache-proxy.carverauto.dev:443 \
+     -servername cache-proxy.carverauto.dev -alpn h2 </dev/null
+   ```
 
-`--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` rides along in the same config and is
-required, not decoration: Bazel writes `bytestream://` URIs into the build event stream using
-the `--remote_cache` target, so without it the BES is handed URIs naming a host it cannot reach
-and artifacts such as the timing profile silently fail to load in the UI.
+3. With a local ignored `.bazelrc.remote`, run `make build-workspace-cache`, then
+   `make test-cache`. Confirm the BuildBuddy invocation and cache-proxy hit/read/write metrics.
+4. Run `bazel test //:buildbuddy_cache_proxy_config_test` to catch endpoint, bytestream-prefix,
+   default-profile, or Make-alias drift.
+5. Only after the canary is green, enable selected CI jobs by adding the opt-in line above.
 
-### Security: the Service must stay `ClusterIP`
+Rollback is client-first: remove the workflow opt-in and use `make build-workspace` / `make test`,
+which continue talking directly to `carverauto.buildbuddy.io`. The executor fleet keeps using the
+internal ClusterIP path throughout, so removing the public GitOps route after clients have rolled
+back does not interrupt remote execution or its high-volume cache traffic.
 
-Per BuildBuddy support, the proxy **should not be exposed publicly** — point in-cluster clients
-at its private endpoint instead, which is what both hops above do.
-
-**This was not hypothetical.** The release was installed as `type: LoadBalancer` with MetalLB
-annotations (`k3s-lan-pool`, `192.168.6.86`), MetalLB fulfilled the request, and for 2d18h the
-proxy answered on `192.168.6.86:1985` — and on nodePort `31299` — across the LAN. The chart
-serves **plaintext gRPC** on 1985 and only opens the TLS port when `service.externalGRPCSPort`
-is set, which it is not. Fixed in `values-cache-proxy.yaml`, which pins `ClusterIP` and drops
-the MetalLB annotations rather than leaving them inert next to a type someone may flip back.
-
-Re-check after any upgrade — the chart default is `LoadBalancer`, so a `helm upgrade` that
-loses this file silently re-exposes it:
+The backend service itself must remain private after every chart upgrade:
 
 ```bash
 kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy -o wide
 # want: TYPE ClusterIP, EXTERNAL-IP <none>
 ```
-
-Nothing was lost by the change: both consumers reach the proxy through the in-cluster Service
-DNS name, which resolves identically for `ClusterIP`.
-
-Authentication needs nothing extra at either hop: clients present the same
-`x-buildbuddy-api-key` header they already send, and the proxy verifies it against the upstream
-app (`auth.remote`, with `reparse_jwts: false`). The proxy's **own** upstream key is separate,
-lives in the `buildbuddy-api-key` secret, and is injected with `--set` — see the header of
-`values-cache-proxy.yaml`. It never crossed the exposed port (the proxy uses it outbound over
-`grpcs`), so the exposure did not leak it.
 
 ### Three releases, one namespace
 

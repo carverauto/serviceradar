@@ -20,22 +20,19 @@
 # single secret would silently couple two releases that are rotated independently.
 #
 # ---------------------------------------------------------------------------------------------
-# AFTER DEPLOYING: RE-CHECK THE CLUSTERIP AGAINST //.bazelrc
+# AFTER DEPLOYING: VERIFY THE PRIVATE BACKEND AND THE SEPARATE PUBLIC TLS EDGE
 # ---------------------------------------------------------------------------------------------
 #
-#   kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
-#     -o jsonpath='{.spec.clusterIP}{"\n"}'
-#   grep '^build:cache_proxy --remote_cache=' ../../.bazelrc
+#   kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy -o wide
+#   # want: TYPE ClusterIP, EXTERNAL-IP <none>
 #
-# These must name the same address. `build:cache_proxy` hardcodes the ClusterIP because CI
-# runners route to the service CIDR but do not resolve cluster DNS -- the Service FQDN works
-# only for the executors, which are pods. See "Re-check the ClusterIP after every proxy deploy"
-# in ./README.md for the full reasoning and for what it would take to use DNS instead.
+# Bazel clients use `grpcs://cache-proxy.carverauto.dev:443`, which belongs to the shared Envoy
+# gateway managed in the GitOps repository. Envoy terminates TLS and forwards HTTP/2 gRPC to this
+# ClusterIP service on port 1985. Do not convert this Service to LoadBalancer or add a NodePort;
+# that would bypass the gateway's certificate and expose the chart's plaintext listener.
 #
-# A `helm upgrade` preserves the ClusterIP, so a routine deploy will match. A `helm uninstall`
-# + `install`, or any delete/recreate of the Service, reallocates it -- and the chart exposes no
-# `service.clusterIP` value, so it cannot be pinned from this file. A stale value then fails
-# EVERY in-cluster CI job at once, which is worth thirty seconds here rather than a red pipeline.
+# Executors keep using the Service FQDN directly. Recreating this Service may change its
+# ClusterIP, but neither the executor FQDN nor the public hostname in //.bazelrc needs updating.
 #
 # THE `--set` IS NOT OPTIONAL, and this file will not remind you at runtime. `-f` without
 # `--reuse-values` replaces the whole user-supplied value set, so an upgrade that omits the key
@@ -68,19 +65,11 @@ cacheTarget: grpcs://carverauto.buildbuddy.io
 
 replicas: 3
 
-# EDIT 1 OF 2 vs the deployed values: was `LoadBalancer`, with MetalLB annotations pinning
-# k3s-lan-pool / 192.168.6.86. Those annotations are dropped here, not just neutralised.
-#
-# MetalLB had fulfilled that request, so for 2d18h the proxy answered on 192.168.6.86:1985 --
-# and on nodePort 31299 -- across the LAN. The chart serves PLAINTEXT gRPC on 1985 and only
-# opens the TLS port when service.externalGRPCSPort is set, which it is not. BuildBuddy support
-# was explicit that this endpoint can and should be private; both consumers (executor
-# `cache_target`, and the CI Bazel client via `--config=cache_proxy`) reach it through the
-# in-cluster Service DNS name, which works identically for ClusterIP.
-#
-# The annotations are inert while type is ClusterIP, which is exactly why they should not stay:
-# they are a loaded gun for whoever flips the type back, and they reserve a pool address for a
-# Service that no longer wants one.
+# EDIT 1 OF 2 vs the original deployed values: keep the application Service private. Public
+# access is provided only by the shared Envoy gateway's TLS listener. The chart serves plaintext
+# gRPC on 1985, which is appropriate for the gateway-to-Service hop inside the cluster but must
+# never be published directly. The removed MetalLB annotations are intentionally absent so a
+# future values merge cannot silently reserve or expose a second address.
 service:
   type: ClusterIP
 
