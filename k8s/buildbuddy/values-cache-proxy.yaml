@@ -1,0 +1,127 @@
+# BuildBuddy Enterprise Cache Proxy -- the THIRD helm release in this namespace, and the only
+# one that is not the buildbuddy-executor chart. See "Cache proxy" in ./README.md.
+#
+#   helm upgrade --install bb-cache-proxy buildbuddy/buildbuddy-enterprise-cache-proxy \
+#     -n buildbuddy -f k8s/buildbuddy/values-cache-proxy.yaml \
+#     --set config.cache_proxy.api_key="<the proxy's upstream key>"
+#
+# WHICH KEY: the chart wants an executor-enabled API key, and the deployed release already
+# carries one. It is NOT established that it is the same value as the `buildbuddy-api-key`
+# secret that ./deploy.sh feeds the executors -- check before assuming they are interchangeable,
+# because substituting the wrong one leaves a proxy that registers and looks healthy while
+# failing every upstream fetch:
+#
+#   helm get values bb-cache-proxy -n buildbuddy | grep api_key
+#   kubectl get secret buildbuddy-api-key -n buildbuddy -o jsonpath='{.data.api-key}' | base64 -d
+#
+# If they match, source it from that secret. If not, store the proxy's key in its own secret
+# rather than pasting a literal into a shell history.
+#
+# THE `--set` IS NOT OPTIONAL, and this file will not remind you at runtime. `-f` without
+# `--reuse-values` replaces the whole user-supplied value set, so an upgrade that omits the key
+# leaves the proxy unable to authenticate upstream. The key is deliberately absent from this
+# file rather than present-and-empty: an empty string is a value that would overwrite a good
+# one, whereas a missing key at least fails loudly on the first upstream fetch.
+#
+# This mirrors how ./deploy.sh injects config.executor.api_key for the executor fleet. It is
+# NOT wired into that script: ./deploy.sh installs a different chart under a different release
+# name, and conflating the two is the exact failure ./README.md documents under "Two fleets".
+# Ordering between the three releases is the caller's sequence of helm invocations.
+
+# Captured from `helm get values bb-cache-proxy -n buildbuddy` at revision 4, with two
+# deliberate edits called out below. Anything not listed here is a chart default -- including
+# `image.tag`, which is why the proxy tracks the same enterprise-v2.290.0 the two executor
+# fleets pin. If you pin the executors to a newer tag, pin this too rather than letting the
+# chart default drift underneath it.
+
+# THE UPSTREAM CACHE THIS PROXY FRONTS.
+#
+# The chart defaults this to grpcs://remote.buildbuddy.io -- BuildBuddy's shared cloud, a
+# different frontend from the org instance every other component here names (see the top of
+# ./README.md). One key drives four settings: the chart derives cache_proxy.remote_cache,
+# cache_proxy.app_target, cache_proxy.remote_hit_tracker.target and auth.remote.target from it.
+#
+# Left at the default this misconfiguration is nearly invisible: the API key identifies the org
+# against either hostname, so the proxy still registers, still appears in the Cache Proxy tab
+# and still reports healthy while fronting an endpoint nothing else addresses.
+cacheTarget: grpcs://carverauto.buildbuddy.io
+
+replicas: 3
+
+# EDIT 1 OF 2 vs the deployed values: was `LoadBalancer`, with MetalLB annotations pinning
+# k3s-lan-pool / 192.168.6.86. Those annotations are dropped here, not just neutralised.
+#
+# MetalLB had fulfilled that request, so for 2d18h the proxy answered on 192.168.6.86:1985 --
+# and on nodePort 31299 -- across the LAN. The chart serves PLAINTEXT gRPC on 1985 and only
+# opens the TLS port when service.externalGRPCSPort is set, which it is not. BuildBuddy support
+# was explicit that this endpoint can and should be private; both consumers (executor
+# `cache_target`, and the CI Bazel client via `--config=cache_proxy`) reach it through the
+# in-cluster Service DNS name, which works identically for ClusterIP.
+#
+# The annotations are inert while type is ClusterIP, which is exactly why they should not stay:
+# they are a loaded gun for whoever flips the type back, and they reserve a pool address for a
+# Service that no longer wants one.
+service:
+  type: ClusterIP
+
+# EDIT 2 OF 2: config.cache_proxy.api_key is present in the deployed values and omitted here on
+# purpose -- see the header. Everything else under `config` is a faithful capture.
+config:
+  cache:
+    # 100 GB per proxy, and this shares a disk with the executor fleets' filecaches.
+    #
+    # The anti-affinity below puts one proxy on each of three nodes, and those nodes also run
+    # build executors, so the budgets stack on one filesystem. Against ./README.md's measured
+    # node figures (589 GB total, ~170-230 GB non-cache baseline):
+    #
+    #   baseline 230 + executor filecache 150 + this 100        = 480 GB  (~109 GB free)
+    #   ... and if the workflow executor lands there too, + 50  = 530 GB  (~59 GB free)
+    #
+    # The kubelet DiskPressure threshold is 10% free, i.e. ~59 GB. The second case sits ON it,
+    # and neither figure counts `root_directory`, which shares the same filesystem and spikes
+    # outside every one of these budgets. Watch `kubectl get nodes` for DiskPressure before
+    # raising any of the three, and prefer raising the one whose eviction is cheapest to refill.
+    max_size_bytes: 100000000000
+    distributed_cache:
+      # Matches `replicas` above. The three proxies form one distributed cache rather than three
+      # independent ones, so a blob fetched by any of them is served locally to the other two --
+      # which is the difference between a 1/3 hit rate and a shared one. Change both together.
+      cluster_size: 3
+
+# One proxy per node, hard. With replicas: 3 this needs three schedulable nodes or the third
+# pod sits Pending -- and a Pending proxy is invisible in the Cache Proxy tab rather than shown
+# as broken, so check `kubectl get pods -n buildbuddy` after any change to node pool size.
+#
+# Unlike the two executor fleets, this does NOT exclude k8s-cp3-worker3. If that node's disk
+# pressure recurs, this is the release that has no guard against it.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - buildbuddy-enterprise-cache-proxy
+        topologyKey: kubernetes.io/hostname
+
+# A THIRD distinct hostPath, and the reason is the one ./values-workflows.yaml spells out: a
+# cache implementation assumes it owns its directory and evicts against its own size budget, so
+# two of them sharing a path means two eviction loops deleting each other's entries while both
+# believe they are under budget. The three in this namespace must stay distinct:
+#
+#   /var/lib/buildbuddy/cache             build executors   (./values.yaml)
+#   /var/lib/buildbuddy/cache-workflows   workflow executor (./values-workflows.yaml)
+#   /var/lib/buildbuddy/cache-proxy       this release
+#
+# Without this key the chart uses an emptyDir and the entire cache is lost on every pod restart
+# -- which reads as a proxy that never warms up rather than as a misconfiguration.
+cacheProxyDataVolumeHostPath: /var/lib/buildbuddy/cache-proxy
+
+resources:
+  requests:
+    cpu: "2"
+    memory: 16Gi
+  limits:
+    cpu: "4"
+    memory: 32Gi

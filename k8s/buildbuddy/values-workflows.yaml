@@ -159,6 +159,20 @@ config:
     # the workflow, and the run fails as though the pool were empty.
     app_target: grpcs://carverauto.buildbuddy.io:443
 
+    # Same split as ./values.yaml, and it must match: see the long note there for what moves
+    # to the proxy and what stays on app_target.
+    #
+    # This pod's own cache traffic is small -- it runs the CI runner, which dispatches its
+    # actions to the default pool -- but it is not zero: `no-remote-exec` targets execute
+    # here, including the two //integration_tests/srql suites. Leaving it on app_target
+    # would send those over the WAN while everything around them goes through the proxy.
+    #
+    # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
+    # CLIENT running inside the runner VM. That client is pointed at the proxy by
+    # //buildbuddy.yaml appending `--config=cache_proxy`; the two are independent and either
+    # works without the other.
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+
     enable_oci: true
     default_isolation_type: oci
     # The runner executes in a microVM -- BuildBuddy's own low-memory notice reads "The VM

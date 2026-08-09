@@ -91,6 +91,33 @@ config:
     # this fleet registers with a scheduler that CI never sends work to, so the executors
     # sit idle while builds run locally on the CI runner.
     app_target: grpcs://carverauto.buildbuddy.io:443
+
+    # THE CACHE DATA PLANE, SPLIT OFF FROM app_target ABOVE.
+    #
+    # This is the setting that makes the in-cluster cache proxy do anything. Left unset,
+    # `executor.cache_target` DEFAULTS TO app_target -- so a fully deployed, registered
+    # proxy showing up in the Cache Proxy tab still carries zero traffic, because nothing
+    # ever addressed it. That is the whole failure mode: nothing is misconfigured, nothing
+    # logs an error, the proxies simply sit idle.
+    #
+    # WHAT MOVES: ByteStream, ContentAddressableStorage, ActionCache, Capabilities and the
+    # OCI fetcher (see initializeCacheClientsOrDie in the executor). That is every action
+    # input read and every action output write -- across 3-10 executors at --jobs=100, the
+    # bulk of the WAN traffic this cluster generates.
+    #
+    # WHAT DOES NOT: scheduler registration, task assignment and execution status stay on
+    # app_target. The proxy is a cache and hosts none of those, so the two targets are not
+    # interchangeable and app_target must keep naming the app.
+    #
+    # RELATED FLAG, DELIBERATELY UNSET: executor.cache_target_traffic_percent. At its -1
+    # default it means "100% to cache_target when one is set", which is what we want. Setting
+    # it to anything between 1 and 99 splits reads across both backends via a conn pool
+    # splitter -- useful for a canary, and a silent tax on hit rate if left behind.
+    #
+    # plaintext grpc:// on 1985: the chart exposes the TLS port only when
+    # service.externalGRPCSPort is set, and it is not. Cluster-internal only.
+    cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+
     enable_oci: true
     default_isolation_type: oci
     enable_firecracker: true

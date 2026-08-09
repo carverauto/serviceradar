@@ -114,13 +114,6 @@ test --test_env=NATS_KEY_B64
 test --@io_bazel_rules_go//go/config:pure
 test --flaky_test_attempts=2
 
-# Allow developers to extend configuration locally (ignored in version control).
-try-import %workspace%/.bazelrc.local
-
-# Remote caching/execution settings live here; provide BuildBuddy endpoints in
-# .bazelrc.remote (kept out of version control until credentials are ready).
-try-import %workspace%/.bazelrc.remote
-
 # Metadata for buildbuddy
 build --workspace_status_command=$(pwd)/scripts/workspace_status.sh
 
@@ -208,6 +201,52 @@ build:remote --noenable_platform_specific_config
 # Cache/executor/BES come from remote_base. Do not re-point them here.
 build:remote --remote_timeout=10m
 
+# The in-cluster BuildBuddy cache proxy (//k8s/buildbuddy/README.md, "Cache proxy").
+#
+# OPT-IN. The address below is a ClusterIP
+# service; it resolves from inside the Kubernetes cluster and NOWHERE ELSE. `make test` is
+# `bazel test -c opt --config=ci //...` and AGENTS.md tells every developer to run it before
+# opening a PR -- from a laptop. Put this in build:ci and that command, plus every ad-hoc
+# `--config=ci` in the README, starts failing on a name that does not resolve.
+#
+# So the topology is declared by the caller that knows it. Both in-cluster CI paths opt in the
+# same way: they write `build:ci --config=cache_proxy` into the .bazelrc.remote that the
+# try-import at the bottom of this file picks up. ONE LINE PER JOB COVERS EVERY BAZEL CALL IN
+# IT -- //buildbuddy.yaml alone makes thirteen, and a per-invocation flag would be forgotten
+# by the fourteenth.
+#
+#   //buildbuddy.yaml            "Route cache traffic through the in-cluster proxy" step
+#   //.forgejo/workflows/*.yml   the "Configure remote cache" step that already writes this
+#                                file to carry the API key
+#
+# The ordering was verified with --announce_rc rather than reasoned about: .bazelrc.remote is
+# imported below, after build:ci is defined, so its expansion is applied last and for a
+# single-valued flag the last one wins. Bazel prints "WARNING: option '--remote_cache' was
+# expanded from both option '--config=ci' and option '--config=ci'" -- that warning is the
+# mechanism working, not a misconfiguration.
+#
+# A laptop is unaffected in both directions: no .bazelrc.remote line, no proxy, and the file
+# is gitignored so a developer's own copy (which carries their API key) is never overwritten
+# by anything here.
+#
+# WHAT MOVES AND WHAT DOES NOT. Only --remote_cache. The executor, BES and results URL stay on
+# carverauto.buildbuddy.io: the proxy is a cache, it hosts no scheduler and no build event
+# service. Pointing --remote_executor at it fails outright.
+#
+# --remote_bytestream_uri_prefix IS REQUIRED, NOT DECORATION. Bazel writes bytestream:// URIs
+# into the build event stream using the --remote_cache target, so without this the BES on
+# carverauto.buildbuddy.io is handed URIs naming a host it cannot reach and artifacts such as
+# the timing profile silently fail to load in the UI. It takes a bare hostname: no grpc://,
+# grpcs:// or bytestream:// scheme.
+#
+# grpc:// AND NOT grpcs:// ON PURPOSE. The chart serves plaintext gRPC on 1985 and only
+# exposes the TLS port when service.externalGRPCSPort is set, which it is not. The API key
+# therefore crosses the pod network in the clear, which is why this endpoint must stay
+# cluster-internal (see the README on keeping the Service ClusterIP rather than LoadBalancer).
+#
+build:cache_proxy --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+build:cache_proxy --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
+
 # Enable clang-tidy diagnostics via --config=clang-tidy
 build:clang-tidy --features=clang_tidy
 test:clang-tidy --features=clang_tidy
@@ -258,3 +297,14 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 build:macos --extra_execution_platforms=//build/platforms:darwin_arm64
 build:macos --config=darwin_local
 test:macos --config=darwin_local
+
+# KEEP THESE TWO LAST.
+
+# Allow developers to extend configuration locally (ignored in version control).
+try-import %workspace%/.bazelrc.local
+
+# Remote caching/execution settings live here; provide BuildBuddy endpoints in
+# .bazelrc.remote (kept out of version control until credentials are ready). The in-cluster
+# CI jobs generate this file to carry the BuildBuddy API key and to opt in to
+# `build:ci --config=cache_proxy`; that opt-in only works from this position.
+try-import %workspace%/.bazelrc.remote

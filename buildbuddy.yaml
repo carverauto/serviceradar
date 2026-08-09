@@ -75,6 +75,31 @@ actions:
       disk: "40GB"
 
     steps:
+      # ROUTE CACHE TRAFFIC THROUGH THE IN-CLUSTER PROXY.
+      #
+      # This runner is inside the cluster, so it can reach the cache proxy's ClusterIP; a
+      # developer laptop running the same `--config=ci` cannot. //.bazelrc therefore keeps the
+      # proxy in its own `build:cache_proxy` config and leaves it to whoever knows the topology
+      # to opt in -- which is this step. See the long note there before changing either half.
+      #
+      # .bazelrc.remote rather than a flag on each command: //.bazelrc try-imports that file,
+      # so this single line applies to all thirteen bazel invocations below AND to any added
+      # later. It is also the same mechanism the Forgejo workflows use, so there is one
+      # behaviour to understand rather than two.
+      #
+      # `>` and not `>>`: workflow runners recycle their workspace, and .bazelrc.remote is
+      # gitignored, so a file left by a previous run survives `git clean`. Truncating makes
+      # this step idempotent instead of accumulating a duplicate line per run.
+      #
+      # No API key is written here, unlike the Forgejo copy of this step: the runner injects
+      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc.
+      # That header is what authenticates to the proxy as well -- the proxy verifies it against
+      # the upstream app -- so nothing further is needed to authorize this hop.
+      - run: |
+          set -euo pipefail
+
+          printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
+
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three
       # more minutes and dies in the LOADING phase of the next step, on a target that has
