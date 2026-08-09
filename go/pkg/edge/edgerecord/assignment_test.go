@@ -616,9 +616,13 @@ func TestPlanMtrWindowBounds(t *testing.T) {
 		t.Fatalf("count over budget = %v, want ErrPlanMtrWindow", err)
 	}
 
-	// Overflow of the ordinal space is rejected rather than wrapping.
+	// An offset drawn from the ordinal SPACE is refused by the lower PLAN WORK ceiling.
+	// This does NOT exercise completion-ordinal-space overflow: MtrWindowCommitment bounds
+	// against MaxPlanMtrOrdinals, and MaxMtrCompletionOrdinals is far above it, so the
+	// refusal here comes from the work ceiling -- the same rule the two rows below assert
+	// directly. Kept as a regression guard that a space-sized offset cannot slip through.
 	if _, err := MtrWindowCommitment(MaxMtrCompletionOrdinals, 1, d32(0x20)); !errors.Is(err, ErrPlanMtrWindow) {
-		t.Fatalf("window overflow = %v, want ErrPlanMtrWindow", err)
+		t.Fatalf("space-sized offset = %v, want ErrPlanMtrWindow (work ceiling)", err)
 	}
 	// A WIDTH over the ceiling, tested DIRECTLY. Without this the `count >
 	// MaxPlanMtrOrdinals` guard can be deleted and the suite stays green -- and worse,

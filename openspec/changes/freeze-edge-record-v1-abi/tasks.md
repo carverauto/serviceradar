@@ -72,11 +72,12 @@ PR. Compression is the NEXT PR.
 
 ### Estimate discipline
 
-The remaining freeze is NOT one to two weeks. SEVEN open parents and NINETEEN unchecked
-named subtasks remain (1.3 and 1.17 are closed and do not count), including SIX of 1.5's
-THIRTEEN obligations. Thirteen, not eleven: two obligations the body carried had no subtask,
-and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification) and
-1.5-m (Elixir framing parity for the lifecycle and recovery ingresses). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
+The remaining freeze is NOT one to two weeks. SEVEN open parents and TWENTY-TWO unchecked
+named subtasks remain (1.3 and 1.17 are closed and do not count), including SEVEN of 1.5's
+FOURTEEN obligations. Fourteen, not eleven: three obligations the body carried had no subtask,
+and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification), 1.5-m
+(Elixir framing parity for the lifecycle and recovery ingresses) and 1.5-n (the Elixir
+projected-cost comparison). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
 focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
 already implemented during closeout.
@@ -588,7 +589,11 @@ here.
     `proto/edge/v1/testdata/mtr_batch.bin`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.4-a the MTR vectors
+  - [ ] 1.4-a the MTR vectors, INCLUDING the accepted-at-ceiling control for the
+        assignment-expectation ordinal count, in BOTH runtimes. Named here rather than left to
+        "the MTR vectors": each runtime asserts only that ceiling+1 is refused, so tightening
+        `>` to `>=` refuses a legal ceiling value and both suites stay green. NOT 1.15-a's --
+        that subtask is shared per-value LEAF vectors and closes no validator boundary.
   - [ ] 1.4-b full-MTR `trace_id` UUIDv7 overflow vector (assigned by 1.3)
   - [ ] 1.4-c full-MTR `event_id` UUIDv7 overflow vector -- SEPARATE from 1.4-b, because the
         two `uuidTimeWithin` calls are independently removable
@@ -715,11 +720,15 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-h..1.5-m. 1.5-a..1.5-g are CLOSED. The subtask list is
+  - REMAINING: 1.5-h..1.5-n. 1.5-a..1.5-g are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
-  - DEPENDS ON: 1.6-d, and only for 1.5-m. That subtask adds the framing rule to Elixir's signed
-    recovery-control path, and 1.6-d is what creates the path; every other 1.5 subtask depends on
-    nothing open. Compression admission (1.5-f) is CLOSED, delivered on
+  - DEPENDS ON: 1.6-d, and ONLY for 1.5-m. That subtask adds the framing rule to Elixir's
+    signed recovery-control path, and 1.6-d is what creates the path. Every other 1.5 subtask
+    depends on nothing open.
+    1.5-h DEPENDS ON NOTHING. Its single closure policy is that a single-runtime row closes
+    once its owner is NAMED, so the `MaxReasonBytes`, single-page `MaxSpansPerPage` and
+    record-level `MaxPrincipalBytes` rows are DELEGATED, NOT AWAITED, and SHALL NOT be listed
+    as dependencies of 1.5-h. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
@@ -1110,7 +1119,130 @@ here.
         prove only that a helper can refuse its own inputs.
         FIXTURES: 1.5-g's committed rows are SWEEP records and cannot serve these ingresses, so
         this subtask authors lifecycle and recovery-framing fixtures of its own.
-  - [ ] 1.5-h string / count / byte / relational-row BOUNDS admission
+  - [ ] 1.5-h RESIDUAL DOMAIN-SEMANTIC bounds admission -- string, count, and relational.
+        SCOPE IS RESIDUE, NOT AN INVENTORY. This subtask owns ONLY the per-family
+        string/count/canonical-body limits that no other task owns, plus VERIFYING THE
+        RELATION that a declared projected cost does not exceed the capability's declared
+        maxima -- NOT "signed": the comparison runs pre-signature. It SHALL
+        NOT restate transport or compression limits, and SHALL NOT extend the cost work beyond
+        that relation: raw record / envelope / frame / client-message bytes are 1.7-a/b, the
+        payload input / output / ratio / Zstd
+        window are 1.5-f, and plan-page / compiled-assignment / execution-grant / recovery
+        BYTE limits are already proven by their own tasks. Those are REFERENCED, never
+        re-vectored. Whether a projected cost COVERS every real mutation is 1.5-k and is
+        EXCLUDED here.
+        THE OWNERSHIP TABLE IS THE FIRST DELIVERABLE and is in `design.md` section 2h: bound,
+        quantity and stage, normative owner, production gate in each runtime, existing
+        evidence, required action. It is authored BEFORE any vector, and no vector in this
+        subtask is written for a bound whose row is absent from it.
+        `MaxPayloadBytes` IS NOT A NINTH ABI CEILING. It is a derived defensive guard whose
+        value is `MaxRecordBytes`, owned by 1.5-f; its existing literal-pinned Go and Elixir
+        tests remain the evidence and this subtask adds none.
+        TWO NAMED EXCEPTIONS TO THE "NO RAW BOUNDS" SCOPE, and they are exceptions by name so
+        that a third cannot be added silently. `MaxPlanHeaderBytes` is raw and pre-decode;
+        `MaxTransportProvenanceHeaderBytes` is a pre-parse guard. Any FURTHER raw bound belongs
+        to a raw-bound owner, and adding one to this list requires saying which owner declined
+        it.
+        `MaxPlanHeaderBytes` IS ALREADY NORMATIVE -- the requirement "Only a raw-byte plan
+        boundary may claim physical enforcement" states the header ceiling on received bytes --
+        and this subtask SHALL NOT author a second one. Go's proof is complete and
+        literal-pinned at a production entrypoint; what is owed is the SHARED EVIDENCE and a
+        NAMED Elixir ceiling, which today borrows the record constant at the same value.
+        `MaxTransportProvenanceHeaderBytes` was claimed by task 1.14, which defined and
+        implemented that grammar and is checked, but left no requirement for the bound and no
+        evidence. This subtask is REMEDIATION for that, not first ownership.
+        MTR SEMANTIC LIMITS STAY WITH 1.4-a and SHALL NOT be duplicated here unless ownership
+        is explicitly moved. They have no Elixir peer because this runtime has no MTR body
+        validator at all -- an absent boundary, not a missing rule -- so shared rows would be
+        Go-only rows wearing a shared-corpus shape.
+        RECORDED DEBT 1.5-h DOES NOT ADOPT: the assignment-expectation ceiling has an
+        over-ceiling refusal in BOTH runtimes and an accepted-at-ceiling control in NEITHER, so
+        TIGHTENING `>` to `>=` survives both suites -- the surviving mutation makes the
+        validator stricter, refusing a legal ceiling value, which a refusal-only pair cannot
+        catch. That control is 1.4-a's, listed here only so the arm is not read as closed on
+        its refusal alone.
+        ONE EXCEPTION, AND IT IS NOT AN INVITATION TO REOPEN THE REST: `MaxTraceStrBytes` is
+        not an MTR-only bound. It also bounds `abort_reason` on `SweepExecutionEventV1` --
+        a LIFECYCLE field, in `ValidateSweepExecutionEvent`. Filing the constant wholly under
+        1.4-a leaves that site unowned. The lifecycle site is 1.5-h's; its FOUR
+        MTR predicates -- trace target, trace error code, hop hostname, hop ASN org -- stay
+        with 1.4-a. A bound may have sites under two owners; what it may
+        not have is a site under none.
+        VECTOR RULES: one N/N+1 pair per DISTINCT 1.5-h-owned limit, not per field. Relational
+        cases use an ACCEPTED EQUALITY control and the FIRST violation, moving ONE OPERAND
+        only. Every row SHALL reach the gate it names: a rejection arriving from 1.5-f
+        compression admission or a 1.7 raw ceiling does not count as evidence for a
+        domain-semantic bound, and a row that cannot reach its gate is reported, not counted.
+        EVERY INDEPENDENTLY REMOVABLE SITE NEEDS BOTH AN ACCEPTED CONTROL AND AN OVER-LIMIT
+        NEGATIVE. A negative-only site row stays green when that validator rejects
+        EVERYTHING, so it proves the site is reachable and refusing, not that the site is
+        refusing FOR THIS REASON. The site inventory is `design.md` section 2h.
+        A SITE IS ONLY A SITE IF IT CAN FAIL FOR ITS OWN REASON. `MaxPolicyIDBytes` has TWO
+        provable carriers -- the plan header and `SweepAssignmentRecordV1` -- not three: the
+        plan RANGE predicate is `len > Max OR != headerPolicy`, and because the header is
+        already bounded and the range must equal it, no input reaches the length arm alone.
+        That predicate is DERIVED and SHALL be centralized, removed, or recorded as derived;
+        it SHALL NOT get a site row. `MaxPrincipalBytes` has THREE real sites (record producer
+        context, edge publication slot, service publication slot).
+        TWO OF THIS SUBTASK'S BOUNDS ADMIT NO AT-CEILING/ONE-OVER PAIR once their rules are
+        settled, and demanding one would produce a vacuous row in each case.
+        `MaxTransportProvenanceHeaderBytes` is a DEFENSIVE PRE-PARSE GUARD, not an inclusive
+        semantic maximum: the largest valid header is well below it, so an accepted-at-ceiling
+        control cannot exist. It SHALL be evidenced stage-sensitively -- the parser was not
+        entered.
+        `MaxRangeStrBytes` ARRIVES THERE BY A DIFFERENT ROUTE. It is REACHABLE today, and that
+        is a SYNTAX-PARITY DEFECT rather than a guard: `netip.ParseAddr` accepts SCOPED IPv6
+        addresses and a zone is arbitrary-length text, so a link-local address with a long
+        enough zone reaches the ceiling exactly and Go admits it as a first/last span with
+        equal endpoints. This runtime refuses it, and NOT by rejecting the zone:
+        `:inet.parse_strict_address/1` accepts the text and silently DISCARDS the zone, after
+        which the canonical-spelling check refuses it as a mis-spelling. Two parsers, one
+        contract, opposite verdicts. The measured figures are in `design.md`; this entry names
+        the bound, never its value.
+        DECIDE THE SYNTAX BEFORE THE BOUND: a zone names an interface on the writing machine
+        and cannot be interpreted at the receiver, so this subtask SHALL forbid zones
+        normatively in plan range strings -- WHICH PUTS THE CEILING BACK OUT OF REACH and
+        makes this the SECOND guard-class bound. Its corpus is three parts: a ZONE-PRESENT
+        REFUSAL in both runtimes (the only row that changes verdict if the prohibition is
+        dropped); ACCEPTED CONTROLS at the largest valid syntax, per field; and ONE
+        OVER-LIMIT, PARSER-NOT-ENTERED control per field.
+        RUNTIME WORK, NOT ONLY VECTORS -- AND THE DEFECT IS PER SITE, NOT UNIVERSAL. Go's RAW
+        entrypoints (`ValidatePlanFromRaw`, `ValidateManifestChainFromRaw`) already count
+        BEFORE decoding and need no change. Go's DECODED validators do not: `ValidatePlanPages`
+        recurses every page and every nested range for unknown fields before comparing
+        `len(pages)`, and a page's range count is checked after its ranges were walked. This
+        runtime's RAW gates are staged correctly but call `length/1` over the whole
+        attacker-supplied list to compare it, and its DECODED checks run late like Go's.
+        THIS SUBTASK OWNS the decoded-side reordering AND the N+1-bounded traversal, each as
+        its own site with its own stage-sensitive evidence. A single "the count gates run
+        late" claim is FALSE for two of the four situations. A vector alone would freeze the
+        wrong stage everywhere: both runtimes return the right verdict today, so every N/N+1
+        pair passes while the work the ceiling exists to prevent has already happened.
+        PARITY IS CLAIMED ONLY WHERE BOTH RUNTIMES HAVE PRODUCTION VALIDATORS. ONE CLOSURE
+        POLICY, APPLIED UNIFORMLY: a single-runtime row may close this subtask if and only if
+        the missing side has a NAMED OWNING SUBTASK. Not "an owner is recorded somewhere" --
+        a subtask id. This subtask SHALL NOT close while any single-runtime row names no
+        owner, and SHALL NOT wait on a row whose owner is named.
+        By that rule the `MaxReasonBytes` row records 1.6-d, the Elixir record-level
+        `MaxPrincipalBytes` site records 1.5-n, and the `MaxSpansPerPage` single-page site
+        records 1.6-d. 1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
+        them; each owner stays independently open and flips its own row to both-runtime when
+        it lands. A subtask that both delegates a gap and blocks on it has not delegated it.
+        NORMATIVE VALUES LIVE IN THE SPEC. Bounds this subtask freezes that have no normative
+        statement today SHALL get one; this task list references bound NAMES and copies no
+        numbers. This applies to bounds that are implemented AND tested but unstated:
+        `MaxSweepHostsPerBatch` splits: its cross-language VECTOR EVIDENCE is task 1.3's and
+        is complete, and this subtask owes only the NORMATIVE REQUIREMENT naming the value.
+        It SHALL NOT be recorded closed until that requirement exists, and 1.5-h SHALL NOT
+        re-author vectors 1.3 already has. `MaxManifestPages` is normative for RECOVERY only;
+        its use as a plan page-list ceiling is unstated, as is `MaxRangesPerPage`, and both
+        need a plan requirement.
+        DECIDE BEFORE VECTORING: whether an EMPTY tombstone reason is invalid. The spec
+        freezes `MaxReasonBytes` as a maximum and says nothing about a lower bound, while Go
+        refuses length 0. A vector written first would freeze whichever behaviour was
+        convenient. The reason gate is NOT in `ValidateTombstone` -- it is in the signed
+        recovery-control body path, so its Elixir peer is 1.6-d's to build. That is a
+        RECORDED OWNER, so this row closes here and flips when 1.6-d lands.
   - [ ] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from gateway
         receipt, physical placement, spool coordinates and renewable delivery proof
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
@@ -1135,8 +1267,40 @@ here.
         this ledger today, and a ledger is deleted at archive; (2) the body's own quantified claim,
         that roughly 3-4% of malformed inputs reached an ambiguous `MatchError`, needs FUZZ
         EVIDENCE that the preflight now catches those first rather than an argument that it should.
+  - [ ] 1.5-n ELIXIR STRUCTURAL RECORD BOUNDARY, carrying the projected-cost comparison
+        against the production capability's DECLARED maxima.
+        Go compares a record's declared cost against the maxima carried in its production
+        capability inside `ValidateRecord` -- `cost_model_version` equality plus
+        `projected_row_count` and `projected_write_bytes`. That comparison is STRUCTURAL and
+        PRE-SIGNATURE: `ValidateRecord` performs no cryptographic verification, so the maxima
+        it reads are unverified at that point and the check is a shape rule, not an
+        authorization one. This runtime only DIGESTS those three fields in `SemanticDigest`
+        and `ClaimsFraming` and never COMPARES them.
+        A COMPLETE STRUCTURAL BOUNDARY IS THE DELIVERABLE, not a comparator bolted onto a
+        function that applies no other record rule.
+        "PRODUCTION-SHAPED" MEANS THE SAME HERE AS IN 1.7-e/f: a COMPLETE VALIDATOR API,
+        callable by an ingress, is SUFFICIENT. Live ingress attachment is downstream and is
+        NOT a closure condition -- no validator on either side of this ABI has one, Go's
+        included, so requiring it of this runtime alone would judge the same artifact twice.
+        `SemanticValidate.validate_record/1` having no live caller is therefore NOT the
+        objection; that it applies no production record rule beyond enum and shape checks
+        is.
+        IT ALSO CARRIES the record-level `MaxPrincipalBytes` check, which 1.5-h records as a
+        single-runtime row: this runtime bounds a principal in both publication slots and not
+        on the record, and the boundary created here is what that check attaches to.
+        UNDER 1.5, NOT 1.6. Parent 1.6 is the VERSION-CORPUS parity task and its rule is that
+        both runtimes prove every inventory member; projected-cost admission is not an
+        inventory member, so filing it there would make 1.6's 15/19 figure mean two different
+        things at once.
+        NOT 1.5-h's: that subtask verifies the RELATION where a production validator exists,
+        and this runtime has none to verify. 1.5-h's Go-side rows are recorded single-runtime
+        and flip to both-runtime when this lands.
+        DISTINCT FROM 1.5-k, which asks whether a declared cost COVERS every real mutation.
+        This one is only whether the declared value is compared against the capability's
+        declared maxima at all -- a cost that covers everything is worthless if nothing checks
+        it against the grant it claims to fit.
 
-  EXHAUSTIVENESS: 1.5-a..m is checked against this task's own body. Every obligation the
+  EXHAUSTIVENESS: 1.5-a..n is checked against this task's own body. Every obligation the
   body names has a subtask; nothing is carried as an unlisted assumption. If the body gains
   an obligation, it gains a subtask in the same edit.
 
@@ -1293,8 +1457,14 @@ here.
         recovery-control body and compare the recomputed scope digest to the SIGNED claim --
         the same order Go uses. `HashGrammar` already supplies all three digests; what is
         missing is the signed path that reaches them.
-        NO NEW VECTORS: when it lands, the three rows flip from `go_only` to `both` and REUSE
-        the committed records and the committed issuer key.
+        ALSO CARRIES TWO ROWS 1.5-h DELEGATES, because both need the boundary this subtask
+        creates and neither is a version-corpus member: the tombstone `MaxReasonBytes` bound,
+        which Go applies in `recoveryControlBody` on this same signed path, and the
+        `MaxSpansPerPage` check in `validateSingleManifestPage`, which is a DIFFERENT site
+        from the chain validator this runtime already peers. Both flip to both-runtime here.
+        NO NEW VECTORS FOR THE SCOPE ROWS: when it lands, the three flip from `go_only` to
+        `both` and REUSE the committed records and the committed issuer key. The two delegated
+        rows DO need vectors, which is why they are named rather than assumed.
 
 - [x] 1.6a **Freeze the loss-classification span shape BEFORE the 1.7 ABI freeze.**
   Replace the ad-hoc `lost_ranges` + `affected` pairing on
@@ -1480,9 +1650,12 @@ here.
   (`MaxRecordBytes`, `MaxDeliveryEnvelopeBytes`, `MaxFrameBytes`,
   `MaxClientMessageBytes`) AND for the relational envelope budget -- each accepted
   at N and rejected at N+1, on RAW received bytes, before unmarshal.
-  THE CANONICAL BOUNDS INVENTORY IS `design.md` -- its raw-bounds table and its
-  work-ceilings table. This gate states the OBLIGATION and does not restate the values;
-  a second inventory would be one more thing to keep in sync. What matters here is that
+  THE NORMATIVE SOURCE FOR EVERY VALUE IS THE APPLIED SPEC REQUIREMENT. `design.md`
+  section 2h is the consolidated OWNERSHIP INDEX -- which task proves each bound, at which
+  stage, with what evidence -- and its bound tables restate values for readability only.
+  This gate states the OBLIGATION and copies no numbers; a second inventory would be one
+  more thing to keep in sync, and a design document is not an authority for a value. What
+  matters here is that
   the two KINDS are not interchangeable: an N/N+1 vector on RECEIVED BYTES cannot
   exercise a work ceiling, and the extracted-body ceilings are owned by 1.5-f rather
   than by this gate. This change
@@ -1497,12 +1670,119 @@ here.
   STATUS
   - LANDED: nothing; this is a GATE, not a build. Its condition that 1.3's normative deltas
     exist is now met.
-  - REMAINING: see subtasks 1.7-a..d below; not restated here.
+  - REMAINING: see subtasks 1.7-a..f below; not restated here.
   - DEPENDS ON: every other open task in this change. It cannot close first by construction.
   - EVIDENCE: the per-task STATUS blocks above are what this gate reads.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.7-a cross-language N/N+1 vectors for all four raw bounds
+  - [ ] 1.7-a cross-language N/N+1 vectors for all four raw bounds.
+        PREREQUISITE: `MaxClientMessageBytes` has NO EDGE-ABI enforcement site in Go. The
+        constant and `ErrClientMessageTooLarge` are both declared and neither is ever
+        referenced by a code path, while Elixir refuses an oversize client
+        message in `decode_client_message/1`. This does NOT mean Go accepts unbounded input --
+        whether an outer gRPC receive-message limit is configured on that path is UNKNOWN and
+        was not examined. EXACTLY ONE THING IS ESTABLISHED: the ABI's own ceiling has no
+        enforcement site. Nothing follows about what DOES bound that message, including that a
+        transport setting does. This subtask SHALL DETERMINE the effective bound, AND add the
+        edge-ABI gate before its pair can pass; a vector authored first would record a Go
+        acceptance as the frozen behaviour.
+  - [ ] 1.7-e LANE HANDSHAKE ADMISSION bounds -- BOTH HALVES, and NOTHING on the delivery-ACK
+        path. This task's body covers the frame AND LANE HANDSHAKE, while 1.7-a is scoped to
+        raw byte ceilings and reaches neither a nonce length nor a credit cap. NOT 1.5-h's:
+        those are transport admission, and putting them inside a domain-semantics subtask
+        would misfile them.
+        SCOPE: the REQUEST (`EdgeRecordLaneOpen` -- session nonce length range, byte and frame
+        credit caps) AND the RETURN half (`EdgeRecordLaneOpenAck`, validated by
+        `ValidateLaneOpenAck`). The return half is INDEPENDENTLY REMOVABLE and is a different
+        message from `EdgeDeliveryAckV1`, which is 1.7-f's; a subtask covering only the
+        request would leave the half that grants the credits unproven.
+        REQUIRED, NOT OPTIONAL: normative requirements stating the EXACT nonce range and
+        credit caps, and an Elixir peer. Go enforces all of it in the lane-open validator and
+        this runtime has none, so a Go-only closure would freeze one implementation rather
+        than a contract.
+        MECHANICAL CLOSURE CONDITIONS -- shared vectors, each named:
+        (a) REQUEST, with the VERDICT frozen for each row rather than left to the vector
+            author -- nonce below the minimum REFUSE, at the minimum ACCEPT, at the maximum
+            ACCEPT, above the maximum REFUSE. Per credit dimension: zero REFUSE, at the cap
+            ACCEPT, one over the cap REFUSE. ISOLATED PER DIMENSION exactly as the return
+            vectors are, with the other dimension held at a legal value -- a row moving byte
+            and frame credits together cannot say which one the validator read.
+            If a different semantics is wanted -- an exclusive maximum, or a zero-credit
+            request treated as a no-op rather than a refusal -- it SHALL be chosen and stated
+            HERE, not discovered from whichever verdict the current Go code returns.
+        (b) RETURN: `1 <= granted <= requested`, proven INDEPENDENTLY OF THE HARD CAPS and
+            PER DIMENSION -- byte credits and frame credits are separate relations, and a row
+            moving both cannot say which one the validator read. For EACH dimension: an
+            ACCEPTED CONTROL at `granted == requested`, one accepted strictly inside the
+            range, a refusal at zero, and a refusal above the request -- with the OTHER
+            dimension held at a legal value and every request well inside the caps. Without
+            the accepted controls an ALWAYS-REFUSING validator passes the group.
+        "PRODUCTION-SHAPED" MEANS THE SAME THING ON BOTH SIDES, and it is not "live ingress":
+        `ValidateLaneOpenAck` and `ValidateAck` have ZERO non-test callers in Go, and
+        `ValidateLaneOpen`'s only non-test caller is `ValidateLaneOpenAck` itself. No ingress
+        reaches any of the three. These are production-shaped VALIDATOR APIs in both runtimes,
+        and this subtask SHALL NOT claim live enforcement for either. Requiring real ingress
+        attachment would be a fair rule too -- but then it applies to Go as well, and neither
+        runtime meets it today.
+  - [ ] 1.7-f ACKNOWLEDGEMENT BOUNDS -- a SEPARATE subtask because the ACK path is not the
+        lane-open handshake. `MaxRejectionCodeLen` belongs here, not with the nonce and credit
+        caps: a disposition's machine-token code is carried on a delivery ACK, a different
+        message on a different leg.
+        `MaxRejectionCodeLen` IS NOT YET FROZEN, and this subtask SHALL NOT describe it as
+        frozen until it is. No requirement states its value or its `[A-Z0-9_]` machine-token
+        grammar; a constant in one runtime is an implementation detail until the spec says
+        otherwise. Authoring BOTH the value and the grammar is this subtask's work, together
+        with a PRODUCTION-SHAPED Elixir ack boundary -- this runtime has no ack validator at
+        all, so there is nothing to claim parity against today.
+        THE EXACT DISPOSITION DEFAULTS ARE NOT FROZEN. `DefaultMaxDispositions` and
+        `DefaultMaxDispositionBytes` are CALLER-OVERRIDABLE -- `ValidateAck` takes them as
+        parameters and substitutes the default only for a non-positive argument -- and a
+        freeze cannot freeze a value a deployment sets.
+        1.7-f WILL FREEZE THE FINITE-LIMIT OBLIGATION: that a receiver imposes FINITE limits
+        at all THREE stages, whatever values it chooses. What is absent today is the NORMATIVE
+        ABI RULE, not the checks -- Go's `ValidateAckRawSize` and `ValidateAck` do constrain
+        budgets right now. They are CANDIDATE behaviour with no requirement behind them, so a
+        second implementation owes nothing and a future Go change breaks no stated rule. The
+        three stages: raw ACK bytes before decode, decoded
+        disposition COUNT, and decoded CANONICAL bytes. The three are not substitutes --
+        `proto.Size` collapses the duplicate and non-minimal fields that inflate received
+        bytes, so a canonical-size budget cannot bound parse cost, and a count cannot bound
+        either. Once the obligation is frozen, an implementation passing a non-positive limit
+        to obtain "no ceiling" is NON-CONFORMING. Today it conforms to nothing and violates
+        nothing.
+        MECHANICAL CLOSURE CONDITIONS -- four ISOLATED evidence groups, because a single
+        oversize ack would trip several at once and prove none of them. EACH GROUP CARRIES ITS
+        OWN ACCEPTED CONTROL; a group with only a refusal is satisfied by a validator that
+        refuses everything:
+        (a) RAW BYTES: accepted AT the raw limit, and refused above it, with decoded count and
+            canonical size both well inside their budgets -- the refusal BEFORE decode.
+        (b) DECODED COUNT: accepted AT the count, refused above it, with raw and canonical
+            sizes inside budget.
+        (c) CANONICAL BYTES: accepted AT the canonical budget, refused above it, with the
+            count inside it and raw bytes inside the raw limit -- the case `proto.Size` sees
+            and the raw guard cannot.
+        (d) REJECTION CODE, three separable rules: LENGTH -- accepted at a legal token of
+            ceiling length, refused above it. GRAMMAR -- lower-case and punctuation refused at
+            a LEGAL length, so the refusal cannot be the length rule. NON-EMPTINESS -- its
+            own row, because an empty code has length 0 and cannot be a grammar violation "at
+            a legal length". It is a LOWER-BOUND CONTENT rule, NOT a presence rule: proto3
+            cannot distinguish an omitted `rejection_code` from an explicitly empty one, so
+            "was it set?" is not a question this ABI can ask.
+        SAME DEFINITION OF "PRODUCTION-SHAPED" AS 1.7-e -- AND THE UNIFIED RULE EXPOSES A GO
+        GAP THIS SUBTASK OWNS. "A complete validator API" is satisfied by a COMPOSED API SET,
+        not only by a single function; what it may never be is a set whose ORDER is left to
+        each caller. Go today exposes `ValidateAckRawSize` and `ValidateAck` separately and
+        NOTHING that composes raw bound -> decode -> decoded validation, so the sequence that
+        makes the raw guard meaningful exists only in whatever a caller remembers to write.
+        That is the same defect the plan boundary already fixed by making the page-only path
+        unexported: a bound one caller remembers to apply is not a bound.
+        THIS SUBTASK SHALL supply a COMPOSED GO ENTRYPOINT, or attach the two to a real
+        ingress that composes them. THERE IS NO ORDERING-EVIDENCE FALLBACK, because no
+        evidence can create the obligation: a vector suite calling the two functions in the
+        right order proves the functions work and proves NOTHING about a caller that skips the
+        first. The raw guard's whole value is that it runs before decode, and a rule a caller
+        may decline is not a rule. This is the same conclusion the plan boundary reached when
+        it unexported its page-only path.
   - [ ] 1.7-b the relational envelope budget vector
   - [ ] 1.7-c FREEZE-CONDITION FIXTURE COVERAGE: Go/Elixir golden fixtures covering
         `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production authority,
