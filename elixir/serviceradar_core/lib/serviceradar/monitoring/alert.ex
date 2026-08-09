@@ -186,14 +186,36 @@ defmodule ServiceRadar.Monitoring.Alert do
     end
 
     read :needs_notification do
-      description "Alerts that need notification"
-      # Find alerts that are active and either:
-      # - Never notified (notification_count == 0)
-      # - Not suppressed (suppressed_until is nil or in the past)
+      description "Alerts awaiting their FIRST notification"
+
+      # Deliberately first-notify only (`notification_count == 0`).
+      #
+      # Continuation work - retry-due, escalation-step-due, and renotify - is
+      # keyed on NotificationDelivery rows, not on alerts, so it cannot be
+      # driven from an alert-keyed scan. A separate delivery-keyed scheduler on
+      # the same `:notifications` queue owns that; the two are not redundant
+      # because they select over different tables.
+      #
+      # An alert is skipped here while suppressed or snoozed. Both are
+      # timestamp comparisons, so an expiring snooze becomes eligible again on
+      # the next scheduler tick with no state transition required.
       filter expr(
                status in [:pending, :escalated] and
                  notification_count == 0 and
-                 (is_nil(suppressed_until) or suppressed_until < now())
+                 (is_nil(suppressed_until) or suppressed_until < now()) and
+                 (is_nil(snooze_until) or snooze_until < now())
+             )
+
+      pagination keyset?: true, default_limit: 100
+    end
+
+    read :snooze_expired do
+      description "Alerts whose snooze has lapsed and that are still actionable"
+
+      filter expr(
+               status in [:pending, :escalated] and
+                 not is_nil(snooze_until) and
+                 snooze_until < now()
              )
 
       pagination keyset?: true, default_limit: 100
@@ -235,9 +257,40 @@ defmodule ServiceRadar.Monitoring.Alert do
       argument :acknowledged_by, :string, allow_nil?: false
       argument :note, :string
 
+      # Set when the acknowledging principal maps to a platform user. Left nil
+      # for an external principal (a chat or paging identity), which is why the
+      # free-text `acknowledged_by` is retained alongside it.
+      accept [:acknowledged_by_user_id]
+
       change transition_state(:acknowledged)
       change set_attribute(:acknowledged_at, &DateTime.utc_now/0)
       change set_attribute(:acknowledged_by, arg(:acknowledged_by))
+
+      # Acknowledging ends any active snooze: a human has taken ownership, so
+      # the deferral no longer applies.
+      change set_attribute(:snooze_until, nil)
+    end
+
+    update :snooze do
+      description "Defer notification dispatch for this alert until a future time"
+
+      argument :snooze_until, :utc_datetime_usec, allow_nil?: false
+      argument :note, :string
+
+      # Snooze is NOT a state-machine transition. It leaves `status` untouched
+      # and records a timestamp; "snoozed" is derived as
+      # `status in [:pending, :escalated] and snooze_until > now()`.
+      validate compare(:snooze_until, greater_than: &DateTime.utc_now/0) do
+        message "must be in the future"
+      end
+
+      change set_attribute(:snooze_until, arg(:snooze_until))
+    end
+
+    update :unsnooze do
+      description "Clear an active snooze so dispatch resumes immediately"
+
+      change set_attribute(:snooze_until, nil)
     end
 
     update :resolve do
@@ -527,6 +580,31 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Suppress notifications until this time"
     end
 
+    attribute :snooze_until, :utc_datetime_usec do
+      public? true
+
+      description """
+      Suppress notification dispatch for this alert until this time.
+
+      Deliberately NOT a state-machine state: `state_attribute` is `:status`
+      and no declared state could be a `:snooze` target. "Snoozed" is a derived
+      condition - `status in [:pending, :escalated] and snooze_until > now()` -
+      which keeps snooze-expiry resumption a pure timestamp comparison and
+      avoids auditing every existing `status` filter for a new value.
+      """
+    end
+
+    attribute :acknowledged_by_user_id, :uuid do
+      public? true
+
+      description """
+      Platform user who acknowledged, when one can be identified.
+
+      The free-text `acknowledged_by` is retained alongside this for external
+      principals (a chat or paging identity with no platform user).
+      """
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -544,6 +622,15 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   relationships do
+    belongs_to :acknowledged_by_user, ServiceRadar.Identity.User do
+      source_attribute :acknowledged_by_user_id
+      destination_attribute :id
+      define_attribute? false
+      attribute_writable? true
+      allow_nil? true
+      public? true
+    end
+
     belongs_to :service_check, ServiceRadar.Monitoring.ServiceCheck do
       source_attribute :service_check_id
       destination_attribute :id

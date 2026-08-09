@@ -186,7 +186,7 @@ Conventions that apply to every phase:
 
 ### 1.2 Alert lifecycle changes
 
-- [ ] 1.2.1 Add the `snooze_until` attribute to `Alert` plus a plain
+- [x] 1.2.1 Add the `snooze_until` attribute to `Alert` plus a plain
       `update :snooze` action that sets it. Snooze SHALL NOT add a state-machine
       state. `elixir/serviceradar_core/lib/serviceradar/monitoring/alert.ex`
       declares `state_attribute :status` (line 93) over the states `pending`,
@@ -200,7 +200,7 @@ Conventions that apply to every phase:
       renderer for a new state. The attribute is `snooze_until` everywhere - the
       alert resource, `NotificationAcknowledgement`, the API, and the UI.
       `snoozed_until` is not a spelling this change uses anywhere.
-- [ ] 1.2.2 Add `acknowledged_by_user_id` as a real foreign key to
+- [x] 1.2.2 Add `acknowledged_by_user_id` as a real foreign key to
       `ServiceRadar.Identity.User` while retaining the existing free-text
       `acknowledged_by` / `resolved_by` columns for external principals.
 - [ ] 1.2.3 Split the scan by what it is keyed on. Keep `read :needs_notification`
@@ -245,14 +245,14 @@ Conventions that apply to every phase:
       `TrivyReports.maybe_create_priority_alert/3` (`trivy_reports.ex:992`).
 - [ ] 1.2.8 Implement resolve-time notification close-out for channels that
       already fired, gated on `NotificationEscalationPolicy.resolve_notifies`.
-- [ ] 1.2.9 Add a snooze-expiry path that resumes the notification cadence once
+- [x] 1.2.9 Add a snooze-expiry path that resumes the notification cadence once
       `snooze_until` passes. Because snooze is a derived condition rather than a
       state (1.2.1), resumption is a pure timestamp comparison: no transition
       fires and nothing has to be moved back out of a snoozed state. On
       resumption, the remaining escalation step delays are measured from the snooze
       expiry instant, which is the single exception to the alert-fire-time origin
       fixed in 1.3.7a.
-- [ ] 1.2.10 Keep every alert action ADDED BY THIS CHANGE atomic: implement
+- [x] 1.2.10 Keep every alert action ADDED BY THIS CHANGE atomic: implement
       `atomic/3` where needed and do not add `require_atomic? false`. This is a
       constraint on new actions only. `alert.ex` already carries
       `require_atomic? false` on four existing actions (lines 257, 291, 301, 326);
@@ -262,14 +262,14 @@ Conventions that apply to every phase:
 
 ### 1.3 Decision engine
 
-- [ ] 1.3.1 Add `ServiceRadar.Notifications.Router` implementing predicate
+- [x] 1.3.1 Add `ServiceRadar.Notifications.Router` implementing predicate
       matching on `match_expression`, `priority` ordering, and `continue`
       semantics (first match wins when `continue == false`).
-- [ ] 1.3.2 Add `ServiceRadar.Notifications.Suppression` returning an enumerated
+- [x] 1.3.2 Add `ServiceRadar.Notifications.Suppression` returning an enumerated
       reason from `:device_out_of_service`, `:silence`, `:schedule`, `:snoozed`,
       `:throttled`, `:acknowledged`, `:channel_disabled`, `:no_matching_route`,
       with `:dependency` reserved and unimplemented.
-- [ ] 1.3.2a Record `:no_matching_route` when an alert matches zero enabled
+- [x] 1.3.2a Record `:no_matching_route` when an alert matches zero enabled
       `NotificationRoute` rows. The unrouted alert is otherwise the one case that
       silently produces nothing, which is exactly the failure an operator cannot
       debug. It is written through the same audit path as every other withheld
@@ -295,11 +295,11 @@ Conventions that apply to every phase:
       unbounded table growth while still letting an operator see both why and how
       often. Implement it as an upsert against the unique index in 1.1.18a, and
       keep the update atomic (`atomic/3`, never `require_atomic? false`).
-- [ ] 1.3.6 Add `ServiceRadar.Notifications.Dedupe` consuming the existing
+- [x] 1.3.6 Add `ServiceRadar.Notifications.Dedupe` consuming the existing
       `{rule_id, group_key}` incident identity, `cooldown_seconds`, and
       `renotify_seconds` from `StatefulAlertRule`. Do not author a second
       identity scheme; support the route `dedupe_key_template` override only.
-- [ ] 1.3.6a Fix cadence precedence rather than leaving it to whichever code path
+- [x] 1.3.6a Fix cadence precedence rather than leaving it to whichever code path
       runs last: `StatefulAlertRule.renotify_seconds` is the FLOOR.
       `NotificationEscalationPolicy.repeat_interval_seconds` may only make repeats
       LESS frequent, so it MUST be `>= renotify_seconds`. Reject a policy
@@ -307,10 +307,10 @@ Conventions that apply to every phase:
       silently clamp it. A route may only narrow the rule's cadence, never widen
       it. The rule owns how noisy an incident is allowed to be; notification
       configuration can only be quieter.
-- [ ] 1.3.7 Add `ServiceRadar.Notifications.Escalation` advancing steps only when
+- [x] 1.3.7 Add `ServiceRadar.Notifications.Escalation` advancing steps only when
       the step delay has elapsed AND the alert is still unacknowledged, bounded by
       policy step count, `repeat_count`, and `repeat_interval_seconds`.
-- [ ] 1.3.7a Measure `NotificationEscalationStep.delay_seconds` from the ALERT
+- [x] 1.3.7a Measure `NotificationEscalationStep.delay_seconds` from the ALERT
       FIRE TIME, never from the previous step's dispatch. Chaining delays off the
       previous dispatch makes total time-to-page depend on transport latency and
       retry behaviour, so a policy stops meaning what its author read. There is
@@ -355,11 +355,11 @@ Conventions that apply to every phase:
 
 ### 1.4 Native transports and rendering
 
-- [ ] 1.4.1 Define the `ServiceRadar.Notifications.Transport` behaviour with
+- [x] 1.4.1 Define the `ServiceRadar.Notifications.Transport` behaviour with
       exactly these callbacks: `deliver/2`, `validate_config/1`, `capabilities/0`,
       and `test/2`. There is no `send/2`. Routing, escalation, suppression, and
       acknowledgement never learn a channel's provider tier.
-- [ ] 1.4.1a Make `test/2` mandatory in every tier. Every provider - `:native`,
+- [x] 1.4.1a Make `test/2` mandatory in every tier. Every provider - `:native`,
       `:declarative`, `:wasm_plugin`, and the built-in `:stream` - implements a
       test action and declares `test` in its `capabilities`, so "test-send before
       saving" (1.7.4) works uniformly. A provider or manifest that declares
@@ -370,20 +370,20 @@ Conventions that apply to every phase:
       `Notifications.Transports.Discord`,
       `Notifications.Transports.GenericWebhook`, and
       `Notifications.Transports.Email`.
-- [ ] 1.4.3 Add `Notifications.Transports.Registry` resolving
+- [x] 1.4.3 Add `Notifications.Transports.Registry` resolving
       `implementation_module` from a compile-time module allowlist. Never
       `String.to_atom/1` on stored or user input.
 - [ ] 1.4.4 Validate every operator-supplied outbound URL with
       `Palisade.OutboundURLPolicy.validate_https_public_url/2` before any request.
       `WebhookNotifier` did not do this; the replacement must.
-- [ ] 1.4.5 Add `Notifications.Renderer` implementing the restricted substitution
+- [x] 1.4.5 Add `Notifications.Renderer` implementing the restricted substitution
       engine: whitelisted variable paths plus exactly the filters `upper`,
       `lower`, `truncate`, `json`, `url_encode`, `iso8601`, `default`. No EEx, no
       arbitrary code, no `raw/1` on untrusted content.
-- [ ] 1.4.6 Support the declared `payload_formats`
+- [x] 1.4.6 Support the declared `payload_formats`
       (`:slack_blocks`, `:discord_embed`, `:markdown`, `:plain`, `:html`,
       `:pagerduty_v2`, `:json`) via per-format renderer modules.
-- [ ] 1.4.6a Record the negotiated format on the delivery row as `payload_format`,
+- [x] 1.4.6a Record the negotiated format on the delivery row as `payload_format`,
       and the provider definition version that rendered it as `provider_version`,
       at render time. Both are written before dispatch so a delivery stays
       explicable after the provider's format list or template version moves on.
@@ -591,10 +591,10 @@ Conventions that apply to every phase:
 
 ### 1.10 Phase 1 tests
 
-- [ ] 1.10.1 Unit tests for `Router` (priority, `continue`, no-match), `Dedupe`,
+- [x] 1.10.1 Unit tests for `Router` (priority, `continue`, no-match), `Dedupe`,
       `Escalation` (delay elapsed and unacknowledged), and `RateLimiter`
       (restart-surviving budget).
-- [ ] 1.10.2 Suppression tests covering every reason value including
+- [x] 1.10.2 Suppression tests covering every reason value including
       `:no_matching_route`, plus a test that asserts a `:suppressed` delivery row
       is always written.
 - [ ] 1.10.2a Suppression-dedupe test: repeating an identical decision tuple N
@@ -622,25 +622,25 @@ Conventions that apply to every phase:
 - [ ] 1.10.4b Failover-chain test: the successor delivery carries
       `originating_delivery_id` pointing at the failed row, and a `fail_closed`
       channel produces no successor at all.
-- [ ] 1.10.4c Escalation-timing tests: step delays are measured from alert fire
+- [x] 1.10.4c Escalation-timing tests: step delays are measured from alert fire
       time even when step 1 dispatch was delayed by retries, and after a snooze
       expiry the remaining delays are measured from the snooze expiry instant.
-- [ ] 1.10.4d Cadence-precedence test: saving a policy whose
+- [x] 1.10.4d Cadence-precedence test: saving a policy whose
       `repeat_interval_seconds` is below the rule's `renotify_seconds` is
       rejected with an actionable message and is not silently clamped.
 - [ ] 1.10.5 Transport tests with a stubbed HTTP client for Slack, Discord, and
       generic webhook, plus an SSRF test asserting a private-IP URL is rejected by
       `Palisade.OutboundURLPolicy.validate_https_public_url/2`.
-- [ ] 1.10.6 Renderer tests: whitelisted paths only, each of the seven filters,
+- [x] 1.10.6 Renderer tests: whitelisted paths only, each of the seven filters,
       and rejection of anything resembling code.
-- [ ] 1.10.6a Template tests: a managed default resolves for every declared
+- [x] 1.10.6a Template tests: a managed default resolves for every declared
       payload format; an alert-class specific template wins over the format
       default; an operator-edited template survives a `template_version` bump
       while an untouched managed one is refreshed.
 - [ ] 1.10.6b Delivery-provenance test: `payload_format` and `provider_version`
       on the row match what actually rendered, and remain correct after the
       provider's `payload_formats` list or `template_version` changes.
-- [ ] 1.10.6c Transport-behaviour conformance test: every registered transport
+- [x] 1.10.6c Transport-behaviour conformance test: every registered transport
       exports `deliver/2`, `validate_config/1`, `capabilities/0`, and `test/2`,
       declares both `send` and `test` in `capabilities`, and no module exports a
       legacy `send/2`.
@@ -652,7 +652,7 @@ Conventions that apply to every phase:
       naming the missing piece and does not fall back to a local or test adapter.
 - [ ] 1.10.7 Redaction test proving no secret reaches a persisted delivery row or
       log line.
-- [ ] 1.10.8 Alert tests for the new `update :snooze` action and for
+- [x] 1.10.8 Alert tests for the new `update :snooze` action and for
       `acknowledged_by_user_id` population: `update :snooze` sets `snooze_until`
       and leaves `status` UNCHANGED; the derived snoozed condition
       (`status in [:pending, :escalated] and snooze_until > now()`) is true before

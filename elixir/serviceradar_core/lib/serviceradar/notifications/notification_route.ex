@@ -32,16 +32,19 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     shared verbatim with `NotificationSilence.matchers`, so a silence and the
     route that created it can never drift into two dialects.
   - `ServiceRadar.Notifications.Validations.MatchFieldAllowList` owns the field
-    paths this route's evaluation context can resolve, listed here as
-    `@match_fields` and `@match_field_prefixes`. That list is the complete
-    matchable surface of a route, in one place a reviewer can read.
+    paths this route's evaluation context can resolve. That list is published by
+    `ServiceRadar.Notifications.MatchExpression.Fields`, which is the complete
+    matchable surface of a route in one place a reviewer can read.
 
-  Keeping the allow-list on the resource rather than in the grammar is
-  deliberate: the resolvable set differs between routing and suppression, and
-  the grammar module says so. The consequence to respect is that
-  `@match_fields` and the route evaluator must move together - a path the
-  evaluator learns to resolve is unusable until it is listed here, and a path
-  listed here that the evaluator cannot resolve is a route that matches nothing.
+  Keeping the allow-list out of the grammar is deliberate: the resolvable set
+  differs between routing and suppression, and the grammar module says so.
+  Keeping it out of *this* module is equally deliberate - the save-time
+  validator here and the dispatch-time evaluator
+  (`ServiceRadar.Notifications.MatchExpression.Evaluator`, driven by
+  `ServiceRadar.Notifications.Router`) must agree exactly, because a path this
+  resource admits but the evaluator cannot resolve is a route that saves
+  cleanly and matches nothing, forever, silently. Both read
+  `MatchExpression.Fields`, so they cannot drift.
 
   An empty document (`%{}`, the default) matches every alert, which is the
   correct shape for a catch-all route parked at a high `priority` number.
@@ -76,36 +79,20 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.MatchExpression
+  alias ServiceRadar.Notifications.MatchExpression.Fields
   alias ServiceRadar.Notifications.Validations.MatchFieldAllowList
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "notifications.routes.view"}
   @manage_check {ActorHasPermission, permission: "notifications.routes.manage"}
 
-  # The complete matchable surface. Everything else is rejected at save time.
-  @match_fields ~w(
-    alert.title
-    alert.description
-    alert.severity
-    alert.status
-    alert.source_type
-    alert.source_id
-    alert.service_check_id
-    alert.event_id
-    alert.device_uid
-    alert.agent_uid
-    alert.metric_name
-    alert.metric_value
-    alert.threshold_value
-    alert.comparison
-    alert.escalation_level
-    alert.tags
-  )
-
-  # `alerts.metadata` carries the incident keys written by
-  # `AlertLifecycle.merge_incident_metadata/5`, so the whole map is matchable by
-  # path without enumerating keys this resource does not own.
-  @match_field_prefixes ["alert.metadata."]
+  # The complete matchable surface, read from the module the dispatch-time
+  # evaluator also reads. Everything else is rejected at save time. The list
+  # itself lives in ServiceRadar.Notifications.MatchExpression.Fields so that a
+  # path can never be admitted here and be unresolvable there; see that module
+  # for why that particular drift is the expensive one.
+  @match_fields Fields.route_fields()
+  @match_field_prefixes Fields.route_field_prefixes()
 
   @fields [
     :name,

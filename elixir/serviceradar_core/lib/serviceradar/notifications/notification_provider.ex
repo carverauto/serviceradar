@@ -80,6 +80,7 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
     extensions: [AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Notifications.Transports.Registry, as: TransportRegistry
   alias ServiceRadar.Notifications.Validations.ProviderTransportContract
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -115,16 +116,12 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
   @sources [:first_party, :uploaded, :plugin]
 
   # Compile-time allowlist of transport modules a `:native` provider may name.
-  # Seeded with the four Phase 1 launch providers plus the built-in stream
-  # transport. Adding an entry is an in-tree change plus a release, which is the
-  # whole point of the `:native` tier.
-  @implementation_module_allowlist [
-    "ServiceRadar.Notifications.Transports.Slack",
-    "ServiceRadar.Notifications.Transports.Discord",
-    "ServiceRadar.Notifications.Transports.GenericWebhook",
-    "ServiceRadar.Notifications.Transports.Email",
-    "ServiceRadar.Notifications.Transports.Stream"
-  ]
+  #
+  # The list is NOT duplicated here. `ServiceRadar.Notifications.Transports.Registry`
+  # owns it, and dispatch resolves through the same list this validation admits;
+  # a second copy would eventually accept a name dispatch cannot resolve, or
+  # refuse one it can.
+  @implementation_module_allowlist TransportRegistry.allowlisted_module_names()
 
   @fields [
     :provider_key,
