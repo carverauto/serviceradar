@@ -13,7 +13,7 @@ provide Remote Build Execution (RBE) for the Bazel builds.
 `--remote_executor` must name the *same* instance: the fleet registers with that instance's
 scheduler, so if they diverge the executors sit idle and the build silently runs somewhere
 else. The client side lives in `//.bazelrc` under `build:remote_base`, which every remote
-profile (`ci`, `remote`, `el9`) inherits.
+profile (`ci`, `remote`) inherits.
 
 ## Configuration
 
@@ -202,8 +202,6 @@ Only the Bazel action image is customized today. After updating `docker/Dockerfi
      --push .
    ```
 2. Bump the tag everywhere it is referenced for Bazel (`MODULE.bazel`, `MODULE.bazel.lock`, `BUILD.bazel`, `build/rbe/BUILD`, `build/platforms/BUILD.bazel`, `buildbuddy.yaml`, and `warmup_additional_images` in `k8s/buildbuddy/values.yaml`).
-   The `rbe-executor-el9` tag in `.bazelrc` and `build/platforms/BUILD.bazel` is a *different* image
-   (built from `docker/Dockerfile.rbe-ora9`) and moves independently — do not bump it in lockstep.
 3. (Optional) If we ever choose to run a custom executor pod image, update `k8s/buildbuddy/values.yaml` and redeploy via `./k8s/buildbuddy/deploy.sh`.
 
 Remote builds automatically use the refreshed Bazel action image as soon as the new tag is referenced in the Bazel exec platform configs—no Helm redeploy is required for that step.
