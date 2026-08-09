@@ -6,11 +6,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
   Filterable by source type (all / git / awx), launchability
   (anything / launchable / unbound), and parse status. Operators use
   this surface to discover which playbooks exist before kicking off
-  a run from `/devices` → Run Task.
+  a run from `/devices` → Launch Playbook.
 
   Permission: `ansible.catalog.view`. Read-only -- launch flow lives
   on `/ansible/launch` (reached via the inventory list / device detail
-  Run Task button).
+  Launch Playbook button).
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -48,16 +48,18 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
 
     if RBAC.can?(scope, "ansible.catalog.view") do
       filters = %{source: "all", binding: "all", search: ""}
-      playbooks = list_playbooks(filters)
 
-      {:ok,
-       socket
-       |> assign(:page_title, "Ansible playbook catalog")
-       |> assign(:filters, filters)
-       |> assign(:source_filters, @source_filters)
-       |> assign(:binding_filters, @binding_filters)
-       |> assign(:playbook_count, length(playbooks))
-       |> stream(:playbooks, playbooks, reset: true)}
+      socket =
+        socket
+        |> assign(:page_title, "Ansible playbook catalog")
+        |> assign(:page_limit, @page_limit)
+        |> assign(:filters, filters)
+        |> assign(:source_filters, @source_filters)
+        |> assign(:binding_filters, @binding_filters)
+        |> assign(:playbook_count, 0)
+        |> stream(:playbooks, [], reset: true)
+
+      {:ok, if(connected?(socket), do: load_playbooks(socket, filters), else: socket)}
     else
       {:ok,
        socket
@@ -84,142 +86,159 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.CatalogIndex do
   end
 
   defp apply_filters(socket, filters) do
+    {:noreply, load_playbooks(socket, filters)}
+  end
+
+  defp load_playbooks(socket, filters) do
     playbooks = list_playbooks(filters)
 
-    {:noreply,
-     socket
-     |> assign(:filters, filters)
-     |> assign(:playbook_count, length(playbooks))
-     |> stream(:playbooks, playbooks, reset: true)}
+    socket
+    |> assign(:filters, filters)
+    |> assign(:playbook_count, length(playbooks))
+    |> stream(:playbooks, playbooks, reset: true)
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="mx-auto w-full max-w-7xl p-6 space-y-4">
-      <header class="flex items-center justify-between">
-        <div>
-          <h1 class="text-2xl font-semibold">Ansible playbook catalog</h1>
-          <p class="text-sm text-sr-muted">
-            {@playbook_count} playbook{if @playbook_count == 1, do: "", else: "s"} shown
-            (capped at {@page_limit}).
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path="/ansible/catalog"
+      page_title={@page_title}
+      shell={:operations}
+    >
+      <div class="mx-auto w-full max-w-7xl p-6 space-y-4">
+        <header class="flex items-center justify-between">
+          <div>
+            <h1 class="text-2xl font-semibold">Ansible playbook catalog</h1>
+            <p id="ansible-catalog-count" class="text-sm text-sr-muted">
+              {@playbook_count} playbook{if @playbook_count == 1, do: "", else: "s"} shown
+              (capped at {@page_limit}).
+            </p>
+          </div>
+          <.ui_button type="button" phx-click="refresh" size="sm" variant="ghost">
+            Refresh
+          </.ui_button>
+        </header>
+
+        <div class="flex flex-wrap items-end gap-3">
+          <div>
+            <p class="text-xs text-sr-muted mb-1">Source</p>
+            <div class="flex flex-wrap gap-1">
+              <.ui_button
+                :for={src <- @source_filters}
+                type="button"
+                phx-click="filter_source"
+                phx-value-value={src}
+                size="xs"
+                variant={if(src == @filters.source, do: "primary", else: "ghost")}
+                active={src == @filters.source}
+              >
+                {src}
+              </.ui_button>
+            </div>
+          </div>
+
+          <div>
+            <p class="text-xs text-sr-muted mb-1">Binding</p>
+            <div class="flex flex-wrap gap-1">
+              <.ui_button
+                :for={state <- @binding_filters}
+                type="button"
+                phx-click="filter_binding"
+                phx-value-value={state}
+                size="xs"
+                variant={if(state == @filters.binding, do: "primary", else: "ghost")}
+                active={state == @filters.binding}
+              >
+                {state}
+              </.ui_button>
+            </div>
+          </div>
+
+          <form
+            id="ansible-catalog-search"
+            phx-change="filter_search"
+            class="flex-1 min-w-[16rem] max-w-md"
+          >
+            <input
+              type="text"
+              name="value"
+              value={@filters.search}
+              placeholder="Filter by name / description / tag…"
+              class={ui_field_class(size: "sm", class: "w-full")}
+              phx-debounce="250"
+            />
+          </form>
+        </div>
+
+        <div
+          :if={@playbook_count == 0}
+          class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
+        >
+          No playbooks match the current filters.
+          <p class="mt-2">
+            New AWX controllers and git repositories sync in the background;
+            the catalog populates within the configured sync interval.
           </p>
         </div>
-        <.ui_button type="button" phx-click="refresh" size="sm" variant="ghost">Refresh</.ui_button>
-      </header>
 
-      <div class="flex flex-wrap items-end gap-3">
-        <div>
-          <p class="text-xs text-sr-muted mb-1">Source</p>
-          <div class="flex flex-wrap gap-1">
-            <.ui_button
-              :for={src <- @source_filters}
-              type="button"
-              phx-click="filter_source"
-              phx-value-value={src}
-              size="xs"
-              variant={if(src == @filters.source, do: "primary", else: "ghost")}
-              active={src == @filters.source}
-            >
-              {src}
-            </.ui_button>
-          </div>
+        <div
+          :if={@playbook_count > 0}
+          class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
+        >
+          <table class={ui_table_class(size: "sm", zebra: true)}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Source</th>
+                <th>Origin</th>
+                <th>AWX template</th>
+                <th>Tags</th>
+                <th>Parse</th>
+              </tr>
+            </thead>
+            <tbody id="ansible-catalog" phx-update="stream">
+              <tr :for={{id, pb} <- @streams.playbooks} id={id}>
+                <td>
+                  <div class="font-medium">{pb.name}</div>
+                  <div :if={pb.description} class="text-xs text-sr-muted">{pb.description}</div>
+                  <div :if={pb.path} class="text-xs text-sr-muted font-mono mt-1">{pb.path}</div>
+                </td>
+                <td>
+                  <.ui_badge size="sm" variant={source_badge_variant(pb.source_type)}>
+                    {pb.source_type}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <code class="text-xs">{shorten(pb.repository_id || pb.controller_id)}</code>
+                </td>
+                <td>
+                  <.ui_badge :if={pb.awx_job_template_id} size="sm" variant="success">
+                    {pb.awx_job_template_id}
+                  </.ui_badge>
+                  <.ui_badge :if={!pb.awx_job_template_id} size="sm" variant="warning">
+                    unbound
+                  </.ui_badge>
+                </td>
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    <.ui_badge :for={tag <- pb.tags || []} size="xs" variant="ghost">{tag}</.ui_badge>
+                    <span :if={pb.tags == []} class="text-xs text-sr-muted">—</span>
+                  </div>
+                </td>
+                <td>
+                  <.ui_badge size="sm" variant={parse_badge_variant(pb.parse_status)}>
+                    {pb.parse_status}
+                  </.ui_badge>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-
-        <div>
-          <p class="text-xs text-sr-muted mb-1">Binding</p>
-          <div class="flex flex-wrap gap-1">
-            <.ui_button
-              :for={state <- @binding_filters}
-              type="button"
-              phx-click="filter_binding"
-              phx-value-value={state}
-              size="xs"
-              variant={if(state == @filters.binding, do: "primary", else: "ghost")}
-              active={state == @filters.binding}
-            >
-              {state}
-            </.ui_button>
-          </div>
-        </div>
-
-        <form phx-change="filter_search" class="flex-1 min-w-[16rem] max-w-md">
-          <input
-            type="text"
-            name="value"
-            value={@filters.search}
-            placeholder="Filter by name / description / tag…"
-            class={ui_field_class(size: "sm", class: "w-full")}
-            phx-debounce="250"
-          />
-        </form>
       </div>
-
-      <div
-        :if={@playbook_count == 0}
-        class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
-      >
-        No playbooks match the current filters.
-        <p class="mt-2">
-          New AWX controllers and git repositories sync in the background;
-          the catalog populates within the configured sync interval.
-        </p>
-      </div>
-
-      <div
-        :if={@playbook_count > 0}
-        class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
-      >
-        <table class={ui_table_class(size: "sm", zebra: true)}>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Source</th>
-              <th>Origin</th>
-              <th>AWX template</th>
-              <th>Tags</th>
-              <th>Parse</th>
-            </tr>
-          </thead>
-          <tbody id="ansible-catalog" phx-update="stream">
-            <tr :for={{id, pb} <- @playbooks} id={id}>
-              <td>
-                <div class="font-medium">{pb.name}</div>
-                <div :if={pb.description} class="text-xs text-sr-muted">{pb.description}</div>
-                <div :if={pb.path} class="text-xs text-sr-muted font-mono mt-1">{pb.path}</div>
-              </td>
-              <td>
-                <.ui_badge size="sm" variant={source_badge_variant(pb.source_type)}>
-                  {pb.source_type}
-                </.ui_badge>
-              </td>
-              <td>
-                <code class="text-xs">{shorten(pb.repository_id || pb.controller_id)}</code>
-              </td>
-              <td>
-                <.ui_badge :if={pb.awx_job_template_id} size="sm" variant="success">
-                  {pb.awx_job_template_id}
-                </.ui_badge>
-                <.ui_badge :if={!pb.awx_job_template_id} size="sm" variant="warning">
-                  unbound
-                </.ui_badge>
-              </td>
-              <td>
-                <div class="flex flex-wrap gap-1">
-                  <.ui_badge :for={tag <- pb.tags || []} size="xs" variant="ghost">{tag}</.ui_badge>
-                  <span :if={pb.tags == []} class="text-xs text-sr-muted">—</span>
-                </div>
-              </td>
-              <td>
-                <.ui_badge size="sm" variant={parse_badge_variant(pb.parse_status)}>
-                  {pb.parse_status}
-                </.ui_badge>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </Layouts.app>
     """
   end
 

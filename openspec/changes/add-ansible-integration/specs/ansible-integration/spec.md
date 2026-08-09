@@ -81,61 +81,61 @@ The system SHALL allow operators with `ansible.repositories.manage` permission t
 
 ### Requirement: Playbook Catalog Metadata Parsing
 
-The system SHALL parse each playbook YAML file to extract: `name`, `description` (from a leading comment block or `description` key), declared variables (top-level `vars`), `vars_prompt` definitions, `tags`, and `hosts` pattern. Parsed metadata SHALL be stored on the `Playbook` Ash resource and SHALL drive the launch dialog UI.
+The system SHALL parse each playbook YAML file to extract: `name`, `description` (from a leading comment block or `description` key), declared variables (top-level `vars`), `vars_prompt` definitions, `tags`, and `hosts` pattern. Parsed metadata SHALL be stored on the `Playbook` Ash resource for catalog discovery and review. Mutable git metadata, `vars_prompt`, and AWX `survey_spec` SHALL NOT become the hardened browser launch contract; secure launch inputs SHALL come only from the current approved binding's typed non-secret schema.
 
-#### Scenario: Playbook declares vars_prompt entries
+#### Scenario: Git playbook declares vars_prompt entries
 
 - **GIVEN** a playbook with `vars_prompt: [{name: "version", prompt: "Target version"}]`
-- **WHEN** an operator opens the launch dialog for that playbook
-- **THEN** the dialog SHALL render a typed input labeled "Target version"
-- **AND** the entered value SHALL be passed to AWX as part of `extra_vars`
+- **WHEN** the repository sync parses the playbook
+- **THEN** the catalog SHALL retain the prompt as review metadata
+- **AND** the git-sourced row SHALL NOT become selectable in the hardened launch UI
 
-#### Scenario: Operator overrides extra_vars with raw YAML
+#### Scenario: Approved binding declares non-secret inputs
 
-- **GIVEN** an operator launching a playbook with raw-YAML override toggled on
-- **WHEN** the operator submits valid YAML in the override field
-- **THEN** the system SHALL merge the override over the prompt-driven extra_vars
-- **AND** invalid YAML SHALL block submission with a parse error
+- **GIVEN** a current approved AWX binding with typed public or internal inputs
+- **WHEN** an operator selects its AWX-sourced playbook
+- **THEN** the launch UI SHALL render only those declared non-secret fields
+- **AND** raw JSON/YAML, password fields, undeclared names, and sensitive or target-changing variables SHALL NOT be accepted
 
 ---
 
-### Requirement: AWX Job Template Binding (git-sourced playbooks)
+### Requirement: Reviewed AWX Job Template Binding
 
-A `git`-sourced `Playbook` catalog entry SHALL carry an optional `awx_job_template_id`. The system SHALL allow operators to launch a `git`-sourced playbook only if it is bound to a valid AWX job template; unbound playbooks SHALL appear in the catalog with a clear "AWX template binding required" indicator and SHALL NOT be selectable in the launch flow. `awx`-sourced playbooks are launchable by definition (the catalog entry itself is the AWX template) and SHALL NOT carry a separate binding.
+A `git`-sourced `Playbook` catalog entry MAY retain an optional `awx_job_template_id` as catalog metadata, but that field SHALL NOT confer launch authority. The hardened launch UI SHALL select only parse-valid AWX-sourced playbooks. An AWX-sourced row SHALL be launchable only when the system resolves a current approved immutable binding for its controller and job-template ID and live preflight matches that binding.
 
-#### Scenario: Operator attempts to launch an unbound git-sourced playbook
+#### Scenario: Operator views a git-sourced playbook with a template ID
 
-- **GIVEN** a `git`-sourced Playbook with no `awx_job_template_id`
+- **GIVEN** a `git`-sourced Playbook with or without an `awx_job_template_id`
 - **WHEN** the operator opens the launch flow
 - **THEN** that playbook SHALL NOT appear in the selectable list
-- **AND** the catalog browser SHALL show the playbook with an "AWX template binding required" warning
+- **AND** the catalog browser MAY continue to show its source and template metadata
 
-#### Scenario: AWX-sourced playbook is launchable without separate binding
+#### Scenario: AWX-sourced playbook lacks a current approved binding
 
 - **GIVEN** an `awx`-sourced Playbook
-- **WHEN** the operator opens the launch flow
-- **THEN** that playbook SHALL be selectable
-- **AND** the launch path SHALL use the playbook's source `awx_job_template_id` directly
+- **AND** its current template binding is missing, expired, revoked, or drifted
+- **WHEN** the operator selects it in the launch flow
+- **THEN** the system SHALL keep launch unavailable and surface an operator-safe readiness message
 
 #### Scenario: AWX job template referenced by binding has been deleted
 
 - **GIVEN** a Playbook bound to a job template that no longer exists in AWX
 - **WHEN** an operator attempts to launch
-- **THEN** the system SHALL detect the missing template, mark the binding as invalid on the Playbook, and reject the launch with an operator-safe error message
-- **AND** the catalog UI SHALL surface the broken-binding state
+- **THEN** live preflight SHALL reject the launch before operation persistence or dispatch
+- **AND** the launch UI SHALL surface an operator-safe readiness message
 
 ---
 
-### Requirement: Run Lifecycle State Machine
+### Requirement: Retained Internal Run Lifecycle State Machine
 
-`PlaybookRun` SHALL be implemented as an Ash State Machine with states `pending`, `launching`, `running`, `succeeded`, `partial`, `failed`, `unreachable`, `canceled`. Allowed transitions SHALL be: `pending → launching`, `launching → running | failed | unreachable`, `running → succeeded | partial | failed | unreachable | canceled`. Terminal states SHALL NOT transition further. `partial` SHALL be reached only when `PlaybookRunTarget` outcomes are mixed (some succeeded, some failed); `failed` SHALL be reached when *every* `PlaybookRunTarget` failed.
+The retained internal `PlaybookRun` resource SHALL remain an Ash State Machine with states `pending`, `launching`, `running`, `succeeded`, `partial`, `failed`, `unreachable`, `canceled`. Allowed transitions SHALL be: `pending → launching`, `launching → running | failed | unreachable`, `running → succeeded | partial | failed | unreachable | canceled`. Terminal states SHALL NOT transition further. `partial` SHALL be reached only when retained `PlaybookRunTarget` outcomes are mixed; `failed` SHALL be reached when every target failed. Hardened interactive launch SHALL NOT create or depend on this resource.
 
-#### Scenario: Successful run progresses through states
+#### Scenario: Retained internal run progresses through states
 
-- **GIVEN** an operator triggers a launch against a single device
-- **WHEN** the run is created
+- **GIVEN** an existing internal run awaiting AWX event ingestion
+- **WHEN** the internal run is in `pending`
 - **THEN** the run SHALL be in `pending`
-- **AND** the launch worker SHALL transition it to `launching` after creating the AWX job
+- **AND** the internal lifecycle service MAY transition it to `launching` after correlating the AWX job
 - **AND** the ingestor SHALL transition it to `running` after the first event arrives
 - **AND** the ingestor SHALL transition it to `succeeded` when AWX reports `successful` and the single target succeeded
 
@@ -161,58 +161,78 @@ A `git`-sourced `Playbook` catalog entry SHALL carry an optional `awx_job_templa
 
 #### Scenario: Operator cancels a running job
 
-- **GIVEN** an operator with `ansible.runs.cancel` permission and a run in `running`
-- **WHEN** the operator clicks Cancel
+- **GIVEN** an operator with `ansible.runs.cancel` permission and an internal run in `running`
+- **WHEN** cancellation is requested through the authorized service
 - **THEN** the system SHALL dispatch `awx.cancel_job` via the bus
-- **AND** transition the run to `canceled` once AWX confirms
+- **AND** transition the internal run to `canceled` once AWX confirms
 
 ---
 
-### Requirement: Run Launch Authorization
+### Requirement: Hardened Launch Authorization
 
-The system SHALL only allow a run launch when ALL of the following hold: the actor has `ansible.runs.launch` permission, every selected target device has `ansible_managed = true`, every selected target device has a populated `ansible_inventory_ref` whose `controller_id` resolves to a single common `AnsibleController` across all selected devices, the selected playbook is launchable (AWX-sourced, or git-sourced with a valid AWX template binding), and the agent referenced by the controller is currently connected to its agent-gateway.
+The system SHALL allow a hardened launch only when the current human actor has `ansible.runs.launch`, the selected catalog row is parse-valid and AWX-sourced, a current approved immutable binding exists, every canonical device resolves to exactly one current approved durable AWX membership, all memberships share one controller and inventory allowed by the binding, no target has an active hold, the selected edge principal is authenticated, and live AWX preflight exactly matches the reviewed binding. Submit SHALL re-resolve these conditions and accept only the binding's declared typed non-secret inputs.
 
 #### Scenario: Operator launches against an unmanaged device
 
 - **GIVEN** a device with `ansible_managed = false` selected as a target
-- **WHEN** an operator opens the Device Actions modal and chooses Run Playbook
-- **THEN** the unmanaged device SHALL be flagged in the target list as ineligible
-- **AND** the launch button SHALL be disabled until the device is removed from the selection or the selection is changed
+- **WHEN** an operator prepares a launch
+- **THEN** the system SHALL reject the selection with an operator-safe readiness message
+- **AND** SHALL NOT create an operation, execution, internal run, or AWX launch command
 
 #### Scenario: Multi-device selection spans multiple controllers
 
 - **GIVEN** five selected devices where three are managed by Controller A and two by Controller B
-- **WHEN** the operator opens Run Playbook
+- **WHEN** the operator prepares the launch
 - **THEN** the system SHALL refuse to proceed with the mixed selection
-- **AND** SHALL surface an operator-safe message explaining that the selection must share a single controller
-- **AND** SHALL offer to narrow the selection to one controller
+- **AND** SHALL surface an operator-safe message explaining that every target must share one approved controller and inventory partition
 
 #### Scenario: Controller's agent is offline at launch time
 
 - **GIVEN** an AnsibleController whose agent is not currently connected to the gateway
 - **WHEN** an operator with `ansible.runs.launch` attempts to launch
 - **THEN** the system SHALL reject the launch with an operator-safe error explaining the agent is unreachable
-- **AND** SHALL NOT create a `PlaybookRun` row in `pending`
+- **AND** SHALL NOT create an `AutomationOperation`, `AutomationExecution`, `PlaybookRun`, or AWX launch command
 
 ---
 
-### Requirement: Run Hierarchy Persistence
+### Requirement: Retained Internal Run Hierarchy Persistence
 
-For every launched run the system SHALL persist a hierarchy of `PlaybookRun → PlaybookRunTarget` (one per targeted device, joining ServiceRadar device_uid to AWX host_id) and `PlaybookRun → PlaybookPlay → PlaybookTask → PlaybookTaskResult`. Each `PlaybookTaskResult` SHALL reference both its `PlaybookTask` and its `PlaybookRunTarget`. Per-task stdout/stderr blobs SHALL be deduplicated by sha256 hash via a `PlaybookContent` table to bound storage growth across repeated runs.
+The system SHALL retain the existing internal hierarchy of `PlaybookRun → PlaybookRunTarget` and `PlaybookRun → PlaybookPlay → PlaybookTask → PlaybookTaskResult` for historical and still-registered ingestion, audit, retention, and SRQL dependencies. Each retained `PlaybookTaskResult` SHALL reference both its `PlaybookTask` and its `PlaybookRunTarget`, and per-task stdout/stderr blobs SHALL remain deduplicated by sha256 through `PlaybookContent`. Hardened interactive launches SHALL persist `AutomationOperation`, `AutomationExecution`, and exact immutable execution targets instead of creating this hierarchy.
 
-#### Scenario: A multi-device run with multiple plays
+#### Scenario: A retained internal run ingests multiple plays
 
-- **GIVEN** a successful run with 2 plays, each containing 5 tasks across 3 selected devices
-- **WHEN** the run completes
+- **GIVEN** a retained internal run with 2 plays, each containing 5 tasks across 3 attributed targets
+- **WHEN** its event ingestion completes
 - **THEN** the database SHALL contain 1 PlaybookRun, 3 PlaybookRunTargets, 2 PlaybookPlays, 10 PlaybookTasks, up to 30 PlaybookTaskResults each linked to its target
 - **AND** identical task stdout across tasks SHALL share a single PlaybookContent row
 
-#### Scenario: Run streams to LiveView in near real time
+---
 
-- **GIVEN** an operator viewing `/ansible/runs/:id` for an in-progress run
-- **WHEN** the ingestor persists a new task result
-- **THEN** the LiveView SHALL receive a PubSub broadcast within 2 seconds
-- **AND** the new task SHALL appear without a page reload, attributed to its target device in the per-target table
+### Requirement: Canonical Ansible Operation History UI
+
+The web UI SHALL expose launch and execution history only as canonical operations through `/ansible/operations` and `/ansible/operations/:id`. A retained `PlaybookRun` hierarchy MAY continue to serve internal ingestion, audit, retention, and SRQL requirements, but it SHALL NOT create a second user-facing index, detail page, launch result, or device-history model.
+
+#### Scenario: Successful launch opens canonical evidence
+
+- **GIVEN** an authorized operator submits a hardened Ansible launch
+- **WHEN** the immutable operation, child execution, and exact target evidence are persisted
+- **THEN** the UI SHALL navigate to `/ansible/operations/:id`
+- **AND** the detail page SHALL show the initiating actor, controller and inventory scope, content revision, dispatch state, exact targets, diagnostics, and active holds available to the actor
+
+#### Scenario: Operator lists execution history
+
+- **GIVEN** an operator with `ansible.runs.view`
+- **WHEN** they navigate to `/ansible/operations`
+- **THEN** the UI SHALL list canonical operations and link each row to `/ansible/operations/:id`
+- **AND** the UI SHALL NOT expose a separate `PlaybookRun` index or detail page
+
+#### Scenario: Device detail shows operation history
+
+- **GIVEN** an AWX-managed device with canonical operation history
+- **WHEN** an authorized operator views the device detail page
+- **THEN** the Ansible panel SHALL list only canonical operations that targeted the device
+- **AND** each evidence link SHALL target `/ansible/operations/:id`
+- **AND** retained `PlaybookRunTarget` rows SHALL NOT affect the panel's history or empty state
 
 ---
 
@@ -391,9 +411,9 @@ The system SHALL discover AWX inventory hosts via the `awx` plugin's `inventory_
 
 ---
 
-### Requirement: OCSF Event Projection for Playbook Activity
+### Requirement: OCSF Event Projection for Retained Playbook Activity
 
-In addition to the structured `PlaybookTaskResult` rows, the system SHALL emit OCSF-shaped events for each task result and each `PlaybookRun` state transition, written directly to the existing observability events stream (the same stream that backs the universal log viewer). Events SHALL NOT be routed through a separate OTEL collector. The OCSF event SHALL carry sufficient context (run_id, target device_uid, controller_id, playbook name, status, summary) to be useful in a log search without joining back to the structured tables.
+For the retained internal `PlaybookRun` ingestion path, the system SHALL emit OCSF-shaped events for each task result and each internal run state transition, written directly to the existing observability events stream (the same stream that backs the universal log viewer). Events SHALL NOT be routed through a separate OTEL collector. The OCSF event SHALL carry sufficient internal-run context (`run_id`, target `device_uid`, `controller_id`, playbook name, status, summary) to be useful in a log search without joining back to the structured tables. This requirement SHALL NOT imply that a hardened `AutomationOperation` created by the interactive launch path also creates a `PlaybookRun` or inherits an unpersisted correlation.
 
 #### Scenario: Task result generates an OCSF event
 
@@ -407,19 +427,21 @@ In addition to the structured `PlaybookTaskResult` rows, the system SHALL emit O
 - **GIVEN** the log viewer is open with no filters
 - **WHEN** the operator filters by event class (or whatever attribute identifies ansible activity)
 - **THEN** the operator SHALL see the projected ansible task events alongside other system signals
-- **AND** SHALL be able to click through from an event to the corresponding `/ansible/runs/:id` detail page
+- **AND** retained events SHALL remain searchable without linking to a retired execution-history route
+- **AND** the UI SHALL link an event to `/ansible/operations/:id` only when an explicit persisted canonical-operation correlation exists
 
 ---
 
-### Requirement: AshPaperTrail Audit on Controllers, Repositories, and Runs
+### Requirement: AshPaperTrail Audit on Controllers, Repositories, and Retained Runs
 
-The system SHALL track changes to `AnsibleController`, `PlaybookRepository`, and `PlaybookRun` resources via the AshPaperTrail extension. Audit history SHALL include who launched a run with what extra_vars and target list, who canceled a run, who registered or rotated a controller, and the full state-machine transition history with timestamps and triggering actor.
+The system SHALL track changes to `AnsibleController`, `PlaybookRepository`, and retained `PlaybookRun` resources via the AshPaperTrail extension. Current create/update actions SHALL NOT accept raw requested variables, and audit/PaperTrail records SHALL NOT introduce secret-capable or arbitrary `extra_vars`. Hardened interactive launch evidence SHALL live on the canonical operation/execution/target resources rather than requiring a new `PlaybookRun` version.
 
-#### Scenario: Run launch is audited
+#### Scenario: Retained internal run attribution is audited without raw inputs
 
-- **GIVEN** an operator launches a playbook against three devices
-- **WHEN** the `PlaybookRun` is created
-- **THEN** AshPaperTrail SHALL record the create with the actor's id, the playbook id, the target device_uids, and the requested extra_vars
+- **GIVEN** an internal `PlaybookRun` exists with actor, playbook, and target attribution
+- **WHEN** AshPaperTrail records a retained lifecycle action
+- **THEN** the version SHALL preserve the permitted attribution and action metadata
+- **AND** SHALL NOT store browser-supplied raw variables or reusable secret values
 - **AND** the audit record SHALL be queryable via SRQL alongside other versioned resources
 
 #### Scenario: State transitions appear in audit history
@@ -440,7 +462,7 @@ The system SHALL support operator-configurable retention for run data via two va
 - **WHEN** the RetentionWorker runs
 - **THEN** its `PlaybookPlay`, `PlaybookTask`, `PlaybookTaskResult`, and dereferenced `PlaybookContent` rows SHALL be deleted
 - **AND** the `PlaybookRun` row + its `PlaybookRunTarget`s SHALL be retained (per default `run_summary_days = null`)
-- **AND** the run detail page SHALL display a banner indicating the detail has been pruned
+- **AND** pruning the internal hierarchy SHALL NOT remove or alter canonical immutable operation evidence
 
 #### Scenario: Recently-viewed run is excluded from sweep
 
@@ -457,44 +479,32 @@ The system SHALL support operator-configurable retention for run data via two va
 
 ---
 
-### Requirement: Scheduled and Recurring Playbook Runs
+### Requirement: Retained Schedule Records Remain Fail-Closed
 
-The system SHALL support `PlaybookSchedule` resources that pair a launchable `Playbook`, a list of target devices (subject to the same single-controller and ansible-managed rules as ad-hoc runs), optional `extra_vars`, a standard 5-field cron expression, and a timezone. An AshOban `ScheduleEvaluatorWorker` SHALL evaluate enabled schedules at their cadence and create a `PlaybookRun` exactly as if a human had launched it through the Device Actions modal, with `PlaybookRun.schedule_id` set to the source schedule. Operators with `ansible.schedules.manage` permission SHALL be able to create, update, enable / disable, and delete schedules.
+The system MAY retain `PlaybookSchedule` resources, PaperTrail versions, relationships, and evaluator registration for migration and audit compatibility. Retained rows SHALL default disabled, current create/update actions SHALL NOT accept raw requested variables, and enablement SHALL fail until a separately approved immutable execution-delegation path exists. The web UI SHALL NOT expose schedule creation, editing, enable/disable, deletion, launch affordances, or a separate schedule execution history. The retained evaluator and legacy launcher SHALL NOT create a `PlaybookRun`, `AutomationOperation`, or AWX launch command from those rows.
 
-#### Scenario: Schedule fires and creates a run
+#### Scenario: Retained schedule is evaluated
 
-- **GIVEN** an enabled schedule `cron = "0 3 * * *"` in `Europe/London` for playbook P targeting devices D1 and D2
-- **WHEN** the wall clock reaches 03:00 London time
-- **THEN** the ScheduleEvaluatorWorker SHALL create a new `PlaybookRun` linked to playbook P with `schedule_id` referencing the schedule
-- **AND** SHALL create `PlaybookRunTarget` rows for D1 and D2
-- **AND** SHALL launch the run via `AwxClient.launch_job` exactly as the modal would
-- **AND** SHALL update `last_evaluated_at`, `last_run_id`, and `next_run_at` on the schedule
+- **GIVEN** a retained disabled schedule row
+- **WHEN** `ScheduleEvaluatorWorker` evaluates due work
+- **THEN** it SHALL NOT create an internal run, canonical operation, or AWX launch command
 
-#### Scenario: Concurrent overlap with previous run, allow_concurrent = false
+#### Scenario: Schedule enablement is requested
 
-- **GIVEN** a schedule whose previous `PlaybookRun` is still in `running` and `allow_concurrent = false`
-- **WHEN** the next cron fire occurs
-- **THEN** the worker SHALL NOT create a new `PlaybookRun`
-- **AND** SHALL record `skipped_overlap` with timestamp on the schedule's audit trail
-- **AND** SHALL surface a "skipped (still running)" badge on the schedule's detail page
+- **GIVEN** an actor with the retained `ansible.schedules.manage` compatibility permission
+- **WHEN** enablement is requested without an approved immutable execution delegation
+- **THEN** the system SHALL reject the request
+- **AND** the schedule SHALL remain disabled
 
-#### Scenario: allow_concurrent = true
+#### Scenario: Operator opens Ansible settings
 
-- **GIVEN** a schedule with `allow_concurrent = true` whose previous `PlaybookRun` is still `running`
-- **WHEN** the next cron fire occurs
-- **THEN** the worker SHALL create and launch a new `PlaybookRun` regardless of the previous run's state
+- **GIVEN** an authenticated operator
+- **WHEN** the operator views the Ansible settings page
+- **THEN** the UI SHALL NOT expose schedule controls or a schedule execution-history surface
 
-#### Scenario: Schedule disabled
+#### Scenario: Future delegated schedule execution is proposed
 
-- **GIVEN** an enabled schedule
-- **WHEN** an operator with `ansible.schedules.manage` disables it
-- **THEN** the worker SHALL NOT fire it on subsequent ticks until re-enabled
-- **AND** the schedule's audit trail SHALL record the disable event
-
-#### Scenario: Schedule with ineligible targets
-
-- **GIVEN** a schedule whose target_device_uids include a device that has since had `ansible_managed = false` set (e.g. removed from AWX inventory)
-- **WHEN** the schedule fires
-- **THEN** the worker SHALL skip the firing
-- **AND** SHALL record a diagnostic on the schedule's audit trail naming the ineligible device(s)
-- **AND** SHALL emit an OCSF event so operators can be alerted
+- **WHEN** a future change introduces scheduled execution
+- **THEN** it SHALL require an expiring and revocable immutable delegation plus fire-time reauthorization
+- **AND** accept only approved typed non-secret inputs
+- **AND** persist user-facing evidence as a canonical `AutomationOperation`

@@ -7,7 +7,7 @@ The current northbound action path assumes a plugin invocation returns the final
 - Support vendor APIs that return an external task/job ID before work has completed.
 - Keep initial action dispatch bounded by descriptor timeout and agent runtime budgets.
 - Persist enough continuation state to survive service or agent restarts.
-- Make progress visible in the same Task History surface used for immediate actions.
+- Make progress visible in the same Action History surface used for immediate actions.
 - Let plugin authors own vendor-specific polling and result parsing logic.
 
 ## Non-Goals

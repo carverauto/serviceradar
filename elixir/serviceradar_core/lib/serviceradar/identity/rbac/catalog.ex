@@ -583,33 +583,36 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         },
         %{
           key: "ansible.runs.view",
-          label: "View Ansible runs",
-          description: "View Ansible playbook runs, per-target results, and run history.",
+          label: "View Ansible operations",
+          description:
+            "View canonical Ansible operation history, per-target evidence, and dispatch outcomes.",
           default_roles: @all_roles
         },
         %{
           key: "ansible.runs.launch",
-          label: "Launch Ansible runs",
-          description: "Launch Ansible playbooks against one or more Ansible-managed devices.",
+          label: "Launch Ansible playbooks",
+          description:
+            "Launch a reviewed Ansible playbook as a canonical operation against one or more Ansible-managed devices.",
           default_roles: @operator_roles
         },
         %{
           key: "ansible.runs.cancel",
-          label: "Cancel Ansible runs",
-          description: "Cancel an in-progress Ansible playbook run.",
+          label: "Cancel Ansible operations",
+          description: "Authorize cancellation of an in-progress Ansible operation.",
           default_roles: @operator_roles
         },
         %{
           key: "ansible.schedules.view",
-          label: "View Ansible schedules",
-          description: "View scheduled / recurring Ansible playbook runs.",
+          label: "Reserved Ansible schedule access",
+          description:
+            "Reserved permission key for stored schedule records; no schedule UI or execution authority is exposed.",
           default_roles: @all_roles
         },
         %{
           key: "ansible.schedules.manage",
-          label: "Manage Ansible schedules",
+          label: "Reserved Ansible schedule management",
           description:
-            "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
+            "Reserved permission key for stored schedule records; it does not enable or authorize scheduled execution.",
           default_roles: @operator_roles
         },
         %{

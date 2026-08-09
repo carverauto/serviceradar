@@ -23,34 +23,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     :ok
   end
 
-  defp target(overrides \\ %{}) do
-    Map.merge(
-      %{
-        status: :ok,
-        ok_count: 5,
-        changed_count: 2,
-        failed_count: 0,
-        unreachable_count: 0,
-        skipped_count: 0,
-        started_at: ~U[2026-07-06 12:00:00Z],
-        inserted_at: ~U[2026-07-06 11:59:00Z],
-        awx_host_name: "web01",
-        run: %{id: "run-123", state: :succeeded, playbook: %{name: "Deploy nginx"}}
-      },
-      overrides
-    )
-  end
-
   defp base_assigns(overrides) do
     Keyword.merge(
       [
         device_uid: "sr:abc",
         device_awx_managed: true,
-        can_view_ansible_runs: true,
+        can_view_ansible_operations: true,
         can_run_ansible: true,
         device_deleted: false,
         ansible_controller_id: "ctrl-1",
-        runs: [],
         playbooks: [%{id: "pb-1", name: "Deploy nginx", source_type: :awx}],
         launch_open: false,
         selected_playbook_id: nil,
@@ -66,25 +47,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     )
   end
 
-  test "renders run history for an AWX-managed device" do
-    html =
-      render_component(&AnsiblePanelComponents.ansible_runs_section/1, base_assigns(runs: [target()]))
+  test "renders canonical automation links for an AWX-managed device" do
+    html = render_component(&AnsiblePanelComponents.ansible_operations_section/1, base_assigns([]))
 
     assert html =~ "device-ansible-panel"
-    assert html =~ "Deploy nginx"
-    # per-device host status + run state badges
-    assert html =~ "succeeded"
-    assert html =~ "5 ok"
-    assert html =~ "2 chg"
-    # link to the run detail page
-    assert html =~ "/ansible/runs/run-123"
-    # launch affordance present for a launcher
-    assert html =~ "Run Task"
+    assert html =~ "/ansible/operations"
+    assert html =~ "All operations"
+    assert html =~ "Launch Playbook"
     assert html =~ ~s(phx-click="ansible_launch_open")
+    refute html =~ "/ansible/runs"
+    refute String.downcase(html) =~ "legacy"
   end
 
-  test "renders secure execution history separately from legacy PlaybookRun history" do
-    secure_record = %{
+  test "renders canonical automation operation history" do
+    operation_record = %{
       operation: %{
         id: "operation-12345678",
         state: :running,
@@ -110,21 +86,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     }
 
     document =
-      (&AnsiblePanelComponents.ansible_runs_section/1)
-      |> render_component(base_assigns(secure_history: [secure_record], runs: [target()]))
+      (&AnsiblePanelComponents.ansible_operations_section/1)
+      |> render_component(base_assigns(operation_history: [operation_record]))
       |> LazyHTML.from_fragment()
 
-    assert Enum.count(LazyHTML.query(document, "[data-testid=device-secure-ansible-history]")) == 1
+    assert Enum.count(LazyHTML.query(document, "[data-testid=device-ansible-operation-history]")) == 1
 
-    secure_text =
+    operation_text =
       document
-      |> LazyHTML.query("[data-testid=device-secure-ansible-history]")
+      |> LazyHTML.query("[data-testid=device-ansible-operation-history]")
       |> LazyHTML.text()
 
-    assert secure_text =~ "farm01-awx"
-    assert secure_text =~ "controller-1 / inventory 34"
-    assert secure_text =~ "host 7 · gen 2"
-    assert secure_text =~ "controller-local"
+    assert operation_text =~ "farm01-awx"
+    assert operation_text =~ "controller-1 / inventory 34"
+    assert operation_text =~ "host 7 · gen 2"
+    assert operation_text =~ "controller-local"
 
     assert LazyHTML.attribute(
              LazyHTML.query(document, "a[href='/ansible/operations/operation-12345678']"),
@@ -132,33 +108,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
            ) == ["/ansible/operations/operation-12345678"]
 
     panel_text = LazyHTML.text(document)
-    assert panel_text =~ "Secure operation history"
-    assert panel_text =~ "Legacy PlaybookRun history"
+    assert panel_text =~ "Recent operations"
+    refute String.downcase(panel_text) =~ "legacy"
   end
 
-  test "renders an empty state when the device has no runs" do
-    html = render_component(&AnsiblePanelComponents.ansible_runs_section/1, base_assigns([]))
+  test "renders an empty state when the device has no operations" do
+    html = render_component(&AnsiblePanelComponents.ansible_operations_section/1, base_assigns([]))
 
     assert html =~ "device-ansible-panel"
-    assert html =~ "No playbook runs have targeted this device yet."
+    assert html =~ "No Ansible operations have targeted this device yet."
   end
 
   test "hides the whole panel for a non-AWX device" do
     html =
       render_component(
-        &AnsiblePanelComponents.ansible_runs_section/1,
+        &AnsiblePanelComponents.ansible_operations_section/1,
         base_assigns(device_awx_managed: false)
       )
 
     refute html =~ "device-ansible-panel"
-    refute html =~ "Run Task"
+    refute html =~ "Launch Playbook"
   end
 
-  test "hides the panel when the operator cannot view runs" do
+  test "launch-only operator sees launch without operation history affordances" do
     html =
       render_component(
-        &AnsiblePanelComponents.ansible_runs_section/1,
-        base_assigns(can_view_ansible_runs: false)
+        &AnsiblePanelComponents.ansible_operations_section/1,
+        base_assigns(can_view_ansible_operations: false)
+      )
+
+    assert html =~ "device-ansible-panel"
+    assert html =~ "Launch Playbook"
+    refute html =~ "All operations"
+    refute html =~ "No Ansible operations have targeted this device yet."
+    refute html =~ "Recent operations"
+  end
+
+  test "hides the panel without operation-view or launch permission" do
+    html =
+      render_component(
+        &AnsiblePanelComponents.ansible_operations_section/1,
+        base_assigns(can_view_ansible_operations: false, can_run_ansible: false)
       )
 
     refute html =~ "device-ansible-panel"
@@ -180,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
 
     html =
       render_component(
-        &AnsiblePanelComponents.ansible_runs_section/1,
+        &AnsiblePanelComponents.ansible_operations_section/1,
         base_assigns(
           launch_open: true,
           selected_playbook_id: "pb-1",
@@ -208,11 +198,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
   test "launch button is disabled with a reason when no playbooks are launchable" do
     html =
       render_component(
-        &AnsiblePanelComponents.ansible_runs_section/1,
+        &AnsiblePanelComponents.ansible_operations_section/1,
         base_assigns(playbooks: [])
       )
 
-    assert html =~ "Run Task"
+    assert html =~ "Launch Playbook"
     assert html =~ "disabled"
     assert html =~ "No launchable playbooks"
   end

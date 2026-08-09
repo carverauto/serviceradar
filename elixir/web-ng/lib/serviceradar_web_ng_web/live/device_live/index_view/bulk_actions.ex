@@ -42,15 +42,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
       </div>
       <div class="flex items-center gap-2">
         <.ui_button
-          :if={can_launch_northbound_actions?(@current_scope)}
+          :if={RBAC.can?(@current_scope, "ansible.runs.launch")}
           variant="primary"
           size="sm"
-          phx-click="run_task_for_selection"
-          disabled={@run_task_disabled?}
-          title={@run_task_title}
+          phx-click="launch_ansible_for_selection"
+          disabled={@effective_count == 0 or @select_all_matching}
+          title={ansible_launch_title(@effective_count, @select_all_matching)}
+        >
+          <.icon name="hero-play" class="size-4" /> Launch Playbook
+        </.ui_button>
+        <.ui_button
+          :if={can_launch_northbound_actions?(@current_scope)}
+          variant="outline"
+          size="sm"
+          phx-click="run_action_for_selection"
+          disabled={@run_action_disabled?}
+          title={@run_action_title}
         >
           <.icon name="hero-play" class="size-4" />
-          {if @northbound_device_actions_loading, do: "Checking jobs...", else: "Run Task"}
+          {if @northbound_device_actions_loading, do: "Checking actions...", else: "Run Action"}
         </.ui_button>
         <.ui_button
           :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
@@ -82,6 +92,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkActions do
   end
 
   defp can_launch_northbound_actions?(scope) do
-    RBAC.can?(scope, "northbound.actions.launch") or RBAC.can?(scope, "ansible.runs.launch")
+    RBAC.can?(scope, "northbound.actions.launch")
   end
+
+  defp ansible_launch_title(_effective_count, true), do: "Choose specific devices before launching a playbook"
+
+  defp ansible_launch_title(0, false), do: "Select at least one device"
+
+  defp ansible_launch_title(_effective_count, false), do: "Launch a reviewed playbook for selected devices"
 end

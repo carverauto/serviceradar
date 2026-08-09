@@ -341,7 +341,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert details_html =~ "No"
   end
 
-  test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
+  test "disables Run Action when no provider-neutral integrations are configured", %{conn: conn} do
     uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -361,13 +361,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
     |> render_click()
 
-    html = render_until(view, "No launchable task integrations are configured")
+    html = render_until(view, "No launchable action integrations are configured")
 
-    assert html =~ "Run Task"
+    assert html =~ "Run Action"
     assert html =~ "disabled"
   end
 
-  test "launches selected devices through northbound action modal", %{conn: conn} do
+  test "launches selected devices through the provider-neutral action modal", %{conn: conn} do
     action = northbound_action(:device)
     with_northbound_stubs(device_actions: [action])
 
@@ -380,9 +380,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         hostname: "run-task-launch-host",
         ip: "192.0.2.55",
         is_available: true,
-        # AWX-managed: metadata.awx.host_id makes the device ansible-capable.
-        metadata: %{"awx" => %{"host_id" => 4242, "controller_id" => "ctrl-test"}},
-        discovery_sources: ["awx"],
+        metadata: %{},
+        discovery_sources: ["snmp"],
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
@@ -397,12 +396,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     html =
       view
-      |> element("button[phx-click='run_task_for_selection']")
+      |> element("button[phx-click='run_action_for_selection']")
       |> render_click()
 
     assert html =~ "Disable Switch Port"
     assert html =~ "Change ticket or operator reason"
-    assert html =~ "1 of 1 selected device(s) are AWX-managed"
+    refute html =~ "AWX"
+    refute html =~ "raw extra_vars"
 
     view
     |> form("#northbound_action_modal-form", %{
@@ -422,23 +422,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert opts[:actor].email
   end
 
-  test "run task only targets AWX-managed devices in a mixed selection", %{conn: conn} do
+  test "provider-neutral action targets every selected device", %{conn: conn} do
     action = northbound_action(:device)
     with_northbound_stubs(device_actions: [action])
 
     suffix = System.unique_integer([:positive])
-    awx_uid = "test-run-task-awx-#{suffix}"
+    first_uid = "test-run-action-first-#{suffix}"
     plain_uid = "test-run-task-plain-#{suffix}"
 
     Repo.insert_all("ocsf_devices", [
       %{
-        uid: awx_uid,
+        uid: first_uid,
         type_id: 0,
         hostname: "awx-host",
         ip: "192.0.2.60",
         is_available: true,
-        metadata: %{"awx" => %{"host_id" => 77, "controller_id" => "ctrl-test"}},
-        discovery_sources: ["awx"],
+        metadata: %{},
+        discovery_sources: ["snmp"],
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       },
@@ -458,7 +458,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
     assert_receive {:northbound_device_actions, _scope}, 1_000
 
-    for uid <- [awx_uid, plain_uid] do
+    for uid <- [first_uid, plain_uid] do
       view
       |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
       |> render_click()
@@ -466,13 +466,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     html =
       view
-      |> element("button[phx-click='run_task_for_selection']")
+      |> element("button[phx-click='run_action_for_selection']")
       |> render_click()
 
-    # The modal calls out the non-applicable device and only counts the AWX one.
-    assert html =~ "1 of 2 selected device(s) are AWX-managed"
-    assert html =~ "Not in an AWX inventory (will be skipped):"
-    assert html =~ "plain-host"
+    refute html =~ "AWX-managed"
+    refute html =~ "will be skipped"
 
     view
     |> form("#northbound_action_modal-form", %{
@@ -485,21 +483,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     assert_receive {:northbound_create_and_dispatch, attrs, _opts}, 1_000
 
-    # Only the AWX-managed device is dispatched; the plain device is skipped.
-    assert attrs.targets == [%{kind: "device", device_uid: awx_uid}]
+    assert MapSet.new(attrs.targets) ==
+             MapSet.new([
+               %{kind: "device", device_uid: first_uid},
+               %{kind: "device", device_uid: plain_uid}
+             ])
   end
 
-  test "run task launch is blocked when no selected device is AWX-managed", %{conn: conn} do
-    action = northbound_action(:device)
-    with_northbound_stubs(device_actions: [action])
-
-    uid = "test-run-task-none-awx-#{System.unique_integer([:positive])}"
+  test "bulk Ansible launch navigates to the canonical reviewed launch route", %{conn: conn} do
+    uid = "test-canonical-ansible-launch-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid,
         type_id: 0,
-        hostname: "no-awx-host",
+        hostname: "canonical-launch-host",
         ip: "192.0.2.62",
         is_available: true,
         metadata: %{},
@@ -510,28 +508,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
-    assert_receive {:northbound_device_actions, _scope}, 1_000
 
     view
     |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
     |> render_click()
 
-    html =
-      view
-      |> element("button[phx-click='run_task_for_selection']")
-      |> render_click()
-
-    assert html =~ "0 of 1 selected device(s) are AWX-managed"
-    assert html =~ "Only AWX-managed devices can run Ansible tasks"
-
-    # Submitting anyway does not dispatch an invocation.
     view
-    |> form("#northbound_action_modal-form", %{
-      "action" => %{"action_id" => action.id, "input" => %{"reason" => "should not run"}}
-    })
-    |> render_submit()
+    |> element("button[phx-click='launch_ansible_for_selection']")
+    |> render_click()
 
-    refute_receive {:northbound_create_and_dispatch, _attrs, _opts}, 300
+    assert_redirect(view, ~p"/ansible/launch?#{%{devices: uid}}")
   end
 
   test "northbound action modal renders schema-driven input controls" do
@@ -563,8 +549,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html =
       render_component(&NorthboundActionComponents.northbound_action_modal/1,
         id: "northbound_action_modal",
-        title: "Run Task",
-        subtitle: "Create a task invocation",
+        title: "Run Action",
+        subtitle: "Create an action invocation",
         form: to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
         actions: [action],
         action: action,
@@ -588,7 +574,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   test "northbound action history hides nil-like summaries and explains empty state" do
     html =
       render_component(&NorthboundActionComponents.northbound_action_history/1,
-        title: "Task History",
+        title: "Action History",
         subtitle: "Recent actions",
         entries: [
           %{
@@ -607,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         ],
         error: nil,
         notice: nil,
-        empty_message: "No task invocations have been recorded yet."
+        empty_message: "No action invocations have been recorded yet."
       )
 
     assert html =~ "Sample Device Lookup"
@@ -620,16 +606,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         entries: [],
         error: nil,
         notice: nil,
-        empty_message: "No task invocations have been recorded yet."
+        empty_message: "No action invocations have been recorded yet."
       )
 
-    assert empty_html =~ "Newly launched tasks appear here"
+    assert empty_html =~ "Newly launched actions appear here"
   end
 
   test "northbound action history explains long-running progress" do
     html =
       render_component(&NorthboundActionComponents.northbound_action_history/1,
-        title: "Task History",
+        title: "Action History",
         subtitle: "Recent actions",
         entries: [
           %{
@@ -650,11 +636,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         ],
         error: nil,
         notice: nil,
-        empty_message: "No task invocations have been recorded yet."
+        empty_message: "No action invocations have been recorded yet."
       )
 
     assert html =~ "Result fetching"
-    assert html =~ "Fetching external task results"
+    assert html =~ "Fetching external action results"
     assert html =~ "next poll 2026-05-17 00:17:32"
     assert html =~ "poll 2"
   end
@@ -3073,6 +3059,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert_receive {:northbound_interface_actions, _scope}, 1_000
 
       interface_uid = "#{device_uid}-eth0"
+      assert render_until(view, interface_uid, 10_000) =~ interface_uid
 
       view
       |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{interface_uid}']")
@@ -3080,25 +3067,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       html =
         view
-        |> element("button[phx-click='run_task_for_interface_selection']")
+        |> element("button[phx-click='run_action_for_interface_selection']")
         |> render_click()
 
       assert html =~ "Disable Switch Port"
 
-      view
-      |> form("#northbound_interface_action_modal-form", %{
-        "action" => %{
-          "action_id" => action.id,
-          "input" => %{"reason" => "port remediation"}
-        }
-      })
-      |> render_submit()
+      html =
+        view
+        |> form("#northbound_interface_action_modal-form", %{
+          "action" => %{
+            "action_id" => action.id,
+            "input" => %{"reason" => "port remediation"}
+          }
+        })
+        |> render_submit()
 
       assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
-      html = render(view)
+      assert html =~ "Action dispatched. Watch Action History for results."
 
-      assert html =~ "Task dispatched for 1 interface"
-      assert html =~ "Results update in Task History"
+      html =
+        view
+        |> element("button[phx-click='switch_tab'][phx-value-tab='details']")
+        |> render_click()
+
+      assert html =~ "Action dispatched for 1 interface"
+      assert html =~ "Results update in Action History"
 
       assert attrs.descriptor_id == action.descriptor_id
 

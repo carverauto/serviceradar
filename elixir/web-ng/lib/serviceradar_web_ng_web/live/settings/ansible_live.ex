@@ -2,13 +2,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   @moduledoc """
   Settings page for the Ansible integration.
 
-  v1 scope (this commit): Controllers tab — list/add/edit/delete
-  `AnsibleController` records, including base_url, agent_id, the
-  credential broker secret reference, and the three sync intervals
-  (inventory_sync, catalog_sync, run_pulse). Other tabs (Repositories,
-  Schedules, Unmatched AWX Hosts, Retention) render placeholder
-  "coming soon" panels — they slot in cleanly as their backing
-  workers + LiveView surfaces are added.
+  Manages Ansible controllers and playbook repositories.
 
   Permission: `ansible.controllers.manage` (admin role by default).
   """
@@ -22,11 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
-  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
-  alias ServiceRadar.Automation.Ansible.PlaybookSchedule
-  alias ServiceRadar.Automation.Ansible.RetentionWorker
-  alias ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -36,280 +26,344 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   @awx_credential_provider "awx"
 
+  @controller_permission "ansible.controllers.manage"
+  @repository_permission "ansible.repositories.manage"
+  @settings_permissions [@controller_permission, @repository_permission]
+
   @tabs [
     {:controllers, "Controllers"},
-    {:repositories, "Repositories"},
-    {:schedules, "Schedules"},
-    {:retention, "Retention"}
+    {:repositories, "Repositories"}
   ]
 
   @impl true
   def event_mapping do
     Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
-      "new_controller" => :create,
-      "edit_controller" => :update,
-      "save_controller" => :update,
-      "delete_controller" => :delete,
-      "new_repository" => :create,
-      "edit_repository" => :update,
-      "save_repository" => :update,
-      "delete_repository" => :delete,
-      "new_schedule" => :create,
-      "edit_schedule" => :update,
-      "save_schedule" => :update,
-      "delete_schedule" => :delete,
-      "toggle_schedule" => :update,
-      "cancel_form" => :read,
+      # Permit has one resource module for this LiveView (Controller), while
+      # the page manages two independently-authorized resources. Treat Permit
+      # as the baseline page-read gate; every handler below refreshes and checks
+      # the permission for its actual resource before using the system actor.
+      "new_controller" => :read,
+      "edit_controller" => :read,
+      "save_controller" => :read,
+      "delete_controller" => :read,
+      "cancel_controller_form" => :read,
       "validate_controller" => :read,
+      "new_repository" => :read,
+      "edit_repository" => :read,
+      "save_repository" => :read,
+      "delete_repository" => :read,
+      "cancel_repository_form" => :read,
       "validate_repository" => :read,
-      "validate_schedule" => :read,
       "select_tab" => :read
     })
   end
 
   @impl true
   def skip_preload do
-    [:index, :read, :create, :update, :delete]
+    [:index, :read]
   end
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if RBAC.can?(scope, "ansible.controllers.manage") or
-         RBAC.can?(scope, "ansible.repositories.manage") or
-         RBAC.can?(scope, "ansible.schedules.manage") do
-      controllers = list_controllers()
-      repositories = list_repositories()
-      schedules = list_schedules()
-      playbooks = launchable_playbooks()
+    socket = assign_static_state(socket, scope)
 
-      {:ok,
-       socket
-       |> assign(:page_title, "Ansible Settings")
-       |> assign(:current_path, "/settings/ansible")
-       |> assign(:tabs, @tabs)
-       |> assign(:active_tab, :controllers)
-       |> assign(:awx_credential_secrets, list_awx_secrets())
-       |> assign(:show_controller_form, false)
-       |> assign(:editing_controller_id, nil)
-       |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
-       |> stream(:controllers, controllers, reset: true)
-       |> assign(:controller_count, length(controllers))
-       |> assign(:show_repository_form, false)
-       |> assign(:editing_repository_id, nil)
-       |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
-       |> stream(:repositories, repositories, reset: true)
-       |> assign(:repository_count, length(repositories))
-       |> assign(:show_schedule_form, false)
-       |> assign(:editing_schedule_id, nil)
-       |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))
-       |> assign(:playbooks, playbooks)
-       |> stream(:schedules, schedules, reset: true)
-       |> assign(:schedule_count, length(schedules))
-       |> assign(:retention_config, retention_config())}
+    if connected?(socket) do
+      load_connected_state(socket, scope)
     else
-      {:ok,
-       socket
-       |> put_flash(:error, "You don't have permission to manage Ansible settings.")
-       |> push_navigate(to: ~p"/dashboard")}
+      {:ok, socket}
     end
   end
 
   @impl true
   def handle_event("select_tab", %{"tab" => tab}, socket) do
     case to_atom_tab(tab) do
-      nil ->
-        {:noreply, socket}
+      :controllers ->
+        with_current_permission(socket, @controller_permission, fn socket ->
+          {:noreply, assign(socket, :active_tab, :controllers)}
+        end)
 
-      atom ->
-        {:noreply, assign(socket, :active_tab, atom)}
+      :repositories ->
+        with_current_permission(socket, @repository_permission, fn socket ->
+          {:noreply, assign(socket, :active_tab, :repositories)}
+        end)
+
+      nil ->
+        with_current_settings_permission(socket, fn socket -> {:noreply, socket} end)
     end
   end
 
   def handle_event("new_controller", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_controller_form, true)
-     |> assign(:editing_controller_id, nil)
-     |> assign(:controller_form, to_form(default_controller_form(), as: :controller))}
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply,
+       socket
+       |> assign(:show_controller_form, true)
+       |> assign(:editing_controller_id, nil)
+       |> assign(:controller_form, to_form(default_controller_form(), as: :controller))}
+    end)
   end
 
   def handle_event("edit_controller", %{"id" => id}, socket) do
-    case Controller.get_by_id(id, actor: actor()) do
-      {:ok, ctrl} ->
-        {:noreply,
-         socket
-         |> assign(:show_controller_form, true)
-         |> assign(:editing_controller_id, ctrl.id)
-         |> assign(:controller_form, to_form(controller_form_from(ctrl), as: :controller))}
+    with_current_permission(socket, @controller_permission, fn socket ->
+      case Controller.get_by_id(id, actor: actor()) do
+        {:ok, ctrl} ->
+          {:noreply,
+           socket
+           |> assign(:show_controller_form, true)
+           |> assign(:editing_controller_id, ctrl.id)
+           |> assign(:controller_form, to_form(controller_form_from(ctrl), as: :controller))}
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Controller not found.")}
-    end
+        _ ->
+          {:noreply, put_flash(socket, :error, "Controller not found.")}
+      end
+    end)
   end
 
-  def handle_event("cancel_form", _params, socket) do
-    {:noreply, assign(socket, :show_controller_form, false)}
+  def handle_event("cancel_controller_form", _params, socket) do
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, assign(socket, :show_controller_form, false)}
+    end)
   end
 
   def handle_event("validate_controller", %{"controller" => params}, socket) do
-    {:noreply, assign(socket, :controller_form, to_form(params, as: :controller))}
+    with_current_permission(socket, @controller_permission, fn socket ->
+      {:noreply, assign(socket, :controller_form, to_form(params, as: :controller))}
+    end)
   end
 
   def handle_event("save_controller", %{"controller" => params}, socket) do
-    case socket.assigns.editing_controller_id do
-      nil -> create_controller(socket, params)
-      id -> update_controller(socket, id, params)
-    end
+    with_current_permission(socket, @controller_permission, fn socket ->
+      case socket.assigns.editing_controller_id do
+        nil -> create_controller(socket, params)
+        id -> update_controller(socket, id, params)
+      end
+    end)
   end
 
   def handle_event("delete_controller", %{"id" => id}, socket) do
-    case Controller.get_by_id(id, actor: actor()) do
-      {:ok, ctrl} ->
-        case Ash.destroy(ctrl, actor: actor()) do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Controller \"#{ctrl.name}\" deleted.")
-             |> stream_delete(:controllers, ctrl)
-             |> update(:controller_count, &max(&1 - 1, 0))}
+    with_current_permission(socket, @controller_permission, fn socket ->
+      case Controller.get_by_id(id, actor: actor()) do
+        {:ok, ctrl} ->
+          case Ash.destroy(ctrl, actor: actor()) do
+            :ok ->
+              {:noreply,
+               socket
+               |> put_flash(:info, "Controller \"#{ctrl.name}\" deleted.")
+               |> stream_delete(:controllers, ctrl)
+               |> update(:controller_count, &max(&1 - 1, 0))}
 
-          {:error, reason} ->
-            Logger.warning("delete controller failed", reason: inspect(reason))
-            {:noreply, put_flash(socket, :error, "Could not delete controller.")}
-        end
+            {:error, reason} ->
+              Logger.warning("delete controller failed", reason: inspect(reason))
+              {:noreply, put_flash(socket, :error, "Could not delete controller.")}
+          end
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Controller not found.")}
-    end
+        _ ->
+          {:noreply, put_flash(socket, :error, "Controller not found.")}
+      end
+    end)
   end
 
   ## Repository CRUD ----------------------------------------------------------
 
   def handle_event("new_repository", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_repository_form, true)
-     |> assign(:editing_repository_id, nil)
-     |> assign(:repository_form, to_form(default_repository_form(), as: :repository))}
+    with_current_permission(socket, @repository_permission, fn socket ->
+      {:noreply,
+       socket
+       |> assign(:show_repository_form, true)
+       |> assign(:editing_repository_id, nil)
+       |> assign(:repository_form, to_form(default_repository_form(), as: :repository))}
+    end)
   end
 
   def handle_event("edit_repository", %{"id" => id}, socket) do
-    case PlaybookRepository.get_by_id(id, actor: actor()) do
-      {:ok, repo} ->
-        {:noreply,
-         socket
-         |> assign(:show_repository_form, true)
-         |> assign(:editing_repository_id, repo.id)
-         |> assign(:repository_form, to_form(repository_form_from(repo), as: :repository))}
+    with_current_permission(socket, @repository_permission, fn socket ->
+      case PlaybookRepository.get_by_id(id, actor: actor()) do
+        {:ok, repo} ->
+          {:noreply,
+           socket
+           |> assign(:show_repository_form, true)
+           |> assign(:editing_repository_id, repo.id)
+           |> assign(:repository_form, to_form(repository_form_from(repo), as: :repository))}
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Repository not found.")}
-    end
+        _ ->
+          {:noreply, put_flash(socket, :error, "Repository not found.")}
+      end
+    end)
+  end
+
+  def handle_event("cancel_repository_form", _params, socket) do
+    with_current_permission(socket, @repository_permission, fn socket ->
+      {:noreply, assign(socket, :show_repository_form, false)}
+    end)
   end
 
   def handle_event("validate_repository", %{"repository" => params}, socket) do
-    {:noreply, assign(socket, :repository_form, to_form(params, as: :repository))}
+    with_current_permission(socket, @repository_permission, fn socket ->
+      {:noreply, assign(socket, :repository_form, to_form(params, as: :repository))}
+    end)
   end
 
   def handle_event("save_repository", %{"repository" => params}, socket) do
-    case socket.assigns.editing_repository_id do
-      nil -> create_repository(socket, params)
-      id -> update_repository(socket, id, params)
-    end
+    with_current_permission(socket, @repository_permission, fn socket ->
+      case socket.assigns.editing_repository_id do
+        nil -> create_repository(socket, params)
+        id -> update_repository(socket, id, params)
+      end
+    end)
   end
 
   def handle_event("delete_repository", %{"id" => id}, socket) do
-    case PlaybookRepository.get_by_id(id, actor: actor()) do
-      {:ok, repo} ->
-        case Ash.destroy(repo, actor: actor()) do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Repository \"#{repo.name}\" deleted.")
-             |> stream_delete(:repositories, repo)
-             |> update(:repository_count, &max(&1 - 1, 0))}
+    with_current_permission(socket, @repository_permission, fn socket ->
+      case PlaybookRepository.get_by_id(id, actor: actor()) do
+        {:ok, repo} ->
+          case Ash.destroy(repo, actor: actor()) do
+            :ok ->
+              {:noreply,
+               socket
+               |> put_flash(:info, "Repository \"#{repo.name}\" deleted.")
+               |> stream_delete(:repositories, repo)
+               |> update(:repository_count, &max(&1 - 1, 0))}
 
-          {:error, reason} ->
-            Logger.warning("delete repository failed", reason: inspect(reason))
-            {:noreply, put_flash(socket, :error, "Could not delete repository.")}
-        end
+            {:error, reason} ->
+              Logger.warning("delete repository failed", reason: inspect(reason))
+              {:noreply, put_flash(socket, :error, "Could not delete repository.")}
+          end
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Repository not found.")}
-    end
+        _ ->
+          {:noreply, put_flash(socket, :error, "Repository not found.")}
+      end
+    end)
   end
 
-  ## Schedule CRUD ------------------------------------------------------------
-
-  def handle_event("new_schedule", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_schedule_form, true)
-     |> assign(:editing_schedule_id, nil)
-     |> assign(:schedule_form, to_form(default_schedule_form(), as: :schedule))}
+  defp assign_static_state(socket, scope) do
+    socket
+    |> assign(:page_title, "Ansible Settings")
+    |> assign(:current_path, "/settings/ansible")
+    |> assign(:settings_loaded, false)
+    |> assign_access(
+      cached_permission?(scope, @controller_permission),
+      cached_permission?(scope, @repository_permission)
+    )
+    |> assign(:awx_credential_secrets, [])
+    |> assign(:show_controller_form, false)
+    |> assign(:editing_controller_id, nil)
+    |> assign(:controller_form, to_form(default_controller_form(), as: :controller))
+    |> stream(:controllers, [], reset: true)
+    |> assign(:controller_count, 0)
+    |> assign(:show_repository_form, false)
+    |> assign(:editing_repository_id, nil)
+    |> assign(:repository_form, to_form(default_repository_form(), as: :repository))
+    |> stream(:repositories, [], reset: true)
+    |> assign(:repository_count, 0)
   end
 
-  def handle_event("edit_schedule", %{"id" => id}, socket) do
-    case PlaybookSchedule.get_by_id(id, actor: actor()) do
-      {:ok, sched} ->
-        {:noreply,
+  defp load_connected_state(socket, scope) do
+    case RBAC.authorize_current_any(scope, @settings_permissions) do
+      {:ok, current_scope} ->
+        can_manage_controllers = RBAC.can?(current_scope, @controller_permission)
+        can_manage_repositories = RBAC.can?(current_scope, @repository_permission)
+
+        {controllers, awx_secrets} =
+          if can_manage_controllers do
+            {list_controllers(), list_awx_secrets()}
+          else
+            {[], []}
+          end
+
+        repositories =
+          if can_manage_repositories do
+            list_repositories()
+          else
+            []
+          end
+
+        {:ok,
          socket
-         |> assign(:show_schedule_form, true)
-         |> assign(:editing_schedule_id, sched.id)
-         |> assign(:schedule_form, to_form(schedule_form_from(sched), as: :schedule))}
+         |> assign(:current_scope, current_scope)
+         |> assign_access(can_manage_controllers, can_manage_repositories)
+         |> assign(:settings_loaded, true)
+         |> assign(:awx_credential_secrets, awx_secrets)
+         |> stream(:controllers, controllers, reset: true)
+         |> assign(:controller_count, length(controllers))
+         |> stream(:repositories, repositories, reset: true)
+         |> assign(:repository_count, length(repositories))}
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Schedule not found.")}
+      {:error, :permission_revoked} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "You don't have permission to manage Ansible settings.")
+         |> push_navigate(to: ~p"/dashboard")}
     end
   end
 
-  def handle_event("validate_schedule", %{"schedule" => params}, socket) do
-    {:noreply, assign(socket, :schedule_form, to_form(params, as: :schedule))}
-  end
+  defp with_current_permission(socket, permission, callback) do
+    case RBAC.authorize_current(socket.assigns.current_scope, [permission]) do
+      {:ok, current_scope} ->
+        callback.(refresh_access(socket, current_scope))
 
-  def handle_event("save_schedule", %{"schedule" => params}, socket) do
-    case socket.assigns.editing_schedule_id do
-      nil -> create_schedule(socket, params)
-      id -> update_schedule(socket, id, params)
+      {:error, :permission_revoked} ->
+        deny_event(socket)
     end
   end
 
-  def handle_event("toggle_schedule", %{"id" => id}, socket) do
-    with {:ok, sched} <- PlaybookSchedule.get_by_id(id, actor: actor()),
-         {:ok, updated} <- toggle_enabled(sched) do
-      msg = if updated.enabled, do: "enabled", else: "disabled"
+  defp with_current_settings_permission(socket, callback) do
+    case RBAC.authorize_current_any(socket.assigns.current_scope, @settings_permissions) do
+      {:ok, current_scope} ->
+        callback.(refresh_access(socket, current_scope))
 
-      {:noreply,
-       socket
-       |> put_flash(:info, "Schedule \"#{updated.name}\" #{msg}.")
-       |> stream_insert(:schedules, updated)}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Could not toggle schedule.")}
+      {:error, :permission_revoked} ->
+        deny_event(socket)
     end
   end
 
-  def handle_event("delete_schedule", %{"id" => id}, socket) do
-    case PlaybookSchedule.get_by_id(id, actor: actor()) do
-      {:ok, sched} ->
-        case Ash.destroy(sched, actor: actor()) do
-          :ok ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Schedule \"#{sched.name}\" deleted.")
-             |> stream_delete(:schedules, sched)
-             |> update(:schedule_count, &max(&1 - 1, 0))}
+  defp refresh_access(socket, current_scope) do
+    socket
+    |> assign(:current_scope, current_scope)
+    |> assign_access(
+      RBAC.can?(current_scope, @controller_permission),
+      RBAC.can?(current_scope, @repository_permission)
+    )
+  end
 
-          {:error, reason} ->
-            Logger.warning("delete schedule failed", reason: inspect(reason))
-            {:noreply, put_flash(socket, :error, "Could not delete schedule.")}
+  defp deny_event(socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       "Your Ansible settings permissions changed. Refresh the page and try again."
+     )}
+  end
+
+  defp assign_access(socket, can_manage_controllers, can_manage_repositories) do
+    tabs =
+      Enum.filter(@tabs, fn
+        {:controllers, _label} -> can_manage_controllers
+        {:repositories, _label} -> can_manage_repositories
+      end)
+
+    active_tab =
+      if Enum.any?(tabs, fn {key, _label} -> key == socket.assigns[:active_tab] end) do
+        socket.assigns.active_tab
+      else
+        case tabs do
+          [{key, _label} | _rest] -> key
+          [] -> nil
         end
+      end
 
-      _ ->
-        {:noreply, put_flash(socket, :error, "Schedule not found.")}
-    end
+    socket
+    |> assign(:tabs, tabs)
+    |> assign(:active_tab, active_tab)
+    |> assign(:can_manage_ansible_controllers, can_manage_controllers)
+    |> assign(:can_manage_ansible_repositories, can_manage_repositories)
   end
+
+  defp cached_permission?(%{permissions: %MapSet{} = permissions}, permission) do
+    MapSet.member?(permissions, permission)
+  end
+
+  defp cached_permission?(_scope, _permission), do: false
 
   ## Render --------------------------------------------------------------------
 
@@ -330,7 +384,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Ansible</h1>
           <p class="text-sm text-sr-muted">
-            AWX/AAP controllers, git playbook repositories, schedules, and retention.
+            AWX/AAP controllers and git playbook repositories.
           </p>
         </header>
 
@@ -347,7 +401,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </button>
         </div>
 
-        <section :if={@active_tab == :controllers} class="space-y-4">
+        <p :if={!@settings_loaded} class="text-sm text-sr-muted">Loading Ansible settings…</p>
+
+        <section
+          :if={
+            @settings_loaded and @can_manage_ansible_controllers and
+              @active_tab == :controllers
+          }
+          class="space-y-4"
+        >
           <.controllers_panel
             controllers={@streams.controllers}
             controller_count={@controller_count}
@@ -358,7 +420,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           />
         </section>
 
-        <section :if={@active_tab == :repositories} class="space-y-4">
+        <section
+          :if={
+            @settings_loaded and @can_manage_ansible_repositories and
+              @active_tab == :repositories
+          }
+          class="space-y-4"
+        >
           <.repositories_panel
             repositories={@streams.repositories}
             repository_count={@repository_count}
@@ -366,21 +434,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             form={@repository_form}
             editing_id={@editing_repository_id}
           />
-        </section>
-
-        <section :if={@active_tab == :schedules} class="space-y-4">
-          <.schedules_panel
-            schedules={@streams.schedules}
-            schedule_count={@schedule_count}
-            show_form={@show_schedule_form}
-            form={@schedule_form}
-            editing_id={@editing_schedule_id}
-            playbooks={@playbooks}
-          />
-        </section>
-
-        <section :if={@active_tab == :retention} class="space-y-4">
-          <.retention_panel config={@retention_config} />
         </section>
       </Shell.settings_chrome>
     </Layouts.app>
@@ -776,24 +829,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
               class={ui_field_class(size: "sm")}
             />
           </div>
-
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Run pulse (ms)</span>
-            </label>
-            <input
-              type="number"
-              name="controller[run_pulse_interval_ms]"
-              value={Phoenix.HTML.Form.input_value(@form, :run_pulse_interval_ms) || 2000}
-              min="250"
-              max="60000"
-              class={ui_field_class(size: "sm")}
-            />
-          </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+          <.ui_button
+            type="button"
+            phx-click="cancel_controller_form"
+            size="sm"
+            variant="ghost"
+          >
             Cancel
           </.ui_button>
           <.ui_button type="submit" size="sm" variant="primary">
@@ -912,6 +956,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
       <.form
         for={@form}
+        id="ansible-repository-form"
         phx-change="validate_repository"
         phx-submit="save_repository"
         class="space-y-3"
@@ -1002,7 +1047,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
+          <.ui_button
+            type="button"
+            phx-click="cancel_repository_form"
+            size="sm"
+            variant="ghost"
+          >
             Cancel
           </.ui_button>
           <.ui_button type="submit" size="sm" variant="primary">
@@ -1010,404 +1060,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
           </.ui_button>
         </div>
       </.form>
-    </div>
-    """
-  end
-
-  ## Schedule panel + form ----------------------------------------------------
-
-  attr(:schedules, :any, required: true)
-  attr(:schedule_count, :integer, required: true)
-  attr(:show_form, :boolean, required: true)
-  attr(:form, :any, required: true)
-  attr(:editing_id, :string, default: nil)
-  attr(:playbooks, :any, required: true)
-
-  defp schedules_panel(assigns) do
-    ~H"""
-    <div class="flex items-center justify-between">
-      <p class="text-sm text-sr-muted">
-        <span class="font-medium">{@schedule_count}</span>
-        scheduled run{if @schedule_count == 1, do: "", else: "s"} registered.
-      </p>
-      <.ui_button type="button" phx-click="new_schedule" size="sm" variant="primary">
-        + Add schedule
-      </.ui_button>
-    </div>
-
-    <div
-      :if={@schedule_count == 0 and !@show_form}
-      class="rounded-lg border border-dashed border-sr-line p-8 text-center text-sm text-sr-muted"
-    >
-      <p>No schedules registered.</p>
-      <p class="mt-2">Click <strong>Add schedule</strong> to create a cron-driven run.</p>
-    </div>
-
-    <.schedule_form :if={@show_form} form={@form} editing_id={@editing_id} playbooks={@playbooks} />
-
-    <div
-      :if={@schedule_count > 0}
-      class="overflow-x-auto rounded-lg border border-sr-line bg-sr-surface"
-    >
-      <table class={ui_table_class(zebra: true)}>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Cron</th>
-            <th>Last fire</th>
-            <th>Next run</th>
-            <th>State</th>
-            <th class="w-40">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="ansible-schedules" phx-update="stream">
-          <tr :for={{id, sched} <- @schedules} id={id}>
-            <td>
-              <div class="font-medium">{sched.name}</div>
-              <div :if={sched.description} class="text-xs text-sr-muted">
-                {sched.description}
-              </div>
-            </td>
-            <td>
-              <code class="text-xs">{sched.cron}</code>
-              <div class="text-xs text-sr-muted">{sched.timezone}</div>
-            </td>
-            <td>
-              <div :if={sched.last_evaluated_at} class="text-xs">
-                {Calendar.strftime(sched.last_evaluated_at, "%Y-%m-%d %H:%M:%S UTC")}
-              </div>
-              <.ui_badge
-                :if={sched.last_evaluation_outcome}
-                size="xs"
-                variant={outcome_badge_variant(sched.last_evaluation_outcome)}
-                class="mt-1"
-              >
-                {sched.last_evaluation_outcome}
-              </.ui_badge>
-              <div :if={!sched.last_evaluated_at} class="text-xs text-sr-muted">
-                never fired
-              </div>
-            </td>
-            <td>
-              <div :if={sched.next_run_at} class="text-xs">
-                {Calendar.strftime(sched.next_run_at, "%Y-%m-%d %H:%M:%S UTC")}
-              </div>
-              <div :if={!sched.next_run_at} class="text-xs text-sr-muted">—</div>
-            </td>
-            <td>
-              <.ui_badge :if={sched.enabled} size="sm" variant="success">enabled</.ui_badge>
-              <.ui_badge :if={!sched.enabled} size="sm" variant="ghost">disabled</.ui_badge>
-              <.ui_badge :if={sched.allow_concurrent} size="xs" variant="warning" class="mt-1">
-                concurrent
-              </.ui_badge>
-            </td>
-            <td>
-              <div class="flex gap-1 flex-wrap">
-                <.ui_button
-                  type="button"
-                  phx-click="toggle_schedule"
-                  phx-value-id={sched.id}
-                  size="xs"
-                  variant="neutral"
-                >
-                  {if sched.enabled, do: "Disable", else: "Enable"}
-                </.ui_button>
-                <.ui_button
-                  type="button"
-                  phx-click="edit_schedule"
-                  phx-value-id={sched.id}
-                  size="xs"
-                  variant="neutral"
-                >
-                  Edit
-                </.ui_button>
-                <.ui_button
-                  type="button"
-                  phx-click="delete_schedule"
-                  phx-value-id={sched.id}
-                  data-confirm={"Delete schedule '#{sched.name}'?"}
-                  size="xs"
-                  variant="outline"
-                >
-                  Delete
-                </.ui_button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    """
-  end
-
-  attr(:form, :any, required: true)
-  attr(:editing_id, :string, default: nil)
-  attr(:playbooks, :any, required: true)
-
-  defp schedule_form(assigns) do
-    ~H"""
-    <div class="rounded-lg border border-sr-line bg-sr-subtle/60 p-4">
-      <h2 class="text-lg font-medium mb-3">
-        {if @editing_id, do: "Edit schedule", else: "Add schedule"}
-      </h2>
-
-      <.form for={@form} phx-change="validate_schedule" phx-submit="save_schedule" class="space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Name</span>
-            </label>
-            <input
-              type="text"
-              name="schedule[name]"
-              value={Phoenix.HTML.Form.input_value(@form, :name)}
-              required
-              class={ui_field_class(size: "sm")}
-              placeholder="nightly-deploy"
-            />
-          </div>
-
-          <div class="flex flex-col gap-1.5">
-            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
-              <input
-                type="checkbox"
-                name="schedule[enabled]"
-                value="true"
-                checked={truthy?(Phoenix.HTML.Form.input_value(@form, :enabled))}
-                class={ui_checkbox_class()}
-              />
-              <span class="text-sm font-medium text-sr-ink">Enabled</span>
-            </label>
-            <label class="flex cursor-pointer items-center gap-2 justify-start gap-2">
-              <input
-                type="checkbox"
-                name="schedule[allow_concurrent]"
-                value="true"
-                checked={truthy?(Phoenix.HTML.Form.input_value(@form, :allow_concurrent))}
-                class={ui_checkbox_class()}
-              />
-              <span class="text-sm font-medium text-sr-ink">Allow concurrent runs</span>
-            </label>
-          </div>
-
-          <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Description</span>
-            </label>
-            <input
-              type="text"
-              name="schedule[description]"
-              value={Phoenix.HTML.Form.input_value(@form, :description)}
-              class={ui_field_class(size: "sm")}
-            />
-          </div>
-
-          <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Playbook</span>
-              <span class="text-xs text-sr-muted">
-                {length(@playbooks)} launchable
-              </span>
-            </label>
-            <select name="schedule[playbook_id]" required class={ui_field_class(size: "sm")}>
-              <option
-                value=""
-                disabled
-                selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) in [nil, ""]}
-              >
-                — pick a playbook —
-              </option>
-              <option
-                :for={pb <- @playbooks}
-                value={pb.id}
-                selected={Phoenix.HTML.Form.input_value(@form, :playbook_id) == pb.id}
-              >
-                {pb.name} ({pb.source_type})
-              </option>
-            </select>
-          </div>
-
-          <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Target device UIDs</span>
-              <span class="text-xs text-sr-muted">comma-separated</span>
-            </label>
-            <input
-              type="text"
-              name="schedule[target_device_uids]"
-              value={Phoenix.HTML.Form.input_value(@form, :target_device_uids)}
-              required
-              class={ui_field_class(size: "sm", mono: true, class: "text-xs")}
-              placeholder="sr:a,sr:b,sr:c"
-            />
-          </div>
-
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Cron</span>
-              <span class="text-xs text-sr-muted">5-field, UTC for v1</span>
-            </label>
-            <input
-              type="text"
-              name="schedule[cron]"
-              value={Phoenix.HTML.Form.input_value(@form, :cron)}
-              required
-              class={ui_field_class(size: "sm", mono: true)}
-              placeholder="0 3 * * *"
-            />
-          </div>
-
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Timezone</span>
-            </label>
-            <input
-              type="text"
-              name="schedule[timezone]"
-              value={Phoenix.HTML.Form.input_value(@form, :timezone) || "UTC"}
-              required
-              class={ui_field_class(size: "sm")}
-              placeholder="UTC"
-            />
-            <p class="text-xs text-sr-muted mt-1">
-              Non-UTC needs the tzdata dep — v1 supports UTC / Etc/UTC.
-            </p>
-          </div>
-
-          <div class="flex flex-col gap-1.5 md:col-span-2">
-            <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">extra_vars (JSON)</span>
-              <span class="text-xs text-sr-muted">
-                passed to AWX on each fire
-              </span>
-            </label>
-            <textarea
-              name="schedule[requested_extra_vars]"
-              rows="3"
-              class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-xs")}
-              placeholder={"{\n  \"target_version\": \"1.2.3\"\n}"}
-            >{Phoenix.HTML.Form.input_value(@form, :requested_extra_vars)}</textarea>
-          </div>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <.ui_button type="button" phx-click="cancel_form" size="sm" variant="ghost">
-            Cancel
-          </.ui_button>
-          <.ui_button type="submit" size="sm" variant="primary">
-            {if @editing_id, do: "Save changes", else: "Create schedule"}
-          </.ui_button>
-        </div>
-      </.form>
-    </div>
-    """
-  end
-
-  ## Retention panel (read-only docs) -----------------------------------------
-
-  attr(:config, :map, required: true)
-
-  defp retention_panel(assigns) do
-    ~H"""
-    <div class="space-y-4">
-      <div class="rounded-lg border border-sr-line bg-sr-surface p-6 text-sm space-y-3">
-        <header>
-          <h2 class="text-lg font-medium">Retention</h2>
-          <p class="text-sr-muted">
-            Run-detail + run-summary retention windows are operator-tunable via
-            environment variables. Worker cadences (health check, watchdog,
-            schedule evaluator) follow the same pattern. Values shown here reflect
-            the current process; changes require a redeploy.
-          </p>
-        </header>
-
-        <div class="sr-ui-table-shell">
-          <table class={ui_table_class(size: "sm")}>
-            <thead>
-              <tr>
-                <th class="w-1/3">Setting</th>
-                <th>Current value</th>
-                <th>Env var</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>
-                  <div class="font-medium">Run detail retention</div>
-                  <div class="text-xs text-sr-muted">
-                    Past this age, prune `PlaybookPlay` / `PlaybookTask` /
-                    `PlaybookTaskResult` rows. Run + targets stay so the run
-                    header / per-target outcomes remain queryable.
-                  </div>
-                </td>
-                <td><code>{format_days(@config.run_detail_days)}</code></td>
-                <td><code class="text-xs">ANSIBLE_RETENTION_RUN_DETAIL_DAYS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Run summary retention</div>
-                  <div class="text-xs text-sr-muted">
-                    When set, deletes the entire `PlaybookRun` (cascading to
-                    targets / plays / tasks / results) past this age. Default
-                    `nil` keeps run summaries forever.
-                  </div>
-                </td>
-                <td><code>{format_days_optional(@config.run_summary_days)}</code></td>
-                <td><code class="text-xs">ANSIBLE_RETENTION_RUN_SUMMARY_DAYS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Retention sweep interval</div>
-                  <div class="text-xs text-sr-muted">
-                    How often the RetentionWorker scans. Defaults to daily.
-                  </div>
-                </td>
-                <td><code>{format_seconds(@config.interval_seconds)}</code></td>
-                <td><code class="text-xs">ANSIBLE_RETENTION_INTERVAL_SECONDS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Controller health probe interval</div>
-                </td>
-                <td><code>{format_seconds(@config.health_interval_seconds)}</code></td>
-                <td><code class="text-xs">AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Run watchdog interval</div>
-                  <div class="text-xs text-sr-muted">
-                    Threshold: 2× the AWX job_template timeout, or 1 h fallback
-                    if no template timeout is known.
-                  </div>
-                </td>
-                <td><code>{format_seconds(@config.watchdog_interval_seconds)}</code></td>
-                <td><code class="text-xs">AWX_RUN_WATCHDOG_INTERVAL_SECONDS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Schedule evaluator interval</div>
-                </td>
-                <td><code>{format_seconds(@config.scheduler_interval_seconds)}</code></td>
-                <td><code class="text-xs">AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS</code></td>
-              </tr>
-              <tr>
-                <td>
-                  <div class="font-medium">Git catalog cache directory</div>
-                </td>
-                <td><code class="text-xs">{@config.catalog_base_dir}</code></td>
-                <td><code class="text-xs">ANSIBLE_CATALOG_BASE_DIR</code></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <p class="text-xs text-sr-muted">
-          Per-controller / per-repository / per-schedule overrides take precedence
-          over the global defaults above. Each `AnsibleController` carries its own
-          `run_pulse_interval_ms` (drives RunPulseWorker), `inventory_sync_interval_seconds`,
-          and `catalog_sync_interval_seconds`.
-        </p>
-      </div>
     </div>
     """
   end
@@ -1611,8 +1263,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       execution_credential_secret_id: credentials.execution,
       callback_credential_secret_id: credentials.callback,
       inventory_sync_interval_seconds: to_int(params["inventory_sync_interval_seconds"]) || 300,
-      catalog_sync_interval_seconds: to_int(params["catalog_sync_interval_seconds"]) || 600,
-      run_pulse_interval_ms: to_int(params["run_pulse_interval_ms"]) || 2000
+      catalog_sync_interval_seconds: to_int(params["catalog_sync_interval_seconds"]) || 600
     }
   end
 
@@ -1628,8 +1279,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "execution_credential_secret_id" => "",
       "callback_credential_secret_id" => "",
       "inventory_sync_interval_seconds" => "300",
-      "catalog_sync_interval_seconds" => "600",
-      "run_pulse_interval_ms" => "2000"
+      "catalog_sync_interval_seconds" => "600"
     }
   end
 
@@ -1645,8 +1295,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       "execution_credential_secret_id" => ctrl.execution_credential_secret_id,
       "callback_credential_secret_id" => ctrl.callback_credential_secret_id,
       "inventory_sync_interval_seconds" => to_string(ctrl.inventory_sync_interval_seconds),
-      "catalog_sync_interval_seconds" => to_string(ctrl.catalog_sync_interval_seconds),
-      "run_pulse_interval_ms" => to_string(ctrl.run_pulse_interval_ms)
+      "catalog_sync_interval_seconds" => to_string(ctrl.catalog_sync_interval_seconds)
     }
   end
 
@@ -1779,281 +1428,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp sync_badge_variant(:pending), do: "ghost"
   defp sync_badge_variant(_), do: "ghost"
 
-  ## Schedule helpers ---------------------------------------------------------
-
-  defp list_schedules do
-    query = Ash.Query.sort(PlaybookSchedule, name: :asc)
-
-    case Ash.read(query, actor: actor()) do
-      {:ok, rows} -> rows
-      {:error, error} -> log_list_failure("schedules", error)
-    end
-  end
-
-  defp launchable_playbooks do
-    query =
-      Playbook
-      |> Ash.Query.filter(not is_nil(awx_job_template_id))
-      |> Ash.Query.sort(name: :asc)
-      |> Ash.Query.limit(500)
-
-    case Ash.read(query, actor: actor()) do
-      {:ok, rows} -> rows
-      _ -> []
-    end
-  end
-
-  defp create_schedule(socket, params) do
-    case validate_and_normalize_schedule(params) do
-      {:ok, attrs} ->
-        case PlaybookSchedule.create_schedule(attrs, actor: actor()) do
-          {:ok, sched} ->
-            sched = compute_next_run(sched)
-
-            {:noreply,
-             socket
-             |> put_flash(:info, "Schedule \"#{sched.name}\" created.")
-             |> assign(:show_schedule_form, false)
-             |> stream_insert(:schedules, sched)
-             |> update(:schedule_count, &(&1 + 1))}
-
-          {:error, error} ->
-            Logger.info("Schedule create failed", error: inspect(error))
-
-            {:noreply,
-             socket
-             |> assign(:schedule_form, to_form(params, as: :schedule))
-             |> put_flash(:error, format_ash_error(error))}
-        end
-
-      {:error, message} ->
-        {:noreply,
-         socket
-         |> assign(:schedule_form, to_form(params, as: :schedule))
-         |> put_flash(:error, message)}
-    end
-  end
-
-  defp update_schedule(socket, id, params) do
-    with {:ok, attrs} <- validate_and_normalize_schedule(params),
-         {:ok, sched} <- PlaybookSchedule.get_by_id(id, actor: actor()),
-         {:ok, updated} <- PlaybookSchedule.update_schedule(sched, attrs, actor: actor()) do
-      updated = compute_next_run(updated)
-
-      {:noreply,
-       socket
-       |> put_flash(:info, "Schedule \"#{updated.name}\" updated.")
-       |> assign(:show_schedule_form, false)
-       |> stream_insert(:schedules, updated)}
-    else
-      {:error, %Invalid{} = err} ->
-        {:noreply,
-         socket
-         |> assign(:schedule_form, to_form(params, as: :schedule))
-         |> put_flash(:error, format_ash_error(err))}
-
-      {:error, message} when is_binary(message) ->
-        {:noreply,
-         socket
-         |> assign(:schedule_form, to_form(params, as: :schedule))
-         |> put_flash(:error, message)}
-
-      {:error, error} ->
-        Logger.info("Schedule update failed", error: inspect(error))
-
-        {:noreply,
-         socket
-         |> assign(:schedule_form, to_form(params, as: :schedule))
-         |> put_flash(:error, format_ash_error(error))}
-    end
-  end
-
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
-
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
-
-  defp validate_and_normalize_schedule(params) do
-    with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
-         {:ok, extra_vars} <- parse_extra_vars(params["requested_extra_vars"]),
-         :ok <- ensure_cron(params["cron"]) do
-      attrs = %{
-        name: params["name"],
-        description: nilify_blank(params["description"]),
-        enabled: truthy?(params["enabled"]),
-        playbook_id: nilify_blank(params["playbook_id"]),
-        target_device_uids: uids,
-        requested_extra_vars: extra_vars,
-        cron: params["cron"],
-        timezone: nilify_blank(params["timezone"]) || "UTC",
-        allow_concurrent: truthy?(params["allow_concurrent"])
-      }
-
-      {:ok, attrs}
-    else
-      [] -> {:error, "At least one target device UID is required."}
-      {:error, {:bad_extra_vars, msg}} -> {:error, "extra_vars JSON invalid: #{msg}"}
-      {:error, :bad_cron} -> {:error, "cron expression is invalid."}
-      other -> other
-    end
-  end
-
-  defp parse_uids(nil), do: []
-  defp parse_uids(""), do: []
-
-  defp parse_uids(s) when is_binary(s) do
-    s
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp parse_uids(_), do: []
-
-  defp parse_extra_vars(nil), do: {:ok, %{}}
-  defp parse_extra_vars(""), do: {:ok, %{}}
-
-  defp parse_extra_vars(s) when is_binary(s) do
-    trimmed = String.trim(s)
-
-    if trimmed == "" do
-      {:ok, %{}}
-    else
-      case Jason.decode(trimmed) do
-        {:ok, m} when is_map(m) ->
-          {:ok, m}
-
-        {:ok, _} ->
-          {:error, {:bad_extra_vars, "must be a JSON object"}}
-
-        {:error, %Jason.DecodeError{} = err} ->
-          {:error, {:bad_extra_vars, Exception.message(err)}}
-      end
-    end
-  end
-
-  defp ensure_cron(nil), do: {:error, :bad_cron}
-  defp ensure_cron(""), do: {:error, :bad_cron}
-
-  defp ensure_cron(s) when is_binary(s) do
-    case Oban.Cron.Expression.parse(s) do
-      {:ok, _} -> :ok
-      _ -> {:error, :bad_cron}
-    end
-  end
-
-  defp ensure_cron(_), do: {:error, :bad_cron}
-
-  defp truthy?(true), do: true
-  defp truthy?("true"), do: true
-  defp truthy?("on"), do: true
-  defp truthy?("yes"), do: true
-  defp truthy?(_), do: false
-
-  defp compute_next_run(%PlaybookSchedule{} = sched) do
-    now = DateTime.utc_now()
-
-    case ScheduleEvaluatorWorker.compute_next_run_at(sched, now) do
-      {:ok, next} ->
-        case PlaybookSchedule.record_evaluation(
-               sched,
-               %{
-                 last_run_id: sched.last_run_id,
-                 next_run_at: next,
-                 last_evaluation_outcome: sched.last_evaluation_outcome
-               },
-               actor: actor()
-             ) do
-          {:ok, updated} -> updated
-          _ -> sched
-        end
-
-      _ ->
-        sched
-    end
-  end
-
-  defp default_schedule_form do
-    %{
-      "name" => "",
-      "description" => "",
-      "enabled" => "true",
-      "playbook_id" => "",
-      "target_device_uids" => "",
-      "requested_extra_vars" => "{}",
-      "cron" => "0 3 * * *",
-      "timezone" => "UTC",
-      "allow_concurrent" => ""
-    }
-  end
-
-  defp schedule_form_from(%PlaybookSchedule{} = sched) do
-    %{
-      "name" => sched.name,
-      "description" => sched.description || "",
-      "enabled" => to_string(sched.enabled),
-      "playbook_id" => sched.playbook_id || "",
-      "target_device_uids" => Enum.join(sched.target_device_uids || [], ","),
-      "requested_extra_vars" => Jason.encode!(sched.requested_extra_vars || %{}, pretty: true),
-      "cron" => sched.cron,
-      "timezone" => sched.timezone || "UTC",
-      "allow_concurrent" => to_string(sched.allow_concurrent)
-    }
-  end
-
-  defp outcome_badge_variant(:fired), do: "success"
-  defp outcome_badge_variant(:skipped_overlap), do: "warning"
-  defp outcome_badge_variant(:skipped_disabled), do: "ghost"
-  defp outcome_badge_variant(:skipped_ineligible_targets), do: "warning"
-  defp outcome_badge_variant(:error), do: "error"
-  defp outcome_badge_variant(_), do: "ghost"
-
-  ## Retention helpers --------------------------------------------------------
-
-  defp retention_config do
-    base = RetentionWorker.read_config()
-
-    %{
-      run_detail_days: base.run_detail_days,
-      run_summary_days: base.run_summary_days,
-      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
-      catalog_base_dir:
-        Application.get_env(
-          :serviceradar_core,
-          :ansible_catalog_base_dir,
-          Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
-        )
-    }
-  end
-
-  defp format_days(:disabled), do: "disabled"
-  defp format_days(n) when is_integer(n) and n > 0, do: "#{n} day#{if n == 1, do: "", else: "s"}"
-  defp format_days(_), do: "—"
-
-  defp format_days_optional(nil), do: "forever"
-  defp format_days_optional(other), do: format_days(other)
-
-  defp format_seconds(n) when is_integer(n) and n >= 86_400 do
-    days = div(n, 86_400)
-    "#{days} day#{if days == 1, do: "", else: "s"}"
-  end
-
-  defp format_seconds(n) when is_integer(n) and n >= 3600 do
-    hours = div(n, 3600)
-    "#{hours} hour#{if hours == 1, do: "", else: "s"}"
-  end
-
-  defp format_seconds(n) when is_integer(n) and n >= 60 do
-    minutes = div(n, 60)
-    "#{minutes} minute#{if minutes == 1, do: "", else: "s"}"
-  end
-
-  defp format_seconds(n) when is_integer(n) and n > 0, do: "#{n}s"
-  defp format_seconds(_), do: "—"
-
   defp actor, do: SystemActor.system(:ansible_settings_live)
 
   defp nilify_blank(nil), do: nil
@@ -2083,8 +1457,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     case tab do
       "controllers" -> :controllers
       "repositories" -> :repositories
-      "schedules" -> :schedules
-      "retention" -> :retention
       _ -> nil
     end
   end
