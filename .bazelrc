@@ -244,7 +244,33 @@ build:remote --remote_timeout=10m
 # therefore crosses the pod network in the clear, which is why this endpoint must stay
 # cluster-internal (see the README on keeping the Service ClusterIP rather than LoadBalancer).
 #
-build:cache_proxy --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
+# A BARE CLUSTER IP, NOT THE SERVICE DNS NAME, AND THAT IS DELIBERATE.
+#
+# The obvious address here is the Service FQDN
+# (bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local), and it is
+# what this line used to say. It fails in CI:
+#
+#   ERROR: Executing genrule //build/packaging/nats:nats_rpm_version failed: Failed to query
+#   remote execution capabilities: UNAVAILABLE: Unable to resolve host
+#   bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local
+#
+# The CI runners can route to the service CIDR but do not resolve cluster DNS -- they are not
+# pods with a kube-dns resolv.conf. BuildBuddy's own documentation says to point clients at the
+# proxy's cluster IP for exactly this reason; the DNS name only works from something that is
+# itself a pod. The EXECUTORS are pods, which is why `cache_target` in
+# //k8s/buildbuddy/values.yaml keeps the FQDN -- the two hops legitimately use different forms.
+#
+# THE COST: a ClusterIP is stable for the LIFE OF THE SERVICE, not forever. It survives
+# `helm upgrade` (including the LoadBalancer -> ClusterIP change this went through), but a
+# `helm uninstall` + `install`, or any delete/recreate of the Service, reallocates it and this
+# line goes stale. The chart exposes no `service.clusterIP` value, so it cannot be pinned from
+# //k8s/buildbuddy/values-cache-proxy.yaml. Re-read it after any such cycle:
+#
+#   kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
+#     -o jsonpath='{.spec.clusterIP}{"\n"}'
+#
+# A stale value fails the same loud way as above, naming the address, so it is self-diagnosing.
+build:cache_proxy --remote_cache=grpc://10.43.59.152:1985
 build:cache_proxy --remote_bytestream_uri_prefix=carverauto.buildbuddy.io
 
 # Enable clang-tidy diagnostics via --config=clang-tidy

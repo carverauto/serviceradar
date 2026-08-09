@@ -17,6 +17,24 @@
 # If they match, source it from that secret. If not, store the proxy's key in its own secret
 # rather than pasting a literal into a shell history.
 #
+# ---------------------------------------------------------------------------------------------
+# AFTER DEPLOYING: RE-CHECK THE CLUSTERIP AGAINST //.bazelrc
+# ---------------------------------------------------------------------------------------------
+#
+#   kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
+#     -o jsonpath='{.spec.clusterIP}{"\n"}'
+#   grep '^build:cache_proxy --remote_cache=' ../../.bazelrc
+#
+# These must name the same address. `build:cache_proxy` hardcodes the ClusterIP because CI
+# runners route to the service CIDR but do not resolve cluster DNS -- the Service FQDN works
+# only for the executors, which are pods. See "Re-check the ClusterIP after every proxy deploy"
+# in ./README.md for the full reasoning and for what it would take to use DNS instead.
+#
+# A `helm upgrade` preserves the ClusterIP, so a routine deploy will match. A `helm uninstall`
+# + `install`, or any delete/recreate of the Service, reallocates it -- and the chart exposes no
+# `service.clusterIP` value, so it cannot be pinned from this file. A stale value then fails
+# EVERY in-cluster CI job at once, which is worth thirty seconds here rather than a red pipeline.
+#
 # THE `--set` IS NOT OPTIONAL, and this file will not remind you at runtime. `-f` without
 # `--reuse-values` replaces the whole user-supplied value set, so an upgrade that omits the key
 # leaves the proxy unable to authenticate upstream. The key is deliberately absent from this

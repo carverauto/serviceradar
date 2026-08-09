@@ -455,6 +455,74 @@ bazel build --announce_rc --config=ci 2>&1 | grep 'config definition'
 Bazel prints `WARNING: option '--remote_cache' was expanded from both option '--config=ci' and
 option '--config=ci'`. That warning is the mechanism working, not a misconfiguration.
 
+### ⚠️ Re-check the ClusterIP after every proxy deploy
+
+**`build:cache_proxy` in `//.bazelrc` hardcodes the proxy's ClusterIP.** This is a deploy-time
+coupling between a helm release and a file in this repo, and nothing enforces it.
+
+The two hops deliberately address the proxy differently, and neither form is wrong:
+
+| hop | address | why |
+|---|---|---|
+| `executor.cache_target` (`values.yaml`, `values-workflows.yaml`) | Service **FQDN** | executors are pods, with a kube-dns `resolv.conf` |
+| `build:cache_proxy` (`//.bazelrc`) | **ClusterIP literal** | CI runners route to the service CIDR but do **not** resolve cluster DNS |
+
+The FQDN was tried first for the client hop and fails in CI:
+
+```
+ERROR: Executing genrule //build/packaging/nats:nats_rpm_version failed: Failed to query
+remote execution capabilities: UNAVAILABLE: Unable to resolve host
+bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local
+```
+
+BuildBuddy's own docs say to point clients at the cluster IP for exactly this reason.
+
+**A ClusterIP is stable for the life of the Service, not forever.** It survives `helm upgrade`
+(including the `LoadBalancer` → `ClusterIP` change this release went through), but a
+`helm uninstall` + `install`, or any delete/recreate of the Service, reallocates it. The chart
+exposes no `service.clusterIP` value, so it cannot be pinned from `values-cache-proxy.yaml`.
+
+After any `helm uninstall`/`install` of `bb-cache-proxy`, or if CI starts failing to reach the
+cache, compare the two:
+
+```bash
+kubectl get svc -n buildbuddy bb-cache-proxy-buildbuddy-enterprise-cache-proxy \
+  -o jsonpath='{.spec.clusterIP}{"\n"}'
+grep '^build:cache_proxy --remote_cache=' ../../.bazelrc
+```
+
+They must name the same address. A stale value fails loudly naming the address it tried, so it
+is self-diagnosing — but it fails *every* in-cluster CI job at once, so check it as part of the
+deploy rather than discovering it from a red pipeline.
+
+Distinguishing the two failure shapes matters:
+
+- `Unable to resolve host ...` — a **name** is configured where an IP belongs.
+- `UNAVAILABLE` / connection refused / timeout naming an **IP** — either the IP is stale (re-read
+  it above) or the runner cannot route to the service CIDR at all. If routing is the problem, the
+  answer is a MetalLB internal VIP, the pattern already used for `demo/cnpg-rw-internal-lb` — not
+  a different name.
+
+### Could the client hop use DNS instead?
+
+Yes, and it is a one-line executor flag — but only for jobs that run **as BuildBuddy actions**,
+and it buys a new dependency. The default DNS inside an action is a public resolver, which is why
+`*.svc.cluster.local` fails:
+
+| isolation | flag | default | for cluster DNS |
+|---|---|---|---|
+| `oci` (what both fleets set as `default_isolation_type`) | `executor.oci.dns` | `8.8.8.8` | `""` — mounts the **executor pod's** `/etc/resolv.conf`, i.e. kube-dns |
+| `firecracker` | `executor.firecracker_vm_resolv_conf` | unset → goinit falls back to `8.8.8.8`, `8.8.4.4`, `1.1.1.1` | `/etc/resolv.conf` — read **once at executor startup** and passed into each VM |
+
+Neither applies to a **Forgejo** runner, which is not a BuildBuddy action at all — that would
+need the runner itself to carry a kube-dns `resolv.conf`, or to run as a pod.
+
+**Weigh it before doing it.** Routing action DNS through CoreDNS means every lookup in every
+action — including public ones, which CoreDNS then forwards — depends on CoreDNS being healthy,
+and it still requires reaching the kube-dns ClusterIP, which is the same routing assumption the
+literal IP already makes. The IP costs one grep at deploy time and has no runtime dependency.
+Prefer it unless the Service is being recreated often enough that the coupling actually hurts.
+
 `--remote_bytestream_uri_prefix=carverauto.buildbuddy.io` rides along in the same config and is
 required, not decoration: Bazel writes `bytestream://` URIs into the build event stream using
 the `--remote_cache` target, so without it the BES is handed URIs naming a host it cannot reach
