@@ -75,30 +75,68 @@ actions:
       disk: "40GB"
 
     steps:
-      # ROUTE CACHE TRAFFIC THROUGH THE IN-CLUSTER PROXY.
+      # ROUTE CACHE TRAFFIC THROUGH THE IN-CLUSTER PROXY, AND REPORT WHETHER IT IS REACHABLE.
       #
-      # This runner is inside the cluster, so it can reach the cache proxy's ClusterIP; a
-      # developer laptop running the same `--config=ci` cannot. //.bazelrc therefore keeps the
-      # proxy in its own `build:cache_proxy` config and leaves it to whoever knows the topology
-      # to opt in -- which is this step. See the long note there before changing either half.
+      # //.bazelrc keeps the proxy endpoint in its own `build:cache_proxy` config rather than in
+      # build:ci, because `make test` is also --config=ci and developers run it from laptops
+      # that cannot reach a ClusterIP. This step is the in-cluster opt-in. See the long note
+      # there before changing either half.
       #
-      # .bazelrc.remote rather than a flag on each command: //.bazelrc try-imports that file,
-      # so this single line applies to all thirteen bazel invocations below AND to any added
-      # later. It is also the same mechanism the Forgejo workflows use, so there is one
-      # behaviour to understand rather than two.
+      # .bazelrc.remote rather than a flag on each command: //.bazelrc try-imports that file
+      # LAST, so this one line applies to all thirteen bazel invocations below and to any added
+      # later. `>` and not `>>` because workflow runners recycle their workspace and the file is
+      # gitignored, so a copy from a previous run survives `git clean`; truncating keeps this
+      # step idempotent.
       #
-      # `>` and not `>>`: workflow runners recycle their workspace, and .bazelrc.remote is
-      # gitignored, so a file left by a previous run survives `git clean`. Truncating makes
-      # this step idempotent instead of accumulating a duplicate line per run.
+      # No API key is written here: the runner injects
+      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc,
+      # and that same header is what authorises this hop -- the proxy verifies it against the
+      # upstream app.
       #
-      # No API key is written here, unlike the Forgejo copy of this step: the runner injects
-      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc.
-      # That header is what authenticates to the proxy as well -- the proxy verifies it against
-      # the upstream app -- so nothing further is needed to authorize this hop.
+      # WHY THE PROBE. Two runs failed here before the proxy was healthy:
+      #
+      #   Service FQDN -> UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local
+      #   ClusterIP    -> finishConnect(..) failed: Connection refused: /10.43.59.152:1985
+      #
+      # The second was very likely NOT a network fault: the proxy had been deployed with a
+      # placeholder API key, and a proxy that cannot authenticate upstream fails its health
+      # check, loses its endpoints, and kube-proxy then REJECTs connections to the Service --
+      # which is indistinguishable from an unroutable address at the client. The probe removes
+      # that ambiguity from the outside, in the same run as any failure:
+      #
+      #   DNS no,  ClusterIP yes  -> expected. DNS inside an action uses a PUBLIC resolver by
+      #                              default; the FQDN only works for the executor process,
+      #                              which is an ordinary pod. Nothing to do -- the IP is right.
+      #   DNS no,  ClusterIP no   -> no route to the service CIDR from inside the action. No
+      #                              executor flag fixes that; the proxy would need a
+      #                              LAN-reachable address (MetalLB VIP with
+      #                              loadBalancerSourceRanges, as in
+      #                              gitops/k8s/demo-cnpg-internal-access/).
+      #   both yes                -> healthy; a build failure here is not the network.
+      #
+      # kube-dns is the control: it is a ClusterIP too, so if it answers while the proxy's does
+      # not, the fault is the proxy's Service rather than the network path.
+      #
+      # `set -uo pipefail` without `-e`, and an explicit `exit 0`: this step must never fail the
+      # run. It reports.
+      #
+      # DELETE THE PROBE once the client hop has been green for a while. Keep the printf.
       - run: |
-          set -euo pipefail
+          set -uo pipefail
 
           printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
+
+          probe() { timeout 5 bash -c "cat < /dev/null > /dev/tcp/$1/$2" 2>/dev/null \
+            && echo "  reachable   $1:$2" || echo "  UNREACHABLE $1:$2"; }
+
+          echo "cache-proxy reachability from inside the workflow runner:"
+          getent hosts bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local \
+            && echo "  cluster DNS resolves" || echo "  NO cluster DNS"
+          probe 10.43.59.152 1985   # the cache proxy
+          probe 10.43.0.10 53       # kube-dns, as a control
+          echo "  resolv.conf: $(tr '\n' ' ' < /etc/resolv.conf)"
+
+          exit 0
 
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three

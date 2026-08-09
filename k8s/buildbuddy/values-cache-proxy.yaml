@@ -3,19 +3,21 @@
 #
 #   helm upgrade --install bb-cache-proxy buildbuddy/buildbuddy-enterprise-cache-proxy \
 #     -n buildbuddy -f k8s/buildbuddy/values-cache-proxy.yaml \
-#     --set config.cache_proxy.api_key="<the proxy's upstream key>"
+#     --set config.cache_proxy.api_key="$(kubectl get secret buildbuddy-cache-proxy-api-key \
+#       -n buildbuddy -o jsonpath='{.data.api-key}' | base64 -d)"
 #
-# WHICH KEY: the chart wants an executor-enabled API key, and the deployed release already
-# carries one. It is NOT established that it is the same value as the `buildbuddy-api-key`
-# secret that ./deploy.sh feeds the executors -- check before assuming they are interchangeable,
-# because substituting the wrong one leaves a proxy that registers and looks healthy while
-# failing every upstream fetch:
+# NEVER TYPE THE KEY INTO THIS COMMAND. Substitute it from the secret, as above. A literal
+# pasted here is a placeholder waiting to be shipped: `--set config.cache_proxy.api_key="<the
+# proxy's key>"` was actually run against this release, and helm accepted it without complaint.
+# The proxy then registered, stayed Ready, kept its endpoints, and served nothing -- it can
+# accept connections perfectly well while failing every upstream fetch, so the damage surfaces
+# as a slow cache rather than as an error. Verify after every upgrade:
 #
 #   helm get values bb-cache-proxy -n buildbuddy | grep api_key
-#   kubectl get secret buildbuddy-api-key -n buildbuddy -o jsonpath='{.data.api-key}' | base64 -d
 #
-# If they match, source it from that secret. If not, store the proxy's key in its own secret
-# rather than pasting a literal into a shell history.
+# ITS OWN SECRET, not the `buildbuddy-api-key` one ./deploy.sh feeds the executors. Both want an
+# executor-enabled key and they may well hold the same value, but nothing guarantees it, and a
+# single secret would silently couple two releases that are rotated independently.
 #
 # ---------------------------------------------------------------------------------------------
 # AFTER DEPLOYING: RE-CHECK THE CLUSTERIP AGAINST //.bazelrc
