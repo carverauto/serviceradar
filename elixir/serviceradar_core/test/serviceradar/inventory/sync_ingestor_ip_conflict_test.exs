@@ -5,7 +5,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   Source-authoritative integration identifiers must not be rebound to whichever
   unrelated device currently owns an IP. Contested IPs are dropped from the
   incoming strong device (pre-resolved before insert when the holder is already
-  visible, or via reactive recovery on a true race).
+  visible, or via reactive recovery on a true race). Same-batch handoffs must
+  free the relinquished IP for the new claimant rather than clearing it.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -63,10 +64,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
         assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
       end)
 
-    # Known holders are resolved before insert_all so recurring syncs do not
-    # trip ocsf_devices_unique_active_ip_idx on every cycle (#4796). CaptureLog
-    # may omit :info depending on the test logger level; the regression signal
-    # is that the reactive unique-violation path never fires.
+    # Reactive unique-violation path must not fire for a stable, already-visible
+    # holder (#4796). Outcome assertions below are the source of truth.
     refute log =~ "Bulk device upsert hit active-IP conflict"
     refute log =~ "ocsf_devices_unique_active_ip_idx"
 
@@ -102,24 +101,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     second_id = "integration-second-#{System.unique_integer([:positive])}"
 
     updates = [
-      %{
-        "ip" => ip,
-        "hostname" => "first-incoming",
-        "source" => "integration-test",
-        "metadata" => %{
-          "integration_type" => "test-integration",
-          "integration_id" => first_id
-        }
-      },
-      %{
-        "ip" => ip,
-        "hostname" => "second-incoming",
-        "source" => "integration-test",
-        "metadata" => %{
-          "integration_type" => "test-integration",
-          "integration_id" => second_id
-        }
-      }
+      integration_update(first_id, ip, "first-incoming"),
+      integration_update(second_id, ip, "second-incoming")
     ]
 
     log =
@@ -145,16 +128,61 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       |> Ash.read(actor: actor)
       |> Page.unwrap()
 
+    # Neither strong identity may silently win the free IP by record order.
     assert devices_at_ip == []
   end
 
-  test "repeated strong IP claims against a live holder stay successful and quiet", %{
+  test "same-batch handoff moves IP from previous owner to new strong claimant", %{
+    actor: actor
+  } do
+    ip_x = unique_test_ip()
+    ip_y = unique_test_ip()
+    owner_id = "owner-#{System.unique_integer([:positive])}"
+    claimer_id = "claimer-#{System.unique_integer([:positive])}"
+
+    # Seed owner A on X through the real ingest path so identifiers exist.
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [integration_update(owner_id, ip_x, "owner-a")],
+               actor: actor
+             )
+
+    owner_uid = device_uid_for_integration!(owner_id, actor)
+    {:ok, %Device{ip: ^ip_x}} = Device.get_by_uid(owner_uid, false, actor: actor)
+
+    # One batch: A moves X→Y while new strong B claims X.
+    updates = [
+      integration_update(owner_id, ip_y, "owner-a-moved"),
+      integration_update(claimer_id, ip_x, "claimer-b")
+    ]
+
+    assert :ok = SyncIngestor.ingest_updates(updates, actor: actor)
+
+    claimer_uid = device_uid_for_integration!(claimer_id, actor)
+    assert claimer_uid != owner_uid
+
+    {:ok, owner} = Device.get_by_uid(owner_uid, false, actor: actor)
+    {:ok, claimer} = Device.get_by_uid(claimer_uid, false, actor: actor)
+
+    assert owner.ip == ip_y
+    assert claimer.ip == ip_x
+
+    {:ok, at_x} =
+      Device
+      |> Ash.Query.filter(ip == ^ip_x and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert Enum.map(at_x, & &1.uid) == [claimer_uid]
+  end
+
+  test "plugin inventory snapshot AWX host keeps identity without stealing live IP", %{
     actor: actor
   } do
     ip = unique_test_ip()
-    integration_id = "awx-host-#{System.unique_integer([:positive])}"
+    integration_id = "awx:host:host-#{System.unique_integer([:positive])}"
 
-    {:ok, _agent_device} =
+    {:ok, agent_device} =
       Device
       |> Ash.Changeset.for_create(:create, %{
         uid: "sr:" <> Ecto.UUID.generate(),
@@ -163,26 +191,22 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       })
       |> Ash.create(actor: actor)
 
+    # Complete plugin inventories strip integration_* from ocsf_devices.metadata
+    # but still register typed identifiers — model that path, not the thin
+    # metadata-only shape.
     update = %{
       "ip" => ip,
       "hostname" => "awx-host",
       "source" => "awx",
       "metadata" => %{
         "integration_type" => "plugin_device_discovery",
-        "integration_id" => integration_id
+        "integration_id" => integration_id,
+        "plugin_inventory_snapshot" => true
       }
     }
 
-    # Simulate the recurring AWX host inventory sync that previously warned on
-    # every cycle for the same active-IP collision (#4796).
     for _ <- 1..3 do
-      log =
-        capture_log(fn ->
-          assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
-        end)
-
-      refute log =~ "Bulk device upsert hit active-IP conflict"
-      refute log =~ "ocsf_devices_unique_active_ip_idx"
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
     end
 
     {:ok, identifiers} =
@@ -193,8 +217,95 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       |> Ash.read(actor: actor)
 
     assert [%DeviceIdentifier{device_id: awx_uid}] = List.wrap(identifiers)
+    assert awx_uid != agent_device.uid
+
     {:ok, awx_device} = Device.get_by_uid(awx_uid, false, actor: actor)
     assert awx_device.ip == nil
+    # Snapshot path must not leave integration_id on the device row.
+    refute is_map(awx_device.metadata) and Map.has_key?(awx_device.metadata, "integration_id")
+
+    {:ok, devices_at_ip} =
+      Device
+      |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert Enum.map(devices_at_ip, & &1.uid) == [agent_device.uid]
+  end
+
+  test "concurrent distinct strong identities race on a free IP without dual holders", %{
+    actor: actor
+  } do
+    ip = unique_test_ip()
+    first_id = "race-a-#{System.unique_integer([:positive])}"
+    second_id = "race-b-#{System.unique_integer([:positive])}"
+
+    task_a =
+      Task.async(fn ->
+        SyncIngestor.ingest_updates(
+          [integration_update(first_id, ip, "race-a")],
+          actor: actor
+        )
+      end)
+
+    task_b =
+      Task.async(fn ->
+        SyncIngestor.ingest_updates(
+          [integration_update(second_id, ip, "race-b")],
+          actor: actor
+        )
+      end)
+
+    assert :ok = Task.await(task_a, 30_000)
+    assert :ok = Task.await(task_b, 30_000)
+
+    first_uid = device_uid_for_integration!(first_id, actor)
+    second_uid = device_uid_for_integration!(second_id, actor)
+    assert first_uid != second_uid
+
+    {:ok, first} = Device.get_by_uid(first_uid, false, actor: actor)
+    {:ok, second} = Device.get_by_uid(second_uid, false, actor: actor)
+
+    holders =
+      [first, second]
+      |> Enum.filter(fn device -> device.ip == ip end)
+      |> Enum.map(& &1.uid)
+
+    # At most one active row may hold the IP after the race settles. The loser
+    # either dropped the IP on retry or never claimed it.
+    assert length(holders) <= 1
+
+    {:ok, devices_at_ip} =
+      Device
+      |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert length(devices_at_ip) <= 1
+  end
+
+  defp integration_update(integration_id, ip, hostname) do
+    %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "integration-test",
+      "metadata" => %{
+        "integration_type" => "test-integration",
+        "integration_id" => integration_id
+      }
+    }
+  end
+
+  defp device_uid_for_integration!(integration_id, actor) do
+    {:ok, identifiers} =
+      DeviceIdentifier
+      |> Ash.Query.filter(
+        identifier_type == :integration_id and identifier_value == ^integration_id
+      )
+      |> Ash.read(actor: actor)
+
+    assert [%DeviceIdentifier{device_id: uid}] = List.wrap(identifiers)
+    uid
   end
 
   defp unique_test_ip do

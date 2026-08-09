@@ -47,9 +47,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     # Resolve predictable active-IP collisions up front so the first insert
     # succeeds. Reactive recovery below only covers concurrent writers that
     # land between this prepare step and insert_all.
-    {prepared_records, remap} = prepare_active_ip_claims(records, strong_uids, :precheck)
+    {prepared_records, remap, releases} =
+      prepare_active_ip_claims(records, strong_uids, :precheck)
 
-    insert_devices(prepared_records, update_query, refresh_rollups?)
+    insert_devices_with_releases(prepared_records, releases, update_query, refresh_rollups?)
     {:ok, remap}
   rescue
     e in Postgrex.Error ->
@@ -68,7 +69,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          original_error,
          refresh_rollups?
        ) do
-    {recovered_records, remap} = prepare_active_ip_claims(records, strong_uids, :retry)
+    {recovered_records, remap, releases} =
+      prepare_active_ip_claims(records, strong_uids, :retry)
 
     conflict_ip = unique_violation_ip(original_error)
 
@@ -87,19 +89,49 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       )
     end
 
-    case do_bulk_upsert_devices_once(recovered_records, update_query, refresh_rollups?) do
+    case do_bulk_upsert_devices_once(
+           recovered_records,
+           releases,
+           update_query,
+           refresh_rollups?
+         ) do
       :ok -> {:ok, remap}
       {:error, _} = error -> error
     end
   end
 
-  defp do_bulk_upsert_devices_once(records, update_query, refresh_rollups?) do
-    insert_devices(records, update_query, refresh_rollups?)
+  defp do_bulk_upsert_devices_once(records, releases, update_query, refresh_rollups?) do
+    insert_devices_with_releases(records, releases, update_query, refresh_rollups?)
     :ok
   rescue
     error ->
       Logger.warning("Bulk device upsert retry failed: #{inspect(error)}")
       {:error, error}
+  end
+
+  # When a batch moves device A off IP X while device B claims X, multi-row
+  # INSERT ... ON CONFLICT can still trip the unique index depending on row
+  # order. Clear the relinquished IPs first, then apply the final claims, in
+  # one transaction so a failed upsert cannot leave owners IP-less.
+  defp insert_devices_with_releases(records, [], update_query, refresh_rollups?) do
+    insert_devices(records, update_query, refresh_rollups?)
+  end
+
+  defp insert_devices_with_releases(records, releases, update_query, true) do
+    with_inventory_rollup_bypassed(fn ->
+      clear_released_active_ips(releases)
+      insert_devices(records, update_query, false)
+    end)
+  end
+
+  defp insert_devices_with_releases(records, releases, update_query, false) do
+    Repo.transaction(
+      fn ->
+        clear_released_active_ips(releases)
+        insert_devices(records, update_query, false)
+      end,
+      timeout: :infinity
+    )
   end
 
   defp insert_devices(records, update_query, true) do
@@ -115,23 +147,37 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
+  defp clear_released_active_ips(releases) do
+    releases
+    |> Enum.uniq()
+    |> Enum.each(fn {uid, ip} ->
+      Repo.update_all(
+        from(d in Device, where: d.uid == ^uid and d.ip == ^ip and is_nil(d.deleted_at)),
+        set: [ip: nil]
+      )
+    end)
+  end
+
   # Apply the same active-IP policy used by conflict recovery *before* insert so
   # recurring sync batches do not pay a unique_violation + retry every cycle.
-  # Returns `{prepared_records, remap}` where `remap` is `original_uid =>
-  # canonical_uid` for weak records rewritten onto the current IP owner.
+  # Returns `{prepared_records, remap, releases}` where `remap` is
+  # `original_uid => canonical_uid` and `releases` is a list of
+  # `{owner_uid, ip}` pairs that this batch moves off an IP (staged before
+  # insert so same-batch handoffs are atomic).
   defp prepare_active_ip_claims(records, strong_uids, reason) do
-    {remapped_records, remap} = remap_records_to_existing_ip(records, strong_uids)
+    {remapped_records, remap, releases} = remap_records_to_existing_ip(records, strong_uids)
     prepared_records = DeviceRecords.merge_records_by_uid(remapped_records)
 
-    if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) do
+    if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
+         releases != [] do
       Logger.info(
         "SyncIngestor: #{active_ip_prepare_label(reason)} active-IP claims " <>
-          "(uid_remaps=#{map_size(remap)}, records=#{length(records)}->" <>
-          "#{length(prepared_records)})"
+          "(uid_remaps=#{map_size(remap)}, releases=#{length(releases)}, " <>
+          "records=#{length(records)}->#{length(prepared_records)})"
       )
     end
 
-    {prepared_records, remap}
+    {prepared_records, remap, releases}
   end
 
   defp active_ip_prepare_label(:precheck), do: "pre-resolved"
@@ -161,11 +207,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp optional_ip_suffix(nil), do: ""
   defp optional_ip_suffix(ip), do: " on #{ip}"
 
-  # Returns `{remapped_records, remap}` where `remap` is a map of
+  # Returns `{remapped_records, remap, releases}` where `remap` is a map of
   # `original_uid => canonical_uid` for every record whose uid was rewritten to
-  # match an existing active device sharing the same IP. Callers must apply the
-  # same mapping to any other record set referencing those uids (identifier
-  # rows, alias-state updates) before issuing dependent inserts.
+  # match an existing active device sharing the same IP, and `releases` lists
+  # `{owner_uid, ip}` for owners that this batch moves onto a different IP.
+  # Callers must apply the same mapping to any other record set referencing
+  # those uids (identifier rows, alias-state updates) before issuing dependent
+  # inserts.
   defp remap_records_to_existing_ip(records, strong_uids) do
     ips =
       records
@@ -173,63 +221,130 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       |> Enum.filter(&SourcePolicy.valid_ip?/1)
       |> Enum.uniq()
 
-    existing_by_ip =
-      if ips == [] do
-        %{}
-      else
-        query =
-          from(d in Device,
-            where: d.ip in ^ips and is_nil(d.deleted_at),
-            select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
-          )
+    existing_by_ip = load_active_ip_owners(ips)
+    batch_ip_by_uid = batch_intended_ips(records)
 
-        query |> Repo.all() |> Map.new()
-      end
+    # Owners that this batch moves to a different valid IP no longer hold the
+    # old address for conflict purposes — otherwise a same-batch handoff
+    # (A: X→Y, B: claim X) would clear B and leave X unowned.
+    {active_holders, releases} =
+      partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid)
 
-    anchored_uids = anchored_device_uids(existing_by_ip)
     incoming_ip_owners = incoming_ip_owners(records)
 
-    {remapped_records, {remap, conflicts}} =
-      Enum.map_reduce(records, {%{}, []}, fn record, {remap, conflicts} ->
-        ip = Map.get(record, :ip)
-
-        case Map.get(existing_by_ip, ip) do
-          nil ->
-            drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
-
-          %{uid: existing_uid} when existing_uid == record.uid ->
-            {record, {remap, conflicts}}
-
-          %{uid: existing_uid} = existing ->
-            if MapSet.member?(strong_uids, record.uid) do
-              if provisional_ip_seed?(existing, anchored_uids) do
-                {Map.put(record, :uid, existing_uid),
-                 {Map.put(remap, record.uid, existing_uid), conflicts}}
-              else
-                # Strong identities never adopt an arbitrary IP owner. A
-                # truly provisional seed is the sole exception and is safe
-                # only while it has no registered identity anchor.
-                Logger.info(
-                  "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                    "device #{record.uid} (held by #{existing_uid})"
-                )
-
-                conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
-
-                {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict)}}
-              end
-            else
-              {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts}}
-            end
-        end
+    {remapped_records, {remap, conflicts, _anchors}} =
+      Enum.map_reduce(records, {%{}, [], :not_loaded}, fn record, acc ->
+        resolve_record_active_ip(
+          record,
+          strong_uids,
+          active_holders,
+          existing_by_ip,
+          incoming_ip_owners,
+          acc
+        )
       end)
 
     # One batched diagnostic write instead of an insert per IP collision.
     _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
 
-    {remapped_records, remap}
+    {remapped_records, remap, Enum.uniq(releases)}
   end
+
+  # Match the partial unique index predicate exactly so Postgres can use
+  # ocsf_devices_unique_active_ip_idx (index-only) instead of a sequential scan.
+  defp load_active_ip_owners([]), do: %{}
+
+  defp load_active_ip_owners(ips) do
+    from(d in Device,
+      where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
+      select: {d.ip, %{uid: d.uid, metadata: d.metadata}}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  defp batch_intended_ips(records) do
+    Map.new(records, fn record -> {record.uid, Map.get(record, :ip)} end)
+  end
+
+  defp partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid) do
+    Enum.reduce(existing_by_ip, {%{}, []}, fn {ip, holder}, {keepers, releases} ->
+      case Map.fetch(batch_ip_by_uid, holder.uid) do
+        {:ok, new_ip} ->
+          if SourcePolicy.valid_ip?(new_ip) and new_ip != ip do
+            Logger.info(
+              "SyncIngestor: batch releases active IP #{ip} from device #{holder.uid} " <>
+                "(moving to #{new_ip})"
+            )
+
+            {keepers, [{holder.uid, ip} | releases]}
+          else
+            # Missing/blank EXCLUDED.ip keeps the row's current IP via COALESCE,
+            # so the owner still holds it for conflict purposes.
+            {Map.put(keepers, ip, holder), releases}
+          end
+
+        :error ->
+          {Map.put(keepers, ip, holder), releases}
+      end
+    end)
+  end
+
+  defp resolve_record_active_ip(
+         record,
+         strong_uids,
+         active_holders,
+         existing_by_ip,
+         incoming_ip_owners,
+         {remap, conflicts, anchors}
+       ) do
+    ip = Map.get(record, :ip)
+
+    case Map.get(active_holders, ip) do
+      nil ->
+        {resolved, {remap, conflicts}} =
+          drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
+
+        {resolved, {remap, conflicts, anchors}}
+
+      %{uid: existing_uid} when existing_uid == record.uid ->
+        {record, {remap, conflicts, anchors}}
+
+      %{uid: existing_uid} = existing ->
+        if MapSet.member?(strong_uids, record.uid) do
+          # Defer identifier-anchor lookup until a strong identity actually
+          # collides with a different active owner (provisional-seed path).
+          {anchors, anchored_uids} = ensure_anchored_uids(anchors, existing_by_ip)
+
+          if provisional_ip_seed?(existing, anchored_uids) do
+            {Map.put(record, :uid, existing_uid),
+             {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+          else
+            # Strong identities never adopt an arbitrary IP owner. A
+            # truly provisional seed is the sole exception and is safe
+            # only while it has no registered identity anchor.
+            Logger.info(
+              "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                "device #{record.uid} (held by #{existing_uid})"
+            )
+
+            conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+
+            {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+          end
+        else
+          {Map.put(record, :uid, existing_uid),
+           {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+        end
+    end
+  end
+
+  defp ensure_anchored_uids(:not_loaded, existing_by_ip) do
+    set = anchored_device_uids(existing_by_ip)
+    {set, set}
+  end
+
+  defp ensure_anchored_uids(%MapSet{} = set, _existing_by_ip), do: {set, set}
 
   defp anchored_device_uids(existing_by_ip) do
     uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
