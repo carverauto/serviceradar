@@ -168,9 +168,9 @@ config:
     # would send those over the WAN while everything around them goes through the proxy.
     #
     # Note this is the EXECUTOR's cache target, which is a different hop from the Bazel
-    # CLIENT running inside the runner VM. That client is pointed at the proxy by
-    # //buildbuddy.yaml appending `--config=cache_proxy`; the two are independent and either
-    # works without the other.
+    # CLIENT running inside the runner VM. After the public-route canary passes,
+    # //buildbuddy.yaml may opt that client in with `--config=cache_proxy`; the opt-in is
+    # currently disabled. The two paths are independent and either works without the other.
     cache_target: grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
 
     enable_oci: true

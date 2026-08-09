@@ -82,90 +82,23 @@ actions:
       disk: "40GB"
 
     steps:
-      # ROUTE CACHE TRAFFIC THROUGH THE IN-CLUSTER PROXY, AND REPORT WHETHER IT IS REACHABLE.
+      # CACHE-PROXY CLIENT ROUTE: PUBLIC TLS, STILL OPT-IN DURING THE CANARY.
       #
-      # //.bazelrc keeps the proxy endpoint in its own `build:cache_proxy` config rather than in
-      # build:ci, because `make test` is also --config=ci and developers run it from laptops
-      # that cannot reach a ClusterIP. This step is the in-cluster opt-in. See the long note
-      # there before changing either half.
+      # //.bazelrc's `build:cache_proxy` profile names
+      # grpcs://cache-proxy.carverauto.dev:443. The shared Envoy gateway terminates TLS and
+      # forwards gRPC to the proxy's private Service; BuildBuddy's native proxy authentication,
+      # not Envoy, remains authoritative.
       #
-      # .bazelrc.remote rather than a flag on each command: //.bazelrc try-imports that file
-      # LAST, so this one line applies to all thirteen bazel invocations below and to any added
-      # later. `>` and not `>>` because workflow runners recycle their workspace and the file is
-      # gitignored, so a copy from a previous run survives `git clean`; truncating keeps this
-      # step idempotent.
-      #
-      # No API key is written here: the runner injects
-      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc,
-      # and that same header is what authorises this hop -- the proxy verifies it against the
-      # upstream app.
-      #
-      # WHY THE PROBE. Two runs failed here before the proxy was healthy:
-      #
-      #   Service FQDN -> UNAVAILABLE: Unable to resolve host bb-cache-proxy-...svc.cluster.local
-      #   ClusterIP    -> finishConnect(..) failed: Connection refused: /10.43.59.152:1985
-      #
-      # The second was very likely NOT a network fault: the proxy had been deployed with a
-      # placeholder API key, and a proxy that cannot authenticate upstream fails its health
-      # check, loses its endpoints, and kube-proxy then REJECTs connections to the Service --
-      # which is indistinguishable from an unroutable address at the client. The probe removes
-      # that ambiguity from the outside, in the same run as any failure:
-      #
-      #   DNS no,  ClusterIP yes  -> expected. DNS inside an action uses a PUBLIC resolver by
-      #                              default; the FQDN only works for the executor process,
-      #                              which is an ordinary pod. Nothing to do -- the IP is right.
-      #   DNS no,  ClusterIP no   -> no route to the service CIDR from inside the action. No
-      #                              executor flag fixes that; the proxy would need a
-      #                              LAN-reachable address (MetalLB VIP with
-      #                              loadBalancerSourceRanges, as in
-      #                              gitops/k8s/demo-cnpg-internal-access/).
-      #   both yes                -> healthy; a build failure here is not the network.
-      #
-      # kube-dns is the control: it is a ClusterIP too, so if it answers while the proxy's does
-      # not, the fault is the proxy's Service rather than the network path.
-      #
-      # `set -uo pipefail` without `-e`, and an explicit `exit 0`: this step must never fail the
-      # run. It reports.
-      #
-      # DELETE THE PROBE once the client hop has been green for a while. Keep the printf.
-      # THE OPT-IN IS OFF. Uncommenting the printf below points --remote_cache at the proxy:
+      # The runner already injects `common --remote_header=x-buildbuddy-api-key=...` through its
+      # own buildbuddy.bazelrc. Never write that credential here. After the staged canary in
+      # //k8s/buildbuddy/README.md passes, enable this workflow by writing only the config
+      # selection into the ignored .bazelrc.remote:
       #
       #   printf 'build:ci --config=cache_proxy\n' > .bazelrc.remote
       #
-      # DO NOT re-enable it against a ClusterIP. The Bazel client here does not run on the
-      # executor pod; it runs inside a per-action NETWORK NAMESPACE that BuildBuddy allocates
-      # from 192.168.0.0/16 in /30 blocks (NewHostNetAllocator in
-      # server/util/networking/networking.go). The failing run proves it -- Bazel's own error
-      # reported the client's source address as 192.168.0.14, which is a namespaced IP from that
-      # allocator, not a pod IP. That namespace is NAT'd and has no route into the cluster
-      # service CIDR, so 10.43.59.152:1985 is refused, and its resolver is 8.8.8.8 (the
-      # executor.oci.dns default), so the Service FQDN does not resolve either.
-      #
-      # This is not the failure that made the proxy look broken earlier -- that one was a
-      # placeholder API key, which cost the proxy its health check and therefore its endpoints.
-      # Both are fixed; this one is topology and cannot be fixed by an executor flag.
-      #
-      # IF THE CLIENT HOP IS EVER WANTED, the proxy needs an address reachable from that
-      # namespace's normal egress path -- i.e. a LAN address, not a cluster-internal one. That
-      # means restoring a MetalLB VIP (192.168.6.86 was allocated before, from k3s-lan-pool)
-      # with `loadBalancerSourceRanges` and, because the chart serves PLAINTEXT gRPC on 1985,
-      # ideally ssl.enable_ssl + externalGRPCSPort. Weigh that against the payoff: this hop is
-      # only the runner's own uploads, and build:remote_base sets --remote_download_minimal, so
-      # it is a small fraction of what the executors already route through the proxy.
-      - run: |
-          set -uo pipefail
-
-          probe() { timeout 5 bash -c "cat < /dev/null > /dev/tcp/$1/$2" 2>/dev/null \
-            && echo "  reachable   $1:$2" || echo "  UNREACHABLE $1:$2"; }
-
-          echo "cache-proxy reachability from inside the workflow runner:"
-          getent hosts bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local \
-            && echo "  cluster DNS resolves" || echo "  NO cluster DNS"
-          probe 10.43.59.152 1985   # the cache proxy
-          probe 10.43.0.10 53       # kube-dns, as a control
-          echo "  resolv.conf: $(tr '\n' ' ' < /etc/resolv.conf)"
-
-          exit 0
+      # This stays commented until that rollout step is approved. A TCP or anonymous
+      # Capabilities probe is deliberately absent: it cannot prove a protected cache RPC is
+      # authorized. The authenticated Bazel build/test canary is the end-to-end validation.
 
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three
