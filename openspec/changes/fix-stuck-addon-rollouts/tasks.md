@@ -8,19 +8,22 @@
       `resource limits not enforced ... need cpu,memory,pids`,
       `systemd unit failed`, `dial netprobe socket: connection refused`
 
-## 2. Health-gate classification
+## 2. Health-gate semantics
 
-- [ ] 2.1 Introduce a classifier over a reported add-on status that returns
-      candidate fault, environment fault, or healthy, derived from the status
-      itself rather than a per-add-on allowlist
-- [ ] 2.2 Treat not-running, unit-failed, crash-looping, and control-interface-
-      unreachable as candidate faults
-- [ ] 2.3 Treat running-with-missing-external-dependency and running-with-
-      unenforceable-host-resource-policy as environment faults
-- [ ] 2.4 Gate rollout pausing on candidate faults only; record environment
-      faults on the rollout as advisories
-- [ ] 2.5 Unit-test the classifier against every fixture from 1.2, asserting
-      powerdns and anomaly do not block while bumblebee and netprobe do
+- [x] 2.1 Stop `explicit_failure?/2` treating any non-empty
+      `degradation_reason` as a candidate failure; decide on reported state
+- [x] 2.2 Keep `circuit_open`, `failed`, `unhealthy`, `verification_failed`
+      blocking, and keep the freshness requirement unchanged
+- [x] 2.3 Surface the advisory from the reported status rather than copying it
+      onto the rollout, so there is no second copy to drift
+- [ ] 2.4 Unit-test that anomaly's `resource limits not enforced` no longer
+      pauses while bumblebee's `systemd unit failed` and netprobe's
+      `connection refused` still do
+- [ ] 2.5 Give the add-on status contract a not-ready state distinct from
+      `unhealthy`, for a running add-on with an unsatisfied external dependency
+- [ ] 2.6 Report not-ready instead of `unhealthy` from the powerdns add-on when
+      no Recursor is connected, and bump its version
+- [ ] 2.7 Confirm gating ignores not-ready, and that the fleet view still shows it
 
 ## 3. Blocked-rollout evidence
 

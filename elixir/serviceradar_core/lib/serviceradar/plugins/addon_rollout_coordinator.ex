@@ -864,19 +864,29 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     end
   end
 
+  # Readiness deliberately uses supervision_state_ready?/2, not supervision_ready?/2:
+  # an advisory degradation must not keep a candidate that has come up from ever
+  # being considered ready. Otherwise the target sits un-ready until its deadline
+  # and fails as `candidate_health_timeout`, which is how a host-level cgroup
+  # misconfiguration held anomaly three versions behind for a week.
   defp candidate_ready?(status, candidate, applied_at) do
     fresh_status?(status, applied_at) and status.version == candidate.version and
-      Eligibility.supervision_ready?(candidate, status)
+      Eligibility.supervision_state_ready?(candidate, status)
   end
 
   defp explicit_failure?(nil, _applied_at), do: false
 
+  # A candidate fails on its reported STATE. It does not fail merely because the
+  # add-on also reported a degradation reason: that reason is advisory, describes
+  # the deployment around the add-on as often as the add-on itself, and is
+  # identical before and after an upgrade -- so gating on it could only ever wedge
+  # the rollout, never protect it. The reason is still recorded and surfaced; see
+  # advisory_degradation/1 and the fleet row.
   defp explicit_failure?(status, applied_at) do
     state = status.state |> to_string() |> String.downcase()
 
     fresh_status?(status, applied_at) and
-      (present?(status.degradation_reason) or
-         state in ["circuit_open", "failed", "unhealthy", "verification_failed"])
+      state in ["circuit_open", "failed", "unhealthy", "verification_failed"]
   end
 
   defp fresh_status?(%AddonStatus{reported_at: %DateTime{} = reported_at}, %DateTime{} = since),
@@ -1182,8 +1192,6 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
 
   defp normalize_ash_result_with_notifications({:ok, record}), do: {:ok, record, []}
   defp normalize_ash_result_with_notifications({:error, reason}), do: {:error, reason}
-
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp audit(action, rollout, details) do
     AuditWriter.write_async(

@@ -37,42 +37,33 @@ fleet state rather than the rollout's own batch progress.
 - **THEN** the rollout is NOT resolved as superseded
 - **AND** its existing state and blocked reason are preserved
 
-### Requirement: Add-on rollout health gating separates candidate faults from environment faults
+### Requirement: A degradation note alone does not fail a rollout candidate
 
-Rollout health gating SHALL block only on faults attributable to the candidate
-build. A reported fault that is a property of the host or of absent upstream
-input SHALL NOT pause a rollout. Such a fault SHALL still be surfaced on the
-fleet row and recorded on the rollout as an advisory, so that suppressing the
-gate never suppresses the signal.
+Rollout health gating SHALL treat the add-on's reported STATE as the decision
+input. A degradation reason accompanying a running add-on is advisory: it
+describes something worth an operator's attention, not a failed candidate, and
+SHALL NOT by itself pause a rollout.
 
-Classification SHALL be derived from the reported status itself, not from a
-per-add-on allowlist, so a new add-on inherits the behaviour without being
-enumerated.
+Today any non-empty `degradation_reason` is treated as an explicit candidate
+failure regardless of state, which is why an add-on that is running normally but
+reports an unenforceable host resource policy can hold its rollout indefinitely.
 
-A reported status SHALL be treated as a candidate fault when the add-on is not
-running -- process absent, unit failed, crash looping, or its control interface
-unreachable. A reported status SHALL be treated as an environment fault when the
-add-on is running and the reported degradation describes a missing external
-dependency or an unenforceable host resource policy.
+An advisory degradation SHALL remain visible on the fleet row, so that no longer
+gating on it never means no longer reporting it. It SHALL be surfaced from the
+reported status rather than copied onto the rollout: the status row is already
+the authoritative record, and duplicating it onto the rollout would create a
+second copy that can drift from the agent's current report.
 
-#### Scenario: Missing upstream input does not block the rollout
+#### Scenario: Running add-on with a host-policy note does not block the rollout
 
-- **GIVEN** `powerdns` is `running` on every in-scope agent
-- **AND** each agent reports `no PowerDNS Recursor protobuf producer connected`
-- **WHEN** a rollout from `0.1.3` to `0.1.4` evaluates candidate health
-- **THEN** the rollout is not paused for that reason
-- **AND** the rollout records the reported reason as an advisory
-- **AND** the fleet row for `powerdns` continues to show the reported reason
-
-#### Scenario: Unenforceable host resource policy does not block the rollout
-
-- **GIVEN** `anomaly` is `running` on every in-scope agent
+- **GIVEN** `anomaly` reports state `running` on every in-scope agent
 - **AND** each agent reports `resource limits not enforced` for the add-on cgroup root
 - **WHEN** a rollout from `0.3.1` to `0.3.2` evaluates candidate health
 - **THEN** the rollout is not paused for that reason
+- **AND** the rollout records the reported reason as an advisory
 - **AND** the fleet row for `anomaly` continues to show the reported reason
 
-#### Scenario: A failed unit still blocks the rollout
+#### Scenario: A reported failure state still blocks the rollout
 
 - **GIVEN** `bumblebee` reports state `unhealthy` with reason `systemd unit failed` on an in-scope agent
 - **WHEN** a rollout evaluates candidate health
@@ -85,6 +76,34 @@ dependency or an unenforceable host resource policy.
 - **WHEN** a rollout evaluates candidate health
 - **THEN** the rollout pauses
 - **AND** the recorded evidence names that agent and that reason
+
+### Requirement: Add-ons distinguish not-ready from unhealthy
+
+An add-on SHALL report `unhealthy` only when the add-on itself is failing. An
+add-on that is running correctly but has no upstream input, no work to do, or an
+unsatisfied external dependency SHALL report that it is running and not ready,
+not that it is unhealthy.
+
+This is a liveness-versus-readiness distinction. Rollout gating acts on liveness,
+because that is the only signal that says anything about the candidate build.
+Readiness is a property of the deployment around the add-on and is identical
+before and after an upgrade, so gating on it can only ever wedge the rollout.
+
+#### Scenario: PowerDNS add-on with no upstream producer
+
+- **GIVEN** the `powerdns` add-on is running correctly
+- **AND** no PowerDNS Recursor is connected to its protobuf listener
+- **WHEN** it reports status
+- **THEN** it reports a running state with a not-ready indication
+- **AND** it does not report state `unhealthy`
+- **AND** a rollout of that add-on is not paused for that reason
+
+#### Scenario: PowerDNS add-on that is actually failing
+
+- **GIVEN** the `powerdns` add-on cannot bind its protobuf listener
+- **WHEN** it reports status
+- **THEN** it reports state `unhealthy`
+- **AND** a rollout of that add-on pauses with that reason recorded
 
 ### Requirement: A blocked add-on rollout records the evidence that blocked it
 
