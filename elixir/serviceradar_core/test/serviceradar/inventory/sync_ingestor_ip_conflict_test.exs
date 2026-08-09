@@ -176,6 +176,45 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert Enum.map(at_x, & &1.uid) == [claimer_uid]
   end
 
+  test "same-batch blank-IP clear frees the slot for a new strong claimant", %{
+    actor: actor
+  } do
+    ip_x = unique_test_ip()
+    owner_id = "blank-owner-#{System.unique_integer([:positive])}"
+    claimer_id = "blank-claimer-#{System.unique_integer([:positive])}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [integration_update(owner_id, ip_x, "owner-a")],
+               actor: actor
+             )
+
+    owner_uid = device_uid_for_integration!(owner_id, actor)
+
+    # A→"" is an explicit clear under upsert SQL (not omit/keep). B must inherit X.
+    updates = [
+      integration_update(owner_id, "", "owner-a-cleared"),
+      integration_update(claimer_id, ip_x, "claimer-b")
+    ]
+
+    assert :ok = SyncIngestor.ingest_updates(updates, actor: actor)
+
+    claimer_uid = device_uid_for_integration!(claimer_id, actor)
+    {:ok, owner} = Device.get_by_uid(owner_uid, false, actor: actor)
+    {:ok, claimer} = Device.get_by_uid(claimer_uid, false, actor: actor)
+
+    assert owner.ip in [nil, ""]
+    assert claimer.ip == ip_x
+
+    {:ok, at_x} =
+      Device
+      |> Ash.Query.filter(ip == ^ip_x and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert Enum.map(at_x, & &1.uid) == [claimer_uid]
+  end
+
   test "plugin inventory snapshot AWX host keeps identity without stealing live IP", %{
     actor: actor
   } do
@@ -240,8 +279,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     first_id = "race-a-#{System.unique_integer([:positive])}"
     second_id = "race-b-#{System.unique_integer([:positive])}"
 
+    # Barrier so both tasks leave the starting gate together (raises the odds
+    # of a true precheck→insert race rather than serializing by scheduling).
+    ready = self()
+    barrier = make_ref()
+
     task_a =
       Task.async(fn ->
+        send(ready, {:ready, barrier, :a})
+
+        receive do
+          {:go, ^barrier} -> :ok
+        after
+          5_000 -> flunk("race barrier timeout for a")
+        end
+
         SyncIngestor.ingest_updates(
           [integration_update(first_id, ip, "race-a")],
           actor: actor
@@ -250,11 +302,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     task_b =
       Task.async(fn ->
+        send(ready, {:ready, barrier, :b})
+
+        receive do
+          {:go, ^barrier} -> :ok
+        after
+          5_000 -> flunk("race barrier timeout for b")
+        end
+
         SyncIngestor.ingest_updates(
           [integration_update(second_id, ip, "race-b")],
           actor: actor
         )
       end)
+
+    assert_receive {:ready, ^barrier, :a}, 5_000
+    assert_receive {:ready, ^barrier, :b}, 5_000
+    send(task_a.pid, {:go, barrier})
+    send(task_b.pid, {:go, barrier})
 
     assert :ok = Task.await(task_a, 30_000)
     assert :ok = Task.await(task_b, 30_000)
@@ -271,9 +336,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       |> Enum.filter(fn device -> device.ip == ip end)
       |> Enum.map(& &1.uid)
 
-    # At most one active row may hold the IP after the race settles. The loser
-    # either dropped the IP on retry or never claimed it.
-    assert length(holders) <= 1
+    # Exactly one survivor: free-IP races must not leave the address unowned
+    # and must not dual-hold under the unique active-IP index.
+    assert length(holders) == 1
 
     {:ok, devices_at_ip} =
       Device
@@ -281,7 +346,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       |> Ash.read(actor: actor)
       |> Page.unwrap()
 
-    assert length(devices_at_ip) <= 1
+    assert length(devices_at_ip) == 1
+    assert hd(devices_at_ip).uid in [first_uid, second_uid]
   end
 
   defp integration_update(integration_id, ip, hostname) do

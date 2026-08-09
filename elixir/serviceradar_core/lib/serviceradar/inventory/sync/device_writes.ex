@@ -23,6 +23,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   @inventory_rollup_refresh_lock_key 20_240_306
   @default_inventory_rollup_bulk_refresh_threshold 100
+  # Concurrent cross-handoffs can deadlock on per-row release UPDATEs; retry a
+  # few times after locking UIDs in a deterministic order.
+  @deadlock_retries 3
   @identity_anchor_types [
     :agent_id,
     :armis_device_id,
@@ -113,18 +116,24 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # INSERT ... ON CONFLICT can still trip the unique index depending on row
   # order. Clear the relinquished IPs first, then apply the final claims, in
   # one transaction so a failed upsert cannot leave owners IP-less.
-  defp insert_devices_with_releases(records, [], update_query, refresh_rollups?) do
+  defp insert_devices_with_releases(records, releases, update_query, refresh_rollups?) do
+    with_deadlock_retry(fn ->
+      do_insert_devices_with_releases(records, releases, update_query, refresh_rollups?)
+    end)
+  end
+
+  defp do_insert_devices_with_releases(records, [], update_query, refresh_rollups?) do
     insert_devices(records, update_query, refresh_rollups?)
   end
 
-  defp insert_devices_with_releases(records, releases, update_query, true) do
+  defp do_insert_devices_with_releases(records, releases, update_query, true) do
     with_inventory_rollup_bypassed(fn ->
       clear_released_active_ips(releases)
       insert_devices(records, update_query, false)
     end)
   end
 
-  defp insert_devices_with_releases(records, releases, update_query, false) do
+  defp do_insert_devices_with_releases(records, releases, update_query, false) do
     Repo.transaction(
       fn ->
         clear_released_active_ips(releases)
@@ -147,16 +156,75 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 
+  # Lock all affected owners in uid order, then clear matching (uid, ip) pairs
+  # in one set-wise UPDATE. Per-row unordered UPDATEs deadlocked concurrent
+  # cross-handoffs (PostgreSQL 40P01).
+  defp clear_released_active_ips([]), do: :ok
+
   defp clear_released_active_ips(releases) do
-    releases
-    |> Enum.uniq()
-    |> Enum.each(fn {uid, ip} ->
-      Repo.update_all(
-        from(d in Device, where: d.uid == ^uid and d.ip == ^ip and is_nil(d.deleted_at)),
-        set: [ip: nil]
+    releases =
+      releases
+      |> Enum.uniq()
+      |> Enum.sort_by(fn {uid, ip} -> {uid, ip} end)
+
+    uids =
+      releases
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    _locked =
+      Repo.all(
+        from(d in Device,
+          where: d.uid in ^uids and is_nil(d.deleted_at),
+          order_by: [asc: d.uid],
+          lock: "FOR UPDATE"
+        )
       )
-    end)
+
+    {uids_col, ips_col} = Enum.unzip(releases)
+
+    Repo.update_all(
+      from(d in Device,
+        where:
+          is_nil(d.deleted_at) and
+            fragment(
+              "(?, ?) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
+              d.uid,
+              d.ip,
+              ^uids_col,
+              ^ips_col
+            )
+      ),
+      set: [ip: nil]
+    )
   end
+
+  defp with_deadlock_retry(fun, attempts_left \\ @deadlock_retries)
+
+  defp with_deadlock_retry(fun, attempts_left) when attempts_left > 0 do
+    fun.()
+  rescue
+    e in Postgrex.Error ->
+      if deadlock_detected?(e) and attempts_left > 1 do
+        Logger.warning(
+          "Bulk device upsert hit deadlock while applying active-IP releases; " <>
+            "retrying (#{attempts_left - 1} left): #{inspect(e)}"
+        )
+
+        # Brief jitter so concurrent cross-handoffs do not re-collide immediately.
+        Process.sleep(10 + :rand.uniform(40))
+        with_deadlock_retry(fun, attempts_left - 1)
+      else
+        reraise e, __STACKTRACE__
+      end
+  end
+
+  defp deadlock_detected?(%Postgrex.Error{postgres: postgres}) when is_map(postgres) do
+    postgres[:code] == :deadlock_detected or postgres[:pg_code] == "40P01"
+  end
+
+  defp deadlock_detected?(_), do: false
 
   # Apply the same active-IP policy used by conflict recovery *before* insert so
   # recurring sync batches do not pay a unique_violation + retry every cycle.
@@ -215,6 +283,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # those uids (identifier rows, alias-state updates) before issuing dependent
   # inserts.
   defp remap_records_to_existing_ip(records, strong_uids) do
+    # Align blank-IP representation with the upsert SQL: whitespace-only becomes
+    # an explicit clear (""), nil remains "omit / keep current".
+    records = Enum.map(records, &normalize_record_ip/1)
+
     ips =
       records
       |> Enum.map(&Map.get(&1, :ip))
@@ -224,9 +296,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     existing_by_ip = load_active_ip_owners(ips)
     batch_ip_by_uid = batch_intended_ips(records)
 
-    # Owners that this batch moves to a different valid IP no longer hold the
-    # old address for conflict purposes — otherwise a same-batch handoff
-    # (A: X→Y, B: claim X) would clear B and leave X unowned.
+    # Owners that this batch vacates an IP (move to another valid address or
+    # explicit blank clear) no longer hold it for conflict purposes — otherwise
+    # a same-batch handoff would clear the claimant and leave the IP unowned.
     {active_holders, releases} =
       partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid)
 
@@ -267,20 +339,59 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     Map.new(records, fn record -> {record.uid, Map.get(record, :ip)} end)
   end
 
+  # Explicit blank and nil are distinct under the upsert SQL:
+  # - nil EXCLUDED.ip → keep current IP (omit)
+  # - blank EXCLUDED.ip → write NULL (clear; vacates unique active-IP slot)
+  # - other value → set that IP
+  defp normalize_record_ip(record) do
+    case Map.get(record, :ip) do
+      ip when is_binary(ip) ->
+        trimmed = String.trim(ip)
+        Map.put(record, :ip, if(trimmed == "", do: "", else: trimmed))
+
+      other ->
+        Map.put(record, :ip, other)
+    end
+  end
+
+  defp blank_ip?(ip) when is_binary(ip), do: String.trim(ip) == ""
+  defp blank_ip?(_ip), do: false
+
+  # True when the batch intended IP vacates `held_ip` under upsert SQL semantics.
+  defp batch_releases_held_ip?(new_ip, held_ip) do
+    cond do
+      blank_ip?(new_ip) ->
+        true
+
+      SourcePolicy.valid_ip?(new_ip) and new_ip != held_ip ->
+        true
+
+      true ->
+        false
+    end
+  end
+
   defp partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid) do
     Enum.reduce(existing_by_ip, {%{}, []}, fn {ip, holder}, {keepers, releases} ->
       case Map.fetch(batch_ip_by_uid, holder.uid) do
         {:ok, new_ip} ->
-          if SourcePolicy.valid_ip?(new_ip) and new_ip != ip do
+          if batch_releases_held_ip?(new_ip, ip) do
+            dest =
+              if blank_ip?(new_ip) do
+                "blank clear"
+              else
+                new_ip
+              end
+
             Logger.info(
               "SyncIngestor: batch releases active IP #{ip} from device #{holder.uid} " <>
-                "(moving to #{new_ip})"
+                "(moving to #{dest})"
             )
 
             {keepers, [{holder.uid, ip} | releases]}
           else
-            # Missing/blank EXCLUDED.ip keeps the row's current IP via COALESCE,
-            # so the owner still holds it for conflict purposes.
+            # nil/omit keeps the current IP via the upsert CASE; same IP keeps
+            # the holder. Either way the owner still claims the unique slot.
             {Map.put(keepers, ip, holder), releases}
           end
 
@@ -495,7 +606,21 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     from(d in Device,
       update: [
         set: [
-          ip: fragment("COALESCE(EXCLUDED.ip, ?)", d.ip),
+          # nil EXCLUDED.ip = omit (keep current). Blank EXCLUDED.ip = explicit
+          # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
+          # COALESCE would treat '' as present and store empty strings, which
+          # diverged from the release classifier and broke blank-IP handoffs.
+          ip:
+            fragment(
+              """
+              CASE
+                WHEN EXCLUDED.ip IS NULL THEN ?
+                WHEN btrim(EXCLUDED.ip) = '' THEN NULL
+                ELSE EXCLUDED.ip
+              END
+              """,
+              d.ip
+            ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
