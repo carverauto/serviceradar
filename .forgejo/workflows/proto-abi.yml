@@ -246,6 +246,15 @@ jobs:
       - name: Edge optional-presence corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/presence_corpus_test.exs
+      # The FRAMING-FAMILY corpus (task 1.5-g). Gated because protobuf bytes are not
+      # intrinsically type-tagged: the typed sweep and MTR ingresses decode the payload as a
+      # contract message, so a record declaring SNAPSHOT_PAGE_V1 while carrying a sweep body
+      # would be admitted and AUTHENTICATED with contradictory metadata. The corpus also records
+      # the GENERIC validator's deliberate permissiveness, so making it strict cannot pass as a
+      # fix.
+      - name: Edge framing-family corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/family_corpus_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps

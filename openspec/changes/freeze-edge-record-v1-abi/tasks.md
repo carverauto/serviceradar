@@ -74,8 +74,9 @@ PR. Compression is the NEXT PR.
 
 The remaining freeze is NOT one to two weeks. SEVEN open parents and NINETEEN unchecked
 named subtasks remain (1.3 and 1.17 are closed and do not count), including SIX of 1.5's
-TWELVE obligations -- twelve, not eleven, because the body's refusal-classification
-obligation had no subtask and the exhaustiveness rule below requires one (1.5-l). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
+THIRTEEN obligations. Thirteen, not eleven: two obligations the body carried had no subtask,
+and the exhaustiveness rule below requires one each -- 1.5-l (refusal classification) and
+1.5-m (Elixir framing parity for the lifecycle and recovery ingresses). COMPRESSION ADMISSION (1.5-f) IS CLOSED, and closing it released the
 chain it was blocking: 1.2-c, 1.3-f, task 1.3 and 1.15-b are all checked. Three to six
 focused weeks remains the honest range for the rest, depending on how much of 1.5 proves
 already implemented during closeout.
@@ -457,14 +458,13 @@ here.
   requirements in `specs/edge-producer-data-plane/spec.md`. It is deliberately NOT restated
   here. A ledger copy would be a fourth inventory to keep in sync, and a shorter one would
   read as a smaller job: the real set is roughly forty vectors.
-  NOT 1.3, BUT NOT OWNERLESS EITHER -- ASSIGNED TO 1.5: CONTRACT DISPATCH does not bind the
-  record's PAYLOAD FAMILY to the output contract. `dispatchContract` compares only the four
-  `EdgeOutputContractRef` members and never reads `payload_family`, so a record may present a
-  family the contract does not describe and dispatch will not object.
-  This is a SEMANTIC ADMISSION relation and it is OWNED BY TASK 1.5, recorded there as an
-  obligation. An unowned gap is closed by default when 1.7 checks that its prerequisites are
-  closed, so a named owner is what makes it block. 1.3 does not freeze the relation, and the
-  correlation requirement says so explicitly rather than implying dispatch already covers it.
+  NOT 1.3, ASSIGNED TO 1.5, AND NOW RESOLVED THERE (1.5-g): contract dispatch does not bind the
+  record's PAYLOAD FAMILY to the output contract, and DELIBERATELY DOES NOT. `dispatchContract`
+  compares only the four `EdgeOutputContractRef` members; the family answers a different
+  question. There is no contract-to-family mapping, AND the family is not unconstrained -- it is
+  bound to the TYPED ENTRY POINT and enforced at each one. See 1.5-g and the requirement "The
+  payload family is
+  a framing discriminator bound to the typed entry point".
   DOWNSTREAM (runtime change): the mapping's
   durable storage, replay/repair state machine, conflict resolution, retention,
   GC, and lookup-outcome transitions. `joinSweepAuthority` checks: source kind, via the
@@ -595,14 +595,14 @@ here.
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN observation semantics,
-  ASSIGNED HERE BY TASK 1.3 (see its ledger): the PAYLOAD FAMILY <-> OUTPUT CONTRACT
-  admission relation. `dispatchContract` compares only the four `EdgeOutputContractRef`
-  members and never reads `payload_family`, so a record may carry a family the contract does
-  not describe and dispatch will not object. 1.5 SHALL either freeze the relation -- with
-  vectors, in both runtimes -- or record an EXPLICIT DECISION that v1 requires no such
-  relation and why. What it SHALL NOT do is leave it unstated: an unowned gap is closed by
-  default when 1.7 checks that its prerequisites are closed, which is how a real hole ships
-  inside a freeze.
+  ASSIGNED HERE BY TASK 1.3, AND RESOLVED BY 1.5-g. `dispatchContract` compares only the four
+  `EdgeOutputContractRef` members and does not read `payload_family` -- deliberately, because the
+  contract selects the semantic validator and projector while the family answers which TYPED
+  INGRESS a record may enter. There is no contract-to-family mapping; the family is bound to the
+  typed entry point, and every typed call site -- sweep and MTR included -- enforces it.
+  The rule is
+  the requirement "The payload family is a framing discriminator bound to the typed entry point";
+  the evidence is 1.5-g's shared corpus.
   ENUM COMPATIBILITY (cross-language parity): Go retains an unknown/negative int32 enum
   as its integer and REJECTS unknown values in the explicit SEMANTIC validator
   (`knownTrafficClass`/`knownRouteProfile`/...), whereas protobuf-elixir's generated enum
@@ -715,9 +715,11 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-g..1.5-l. 1.5-a..1.5-f are CLOSED. The subtask list is
+  - REMAINING: 1.5-h..1.5-m. 1.5-a..1.5-g are CLOSED. The subtask list is
     exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
-  - DEPENDS ON: nothing open. Compression admission (1.5-f) is CLOSED, delivered on
+  - DEPENDS ON: 1.6-d, and only for 1.5-m. That subtask adds the framing rule to Elixir's signed
+    recovery-control path, and 1.6-d is what creates the path; every other 1.5 subtask depends on
+    nothing open. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
@@ -1044,9 +1046,70 @@ here.
         beyond 100:1 and is refused before extraction. Proving that SOME body above the
         512 KiB physical bound is transport-reachable requires a composed-record vector
         under the ratio rule, which is 1.5-f's; no other task may claim it.
-  - [ ] 1.5-g the payload-family <-> output-contract admission decision (assigned by 1.3):
-        freeze the relation with vectors in both runtimes, or record an explicit decision
-        that v1 needs none
+  - [x] 1.5-g PAYLOAD FAMILY -- the admission decision (assigned by 1.3). SIGNED OFF at
+        2ccb37b2.
+        THE DECISION. There is NO
+        contract-specific mapping -- the exact output contract selects the semantic validator and
+        projector, and no registry-wide contract-to-family table is introduced -- but the family
+        IS bound to the TYPED ENTRY POINT: sweep/MTR -> RECORD_BATCH_V1, lifecycle -> RUN_EVENT_V1,
+        recovery -> RECOVERY_CONTROL_V1, a future snapshot ingress -> its named snapshot family.
+        `payload_family` is an immutable FRAMING and LIFECYCLE discriminator: not decorative
+        metadata, not authorization, not an infrastructure routing key. The rule is the
+        requirement "The payload family is a framing discriminator bound to the typed entry
+        point".
+        RUNTIME (bounded): `requireFramingFamily` at both Go typed ingresses after
+        `dispatchContract`, and `framing_family/1` FIRST in BOTH Elixir typed ingresses --
+        `SweepCorrelate.ingest_own_payload/1` AND `correlate_own_payload/1`, which decodes the
+        payload as a sweep batch too and whose preconditions never established the family. New sentinel `ErrPayloadFraming`, kept distinct
+        from `ErrPayloadFamily` -- "not a family" and "not THIS family" are different faults.
+        The GENERIC validator stays permissive by design and that permissiveness is a manifest
+        COLUMN, so making it strict cannot pass as a fix.
+        EVIDENCE: four shared rows (`family_corpus.txt`), one per declared non-recovery family,
+        each recording the typed AND generic verdict, consumed by both runtimes. The family set
+        is DERIVED FROM THE GENERATED ENUM in both, minus UNSPECIFIED and RECOVERY_CONTROL_V1 --
+        recovery excluded explicitly because its lane biconditional preempts generic admission
+        and a row for it would be refused by a different rule.
+        ONE precedence control: wrong known family + malformed payload stops at the framing gate,
+        proving the decoder is not entered. NOT a general reason-order matrix -- ordering among
+        other simultaneous precondition violations is outside this boundary.
+        MTR is proven by ONE focused Go test rather than four Go-only rows Elixir cannot consume:
+        it shows the second call site exists and is INDEPENDENTLY REMOVABLE.
+        LIFECYCLE IS PROVEN IN GO, HERE, by a focused control: a valid RUN_EVENT record that is
+        ADMITTED, then the same record with ONLY the family and its derived values changed, which
+        must be refused by the framing check. Removing that check makes the negative case
+        ADMITTED, which is what shows the control is measuring the gate and not something deeper.
+        The pair is compared field-by-field so the refusal cannot come from a second difference.
+        NOT CLAIMED HERE, AND OWNED BY 1.5-m: Elixir parity for lifecycle and recovery framing.
+        That runtime has no lifecycle record validator and its recovery check reads
+        source-authority kind rather than `payload_family`, so it does not refuse a
+        recovery-family/ordinary-route mismatch. NEITHER 1.6-c NOR 1.6-d OWNS THIS TODAY: 1.6-c
+        is scoped to `ValidateSweepExecutionEvent`'s structural boundary and EXPLICITLY EXCLUDES
+        `ValidateLifecycleRecord`, and 1.6-d is scoped to the signed recovery-CONTROL boundary,
+        not to the family/route biconditional. Recorded as 1.5-m rather than assumed, because an
+        obligation attributed to a subtask that excludes it is worse than one with no owner --
+        it reads as covered.
+        RECOVERY IS EXEMPT from the independent-removability scenario: the lane biconditional
+        constrains the recovery family BEFORE its typed check is reached, so removing that check
+        alone changes no verdict.
+  - [ ] 1.5-m ELIXIR FRAMING PARITY for the lifecycle and recovery ingresses.
+        WHY IT EXISTS: 1.5-g froze the family-to-typed-entrypoint invariant and enforced it at
+        every Go typed ingress and at BOTH Elixir sweep ingresses. Elixir's other two typed
+        paths are not covered, for two different reasons.
+        RECOVERY -- ATTACHING THE CHECK IS THIS SUBTASK'S WORK, not a precondition for it. What
+        it waits on is only the BOUNDARY to attach it to: 1.6-d supplies the signed
+        recovery-control path, and this subtask then adds the family/route rule there. Stating it
+        the other way round -- waiting for a boundary that already reads `payload_family` --
+        would be circular, since nothing will read it until this subtask does.
+        LIFECYCLE -- NO ELIXIR INGRESS EXISTS AT ALL, and no other subtask creates one: 1.6-c is
+        scoped to `ValidateSweepExecutionEvent`'s structural boundary and explicitly excludes
+        `ValidateLifecycleRecord`. THIS SUBTASK OWNS creating that ingress or narrowing the
+        obligation, and SHALL record which before it closes. An obligation whose owner is "some
+        other subtask" is how a gap ships inside a freeze.
+        PRODUCTION-SHAPED: it SHALL NOT add a lifecycle or recovery family check written for a
+        test suite in order to appear at parity. A corpus helper that refused these records would
+        prove only that a helper can refuse its own inputs.
+        FIXTURES: 1.5-g's committed rows are SWEEP records and cannot serve these ingresses, so
+        this subtask authors lifecycle and recovery-framing fixtures of its own.
   - [ ] 1.5-h string / count / byte / relational-row BOUNDS admission
   - [ ] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from gateway
         receipt, physical placement, spool coordinates and renewable delivery proof
@@ -1073,7 +1136,7 @@ here.
         that roughly 3-4% of malformed inputs reached an ambiguous `MatchError`, needs FUZZ
         EVIDENCE that the preflight now catches those first rather than an argument that it should.
 
-  EXHAUSTIVENESS: 1.5-a..l is checked against this task's own body. Every obligation the
+  EXHAUSTIVENESS: 1.5-a..m is checked against this task's own body. Every obligation the
   body names has a subtask; nothing is carried as an unlisted assumption. If the body gains
   an obligation, it gains a subtask in the same edit.
 
@@ -1197,12 +1260,15 @@ here.
         only through `ValidateRecordSigned`. The peer suite therefore runs NOTHING for them, in
         preference to something that resembles a verifier. Task 1.6-d supplies the boundary.
   - [ ] 1.6-c ELIXIR LIFECYCLE-VALIDATION PEER for `SweepExecutionEventV1`.
-        WHY IT EXISTS: `mtr_completion` is the ONE inventory member no Elixir consumer
-        enforces. `mtr_completion_digest_version` appears in that tree only in the generated
+        WHY IT EXISTS: `mtr_completion` is the one go_only inventory member THIS subtask owns.
+        Four members have no Elixir consumer; the other three are the recovery scope transcripts,
+        owned by 1.6-d. Calling this one "the sole go_only member" would read as though closing
+        it emptied the set. `mtr_completion_digest_version` appears in that tree only in the generated
         struct and in golden assertions that READ it; nothing refuses an unsupported value. The
         corpus records this as a `go_only` column rather than prose, and the Elixir suite
-        asserts it is the SOLE such member -- so the gap is visible, not absent. This is the
-        live remainder that keeps parent 1.6 open.
+        asserts the EXACT go_only set -- four members, of which this is the one this subtask
+        owns -- so the gap is visible, not absent. It is one of two live remainders keeping
+        parent 1.6 open; 1.6-d is the other.
         SCOPE -- Go's `ValidateSweepExecutionEvent` STRUCTURAL boundary, and nothing else:
         canonical execution / plan / target-range identities; plan digest and emission-time
         shape; known lifecycle kind, REUSING the existing enum policy rather than a second
@@ -1213,7 +1279,8 @@ here.
         contract dispatch, raw extraction, the authority join, and plan-state verification.
         Those are distinct boundaries; pulling them in would make this slice sprawl.
         NO NEW VECTORS: when it lands, the `mtr_completion` row flips from `go_only` to `both`
-        and REUSES the committed control and alternate artifacts. Then parent 1.6 closes.
+        and REUSES the committed control and alternate artifacts. Parent 1.6 then needs 1.6-d as
+        well -- three of the four go_only members are its, not this subtask's.
   - [ ] 1.6-d ELIXIR SIGNED RECOVERY-CONTROL BOUNDARY, for the three scope transcripts.
         WHY IT EXISTS: `tombstone_scope`, `manifest_page_scope` and `resolved_scope` have
         committed alternate-version artifacts that GO refuses through `ValidateRecoveryControl`,

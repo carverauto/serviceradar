@@ -2195,28 +2195,36 @@ them, are:
 1. WHOLE-RECORD VALIDATION, including signature verification;
 2. CONTRACT DISPATCH -- the record's `EdgeOutputContractRef` must equal the expected one in
    all four members: contract id, contract version, bundle digest, registry epoch;
-3. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
+3. FRAMING FAMILY -- the record's `payload_family` must be the one family this typed ingress
+   frames. It runs BEFORE extraction and decode, so a wrongly framed record is never read as a
+   contract message;
+4. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
    size bounds;
-4. BOUNDED DECODE of the extracted bytes into the batch message;
-5. BODY VALIDATION, which is where the sweep `source` enum is admitted;
-6. correlation.
+5. BOUNDED DECODE of the extracted bytes into the batch message;
+6. BODY VALIDATION, which is where the sweep `source` enum is admitted;
+7. correlation.
 
 RAW WIRE HYGIENE IS NOT IN THIS LIST because it is EXTERNAL to the composed validator -- it
 runs on received bytes before this entry point, and a vector reaches step 1 having already
 passed it. ENUM ADMISSION IS NOT A SEPARATE LEADING STEP either: for the sweep `source` it is
-part of step 5 in Go, while Elixir admits it before interpreting the body. The gate table above
+part of step 6 in Go, while Elixir admits it before interpreting the body. The gate table above
 records enum admission as UNSPECIFIED's semantic owner precisely because the two runtimes place
 it differently; this list is about ORDER within the Go composed path, and asserting a global
 enum-first order would contradict it.
 
-CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY. An earlier revision of this list said it
-checked "payload family and output-contract reference"; it checks only the contract reference.
-Binding the payload family to the contract is a REAL GAP and it is NOT task 1.3's; this
-requirement SHALL NOT be read as having frozen it. It is OWNED BY TASK 1.5, which SHALL either
-freeze the relation with vectors in both runtimes or record an explicit decision that v1
-requires none.
+CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY, and deliberately does not. An earlier
+revision of this list said it checked "payload family and output-contract reference"; it checks
+only the contract reference. THE TWO ANSWER DIFFERENT QUESTIONS: the contract selects the
+semantic validator and the projector, while the family selects which typed ingress a record may
+enter. That is why the family is step 3 above rather than part of step 2, and why no
+registry-wide contract-to-family table exists.
 
-STEPS 2, 3 AND 4 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
+An earlier revision of this paragraph called the binding a REAL GAP and offered task 1.5 two
+outcomes -- freeze a contract relation, or record that v1 needs none. BOTH ARE WITHDRAWN: the
+resolution is neither. See "The payload family is a framing discriminator bound to the typed
+entry point".
+
+STEPS 2, 4 AND 5 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
 record validation to body validation. They are not bookkeeping: a vector that mutates a sweep
 body changes its length and its digest, so a nominally correct correlation vector can die at
 contract dispatch, at a payload bound, or in the decoder while passing every control the list
@@ -2712,8 +2720,10 @@ MESSAGE FIELDS -- at any depth, and including oneof members, repeated messages, 
 message-valued map entries. Three exclusions make that a boundary rather than a slogan:
 
 - A `bytes` FIELD IS OPAQUE, even when its content is itself protobuf. The record's `payload`
-  carries a CONTRACT message admitted by its own payload-family rules; walking it here would
-  apply the record's field inventory to a different schema and refuse valid contract bytes.
+  carries a CONTRACT message, admitted by the rules of the contract that selects its validator --
+  NOT by the payload family, which decides only which typed ingress the record may enter.
+  Walking it here would apply the record's field inventory to a different schema and refuse
+  valid contract bytes.
 - EACH RECEIVED CARRIER IS ITS OWN GRAPH. The client message, the delivery frame, the record,
   the plan page and the compiled assignment are validated when each is received, on its own
   schema. This requirement does not merge them into a single walk, and satisfying it for one
@@ -2900,3 +2910,68 @@ zero -- and SHALL NOT introduce a check written for the test suite in order to a
 - **WHEN** one optional field of a carrier is omitted while its siblings remain present-zero
 - **THEN** the verdict reflects that field's own policy
 - **AND** the artifacts differ in that field's presence and in nothing else
+
+### Requirement: The payload family is a framing discriminator bound to the typed entry point
+`payload_family` SHALL be an IMMUTABLE FRAMING AND LIFECYCLE DISCRIMINATOR. Each TYPED ingress
+SHALL admit exactly one family and SHALL refuse every other declared family:
+
+| typed ingress | admitted family |
+|---|---|
+| sweep, MTR | `EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1` |
+| lifecycle | `EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1` |
+| recovery | `EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1` |
+| a future snapshot ingress | its named snapshot family |
+
+THERE IS NO CONTRACT-SPECIFIC MAPPING, and no registry-wide contract-to-family table SHALL be
+introduced. The EXACT OUTPUT CONTRACT selects the semantic validator and the projector; contract
+dispatch compares the contract reference and nothing else. The family answers a different
+question -- which typed ingress this record may enter -- and the two SHALL NOT be conflated.
+
+THE FAMILY IS NOT AUTHORIZATION and NOT AN INFRASTRUCTURE ROUTING KEY. It does not widen or
+narrow what a capability permits, and a component that routes on it without validating it is
+trusting a value no boundary checked.
+
+THE CHECK SHALL LIVE AT EACH TYPED BOUNDARY, before the TYPED CONTRACT BODY is decoded or
+materialised. It is deliberately NOT stated as "before any extraction": whole-record validation
+may already have streamed a bounded decompression to enforce physical ceilings, and that is a
+size-bounded operation over opaque bytes, not an interpretation of them under a schema. What the
+framing check precedes is the moment the payload is read AS a contract message.
+
+Protobuf bytes are not intrinsically type-tagged: a body decodes under an unintended schema
+without complaint, so a record declaring one family while entering another ingress would be
+ADMITTED AND AUTHENTICATED carrying contradictory metadata, and every later reader that selected
+a decoder from the family would be choosing from a value nothing validated. A record whose
+family is wrong AND whose payload is malformed SHALL be refused at the framing boundary, which is
+what demonstrates the typed decode was not entered.
+
+THE GENERIC RECORD VALIDATOR SHALL REMAIN PERMISSIVE across the known non-recovery families. It
+has no entry-point context and cannot choose among them; requiring it to would either freeze one
+family for every record or force it to guess. Its permissiveness is part of this contract, not an
+omission in it.
+
+RECOVERY IS ALREADY CONSTRAINED ELSEWHERE, by the biconditional between the recovery family and
+the recovery route profile, which preempts generic admission. That rule is not restated here, and
+evidence for this requirement SHALL exclude the recovery family so a refusal produced by the lane
+rule is never read as evidence for this one.
+
+#### Scenario: A typed ingress refuses a declared family it does not frame
+- **WHEN** a record carrying a valid body for a NON-RECOVERY typed ingress declares any other
+  declared non-recovery family
+- **THEN** the typed ingress refuses it
+- **AND** the generic record validator still admits the same bytes
+- **AND** this scenario is stated for non-recovery ingresses only: a recovery family on an
+  ordinary route is refused by the LANE biconditional, so the generic validator does not admit
+  it and the second clause above would be false
+
+#### Scenario: The framing check precedes decoding
+- **WHEN** a record declares a family the ingress does not frame AND carries a payload that
+  cannot decode
+- **THEN** the refusal is the framing decision, not the decode failure
+
+#### Scenario: Each typed ingress enforces the invariant at its own call site
+- **WHEN** the check is removed from one typed ingress whose family is not otherwise constrained
+- **THEN** that ingress admits a wrongly framed record
+- **AND** the other typed ingresses continue to refuse one
+- **AND** the recovery ingress is EXEMPT from this scenario: the recovery family is already
+  constrained by the lane biconditional before its typed check is reached, so removing that
+  check alone changes no verdict and the scenario cannot be satisfied for it
