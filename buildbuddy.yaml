@@ -59,6 +59,13 @@ actions:
     platform_properties:
       OSFamily: "linux"
       Arch: "amd64"
+      # `host` DOES NOT MEAN HOST NETWORKING, and reading it that way cost a day.
+      #
+      # The OCI runtime accepts exactly "", "bridge" and "off" (ociruntime.go: the flag
+      # validates that set, and the only thing derived from it is
+      # `networkEnabled := networkMode != "off"`). Anything else, including "host", is simply
+      # not "off" -- so this action gets BRIDGE networking, the same as if the property were
+      # absent. There is no way to ask for the executor pod's namespace.
       dockerNetwork: "host"
 
     triggers:
