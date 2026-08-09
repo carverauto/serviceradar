@@ -303,9 +303,10 @@ mod tests {
         Config {
             nats_url: "nats://localhost:4222".to_string(),
             nats_creds_file: None,
-            stream_name: "events".to_string(),
+            stream_name: "flows".to_string(),
             stream_subjects: None,
             stream_max_bytes: 1024,
+            stream_max_age_secs: 3600,
             stream_replicas: 1,
             partition: "default".to_string(),
             channel_size: 100,

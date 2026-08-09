@@ -1187,27 +1187,22 @@ if config_env() == :prod do
         # retention stanza cannot drift.
         ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
         %{
-          name: "SFLOW_RAW",
-          subject: "flows.raw.sflow",
-          processor: Flows,
-          batch_size: 50,
-          batch_timeout: 500
-        },
-        %{
-          name: "NETFLOW_RAW",
-          subject: "flows.raw.netflow",
-          processor: Flows,
-          batch_size: 50,
-          batch_timeout: 500
-        },
-        %{
           name: "ATTRIBUTED_FLOW",
+          stream_name: "events",
           subject: "flow.attributed.>",
           processor: Flows,
           batch_size: 50,
           batch_timeout: 500
         }
-      ]
+      ],
+      # Dedicated demand domain for raw flows on JetStream stream `flows`.
+      flow_streams: ServiceRadar.EventWriter.Config.default_flow_streams(),
+      flow_consumer_pull_batch_size:
+        String.to_integer(System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") || "64"),
+      flow_max_ack_pending:
+        String.to_integer(System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") || "1024"),
+      flow_pull_expires_ns:
+        String.to_integer(System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") || "2000000000")
 
     config :serviceradar_core, :event_writer_enabled, true
     config :serviceradar_core, :host_slice_subscriber_enabled, host_slice_subscriber_enabled

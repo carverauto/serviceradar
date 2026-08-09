@@ -1,0 +1,224 @@
+# Design: Scale NetFlow ingest isolation and GenStage demand
+
+## Context
+
+Canonical path today:
+
+```
+Exporters → flow-collector (UDP) → JetStream stream `events` subject `flows.raw.netflow`
+         → EventWriter (single Broadway producer, many filter durables)
+         → platform.ocsf_network_activity
+         → web-ng NetFlow map (last ~15 min of flow time)
+```
+
+Evidence from demo incident (2026-08-09):
+
+| Stage | Observation |
+|-------|-------------|
+| Collector | Healthy; packets/flows rising; `flows_dropped=0`, `channel_full_drops=0` |
+| JetStream `events` | Shared; R=3 with nats-1 offline; ~30 min first→last window |
+| Consumer `serviceradar-event-writer-netflow-raw` | ~8k `num_pending`, not draining |
+| DB | `max(time)` ~30 min behind wall clock; last 15m count = 0 |
+| Helm demo | `flowCollector.config.stream_max_bytes: 1Gi`, logCollector same, “fit account budget” |
+| NATS | `max_file_store` default **10G** cluster-wide; PVC 30Gi |
+| OTEL ensure | Updates shared `events` `max_bytes` and **`max_age_secs=1800`** |
+| EventWriter | Demand-coupled pull (good) but **one producer**, fair-share across all durables, `no_wait` + 100ms fetch |
+
+`fix-eventwriter-backpressure-hotpath` correctly moved EventWriter to pull + demand for metrics. NetFlow still loses under multi-subject contention and short shared retention.
+
+## Goals / Non-Goals
+
+### Goals
+
+- Isolate raw flow telemetry on its own JetStream stream with flow-owned retention.
+- Make GenStage/Broadway demand for flows independent of other EventWriter subjects.
+- Size pull batches and long-polls so demand translates into real throughput, not RT churn.
+- Size defaults (and demo overrides) for multi-hour lag headroom, not thrift against a 10G global file store.
+- Keep discard-old as the last-resort overload valve; prefer lag metrics and alerting before silent drop.
+- Migrate without dual-writing to CNPG and without a long dual-publish window if avoidable.
+
+### Non-Goals
+
+- Fixing Kubernetes DiskPressure / unschedulable `nats-1` (ops).
+- Changing NetFlow map UI window semantics.
+- Splitting OCSF row schema or BGP derivation logic.
+- Multi-tenant / per-customer streams.
+- Replacing Broadway with a custom GenStage tree (Broadway remains the framework).
+- 50k-agent metric architecture (owned by edge anomaly / lakehouse changes).
+
+## Decisions
+
+### Decision 1: Dedicated JetStream stream `flows`
+
+**Chosen:** Default stream name `flows` for subjects:
+
+- `flows.raw.netflow`
+- `flows.raw.sflow`
+- `flows.raw.>` (catch-all for host-slice / future flow variants if already published under that prefix)
+
+**Rationale:** Isolation of retention and storage from logs/OTEL. Metrics already moved toward a dedicated `metrics` stream pattern; flows get the same treatment.
+
+**Alternatives:**
+
+| Option | Why not |
+|--------|---------|
+| Keep `events`, only raise max_bytes | OTEL still reconciles MaxAge; one log storm still starves flows |
+| Per-exporter streams | Operational explosion; not needed for demand isolation |
+| Kafka-style external bus | Out of platform architecture |
+
+### Decision 2: Single owner for stream config per stream
+
+**Chosen:** Only the **flow ingest path** (flow-collector ensure + EventWriter flow stream config) may create/update the `flows` stream. Log-collector and OTEL **MUST NOT** call ensure/update on `flows`. The shared `events` stream remains owned by log/OTEL/EventWriter non-flow subjects.
+
+**Rationale:** Live incident showed thrashing reconcilers: flow-collector sets max_bytes only on create; OTEL rewrites max_age on every connect.
+
+**flow-collector change:** On existing stream, reconcile:
+
+- subjects (union, as today)
+- `num_replicas`
+- `max_bytes` (from config)
+- `max_age` (from config; new field if missing)
+- storage/discard if we standardize them
+
+Do not shrink limits below the configured values when another process had temporarily raised them (monotonic raise is acceptable; shrink only when config intentionally lowers — prefer exact config convergence with warning logs).
+
+### Decision 3: Dedicated EventWriter demand domain for flows
+
+**Chosen:** A **second Broadway pipeline** (or second producer module instance under a dedicated supervisor child) that only registers flow stream consumers:
+
+- `NETFLOW_RAW` → `flows.raw.netflow`
+- `SFLOW_RAW` → `flows.raw.sflow`
+- `ATTRIBUTED_FLOW` if it remains on flow subjects
+
+The existing EventWriter pipeline keeps logs, metrics, Falco, OTEL, etc.
+
+**Rationale:** GenStage demand is per producer process. Fair-sharing one demand counter across ~15 durables is the root demand bug for high-volume NetFlow. Separate pipeline ⇒ independent `handle_demand`, independent pull budget, independent `max_ack_pending` / buffer caps.
+
+**Alternatives:**
+
+| Option | Why not (for now) |
+|--------|-------------------|
+| Weighted fair-share in one producer | Still one mailbox; still coupled failure/backpressure domains |
+| One producer per subject | Too many processes / NATS conns without clear win |
+| Horde-sharded multi-consumer on same durable | Later scale-out; not required for isolation |
+
+### Decision 4: Long-poll pulls sized by demand
+
+**Chosen:** For the flow producer:
+
+1. On `handle_demand` and when demand remains after delivery, issue JetStream `request_next` with:
+   - `batch = min(demand_budget, consumer_pull_batch_size, remaining_max_ack_window)`
+   - `expires` (e.g. 1–5s) **instead of** `no_wait: true` as the primary path
+2. Remove dependence on a global 100ms `:fetch` tick for the flow producer (optional low-frequency idle tick only if needed for reconnect hygiene).
+3. Defaults for flow consumers (starting points; tune with benchmarks):
+
+| Control | Starting default |
+|---------|------------------|
+| `consumer_pull_batch_size` | 64 (match metrics fix; allow 128–256 via env) |
+| `max_ack_pending` | 1024 (flow-only; not global) |
+| Broadway `batch_size` / timeout | 100 / 500ms (raise from 50 if insert_all can take it) |
+| Producer concurrency | 1 per flow pipeline |
+| Processor concurrency | existing default (10) or flow-specific override |
+
+**Rationale:** Andrea Leopardi’s GenStage demand model: consumers ask; producers only fetch that much. Long-poll makes JetStream wait for work instead of empty-status spam. Pull batch 16 was already called out as RT thrash for metrics.
+
+### Decision 5: Retention sizing model
+
+Retention must cover **peak export rate × desired recovery lag**, not demo thrift.
+
+```
+required_bytes ≈ peak_publish_bytes_per_sec × max_recover_lag_sec × safety_factor
+required_age   ≥ max_recover_lag_sec  (and ≥ UI investigation window if ops want reprocess)
+nats_file_store ≥ sum(stream_max_bytes × stream_replicas) + headroom for other streams
+```
+
+**Starting product defaults (chart `values.yaml`):**
+
+| Setting | Default |
+|---------|---------|
+| `flows` stream `max_bytes` | **50 GiB** (configurable) |
+| `flows` stream `max_age` | **6 hours** |
+| `flows` stream replicas | 3 (HA) or 1 for single-node |
+| NATS `max_file_store` | **≥ 200 GiB** guidance when flows R=3 at 50 GiB (ops must size PVC) |
+
+**Demo (`values-demo.yaml`):**
+
+| Setting | Default |
+|---------|---------|
+| `flows` stream `max_bytes` | **10 GiB** (dedicated; not shared with logs) |
+| `flows` stream `max_age` | **2 hours** |
+| NATS `max_file_store` | raise from 10G to at least **40–60G** if PVC allows, or lower stream max_bytes to fit **with explicit comment** |
+
+Discard policy remains `old` (limits retention). Prefer alerting when lag > 25% of MaxAge over silent success.
+
+### Decision 6: Migration sequence
+
+1. Deploy EventWriter + flow-collector that can **create/consume `flows`** while still reading `events` for `flows.raw.*` (dual consumer, single publish target switches in step 2).
+2. Cut flow-collector `stream_name` to `flows` (publish only to new stream).
+3. Confirm EventWriter flow pipeline lag healthy; drain `events` netflow durables to zero pending.
+4. Remove `flows.raw.*` filter consumers from the shared EventWriter pipeline and remove flow subjects from `events` if they were listed.
+5. Raise NATS file store / PVC as needed before raising stream max_bytes (JetStream rejects over-reservation).
+
+**CNPG:** no dual-write. Only one EventWriter path inserts `ocsf_network_activity` for a given message (ack after insert). Dual-consumer window must use mutually exclusive stream sources (old stream drain + new stream only after cutover publish), not two consumers on the same messages.
+
+### Decision 7: Telemetry and operator visibility
+
+Emit / surface for the flow pipeline:
+
+- pull request size vs demand
+- `num_pending`, `num_ack_pending`, redelivery
+- lag seconds (approx: now − oldest pending message timestamp if available, else stream first_ts age)
+- retention risk when pending > 0 and stream utilization (bytes/age) high
+- DB freshness gauge: `now() - max(ocsf_network_activity.time)` (existing reporters if present; extend)
+
+Dashboard “observed flows” tiles that use cumulative collector metrics SHOULD NOT be labeled as if they imply last-15-min map health (optional UI follow-up; not required for this change).
+
+## Architecture (target)
+
+```
+Exporters
+   │ UDP 2055/6343
+   ▼
+flow-collector ──publish──► JetStream stream `flows`
+                            subjects: flows.raw.netflow, flows.raw.sflow, ...
+                            max_bytes/max_age owned by flow config
+   │
+   │  pull (long-poll, demand-sized)
+   ▼
+EventWriter.FlowPipeline (Broadway)
+   producer: flow-only demand domain
+   batcher: netflow_raw / sflow_raw / attributed
+   │
+   ▼
+platform.ocsf_network_activity
+   │
+   ▼
+web-ng NetFlow map (last 15 min)
+
+events stream (unchanged ownership)
+   logs / falco / otel / … → EventWriter (existing pipeline)
+```
+
+## Risks / Trade-offs
+
+| Risk | Mitigation |
+|------|------------|
+| JetStream cannot place R=3 large stream (storage budget) | Raise `max_file_store` + PVC first; temporarily R=1 for demo if needed |
+| Migration gap loses flows | Dual-consume during cutover; cut publish only after consumers ready |
+| Two Broadway pipelines double coordinator load | Flow pipeline only on coordinator; size CPU/memory; share NATS conn if safe |
+| Long-poll holds server resources | Bound expires; cap concurrent pull inflight per durable |
+| Large max_ack_pending increases memory | Keep producer buffer cap; demand still limits in-process queue |
+| OTEL still points at `events` | No change; document that flows are out of band |
+
+## Open Questions (resolved during implementation)
+
+1. **Host-slice subjects** — resolved via existing collector subject merge (`flows.raw.*` / host-slice subjects stay on the dedicated `stream_name`).
+2. **Attributed flows** — remain on `flow.attributed.>` / shared pipeline (not `flows.raw.*`); raw NetFlow/sFlow only on the flow demand domain.
+3. **Demo R=3 vs R=1** — **keep R=3** for demo and production so HA topology matches. Size demo to `flows` 10 GiB / 2h MaxAge, NATS `maxFileStore` 80G, PVC 100Gi (not R=1 thrift).
+
+## References
+
+- Andrea Leopardi, [GenStage demand visualized](https://andrealeopardi.com/posts/genstage-demand-visualized/)
+- `openspec/changes/fix-eventwriter-backpressure-hotpath` (pull + demand foundation)
+- `openspec/notes/sr-data-flow.md` (ingest topology)
+- Live demo RCA: nats-1 DiskPressure; shared events MaxAge ~30m; netflow consumer lag ~8k pending

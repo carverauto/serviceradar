@@ -61,6 +61,36 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "SIEM_CAUSAL" in stream_names
       assert "ANALYTICS_PREDICTIONS" in stream_names
       refute "ATTRIBUTED_FLOW" in stream_names
+      # Raw flows are on the dedicated flow pipeline, not the shared demand domain.
+      refute "NETFLOW_RAW" in stream_names
+      refute "SFLOW_RAW" in stream_names
+    end
+
+    test "default_flow_streams targets the dedicated flows stream" do
+      streams = Config.default_flow_streams()
+      names = Enum.map(streams, & &1.name)
+
+      assert "NETFLOW_RAW" in names
+      assert "SFLOW_RAW" in names
+
+      for stream <- streams do
+        assert stream.stream_name == "flows"
+        assert String.starts_with?(stream.subject, "flows.raw.")
+        assert stream.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
+        assert stream.consumer_max_ack_pending == Config.default_flow_max_ack_pending()
+        assert stream.stream_retention == "limits"
+        assert stream.stream_discard == "old"
+      end
+    end
+
+    test "load_flow uses long-poll and independent demand knobs" do
+      flow = Config.load_flow()
+
+      assert Enum.all?(flow.streams, &Config.flow_stream?/1)
+      assert flow.producer_name == ServiceRadar.EventWriter.FlowProducer
+      assert flow.pull_expires_ns == Config.default_flow_pull_expires_ns()
+      assert flow.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
+      assert flow.max_ack_pending == Config.default_flow_max_ack_pending()
     end
 
     test "routes raw Falco sidekick events from the dedicated Falco stream" do

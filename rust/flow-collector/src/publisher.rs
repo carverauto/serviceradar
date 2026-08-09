@@ -1,7 +1,10 @@
 use crate::config::{Config, SecurityMode};
 use crate::metrics::HostSliceMetricsRegistry;
 use anyhow::{Context, Result};
-use async_nats::jetstream::{self, stream::StorageType};
+use async_nats::jetstream::{
+    self,
+    stream::{DiscardPolicy, RetentionPolicy, StorageType},
+};
 use async_nats::{Client, ConnectOptions};
 use log::{error, info, warn};
 use std::cmp::min;
@@ -129,28 +132,73 @@ impl Publisher {
         let js = jetstream::new(client.clone());
 
         let required_subjects = self.config.stream_subjects_resolved();
+        let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
+
+        // JetStream allows a subject on only one stream. When moving off the
+        // historical shared `events` bus onto dedicated `flows`, strip flow
+        // subjects from `events` first so STREAM.CREATE does not hit overlap.
+        if self.config.stream_name != "events"
+            && let Err(err) = rehome_subjects_from_events(&js, &required_subjects).await
+        {
+            warn!(
+                "Could not rehome flow subjects off shared events stream (continuing): {}",
+                err
+            );
+        }
+
         match js.get_stream(&self.config.stream_name).await {
             Ok(mut existing_stream) => {
                 let info = existing_stream.info().await?;
-                let mut current_subjects = info.config.subjects.clone();
+                let mut updated_config = info.config.clone();
                 let mut needs_update = false;
 
                 for required in &required_subjects {
-                    if !current_subjects.contains(required) {
-                        current_subjects.push(required.clone());
+                    if !updated_config.subjects.contains(required) {
+                        updated_config.subjects.push(required.clone());
                         needs_update = true;
                     }
                 }
 
+                if updated_config.num_replicas != self.config.stream_replicas {
+                    updated_config.num_replicas = self.config.stream_replicas;
+                    needs_update = true;
+                }
+
+                if updated_config.max_bytes != self.config.stream_max_bytes {
+                    info!(
+                        "Updating stream '{}' max_bytes from {} to {}",
+                        self.config.stream_name,
+                        updated_config.max_bytes,
+                        self.config.stream_max_bytes
+                    );
+                    updated_config.max_bytes = self.config.stream_max_bytes;
+                    needs_update = true;
+                }
+
+                if updated_config.max_age != desired_max_age {
+                    info!(
+                        "Updating stream '{}' max_age from {:?} to {:?}",
+                        self.config.stream_name, updated_config.max_age, desired_max_age
+                    );
+                    updated_config.max_age = desired_max_age;
+                    needs_update = true;
+                }
+
+                // Keep limits + discard-old so lag cannot grow the stream forever.
+                if updated_config.retention != RetentionPolicy::Limits {
+                    updated_config.retention = RetentionPolicy::Limits;
+                    needs_update = true;
+                }
+                if updated_config.discard != DiscardPolicy::Old {
+                    updated_config.discard = DiscardPolicy::Old;
+                    needs_update = true;
+                }
+                if updated_config.storage != StorageType::File {
+                    updated_config.storage = StorageType::File;
+                    needs_update = true;
+                }
+
                 if needs_update {
-                    let mut updated_config = info.config.clone();
-                    updated_config.subjects = current_subjects;
-                    updated_config.num_replicas = self.config.stream_replicas;
-                    js.update_stream(updated_config).await?;
-                    js.get_stream(&self.config.stream_name).await?;
-                } else if info.config.num_replicas != self.config.stream_replicas {
-                    let mut updated_config = info.config.clone();
-                    updated_config.num_replicas = self.config.stream_replicas;
                     js.update_stream(updated_config).await?;
                     js.get_stream(&self.config.stream_name).await?;
                 }
@@ -160,8 +208,10 @@ impl Publisher {
                     name: self.config.stream_name.clone(),
                     subjects: required_subjects.clone(),
                     storage: StorageType::File,
+                    retention: RetentionPolicy::Limits,
+                    discard: DiscardPolicy::Old,
                     max_bytes: self.config.stream_max_bytes,
-                    max_age: Duration::from_secs(24 * 60 * 60),
+                    max_age: desired_max_age,
                     num_replicas: self.config.stream_replicas,
                     ..Default::default()
                 };
@@ -170,8 +220,12 @@ impl Publisher {
         }
 
         info!(
-            "Connected to NATS at {} and ensured stream '{}' exists",
-            self.config.nats_url, self.config.stream_name
+            "Connected to NATS at {} and ensured stream '{}' exists (max_bytes={}, max_age={:?}, replicas={})",
+            self.config.nats_url,
+            self.config.stream_name,
+            self.config.stream_max_bytes,
+            desired_max_age,
+            self.config.stream_replicas
         );
 
         Ok((client, js))
@@ -209,4 +263,35 @@ impl Publisher {
             }
         }
     }
+}
+
+/// Removes `required_subjects` from the shared `events` stream when present so a
+/// dedicated flows stream can own them exclusively.
+async fn rehome_subjects_from_events(
+    js: &jetstream::Context,
+    required_subjects: &[String],
+) -> Result<()> {
+    let mut events = match js.get_stream("events").await {
+        Ok(stream) => stream,
+        Err(_) => return Ok(()),
+    };
+
+    let info = events.info().await?;
+    let before = info.config.subjects.len();
+    let mut updated = info.config.clone();
+    updated
+        .subjects
+        .retain(|s| !required_subjects.iter().any(|req| req == s) && !s.starts_with("flows.raw."));
+
+    if updated.subjects.len() == before {
+        return Ok(());
+    }
+
+    info!(
+        "Removing flow subjects from shared events stream ({} → {} subjects) so stream can own them exclusively",
+        before,
+        updated.subjects.len()
+    );
+    js.update_stream(updated).await?;
+    Ok(())
 }

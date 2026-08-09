@@ -18,6 +18,7 @@ defmodule ServiceRadar.EventWriter.Supervisor do
   use Supervisor
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Pipeline
 
   require Logger
 
@@ -31,15 +32,20 @@ defmodule ServiceRadar.EventWriter.Supervisor do
   @impl true
   def init(_opts) do
     config = Config.load()
+    flow_config = Config.load_flow()
 
     Logger.info("Starting EventWriter supervisor",
       enabled: config.enabled,
-      streams: length(config.streams)
+      streams: length(config.streams),
+      flow_streams: length(flow_config.streams)
     )
 
     children =
       [
-        {ServiceRadar.EventWriter.Pipeline, config},
+        # Non-flow telemetry (logs, metrics, falco, otel, …) — shared demand domain.
+        {Pipeline, {config, [name: Pipeline]}},
+        # Raw NetFlow/sFlow — dedicated GenStage demand + long-poll pulls on stream `flows`.
+        {Pipeline, {flow_config, [name: ServiceRadar.EventWriter.FlowPipeline]}},
         {ServiceRadar.EventWriter.ConsumerLagReporter, config},
         ServiceRadar.FlowAttribution.Correlator
       ]

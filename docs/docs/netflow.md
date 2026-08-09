@@ -13,45 +13,25 @@ namespace, container, and image enrichment, enable the separate
 streams and exposes the result through `in:attributed_flows`, flow details, and the
 dashboard NetFlow map.
 
-When investigating **public VIP or cloud LB destinations** (for example
-`dst_ip` is a MetalLB or cloud load balancer address), the central correlator
-joins [Kubernetes Public Endpoint Inventory](./k8s-public-endpoint-inventory.md)
-with netprobe so **Attributed Flows** carry process *and* Service/Gateway owner
-fields (`attribution.public_endpoint`). Inventory remains queryable via
-`in:public_endpoints` and does not require host agents to hold Kubernetes API
-credentials.
-
-**SRQL tips for investigation:**
-
-```srql
-in:flows time:last_24h port:22 sort:time:desc limit:50
-in:flows time:last_24h ip:<vip> sort:time:desc limit:50
-in:attributed_flows time:last_24h ip:<vip> sort:time:desc limit:50
-in:attributed_flows time:last_24h service_name:<owner> sort:time:desc limit:50
-in:public_endpoints port:22 limit:50
-```
-
-`port:` and `ip:` match **either** side of the 5-tuple (there is no
-`(dst_port:X OR src_port:X)` syntax). Raw `in:flows` can show SSH while
-`in:attributed_flows port:22` is empty if process join has not fired yet. More
-recipes: [SRQL Cookbook](./srql-cookbook.md#attributed-flows-and-public-endpoints).
-
 ## Architecture Overview
 
 ServiceRadar uses a single canonical NetFlow ingest path:
 
 ```
-Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_activity
-   (v5/v9/IPFIX)    (Rust, UDP:2055)          (protobuf decode)   (canonical flow store)
-                                                └──────────────→ bgp_routing_info
-                                                                   (derived BGP analytics)
+Network Devices → NetFlow Collector → NATS JetStream stream `flows` → EventWriter (flow pipeline)
+   (v5/v9/IPFIX)    (Rust, UDP:2055)   subject flows.raw.netflow        (dedicated Broadway demand)
+                                              │
+                                              ▼
+                                    ocsf_network_activity  (+ bgp_routing_info)
 ```
+
+Raw flows use a **dedicated JetStream stream** (`flows` by default), not the shared multi-signal `events` bus used for logs/OTEL/Falco. EventWriter consumes flows on a **separate Broadway pipeline** so GenStage demand is not fair-shared with other telemetry.
 
 **Key Components:**
 - **Flow Collector**: Rust daemon listening on UDP port 2055 for NetFlow (configurable) and UDP port 6343 for sFlow when enabled
 - **AutoScopedParser**: RFC-compliant per-source template isolation
-- **NATS JetStream**: Reliable message transport carrying protobuf `FlowMessage` bytes on `flows.raw.netflow`
-- **EventWriter**: Elixir/Broadway processor that decodes protobuf, persists OCSF flow rows, and derives BGP observations
+- **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
+- **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
 - **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`
 - **Web UI**: NetFlow dashboard with BGP topology visualization
@@ -232,10 +212,11 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 {
   "nats_url": "nats://nats:4222",
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
-  "stream_name": "events",
+  "stream_name": "flows",
   "stream_subjects": ["flows.raw.netflow", "flows.raw.sflow"],
-  "stream_max_bytes": 10737418240,
-  "stream_replicas": 1,
+  "stream_max_bytes": 53687091200,
+  "stream_max_age_secs": 21600,
+  "stream_replicas": 3,
   "partition": "default",
   "listeners": [
     {
@@ -278,10 +259,11 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 **Top-level parameters:**
 - `nats_url`: NATS endpoint for JetStream publishing
 - `nats_creds_file`: Optional path to NATS credentials file
-- `stream_name`: JetStream stream for flow subjects (default: events)
+- `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes (default: 10 GiB)
-- `stream_replicas`: JetStream replica count (default: 1, must be > 0)
+- `stream_max_bytes`: Stream size cap in bytes (default: 50 GiB). Size NATS `max_file_store` and PVC for `stream_max_bytes × stream_replicas` plus other streams
+- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). Collector reconciles this on existing streams so log/OTEL reconcilers cannot pin flow retention to 30 minutes
+- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA
 - `partition`: Partition tag applied to ingested flows (default: `default`)
 - `listeners`: One entry per UDP socket (`netflow` or `sflow`)
 - `channel_size`: Bounded channel depth (default: 10,000)

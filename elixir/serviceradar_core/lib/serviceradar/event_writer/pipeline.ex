@@ -42,10 +42,16 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   @doc """
   Starts the Broadway pipeline.
+
+  Options:
+  - `:name` — Broadway process name (default `__MODULE__`). Use a distinct name
+    for the dedicated flow pipeline so GenStage demand is not shared.
   """
-  def start_link(%Config{} = config) do
+  def start_link(%Config{} = config, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
     Broadway.start_link(__MODULE__,
-      name: __MODULE__,
+      name: name,
       producer: [
         module: {ServiceRadar.EventWriter.Producer, config},
         transformer: {__MODULE__, :transform, []},
@@ -56,6 +62,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       ],
       batchers: build_batchers(config)
     )
+  end
+
+  def child_spec({%Config{} = config, opts}) when is_list(opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    %{
+      id: name,
+      start: {__MODULE__, :start_link, [config, opts]},
+      type: :supervisor,
+      restart: :permanent,
+      shutdown: 10_000
+    }
+  end
+
+  def child_spec(%Config{} = config) do
+    child_spec({config, []})
   end
 
   # Processor concurrency was 4 in the Go->Elixir migration, which under-utilized
@@ -453,7 +475,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:pdns_ocsf, &pdns_ocsf_subject?/1},
       {:falco, &falco_subject?/1},
       {:trivy, &trivy_subject?/1},
-      {:k8s_inventory, &k8s_inventory_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
@@ -507,19 +528,12 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp trivy_subject?(subject),
     do: subject == "trivy.report" or String.starts_with?(subject, "trivy.report.")
 
-  defp k8s_inventory_subject?(subject),
-    do:
-      subject == "inventory.k8s.public_endpoints" or
-        String.starts_with?(subject, "inventory.k8s.")
-
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
   defp get_processor(:events), do: Events
   defp get_processor(:pdns_ocsf), do: PowerDNS
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
-  defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
-
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals

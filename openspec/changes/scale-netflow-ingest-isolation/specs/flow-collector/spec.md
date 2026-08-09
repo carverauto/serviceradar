@@ -1,0 +1,53 @@
+## ADDED Requirements
+
+### Requirement: Dedicated flows JetStream stream
+The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional `flows.raw.*` subjects required by host-slice or extension publishers. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL.
+
+#### Scenario: Default stream name is flows
+- **WHEN** the collector starts without an explicit override that points at `events`
+- **THEN** it SHALL use stream name `flows` for JetStream ensure/publish
+- **AND** it SHALL publish netflow messages to subject `flows.raw.netflow`
+
+#### Scenario: Shared events stream is not the flow target
+- **WHEN** operators configure production defaults from the Helm chart
+- **THEN** the flow-collector config SHALL target the dedicated flows stream
+- **AND** raw NetFlow SHALL NOT depend on shared `events` retention limits for durability
+
+### Requirement: Flow stream retention is collector-reconciled
+The flow-collector SHALL ensure the flows JetStream stream exists with configured `max_bytes`, `max_age`, replica count, file storage, and discard-old limits policy. When the stream already exists, the collector SHALL reconcile subjects (union), `num_replicas`, `max_bytes`, and `max_age` to match its configuration—not only subjects and replicas.
+
+#### Scenario: Create stream with retention bounds
+- **WHEN** the flows stream does not exist at collector startup
+- **THEN** the collector SHALL create it with configured `max_bytes`, `max_age`, and `num_replicas`
+- **AND** storage SHALL be file-backed with discard-old behavior under limits retention
+
+#### Scenario: Update existing stream retention
+- **WHEN** the flows stream already exists with different `max_bytes` or `max_age` than the collector config
+- **THEN** the collector SHALL update the stream configuration to the configured values
+- **AND** it SHALL log the before/after retention settings at info level
+
+#### Scenario: Subject union preserved on update
+- **WHEN** the existing flows stream has subjects not listed in the current process config
+- **THEN** the collector SHALL retain existing subjects while ensuring its required listener subjects are present
+- **AND** it SHALL NOT remove unrelated `flows.raw.*` subjects required by other publishers
+
+### Requirement: Flow stream config is not owned by log or OTEL collectors
+Log-collector and OTEL JetStream ensure paths SHALL NOT create or update the dedicated flows stream or attach `flows.raw.*` subjects to the shared `events` stream as part of their ensure routine.
+
+#### Scenario: OTEL restart does not shrink flow retention
+- **WHEN** the OTEL or log collector reconnects to NATS and reconciles its stream
+- **THEN** it SHALL leave the flows stream `max_bytes` and `max_age` unchanged
+- **AND** it SHALL NOT move raw flow subjects onto `events`
+
+### Requirement: Production and demo sizing defaults for flows
+Helm defaults SHALL size the dedicated flows stream for multi-hour recovery lag headroom rather than a thrift 1 GiB shared bus. Production chart defaults SHALL use a large `stream_max_bytes` and multi-hour `max_age` suitable for high exporter counts. Demo overlays MAY use smaller absolute values but MUST keep flows on the dedicated stream and MUST document the NATS `max_file_store` / PVC budget required for the chosen replica count.
+
+#### Scenario: Production chart targets dedicated capacity
+- **WHEN** an operator installs with production chart defaults and flow-collector enabled
+- **THEN** flow-collector config SHALL reference the dedicated flows stream
+- **AND** `stream_max_bytes` SHALL be at least an order of magnitude above the historical 1 GiB demo shared cap unless explicitly overridden
+
+#### Scenario: Demo no longer shares 1 GiB events budget for flows
+- **WHEN** demo values enable the flow-collector
+- **THEN** flow retention SHALL be configured on the dedicated flows stream
+- **AND** the values comments SHALL describe the JetStream file-store budget implication of stream size × replicas

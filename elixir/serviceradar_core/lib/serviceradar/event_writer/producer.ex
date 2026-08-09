@@ -48,7 +48,10 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   require Logger
 
+  # Used only when long-poll expires is disabled (legacy no_wait path).
   @fetch_interval 100
+  # Slow idle tick while long-polling so reconnect hygiene still runs.
+  @long_poll_idle_interval 5_000
   @reconnect_delay 5_000
 
   # Hard cap on the number of fully-formed Broadway events buffered in this
@@ -155,10 +158,11 @@ defmodule ServiceRadar.EventWriter.Producer do
           %{host: state.config.nats.host}
         )
 
-        # Schedule periodic fetching
-        schedule_fetch()
+        new_state = %{state | conn: conn, consumer_context: consumer_context, connected: true}
+        # Schedule periodic / idle fetch tick (long-poll producers use a slower tick).
+        schedule_fetch(new_state)
 
-        {:noreply, [], %{state | conn: conn, consumer_context: consumer_context, connected: true}}
+        {:noreply, [], new_state}
 
       {:error, reason} ->
         Logger.warning("EventWriter NATS connection failed: #{inspect(reason)}, retrying...")
@@ -181,10 +185,10 @@ defmodule ServiceRadar.EventWriter.Producer do
         |> drain_pending_messages()
         |> maybe_request_pull_messages()
 
-      schedule_fetch()
+      schedule_fetch(state)
       {:noreply, messages, state}
     else
-      schedule_fetch()
+      schedule_fetch(state)
       {:noreply, [], state}
     end
   end
@@ -542,7 +546,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         if batch_size <= 0 do
           {:halt, {requested, requested_by_subject, remaining}}
         else
-          request_next_messages(state.conn, consumer, batch_size)
+          request_next_messages(state.conn, consumer, batch_size, state)
 
           {:cont,
            {requested + batch_size, [{consumer.pull_subject, batch_size} | requested_by_subject],
@@ -590,7 +594,12 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
-  defp schedule_fetch do
+  defp schedule_fetch(%{config: %Config{pull_expires_ns: expires}} = _state)
+       when is_integer(expires) and expires > 0 do
+    Process.send_after(self(), :fetch, @long_poll_idle_interval)
+  end
+
+  defp schedule_fetch(_state) do
     Process.send_after(self(), :fetch, @fetch_interval)
   end
 
@@ -602,17 +611,32 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp pull_subjects(%{pull_subjects: pull_subjects}), do: pull_subjects
   defp pull_subjects(_state), do: MapSet.new()
 
-  defp request_next_messages(conn, consumer, batch_size) do
+  defp request_next_messages(conn, consumer, batch_size, state) do
+    opts =
+      case pull_expires_ns(state) do
+        expires when is_integer(expires) and expires > 0 ->
+          # Demand-gated long-poll: JetStream holds the request until messages
+          # arrive or expires elapses (empty status body), instead of no_wait churn.
+          [batch: batch_size, expires: expires]
+
+        _ ->
+          [batch: batch_size, no_wait: true]
+      end
+
     JetstreamConsumerApi.request_next_message(
       conn,
       consumer.stream,
       consumer.durable,
       consumer.pull_subject,
       nil,
-      batch: batch_size,
-      no_wait: true
+      opts
     )
   end
+
+  defp pull_expires_ns(%{config: %Config{pull_expires_ns: expires}})
+       when is_integer(expires) and expires > 0, do: expires
+
+  defp pull_expires_ns(_state), do: 0
 
   defp record_pull_inflight(state, []), do: state
 

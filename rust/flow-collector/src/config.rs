@@ -19,6 +19,10 @@ pub struct Config {
     pub stream_subjects: Option<Vec<String>>,
     #[serde(default = "default_stream_max_bytes")]
     pub stream_max_bytes: i64,
+    /// JetStream MaxAge for the dedicated flows stream (seconds).
+    /// Default 6 hours — sized for recovery lag, not demo thrift.
+    #[serde(default = "default_stream_max_age_secs")]
+    pub stream_max_age_secs: u64,
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
     #[serde(default = "default_partition")]
@@ -245,7 +249,13 @@ fn default_partition() -> String {
 }
 
 fn default_stream_max_bytes() -> i64 {
-    10 * 1024 * 1024 * 1024
+    // 50 GiB dedicated flows stream default (production-class lag headroom).
+    50 * 1024 * 1024 * 1024
+}
+
+fn default_stream_max_age_secs() -> u64 {
+    // 6 hours.
+    6 * 60 * 60
 }
 
 fn default_stream_replicas() -> usize {
@@ -293,6 +303,12 @@ impl Config {
         }
         if self.stream_replicas == 0 {
             anyhow::bail!("stream_replicas must be > 0");
+        }
+        if self.stream_max_age_secs == 0 {
+            anyhow::bail!("stream_max_age_secs must be > 0");
+        }
+        if self.stream_max_bytes <= 0 {
+            anyhow::bail!("stream_max_bytes must be > 0");
         }
         if self.channel_size == 0 {
             anyhow::bail!("channel_size must be > 0");
@@ -411,7 +427,7 @@ mod tests {
     fn test_valid_multi_listener_config() {
         let json = r#"{
             "nats_url": "nats://localhost:4222",
-            "stream_name": "events",
+            "stream_name": "flows",
             "listeners": [
                 {
                     "protocol": "sflow",
@@ -430,6 +446,29 @@ mod tests {
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);
+        assert_eq!(config.stream_max_age_secs, 6 * 60 * 60);
+        assert_eq!(config.stream_max_bytes, 50 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_stream_max_age_secs_override() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "stream_max_age_secs": 7200,
+            "stream_max_bytes": 10737418240,
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_ok());
+        assert_eq!(config.stream_max_age_secs, 7200);
+        assert_eq!(config.stream_max_bytes, 10737418240);
     }
 
     #[test]

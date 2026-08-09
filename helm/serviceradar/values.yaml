@@ -202,9 +202,12 @@ nats:
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
-    maxFileStore: 10G
+    # JetStream file store must cover sum(stream_max_bytes × replicas) with
+    # headroom. Dedicated flows stream defaults to 50 GiB × R=3 plus events,
+    # metrics, object stores — size PVC and maxFileStore together.
+    maxFileStore: 200G
   persistence:
-    size: 30Gi
+    size: 250Gi
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
@@ -1504,14 +1507,17 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
-  # flow-collector publishes raw flow subjects into the shared "events" stream.
+  # flow-collector publishes raw flow subjects into the dedicated "flows" stream
+  # (isolated from the shared multi-signal "events" bus).
   streamReplicas: 3
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
-    stream_name: "events"
-    # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
-    stream_max_bytes: 10737418240
+    stream_name: "flows"
+    # 50 GiB / 6h / R=3 — production lag headroom for high exporter counts.
+    # Ensure nats.jetstream.maxFileStore and PVC cover stream_max_bytes × replicas.
+    stream_max_bytes: 53687091200
+    stream_max_age_secs: 21600
     stream_replicas: 3
     channel_size: 10000
     batch_size: 100

@@ -110,10 +110,10 @@ cnpg:
 
 logCollector:
   replicaCount: 3
-  # Keep the shared events stream at 3 replicas in demo, but with a smaller
-  # reservation so JetStream placement fits within the account budget.
+  # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.
+  # Sized independently of the dedicated flows stream.
   streamReplicas: 3
-  streamMaxBytes: 1073741824
+  streamMaxBytes: 2147483648
   # Use the dedicated UDP Service when the collector must record the actual
   # device address. The shared Envoy UDPRoute remains enabled below for
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
@@ -771,10 +771,14 @@ flowCollector:
   # external UDP ingress single-replica until collector-side exporter sharding
   # or shared template state is implemented.
   replicaCount: 1
-  # flow-collector also reconciles the shared events stream.
+  # Dedicated flows stream at R=3 (same HA topology as production). Size is
+  # smaller than prod 50 GiB but isolated from logs/OTEL on the events stream.
   streamReplicas: 3
   config:
-    stream_max_bytes: 1073741824
+    stream_name: "flows"
+    # 10 GiB × R=3 — requires nats.jetstream.maxFileStore / PVC headroom below.
+    stream_max_bytes: 10737418240
+    stream_max_age_secs: 7200
     stream_replicas: 3
   data:
     # flow collector is stateless in demo; raw flow durability is in JetStream.
@@ -861,3 +865,11 @@ bmpCollector:
     externalTrafficPolicy: Local
 nats:
   replicas: 3
+  jetstream:
+    maxMemoryStore: 1G
+    # Must cover dedicated flows (10 GiB × R=3) plus events/metrics/object
+    # streams. Keep PVC size above maxFileStore.
+    maxFileStore: 80G
+  persistence:
+    size: 100Gi
+    storageClassName: local-path

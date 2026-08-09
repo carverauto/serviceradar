@@ -61,6 +61,13 @@ defmodule ServiceRadar.EventWriter.Config do
   # messages, not expanded metric rows; high-payload streams should stay small.
   @default_consumer_pull_batch_size 16
   @default_consumer_lag_poll_interval_ms 30_000
+  # Flow pipeline long-poll window (2s). Zero disables expires (legacy no_wait).
+  @default_flow_pull_expires_ns 2_000_000_000
+  @default_flow_pull_batch_size 64
+  @default_flow_max_ack_pending 1024
+  # 50 GiB / 6h dedicated flows stream retention (nanoseconds for JetStream API).
+  @default_flows_stream_max_bytes 53_687_091_200
+  @default_flows_stream_max_age_ns 21_600_000_000_000
 
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
   # each durable, but pull mode means it is a safety bound rather than a push
@@ -85,7 +92,8 @@ defmodule ServiceRadar.EventWriter.Config do
     :processor_concurrency,
     :ack_wait_ns,
     :max_deliver,
-    :consumer_lag_poll_interval_ms
+    :consumer_lag_poll_interval_ms,
+    :pull_expires_ns
   ]
 
   @type t :: %__MODULE__{
@@ -101,7 +109,8 @@ defmodule ServiceRadar.EventWriter.Config do
           processor_concurrency: pos_integer(),
           ack_wait_ns: pos_integer(),
           max_deliver: pos_integer(),
-          consumer_lag_poll_interval_ms: pos_integer()
+          consumer_lag_poll_interval_ms: pos_integer(),
+          pull_expires_ns: non_neg_integer() | nil
         }
 
   @type nats_config :: %{
@@ -151,15 +160,79 @@ defmodule ServiceRadar.EventWriter.Config do
       batch_timeout: load_batch_timeout(config),
       consumer_name: load_consumer_name(config),
       producer_name: Keyword.get(config, :producer_name),
-      streams: load_streams(config),
+      streams: load_non_flow_streams(config),
       consumer_pull_batch_size: load_consumer_pull_batch_size(config),
       max_ack_pending: load_max_ack_pending(config),
       processor_concurrency: load_processor_concurrency(config),
       ack_wait_ns: load_ack_wait_ns(config),
       max_deliver: load_max_deliver(config),
-      consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config)
+      consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config),
+      # Shared pipeline keeps the legacy no_wait + timer path (pull_expires_ns nil/0).
+      pull_expires_ns: 0
     }
   end
+
+  @doc """
+  Loads EventWriter config for the dedicated raw-flow Broadway pipeline.
+
+  Flow subjects use an independent GenStage demand domain, long-poll JetStream
+  pulls, and the dedicated `flows` stream retention stanza.
+  """
+  @spec load_flow() :: t()
+  def load_flow do
+    config = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+    base = load()
+
+    %{
+      base
+      | streams: load_flow_streams(config),
+        producer_name:
+          Keyword.get(config, :flow_producer_name, ServiceRadar.EventWriter.FlowProducer),
+        consumer_pull_batch_size:
+          load_int_env(
+            "EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE",
+            Keyword.get(config, :flow_consumer_pull_batch_size, @default_flow_pull_batch_size)
+          ),
+        max_ack_pending:
+          load_int_env(
+            "EVENT_WRITER_FLOW_MAX_ACK_PENDING",
+            Keyword.get(config, :flow_max_ack_pending, @default_flow_max_ack_pending)
+          ),
+        pull_expires_ns:
+          load_int_env(
+            "EVENT_WRITER_FLOW_PULL_EXPIRES_NS",
+            Keyword.get(config, :flow_pull_expires_ns, @default_flow_pull_expires_ns)
+          )
+    }
+  end
+
+  @doc """
+  Returns true when a stream config is raw NetFlow/sFlow (flows.raw.*).
+  """
+  @spec flow_stream?(stream_config() | map()) :: boolean()
+  def flow_stream?(%{subject: subject}) when is_binary(subject),
+    do: String.starts_with?(subject, "flows.raw.")
+
+  def flow_stream?(%{name: name}) when name in ["NETFLOW_RAW", "SFLOW_RAW"], do: true
+  def flow_stream?(_), do: false
+
+  @doc """
+  Default pull batch size for the dedicated flow EventWriter pipeline.
+  """
+  @spec default_flow_pull_batch_size() :: pos_integer()
+  def default_flow_pull_batch_size, do: @default_flow_pull_batch_size
+
+  @doc """
+  Default max_ack_pending for the dedicated flow EventWriter pipeline.
+  """
+  @spec default_flow_max_ack_pending() :: pos_integer()
+  def default_flow_max_ack_pending, do: @default_flow_max_ack_pending
+
+  @doc """
+  Default long-poll expires (ns) for the dedicated flow EventWriter pipeline.
+  """
+  @spec default_flow_pull_expires_ns() :: pos_integer()
+  def default_flow_pull_expires_ns, do: @default_flow_pull_expires_ns
 
   @doc """
   Returns the default per-consumer `max_ack_pending` flow-control bound.
@@ -308,22 +381,6 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
-        name: "K8S_INVENTORY",
-        stream_name: "k8s_inventory",
-        # Must overlap stream subjects from k8s-inventory publisher
-        # (inventory.k8s.public_endpoints[+.>] — not the broader inventory.k8s.>).
-        subject: "inventory.k8s.public_endpoints",
-        processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
-        # Full-cluster snapshots; process one message at a time.
-        batch_size: 1,
-        batch_timeout: 2_000,
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 1_073_741_824,
-        stream_max_age: 86_400_000_000_000
-      },
-      %{
         name: "OTEL_METRICS",
         stream_name: "events",
         subject: "otel.metrics.>",
@@ -410,20 +467,48 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_size: 100,
         batch_timeout: 1_000
       },
-      analytics_predictions_stream(),
+      analytics_predictions_stream()
+      # Raw flows live in default_flow_streams/0 (dedicated Broadway demand domain).
+    ]
+  end
+
+  @doc """
+  Default stream configurations for the dedicated raw-flow EventWriter pipeline.
+
+  Publishes land on the dedicated JetStream stream `flows` (not shared `events`).
+  """
+  @spec default_flow_streams() :: [stream_config()]
+  def default_flow_streams do
+    [
       %{
         name: "SFLOW_RAW",
+        stream_name: "flows",
         subject: "flows.raw.sflow",
         processor: Flows,
-        batch_size: 50,
-        batch_timeout: 500
+        batch_size: 100,
+        batch_timeout: 500,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: @default_flows_stream_max_bytes,
+        stream_max_age: @default_flows_stream_max_age_ns,
+        consumer_pull_batch_size: @default_flow_pull_batch_size,
+        consumer_max_ack_pending: @default_flow_max_ack_pending
       },
       %{
         name: "NETFLOW_RAW",
+        stream_name: "flows",
         subject: "flows.raw.netflow",
         processor: Flows,
-        batch_size: 50,
-        batch_timeout: 500
+        batch_size: 100,
+        batch_timeout: 500,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: @default_flows_stream_max_bytes,
+        stream_max_age: @default_flows_stream_max_age_ns,
+        consumer_pull_batch_size: @default_flow_pull_batch_size,
+        consumer_max_ack_pending: @default_flow_max_ack_pending
       }
     ]
   end
@@ -582,6 +667,47 @@ defmodule ServiceRadar.EventWriter.Config do
       streams when is_list(streams) -> streams
     end
   end
+
+  defp load_non_flow_streams(config) do
+    config
+    |> load_streams()
+    |> Enum.reject(&flow_stream?/1)
+  end
+
+  defp load_flow_streams(config) do
+    case Keyword.get(config, :flow_streams) do
+      streams when is_list(streams) and streams != [] ->
+        streams
+
+      _ ->
+        from_main =
+          config
+          |> load_streams()
+          |> Enum.filter(&flow_stream?/1)
+
+        if from_main == [], do: default_flow_streams(), else: from_main
+    end
+  end
+
+  defp load_int_env(env_name, default) when is_binary(env_name) do
+    case System.get_env(env_name) do
+      nil ->
+        sanitize_non_neg_int(default, default)
+
+      value ->
+        case Integer.parse(value) do
+          {int, _} -> sanitize_non_neg_int(int, default)
+          :error -> sanitize_non_neg_int(default, default)
+        end
+    end
+  end
+
+  defp sanitize_non_neg_int(value, _default) when is_integer(value) and value >= 0, do: value
+
+  defp sanitize_non_neg_int(_value, default) when is_integer(default) and default >= 0,
+    do: default
+
+  defp sanitize_non_neg_int(_value, _default), do: 0
 
   defp config_get(config, key, default \\ nil)
 
