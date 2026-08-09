@@ -198,7 +198,32 @@ jobs:
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
-          BAZEL_BUILD_FLAGS: -c opt --stamp
+          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=ci).
+          # Every flag that differs forks the configuration, and a forked configuration
+          # shares no remote cache entries with the one CI just warmed -- it rebuilds the
+          # world. That is what the log means by
+          #   "Build options --compilation_mode and --stamp have changed, discarding
+          #    analysis cache"
+          #
+          # --config=ci is REQUIRED, not tidiness. With NO config these targets build
+          # locally on the forgejo-ci runner, which has no linker, so the first Rust tool
+          # bazel needs (rules_rust's process_wrapper) dies with
+          #   collect2: fatal error: cannot find 'ld'
+          # Dropping `--config=el9` moved the publish path to no profile at all rather
+          # than to the ci profile; this restores it.
+          #
+          # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
+          # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
+          # sets `stamp` or `x_defs`. Version comes from addons/<name>/addon.yaml (enforced
+          # by the version-bump gate) and the OCI tag is passed as an argument. It bought
+          # nothing and split the cache.
+          #
+          # --remote_download_outputs=all overrides --remote_download_minimal (inherited
+          # from build:remote_base) because these are `bazel run` targets: the sh_binary and
+          # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
+          # local disk for oras to upload them. build:el9 carried the same flag for the same
+          # reason (.bazelrc, "Native-addons / EL9 publish path").
+          BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -211,7 +236,10 @@ jobs:
 
           # The verify step checks per-arch artifacts against the agent release public
           # key; derive it from the private key so the secret stays the single source.
-          export SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY="$(bazel run //build/native_addons:addon_artifact_signature_tool -- public-key | tail -n1)"
+          # Same flags as every other bazel call in this job. Bare `bazel run` builds in
+          # fastbuild on the runner -- a THIRD configuration alongside the opt/ci one,
+          # analyzed and compiled from scratch locally for one small Go tool.
+          export SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY="$(bazel run ${BAZEL_BUILD_FLAGS} //build/native_addons:addon_artifact_signature_tool -- public-key | tail -n1)"
 
           push_args=()
           verify_tags=("sha-${GITHUB_SHA}")
@@ -245,7 +273,32 @@ jobs:
       - name: Generate import index
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          BAZEL_BUILD_FLAGS: -c opt --stamp
+          # KEEP THESE FLAGS IDENTICAL TO THE `bazel test` STEP ABOVE (-c opt --config=ci).
+          # Every flag that differs forks the configuration, and a forked configuration
+          # shares no remote cache entries with the one CI just warmed -- it rebuilds the
+          # world. That is what the log means by
+          #   "Build options --compilation_mode and --stamp have changed, discarding
+          #    analysis cache"
+          #
+          # --config=ci is REQUIRED, not tidiness. With NO config these targets build
+          # locally on the forgejo-ci runner, which has no linker, so the first Rust tool
+          # bazel needs (rules_rust's process_wrapper) dies with
+          #   collect2: fatal error: cannot find 'ld'
+          # Dropping `--config=el9` moved the publish path to no profile at all rather
+          # than to the ci profile; this restores it.
+          #
+          # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
+          # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
+          # sets `stamp` or `x_defs`. Version comes from addons/<name>/addon.yaml (enforced
+          # by the version-bump gate) and the OCI tag is passed as an argument. It bought
+          # nothing and split the cache.
+          #
+          # --remote_download_outputs=all overrides --remote_download_minimal (inherited
+          # from build:remote_base) because these are `bazel run` targets: the sh_binary and
+          # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
+          # local disk for oras to upload them. build:el9 carried the same flag for the same
+          # reason (.bazelrc, "Native-addons / EL9 publish path").
+          BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
