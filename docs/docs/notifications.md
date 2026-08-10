@@ -70,8 +70,8 @@ what was withheld and why.
 
 ## Providers
 
-A provider is a *kind* of destination. Phase 1 ships four first-party providers
-plus one built-in:
+A provider is a *kind* of destination. There are four first-party native
+providers plus one built-in:
 
 | Provider | Type | Notes |
 | --- | --- | --- |
@@ -86,9 +86,19 @@ reconciled on upgrade. An upgrade refreshes a managed provider (or a managed
 template) only while its stored fingerprint still matches what shipped. Once you
 edit one, your edit is preserved and upgrades leave it alone.
 
-You cannot author a `stream` provider, and you cannot yet author `declarative`
-or `wasm_plugin` providers - those tiers arrive in later phases. What you can do
-today is configure as many **channels** as you like on the shipped providers.
+### Adding a destination ServiceRadar does not ship
+
+A **declarative** provider is one you author yourself by uploading a document -
+no code, no release, no Wasm toolchain. Nine more destinations ship that way
+already (`pagerduty`, `opsgenie`, `mattermost`, `rocketchat`, `googlechat`,
+`teams`, `telegram`, `ntfy`, `gotify`), and you add a tenth by describing its
+HTTP request in YAML or JSON. See
+[Notification Providers (Declarative)](./notification-providers.md) for the
+document format, the worked example, and the limits of the tier.
+
+You cannot author a `stream` provider, and `wasm_plugin` providers - the tier for
+threading, attachments, inbound callbacks, and edge-routed egress - arrive in a
+later phase.
 
 ### Every provider supports `test`
 
@@ -723,7 +733,7 @@ least-privilege role from this table rather than reading the catalog module.
 | `notifications.channels.manage` | The channel editor - create, edit, enable, disable, delete, including provider configuration and secret references | Admin |
 | `notifications.routes.view` | Reading routes, escalation policies, escalation steps, schedules, templates, and silences; the routing preview | Operator |
 | `notifications.routes.manage` | Authoring routes, escalation policies, steps, and schedules | Admin |
-| `notifications.providers.manage` | The write side of the Providers tab: provider enable/disable, and declarative definition upload when that tier lands | Admin |
+| `notifications.providers.manage` | The write side of the Providers tab: provider enable/disable, and [declarative definition upload](./notification-providers.md), versioning, and rollback | Admin |
 | `notifications.deliveries.view` | The Delivery Log, including suppressed rows and their reasons; the delivery history on an alert page | Helpdesk |
 | `notifications.test.send` | Test-send from a channel. **Separate from channel edit on purpose**: a test send performs real egress with real credentials | Admin |
 | `notifications.silences.manage` | Silence authoring and cancellation. Separate from routes because writing a silence *stops a page* - and an empty matcher set mutes the deployment | Operator |

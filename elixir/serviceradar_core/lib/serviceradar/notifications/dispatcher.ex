@@ -132,9 +132,13 @@ defmodule ServiceRadar.Notifications.Dispatcher do
      test async and database-free.
   5. Resolve the template for (alert class x payload format) and render it with
      the provider's declared `payload_formats`.
-  6. Resolve the transport module through `Transports.Registry` - the single
-     point where a channel's provider tier is consulted, and the last one
-     (design D2: nothing downstream may branch on `provider_type`).
+  6. Resolve the transport module - `Transports.Registry` for the `:native`
+     tier, one engine for every `:declarative` document, `Transports.Stream` for
+     the built-in firehose. This is the single point where a channel's provider
+     tier is consulted, and the last one (design D2: nothing downstream may
+     branch on `provider_type`). The provider's `definition` and the variable
+     context the body was rendered against ride along on the request, so an
+     engine that renders templates of its own has them without a second lookup.
   7. Map the result through `Transport.Result.outcome/2` and persist. That
      function is the only place the retry rule lives; a status code is never
      re-classified here.
@@ -978,10 +982,17 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
+  # There is one declarative engine for every uploaded and seeded document, which
+  # is exactly why the tier needs no code per provider: the document travels on
+  # the request (see `request/6`), not in a module lookup.
+  defp resolve_provider_transport(%{provider_type: :declarative}) do
+    {:ok, Transports.Declarative}
+  end
+
   defp resolve_provider_transport(%{provider_type: type}) do
     {:error,
      "provider tier #{inspect(type)} has no control-plane transport in this phase; " <>
-       "declarative providers land in Phase 2 and plugin providers in Phase 3"}
+       "plugin providers land in Phase 3"}
   end
 
   defp resolve_provider_transport(_provider), do: {:error, "the channel has no provider"}
@@ -1040,12 +1051,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   defp build_request(delivery, channel, provider, scope, opts) do
     with {:ok, secrets} <- resolve_secrets(channel, provider),
          {:ok, format} <- negotiate(delivery, provider),
-         {:ok, rendered} <- render(delivery, provider, scope, format, opts) do
-      {:ok, request(delivery, channel, provider, rendered, secrets), rendered}
+         {:ok, rendered, context} <- render(delivery, provider, scope, format, opts) do
+      {:ok, request(delivery, channel, provider, rendered, secrets, context), rendered}
     end
   end
 
-  defp request(delivery, channel, provider, rendered, secrets) do
+  defp request(delivery, channel, provider, rendered, secrets, context) do
     %Request{
       delivery_id: delivery.id,
       alert_id: delivery.alert_id,
@@ -1068,7 +1079,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       is_test: delivery.is_test,
       metadata: %{
         "redacted_payload" => rendered.redacted_payload,
-        "rendered_payload_digest" => rendered.digest
+        "rendered_payload_digest" => rendered.digest,
+        # A transport that renders templates of its own carries them in the
+        # provider document, and its `{{ alert.* }}` paths must resolve to the
+        # values the notification body was just rendered against - otherwise a
+        # declarative request template renders empty beside a correct body. This
+        # is data the transport may use, not a decision: no module in the
+        # dispatch path branches on `provider_type` to decide whether to set it,
+        # and a transport that has no templates ignores it.
+        "definition" => field(provider, :definition),
+        "template_context" => context
       }
     }
   end
@@ -1110,10 +1130,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     template = resolve_template(delivery, provider, format, scope.actor)
 
     with {:ok, links} <- issue_action_links(delivery, provider, scope, opts) do
+      context = render_context(delivery, scope, opts)
+
       render_opts =
         [
           supported_formats: field(provider, :payload_formats),
-          context: render_context(delivery, scope, opts),
+          context: context,
           dedupe_key: delivery.dedupe_key,
           provider_version: field(provider, :definition_version),
           # ActionRedaction matches on KEY names, and a capability token sits
@@ -1126,7 +1148,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
       case Renderer.render(delivery.alert_snapshot || %{}, template, format, render_opts) do
         {:ok, rendered} ->
-          {:ok, rendered}
+          {:ok, rendered, template_context(context, delivery, links)}
 
         {:error, reason} ->
           {:failed,
@@ -1135,6 +1157,19 @@ defmodule ServiceRadar.Notifications.Dispatcher do
            )}
       end
     end
+  end
+
+  # The variable context the body was rendered against, for a transport that has
+  # templates of its own. `links.links` is already the effective set - an exempt
+  # destination mints nothing and therefore has no action link to carry - so the
+  # `:stream` exemption cannot be reintroduced by handing it on.
+  defp template_context(context, delivery, links) do
+    snapshot = delivery.alert_snapshot || %{}
+
+    context
+    |> Map.put("alert", snapshot)
+    |> Map.put("snapshot", snapshot)
+    |> Map.put("links", links.links)
   end
 
   # Mints the acknowledge/snooze/resolve capabilities for this delivery and

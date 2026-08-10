@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafety
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Predicate
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Presentation
+  alias ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderUpload
 
   # --- shared ---------------------------------------------------------------
 
@@ -94,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
           variant="danger"
           phx-click={@confirmation.event}
           phx-value-id={@confirmation.id}
+          phx-value-version={@confirmation[:version]}
         >
           {@confirmation.confirm_label}
         </.ui_button>
@@ -1481,6 +1483,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
 
   attr :streams, :any, required: true
   attr :can_manage, :boolean, default: false
+  attr :upload, :map, default: nil
+  attr :versions, :map, default: nil
   attr :loading, :boolean, default: false
 
   def providers_tab(assigns) do
@@ -1495,6 +1499,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
               built-in provider type, not a tier: an operator cannot author one.
             </p>
           </div>
+          <.ui_button
+            :if={@can_manage}
+            size="sm"
+            variant="primary"
+            phx-click="new_provider_upload"
+          >
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Upload definition
+          </.ui_button>
         </:header>
 
         <.loading_skeleton loading={@loading} />
@@ -1557,6 +1569,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                 <td class="text-right">
                   <div class="inline-flex gap-1">
                     <.ui_button
+                      :if={@can_manage and provider.provider_type == :declarative}
+                      size="xs"
+                      variant="ghost"
+                      phx-click="show_provider_versions"
+                      phx-value-id={provider.id}
+                    >
+                      Versions
+                    </.ui_button>
+                    <.ui_button
+                      :if={@can_manage and provider.provider_type == :declarative}
+                      size="xs"
+                      variant="ghost"
+                      phx-click="replace_provider_definition"
+                      phx-value-id={provider.id}
+                    >
+                      New version
+                    </.ui_button>
+                    <.ui_button
                       :if={@can_manage and provider.status != :disabled}
                       size="xs"
                       variant="ghost"
@@ -1582,6 +1612,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
         </div>
       </.ui_panel>
 
+      <.provider_upload_editor :if={@upload} form={@upload} />
+
+      <.provider_versions_panel :if={@versions} versions={@versions} can_manage={@can_manage} />
+
       <.ui_panel>
         <:header>
           <div>
@@ -1589,9 +1623,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
           </div>
         </:header>
         <p class="text-sm text-sr-ink/80">
-          Uploading a declarative definition is the tier that adds a destination with no code and
-          no release. The upload, validation, and version-rollback flow lands in phase 2; the only
-          authorable tier it will offer is {Enum.map_join(
+          Uploading a declarative definition adds a destination with no code and no release. The
+          only authorable tier here is {Enum.map_join(
             Presentation.authorable_tiers(),
             ", ",
             &Presentation.provider_type_label/1
@@ -1600,12 +1633,277 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
           ships as a signed package.
         </p>
         <p class="mt-2 text-xs text-sr-muted">
+          A definition is data: YAML or JSON describing one HTTP request. It carries no markup and
+          no code, its templates address the published variable catalog plus the config and secrets
+          fields it declares itself, and every resolved URL still passes the outbound policy at
+          request time.
+        </p>
+        <p class="mt-2 text-xs text-sr-muted">
           The stream provider publishes the canonical envelope to an RBAC-scoped firehose gated by
           notifications.stream.subscribe. A suppressed dispatch publishes nothing there: the
           Delivery Log, not the stream, is where a withheld notification is answerable.
         </p>
       </.ui_panel>
     </div>
+    """
+  end
+
+  attr :form, :map, required: true
+
+  @doc """
+  The declarative definition editor.
+
+  Two properties are the point of this component. Validation feedback names the
+  offending PATH and repeats the validator's own sentence - a generic "invalid
+  document" would leave an operator bisecting their own YAML - and the rendered
+  preview shows the request the document would issue, with every substitution
+  point marked, so a template that landed in the wrong field is visible before
+  the provider is saved rather than during an incident.
+
+  Nothing here is rendered through `raw/1`. A definition is operator-supplied
+  input and is echoed back to the page in full, so every part of it - error
+  paths, error messages, the preview, the document itself - is interpolated as
+  text and escaped by the template.
+  """
+  def provider_upload_editor(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div>
+          <div class="text-sm font-semibold">
+            {if @form.mode == :replace,
+              do: "New version of " <> to_string(@form.provider_key),
+              else: "Upload a provider definition"}
+          </div>
+          <p class="text-xs text-sr-muted">
+            YAML or JSON, up to {ProviderUpload.max_document_bytes()} bytes. Nothing is written
+            until the document validates, and saving never rewrites an existing version: it
+            writes the next one, so deliveries already recorded keep naming the version that
+            rendered them.
+          </p>
+        </div>
+        <.ui_button type="button" size="sm" variant="ghost" phx-click="cancel_provider_upload">
+          Close
+        </.ui_button>
+      </:header>
+
+      <form
+        id="provider-upload-form"
+        phx-change="validate_provider_upload"
+        phx-submit="save_provider_upload"
+        class="space-y-4"
+      >
+        <div :if={@form[:error]} class={ui_alert_class(variant: "error")}>{@form.error}</div>
+
+        <label class="block space-y-1">
+          <span class="text-sm font-medium text-sr-ink">Definition document</span>
+          <textarea
+            name="provider[document]"
+            rows="16"
+            spellcheck="false"
+            phx-debounce="500"
+            aria-describedby="provider-document-help"
+            class={ui_field_class(class: "w-full font-mono text-xs")}
+          >{@form.params["document"]}</textarea>
+          <span id="provider-document-help" class="text-xs text-sr-muted">
+            YAML anchors and aliases are not resolved by the decoder, so write values out or
+            supply JSON. The preview below is where an alias that silently collapsed becomes
+            visible.
+          </span>
+        </label>
+
+        <div :if={@form.errors != []} class={ui_alert_class(variant: "error")} role="alert">
+          <div>
+            <div class="font-medium">
+              This document was not accepted: {length(@form.errors)} {if length(@form.errors) == 1,
+                do: "problem",
+                else: "problems"}
+            </div>
+            <ul class="mt-2 space-y-1 text-xs">
+              <li :for={error <- @form.errors} class="flex flex-col gap-0.5 md:flex-row md:gap-2">
+                <span class="font-mono font-medium text-sr-ink">{error.path}</span>
+                <span>{error.message}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <.provider_request_preview :if={@form.preview} preview={@form.preview} />
+
+        <.ui_button
+          type="submit"
+          size="sm"
+          variant="primary"
+          disabled={is_nil(@form.definition)}
+        >
+          Save definition
+        </.ui_button>
+      </form>
+    </.ui_panel>
+    """
+  end
+
+  attr :preview, :map, required: true
+
+  @doc """
+  The request a definition would issue, with placeholders where values go.
+
+  The markers (`<alert.title>`, `<config.webhook_url>`, `<secrets.token>`) are
+  written by
+  `ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderUpload`; no channel
+  configuration and no credential is resolved to render this. A preview that
+  showed a plausible value where a secret goes would teach an operator to expect
+  one.
+  """
+  def provider_request_preview(assigns) do
+    ~H"""
+    <div class="rounded-sr-surface border border-sr-line p-3">
+      <div class="text-sm font-semibold">Rendered request</div>
+      <p class="mt-1 text-xs text-sr-muted">
+        Substitution points are shown as markers naming the value that will replace them. No
+        channel configuration and no credential is read to build this preview.
+      </p>
+
+      <dl class="mt-3 space-y-2 text-xs">
+        <div class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">Request</dt>
+          <dd class="font-mono break-all">{@preview.method} {@preview.url}</dd>
+        </div>
+        <div :if={@preview.headers != []} class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">Headers</dt>
+          <dd class="font-mono break-all">
+            <div :for={{name, value} <- @preview.headers}>{name}: {value}</div>
+          </dd>
+        </div>
+        <div class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">
+            Body ({@preview.body_format})
+          </dt>
+          <dd class="min-w-0 grow">
+            <pre class="overflow-x-auto rounded-sr-control bg-sr-subtle p-2 font-mono text-xs">{@preview.body}</pre>
+          </dd>
+        </div>
+        <div class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">Outcome</dt>
+          <dd>
+            Success on {@preview.success}; retried on {@preview.retryable}. Anything else is a
+            terminal failure.
+          </dd>
+        </div>
+        <div :if={@preview.fields != []} class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">Channel form</dt>
+          <dd>
+            <div :for={field <- @preview.fields}>
+              <span class="font-mono">{field.name}</span>
+              <span class="text-sr-muted">
+                {field.title}{if field.required?, do: " (required)", else: ""}{if field.secret?,
+                  do: " - stored as a credential reference",
+                  else: ""}
+              </span>
+            </div>
+          </dd>
+        </div>
+        <div :if={@preview.unresolved != []} class="flex flex-col gap-1 md:flex-row md:gap-2">
+          <dt class="w-28 shrink-0 font-medium text-sr-ink">Renders empty</dt>
+          <dd class="text-sr-muted">
+            <span class="font-mono">{Enum.join(@preview.unresolved, ", ")}</span>
+            - these are free-form namespaces, so they resolve only when the alert carries them.
+          </dd>
+        </div>
+      </dl>
+    </div>
+    """
+  end
+
+  attr :versions, :map, required: true
+  attr :can_manage, :boolean, default: false
+
+  @doc """
+  A declarative provider's definition history, and what binds to it.
+
+  Rolling back writes the older document as a NEW version rather than editing an
+  old one, because `NotificationDelivery.provider_version` names the version that
+  rendered each delivery and rewriting it would falsify the delivery log. Each
+  row therefore links to the deliveries recorded against it.
+  """
+  def provider_versions_panel(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div>
+          <div class="text-sm font-semibold">
+            Definition versions - {@versions.provider.display_name}
+          </div>
+          <p class="text-xs text-sr-muted">
+            Rolling back re-uploads an older document as the next version. Deliveries already
+            recorded keep naming the version that rendered them, so the audit trail stays true and
+            a rollback can itself be rolled back.
+          </p>
+        </div>
+        <.ui_button type="button" size="sm" variant="ghost" phx-click="close_provider_versions">
+          Close
+        </.ui_button>
+      </:header>
+
+      <div class="rounded-sr-surface border border-sr-line p-3 text-xs">
+        <div class="font-medium text-sr-ink">
+          Channels bound to this provider render at v{@versions.provider.definition_version}
+        </div>
+        <.empty_state :if={@versions.channels == []} message="No channel is bound to it yet." />
+        <ul :if={@versions.channels != []} class="mt-1 list-disc space-y-1 pl-5 text-sr-muted">
+          <li :for={channel <- @versions.channels}>
+            {channel.name} - {if channel.enabled, do: "enabled", else: "disabled"}
+          </li>
+        </ul>
+      </div>
+
+      <.empty_state
+        :if={@versions.entries == []}
+        message="No definition version has been recorded for this provider yet."
+      />
+
+      <div :if={@versions.entries != []} class="mt-3 space-y-3">
+        <div
+          :for={entry <- @versions.entries}
+          class="rounded-sr-surface border border-sr-line p-3"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold">Version {entry.number}</span>
+              <.state_badge :if={entry.current?} label="Current" variant="success" />
+              <span class="text-xs text-sr-muted">
+                {Presentation.timestamp(entry.recorded_at)} - {entry.action}
+              </span>
+            </div>
+            <div class="inline-flex gap-1">
+              <.link
+                class="text-xs underline"
+                navigate={
+                  ~p"/settings/notifications/deliveries?#{%{"provider_version" => entry.number}}"
+                }
+              >
+                Deliveries at v{entry.number}
+              </.link>
+              <.ui_button
+                :if={@can_manage and not entry.current?}
+                size="xs"
+                variant="ghost"
+                phx-click="confirm_rollback_provider"
+                phx-value-id={@versions.provider.id}
+                phx-value-version={entry.number}
+              >
+                Roll back to v{entry.number}
+              </.ui_button>
+            </div>
+          </div>
+
+          <details class="mt-2">
+            <summary class="cursor-pointer text-xs text-sr-muted">Show the document</summary>
+            <pre class="mt-2 overflow-x-auto rounded-sr-control bg-sr-subtle p-2 font-mono text-xs">{Presentation.truncate(ProviderUpload.document_text(entry.definition), 4000)}</pre>
+          </details>
+        </div>
+      </div>
+    </.ui_panel>
     """
   end
 

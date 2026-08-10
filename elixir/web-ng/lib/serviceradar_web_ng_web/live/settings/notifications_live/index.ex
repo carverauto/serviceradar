@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Notifications.Declarative.Definition
   alias ServiceRadar.Notifications.MatchExpression.Evaluator
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Notifications.NotificationEscalationPolicy
@@ -68,6 +69,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafety
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Predicate
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Presentation
+  alias ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderUpload
+  alias ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderVersions
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -116,6 +119,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     |> assign(:silence_counts, %{})
     |> assign(:filters, DeliveryFilters.empty())
     |> assign(:channel_form, nil)
+    |> assign(:provider_upload, nil)
+    |> assign(:provider_versions, nil)
     |> assign(:route_form, nil)
     |> assign(:policy_form, nil)
     |> assign(:silence_form, nil)
@@ -723,6 +728,71 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     toggle_provider(socket, id, :activate, "Provider activated")
   end
 
+  # --- declarative provider upload and versioning ----------------------------
+
+  defp handle_authorized("new_provider_upload", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:provider_upload, ProviderUpload.blank_form())
+     |> assign(:provider_versions, nil)}
+  end
+
+  defp handle_authorized("replace_provider_definition", %{"id" => id}, socket) do
+    with_declarative_provider(socket, id, fn provider ->
+      {:noreply, assign(socket, :provider_upload, ProviderUpload.form_for(provider))}
+    end)
+  end
+
+  defp handle_authorized("cancel_provider_upload", _params, socket) do
+    {:noreply, assign(socket, :provider_upload, nil)}
+  end
+
+  defp handle_authorized("validate_provider_upload", %{"provider" => params}, socket) do
+    {:noreply, assign(socket, :provider_upload, upload_form(socket, params))}
+  end
+
+  defp handle_authorized("save_provider_upload", %{"provider" => params}, socket) do
+    form = upload_form(socket, params)
+
+    case form.definition do
+      nil -> {:noreply, assign(socket, :provider_upload, nothing_to_save(form))}
+      definition -> save_definition(socket, form, definition)
+    end
+  end
+
+  defp handle_authorized("show_provider_versions", %{"id" => id}, socket) do
+    with_declarative_provider(socket, id, fn provider ->
+      {:noreply, assign(socket, :provider_versions, version_panel(socket, provider))}
+    end)
+  end
+
+  defp handle_authorized("close_provider_versions", _params, socket) do
+    {:noreply, assign(socket, :provider_versions, nil)}
+  end
+
+  defp handle_authorized("confirm_rollback_provider", %{"id" => id, "version" => version}, socket) do
+    with_declarative_provider(socket, id, fn provider ->
+      panel = version_panel(socket, provider)
+
+      case ProviderVersions.find(panel.entries, integer_or_nil(version)) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "That provider version is not available.")}
+
+        entry ->
+          {:noreply,
+           socket
+           |> assign(:provider_versions, panel)
+           |> assign(:confirmation, rollback_confirmation(provider, entry, panel.channels))}
+      end
+    end)
+  end
+
+  defp handle_authorized("rollback_provider", %{"id" => id, "version" => version}, socket) do
+    with_declarative_provider(socket, id, fn provider ->
+      roll_back(socket, provider, integer_or_nil(version))
+    end)
+  end
+
   # --- delivery log ----------------------------------------------------------
 
   defp handle_authorized("filter_deliveries", params, socket) do
@@ -852,6 +922,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
             :if={@tab.id == "providers"}
             streams={@streams}
             can_manage={@can_manage_providers}
+            upload={@provider_upload}
+            versions={@provider_versions}
             loading={@loading}
           />
 
@@ -1108,6 +1180,210 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     scope
     |> Data.list_channels()
     |> Enum.filter(&(to_string(&1.provider_id) == to_string(provider_id)))
+  end
+
+  # --- declarative provider upload helpers -----------------------------------
+
+  # Every upload and version event resolves its provider the same way: the row is
+  # read with the viewer's scope, and a tier that carries no uploadable document
+  # is refused by name rather than producing an Ash error the operator cannot
+  # act on. `:native` is resolved from a compile-time allowlist and `:wasm_plugin`
+  # ships as a signed package, so neither is authorable here.
+  defp with_declarative_provider(socket, id, fun) do
+    case fetch_provider(socket.assigns.current_scope, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "That provider is not available.")}
+
+      %{provider_type: :declarative} = provider ->
+        fun.(provider)
+
+      provider ->
+        {:noreply, put_flash(socket, :error, not_declarative_message(provider))}
+    end
+  end
+
+  defp not_declarative_message(provider) do
+    "#{provider.display_name} is a #{Presentation.provider_type_label(provider.provider_type)} " <>
+      "provider, so it carries no uploaded definition. Only a declarative provider is authored " <>
+      "by uploading a document."
+  end
+
+  defp upload_form(socket, params) do
+    socket.assigns.provider_upload
+    |> ProviderUpload.merge(params)
+    |> ProviderUpload.validate()
+  end
+
+  # A blank document has no validation errors to show, so pressing save on one
+  # would otherwise do nothing and say nothing.
+  defp nothing_to_save(%{errors: [], error: nil} = form) do
+    Map.put(form, :error, "Paste a YAML or JSON definition document first.")
+  end
+
+  defp nothing_to_save(form), do: form
+
+  defp save_definition(socket, form, definition) do
+    scope = socket.assigns.current_scope
+
+    case provider_for_key(scope, definition.key) do
+      nil ->
+        create_definition(socket, form, definition)
+
+      %{provider_type: :declarative} = provider ->
+        update_definition(socket, form, definition, provider)
+
+      provider ->
+        {:noreply, assign(socket, :provider_upload, Map.put(form, :error, key_taken(provider)))}
+    end
+  end
+
+  defp key_taken(provider) do
+    "The key #{provider.provider_key} already belongs to a " <>
+      "#{Presentation.provider_type_label(provider.provider_type)} provider. Choose another key: " <>
+      "an uploaded document never replaces a provider from another tier."
+  end
+
+  defp create_definition(socket, form, definition) do
+    NotificationProvider
+    |> Ash.Changeset.for_create(:create, ProviderUpload.create_attrs(definition), scope: socket.assigns.current_scope)
+    |> Ash.create()
+    |> case do
+      {:ok, provider} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "#{provider.display_name} saved as version #{provider.definition_version}. It starts as a draft; activate it to bind channels to it."
+         )
+         |> assign(:provider_upload, nil)
+         |> do_load_tab("providers")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :provider_upload, Map.put(form, :error, error_message(reason)))}
+    end
+  end
+
+  defp update_definition(socket, form, definition, provider) do
+    attrs = ProviderUpload.update_attrs(definition, provider.definition_version)
+
+    provider
+    |> Ash.Changeset.for_update(:update, attrs, scope: socket.assigns.current_scope)
+    |> Ash.update()
+    |> case do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "#{updated.display_name} saved as version #{updated.definition_version}. Deliveries already recorded keep naming the version that rendered them."
+         )
+         |> assign(:provider_upload, nil)
+         |> refresh_version_panel(updated)
+         |> do_load_tab("providers")}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :provider_upload, Map.put(form, :error, error_message(reason)))}
+    end
+  end
+
+  defp roll_back(socket, provider, number) do
+    scope = socket.assigns.current_scope
+    entries = version_entries(scope, provider)
+
+    with entry when not is_nil(entry) <- ProviderVersions.find(entries, number),
+         {:ok, definition} <- Definition.parse(entry.definition),
+         attrs = ProviderUpload.update_attrs(definition, provider.definition_version),
+         {:ok, updated} <-
+           provider |> Ash.Changeset.for_update(:update, attrs, scope: scope) |> Ash.update() do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Rolled back to version #{entry.number}, saved as version #{updated.definition_version}."
+       )
+       |> assign(:confirmation, nil)
+       |> refresh_version_panel(updated)
+       |> do_load_tab("providers")}
+    else
+      nil ->
+        {:noreply,
+         socket
+         |> assign(:confirmation, nil)
+         |> put_flash(:error, "That provider version is not available.")}
+
+      # `Declarative.Definition` answers with a list of path/message maps. A
+      # stored document that no longer validates means the validator got stricter
+      # since it was uploaded, and re-applying it would store a document the
+      # engine cannot run.
+      {:error, [%{path: _path, message: _message} | _rest] = errors} ->
+        {:noreply,
+         socket
+         |> assign(:confirmation, nil)
+         |> put_flash(
+           :error,
+           "Version #{number} is no longer a valid definition: #{Definition.describe_errors(errors)}"
+         )}
+
+      {:error, reason} ->
+        {:noreply, socket |> assign(:confirmation, nil) |> put_flash(:error, error_message(reason))}
+    end
+  end
+
+  defp rollback_confirmation(provider, entry, channels) do
+    %{
+      title: "Roll back to version #{entry.number}?",
+      message:
+        "Version #{entry.number} of #{provider.display_name} is re-uploaded as version " <>
+          "#{ProviderUpload.next_version(provider.definition_version)}. Nothing already delivered " <>
+          "changes: every recorded delivery keeps naming the version that rendered it. These " <>
+          "channels start rendering from the restored document:",
+      event: "rollback_provider",
+      confirm_label: "Roll back",
+      id: to_string(provider.id),
+      version: to_string(entry.number),
+      items: Enum.map(channels, & &1.name)
+    }
+  end
+
+  defp version_panel(socket, provider) do
+    scope = socket.assigns.current_scope
+
+    %{
+      provider: provider,
+      entries: version_entries(scope, provider),
+      channels: channels_for_provider(scope, provider.id)
+    }
+  end
+
+  defp version_entries(scope, provider) do
+    scope
+    |> Data.list_provider_versions(provider.id)
+    |> ProviderVersions.history(provider.definition_version)
+  end
+
+  # The panel is only refreshed when it is open on the provider that changed, so
+  # a save from the upload editor does not open a panel nobody asked for.
+  defp refresh_version_panel(socket, provider) do
+    case socket.assigns.provider_versions do
+      %{provider: %{id: open_id}} ->
+        if to_string(open_id) == to_string(provider.id) do
+          assign(socket, :provider_versions, version_panel(socket, provider))
+        else
+          socket
+        end
+
+      _other ->
+        socket
+    end
+  end
+
+  defp provider_for_key(scope, key) do
+    NotificationProvider
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(provider_key == ^key)
+    |> Ash.Query.limit(1)
+    |> Ash.read(scope: scope)
+    |> first_or_nil()
   end
 
   # --- route form helpers ----------------------------------------------------

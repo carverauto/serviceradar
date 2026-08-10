@@ -199,24 +199,54 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
   def open_namespaces, do: @open_namespaces
 
   @doc """
+  The constructs that mean "somebody expected a programming language here".
+
+  Published so that a caller holding a document rather than a single template -
+  `ServiceRadar.Notifications.Declarative.Definition` scans every string in an
+  uploaded provider document, not only the template-valued ones - checks for the
+  same markers instead of keeping a second list that would drift.
+  """
+  @spec code_markers() :: [String.t()]
+  def code_markers, do: @code_markers
+
+  @doc """
   Validates a subject or body template.
 
   Returns `:ok`, or `{:error, message}` naming the offending path, filter, or
   construct.
-  """
-  @spec validate_template(term()) :: :ok | {:error, String.t()}
-  def validate_template(nil), do: :ok
-  def validate_template(""), do: :ok
 
-  def validate_template(template) when is_binary(template) do
+  ## Options
+
+    * `:extra_paths` - additional EXACT variable paths this particular template
+      may address, on top of `variable_catalog/0` and `open_namespaces/0`.
+
+  `:extra_paths` exists for the declarative provider tier and for nothing else. A
+  declarative definition's `url`, `headers`, and `body` address two namespaces
+  that no notification body can: `config.<field>` and `secrets.<field>`, whose
+  legal leaves are enumerated by that one document's own `config_schema` and are
+  therefore unknown at compile time. They are passed as exact paths rather than
+  added to `open_namespaces/0` deliberately - an open namespace accepts any leaf,
+  which would put "references a config field the schema does not declare" back
+  into the silent-empty-string class this module exists to eliminate. Every other
+  caller uses `validate_template/1` and gets the closed catalog unchanged.
+  """
+  @spec validate_template(term(), keyword()) :: :ok | {:error, String.t()}
+  def validate_template(template, opts \\ [])
+
+  def validate_template(nil, _opts), do: :ok
+  def validate_template("", _opts), do: :ok
+
+  def validate_template(template, opts) when is_binary(template) and is_list(opts) do
+    extra = opts |> Keyword.get(:extra_paths, []) |> MapSet.new()
+
     with :ok <- check_size(template),
          :ok <- check_code_markers(template),
          {:ok, expressions} <- extract_expressions(template) do
-      check_expressions(expressions)
+      check_expressions(expressions, extra)
     end
   end
 
-  def validate_template(_other), do: {:error, "must be a template string"}
+  def validate_template(_other, _opts), do: {:error, "must be a template string"}
 
   # --- Ash.Resource.Validation ---------------------------------------------
 
@@ -363,9 +393,9 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
     template |> String.split(needle) |> length() |> Kernel.-(1)
   end
 
-  defp check_expressions(bodies) do
+  defp check_expressions(bodies, extra) do
     Enum.reduce_while(bodies, :ok, fn body, :ok ->
-      case check_expression(body) do
+      case check_expression(body, extra) do
         :ok -> {:cont, :ok}
         {:error, message} -> {:halt, {:error, message}}
       end
@@ -374,24 +404,25 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
 
   # --- One `{{ ... }}` ------------------------------------------------------
 
-  defp check_expression(body) do
+  defp check_expression(body, extra) do
     if String.contains?(body, "{") or String.contains?(body, "}") do
       {:error, "nested braces in #{quote_expression(body)}"}
     else
-      parse_expression(body)
+      parse_expression(body, extra)
     end
   end
 
-  defp parse_expression(body) do
+  defp parse_expression(body, extra) do
     with {:ok, [path_segment | filter_segments]} <- split_pipeline(body),
-         :ok <- check_path(String.trim(path_segment), body) do
+         :ok <- check_path(String.trim(path_segment), body, extra) do
       check_filters(filter_segments, body)
     end
   end
 
-  defp check_path("", body), do: {:error, "empty variable path in #{quote_expression(body)}"}
+  defp check_path("", body, _extra),
+    do: {:error, "empty variable path in #{quote_expression(body)}"}
 
-  defp check_path(path, body) do
+  defp check_path(path, body, extra) do
     cond do
       String.length(path) > @max_path_length ->
         {:error, "variable path in #{quote_expression(body)} is too long"}
@@ -400,6 +431,9 @@ defmodule ServiceRadar.Notifications.Template.Syntax do
         {:error, "\"#{path}\" in #{quote_expression(body)} is not a variable path"}
 
       MapSet.member?(@variable_catalog, path) ->
+        :ok
+
+      MapSet.member?(extra, path) ->
         :ok
 
       open_namespace_path?(path) ->

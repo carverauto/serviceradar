@@ -11,6 +11,28 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   `managed` / `template_version` / `template_fingerprint` pattern that
   `ServiceRadar.Observability.RuleSeeder` uses for preset rules.
 
+  ## The declarative catalog rides the same loop
+
+  `ServiceRadar.Notifications.Declarative.Catalog` supplies the first-party
+  `:declarative` rows (tasks 2.4.1, 2.4.2), and they are reconciled HERE, by this
+  code, rather than by a second seeder with a second opinion about what
+  "operator-modified" means. `seeded_providers/0` is simply the native catalog
+  followed by the declarative one, so a catalog entry gets the same create, the
+  same divergence check, the same one-way activation, and the same "never
+  re-enable a disabled provider" guarantee that `slack` gets.
+
+  The single difference is the fingerprint's field list, which
+  `managed_fields/1` answers per tier: a `:declarative` row adds `:definition`,
+  because the definition IS the provider in that tier. Without it an operator's
+  edit to a catalog entry's request template would not read as divergence and
+  would be silently overwritten, and a release shipping a corrected document
+  could never apply it. It is added for that tier ONLY: adding a field to a
+  fingerprint's field list changes every digest computed with it, and the
+  `:native` rows in the field carry digests an earlier release stamped with the
+  shorter list. `definition` is NULL on every non-declarative row anyway - the
+  `notification_providers_declarative_definition` CHECK constraint requires it -
+  so nothing is lost by leaving it out there.
+
   `:stream` is seeded here rather than by a second mechanism, exactly as task
   1.4.9 asks: it is one more entry in `default_providers/0`. Note that its row
   carries `implementation_module: nil` - the
@@ -79,6 +101,7 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   use ServiceRadar.DelayedSeeder, delay_ms: 6_000, callback: :seed_all
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Notifications.Declarative.Catalog
   alias ServiceRadar.Notifications.NotificationProvider
   alias ServiceRadar.Notifications.SeedFingerprint
   alias ServiceRadar.Notifications.Transports.Discord
@@ -107,6 +130,11 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
     :source
   ]
 
+  # A `:declarative` row's document is seeder-owned content, so it is fingerprinted
+  # and reconciled. See the moduledoc for why this is a separate list rather than
+  # an extra entry in `@managed_fields`.
+  @declarative_managed_fields @managed_fields ++ [:definition]
+
   @template_version "1"
 
   # The stored `implementation_module` names, resolved from the registry's
@@ -128,9 +156,25 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
                             end
                           end)
 
-  @doc "The seeder-owned attribute set covered by the divergence fingerprint."
+  @doc """
+  The seeder-owned attribute set covered by the divergence fingerprint.
+
+  This is the `:native` and `:stream` list. Use `managed_fields/1` when a row or
+  an attribute map is in hand: the `:declarative` tier fingerprints one more
+  field.
+  """
   @spec managed_fields() :: [atom()]
   def managed_fields, do: @managed_fields
+
+  @doc """
+  The seeder-owned attribute set for one provider row or attribute map.
+
+  `:declarative` adds `:definition`, because in that tier the document is the
+  provider. See the moduledoc for why the two lists are not one.
+  """
+  @spec managed_fields(map() | struct()) :: [atom()]
+  def managed_fields(%{provider_type: :declarative}), do: @declarative_managed_fields
+  def managed_fields(_row_or_attrs), do: @managed_fields
 
   @doc false
   @spec seed_all() :: :ok | nil
@@ -150,7 +194,7 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
     case Ash.read(Ash.Query.for_read(NotificationProvider, :read, %{}), opts) do
       {:ok, providers} ->
         existing = Map.new(providers, &{&1.provider_key, &1})
-        Enum.each(default_providers(), &reconcile_or_create(existing, &1, opts))
+        Enum.each(seeded_providers(), &reconcile_or_create(existing, &1, opts))
         :ok
 
       {:error, reason} ->
@@ -192,7 +236,7 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
       current?(provider, attrs) ->
         maybe_activate(provider, opts)
 
-      SeedFingerprint.diverged?(provider, @managed_fields) ->
+      SeedFingerprint.diverged?(provider, managed_fields(attrs)) ->
         Logger.info(
           "Skipping managed notification provider #{provider.provider_key}: operator-modified " <>
             "fields diverge from template v#{provider.template_version}"
@@ -215,7 +259,7 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   # adds the marker without any content change. Anything else was authored or
   # edited by an operator and is left alone.
   defp maybe_adopt_unmanaged(provider, attrs, opts) do
-    if SeedFingerprint.matches_template?(provider, attrs, @managed_fields) do
+    if SeedFingerprint.matches_template?(provider, attrs, managed_fields(attrs)) do
       stamp = %{
         managed: true,
         template_version: attrs.template_version,
@@ -233,7 +277,7 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   defp update_managed(provider, attrs, opts) do
     update_attrs =
       attrs
-      |> Map.take([:template_version | @managed_fields])
+      |> Map.take([:template_version | managed_fields(attrs)])
       |> Map.put(:managed, true)
       |> Map.put(:template_fingerprint, fingerprint(attrs))
 
@@ -277,16 +321,28 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
 
   defp maybe_activate(_provider, _opts), do: :ok
 
-  defp fingerprint(attrs), do: SeedFingerprint.fingerprint(attrs, @managed_fields)
+  defp fingerprint(attrs), do: SeedFingerprint.fingerprint(attrs, managed_fields(attrs))
 
   # --- the catalog -----------------------------------------------------------
 
   @doc """
-  The first-party provider catalog, as attribute maps.
+  Every first-party provider row this seeder reconciles.
+
+  The `:native` and `:stream` catalog, followed by
+  `ServiceRadar.Notifications.Declarative.Catalog`'s `:declarative` entries. One
+  list, one loop, one reconciliation rule; see the moduledoc.
+  """
+  @spec seeded_providers() :: [map()]
+  def seeded_providers, do: default_providers() ++ Catalog.provider_attrs()
+
+  @doc """
+  The first-party `:native` and `:stream` provider catalog, as attribute maps.
 
   Public because the seeder tests assert against it directly - a catalog whose
   `config_schema` does not validate, or whose `implementation_module` is not
-  allowlisted, is a boot-time warning nobody reads otherwise.
+  allowlisted, is a boot-time warning nobody reads otherwise. The `:declarative`
+  catalog is `Declarative.Catalog.provider_attrs/0`; `seeded_providers/0` is
+  both.
   """
   @spec default_providers() :: [map()]
   def default_providers do

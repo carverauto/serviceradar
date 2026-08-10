@@ -88,6 +88,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
     confirm_disable_provider
     disable_provider
     enable_provider
+    new_provider_upload
+    replace_provider_definition
+    cancel_provider_upload
+    validate_provider_upload
+    save_provider_upload
+    show_provider_versions
+    close_provider_versions
+    confirm_rollback_provider
+    rollback_provider
   )
 
   # Not mutations, but still gated: a helpdesk user holds neither
@@ -185,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
 
       # A refused event must not have reached a handler, so none of the editors
       # a handler opens may be in the DOM.
-      for form <- ~w(save_channel save_route save_policy save_silence) do
+      for form <- ~w(save_channel save_route save_policy save_silence save_provider_upload) do
         refute html =~ "phx-submit=\"#{form}\"",
                "the #{form} editor was opened by a refused event"
       end
@@ -338,8 +347,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
     }
   end
 
-  defp params_for(event, f) when event in ~w(confirm_disable_provider disable_provider enable_provider) do
+  defp params_for(event, f)
+       when event in ~w(confirm_disable_provider disable_provider enable_provider replace_provider_definition show_provider_versions) do
     %{"id" => to_string(f.provider.id)}
+  end
+
+  defp params_for(event, f) when event in ~w(confirm_rollback_provider rollback_provider) do
+    %{"id" => to_string(f.provider.id), "version" => "1"}
+  end
+
+  # A document that WOULD create a provider if the gate let it through. A forged
+  # upload carrying nothing provable would make the refusal meaningless.
+  defp params_for(event, _f) when event in ~w(validate_provider_upload save_provider_upload) do
+    %{
+      "provider" => %{
+        "document" => """
+        schema_version: 1
+        key: forged_pager
+        display_name: Forged Pager
+        capabilities: [send, test]
+        payload_formats: [markdown]
+        config_schema:
+          type: object
+          properties:
+            webhook_url:
+              type: string
+        request:
+          method: POST
+          url: "{{ config.webhook_url }}"
+          headers:
+            Content-Type: application/json
+          body_format: json
+          body:
+            text: "{{ alert.title }}"
+        success:
+          status: [200]
+        failure:
+          retryable_status: [500]
+        """
+      }
+    }
   end
 
   defp params_for(_event, _f), do: %{}
@@ -375,7 +422,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsAuthorizationTest do
       providers:
         NotificationProvider
         |> NotificationsFixtures.read_all()
-        |> Enum.map(&Map.take(&1, [:id, :provider_key, :status]))
+        |> Enum.map(&Map.take(&1, [:id, :provider_key, :status, :definition_version, :definition]))
         |> Enum.sort_by(& &1.id)
     }
   end

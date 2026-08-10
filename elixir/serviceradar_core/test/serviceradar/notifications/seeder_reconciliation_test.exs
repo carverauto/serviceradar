@@ -17,6 +17,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Notifications.Declarative.Catalog
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Notifications.NotificationProvider
   alias ServiceRadar.Notifications.NotificationTemplate
@@ -90,6 +91,31 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
     Enum.find(ProviderSeeder.default_providers(), &(&1.provider_key == provider_key))
   end
 
+  defp declarative_entry(provider_key) do
+    Enum.find(Catalog.provider_attrs(), &(&1.provider_key == provider_key))
+  end
+
+  # The state the PREVIOUS release left behind for a row nobody touched: that
+  # release's content, that release's version, and a fingerprint that still
+  # matches the content. It is the only state a reconcile is allowed to rewrite
+  # content from, so it is the only way to prove that an upgrade really does
+  # replace a stale document rather than merely bumping a version string.
+  defp wind_back_pristine!(provider_key, actor, previous_attrs) do
+    stale = Map.put(previous_attrs, :template_version, "0")
+
+    update!(
+      provider!(provider_key, actor),
+      :update,
+      %{
+        definition: stale.definition,
+        template_version: "0",
+        template_fingerprint:
+          SeedFingerprint.fingerprint(stale, ProviderSeeder.managed_fields(stale))
+      },
+      actor
+    )
+  end
+
   defp create_channel(provider_key, config, actor) do
     NotificationChannel
     |> Ash.Changeset.for_create(
@@ -145,7 +171,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert :ok = ProviderSeeder.seed_all()
 
       for provider <- providers(actor) do
-        refute SeedFingerprint.diverged?(provider, ProviderSeeder.managed_fields()),
+        refute SeedFingerprint.diverged?(provider, ProviderSeeder.managed_fields(provider)),
                "#{provider.provider_key} does not survive its own jsonb round-trip"
       end
     end
@@ -242,6 +268,145 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       discord = provider!("discord", actor)
       assert discord.template_version == "1"
       assert discord.default_max_attempts == 10
+    end
+  end
+
+  # --- the seeded declarative catalog (tasks 2.4.1a, 2.4.2, 2.5.3) -----------
+
+  describe "the seeded declarative catalog" do
+    test "installs every entry active, managed, and first-party", %{actor: actor} do
+      # Task 2.5.3a's other half: the catalog is not merely well formed, it is
+      # actually in the database and actually dispatchable after a fresh install.
+      # A catalog left in `:draft` is a catalog that pages nobody, because
+      # `Suppression` withholds every dispatch to a channel whose provider is not
+      # `:active`.
+      assert :ok = ProviderSeeder.seed_all()
+
+      seeded = Map.new(providers(actor), &{&1.provider_key, &1})
+      refute Catalog.provider_attrs() == []
+
+      for expected <- Catalog.provider_attrs() do
+        provider = Map.fetch!(seeded, expected.provider_key)
+
+        assert provider.provider_type == :declarative
+        assert provider.source == :first_party
+        assert provider.managed
+        assert provider.status == :active
+
+        # The proof that this tier needs no ServiceRadar code: the row carries a
+        # document and names no module. The `notification_providers_native_module`
+        # CHECK constraint would refuse one anyway.
+        assert is_nil(provider.implementation_module)
+        assert provider.definition == expected.definition
+        assert provider.config_schema == expected.config_schema
+        assert provider.capabilities == expected.capabilities
+        assert :send in provider.capabilities
+        assert :test in provider.capabilities
+        assert provider.supported_routes == [:control_plane]
+        assert provider.template_version == expected.template_version
+
+        assert provider.template_fingerprint ==
+                 SeedFingerprint.fingerprint(expected, ProviderSeeder.managed_fields(expected))
+      end
+    end
+
+    test "advances an untouched entry's document across an upgrade", %{actor: actor} do
+      assert :ok = ProviderSeeder.seed_all()
+
+      shipped = declarative_entry("pagerduty")
+
+      previous =
+        Map.put(
+          shipped,
+          :definition,
+          put_in(
+            shipped.definition,
+            ["request", "url"],
+            "https://events.pagerduty.com/v2/enqueue"
+          )
+        )
+
+      stale = wind_back_pristine!("pagerduty", actor, previous)
+      assert stale.definition["request"]["url"] == "https://events.pagerduty.com/v2/enqueue"
+
+      assert :ok = ProviderSeeder.seed_all()
+
+      pagerduty = provider!("pagerduty", actor)
+      assert pagerduty.template_version == Catalog.template_version()
+      assert pagerduty.definition == shipped.definition
+      assert pagerduty.status == :active
+
+      refute SeedFingerprint.diverged?(pagerduty, ProviderSeeder.managed_fields(pagerduty))
+    end
+
+    test "preserves an operator-edited document across an upgrade", %{actor: actor} do
+      # `:definition` is in this tier's fingerprint precisely so that this holds.
+      # Were it not, an operator who corrected a request template for their own
+      # destination would find the correction gone after the next release.
+      assert :ok = ProviderSeeder.seed_all()
+
+      edited =
+        put_in(
+          declarative_entry("opsgenie").definition,
+          ["request", "headers", "x-serviceradar-deployment"],
+          "noc"
+        )
+
+      wind_back_provider!("opsgenie", actor, %{definition: edited})
+
+      assert :ok = ProviderSeeder.seed_all()
+
+      opsgenie = provider!("opsgenie", actor)
+      assert opsgenie.definition == edited
+
+      # Left at the version it diverged from, so the skip stays visible instead
+      # of looking like a successful reconcile.
+      assert opsgenie.template_version == "0"
+    end
+
+    test "does not resurrect an entry an operator disabled", %{actor: actor} do
+      # Task 2.4.1a. Every catalog entry is individually disablable, and the
+      # disable outranks an upgrade - including an upgrade that ships a new
+      # template_version for that very entry.
+      assert :ok = ProviderSeeder.seed_all()
+
+      disabled = update!(provider!("telegram", actor), :disable, %{}, actor)
+      assert disabled.status == :disabled
+
+      assert :ok = ProviderSeeder.seed_all()
+      assert provider!("telegram", actor).status == :disabled
+
+      wind_back_provider!("telegram", actor)
+      assert :ok = ProviderSeeder.seed_all()
+
+      telegram = provider!("telegram", actor)
+      assert telegram.status == :disabled
+      assert telegram.template_version == Catalog.template_version()
+    end
+
+    test "disabling one entry leaves every other provider alone", %{actor: actor} do
+      assert :ok = ProviderSeeder.seed_all()
+
+      update!(provider!("ntfy", actor), :disable, %{}, actor)
+      assert :ok = ProviderSeeder.seed_all()
+
+      for provider <- providers(actor), provider.provider_key != "ntfy" do
+        assert provider.status == :active,
+               "disabling ntfy also affected #{provider.provider_key}"
+      end
+    end
+
+    test "is idempotent, and reseeding writes nothing", %{actor: actor} do
+      assert :ok = ProviderSeeder.seed_all()
+      first = Map.new(providers(actor), &{&1.provider_key, &1})
+
+      assert :ok = ProviderSeeder.seed_all()
+      second = Map.new(providers(actor), &{&1.provider_key, &1})
+
+      for key <- Catalog.keys() do
+        assert second[key].id == first[key].id
+        assert second[key].updated_at == first[key].updated_at
+      end
     end
   end
 

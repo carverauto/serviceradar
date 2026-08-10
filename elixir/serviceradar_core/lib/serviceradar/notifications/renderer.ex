@@ -332,12 +332,29 @@ defmodule ServiceRadar.Notifications.Renderer do
 
   Returns the rendered string and the list of unresolved expressions. `format`
   selects the escaping applied to substituted values.
+
+  ## Options
+
+    * `:field`, `:location` - what the resulting `Unresolved` entries name.
+    * `:extra_paths` - additional exact variable paths this template may address,
+      forwarded to `Syntax.validate_template/2`. It exists for the declarative
+      provider tier, whose `config.*` and `secrets.*` leaves come from one
+      provider document's own `config_schema`; pass
+      `ServiceRadar.Notifications.Declarative.Definition.config_paths/1 ++
+      secret_paths/1` and put the corresponding values in `context`. `render/4`
+      deliberately does NOT accept it: a notification body is bound to the closed
+      catalog.
   """
   @spec render_string(String.t() | nil, map(), payload_format(), keyword()) ::
           {:ok, String.t() | nil, [Unresolved.t()]} | {:error, error()}
   def render_string(template, context, format \\ :plain, opts \\ []) do
     with {:ok, module} <- format_module(format),
-         :ok <- validate_syntax(template, Keyword.get(opts, :field, :body_template)) do
+         :ok <-
+           validate_syntax(
+             template,
+             Keyword.get(opts, :field, :body_template),
+             Keyword.take(opts, [:extra_paths])
+           ) do
       {rendered, unresolved} =
         substitute(
           template,
@@ -477,10 +494,12 @@ defmodule ServiceRadar.Notifications.Renderer do
 
   defp template_field(_template, _field), do: nil
 
-  defp validate_syntax(nil, _field), do: :ok
+  defp validate_syntax(template, field, syntax_opts \\ [])
 
-  defp validate_syntax(template, field) do
-    case Syntax.validate_template(template) do
+  defp validate_syntax(nil, _field, _syntax_opts), do: :ok
+
+  defp validate_syntax(template, field, syntax_opts) do
+    case Syntax.validate_template(template, syntax_opts) do
       :ok -> :ok
       {:error, message} -> {:error, {:invalid_template, %{field: field, message: message}}}
     end

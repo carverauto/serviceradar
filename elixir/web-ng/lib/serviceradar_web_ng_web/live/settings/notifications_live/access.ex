@@ -122,6 +122,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Access do
     "confirm_disable_provider" => @providers_manage,
     "disable_provider" => @providers_manage,
     "enable_provider" => @providers_manage,
+    # Declarative provider upload, versioning, and rollback. Every one of these
+    # requires `notifications.providers.manage`, including the two that only open
+    # a panel: the upload editor renders a stored definition and the version
+    # panel renders every superseded one, and a definition is the configuration
+    # that decides where a notification is sent.
+    "new_provider_upload" => @providers_manage,
+    "replace_provider_definition" => @providers_manage,
+    "cancel_provider_upload" => @providers_manage,
+    "validate_provider_upload" => @providers_manage,
+    "save_provider_upload" => @providers_manage,
+    "show_provider_versions" => @providers_manage,
+    "close_provider_versions" => @providers_manage,
+    "confirm_rollback_provider" => @providers_manage,
+    "rollback_provider" => @providers_manage,
     # Delivery log
     "filter_deliveries" => @deliveries_view,
     "clear_delivery_filters" => @deliveries_view,

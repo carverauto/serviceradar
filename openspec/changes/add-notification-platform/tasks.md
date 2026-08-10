@@ -927,77 +927,246 @@ Conventions that apply to every phase:
 
 ### 2.1 Request template document format
 
-- [ ] 2.1.1 Define the declarative definition document
+- [x] 2.1.1 Define the declarative definition document
       (`NotificationProvider.definition`): method, URL template, header templates,
       body template, auth mode, success predicate, retryable-status set, and
       response field extraction for `external_correlation_id`.
-- [ ] 2.1.2 Add `ServiceRadar.Notifications.Declarative.Definition` with a strict
+      Auth is expressed as a header template reading `secrets.*` rather than as a
+      separate `auth_mode` enum: the credential already resolves through
+      `SecretBroker` into `Transport.Request.secrets`, and a second spelling of
+      "where the token goes" would be a second place to get it wrong. A
+      credential-shaped header whose value carries no `secrets.*` reference is
+      rejected, so the enum's guarantee is kept without the enum.
+- [x] 2.1.2 Add `ServiceRadar.Notifications.Declarative.Definition` with a strict
       validator that rejects unknown keys and any construct outside the restricted
-      substitution grammar.
-- [ ] 2.1.3 Validate the provider `config_schema` with `Plugins.ConfigSchema`; the
-      declarative definition may reference only fields the schema declares.
-- [ ] 2.1.4 Reject `html`, `raw_html`, `javascript`, `js`, `component`,
+      substitution grammar. Templates are validated by
+      `Template.Syntax.validate_template/2`, which gained an `:extra_paths` option
+      for the `config.*` / `secrets.*` leaves that only a document's own
+      `config_schema` can enumerate; `validate_template/1` and the notification
+      body catalog are unchanged.
+- [x] 2.1.3 Validate the provider `config_schema` with `Plugins.ConfigSchema`; the
+      declarative definition may reference only fields the schema declares. A
+      credential-named property that is not `secretRef: true` is refused, so a
+      token cannot reach the non-sensitive `config` column.
+- [x] 2.1.4 Reject `html`, `raw_html`, `javascript`, `js`, `component`,
       `component_ref`, `live_view`, `react`, and `ui_code` keys, matching the
       manifest validator at `plugins/manifest.ex:986-997`. Providers describe UI
-      declaratively; they never ship markup.
+      declaratively; they never ship markup. Enforced at ANY depth and
+      case-insensitively, and paired with a whole-document scan for the
+      `Template.Syntax.code_markers/0` constructs in any string.
 
 ### 2.2 Declarative execution engine
 
-- [ ] 2.2.1 Implement `Notifications.Transports.Declarative` behind the same
+- [x] 2.2.1 Implement `Notifications.Transports.Declarative` behind the same
       `Transport` behaviour, so routing and escalation cannot tell the tier.
-- [ ] 2.2.2 Guard every resolved URL with
+      One engine for every document: `Dispatcher.resolve_provider_transport/1`
+      answers `:declarative` with this module and the document itself travels on
+      the request, so a new provider adds no module and no allowlist entry.
+      Templates are rendered by `Notifications.Renderer.render_string/4` with the
+      document's own `config.*` / `secrets.*` as `:extra_paths` - the same
+      restricted engine, not a second one. `render_request/2` renders without
+      issuing, which is what the upload preview (2.3.1) calls.
+- [x] 2.2.2 Guard every resolved URL with
       `Palisade.OutboundURLPolicy.validate_https_public_url/2` at request time,
-      after substitution, not only at save time.
-- [ ] 2.2.3 Resolve secrets through `Credentials.SecretBroker` and inject them
+      after substitution, not only at save time. Reached through
+      `Transports.HTTP.request/4`, which runs the guard before a socket exists
+      and is the single outbound path; the engine does not call the policy
+      separately, so there is one guard rather than two that can disagree.
+      (`Palisade` is not a dependency of `serviceradar_core`; the in-tree
+      `ServiceRadar.Policies.OutboundURLPolicy` is what `HTTP` resolves to, with
+      the same heads and the same error atoms.) A rendered URL carrying
+      whitespace or a control character is refused as a permanent configuration
+      defect first, because it survives both `URI.parse/1` and the policy and
+      would otherwise come back as an unclassified transport error that costs
+      the whole retry budget.
+- [x] 2.2.3 Resolve secrets through `Credentials.SecretBroker` and inject them
       into headers or the body only at request construction; never persist a
-      rendered payload containing a secret.
-- [ ] 2.2.4 Map response status to the retry / failover decision using the
-      definition's retryable-status set.
+      rendered payload containing a secret. The dispatcher resolves
+      `secret_refs` into `Transport.Request.secrets`; the engine substitutes them
+      into the URL, a header, or the body at request construction and passes
+      every resolved value to `Transports.HTTP` as `:sensitive_values`, so a
+      token cannot survive into an error message, a `result_summary`, or a log
+      line. An unresolved `secrets.*` reference refuses the delivery instead of
+      sending a request with a hole where the credential belongs.
+- [x] 2.2.4 Map response status to the retry / failover decision using the
+      definition's retryable-status set. `Definition.classify_status/2` decides
+      from the document's own sets and anything in neither is terminal, so a 200
+      the document does not list as success is a permanent failure rather than a
+      silent `:sent`. The success case goes through
+      `Transport.result_from_http_status/2`; the retry rule itself stays in
+      `Transport.Result.outcome/2` and is never re-derived.
+      `failure.retry_after_header` is honoured on a retryable answer and clamped
+      to one hour.
 
 ### 2.3 Upload, versioning, and catalog UI
 
-- [ ] 2.3.1 Add declarative provider upload to the Providers tab with inline
+- [x] 2.3.1 Add declarative provider upload to the Providers tab with inline
       validation errors and a rendered preview of the resulting request.
-- [ ] 2.3.2 Version uploaded definitions and allow rollback to a previous version;
-      surface which channels bind to which version.
-- [ ] 2.3.3 Enforce that a definition upload requires
-      `notifications.providers.manage`.
-- [ ] 2.3.4 Prove the extensibility claim in a test: adding a provider requires no
+      `NotificationsLive.ProviderUpload` (pure) parses the pasted YAML or JSON
+      with `Declarative.Definition.parse/1` and renders EVERY error with the path
+      it is at and the validator's own sentence - there is no generic
+      "invalid document" branch. The preview is rendered by
+      `Transports.Declarative.render_request/2`, the same function `deliver/2`
+      renders with, against a context in which every legal path resolves to a
+      marker naming itself (`<alert.title>`, `<config.webhook_url>`), so a
+      preview cannot disagree with what would be sent and no channel value or
+      credential is read to build one.
+- [x] 2.3.2 Version uploaded definitions and allow rollback to a previous version;
+      surface which channels bind to which version. No new column: the provider
+      is already audited by `AshPaperTrail`, so `NotificationsLive.ProviderVersions`
+      folds the `changes_only` version rows chronologically and emits one entry
+      per definition version. A rollback re-uploads the older document as the
+      NEXT version rather than rewriting one - `NotificationDelivery.provider_version`
+      names the version that rendered each delivery, so history is append-only
+      and each version links to the deliveries recorded against it.
+- [x] 2.3.3 Enforce that a definition upload requires
+      `notifications.providers.manage`. All nine upload, version, and rollback
+      events are declared in `NotificationsLive.Access`, which the LiveView routes
+      every `handle_event/3` through and which refuses an undeclared event; the
+      `NotificationProvider` create/update policies refuse the same write when the
+      LiveView is bypassed entirely. Both refusals are tested.
+- [x] 2.3.4 Prove the extensibility claim in a test: adding a provider requires no
       repository change and no release.
+      `test/phoenix/live/settings/notifications_extensibility_test.exs` first
+      asserts the destination is in no seeded catalog and no compile-time
+      transport allowlist, then drives one continuous path with a single new
+      artifact - a pasted document: upload in the UI, activate in the UI, create a
+      channel against the `config_schema` THE DOCUMENT declared, fire an alert,
+      and dispatch. The assertion is on the bytes a plug destination received.
+      Nothing is compiled, restarted, or reloaded between the paste and the
+      delivery.
 
 ### 2.4 Seeded declarative catalog
 
-- [ ] 2.4.1 Ship a first-party seeded `:declarative` catalog with the change, so
+- [x] 2.4.1 Ship a first-party seeded `:declarative` catalog with the change, so
       the tier is demonstrably usable without writing code. The catalog MUST
       exist and MUST be non-empty at install. Destinations such as Mattermost,
       Rocket.Chat, Telegram, Gotify, ntfy, Zulip, Google Chat, Opsgenie,
       ServiceNow, Jira, Microsoft Teams, Twilio, and PagerDuty Events API v2 are
       EXAMPLES of what the catalog may contain, not a closed list; adding or
       dropping one of these names is not a contract change.
-- [ ] 2.4.1a Make every seeded catalog entry individually disablable by an
+      `lib/serviceradar/notifications/declarative/catalog.ex` ships NINE:
+      `pagerduty` (Events API v2), `opsgenie`, `mattermost`, `rocketchat`,
+      `googlechat`, `teams` (Workflows adaptive card), `telegram`, `ntfy`, and
+      `gotify`. Each is a request-template document and nothing else - no Elixir
+      module, no registry allowlist entry, no `implementation_module`. Every
+      entry is parsed by `Definition.parse/1` at COMPILE time, so a malformed
+      one fails the build with the validator's own message rather than a boot
+      warning nobody reads. Zulip, Jira, ServiceNow, and Twilio were left out
+      deliberately: all four authenticate with HTTP Basic, `base64` is not one of
+      `Template.Syntax`'s seven filters, and a document that asks an operator to
+      paste a pre-encoded blob into a field labelled "password" is a footgun. A
+      catalog entry whose request shape is guessed is worse than one not shipped.
+- [x] 2.4.1a Make every seeded catalog entry individually disablable by an
       operator, and make the disable survive upgrade reconciliation. A seeded
       provider an operator disabled MUST NOT be silently re-enabled by the next
       release.
-- [ ] 2.4.1b Give every seeded entry the mandatory `test` capability from 1.4.1a
+      Free, because the catalog is reconciled by `ProviderSeeder` itself rather
+      than by a second seeder: `:seed_managed` excludes `status` from
+      `upsert_fields` and the seeder activates only from `:draft`, never from
+      `:disabled`. Asserted in `seeder_reconciliation_test.exs` for both an
+      ordinary reseed and an upgrade that ships a new `template_version` for the
+      disabled entry, plus that disabling one entry leaves every other provider
+      untouched.
+- [x] 2.4.1b Give every seeded entry the mandatory `test` capability from 1.4.1a
       so "test-send before saving" works for the catalog exactly as it does for
-      the four `:native` providers.
-- [ ] 2.4.2 Reconcile seeded definitions on upgrade with
+      the four `:native` providers. Every entry declares `[send, test]`;
+      `pagerduty`, `opsgenie`, and `teams` add `rich_payload` because their body
+      is a structured document rather than a text field.
+- [x] 2.4.2 Reconcile seeded definitions on upgrade with
       `managed` / `template_version` / `template_fingerprint` so operator edits are
       never clobbered.
+      `ProviderSeeder.managed_fields/1` answers the fingerprint's field list per
+      tier: `:declarative` adds `:definition`, because in that tier the document
+      IS the provider - without it an operator's edit to a request template would
+      not read as divergence and a corrected document could never be applied. It
+      is added for that tier ONLY, because adding a field to a fingerprint's
+      field list changes every digest computed with it and the `:native` rows in
+      the field carry digests an earlier release stamped with the shorter list;
+      `definition` is NULL on every non-declarative row anyway, so nothing is
+      lost. Same `SeedFingerprint`, same loop, same activation rule.
 
 ### 2.5 Phase 2 tests, docs, and gates
 
-- [ ] 2.5.1 Definition validator tests including every rejection case.
-- [ ] 2.5.2 Golden-request tests for each seeded provider using a stub HTTP client.
-- [ ] 2.5.3 Upgrade-reconciliation test: an operator-edited seeded provider is not
+- [x] 2.5.1 Definition validator tests including every rejection case.
+      `test/serviceradar/notifications/declarative/definition_test.exs`, async and
+      table-driven: 92 tests, every rejection asserting the operator-facing
+      message rather than only the failure.
+- [x] 2.5.2 Golden-request tests for each seeded provider using a stub HTTP client.
+      `test/serviceradar/notifications/transports/declarative_test.exs`, async
+      and database-free: 41 tests over three differently shaped documents (a
+      YAML `POST` with a JSON body and the secret in the URL, a `PUT` with a form
+      body and a credential header, a `PATCH` with a text body and the host from
+      channel config), each asserting the EXACT method, path, headers, and body
+      so a templating regression is a diff rather than "delivery failed". Also
+      covers retryable vs permanent status mapping, a document-declared retryable
+      409 the built-in classifier would call permanent, `retry_after_header`
+      honouring and clamping, a 200 outside `success.status`, every class of
+      unresolved variable, the outbound policy running on the RENDERED url, and
+      the credential appearing in no result, summary, or log line. The
+      destination is a `Plug` injected through `opts[:req_options]`; nothing
+      reaches the network. A seeded catalog entry (2.4.1) is exercised by this
+      same harness, which is what makes "the catalog needs no code" checkable.
+- [x] 2.5.3 Upgrade-reconciliation test: an operator-edited seeded provider is not
       overwritten; an untouched one is refreshed; and an operator-disabled seeded
       provider stays disabled across the upgrade.
-- [ ] 2.5.3a Catalog-existence test: the seeded declarative catalog is non-empty
+      `test/serviceradar/notifications/seeder_reconciliation_test.exs`, DataCase,
+      now covers the declarative catalog as well as the native one: six cases
+      under "the seeded declarative catalog". The refresh case is deliberately
+      not a version bump alone - `wind_back_pristine!/3` rebuilds the state the
+      PREVIOUS release actually left behind (that release's document, that
+      release's version, and a fingerprint that still matches the document), so
+      the assertion proves an upgrade REPLACES a stale document rather than only
+      moving a version string.
+- [x] 2.5.3a Catalog-existence test: the seeded declarative catalog is non-empty
       after install and every entry declares both `send` and `test` capabilities.
-- [ ] 2.5.4 LiveView tests for upload, validation failure, and version rollback.
-- [ ] 2.5.5 Add `docs/docs/notification-providers.md` documenting the declarative
+      `test/serviceradar/notifications/declarative/catalog_test.exs`, async and
+      database-free: 39 tests. Non-emptiness and the capability contract, plus
+      every entry reparsing from its stored canonical form, no entry naming a
+      module or appearing in the native allowlist, each schema being a closed
+      object whose credential fields accept a stored reference, each secret path
+      matching a declared `secretRef` field, and each row surviving its own jsonb
+      round-trip. The last section drives `pagerduty`, `gotify`, and `mattermost`
+      through `Transports.Declarative` against a function plug and asserts the
+      exact method, path, headers, and body - which is what makes "this catalog
+      needs no code" checkable rather than asserted. `seeder_reconciliation_test`
+      covers the same existence claim against a real database.
+- [x] 2.5.4 LiveView tests for upload, validation failure, and version rollback.
+      `test/phoenix/settings/notifications_provider_upload_test.exs` (async, 23
+      tests) covers the pure half - parse, preview, attribute mapping, and the
+      version fold - and asserts the operator-facing MESSAGE rather than only the
+      failure. `test/phoenix/live/settings/notifications_provider_upload_test.exs`
+      (16 tests, database-backed) drives the surface: a pasted document becomes a
+      `:declarative` / `:uploaded` provider, a broken one lists each offending
+      path and writes nothing, a second upload is version 2, a rollback lands as
+      version 3, and every one of the nine events is refused for a scope without
+      `notifications.providers.manage` when pushed DIRECTLY at the mounted
+      LiveView - with the resource policy refusing the same write separately.
+      `notifications_authorization_test` sweeps the nine new events alongside the
+      rest of the surface; its coverage assertion derives the event list from
+      `Access` itself, so an event added later without a test fails there.
+- [x] 2.5.5 Add `docs/docs/notification-providers.md` documenting the declarative
       document format with a complete worked example. ASCII only.
-- [ ] 2.5.6 `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and
+      The authoring guide, registered in `docs/sidebars.ts` next to
+      `notifications` and cross-linked with it in both directions rather than
+      repeating it. The worked example is the seeded `gotify` entry written as
+      YAML, and it was verified rather than transcribed by eye: every YAML block
+      in the page was run through `Definition.parse/1`, and the worked example's
+      `to_map/1` output compares EQUAL to `Catalog.documents()`'s `gotify` entry,
+      so the page cannot drift from the catalog silently. The wrong-vs-right
+      `body_format: json` example asserts the refusal as well as the acceptance.
+      Also documents the four things the format cannot express (no Basic auth
+      because `base64` is not a filter, no value mapping, no conditional key or
+      header omission, every substitution renders a string) and, corrected
+      against the code rather than against the moduledoc, two things that were
+      documented imprecisely: an unset optional `config.*` path with no
+      `default:` is a PERMANENT failure with no request rather than an empty
+      string (only a value that is present-but-empty renders empty), and the
+      YAML anchor caveat is really three failures - a top-level anchor holder key
+      is refused by the closed-key check, `<<:` merge keys are not implemented
+      and survive as a literal `<<1` key, and only aliases to FLOW-style
+      collections decode to the anchored node's first scalar.
+- [x] 2.5.6 `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`.
 
 ## 3. Phase 3 - Plugin providers and the edge route

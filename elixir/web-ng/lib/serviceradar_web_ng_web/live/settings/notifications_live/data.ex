@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Data do
   alias ServiceRadar.Notifications.NotificationDelivery
   alias ServiceRadar.Notifications.NotificationEscalationPolicy
   alias ServiceRadar.Notifications.NotificationProvider
+  alias ServiceRadar.Notifications.NotificationProvider.Version, as: ProviderVersion
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.NotificationSchedule
   alias ServiceRadar.Notifications.NotificationSilence
@@ -36,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Data do
   @policy_limit 200
   @silence_limit 200
   @provider_limit 200
+  @provider_version_limit 50
   @delivery_limit 100
   @suppression_sample 500
 
@@ -68,6 +70,34 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Data do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort(display_name: :asc)
     |> Ash.Query.limit(@provider_limit)
+    |> read(scope)
+  end
+
+  @doc """
+  The audit rows a declarative provider's definition history is folded from.
+
+  Read newest-first and bounded, then folded chronologically by
+  `ServiceRadarWebNGWeb.Settings.NotificationsLive.ProviderVersions`. Newest-first
+  is what makes the bound useful: a provider with more than
+  #{@provider_version_limit} audited changes shows its most recent versions
+  rather than its first ones, which are the versions a rollback would target.
+
+  Note that the AshPaperTrail version resource carries no authorizer of its own,
+  so unlike every other read here the row filtering is NOT done by an Ash policy:
+  the caller's `notifications.providers.manage` check in
+  `ServiceRadarWebNGWeb.Settings.NotificationsLive.Access` is what gates this. The
+  content is provider configuration rather than credential material - a
+  definition that named a credential outside `secrets.*` would not have validated
+  - but the gate is the LiveView's, and a future caller must not assume the
+  resource will refuse on its own.
+  """
+  @spec list_provider_versions(term(), term()) :: [struct()]
+  def list_provider_versions(scope, provider_id) do
+    ProviderVersion
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(version_source_id == ^provider_id)
+    |> Ash.Query.sort(version_inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(@provider_version_limit)
     |> read(scope)
   end
 
