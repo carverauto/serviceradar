@@ -1,6 +1,6 @@
 ## 1. Establish the current state as fixtures
 
-- [ ] 1.1 Capture the demo fleet's paused rollouts, observed versions, and
+- [x] 1.1 Capture the demo fleet's paused rollouts, observed versions, and
       `addon_statuses.degradation_reason` strings as test fixtures, so every
       case below is driven by a real reported status rather than an invented one
 - [x] 1.2 Add a regression fixture for each distinct reason string currently in
@@ -19,11 +19,13 @@
 - [x] 2.4 Unit-test that anomaly's `resource limits not enforced` no longer
       pauses while bumblebee's `systemd unit failed` and netprobe's
       `connection refused` still do
-- [ ] 2.5 Give the add-on status contract a not-ready state distinct from
+- [x] 2.5 Added StateDegraded to the agent's lifecycle states, distinct from
       `unhealthy`, for a running add-on with an unsatisfied external dependency
-- [ ] 2.6 Report not-ready instead of `unhealthy` from the powerdns add-on when
-      no Recursor is connected, and bump its version
-- [ ] 2.7 Confirm gating ignores not-ready, and that the fleet view still shows it
+- [x] 2.6 No powerdns change needed -- it already returns HealthStatus::Degraded.
+      The agent was collapsing Degraded into `unhealthy`; fixed there instead,
+      so no add-on version bump is required
+- [x] 2.7 Confirmed: explicit_failure?/2 never listed `degraded`, and web-ng's
+      explicitly_unhealthy?/1 keys off the reason so the row stays action-required
 
 ## 3. Blocked-rollout evidence
 
