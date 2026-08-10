@@ -184,11 +184,6 @@ build:ci --compilation_mode=opt
 build:ci --remote_timeout=15m
 test:ci --test_output=errors
 
-# Remote execution profile on top of the remote config
-build:remote --config=remote_base
-build:remote --noenable_platform_specific_config
-build:remote --remote_timeout=10m
-
 build --build_metadata=REPO_URL=git@github.com:carverauto/serviceradar.git
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec
