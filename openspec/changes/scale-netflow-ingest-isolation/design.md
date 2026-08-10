@@ -55,15 +55,17 @@ Evidence from demo incident (2026-08-09):
 - `flows.raw.netflow`
 - `flows.raw.sflow`
 - concrete extension leaves such as `flows.raw.ipfix` when configured
-- `flow.host-slice.<agent_id>` when host-network-visibility slices are configured
-  (attribution intermediate; **not** an EventWriter ocsf consumer subject)
 
 EventWriter consumers require **concrete** `flows.raw.<name>` leaves only.
-Whole-token ownership wildcards such as `flows.raw.>` or `flows.>` are **not**
-auto-consumed: they leave future leaves stored without a consumer and can block
-subject rehome onto the dedicated stream. Host-slice traffic uses the separate
-`flow.host-slice.*` namespace and the attribution joiner path, not the
-`flows.raw.*` Broadway demand domain.
+Whole-token ownership wildcards such as `flows.raw.>`, `flows.>`, or `*.>` are
+**rejected** by collector validation and are **not** auto-consumed by EventWriter:
+they leave future leaves stored without a consumer and can block subject rehome
+onto the dedicated stream (overlap with `events.>`).
+
+Host-slice (`flow.host-slice.<agent_id>`) publication/rehome may still appear in
+collector config for host-network-visibility, but **this change does not restore
+the attribution joiner/subscriber** (deleted separately). Host-slice must not
+become EventWriter flow consumers; joining is a follow-up change.
 
 **Rationale:** Isolation of retention and storage from logs/OTEL. Metrics already moved toward a dedicated `metrics` stream pattern; flows get the same treatment.
 

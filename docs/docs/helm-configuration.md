@@ -42,9 +42,9 @@ HA profile overlay
   - `logCollector`
   - `logCollector.tcpCollector`
   - `trapd`
-  - `flowCollector`
-  - `bmpCollector`
-- The profile also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
+- **flowCollector** stays at **`replicaCount: 1`** (IPFIX/NetFlow template state is process-local) with **Recreate** and a **1 GiB RWO data PVC** so rehome/ownership/readiness markers survive pod replacement. Stream HA is `config.stream_replicas` (JetStream), not pod count.
+- `bmpCollector` is not scaled by the HA overlay unless another values file sets it.
+- The profile disables PVC-backed local state for the multi-replica services above where shared NATS/JetStream state is the real source of truth (flow-collector is the deliberate exception).
 
 Optional public endpoint inventory
 - `k8sInventory.enabled` (default `false`) deploys a cluster-plane collector that
@@ -67,9 +67,9 @@ JetStream sizing values
   - `flowCollector.config.stream_max_bytes` (default 10 GiB)
   - `flowCollector.config.stream_max_age_secs` (default 6h)
   - EventWriter consumers use concrete `flows.raw.<name>` leaves only; do not put
-    ownership wildcards such as `flows.raw.>` in collector subjects expecting
-    automatic CNPG consumers. Host-slice uses `flow.host-slice.<agent_id>` and
-    the attribution joiner path, not EventWriter flow consumers.
+    ownership wildcards such as `flows.raw.>` / `flows.>` / `*.>` in collector
+    subjects (collector validation rejects them). Host-slice subjects are not
+    EventWriter flow consumers; attribution joining is out of scope for this chart.
 - Datasvc owns the KV/object streams and now reconciles both replica count and reserved capacity:
   - `datasvc.jetstreamReplicas`
   - `datasvc.bucketMaxBytes` (default 4 GiB)

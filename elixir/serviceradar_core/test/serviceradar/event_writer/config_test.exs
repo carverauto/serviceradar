@@ -272,9 +272,44 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         end
       end)
 
-      assert_raise ArgumentError, ~r/whole-token wildcards/, fn ->
+      assert_raise ArgumentError, ~r/overlaps|concrete flows\.raw/, fn ->
         Config.load_flow()
       end
+    end
+
+    test "load rejects broader filters that cover flows.raw namespace" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      for subject <- ["flows.>", "*.>", "*.raw.>", "flow.>", ">"] do
+        Application.put_env(
+          :serviceradar_core,
+          ServiceRadar.EventWriter,
+          Keyword.put(previous, :streams, [
+            %{name: "FLOWS_RAW", subject: subject, processor: Flows}
+          ])
+        )
+
+        assert_raise ArgumentError, ~r/overlaps flows\.raw/, fn ->
+          Config.load()
+        end
+      end
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+    end
+
+    test "nats_filter_covers? token language" do
+      assert Config.nats_filter_covers?("flows.>", "flows.raw.netflow")
+      assert Config.nats_filter_covers?("*.>", "flows.raw.netflow")
+      assert Config.nats_filter_covers?("*.raw.>", "flows.raw.ipfix")
+      assert Config.nats_filter_covers?(">", "flows.raw.netflow")
+      refute Config.nats_filter_covers?("logs.>", "flows.raw.netflow")
+      refute Config.nats_filter_covers?("events.>", "flows.raw.netflow")
     end
 
     test "load rejects host-slice in main streams list" do

@@ -1058,15 +1058,21 @@ defmodule ServiceRadar.EventWriter.Config do
       not is_binary(subject) or subject == "" ->
         :ok
 
+      # Concrete flows.raw leaves are the only allowed EventWriter flow filters.
+      exact_raw_flow_subject?(subject) ->
+        :ok
+
       String.starts_with?(subject, "flow.host-slice.") ->
         raise ArgumentError,
               "EventWriter stream config rejects flow.host-slice.* subjects " <>
                 "(attribution intermediate, not ocsf persistence): #{inspect(subject)}"
 
-      String.starts_with?(subject, "flows.raw.") and not exact_nats_subject?(subject) ->
+      # Reject any NATS filter that covers the raw-flow or host-slice namespace
+      # (flows.>, *.raw.>, *.>, flow.>, >) — not only a flows.raw. prefix.
+      nats_filter_overlaps_flow_namespace?(subject) ->
         raise ArgumentError,
-              "EventWriter stream config rejects whole-token wildcards under flows.raw " <>
-                "(use concrete leaves): #{inspect(subject)}"
+              "EventWriter stream config rejects filter #{inspect(subject)} that overlaps " <>
+                "flows.raw.* / flow.host-slice.* (would double-consume with NETFLOW/SFLOW leaves)"
 
       true ->
         :ok
@@ -1078,12 +1084,64 @@ defmodule ServiceRadar.EventWriter.Config do
     assert_valid_event_writer_stream_subject!(stream)
     subject = Map.get(stream, :subject) || Map.get(stream, "subject")
 
-    if is_binary(subject) and subject != "" and not String.starts_with?(subject, "flows.raw.") do
+    if is_binary(subject) and subject != "" and not exact_raw_flow_subject?(subject) do
       raise ArgumentError,
-            "flow EventWriter pipeline only accepts flows.raw.* subjects, got: #{inspect(subject)}"
+            "flow EventWriter pipeline only accepts concrete flows.raw.* subjects, got: #{inspect(subject)}"
     end
 
     :ok
+  end
+
+  @doc """
+  True when a NATS subject filter covers any probe under flows.raw.* or
+  flow.host-slice.* (token language: `*` one token, `>` rest).
+  """
+  @spec nats_filter_overlaps_flow_namespace?(String.t()) :: boolean()
+  def nats_filter_overlaps_flow_namespace?(filter) when is_binary(filter) do
+    probes = [
+      "flows.raw.netflow",
+      "flows.raw.sflow",
+      "flows.raw.ipfix",
+      "flow.host-slice.agent-probe"
+    ]
+
+    Enum.any?(probes, &nats_filter_covers?(filter, &1))
+  end
+
+  @doc false
+  def nats_filter_covers?(broader, narrower)
+      when is_binary(broader) and is_binary(narrower) do
+    if broader == narrower do
+      true
+    else
+      pattern_covers_tokens?(String.split(broader, "."), String.split(narrower, "."))
+    end
+  end
+
+  defp pattern_covers_tokens?(broader, narrower) do
+    do_pattern_covers(broader, narrower)
+  end
+
+  defp do_pattern_covers([">"], narrower) when narrower != [], do: true
+  defp do_pattern_covers([">"], []), do: false
+  defp do_pattern_covers([], []), do: true
+  defp do_pattern_covers([], _), do: false
+  defp do_pattern_covers(_, []), do: false
+
+  defp do_pattern_covers(["*" | bt], [nt | ntrest]) do
+    if nt in ["*", ">"] do
+      false
+    else
+      do_pattern_covers(bt, ntrest)
+    end
+  end
+
+  defp do_pattern_covers([lit | bt], [nt | ntrest]) do
+    cond do
+      nt in ["*", ">"] -> false
+      lit == nt -> do_pattern_covers(bt, ntrest)
+      true -> false
+    end
   end
 
   defp sanitize_non_neg_int(value, _default) when is_integer(value) and value >= 0, do: value

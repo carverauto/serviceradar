@@ -1,7 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Dedicated flows JetStream stream
-The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional concrete `flows.raw.<name>` extension subjects and concrete `flow.host-slice.<agent_id>` subjects when host-slice publication is configured. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL. EventWriter persistence consumers SHALL use concrete `flows.raw.<name>` leaves only; host-slice subjects SHALL remain on the attribution joiner path and SHALL NOT become EventWriter flow pipeline consumers. Whole-token wildcards under the flow namespace (e.g. `flows.raw.>`, `flows.>`) SHALL NOT be treated as EventWriter consumer filters.
+The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional concrete `flows.raw.<name>` extension subjects. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL. EventWriter persistence consumers SHALL use concrete `flows.raw.<name>` leaves only. Whole-token wildcards under the flow namespace (e.g. `flows.raw.>`, `flows.>`, `*.>`) SHALL NOT be treated as EventWriter consumer filters and SHALL be rejected by collector config validation.
+
+#### Scenario: Host-slice subjects are out of scope for this change
+- **WHEN** host-network-visibility host-slice publication is configured (`flow.host-slice.<agent_id>`)
+- **THEN** this change SHALL NOT claim an EventWriter consumer or a restored attribution joiner/subscriber for those subjects
+- **AND** host-slice joining/consumption is deferred to a follow-up change (the prior `HostSliceSubscriber` / `AttributedFlowJoiner` path is not present in this branch)
+- **AND** EventWriter configuration SHALL reject `flow.host-slice.*` and broader filters that cover it
 
 #### Scenario: Default stream name is flows
 - **WHEN** the collector starts without an explicit override that points at `events`

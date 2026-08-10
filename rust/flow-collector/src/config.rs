@@ -335,6 +335,14 @@ impl Config {
             if listener.subject().is_empty() {
                 anyhow::bail!("listener[{}]: subject cannot be empty", i);
             }
+            // NATS publish subjects must be concrete (no whole-token * / >).
+            if !crate::publisher::is_valid_listener_publish_subject(listener.subject()) {
+                anyhow::bail!(
+                    "listener[{}]: subject {:?} must be a concrete NATS subject (no whole-token * or >)",
+                    i,
+                    listener.subject()
+                );
+            }
             if !seen_addrs.insert(addr.to_string()) {
                 anyhow::bail!("listener[{}]: duplicate listen_addr '{}'", i, addr);
             }
@@ -396,6 +404,26 @@ impl Config {
             validate_host_slice(slice, i)?;
         }
         validate_host_slice_allowlist(&self.host_slice_allowlist)?;
+
+        // stream_subjects: reject filters that overlap the raw-flow namespace via
+        // NATS pattern coverage (not just a flows.raw. textual prefix). This is
+        // the source of truth; Helm is an early UX check only.
+        if let Some(subjects) = &self.stream_subjects {
+            for (i, subject) in subjects.iter().enumerate() {
+                if subject.is_empty() {
+                    anyhow::bail!("stream_subjects[{i}]: subject cannot be empty");
+                }
+                if crate::publisher::pattern_overlaps_flow_namespace(subject)
+                    && !crate::publisher::exact_nats_subject(subject)
+                {
+                    anyhow::bail!(
+                        "stream_subjects[{i}]: {subject:?} uses a NATS filter that covers \
+                         flows.raw.* or flow.host-slice.*; use concrete leaves (EventWriter \
+                         requires exact subjects; wildcards block rehome and leave extensions unconsumed)"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }
@@ -601,6 +629,48 @@ mod tests {
         assert!(subjects.contains(&"flows.raw.sflow".to_string()));
         assert!(subjects.contains(&"flows.raw.netflow".to_string()));
         assert!(subjects.contains(&"flows.raw.extra".to_string()));
+    }
+
+    #[test]
+    fn validate_rejects_listener_wildcard_publish_subject() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.>"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("concrete"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_stream_subject_namespace_wildcards() {
+        for subject in ["*.>", "flows.>", "*.raw.>", "flows.raw.>"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            let err = config.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("covers") || err.contains("wildcard") || err.contains("flows.raw"),
+                "subject={subject} err={err}"
+            );
+        }
     }
 
     #[test]

@@ -148,64 +148,36 @@ impl Publisher {
             if batch.is_empty() && !closed {
                 let wait_retry = !retry_q.is_empty();
                 let retry_wait = next_retry_at.saturating_duration_since(Instant::now());
-                if !wait_retry {
-                    match self.rx.recv().await {
-                        Some(msg) => {
-                            batch.push(PendingPublish::from_outbound(msg));
-                            let (more, more_closed) = self.drain_fresh_batch();
-                            batch.extend(more);
-                            if more_closed {
-                                self.handle_publish_pass(
-                                    &client,
-                                    &admin_js,
-                                    &publish_js,
-                                    &mut batch,
-                                    &mut retry_q,
-                                    max_retry_queue,
-                                    &mut max_retry_age,
-                                    &mut publisher_ready,
-                                    &mut next_retry_at,
-                                    &mut retry_backoff,
-                                    max_backoff,
-                                    true,
-                                )
-                                .await?;
-                                return self
-                                    .drain_retries_until_empty(
+                // Cap wait so idle disconnect still clears readiness promptly.
+                let readiness_wake = Duration::from_secs(1);
+                let wait = if wait_retry {
+                    retry_wait.min(readiness_wake)
+                } else {
+                    readiness_wake
+                };
+                tokio::select! {
+                    msg = self.rx.recv() => {
+                        match msg {
+                            Some(m) => {
+                                batch.push(PendingPublish::from_outbound(m));
+                                let (more, more_closed) = self.drain_fresh_batch();
+                                batch.extend(more);
+                                if more_closed {
+                                    self.handle_publish_pass(
                                         &client,
                                         &admin_js,
                                         &publish_js,
+                                        &mut batch,
                                         &mut retry_q,
+                                        max_retry_queue,
                                         &mut max_retry_age,
                                         &mut publisher_ready,
+                                        &mut next_retry_at,
+                                        &mut retry_backoff,
+                                        max_backoff,
+                                        true,
                                     )
-                                    .await;
-                            }
-                        }
-                        None => {
-                            return self
-                                .drain_retries_until_empty(
-                                    &client,
-                                    &admin_js,
-                                    &publish_js,
-                                    &mut retry_q,
-                                    &mut max_retry_age,
-                                    &mut publisher_ready,
-                                )
-                                .await;
-                        }
-                    }
-                } else {
-                    // Wait for either fresh work or independent retry schedule.
-                    tokio::select! {
-                        msg = self.rx.recv() => {
-                            match msg {
-                                Some(m) => {
-                                    batch.push(PendingPublish::from_outbound(m));
-                                    let (more, _) = self.drain_fresh_batch();
-                                    batch.extend(more);
-                                }
-                                None => {
+                                    .await?;
                                     return self
                                         .drain_retries_until_empty(
                                             &client,
@@ -218,8 +190,22 @@ impl Publisher {
                                         .await;
                                 }
                             }
+                            None => {
+                                return self
+                                    .drain_retries_until_empty(
+                                        &client,
+                                        &admin_js,
+                                        &publish_js,
+                                        &mut retry_q,
+                                        &mut max_retry_age,
+                                        &mut publisher_ready,
+                                    )
+                                    .await;
+                            }
                         }
-                        _ = sleep(retry_wait) => {}
+                    }
+                    _ = sleep(wait) => {
+                        // Periodic wake: recheck connection state / retry schedule.
                     }
                 }
             }
@@ -522,7 +508,7 @@ impl Publisher {
         if self.config.stream_name == "events" {
             return ensure_legacy_events_subjects_only(admin_js, &subjects).await;
         }
-        let window = ensure_flows_stream(
+        let (window, verified_subjects) = ensure_flows_stream(
             admin_js,
             &self.config.stream_name,
             &subjects,
@@ -531,11 +517,12 @@ impl Publisher {
             self.config.stream_replicas,
         )
         .await?;
+        // Persist verified INFO subjects before any readiness reassert.
         write_ownership_inventory(
             &ownership_path,
             &OwnershipInventory {
                 stream: self.config.stream_name.clone(),
-                subjects: subjects.clone(),
+                subjects: verified_subjects,
             },
         )?;
         Ok(window)
@@ -634,14 +621,15 @@ impl Publisher {
                                 TaskOutcome::Done
                             }
                             Err(e) => {
-                                let disposition = classify_publish_error(e.kind());
+                                let disposition = classify_publish_error(&e);
                                 match disposition {
                                     PublishDisposition::StreamMissing => {
                                         error!(
                                             "NATS stream missing for subject {} id={}: {} — preserving and re-ensuring",
                                             item.subject, item.msg_id, e
                                         );
-                                        TaskOutcome::StreamMissing(item.clear_attempt())
+                                        // Preserve first_attempt if prior uncertainty.
+                                        TaskOutcome::StreamMissing(item.clear_attempt_if_certain())
                                     }
                                     PublishDisposition::Permanent => {
                                         error!(
@@ -652,7 +640,8 @@ impl Publisher {
                                     }
                                     PublishDisposition::Negative | PublishDisposition::Transient => {
                                         // Explicit negative ACK or backpressure —
-                                        // server did not store; safe to retry.
+                                        // this reply was not a store. If a prior
+                                        // attempt was ambiguous, keep that horizon.
                                         warn!(
                                             "NATS publish {} for subject {} id={}: {} — will retry",
                                             disposition_label(disposition),
@@ -660,19 +649,17 @@ impl Publisher {
                                             item.msg_id,
                                             e
                                         );
-                                        TaskOutcome::Retry(item.clear_attempt())
+                                        TaskOutcome::Retry(item.clear_attempt_if_certain())
                                     }
                                     PublishDisposition::Ambiguous => {
-                                        // TimedOut/BrokenPipe: may still be in the
-                                        // client/socket buffer. Requeue only after
-                                        // force_reconnect abandons that buffer so a
-                                        // later flush cannot double-store past the
-                                        // duplicate_window.
+                                        // TimedOut/BrokenPipe or malformed ACK after
+                                        // possible store. Requeue only after observed
+                                        // connection-generation change.
                                         warn!(
                                             "NATS publish ACK ambiguous for subject {} id={}: {} — will force-reconnect then retry",
                                             item.subject, item.msg_id, e
                                         );
-                                        TaskOutcome::Ambiguous(item)
+                                        TaskOutcome::Ambiguous(item.mark_ambiguous())
                                     }
                                 }
                             }
@@ -681,7 +668,7 @@ impl Publisher {
                     Err(e) => {
                         // send_publish failed before/without a durable enqueue —
                         // safe to requeue when not permanent.
-                        match classify_publish_error(e.kind()) {
+                        match classify_publish_error(&e) {
                             PublishDisposition::StreamMissing => {
                                 error!(
                                     "NATS stream missing on send for subject {} id={}: {} — preserving",
@@ -726,19 +713,18 @@ impl Publisher {
             }
         }
 
-        // Abandon client-buffered ambiguous publishes before requeueing them.
+        // Wait for a new connection generation before requeueing ambiguous
+        // items. force_reconnect alone is not a cancellation barrier — the
+        // old connection may still flush queued commands first.
         if !ambiguous.is_empty() {
             warn!(
-                "Force-reconnecting NATS to abandon {} ambiguous in-flight publish(es)",
+                "Force-reconnecting NATS after {} ambiguous in-flight publish(es); waiting for new client_id",
                 ambiguous.len()
             );
-            if let Err(e) = client.force_reconnect().await {
-                error!("force_reconnect failed: {e}");
+            if let Err(e) = force_reconnect_and_await_generation(client).await {
+                error!("force reconnect with generation wait failed: {e}");
             }
-            wait_until_connected(client).await;
             while let Some(item) = ambiguous.pop_front() {
-                // Still within first_attempt horizon for Msg-Id dedup if the
-                // original was stored before the socket was dropped.
                 if past_retry_horizon(&item, max_retry_age) {
                     error!(
                         "Dropping ambiguous publish for subject {} id={} after reconnect ({})",
@@ -916,16 +902,18 @@ impl Publisher {
             )
             .await
             {
-                Ok(window) => {
-                    self.pending_rehome.clear();
-                    clear_rehome_marker(&rehome_path);
+                Ok((window, verified_subjects)) => {
+                    // Persist verified post-ensure ownership BEFORE clearing the
+                    // rehome marker so a crash cannot leave neither durable.
                     write_ownership_inventory(
                         &ownership_path,
                         &OwnershipInventory {
                             stream: self.config.stream_name.clone(),
-                            subjects: target_subjects.clone(),
+                            subjects: verified_subjects,
                         },
                     )?;
+                    self.pending_rehome.clear();
+                    clear_rehome_marker(&rehome_path);
                     window
                 }
                 Err(err) => {
@@ -1136,6 +1124,9 @@ struct PendingPublish {
     ingress_at: Instant,
     /// When send_publish first returned Ok (attempted on client channel).
     first_attempt_at: Option<Instant>,
+    /// Sticky: once an ACK was ambiguous, never switch to never-attempted TTL
+    /// (a later definitive negative must not clear the uncertainty horizon).
+    ever_ambiguous: bool,
 }
 
 impl PendingPublish {
@@ -1146,6 +1137,7 @@ impl PendingPublish {
             msg_id: next_msg_id(),
             ingress_at,
             first_attempt_at: None,
+            ever_ambiguous: false,
         }
     }
 
@@ -1161,8 +1153,20 @@ impl PendingPublish {
         self
     }
 
-    fn clear_attempt(mut self) -> Self {
-        self.first_attempt_at = None;
+    fn mark_ambiguous(mut self) -> Self {
+        self.ever_ambiguous = true;
+        if self.first_attempt_at.is_none() {
+            self.first_attempt_at = Some(Instant::now());
+        }
+        self
+    }
+
+    /// Clear attempt only when never ambiguous — after uncertain enqueues we
+    /// must keep the duplicate-window horizon for the rest of the item's life.
+    fn clear_attempt_if_certain(mut self) -> Self {
+        if !self.ever_ambiguous {
+            self.first_attempt_at = None;
+        }
         self
     }
 }
@@ -1188,8 +1192,11 @@ enum PublishDisposition {
     StreamMissing,
 }
 
-fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
-    match kind {
+fn classify_publish_error(
+    err: &async_nats::jetstream::context::PublishError,
+) -> PublishDisposition {
+    use std::error::Error as StdError;
+    match err.kind() {
         PublishErrorKind::TimedOut | PublishErrorKind::BrokenPipe => {
             // May or may not have been stored; client buffer may still hold it.
             PublishDisposition::Ambiguous
@@ -1199,9 +1206,28 @@ fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
         PublishErrorKind::MaxPayloadExceeded
         | PublishErrorKind::WrongLastMessageId
         | PublishErrorKind::WrongLastSequence => PublishDisposition::Permanent,
-        // async-nats maps other JetStream Response::Err to Other — definitive
-        // negative ACKs (insufficient resources, store failed, …).
-        PublishErrorKind::Other => PublishDisposition::Negative,
+        // Other is used for both explicit JetStream Response::Err (negative,
+        // not stored) and ACK payload deserialization failures (may follow a
+        // successful store). Inspect the source chain.
+        PublishErrorKind::Other => {
+            let mut src = err.source();
+            while let Some(s) = src {
+                if s.downcast_ref::<async_nats::jetstream::Error>().is_some() {
+                    return PublishDisposition::Negative;
+                }
+                // Display fallback for wrapped JetStream API errors.
+                let msg = s.to_string();
+                if msg.contains("err_code")
+                    || msg.contains("insufficient resources")
+                    || msg.contains("stream store")
+                {
+                    return PublishDisposition::Negative;
+                }
+                src = s.source();
+            }
+            // Serde/malformed payload after a possible successful store.
+            PublishDisposition::Ambiguous
+        }
     }
 }
 
@@ -1328,8 +1354,25 @@ fn write_ownership_inventory(path: &Path, inv: &OwnershipInventory) -> Result<()
         })?;
     }
     let json = serde_json::to_vec_pretty(inv).context("failed to serialize ownership inventory")?;
-    fs::write(path, json)
-        .with_context(|| format!("failed to write ownership inventory {}", path.display()))?;
+    // Atomic replace: write temp + fsync + rename so a crash cannot leave a
+    // truncated inventory after the rehome marker was cleared.
+    let tmp = path.with_extension("json.tmp");
+    {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp)
+            .with_context(|| format!("failed to create ownership temp {}", tmp.display()))?;
+        f.write_all(&json)
+            .with_context(|| format!("failed to write ownership temp {}", tmp.display()))?;
+        f.sync_all()
+            .with_context(|| format!("failed to fsync ownership temp {}", tmp.display()))?;
+    }
+    fs::rename(&tmp, path).with_context(|| {
+        format!(
+            "failed to rename ownership inventory {} -> {}",
+            tmp.display(),
+            path.display()
+        )
+    })?;
     info!(
         "Wrote ownership inventory for stream '{}' ({} subject(s)) to {}",
         inv.stream,
@@ -1398,6 +1441,62 @@ async fn wait_until_connected(client: &Client) {
         "NATS still not Connected after wait (state={})",
         client.connection_state()
     );
+}
+
+/// force_reconnect only enqueues Reconnect and may still flush the old socket.
+/// Wait until we observe a connection-generation change (client_id) before
+/// requeueing ambiguous publishes onto the new path.
+async fn force_reconnect_and_await_generation(client: &Client) -> Result<()> {
+    use async_nats::connection::State;
+    let before_id = client.try_server_info().map(|i| i.client_id);
+    client
+        .force_reconnect()
+        .await
+        .map_err(|e| anyhow::anyhow!("force_reconnect: {e}"))?;
+
+    // First wait until we leave the old Connected generation (or see a new id).
+    for _ in 0..200 {
+        match client.connection_state() {
+            State::Connected => {
+                let now_id = client.try_server_info().map(|i| i.client_id);
+                if before_id.is_none() || now_id != before_id {
+                    info!(
+                        "NATS reconnected with new client_id (before={:?}, after={:?})",
+                        before_id, now_id
+                    );
+                    return Ok(());
+                }
+            }
+            State::Disconnected | State::Pending => {
+                // Fall through to wait for Connected with new generation.
+                break;
+            }
+        }
+        sleep(Duration::from_millis(25)).await;
+    }
+
+    // Wait for Connected on a new generation.
+    for _ in 0..200 {
+        if matches!(client.connection_state(), State::Connected) {
+            let now_id = client.try_server_info().map(|i| i.client_id);
+            if before_id.is_none() || now_id != before_id {
+                info!(
+                    "NATS reconnected with new client_id (before={:?}, after={:?})",
+                    before_id, now_id
+                );
+                return Ok(());
+            }
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    warn!(
+        "Did not observe client_id change after force_reconnect (before={:?}, state={})",
+        before_id,
+        client.connection_state()
+    );
+    // Still wait until Connected so callers can proceed.
+    wait_until_connected(client).await;
+    Ok(())
 }
 
 fn clear_publisher_ready(config: &Config) -> Result<()> {
@@ -1529,7 +1628,7 @@ async fn ensure_flows_stream(
     max_bytes: i64,
     max_age: Duration,
     replicas: usize,
-) -> Result<Duration> {
+) -> Result<(Duration, Vec<String>)> {
     match js.get_stream(stream_name).await {
         Ok(mut existing_stream) => {
             let info = existing_stream.info().await?;
@@ -1651,8 +1750,11 @@ async fn ensure_flows_stream(
                     "stream '{stream_name}' has no_ack=true after reconcile; publisher requires publish ACKs"
                 ));
             }
-            // Return verified INFO window only — never invent a larger fallback.
-            Ok(verified_info.config.duplicate_window)
+            // Verified INFO subjects (includes pre-existing extensions not in target).
+            Ok((
+                verified_info.config.duplicate_window,
+                verified_info.config.subjects.clone(),
+            ))
         }
         Err(err) if is_stream_not_found(&err) => {
             let stream_config = jetstream::stream::Config {
@@ -1704,8 +1806,10 @@ async fn ensure_flows_stream(
                     "stream '{stream_name}' has no_ack=true after create; publisher requires publish ACKs"
                 ));
             }
-            // Verified INFO only — retry horizon must not exceed actual window.
-            Ok(verified_info.config.duplicate_window)
+            Ok((
+                verified_info.config.duplicate_window,
+                verified_info.config.subjects.clone(),
+            ))
         }
         Err(err) => Err(anyhow::anyhow!(
             "failed to INFO stream '{stream_name}': {err}"
@@ -1796,7 +1900,45 @@ pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[Str
     if subject.starts_with("flows.raw.") {
         return true;
     }
+    // Host-slice subjects are only rehomeable when explicitly configured; the
+    // attribution joiner path is not part of this change (see OpenSpec).
     subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
+}
+
+/// True when a NATS filter/subject overlaps the raw-flow or host-slice namespace
+/// in a way that would double-consume with exact EventWriter leaves or block rehome.
+pub(crate) fn pattern_overlaps_flow_namespace(filter: &str) -> bool {
+    if filter.is_empty() {
+        return false;
+    }
+    // Exact concrete leaves under flows.raw are the EventWriter consumer form.
+    if exact_nats_subject(filter) && filter.starts_with("flows.raw.") {
+        return false;
+    }
+    if filter.starts_with("flow.host-slice.") {
+        return true;
+    }
+    // Probes that must not share a durable with NETFLOW/SFLOW consumers.
+    const PROBES: &[&str] = &[
+        "flows.raw.netflow",
+        "flows.raw.sflow",
+        "flows.raw.ipfix",
+        "flow.host-slice.agent-probe",
+    ];
+    PROBES.iter().any(|p| subject_covers(filter, p))
+}
+
+/// True when every token is a non-empty literal (no whole-token * or >).
+pub(crate) fn exact_nats_subject(subject: &str) -> bool {
+    !subject.is_empty()
+        && subject
+            .split('.')
+            .all(|t| !t.is_empty() && t != "*" && t != ">")
+}
+
+/// Listener publish subjects must be concrete (NATS rejects wildcards on publish).
+pub(crate) fn is_valid_listener_publish_subject(subject: &str) -> bool {
+    exact_nats_subject(subject)
 }
 
 #[cfg(test)]
@@ -1858,30 +2000,70 @@ mod tests {
 
     #[test]
     fn classify_publish_error_kinds() {
+        use async_nats::jetstream::context::PublishError;
+        let timed = PublishError::new(PublishErrorKind::TimedOut);
         assert_eq!(
-            classify_publish_error(PublishErrorKind::TimedOut),
+            classify_publish_error(&timed),
             PublishDisposition::Ambiguous
         );
+        let pipe = PublishError::new(PublishErrorKind::BrokenPipe);
+        assert_eq!(classify_publish_error(&pipe), PublishDisposition::Ambiguous);
+        let missing = PublishError::new(PublishErrorKind::StreamNotFound);
         assert_eq!(
-            classify_publish_error(PublishErrorKind::BrokenPipe),
-            PublishDisposition::Ambiguous
-        );
-        assert_eq!(
-            classify_publish_error(PublishErrorKind::StreamNotFound),
+            classify_publish_error(&missing),
             PublishDisposition::StreamMissing
         );
+        let payload = PublishError::new(PublishErrorKind::MaxPayloadExceeded);
         assert_eq!(
-            classify_publish_error(PublishErrorKind::MaxPayloadExceeded),
+            classify_publish_error(&payload),
             PublishDisposition::Permanent
         );
+        let pending = PublishError::new(PublishErrorKind::MaxAckPending);
         assert_eq!(
-            classify_publish_error(PublishErrorKind::MaxAckPending),
+            classify_publish_error(&pending),
             PublishDisposition::Transient
         );
+        // Other without jetstream source ⇒ ambiguous (possible malformed positive ACK).
+        let other = PublishError::new(PublishErrorKind::Other);
         assert_eq!(
-            classify_publish_error(PublishErrorKind::Other),
+            classify_publish_error(&other),
+            PublishDisposition::Ambiguous
+        );
+        // Other with jetstream Error source ⇒ negative.
+        let js_err: async_nats::jetstream::Error = serde_json::from_str(
+            r#"{"code":503,"err_code":10023,"description":"insufficient resources"}"#,
+        )
+        .expect("jetstream error fixture");
+        let negative = PublishError::with_source(PublishErrorKind::Other, js_err);
+        assert_eq!(
+            classify_publish_error(&negative),
             PublishDisposition::Negative
         );
+    }
+
+    #[test]
+    fn ever_ambiguous_preserves_horizon_after_clear() {
+        let mut item = PendingPublish::new("flows.raw.netflow".into(), vec![1]);
+        item = item.mark_ambiguous();
+        item = item.clear_attempt_if_certain();
+        assert!(item.first_attempt_at.is_some());
+        assert!(item.ever_ambiguous);
+        assert!(!past_retry_horizon(&item, Duration::from_secs(90)));
+    }
+
+    #[test]
+    fn pattern_overlaps_flow_namespace_probes() {
+        assert!(pattern_overlaps_flow_namespace("flows.>"));
+        assert!(pattern_overlaps_flow_namespace("flows.raw.>"));
+        assert!(pattern_overlaps_flow_namespace("*.>"));
+        assert!(pattern_overlaps_flow_namespace("*.raw.>"));
+        assert!(pattern_overlaps_flow_namespace("*.*.>"));
+        assert!(pattern_overlaps_flow_namespace("flow.>"));
+        assert!(pattern_overlaps_flow_namespace(">"));
+        assert!(pattern_overlaps_flow_namespace("flow.host-slice.agent-1"));
+        assert!(!pattern_overlaps_flow_namespace("logs.>"));
+        assert!(!pattern_overlaps_flow_namespace("events.>"));
+        assert!(!pattern_overlaps_flow_namespace("flows.raw.netflow"));
     }
 
     #[test]
