@@ -286,7 +286,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       JetstreamConsumer.consumer_payload(
         "events",
         "serviceradar-event-writer-netflow-raw",
-        "flows.raw.netflow", ack_policy: :explicit)
+        "flows.raw.netflow",
+        ack_policy: :explicit
+      )
 
     refute Map.has_key?(payload.config, :deliver_policy)
     refute Map.has_key?(payload.config, "deliver_policy")
@@ -297,7 +299,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       JetstreamConsumer.consumer_payload(
         "events",
         "serviceradar-event-writer-netflow-raw",
-        "flows.raw.netflow", deliver_policy: :new)
+        "flows.raw.netflow",
+        deliver_policy: :new
+      )
 
     assert payload.config[:deliver_policy] == :new or payload.config["deliver_policy"] == :new
   end

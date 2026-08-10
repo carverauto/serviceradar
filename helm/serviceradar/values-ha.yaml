@@ -92,5 +92,8 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+  # Rehome marker + ready file must survive pod replacement during cutover.
   data:
-    enabled: false
+    enabled: true
+    size: 1Gi

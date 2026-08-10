@@ -79,11 +79,7 @@ async fn main() -> Result<()> {
         publisher_rx,
         Arc::clone(&host_slice_metrics),
     );
-    let publisher_handle = tokio::spawn(async move {
-        if let Err(e) = publisher.run().await {
-            log::error!("Publisher error: {}", e);
-        }
-    });
+    let publisher_handle = tokio::spawn(async move { publisher.run().await });
 
     // Spawn listeners
     let mut listener_handles: Vec<JoinHandle<()>> = Vec::new();
@@ -155,7 +151,8 @@ async fn main() -> Result<()> {
     }
 
     // Drop the original publisher sender so the publisher will shut down when
-    // all forwarders complete (which happens when all listeners stop).
+    // all forwarders complete (which happens when all listeners stop or we
+    // abort them on SIGTERM).
     drop(publisher_tx);
 
     // Spawn metrics reporter
@@ -166,21 +163,72 @@ async fn main() -> Result<()> {
 
     log::info!("Flow collector started successfully");
 
-    // Wait for publisher — if it dies, we exit
+    // Wait for publisher, or SIGTERM/SIGINT for a graceful drain of the retry
+    // queue (Kubernetes termination must enter this path — not only SIGKILL).
+    // Use &mut on the JoinHandle so a signal branch does NOT drop/abort the
+    // publisher task (dropping a JoinHandle aborts it and skips the drain).
+    let mut publisher_handle = publisher_handle;
+    let mut draining = false;
     tokio::select! {
-        result = publisher_handle => {
+        result = &mut publisher_handle => {
             match result {
-                Ok(_) => log::info!("Publisher task completed"),
+                Ok(Ok(())) => log::info!("Publisher task completed"),
+                Ok(Err(e)) => log::error!("Publisher task failed: {}", e),
                 Err(e) => log::error!("Publisher task panicked: {}", e),
             }
         }
         _ = metrics_handle => {
             log::info!("Metrics reporter task completed");
         }
+        _ = shutdown_signal() => {
+            log::info!("Shutdown signal received; stopping listeners so publisher can drain");
+            for handle in listener_handles {
+                handle.abort();
+            }
+            for handle in _forwarder_handles {
+                handle.abort();
+            }
+            draining = true;
+        }
+    }
+
+    if draining {
+        // Forwarder aborts drop their mpsc Senders → publisher sees channel
+        // close and drains the retry queue before returning.
+        match tokio::time::timeout(std::time::Duration::from_secs(25), publisher_handle).await {
+            Ok(Ok(Ok(()))) => log::info!("Publisher drained and exited cleanly"),
+            Ok(Ok(Err(e))) => log::error!("Publisher exited with error during drain: {}", e),
+            Ok(Err(e)) => log::error!("Publisher task panicked during drain: {}", e),
+            Err(_) => log::error!("Timed out waiting for publisher drain (25s)"),
+        }
     }
 
     log::info!("Flow collector shutting down");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(err) => {
+                    log::warn!("Failed to install SIGTERM handler: {}", err);
+                    let _ = ctrl_c.await;
+                    return;
+                }
+            };
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
+    }
 }
 
 fn ensure_rustls_provider_installed() {

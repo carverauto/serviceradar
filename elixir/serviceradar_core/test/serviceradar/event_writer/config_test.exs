@@ -148,7 +148,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert String.starts_with?(stream.subject, "flows.raw.")
         # Resume pre-cutover durable (not a brand-new deliver_policy:all name).
         assert stream.durable_source_name in ["NETFLOW_RAW", "SFLOW_RAW"]
-        assert stream.consumer_deliver_policy == :new
+        refute Map.has_key?(stream, :consumer_deliver_policy)
 
         assert Config.durable_name("serviceradar-event-writer", stream.durable_source_name) ==
                  Config.durable_name("serviceradar-event-writer", stream.durable_source_name)
@@ -159,6 +159,17 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
                "serviceradar-event-writer-netflow-raw"
+    end
+
+    test "EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS adds extension drain streams" do
+      System.put_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS", "flows.raw.ipfix")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS") end)
+
+      flow = Config.load_flow()
+      extra = Enum.find(flow.streams, &(&1.subject == "flows.raw.ipfix"))
+      assert extra
+      assert extra.stream_name == "events"
+      assert extra.durable_source_name == "FLOW_RAW_IPFIX"
     end
 
     test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do

@@ -61,6 +61,8 @@ spec:
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-flow-collector") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      # Allow publisher retry-queue drain on SIGTERM (see main.rs shutdown_signal).
+      terminationGracePeriodSeconds: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector

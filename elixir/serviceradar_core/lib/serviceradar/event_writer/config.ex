@@ -561,18 +561,21 @@ defmodule ServiceRadar.EventWriter.Config do
         allow_stream_fallback: false,
         reconcile_stream_shape: false,
         # Do not create/reshape the shared events stream from the flow path.
-        ensure_stream: false,
-        # CREATE-only: JetstreamConsumer strips deliver_policy on UPDATE so
-        # existing ...-netflow-raw durables (deliver_policy:all) keep their ACK
-        # cursor. Brand-new drain durables start at stream end (:new).
-        consumer_deliver_policy: :new
+        ensure_stream: false
+        # Intentionally omit consumer_deliver_policy: legacy durables use
+        # deliver_policy:all. Sending :new on CREATE fails with NATS 10012 when
+        # the durable already exists; JetstreamConsumer also strips it on UPDATE.
       }
 
-      drains =
+      primary =
         streams
         |> Enum.filter(&flow_stream?/1)
         |> Enum.reject(fn s -> Map.get(s, :stream_name) == "events" end)
-        |> Enum.map(fn stream ->
+
+      primary_subjects = MapSet.new(primary, & &1.subject)
+
+      from_config =
+        Enum.map(primary, fn stream ->
           Map.merge(drain_base, %{
             name: "#{stream.name}_EVENTS_DRAIN",
             subject: stream.subject,
@@ -582,7 +585,30 @@ defmodule ServiceRadar.EventWriter.Config do
           })
         end)
 
-      streams ++ drains
+      # Extension subjects rehomed by the collector (e.g. flows.raw.ipfix) that are
+      # not in default flow streams. Comma-separated EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS.
+      extras =
+        "EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS"
+        |> System.get_env("")
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "" or MapSet.member?(primary_subjects, &1)))
+        |> Enum.map(fn subject ->
+          suffix =
+            subject
+            |> String.replace_prefix("flows.raw.", "")
+            |> String.upcase()
+            |> String.replace(~r/[^A-Z0-9]+/, "_")
+
+          Map.merge(drain_base, %{
+            name: "FLOW_RAW_#{suffix}_EVENTS_DRAIN",
+            subject: subject,
+            # New durable (no pre-cutover consumer); omit deliver_policy → all.
+            durable_source_name: "FLOW_RAW_#{suffix}"
+          })
+        end)
+
+      streams ++ from_config ++ extras
     else
       streams
     end

@@ -783,9 +783,11 @@ flowCollector:
     stream_max_bytes: 8589934592
     stream_max_age_secs: 7200
     stream_replicas: 3
+  # Persist rehome marker + ready file across Recreate / pod replacement.
+  # JetStream holds flow durability; this PVC is only for local cutover state.
   data:
-    # flow collector is stateless in demo; raw flow durability is in JetStream.
-    enabled: false
+    enabled: true
+    size: 1Gi
   service:
     type: LoadBalancer
     annotations:
@@ -859,7 +861,7 @@ bmpCollector:
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
   data:
-    enabled: false
+    enabled: true
   service:
     type: LoadBalancer
     annotations:

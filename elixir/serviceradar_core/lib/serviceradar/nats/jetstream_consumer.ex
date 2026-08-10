@@ -325,37 +325,87 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
-        cond do
-          consumer_exists_error?(description) ->
-            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-
-          immutable_consumer_shape_error?(description) ->
-            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-
-          true ->
-            {:error, err}
-        end
+        handle_create_error(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          description,
+          err
+        )
 
       {:ok, %{"error" => error}} ->
-        {:error, error}
+        handle_create_error_map(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          error
+        )
 
       {:ok, _} ->
         :ok
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
-        cond do
-          consumer_exists_error?(description) ->
-            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-
-          immutable_consumer_shape_error?(description) ->
-            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-
-          true ->
-            {:error, err}
-        end
+        handle_create_error(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain,
+          description,
+          err
+        )
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Existing durables with a different deliver_policy reject CREATE with err 10012
+  # rather than "already exists". Treat that as "exists → reconcile without
+  # deliver_policy" — never recreate (would wipe the ACK cursor).
+  defp handle_create_error(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         domain,
+         description,
+         err
+       ) do
+    cond do
+      consumer_exists_error?(description) or deliver_policy_immutable_error?(description) ->
+        reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+
+      immutable_consumer_shape_error?(description) ->
+        recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
+
+      true ->
+        {:error, err}
+    end
+  end
+
+  defp handle_create_error_map(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         domain,
+         error
+       ) do
+    if deliver_policy_immutable_error?(error) or
+         (is_map(error) and consumer_exists_error?(Map.get(error, "description", ""))) do
+      reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+    else
+      {:error, error}
     end
   end
 

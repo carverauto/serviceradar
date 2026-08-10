@@ -11,9 +11,9 @@ use log::{error, info, warn};
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -43,11 +43,16 @@ impl Publisher {
     }
 
     pub async fn run(mut self) -> Result<()> {
+        // Never inherit a previous pod/process readiness or half-written marker.
+        clear_publisher_ready(&self.config);
         let (_, js) = self.connect_with_retry().await?;
         mark_publisher_ready(&self.config);
 
         let timeout_duration = Duration::from_millis(self.config.publish_timeout_ms);
-        let max_retry_queue = self.config.channel_size.max(self.config.batch_size.saturating_mul(4));
+        let max_retry_queue = self
+            .config
+            .channel_size
+            .max(self.config.batch_size.saturating_mul(4));
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
@@ -171,8 +176,7 @@ impl Publisher {
             match js.send_publish(item.subject.clone(), publish).await {
                 Ok(ack) => match timeout(timeout_duration, ack).await {
                     Ok(Ok(_seq)) => {
-                        self.host_slice_metrics
-                            .record_publish(&item.subject, bytes);
+                        self.host_slice_metrics.record_publish(&item.subject, bytes);
                     }
                     Ok(Err(e)) => {
                         error!(
@@ -322,9 +326,9 @@ impl Publisher {
                                     "Failed to restore rehomed subjects after target stream error                                      (marker retained at {}): {restore_err}",
                                     rehome_path.display()
                                 );
-                                return Err(err.context(format!(
-                                    "restore also failed: {restore_err}"
-                                )));
+                                return Err(
+                                    err.context(format!("restore also failed: {restore_err}"))
+                                );
                             }
                         }
                     }
@@ -478,7 +482,6 @@ async fn ensure_legacy_events_subjects_only(
     Ok(())
 }
 
-
 #[derive(Debug, Clone)]
 struct PendingPublish {
     subject: String,
@@ -542,13 +545,28 @@ fn ready_marker_path(config: &Config) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/var/lib/serviceradar/flow-collector.ready"))
 }
 
+fn clear_publisher_ready(config: &Config) {
+    let path = ready_marker_path(config);
+    if path.exists()
+        && let Err(err) = fs::remove_file(&path)
+    {
+        warn!(
+            "Failed to clear stale readiness marker {}: {}",
+            path.display(),
+            err
+        );
+    }
+}
+
 fn mark_publisher_ready(config: &Config) {
     let path = ready_marker_path(config);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    if let Err(err) = fs::write(&path, b"ready
-") {
+    if let Err(err) = fs::write(
+        &path, b"ready
+",
+    ) {
         warn!(
             "Failed to write readiness marker {}: {} (probe may stay unready)",
             path.display(),
@@ -696,12 +714,27 @@ async fn ensure_flows_stream(
                 needs_update = true;
             }
 
+            let desired_dup = Duration::from_secs(300);
+            if updated_config.duplicate_window < desired_dup {
+                info!(
+                    "Updating stream '{}' duplicate_window from {:?} to {:?}",
+                    stream_name, updated_config.duplicate_window, desired_dup
+                );
+                updated_config.duplicate_window = desired_dup;
+                needs_update = true;
+            }
+
             if needs_update {
                 js.update_stream(updated_config).await?;
                 let mut verified = js.get_stream(stream_name).await?;
                 let verified_info = verified.info().await?;
                 for required in target_subjects {
-                    if !verified_info.config.subjects.iter().any(|s| subject_covers(s, required) || s == required) {
+                    if !verified_info
+                        .config
+                        .subjects
+                        .iter()
+                        .any(|s| subject_covers(s, required) || s == required)
+                    {
                         return Err(anyhow::anyhow!(
                             "stream '{stream_name}' missing required subject '{required}' after update"
                         ));
@@ -720,6 +753,8 @@ async fn ensure_flows_stream(
                 max_bytes,
                 max_age,
                 num_replicas: replicas,
+                // Cover publish ack-timeout retries that reuse Nats-Msg-Id.
+                duplicate_window: Duration::from_secs(300),
                 ..Default::default()
             };
             // Prefer create_stream over get_or_create: get_or_create can return an
@@ -833,7 +868,6 @@ pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[Str
     subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,7 +882,10 @@ mod tests {
         let path = std::env::temp_dir().join(format!("rehome-marker-test-{nanos}.json"));
         let marker = RehomeMarker {
             target_stream: "flows".to_string(),
-            subjects: vec!["flows.raw.ipfix".to_string(), "flows.raw.netflow".to_string()],
+            subjects: vec![
+                "flows.raw.ipfix".to_string(),
+                "flows.raw.netflow".to_string(),
+            ],
         };
         write_rehome_marker(&path, &marker).unwrap();
         let loaded = load_rehome_marker(&path).unwrap().expect("marker present");
@@ -862,10 +899,8 @@ mod tests {
     fn wildcard_star_does_not_cover_gt() {
         assert!(!subject_covers("flows.raw.*", "flows.raw.>"));
         assert!(subject_covers("flows.raw.>", "flows.raw.*"));
-        let normalized = normalize_stream_subjects(vec![
-            "flows.raw.*".to_string(),
-            "flows.raw.>".to_string(),
-        ]);
+        let normalized =
+            normalize_stream_subjects(vec!["flows.raw.*".to_string(), "flows.raw.>".to_string()]);
         assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
     }
 }

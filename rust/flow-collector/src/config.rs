@@ -651,11 +651,13 @@ mod tests {
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
 
-        assert!(config
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("host_slice_allowlist"));
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("host_slice_allowlist")
+        );
     }
 
     #[test]
@@ -792,7 +794,10 @@ mod tests {
         assert!(subject_covers("flows.raw.>", "flows.raw.*"));
         assert!(!subject_covers("flows.*.netflow", "flows.raw.sflow"));
         assert!(subject_covers("flows.*.netflow", "flows.raw.netflow"));
-        assert!(!subject_covers("flows.*.netflow", "flows.raw.other.netflow"));
+        assert!(!subject_covers(
+            "flows.*.netflow",
+            "flows.raw.other.netflow"
+        ));
 
         let normalized = normalize_stream_subjects(vec![
             "flows.raw.>".to_string(),
