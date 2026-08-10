@@ -189,26 +189,47 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert Regex.match?(~r/_[a-f0-9]{8}$/, name)
     end
 
-    test "durable_name stays within NATS 255-byte consumer limit and keeps hash" do
+    test "durable_name stays within NATS 255-byte limit; long base keeps stream hash" do
       long_key = "FLOW_" <> String.duplicate("X", 300) <> "_abcd1234"
       name = Config.durable_name("serviceradar-event-writer", long_key)
       assert byte_size(name) <= 255
-      assert String.ends_with?(name, "abcd1234")
+
+      long_base = String.duplicate("x", 253)
+      a = Config.durable_name(long_base, "OTEL_METRICS")
+      b = Config.durable_name(long_base, "OTEL_TRACES")
+      assert byte_size(a) <= 255
+      assert byte_size(b) <= 255
+      assert a != b
+      # Reserved hash suffix differs per stream key
+      assert String.slice(a, -8, 8) != String.slice(b, -8, 8)
+    end
+
+    test "durable_name keeps short names backward compatible" do
+      assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
+               "serviceradar-event-writer-netflow-raw"
     end
 
     test "exact_nats_subject? allows embedded star but rejects whole-token wildcards" do
       assert Config.exact_nats_subject?("flows.raw.vendor*name")
       assert Config.exact_raw_flow_subject?("flows.raw.vendor*name")
+      assert Config.exact_flow_consumer_subject?("flow.host-slice.agent-1")
       refute Config.exact_nats_subject?("flows.raw.>")
       refute Config.exact_nats_subject?("flows.raw.*")
       refute Config.exact_nats_subject?("flows.raw.*.leaf")
     end
 
-    test "extra_flow_subjects accepts embedded star literals" do
-      System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.vendor*name")
+    test "extra_flow_subjects accepts embedded star literals and host-slice" do
+      System.put_env(
+        "EVENT_WRITER_FLOW_EXTRA_SUBJECTS",
+        "flows.raw.vendor*name,flow.host-slice.agent-1"
+      )
+
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
-      assert Config.extra_flow_subjects() == ["flows.raw.vendor*name"]
+      assert Config.extra_flow_subjects() == [
+               "flows.raw.vendor*name",
+               "flow.host-slice.agent-1"
+             ]
     end
 
     test "extra_flow_subjects raises on whole-token wildcards" do
@@ -224,6 +245,32 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
+    test "load_flow includes host-slice live + events drain pair" do
+      System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flow.host-slice.agent-1")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
+
+      flow = Config.load_flow()
+      expected = Config.flow_subject_stream_name("flow.host-slice.agent-1")
+
+      live =
+        Enum.filter(
+          flow.streams,
+          &(&1.subject == "flow.host-slice.agent-1" and &1.stream_name == "flows")
+        )
+
+      drain =
+        Enum.filter(
+          flow.streams,
+          &(&1.subject == "flow.host-slice.agent-1" and &1.stream_name == "events")
+        )
+
+      assert length(live) == 1
+      assert length(drain) == 1
+      assert hd(live).name == expected
+      assert hd(drain).durable_source_name == expected
+      assert Config.flow_stream?(hd(live))
+    end
+
     test "assert_no_canonical_consumer_collisions! catches case/punct durable collapse" do
       streams = [
         %{name: "FLOW_RAW_IPFIX_84c80497", stream_name: "flows", subject: "flows.raw.a"},
@@ -233,6 +280,48 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert_raise ArgumentError, ~r/colliding JetStream durable names/, fn ->
         Config.assert_no_canonical_consumer_collisions!(streams, "serviceradar-event-writer")
       end
+    end
+
+    test "load/0 collision guard rejects long base collapsing distinct streams" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+      long_base = String.duplicate("c", 250)
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.merge(previous,
+          consumer_name: long_base,
+          streams: [
+            %{
+              name: "OTEL_METRICS",
+              subject: "otel.metrics.>",
+              processor: ServiceRadar.EventWriter.Processors.OtelMetrics
+            },
+            %{
+              name: "OTEL_TRACES",
+              subject: "otel.traces.>",
+              processor: ServiceRadar.EventWriter.Processors.OtelTraces
+            }
+          ]
+        )
+      )
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      # With hash-reserved durable_name, long base no longer collapses — load succeeds
+      # and durables remain distinct.
+      config = Config.load()
+      assert config.consumer_name == long_base
+      a = Config.durable_name(long_base, "OTEL_METRICS")
+      b = Config.durable_name(long_base, "OTEL_TRACES")
+      assert a != b
+      assert byte_size(a) <= 255
     end
 
     test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do

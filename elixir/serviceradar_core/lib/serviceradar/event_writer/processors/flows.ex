@@ -38,7 +38,9 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   require Logger
 
   @attributed_flow_event_type "attributed_flow"
+  @host_slice_flow_event_type "host_slice_flow"
   @attributed_flow_subject_prefix "flow.attributed."
+  @host_slice_subject_prefix "flow.host-slice."
 
   # Attribution payload caps in BYTES (Mi-85, proto/flow/flow.proto:132-142).
   # Producers MUST cap redacted_cmdline at 256 bytes; comm/container_id are
@@ -197,15 +199,50 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     }
   end
 
+  # Host-slice fan-out is an intermediate attribution path (joined to
+  # flow.attributed.*). The raw flows.raw.* path already inserts ocsf rows;
+  # host-slice messages must not double-insert. Returning nil drops the row
+  # while process_batch still returns {:ok, _} so Broadway ACKs the JetStream
+  # message and reclaims stream storage.
+  defp processed_from_attributed_flow_message(
+         %AttributedFlowMessage{event_type: @host_slice_flow_event_type},
+         _metadata
+       ),
+       do: nil
+
   defp processed_from_attributed_flow_message(_message, _metadata), do: nil
 
   defp parse_protobuf_payload(data, metadata) do
     subject = metadata[:subject]
 
-    if attributed_subject?(subject) do
-      parse_attributed_protobuf_payload(data, metadata, subject)
-    else
-      parse_unattributed_protobuf_payload(data, metadata)
+    cond do
+      host_slice_subject?(subject) ->
+        # Decode+validate then ACK without ocsf insert (see host_slice_flow clause).
+        parse_host_slice_protobuf_payload(data, metadata, subject)
+
+      attributed_subject?(subject) ->
+        parse_attributed_protobuf_payload(data, metadata, subject)
+
+      true ->
+        parse_unattributed_protobuf_payload(data, metadata)
+    end
+  end
+
+  defp parse_host_slice_protobuf_payload(data, metadata, subject) do
+    case decode_attributed_flow(data) do
+      %AttributedFlowMessage{event_type: @host_slice_flow_event_type} = message ->
+        # Explicit no-op process: still counts as handled for ACK.
+        _ = message
+        _ = metadata
+        nil
+
+      %AttributedFlowMessage{} ->
+        emit_attributed_decode_failed(subject, :event_type_mismatch)
+        nil
+
+      nil ->
+        emit_attributed_decode_failed(subject, :decode_error)
+        nil
     end
   end
 
@@ -241,6 +278,12 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   end
 
   defp attributed_subject?(_), do: false
+
+  defp host_slice_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, @host_slice_subject_prefix)
+  end
+
+  defp host_slice_subject?(_), do: false
 
   defp emit_attributed_decode_failed(subject, reason) do
     :telemetry.execute(

@@ -153,15 +153,21 @@ defmodule ServiceRadar.EventWriter.Config do
   @spec load() :: t()
   def load do
     config = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+    consumer_name = load_consumer_name(config)
+    streams = load_non_flow_streams(config)
+
+    # Shared pipeline must also fail closed on durable/inbox collisions after
+    # canonicalization (long EVENT_WRITER_CONSUMER_NAME prefixes included).
+    assert_no_canonical_consumer_collisions!(streams, consumer_name)
 
     %__MODULE__{
       enabled: enabled?(),
       nats: load_nats_config(config),
       batch_size: load_batch_size(config),
       batch_timeout: load_batch_timeout(config),
-      consumer_name: load_consumer_name(config),
+      consumer_name: consumer_name,
       producer_name: Keyword.get(config, :producer_name),
-      streams: load_non_flow_streams(config),
+      streams: streams,
       consumer_pull_batch_size: load_consumer_pull_batch_size(config),
       max_ack_pending: load_max_ack_pending(config),
       processor_concurrency: load_processor_concurrency(config),
@@ -236,14 +242,21 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
-  Returns true when a stream config is raw NetFlow/sFlow (flows.raw.*).
+  Returns true when a stream config is raw flow telemetry (`flows.raw.*` or
+  configured `flow.host-slice.*`).
   """
   @spec flow_stream?(stream_config() | map()) :: boolean()
   def flow_stream?(%{subject: subject}) when is_binary(subject),
-    do: String.starts_with?(subject, "flows.raw.")
+    do: flow_consumer_subject?(subject)
 
   def flow_stream?(%{name: name}) when name in ["NETFLOW_RAW", "SFLOW_RAW"], do: true
   def flow_stream?(_), do: false
+
+  @doc false
+  def flow_consumer_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, "flows.raw.") or
+      String.starts_with?(subject, "flow.host-slice.")
+  end
 
   @doc """
   Default pull batch size for the dedicated flow EventWriter pipeline.
@@ -291,38 +304,65 @@ defmodule ServiceRadar.EventWriter.Config do
   def durable_name(base, stream_name) when is_binary(base) and is_binary(stream_name) do
     suffix =
       stream_name
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
+      |> sanitize_durable_token()
+      |> then(fn s -> if s == "", do: "stream", else: s end)
 
-    # Budget for suffix after "base-" (and configured consumer-name prefix length).
-    budget = max(@nats_max_consumer_name_bytes - byte_size(base) - 1, 8)
-    suffix = truncate_durable_suffix(suffix, budget)
-    name = "#{base}-#{suffix}"
+    # Preferred form keeps backward-compatible durables for normal-length names
+    # (e.g. serviceradar-event-writer-netflow-raw) so drain cursors still match.
+    preferred = "#{base}-#{suffix}"
 
-    # Absolute cap even if base alone is oversized.
-    if byte_size(name) > @nats_max_consumer_name_bytes do
-      binary_part(name, 0, @nats_max_consumer_name_bytes)
+    if byte_size(preferred) <= @nats_max_consumer_name_bytes do
+      preferred
     else
-      name
+      # Over budget: reserve a stable hash of the stream key and shrink the base
+      # (long EVENT_WRITER_CONSUMER_NAME), never prefix-slice the completed name.
+      hash =
+        :sha256
+        |> :crypto.hash(stream_name)
+        |> Base.encode16(case: :lower)
+        |> binary_part(0, 8)
+
+      base_token =
+        base
+        |> sanitize_durable_token()
+        |> then(fn s -> if s == "", do: "ew", else: s end)
+
+      # name = base_part-suffix_part-hash  (ASCII only → safe byte truncates)
+      # budget for base+suffix+two hyphens = 255 - 8
+      body_budget = @nats_max_consumer_name_bytes - 8 - 2
+
+      {base_part, suffix_part} =
+        cond do
+          byte_size(suffix) + 1 <= body_budget ->
+            base_budget = max(body_budget - byte_size(suffix) - 1, 1)
+            {binary_part(base_token, 0, min(byte_size(base_token), base_budget)), suffix}
+
+          true ->
+            base_budget = max(div(body_budget, 3), 1)
+            suffix_budget = max(body_budget - base_budget - 1, 1)
+
+            {
+              binary_part(base_token, 0, min(byte_size(base_token), base_budget)),
+              binary_part(suffix, 0, min(byte_size(suffix), suffix_budget))
+            }
+        end
+
+      name = "#{base_part}-#{suffix_part}-#{hash}"
+
+      if byte_size(name) <= @nats_max_consumer_name_bytes do
+        name
+      else
+        # Last resort: short base + hash only (still unique per stream_name).
+        "ew-#{hash}"
+      end
     end
   end
 
-  # Prefer retaining a trailing 8-char hex hash when truncating long suffixes so
-  # disambiguation survives the NATS 255-byte consumer-name limit.
-  defp truncate_durable_suffix(suffix, budget) when byte_size(suffix) <= budget, do: suffix
-
-  defp truncate_durable_suffix(suffix, budget) do
-    case Regex.run(~r/^(.*-)([a-f0-9]{8})$/, suffix) do
-      [_, readable, hash] ->
-        # "readable-" + hash
-        readable_budget = max(budget - byte_size(hash) - 1, 1)
-        readable = binary_part(readable, 0, min(byte_size(readable), readable_budget))
-        "#{readable}-#{hash}"
-
-      _ ->
-        binary_part(suffix, 0, budget)
-    end
+  defp sanitize_durable_token(token) when is_binary(token) do
+    token
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
   end
 
   @doc """
@@ -605,7 +645,7 @@ defmodule ServiceRadar.EventWriter.Config do
     # silently miss live coverage. Fail closed rather than drop them quietly.
     wildcards =
       Enum.filter(subjects, fn s ->
-        String.starts_with?(s, "flows.raw.") and not exact_nats_subject?(s)
+        flow_consumer_subject?(s) and not exact_nats_subject?(s)
       end)
 
     if wildcards != [] do
@@ -616,17 +656,27 @@ defmodule ServiceRadar.EventWriter.Config do
     end
 
     subjects
-    |> Enum.filter(&exact_raw_flow_subject?/1)
+    |> Enum.filter(&exact_flow_consumer_subject?/1)
+    # Defaults already have dedicated live/drain entries.
+    |> Enum.reject(&(&1 in ["flows.raw.netflow", "flows.raw.sflow"]))
     |> Enum.uniq()
   end
 
   @doc """
-  True when subject is a concrete NATS subject under flows.raw (no whole-token
+  True when subject is a concrete NATS subject under `flows.raw.*` (no whole-token
   wildcards). Embedded `*`/`>` in a token (e.g. `vendor*name`) are literals.
   """
   @spec exact_raw_flow_subject?(String.t()) :: boolean()
   def exact_raw_flow_subject?(subject) when is_binary(subject) do
     String.starts_with?(subject, "flows.raw.") and exact_nats_subject?(subject)
+  end
+
+  @doc """
+  Concrete EventWriter consumer subject: `flows.raw.*` or `flow.host-slice.*`.
+  """
+  @spec exact_flow_consumer_subject?(String.t()) :: boolean()
+  def exact_flow_consumer_subject?(subject) when is_binary(subject) do
+    flow_consumer_subject?(subject) and exact_nats_subject?(subject)
   end
 
   @doc false
@@ -649,6 +699,7 @@ defmodule ServiceRadar.EventWriter.Config do
     readable =
       subject
       |> String.replace_prefix("flows.raw.", "")
+      |> String.replace_prefix("flow.host-slice.", "HOST_SLICE_")
       |> String.upcase()
       |> String.replace(~r/[^A-Z0-9]+/, "_")
       |> String.trim("_")
