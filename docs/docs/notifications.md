@@ -759,12 +759,40 @@ To enable it:
 
 1. In your Slack app, set the **Interactivity Request URL** to
    `https://<your-serviceradar-host>/api/notifications/callbacks/slack`.
-2. Register the app with ServiceRadar so inbound interactions can be verified.
-   The signing secret is stored per **app**, not per channel - one Slack app
-   serving ten channels is registered once, and rotating the secret is one
-   change rather than ten. An inbound interaction names the app that sent it and
-   carries nothing identifying the channel, so app-scoped storage is also the
-   only shape the callback could resolve.
+2. Register the app with ServiceRadar so inbound interactions can be verified:
+
+   ```bash
+   curl -X POST https://<host>/api/admin/notification-callback-apps \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "provider_key": "slack",
+           "external_app_id": "A0123456789",
+           "label": "ServiceRadar Alerts",
+           "signing_secret": "<the app signing secret>"
+         }'
+   ```
+
+   This requires `notifications.providers.manage`. The signing secret is stored
+   per **app**, not per channel - one Slack app serving ten channels is
+   registered once, and rotating the secret is one change rather than ten. An
+   inbound interaction names the app that sent it and carries nothing
+   identifying the channel, so app-scoped storage is also the only shape the
+   callback could resolve.
+
+   The secret is write-only. It is stored encrypted and no response returns it
+   in any form; if it is lost, rotate it:
+
+   ```bash
+   curl -X POST https://<host>/api/admin/notification-callback-apps/<id>/rotate-secret \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"signing_secret": "<the new signing secret>"}'
+   ```
+
+   `DELETE /api/admin/notification-callback-apps/<id>` deregisters an app, after
+   which every interaction from it is refused - which is what you want for a
+   compromised app.
 3. On the channel, set `interactive: true` and `api_app_id` to the app's id.
    Saving `interactive: true` without `api_app_id` is refused, because without it
    the callback cannot find the signing secret and every click would be rejected

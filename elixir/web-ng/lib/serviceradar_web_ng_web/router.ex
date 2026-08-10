@@ -549,6 +549,20 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/users/:id/reactivate", UserController, :reactivate)
     post("/users/:id/local-login", UserController, :set_local_login)
 
+    # The provider applications whose signatures authorise an inbound
+    # notification callback (task 4.3.1a). Authorisation is the resource's own
+    # `notifications.providers.manage` policy, reached through the request scope.
+    get("/notification-callback-apps", NotificationCallbackAppController, :index)
+    post("/notification-callback-apps", NotificationCallbackAppController, :create)
+
+    post(
+      "/notification-callback-apps/:id/rotate-secret",
+      NotificationCallbackAppController,
+      :rotate_secret
+    )
+
+    delete("/notification-callback-apps/:id", NotificationCallbackAppController, :delete)
+
     get("/authorization-settings", AuthorizationSettingsController, :show)
     put("/authorization-settings", AuthorizationSettingsController, :update)
     get("/bmp-settings", BmpSettingsController, :show)
