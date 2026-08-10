@@ -765,6 +765,11 @@ services:
       - ./logs:/var/log/serviceradar
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Share shutdown budget with the publisher drain path (see main.rs).
+      - TERMINATION_GRACE_PERIOD_SECONDS=45
+      - FLOW_COLLECTOR_READY_PATH=/var/lib/serviceradar/flow-collector.ready
+    # Must cover publisher concurrent-ACK drain (default process budget ~43s).
+    stop_grace_period: 45s
     cap_add:
       - NET_BIND_SERVICE
     depends_on:

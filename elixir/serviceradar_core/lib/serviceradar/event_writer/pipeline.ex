@@ -373,15 +373,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp reason_class(_reason), do: "error"
 
   defp build_batchers(config) do
+    # Collapse all raw-flow streams (live + drain + extras) onto :flows_raw so
+    # the batcher set matches batcher_rules/0 routing (flows.raw.* → :flows_raw).
     stream_batchers =
-      Keyword.new(config.streams, fn stream ->
-        batcher_name = stream_to_batcher_name(stream.name)
+      Enum.reduce(config.streams, [], fn stream, acc ->
+        batcher_name =
+          if Config.flow_stream?(stream) do
+            :flows_raw
+          else
+            stream_to_batcher_name(stream.name)
+          end
 
-        {batcher_name,
-         [
-           batch_size: stream[:batch_size] || config.batch_size,
-           batch_timeout: stream[:batch_timeout] || config.batch_timeout
-         ]}
+        if Keyword.has_key?(acc, batcher_name) do
+          acc
+        else
+          Keyword.put(acc, batcher_name,
+            batch_size: stream[:batch_size] || config.batch_size,
+            batch_timeout: stream[:batch_timeout] || config.batch_timeout
+          )
+        end
       end)
 
     if Keyword.has_key?(stream_batchers, :default) do

@@ -66,14 +66,17 @@ impl Publisher {
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
-        let max_retry_age = Duration::from_secs(MAX_RETRY_AGE_SECS);
-
-        info!("Publisher started");
+        // Bound retry age from the live stream's duplicate_window (events may be 120s).
+        let max_retry_age = resolve_max_retry_age(&js, &self.config.stream_name).await;
+        info!(
+            "Publisher started (max_retry_age={:?}, concurrency={})",
+            max_retry_age, PUBLISH_CONCURRENCY
+        );
 
         loop {
             if !retry_q.is_empty() {
                 expire_old_retries(&mut retry_q, max_retry_age);
-                self.publish_pending(&js, &mut retry_q, timeout_duration)
+                self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_age)
                     .await;
                 if !retry_q.is_empty() {
                     sleep(backoff).await;
@@ -113,7 +116,7 @@ impl Publisher {
             }
 
             let mut pending: VecDeque<PendingPublish> = batch.into();
-            self.publish_pending(&js, &mut pending, timeout_duration)
+            self.publish_pending(&js, &mut pending, timeout_duration, max_retry_age)
                 .await;
             while let Some(item) = pending.pop_front() {
                 if retry_q.len() >= max_retry_queue {
@@ -150,7 +153,8 @@ impl Publisher {
                 break;
             }
             attempts += 1;
-            self.publish_pending(js, retry_q, timeout_duration).await;
+            self.publish_pending(js, retry_q, timeout_duration, max_retry_age)
+                .await;
             if retry_q.is_empty() {
                 break;
             }
@@ -172,6 +176,7 @@ impl Publisher {
         js: &jetstream::Context,
         pending: &mut VecDeque<PendingPublish>,
         timeout_duration: Duration,
+        max_retry_age: Duration,
     ) {
         let limit = pending.len().min(self.config.batch_size.max(1));
         if limit == 0 {
@@ -193,10 +198,32 @@ impl Publisher {
             let sem = semaphore.clone();
             let metrics = self.host_slice_metrics.clone();
             set.spawn(async move {
+                // Recheck age immediately before send — a long concurrent pass can
+                // push later items past the dedup window if only checked once.
+                if item.first_seen.elapsed() > max_retry_age {
+                    error!(
+                        "Dropping publish for subject {} id={} at send (age {:?} > {:?})",
+                        item.subject,
+                        item.msg_id,
+                        item.first_seen.elapsed(),
+                        max_retry_age
+                    );
+                    return Ok(());
+                }
                 let _permit = match sem.acquire_owned().await {
                     Ok(p) => p,
                     Err(_) => return Err(item),
                 };
+                if item.first_seen.elapsed() > max_retry_age {
+                    error!(
+                        "Dropping publish for subject {} id={} after permit wait (age {:?} > {:?})",
+                        item.subject,
+                        item.msg_id,
+                        item.first_seen.elapsed(),
+                        max_retry_age
+                    );
+                    return Ok(());
+                }
                 let bytes = item.payload.len();
                 let publish = PublishMessage::build()
                     .payload(item.payload.clone().into())
@@ -314,6 +341,9 @@ impl Publisher {
                     restore.push(s.clone());
                 }
             }
+            // Wildcard + exact subjects from a prior rehome marker must not form a
+            // self-overlapping list (NATS 10052).
+            restore = normalize_stream_subjects(restore);
             warn!(
                 "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
             );
@@ -537,8 +567,24 @@ async fn ensure_legacy_events_subjects_only(
             needs_update = true;
         }
     }
+    let normalized = normalize_stream_subjects(updated.subjects.clone());
+    if normalized != updated.subjects {
+        updated.subjects = normalized;
+        needs_update = true;
+    }
+    // Raise de-dup window so publish retries with Nats-Msg-Id stay safe in
+    // legacy stream_name=events mode (server default is often 120s).
+    let desired_dup = Duration::from_secs(DUPLICATE_WINDOW_SECS);
+    if updated.duplicate_window < desired_dup {
+        info!(
+            "Raising events stream duplicate_window from {:?} to {:?} for publish dedup",
+            updated.duplicate_window, desired_dup
+        );
+        updated.duplicate_window = desired_dup;
+        needs_update = true;
+    }
     if needs_update {
-        // Keep prior retention shape — only subject list may change.
+        // Keep prior retention shape — only subject list / dup window may change.
         updated.max_bytes = existing_max_bytes;
         updated.max_age = existing_max_age;
         js.update_stream(updated).await?;
@@ -622,14 +668,42 @@ fn rehome_state_path(config: &Config) -> PathBuf {
 }
 
 fn ready_marker_path(config: &Config) -> PathBuf {
-    if let Some(path) = &config.ready_state_path {
-        return path.clone();
-    }
+    // Explicit env wins so operators/probes share one override knob.
     if let Ok(path) = std::env::var("FLOW_COLLECTOR_READY_PATH") {
         return PathBuf::from(path);
     }
+    if let Some(path) = &config.ready_state_path {
+        return path.clone();
+    }
     // Fixed default must match Helm readinessProbe path.
     PathBuf::from("/var/lib/serviceradar/flow-collector.ready")
+}
+
+async fn resolve_max_retry_age(js: &jetstream::Context, stream_name: &str) -> Duration {
+    let window = match js.get_stream(stream_name).await {
+        Ok(mut stream) => match stream.info().await {
+            Ok(info) => {
+                let w = info.config.duplicate_window;
+                if w.is_zero() {
+                    Duration::from_secs(120)
+                } else {
+                    w
+                }
+            }
+            Err(_) => Duration::from_secs(120),
+        },
+        Err(_) => Duration::from_secs(120),
+    };
+    // Keep a margin under the stream dedup window for in-flight concurrent passes.
+    let margin = Duration::from_secs(30).min(window / 4);
+    let derived = window.saturating_sub(margin);
+    let capped = Duration::from_secs(MAX_RETRY_AGE_SECS);
+    let age = if derived.is_zero() {
+        window / 2
+    } else {
+        derived
+    };
+    if age > capped { capped } else { age }
 }
 
 fn clear_publisher_ready(config: &Config) -> Result<()> {

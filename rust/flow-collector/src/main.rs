@@ -17,6 +17,7 @@ use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, Subjec
 use publisher::Publisher;
 use std::sync::Arc;
 use std::sync::Once;
+use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -194,29 +195,46 @@ async fn main() -> Result<()> {
     }
 
     if draining {
-        // Await forwarders so in-flight listener-queue messages reach the publisher.
-        for handle in _forwarder_handles {
-            let _ = handle.await;
-        }
-        // Derive drain budget from pod termination grace (env set by Helm).
+        // One absolute deadline from signal receipt for forwarder + publisher drain.
         let grace_secs: u64 = std::env::var("TERMINATION_GRACE_PERIOD_SECONDS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(45);
-        // Leave a few seconds for process teardown after publisher returns.
-        let drain_secs = grace_secs.saturating_sub(5).max(15);
+            .unwrap_or(45)
+            .max(1);
+        // Leave a small teardown margin; never invent a floor above configured grace.
+        let budget_secs = grace_secs.saturating_sub(2).max(1);
+        let deadline = Instant::now() + Duration::from_secs(budget_secs);
         log::info!(
-            "Waiting up to {}s for publisher retry drain (grace={}s)",
-            drain_secs,
-            grace_secs
+            "Drain deadline {:?} from now (grace={}s, budget={}s)",
+            deadline.saturating_duration_since(Instant::now()),
+            grace_secs,
+            budget_secs
         );
-        match tokio::time::timeout(std::time::Duration::from_secs(drain_secs), publisher_handle)
-            .await
-        {
-            Ok(Ok(Ok(()))) => log::info!("Publisher drained and exited cleanly"),
-            Ok(Ok(Err(e))) => log::error!("Publisher exited with error during drain: {}", e),
-            Ok(Err(e)) => log::error!("Publisher task panicked during drain: {}", e),
-            Err(_) => log::error!("Timed out waiting for publisher drain ({}s)", drain_secs),
+
+        for handle in _forwarder_handles {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                log::warn!("Drain deadline hit while awaiting forwarders");
+                break;
+            }
+            match tokio::time::timeout(remaining, handle).await {
+                Ok(_) => {}
+                Err(_) => log::warn!("Forwarder drain timed out against absolute deadline"),
+            }
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            log::error!("No time left for publisher drain after forwarders");
+        } else {
+            match tokio::time::timeout(remaining, publisher_handle).await {
+                Ok(Ok(Ok(()))) => log::info!("Publisher drained and exited cleanly"),
+                Ok(Ok(Err(e))) => log::error!("Publisher exited with error during drain: {}", e),
+                Ok(Err(e)) => log::error!("Publisher task panicked during drain: {}", e),
+                Err(_) => {
+                    log::error!("Timed out waiting for publisher drain against absolute deadline")
+                }
+            }
         }
     }
 

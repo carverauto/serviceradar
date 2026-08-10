@@ -161,6 +161,17 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                "serviceradar-event-writer-netflow-raw"
     end
 
+    test "legacy NETFLOW/SFLOW drains use :new if absent; extras use :all" do
+      System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS")
+      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+      flow = Config.load_flow()
+
+      netflow_drain =
+        Enum.find(flow.streams, &(&1.name == "NETFLOW_RAW_EVENTS_DRAIN"))
+
+      assert netflow_drain.consumer_deliver_policy_if_absent == :new
+    end
+
     test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do
       System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.ipfix")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
@@ -183,7 +194,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert length(drain) == 1
       assert hd(live).name == "FLOW_RAW_IPFIX"
       assert hd(drain).durable_source_name == "FLOW_RAW_IPFIX"
-      assert hd(drain).consumer_deliver_policy_if_absent == :new
+      assert hd(drain).consumer_deliver_policy_if_absent == :all
     end
 
     test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do

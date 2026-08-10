@@ -369,13 +369,19 @@ spec:
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}
 
-        {{- /* Extension raw-flow subjects (beyond netflow/sflow) shared with flow-collector. */ -}}
+        {{- /* Extension raw-flow subjects from collector stream_subjects + listeners. */ -}}
         {{- $extraFlowSubjects := list -}}
-        {{- $fcListeners := list -}}
-        {{- if and .Values.flowCollector .Values.flowCollector.config .Values.flowCollector.config.listeners }}
-          {{- $fcListeners = .Values.flowCollector.config.listeners -}}
+        {{- $fcConfig := dict -}}
+        {{- if and .Values.flowCollector .Values.flowCollector.config }}
+          {{- $fcConfig = .Values.flowCollector.config -}}
         {{- end }}
-        {{- range $fcListeners }}
+        {{- range (default list (get $fcConfig "stream_subjects")) }}
+          {{- $subj := . | toString -}}
+          {{- if and $subj (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+            {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+          {{- end }}
+        {{- end }}
+        {{- range (default list (get $fcConfig "listeners")) }}
           {{- $subj := default "" .subject -}}
           {{- if and $subj (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
             {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}

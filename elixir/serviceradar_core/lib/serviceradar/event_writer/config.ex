@@ -614,9 +614,7 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 500,
         allow_stream_fallback: false,
         reconcile_stream_shape: false,
-        ensure_stream: false,
-        # Prefer :new only when INFO shows the durable is missing (see JetstreamConsumer).
-        consumer_deliver_policy_if_absent: :new
+        ensure_stream: false
       }
 
       # Drain every live flows.* entry (defaults + EXTRA subjects).
@@ -627,10 +625,21 @@ defmodule ServiceRadar.EventWriter.Config do
 
       live
       |> Enum.map(fn stream ->
+        # Legacy NETFLOW/SFLOW durables used deliver_policy:all; if missing, :new
+        # avoids replaying ACKed history. Extension extras never had a pre-cutover
+        # durable, so absent INFO must use :all to drain retained backlog.
+        if_absent =
+          if stream.name in ["NETFLOW_RAW", "SFLOW_RAW"] do
+            :new
+          else
+            :all
+          end
+
         Map.merge(drain_base, %{
           name: "#{stream.name}_EVENTS_DRAIN",
           subject: stream.subject,
-          durable_source_name: stream.name
+          durable_source_name: stream.name,
+          consumer_deliver_policy_if_absent: if_absent
         })
       end)
       |> then(&(streams ++ &1))

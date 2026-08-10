@@ -10,7 +10,12 @@ metadata:
   name: serviceradar-flow-collector-config
 data:
   flow-collector.json: |
-    {{- toJson .Values.flowCollector.config | nindent 4 }}
+    {{- $readyPath := .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" -}}
+    {{- $cfg := deepCopy (default (dict) .Values.flowCollector.config) -}}
+    {{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
+    {{- $_ := set $cfg "ready_state_path" $readyPath -}}
+    {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
+    {{- toJson $cfg | nindent 4 }}
 ---
 {{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
@@ -99,7 +104,7 @@ spec:
         - name: FLOW_COLLECTOR_READY_PATH
           value: {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" | quote }}
         - name: FLOW_COLLECTOR_REHOME_STATE_PATH
-          value: {{ .Values.flowCollector.config.rehome_state_path | default "/var/lib/serviceradar/flow-collector-rehome.json" | quote }}
+          value: {{ (.Values.flowCollector.config).rehome_state_path | default "/var/lib/serviceradar/flow-collector-rehome.json" | quote }}
         - name: TERMINATION_GRACE_PERIOD_SECONDS
           value: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 | quote }}
         livenessProbe:
