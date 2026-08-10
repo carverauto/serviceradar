@@ -75,6 +75,7 @@ defmodule ServiceRadar.Notifications.Renderer do
   """
 
   alias ServiceRadar.Automation.Northbound.ActionRedaction
+  alias ServiceRadar.Notifications.ActionLinks
   alias ServiceRadar.Notifications.Renderers.Content
   alias ServiceRadar.Notifications.Renderers.DiscordEmbed
   alias ServiceRadar.Notifications.Renderers.Format
@@ -553,11 +554,25 @@ defmodule ServiceRadar.Notifications.Renderer do
       dedupe_key: opt_string(opts, :dedupe_key) || string_field(alert_snapshot, "dedupe_key"),
       source: opt_string(opts, :source) || string_field(alert_snapshot, "source"),
       timestamp: opt_string(opts, :timestamp) || timestamp_field(alert_snapshot),
+      delivery_id: opt_string(opts, :delivery_id),
+      snooze_seconds: snooze_seconds(opts),
       alert: alert_snapshot,
       links: links,
       include_action_links?: include_action_links?(opts),
       event_action: Keyword.get(opts, :event_action, :trigger)
     }
+  end
+
+  # The duration a Snooze control grants, taken from the SAME source the Phase 1
+  # link path mints against (`ActionLinks.default_snooze_seconds/0`) rather than
+  # restated here. Two ingresses to one mechanism disagreeing about how long
+  # "Snooze 1h" is would be invisible until an operator compared a button with a
+  # link.
+  defp snooze_seconds(opts) do
+    case Keyword.get(opts, :snooze_seconds, ActionLinks.default_snooze_seconds()) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _other -> ActionLinks.default_snooze_seconds()
+    end
   end
 
   defp opt_string(opts, key) do

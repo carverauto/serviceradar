@@ -353,22 +353,100 @@ envelopes therefore carry alert and delivery identifiers that a subscriber
 resolves through the authenticated API, never an action link. This exemption
 applies wherever action links are otherwise required.
 
-**Phase 2 - native interactive components.** Slack Block Kit buttons, Discord
-message components, and PagerDuty acknowledgement webhooks. These reuse the
-northbound callback stack verbatim: token from header/Bearer/body, sha256-only
-persistence, `Edge.Crypto`-encrypted HMAC secret, verification via
-`Plug.Crypto.secure_compare` plus HMAC-SHA256 over `<timestamp>.<raw_body>` with
-a 300 s tolerance (`automation/northbound/dispatcher.ex:425-466`,
-`command_result_handler.ex:172-207`).
+**The exemption covers interactive controls too, and this is not automatic.** A
+Slack Block Kit button carries `action_id` (not `action`) inside
+`blocks[].elements[]`, and a Discord component carries `custom_id` inside
+`components[].components[]`. Neither is URL-shaped and neither key appears in a
+denylist written for Phase 1 links, so a guard built only for signed links passes
+a live control straight through to every subscriber while the envelope still
+looks clean - no token, no URL, nothing a reviewer would spot. The stream
+transport's guard is therefore **structural** (drop any entry carrying
+`action_id`/`custom_id`, or any block of `"type": "actions"`), not another list
+of key names, because the names that matter belong to the provider rather than to
+us.
 
-Note that `ServiceRadarWebNGWeb.Api.RawBodyReader` buffers raw bodies **only for
-registered path prefixes**, and today the only registered prefix is
-`/api/northbound/action-callbacks/` (`raw_body_reader.ex:4`). HMAC over raw body
-is therefore impossible for any route whose prefix is not registered, so the
-notification callback route prefix must be registered with `RawBodyReader` as
-part of this change. Skipping that registration does not fail loudly; it
-verifies against a re-encoded body and breaks signatures for exactly the
-providers that sign bytes.
+**Phase 2 - native interactive components.** Slack Block Kit buttons, Discord
+message components, and PagerDuty acknowledgement webhooks.
+
+**AMENDED after verification against the providers and the codebase.** This
+paragraph previously said Phase 2 would "reuse the northbound callback stack
+verbatim: token from header/Bearer/body, sha256-only persistence,
+`Edge.Crypto`-encrypted HMAC secret, verification via `Plug.Crypto.secure_compare`
+plus HMAC-SHA256 over `<timestamp>.<raw_body>` with a 300 s tolerance". That is
+not achievable, and pretending otherwise would tick a checkbox against a
+requirement nobody met:
+
+- The northbound stack is **token-primary, signature-secondary**
+  (`command_result_handler.ex:174-186` rejects unless a bearer token matches
+  `callback_token_hash`; the HMAC is a second, optional factor). **Slack and
+  Discord present no token of ours at all** - they POST to a URL we register with
+  them - so the primary factor has no referent for two of the three providers.
+- Each provider signs its own way. Slack: HMAC-SHA256 hex over
+  `"v0:" <> ts <> ":" <> body`, prefix `v0=`. Discord: **Ed25519 over
+  `ts <> body`**, which has no digest, so `Plug.Crypto.secure_compare/2` is not
+  merely different here, it is **inapplicable**; the stored material is a
+  *public* key, not a secret. PagerDuty: HMAC-SHA256 over the **body alone**,
+  prefix `v1=`, comma-separated list, and **no timestamp header at all**, so a
+  300 s tolerance is structurally impossible and replay defence must move to
+  `event.id` dedupe.
+- Do not import `command_result_handler.ex:172-207`'s auth-mode enum: it maps
+  `nil | :token` to `:ok`, which in a tokenless context means "no signature
+  header implies authorised".
+
+**The revised contract.** A `ServiceRadar.Notifications.Callbacks.Signature`
+behaviour with one module per provider, over a shared primitives module. Genuinely
+reused from northbound: `RawBodyReader`, `Plug.Crypto.secure_compare/2` with its
+`byte_size` pre-check, the `abs()` skew comparison, the 300 s tolerance constant,
+and sha256-only persistence of any token we do mint. The
+`<timestamp>.<raw_body>` base string and the `sha256=` prefix are **northbound-only
+and must not be copied**. `command_result_handler.ex` is left untouched.
+
+**PagerDuty is the one provider where the literal token half IS achievable**, and
+it should be taken: we create its subscription ourselves via
+`POST /webhook_subscriptions`, whose HTTP delivery method accepts operator-supplied
+custom headers. ServiceRadar can mint a callback token, persist only its sha256,
+have PagerDuty present it as `Authorization: Bearer <token>`, and compare with
+`Plug.Crypto.secure_compare/2`. That is not redundant with the `v1=` HMAC: the
+HMAC proves PagerDuty sent it, the token binds the request to *this* subscription.
+
+**Feasibility, verified against the shipped transports:**
+
+- **Slack works today**, in both `incoming_webhook` and `bot_token` modes. A Slack
+  incoming webhook is issued to an installed Slack app, so Block Kit buttons
+  posted through it do generate interactions to that app's Request URL. The real
+  constraints are different: Slack answers a webhook with the literal body `ok`,
+  so `external_correlation_id` is never set and message rewrite must go through
+  `response_url`; and nothing in the webhook URL identifies the app, so
+  `api_app_id` and the signing-secret ref must be explicit channel config and the
+  callback must select the secret by `payload.api_app_id`, never by channel id.
+- **Discord interactive components are NOT feasible with the current credential
+  model** and are deferred to their own change. `transports/discord.ex` stores a
+  pasted `webhook_url`: a user-owned Type 1 incoming webhook with
+  `application_id: null`. Discord ignores components on those, and there is no
+  application for it to route a MESSAGE_COMPONENT interaction to. Buttons require
+  a registered Discord Application plus a per-guild OAuth install - an onboarding
+  change, not a rendering change. The refusal is **silent**: Discord returns
+  200/204, the message posts without buttons, and the transport records success.
+  Discord therefore stays on Phase 1 links and must NOT advertise an interactive
+  capability.
+- **PagerDuty inbound is blocked on an architectural decision** not otherwise in
+  this change: the declarative tier structurally cannot own an inbound endpoint
+  (`declarative/definition.ex`), and PagerDuty is a declarative entry. It needs
+  promoting to a native transport, or a platform-level callback endpoint outside
+  the provider tiers. Additionally **snooze can never round-trip from PagerDuty** -
+  there is no `incident.snoozed` event in the v3 catalogue - so snooze stays on
+  the signed-link path there permanently.
+
+`ServiceRadarWebNGWeb.Api.RawBodyReader` buffers raw bodies **only for registered
+path prefixes**. `/api/notifications/callbacks/` is now registered alongside
+`/api/northbound/action-callbacks/` (`raw_body_reader.ex`). Skipping such a
+registration does not fail loudly; it verifies against a re-encoded body and
+breaks signatures for exactly the providers that sign bytes. Two further traps
+follow from that: the prefix match is `String.starts_with?`, so a bare
+`/api/notifications/callbacks` (no trailing slash) is **not** buffered; and a
+verifier that defaults a missing raw body to `""` computes a signature over the
+empty string and returns an indistinguishable 401. The notification verifier
+takes the raw body as a required argument and fails loudly when it is absent.
 
 **Actor identity.** `alerts.acknowledged_by` and `resolved_by` are free-text
 strings with no foreign key. This change adds `acknowledged_by_user_id` as a

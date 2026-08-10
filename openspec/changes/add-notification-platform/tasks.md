@@ -1978,19 +1978,97 @@ directories are still on that branch at their original commits.
 
 ### 4.3 Native interactive acknowledgement
 
+Scope amended after verifying each provider against the shipped transports; see
+design.md D7 for the evidence. Slack is buildable on the current credential
+model, Discord is not, and PagerDuty inbound is blocked on an architectural
+decision. The platform seams below are shared and must land first, because each
+one is a silent-failure source if done per-provider.
+
+- [x] 4.3.0a Platform seam: `Content` gains `delivery_id` and `snooze_seconds`,
+      plus a single `action_controls/1` accessor whose first clause matches
+      `%Content{include_action_links?: false}` exactly as `action_links/1` does,
+      so the stream exemption cannot be routed around by a new call site. Without
+      these two fields an interactive control can bind only `alert_id` - a weaker
+      binding than the Phase 1 link it replaces, which refuses to mint without
+      both - and every interactive snooze fails `:missing_snooze_seconds`,
+      because `apply_native/2` deliberately refuses a house default.
+- [ ] 4.3.0b Platform seam: notification callback route plus its own pipeline.
+      The existing `/api/notifications` scope pipes `:notification_action`, which
+      is `accepts ["html"]` and would 406 a JSON provider POST, and shares its
+      rate-limit bucket. Assert `RawBodyReader.buffered?/1` for each concrete
+      route: the prefix match is `String.starts_with?`, so a route without the
+      trailing slash is silently unbuffered.
+- [ ] 4.3.0c Platform seam: verify -> enqueue -> ack. Every provider has a 3-5 s
+      response budget and `apply_native/2` opens a `Repo.transaction`. Doing that
+      work inline is fragile under load; the callback verifies, enqueues, and
+      acknowledges, and the job applies the capability.
+- [ ] 4.3.0d Platform seam: idempotency keyed on the provider's own event id.
+      Northbound has no equivalent and all three providers retry.
 - [ ] 4.3.1 Slack Block Kit acknowledge / snooze / resolve buttons, posting to the
-      notification callback route.
-- [ ] 4.3.2 Discord message components for the same three actions.
-- [ ] 4.3.3 PagerDuty acknowledgement webhooks, mapping a PagerDuty
-      acknowledgement onto the alert `acknowledge` transition and a resolve onto
-      `resolve`.
-- [ ] 4.3.4 Verify all three callback paths reuse the northbound stack verbatim:
-      token from header / Bearer / body, sha256-only persistence,
-      `Edge.Crypto`-encrypted HMAC secret, `Plug.Crypto.secure_compare`, and
-      HMAC-SHA256 over `<timestamp>.<raw_body>` with a 300 s tolerance
-      (`automation/northbound/dispatcher.ex:425-466`,
-      `command_result_handler.ex:172-207`). Do not author a second verification
-      scheme for notifications.
+      notification callback route. Interactive mode defaults OFF; when on, `url`
+      is removed from the action buttons so the click is a pure interaction.
+      `api_app_id` and the signing-secret ref are required channel config, and
+      the channel `test` action asserts both - there is no API that detects a
+      missing Interactivity Request URL, and inert buttons produce no request and
+      no log.
+- [ ] 4.3.2 DEFERRED - Discord message components. Not feasible on the current
+      credential model: `transports/discord.ex` stores a pasted user-owned
+      webhook URL (`application_id: null`), Discord ignores components on those,
+      and there is no application to route an interaction to. Requires a
+      registered Application plus per-guild OAuth install, which is an onboarding
+      change and belongs in its own proposal. Until then Discord stays on Phase 1
+      links and must NOT advertise an interactive capability, because the refusal
+      is silent (200/204, message posted without buttons, delivery recorded as a
+      success).
+- [ ] 4.3.3 BLOCKED - PagerDuty acknowledgement webhooks. The declarative tier
+      structurally cannot own an inbound endpoint and PagerDuty is a declarative
+      entry, so this needs PagerDuty promoted to a native transport or a
+      platform-level callback endpoint outside the provider tiers. Snooze can
+      never round-trip (there is no `incident.snoozed` event in v3) and stays on
+      the signed-link path permanently.
+- [ ] 4.3.3a PagerDuty outbound defects, independent of interactivity and worth
+      fixing first so any later inbound path lands on correct data: the catalog
+      entry declares `payload_formats: ["plain"]`, so `renderers/pagerduty_v2.ex`
+      is dead code on the shipping path and its correct `links/1` output never
+      ships; the action links instead ride inside `payload.custom_details`, where
+      PagerDuty renders them as inert text; and the shipping correlation key is
+      the catalog's `{{ alert.id }}`, not the renderer's `dedupe_key`, so an
+      inbound lookup written against the renderer would miss every real delivery.
+- [ ] 4.3.4 AMENDED. This task previously required all three callback paths to
+      "reuse the northbound stack verbatim: token from header / Bearer / body,
+      sha256-only persistence, `Edge.Crypto`-encrypted HMAC secret,
+      `Plug.Crypto.secure_compare`, and HMAC-SHA256 over
+      `<timestamp>.<raw_body>` with a 300 s tolerance". That is not achievable
+      and the original wording is retained here only so the change is visible
+      rather than silent. The reasons, verified rather than assumed:
+      the northbound stack is token-PRIMARY (`command_result_handler.ex:174-186`
+      rejects unless a bearer token matches `callback_token_hash`) and Slack and
+      Discord present no token of ours at all; Discord signs with Ed25519, which
+      has no digest, making `Plug.Crypto.secure_compare/2` inapplicable rather
+      than merely different; and PagerDuty signs the body alone and sends no
+      timestamp header, so a 300 s tolerance has nothing to enforce a window
+      against. See design.md D7.
+
+      What to build instead: a `ServiceRadar.Notifications.Callbacks.Signature`
+      behaviour, one module per provider, over a shared primitives module.
+      Genuinely reuse `RawBodyReader`, `Plug.Crypto.secure_compare/2` with its
+      `byte_size` pre-check, the `abs()` skew comparison, the 300 s tolerance
+      constant, and sha256-only persistence of any token WE mint. The
+      `<timestamp>.<raw_body>` base string and the `sha256=` prefix are
+      northbound-only and MUST NOT be copied, and
+      `command_result_handler.ex:172-207`'s auth-mode enum must not be imported:
+      it maps `nil | :token` to `:ok`, which in a tokenless context means "no
+      signature header implies authorised". Leave
+      `command_result_handler.ex` untouched. Still exactly one verification
+      scheme per provider, and no ad-hoc scheme of our own invention.
+- [ ] 4.3.4a PagerDuty is the one provider where the literal token half IS
+      achievable, and it should be taken: we create the subscription via
+      `POST /webhook_subscriptions`, whose HTTP delivery method accepts
+      operator-supplied custom headers. Mint a callback token, persist only its
+      sha256, have PagerDuty present it as `Authorization: Bearer <token>`, and
+      compare with `Plug.Crypto.secure_compare/2`. The HMAC proves PagerDuty sent
+      it; the token binds the request to this subscription. Verify
+      `custom_headers` against the current API schema before committing to it.
 - [ ] 4.3.5 Confirm the notification callback route prefix registered with
       `ServiceRadarWebNGWeb.Api.RawBodyReader` in 1.6.4 actually covers the routes
       these three providers post to. `RawBodyReader` buffers raw bodies only for

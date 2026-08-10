@@ -32,6 +32,17 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
     :dedupe_key,
     :source,
     :timestamp,
+    # Carried for interactive controls (D7 phase 2), which bind to a delivery
+    # rather than to a URL. A Phase 1 link binds both alert and delivery - and
+    # `ActionLinks` refuses to mint without both - so a control that could only
+    # bind `alert_id` would be a WEAKER binding than the link it replaces.
+    :delivery_id,
+    # The duration a Snooze control grants. Carried rather than defaulted at the
+    # point of use because `ActionRedemption.apply_native/2` refuses a snooze
+    # with no duration, exactly as `ActionToken` does; a default invented in a
+    # renderer would mean the two ingresses to one mechanism disagreeing about
+    # how long "Snooze 1h" is.
+    :snooze_seconds,
     alert: %{},
     links: %{},
     include_action_links?: true,
@@ -51,6 +62,8 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
           dedupe_key: String.t() | nil,
           source: String.t() | nil,
           timestamp: String.t() | nil,
+          delivery_id: String.t() | nil,
+          snooze_seconds: pos_integer() | nil,
           alert: map(),
           links: map(),
           include_action_links?: boolean(),
@@ -58,6 +71,14 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
         }
 
   @type action_link :: %{action: atom(), label: String.t(), url: String.t()}
+
+  @type action_control :: %{
+          action: atom(),
+          label: String.t(),
+          alert_id: String.t(),
+          delivery_id: String.t(),
+          snooze_seconds: pos_integer() | nil
+        }
 
   # Fixed order and fixed wording. D7 names the three actions verbatim, and an
   # on-call engineer reading the same three buttons in the same order in Slack,
@@ -85,6 +106,59 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
         url -> [%{action: action, label: label, url: url}]
       end
     end)
+  end
+
+  @doc """
+  The acknowledge / snooze / resolve **interactive controls**, in fixed order.
+
+  The interactive-mode counterpart of `action_links/1`, for providers whose
+  buttons post an interaction rather than opening a URL (D7 phase 2). A control
+  carries the identifiers the callback needs to reconstruct the capability, and
+  no URL and no token.
+
+  Returns `[]` in three cases, and the first is the one that matters:
+
+    * `include_action_links?: false` - the `:stream` exemption. This clause is
+      first and matches the struct exactly as `action_links/1` does, so a new
+      interactive call site cannot route around the exemption by reaching for a
+      different accessor. A firehose must no more carry an actionable control
+      than an actionable link.
+    * no `delivery_id` - a control bound to an alert alone is a weaker binding
+      than the Phase 1 link it replaces, and `ActionLinks` refuses to mint one.
+    * no `alert_id` - there is nothing to act on.
+
+  The snooze control is omitted when `snooze_seconds` is absent rather than
+  rendered with a house default, because `ActionRedemption.apply_native/2`
+  refuses a snooze with no duration. Rendering a button that is guaranteed to
+  fail on click is worse than not rendering it.
+  """
+  @spec action_controls(t()) :: [action_control()]
+  def action_controls(%__MODULE__{include_action_links?: false}), do: []
+
+  def action_controls(%__MODULE__{alert_id: alert_id, delivery_id: delivery_id})
+      when not is_binary(alert_id) or not is_binary(delivery_id), do: []
+
+  def action_controls(%__MODULE__{} = content) do
+    Enum.flat_map(@actions, fn {action, label} ->
+      case control(action, label, content) do
+        nil -> []
+        control -> [control]
+      end
+    end)
+  end
+
+  defp control(:snooze, _label, %__MODULE__{snooze_seconds: seconds})
+       when not (is_integer(seconds) and seconds > 0),
+       do: nil
+
+  defp control(action, label, content) do
+    %{
+      action: action,
+      label: label,
+      alert_id: content.alert_id,
+      delivery_id: content.delivery_id,
+      snooze_seconds: if(action == :snooze, do: content.snooze_seconds)
+    }
   end
 
   @doc """

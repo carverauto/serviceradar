@@ -21,6 +21,7 @@ defmodule ServiceRadar.Notifications.RenderersTest do
   @modules [SlackBlocks, DiscordEmbed, PagerdutyV2, Json, Html, Markdown, Plain]
 
   @dedupe_key "rule-42|device_id=abc|severity=critical"
+  @delivery_id "0198f0aa-2222-7000-8000-000000000002"
 
   @links %{
     "acknowledge" => "https://sr.example.com/n/ack?t=aaa",
@@ -44,7 +45,8 @@ defmodule ServiceRadar.Notifications.RenderersTest do
       alert: %{"title" => "tonka01 is unreachable"},
       links: @links,
       include_action_links?: true,
-      event_action: :trigger
+      event_action: :trigger,
+      snooze_seconds: 3600
     ]
 
     struct!(Content, Keyword.merge(defaults, overrides))
@@ -140,6 +142,56 @@ defmodule ServiceRadar.Notifications.RenderersTest do
 
       assert [%{action: :acknowledge}, %{action: :resolve}] =
                Content.action_links(content(links: links))
+    end
+
+    test "action_controls carry the identifiers a callback needs and no URL" do
+      controls = Content.action_controls(content(delivery_id: @delivery_id))
+
+      assert [
+               %{action: :acknowledge, label: "Acknowledge"},
+               %{action: :snooze, label: "Snooze 1h"},
+               %{action: :resolve, label: "Resolve"}
+             ] = controls
+
+      for control <- controls do
+        assert control.alert_id == "0198f0aa-1111-7000-8000-000000000001"
+        assert control.delivery_id == @delivery_id
+        # A control posts an interaction; it is not a link and must carry no URL
+        # and no token.
+        refute Map.has_key?(control, :url)
+      end
+    end
+
+    test "action_controls is empty for an exempt destination" do
+      # The firehose exemption. This clause matches the struct exactly as
+      # action_links/1 does, so an interactive call site cannot route around the
+      # exemption by reaching for a different accessor.
+      assert Content.action_controls(
+               content(include_action_links?: false, delivery_id: @delivery_id)
+             ) == []
+    end
+
+    test "action_controls is empty without a delivery to bind to" do
+      # A control bound to an alert alone is a WEAKER binding than the Phase 1
+      # link it replaces, and ActionLinks refuses to mint one.
+      assert Content.action_controls(content(delivery_id: nil)) == []
+    end
+
+    test "action_controls omits snooze when no duration was carried" do
+      # apply_native/2 refuses a snooze with no duration, so rendering the button
+      # would guarantee a failure on click.
+      controls = Content.action_controls(content(delivery_id: @delivery_id, snooze_seconds: nil))
+
+      assert Enum.map(controls, & &1.action) == [:acknowledge, :resolve]
+    end
+
+    test "action_controls carries the snooze duration on the snooze control only" do
+      controls = Content.action_controls(content(delivery_id: @delivery_id, snooze_seconds: 900))
+
+      assert %{action: :snooze, snooze_seconds: 900} =
+               Enum.find(controls, &(&1.action == :snooze))
+
+      assert %{snooze_seconds: nil} = Enum.find(controls, &(&1.action == :acknowledge))
     end
 
     test "link/2 accepts atom and string keys" do
