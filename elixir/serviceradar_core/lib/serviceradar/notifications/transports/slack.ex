@@ -142,8 +142,11 @@ defmodule ServiceRadar.Notifications.Transports.Slack do
 
     errors =
       case mode(config) do
-        {:ok, mode} -> mode_errors(mode, config) ++ route_errors(mode, config)
-        {:error, error} -> [error]
+        {:ok, mode} ->
+          mode_errors(mode, config) ++ route_errors(mode, config) ++ interactive_errors(config)
+
+        {:error, error} ->
+          [error]
       end
 
     case errors do
@@ -489,6 +492,32 @@ defmodule ServiceRadar.Notifications.Transports.Slack do
   end
 
   defp route_errors(_mode, _config), do: []
+
+  # Interactive mode is the one setting whose misconfiguration is invisible.
+  # Slack does not report a missing Interactivity Request URL, an inert button
+  # produces no request and no log, and a callback that cannot resolve a signing
+  # secret answers 401 to a click nobody sees fail. So the parts we CAN check are
+  # checked at save time, where an operator is present to read the error.
+  defp interactive_errors(config) do
+    if Map.get(config, "interactive") == true do
+      case Map.get(config, "api_app_id") do
+        value when is_binary(value) and value != "" ->
+          []
+
+        _absent ->
+          [
+            config_error(
+              "api_app_id",
+              "is required when interactive is enabled: an inbound Slack interaction names " <>
+                "the app that sent it and nothing identifying this channel, so this is how " <>
+                "the callback finds the signing secret to verify it"
+            )
+          ]
+      end
+    else
+      []
+    end
+  end
 
   defp url_policy_message(:disallowed_scheme), do: "must use https"
   defp url_policy_message(:disallowed_port), do: "must use an allowed https port"

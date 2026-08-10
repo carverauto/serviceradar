@@ -2109,12 +2109,23 @@ one is a silent-failure source if done per-provider.
 - [x] 4.4.3 JetStream replay test asserting a reconnecting consumer resumes from
       its cursor.
 - [ ] 4.4.4 Slack and Discord interaction payload tests using recorded fixtures.
-- [ ] 4.4.5 Document the firehose subscription surface and the envelope schema in
+- [x] 4.4.5 Document the firehose subscription surface and the envelope schema in
       `docs/docs/notifications.md`, including that it is gated on
       `notifications.stream.subscribe`, that suppressed dispatches publish nothing
       while still being recorded, and that stream envelopes deliberately carry no
       action link. ASCII only.
-- [ ] 4.4.6 `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and
+- [ ] 4.4.6 BLOCKED ON A PRE-EXISTING FAILURE, not on this change. Both gates
+      were run. `mix format --check-formatted` passes and `mix credo --strict`
+      reports "found no issues" for both projects (2001 and 25596 mods/funs).
+      Both then fail at `mix deps.audit` on third-party advisories: ash
+      (EEF-CVE-2026-69659, EEF-CVE-2026-70395), phoenix_live_view
+      (EEF-CVE-2026-64941), cowlib (EEF-CVE-2026-43966/43969) and gun
+      (GHSA-w4f7-4cxr-rv3c). This branch changes none of those packages - its
+      only dependency additions are gen_smtp and ranch for the SMTP transport -
+      so the gate is red on staging for the same reason. Leave unchecked until
+      the advisories are addressed or ignored deliberately; do not tick it by
+      pointing at the passing half.
+- [ ] 4.4.6a `./scripts/elixir_quality.sh --project elixir/serviceradar_core` and
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`.
 
 ## 5. Cross-cutting close-out

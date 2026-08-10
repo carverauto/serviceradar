@@ -589,6 +589,71 @@ carries a required `alert_snapshot` - the log still renders after the alert row 
 gone. Deliveries have their **own** retention, defaulting to 30 days and
 configurable independently.
 
+## The notification firehose
+
+The built-in `stream` provider publishes every notification it is routed as a
+canonical envelope, so a subscriber can consume the notification stream instead
+of polling the API. It is a provider, not a side door: a stream channel is
+routed, deduplicated, suppressed, rate limited, and audited exactly like a Slack
+channel, and its deliveries appear in the Delivery Log with the rest.
+
+`stream` is a provider *type*, not a fourth extensibility tier. It ships seeded,
+and an operator cannot author one.
+
+### Subscribing
+
+Subscription is gated on the `notifications.stream.subscribe` permission. A user
+without it cannot join the topic at all.
+
+What a subscriber receives is also filtered by what they may see. The rendered
+payload additionally requires `notifications.deliveries.view`, the same
+permission that gates the Delivery Log - without it the envelope arrives
+carrying identifiers but no body, because otherwise the firehose would be a
+second, unaudited way to read delivery content that the Delivery Log itself
+would refuse to show.
+
+Durability is a JetStream stream behind the live topic, so a subscriber that
+reconnects resumes from its cursor and replays what it missed rather than
+losing it. Retention is time and size bounded rather than interest based, which
+is deliberate: an interest stream discards a message once every *known* consumer
+has acknowledged it, and the whole point of the firehose is that a consumer
+which was absent can come back and catch up.
+
+### The envelope
+
+Every envelope carries `schema`, `emitted_at`, the identifiers
+(`alert_id`, `delivery_id`, `channel_id`), provider and partition context,
+`dedupe_key`, `payload_format`, `subject`, `attempt`, `is_test`, and the
+rendered `payload`.
+
+Two things it never carries:
+
+- **No action link and no capability token.** A capability token is a single-use
+  credential scoped to one delivery, and the firehose is a broadcast to every
+  authorised subscriber. Embedding one would hand an acknowledgement credential
+  to every listener at once, and the first to click would consume it, leaving
+  the rest a dead link and the alert acknowledged by an unattributable actor.
+  Interactive buttons are dropped for the same reason.
+- **No secret.** The payload is redacted before it is published, and any value
+  the dispatcher declared sensitive is checked for again on the way out. A hit
+  fails the delivery rather than publishing it.
+
+A subscriber that needs more than the envelope resolves the identifiers through
+the authenticated API, which applies its own authorization. Handing over an id
+grants nothing.
+
+### Suppressed dispatches publish nothing
+
+If a dispatch to a stream channel is suppressed - by a silence, a schedule, a
+maintenance window, an out-of-service device - **no envelope is published**. The
+suppression is still recorded: a `NotificationDelivery` row is written with
+state `suppressed` and its reason, and the Delivery Log displays it.
+
+Nothing publishes a "suppressed" envelope under another name. Suppression is
+decided before a transport is called, so there is no suppressed notification for
+a subscriber to receive, and the Delivery Log is the surface that shows what was
+withheld and why.
+
 ## Acknowledgement
 
 Acknowledging an alert is what stops an `if_unacknowledged` ladder. There are two
@@ -670,6 +735,55 @@ embedding one there would hand an acknowledgement credential to every listener a
 once, and the first subscriber to click would consume it. Stream envelopes carry
 alert and delivery identifiers instead, which a subscriber resolves through the
 authenticated API.
+
+The same exemption covers interactive buttons, and for the same reason: a Slack
+button carrying a delivery binding is as actionable as a link. The stream
+transport drops any control it finds, matched on shape rather than on a list of
+key names, because the names belong to the provider.
+
+### From inside the notification: interactive buttons (Slack)
+
+A Slack channel can render Acknowledge, Snooze, and Resolve as **buttons that
+post an interaction** rather than as links. The click never leaves Slack, and
+the acknowledgement is applied on exactly the same code path an action link
+uses, so it halts escalation, writes the same audit row, and records the same
+telemetry. What differs is provenance: the acknowledgement is recorded with
+`source: callback` and an `external_principal` of `slack:<user id>`.
+
+Interactive mode is **off by default and opt-in per channel**, because the way
+it fails is invisible. Slack has no API that reports a missing Interactivity
+Request URL; a button on an app without one produces no request and no log when
+clicked, and the operator sees nothing at all.
+
+To enable it:
+
+1. In your Slack app, set the **Interactivity Request URL** to
+   `https://<your-serviceradar-host>/api/notifications/callbacks/slack`.
+2. Register the app with ServiceRadar so inbound interactions can be verified.
+   The signing secret is stored per **app**, not per channel - one Slack app
+   serving ten channels is registered once, and rotating the secret is one
+   change rather than ten. An inbound interaction names the app that sent it and
+   carries nothing identifying the channel, so app-scoped storage is also the
+   only shape the callback could resolve.
+3. On the channel, set `interactive: true` and `api_app_id` to the app's id.
+   Saving `interactive: true` without `api_app_id` is refused, because without it
+   the callback cannot find the signing secret and every click would be rejected
+   silently.
+
+Verification follows Slack's scheme: HMAC-SHA256 over
+`v0:<timestamp>:<raw body>` with the app's signing secret, compared in constant
+time, with a 300 second replay tolerance. Every rejection answers `401` with no
+body - telling an unauthenticated caller whether an app id is registered would
+be a membership oracle - and the reason is written to the log instead, where an
+operator can see whether the app was never registered or the secret is wrong.
+
+Discord and PagerDuty do **not** support interactive acknowledgement today, and
+this is a limitation of the integration rather than an oversight. A Discord
+channel configured with a pasted incoming-webhook URL cannot carry components at
+all: that webhook belongs to a user, not to an application, so Discord has
+nowhere to route a button press. PagerDuty exposes no control surface for our
+three actions, and has no snooze event to send back. Both stay on action links,
+which work everywhere.
 
 ## Templates and rendering
 

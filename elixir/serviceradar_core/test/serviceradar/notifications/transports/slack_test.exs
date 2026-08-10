@@ -75,6 +75,42 @@ defmodule ServiceRadar.Notifications.Transports.SlackTest do
       assert error_for(errors, "mode") =~ "incoming_webhook"
     end
 
+    test "refuses interactive mode without the app id that finds the signing secret" do
+      # The one misconfiguration Slack never reports: no Interactivity Request
+      # URL, an inert button, no request and no log. So the part we CAN check is
+      # checked at save time, where an operator is present to read it.
+      assert {:error, errors} =
+               Slack.validate_config(%{
+                 "mode" => "incoming_webhook",
+                 "webhook_url" => @credential_ref,
+                 "interactive" => true
+               })
+
+      assert error_for(errors, "api_app_id") =~ "required when interactive is enabled"
+    end
+
+    test "accepts interactive mode with an app id" do
+      assert :ok =
+               Slack.validate_config(%{
+                 "mode" => "incoming_webhook",
+                 "webhook_url" => @credential_ref,
+                 "interactive" => true,
+                 "api_app_id" => "A0123456789"
+               })
+    end
+
+    test "does not demand an app id when interactive is off or absent" do
+      for config <- [%{}, %{"interactive" => false}] do
+        assert :ok =
+                 Slack.validate_config(
+                   Map.merge(
+                     %{"mode" => "incoming_webhook", "webhook_url" => @credential_ref},
+                     config
+                   )
+                 )
+      end
+    end
+
     test "accepts an incoming webhook whose URL is a stored credential reference" do
       assert :ok =
                Slack.validate_config(%{
