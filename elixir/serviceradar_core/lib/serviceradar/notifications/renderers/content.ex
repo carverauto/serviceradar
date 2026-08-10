@@ -46,6 +46,12 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
     alert: %{},
     links: %{},
     include_action_links?: true,
+    # Interactive mode (D7 phase 2). When true a provider that supports it
+    # renders `action_controls/1` as controls that POST an interaction, instead
+    # of `action_links/1` as URL buttons. Default false: a channel whose app has
+    # no Interactivity Request URL configured would render buttons that produce
+    # no request and no log, so this is opt-in per channel.
+    interactive?: false,
     event_action: :trigger
   ]
 
@@ -67,6 +73,7 @@ defmodule ServiceRadar.Notifications.Renderers.Content do
           alert: map(),
           links: map(),
           include_action_links?: boolean(),
+          interactive?: boolean(),
           event_action: event_action()
         }
 

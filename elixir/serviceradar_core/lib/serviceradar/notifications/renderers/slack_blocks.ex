@@ -113,6 +113,13 @@ defmodule ServiceRadar.Notifications.Renderers.SlackBlocks do
     end
   end
 
+  defp actions_block(%Content{interactive?: true} = content) do
+    case Content.action_controls(content) do
+      [] -> nil
+      controls -> %{"type" => "actions", "elements" => Enum.map(controls, &control_button/1)}
+    end
+  end
+
   defp actions_block(content) do
     case Content.action_links(content) do
       [] -> nil
@@ -133,5 +140,48 @@ defmodule ServiceRadar.Notifications.Renderers.SlackBlocks do
       "value" => truncate(presence(content.dedupe_key) || presence(content.alert_id), 2000),
       "style" => Map.get(@button_styles, action)
     })
+  end
+
+  # An interactive button carries NO `url`. Slack treats a button with a `url` as
+  # a link that also opens a browser tab, which is not what an acknowledge
+  # control should do - and in interactive mode the click already reaches us as a
+  # signed interaction, so a URL would be a second, weaker ingress carrying a
+  # capability token we deliberately did not mint.
+  #
+  # `value` carries the binding the callback needs to reconstruct the capability.
+  # It is a compact, delimited string rather than JSON because Slack caps `value`
+  # at 2000 bytes and a JSON envelope spends a third of that on punctuation.
+  defp control_button(%{action: action} = control) do
+    compact(%{
+      "type" => "button",
+      "text" => %{
+        "type" => "plain_text",
+        "text" => truncate(control.label, @button_limit),
+        "emoji" => false
+      },
+      "action_id" => "notification_" <> Atom.to_string(action),
+      "value" => control_value(control),
+      "style" => Map.get(@button_styles, action)
+    })
+  end
+
+  @doc """
+  The `value` an interactive button carries, and the format the callback parses.
+
+  `"<action>:<alert_id>:<delivery_id>"`, with a snooze duration appended as a
+  fourth field. Public so the callback parses the format this module writes
+  rather than a restatement of it.
+  """
+  @spec control_value(map()) :: String.t()
+  def control_value(%{action: action, alert_id: alert_id, delivery_id: delivery_id} = control) do
+    [Atom.to_string(action), alert_id, delivery_id]
+    |> then(fn parts ->
+      case Map.get(control, :snooze_seconds) do
+        seconds when is_integer(seconds) and seconds > 0 -> parts ++ [Integer.to_string(seconds)]
+        _absent -> parts
+      end
+    end)
+    |> Enum.join(":")
+    |> truncate(2000)
   end
 end

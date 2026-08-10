@@ -2011,6 +2011,14 @@ one is a silent-failure source if done per-provider.
       the channel `test` action asserts both - there is no API that detects a
       missing Interactivity Request URL, and inert buttons produce no request and
       no log.
+- [ ] 4.3.1a App-scoped storage for the Slack signing secret, resolved by
+      `api_app_id`. It is deliberately NOT in channel config: the secret belongs
+      to the Slack app, so channel config would hold one copy per channel backed
+      by the same app, and the inbound interaction names `api_app_id` and never
+      our channel, so the callback could not find it by channel. The
+      provider-seeder invariant "credential fields are named for the keys the
+      transport resolves" also correctly refuses it there, since the transport
+      never resolves it at send time - only the inbound callback consumes it.
 - [ ] 4.3.2 DEFERRED - Discord message components. Not feasible on the current
       credential model: `transports/discord.ex` stores a pasted user-owned
       webhook URL (`application_id: null`), Discord ignores components on those,

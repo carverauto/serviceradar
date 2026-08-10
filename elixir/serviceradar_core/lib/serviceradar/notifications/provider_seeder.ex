@@ -135,7 +135,11 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   # an extra entry in `@managed_fields`.
   @declarative_managed_fields @managed_fields ++ [:definition]
 
-  @template_version "1"
+  # Bumped to "2" when the Slack schema gained interactive-mode properties.
+  # `config_schema` is a managed field, so without a bump a deployed row keeps
+  # the old schema and rejects `interactive` on save - the feature would appear
+  # to ship and be unusable.
+  @template_version "2"
 
   # The stored `implementation_module` names, resolved from the registry's
   # allowlist at COMPILE time. A transport that is not allowlisted fails the
@@ -165,6 +169,17 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
   """
   @spec managed_fields() :: [atom()]
   def managed_fields, do: @managed_fields
+
+  @doc """
+  The version stamped on every seeder-managed row.
+
+  Public so a test asserts "advanced to the shipped version" rather than a
+  literal that must be edited on every bump - which is how a reconciliation test
+  ends up asserting the version it was written against instead of the one that
+  ships.
+  """
+  @spec template_version() :: String.t()
+  def template_version, do: @template_version
 
   @doc """
   The seeder-owned attribute set for one provider row or attribute map.
@@ -522,6 +537,33 @@ defmodule ServiceRadar.Notifications.ProviderSeeder do
           "minLength" => 1,
           "maxLength" => 200
         },
+        "interactive" => %{
+          "type" => "boolean",
+          "title" => "Interactive acknowledgement",
+          "description" =>
+            "Render Acknowledge / Snooze / Resolve as Slack buttons that post an " <>
+              "interaction, instead of signed links. Requires a Slack app with an " <>
+              "Interactivity Request URL pointing at this deployment. Defaults off: " <>
+              "buttons on an app without that URL configured are silently inert, and " <>
+              "no API reports it.",
+          "default" => false
+        },
+        "api_app_id" => %{
+          "type" => "string",
+          "title" => "Slack app id",
+          "description" =>
+            "Required when interactive is on. The inbound interaction names the app " <>
+              "that sent it and carries nothing identifying this channel, so this is " <>
+              "how the callback selects the right signing secret.",
+          "minLength" => 1,
+          "maxLength" => 64
+        },
+        # NOTE: the app's signing secret is deliberately NOT here. It is scoped
+        # to the Slack app, not to a channel, so channel config would hold one
+        # copy per channel backed by the same app - and the inbound interaction
+        # names `api_app_id`, never our channel, so the callback could not find
+        # it by channel anyway. It needs app-scoped storage the callback resolves
+        # by `api_app_id`.
         "thread_ts" => %{
           "type" => "string",
           "title" => "Thread timestamp",

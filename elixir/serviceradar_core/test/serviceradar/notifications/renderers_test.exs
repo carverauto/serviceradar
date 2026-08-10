@@ -194,6 +194,74 @@ defmodule ServiceRadar.Notifications.RenderersTest do
       assert %{snooze_seconds: nil} = Enum.find(controls, &(&1.action == :acknowledge))
     end
 
+    test "SlackBlocks interactive buttons carry no url and bind the delivery" do
+      payload =
+        [payload_format: :slack_blocks, interactive?: true, delivery_id: @delivery_id]
+        |> content()
+        |> SlackBlocks.render()
+
+      [actions] = Enum.filter(payload["blocks"], &(&1["type"] == "actions"))
+      encoded = Jason.encode!(actions)
+
+      # A button with a url opens a browser tab as well as sending the
+      # interaction, and would carry a capability we deliberately did not mint.
+      refute encoded =~ "\"url\""
+      refute encoded =~ "n/ack"
+
+      assert Enum.map(actions["elements"], & &1["action_id"]) == [
+               "notification_acknowledge",
+               "notification_snooze",
+               "notification_resolve"
+             ]
+
+      for element <- actions["elements"] do
+        assert element["value"] =~ @delivery_id
+      end
+    end
+
+    test "SlackBlocks falls back to link buttons when interactive mode is off" do
+      payload =
+        [payload_format: :slack_blocks, delivery_id: @delivery_id]
+        |> content()
+        |> SlackBlocks.render()
+
+      encoded = Jason.encode!(payload)
+
+      assert encoded =~ "n/ack"
+      assert encoded =~ "\"url\""
+    end
+
+    test "SlackBlocks renders no actions block for an exempt destination even interactive" do
+      # The firehose exemption survives interactive mode; action_controls/1
+      # returns [] for an exempt destination and the block is omitted entirely.
+      payload =
+        [
+          payload_format: :slack_blocks,
+          interactive?: true,
+          delivery_id: @delivery_id,
+          include_action_links?: false
+        ]
+        |> content()
+        |> SlackBlocks.render()
+
+      assert Enum.filter(payload["blocks"], &(&1["type"] == "actions")) == []
+    end
+
+    test "control_value encodes the binding the callback parses" do
+      assert SlackBlocks.control_value(%{
+               action: :acknowledge,
+               alert_id: "alert-1",
+               delivery_id: "delivery-1"
+             }) == "acknowledge:alert-1:delivery-1"
+
+      assert SlackBlocks.control_value(%{
+               action: :snooze,
+               alert_id: "alert-1",
+               delivery_id: "delivery-1",
+               snooze_seconds: 3600
+             }) == "snooze:alert-1:delivery-1:3600"
+    end
+
     test "link/2 accepts atom and string keys" do
       assert Content.link(@links, :alert) == "https://sr.example.com/alerts/0198"
       assert Content.link(%{alert: "x"}, :alert) == "x"

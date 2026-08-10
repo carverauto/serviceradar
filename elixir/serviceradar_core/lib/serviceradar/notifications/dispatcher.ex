@@ -1422,6 +1422,17 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
+  # Interactive mode is opt-in per channel and defaults OFF. A Slack app with no
+  # Interactivity Request URL configured renders buttons that produce no request
+  # and no log when clicked, and there is no API that detects that - so defaulting
+  # this on would turn a missing install step into silently inert buttons.
+  defp interactive_channel?(channel) do
+    case field(channel, :config) do
+      config when is_map(config) -> Map.get(config, "interactive") == true
+      _other -> false
+    end
+  end
+
   defp negotiate(delivery, provider) do
     case Renderer.negotiate_format(delivery.payload_format, field(provider, :payload_formats)) do
       {:ok, format} ->
@@ -1447,6 +1458,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
           context: context,
           dedupe_key: delivery.dedupe_key,
           provider_version: field(provider, :definition_version),
+          # An interactive control binds to a delivery, not to a URL, so the
+          # renderer needs the delivery id the Phase 1 link would have carried in
+          # its token. Without it `Content.action_controls/1` returns [] rather
+          # than minting a control bound to an alert alone.
+          delivery_id: field(delivery, :id),
+          interactive?: interactive_channel?(scope.channel),
           # ActionRedaction matches on KEY names, and a capability token sits
           # inside a `url` VALUE where there is no sensitive key to match. Without
           # this second value-based pass the plaintext token survives into

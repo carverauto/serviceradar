@@ -207,7 +207,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
 
       slack = provider!("slack", actor)
       assert slack.status == :disabled
-      assert slack.template_version == "1"
+      assert slack.template_version == ProviderSeeder.template_version()
     end
 
     test "installs :stream as a first-party managed provider (task 4.4.2c)", %{actor: actor} do
@@ -245,7 +245,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
 
       stream = provider!("stream", actor)
       assert stream.status == :disabled
-      assert stream.template_version == "1"
+      assert stream.template_version == ProviderSeeder.template_version()
     end
 
     test "activates a managed provider left in :draft", %{actor: actor} do
@@ -277,7 +277,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert :ok = ProviderSeeder.seed_all()
 
       webhook = provider!("webhook", actor)
-      assert webhook.template_version == "1"
+      assert webhook.template_version == ProviderSeeder.template_version()
       assert webhook.managed
       assert webhook.status == :active
       assert webhook.display_name == catalog_entry("webhook").display_name
@@ -304,7 +304,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert :ok = ProviderSeeder.seed_all()
 
       discord = provider!("discord", actor)
-      assert discord.template_version == "1"
+      assert discord.template_version == ProviderSeeder.template_version()
       assert discord.default_max_attempts == 10
     end
   end
@@ -488,7 +488,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert :ok = TemplateSeeder.seed_all()
 
       markdown = template!(:markdown, actor)
-      assert markdown.template_version == "1"
+      assert markdown.template_version == ProviderSeeder.template_version()
       assert markdown.managed
     end
 

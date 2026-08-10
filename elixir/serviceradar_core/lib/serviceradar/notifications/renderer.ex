@@ -559,6 +559,7 @@ defmodule ServiceRadar.Notifications.Renderer do
       alert: alert_snapshot,
       links: links,
       include_action_links?: include_action_links?(opts),
+      interactive?: Keyword.get(opts, :interactive?, false) == true,
       event_action: Keyword.get(opts, :event_action, :trigger)
     }
   end
