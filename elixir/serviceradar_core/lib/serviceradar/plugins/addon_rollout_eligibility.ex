@@ -104,11 +104,16 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
     active? = value(status, :active, false) == true
 
     case supervision do
+      # "degraded" is a RUNNING add-on that reported something worth attention.
+      # The agent reports it distinctly from "unhealthy" precisely so this
+      # question -- did the candidate come up? -- can answer yes. The reason is
+      # still carried on the status and still shown on the fleet row; only the
+      # rollout gate stops treating it as a failed candidate.
       model when model in [:agent_sidecar, :systemd_service] ->
-        active? and state in ["active", "healthy", "running"]
+        active? and state in ["active", "degraded", "healthy", "running"]
 
       :systemd_timer ->
-        state in ["active", "enabled", "healthy", "ready", "running", "waiting"]
+        state in ["active", "degraded", "enabled", "healthy", "ready", "running", "waiting"]
 
       :ephemeral_helper ->
         state in ["healthy", "ready", "registered", "staged", "verified"]

@@ -528,6 +528,44 @@ func TestHealthySinceResetsWhenAddonDegrades(t *testing.T) {
 	}
 }
 
+// The add-on protocol has three health levels and the control plane gates
+// rollouts on the reported state, so Degraded must not arrive as "unhealthy".
+// Collapsing them wedged powerdns and anomaly rollouts indefinitely while both
+// add-ons were running correctly.
+func TestSetHealthyReportsDegradedDistinctlyFromUnhealthy(t *testing.T) {
+	cfg := testConfig(t)
+	r := newRunner(Spec{ID: "sample"}, cfg)
+
+	r.setHealthy(1, coreaddon.Health{
+		Status:            coreaddon.HealthDegraded,
+		DegradationReason: "no PowerDNS Recursor protobuf producer connected",
+	})
+
+	if got := r.status.State; got != StateDegraded {
+		t.Fatalf("degraded health must report StateDegraded, got %q", got)
+	}
+	if r.status.DegradationReason == "" {
+		t.Fatal("the reason must still be reported; suppressing the gate must not suppress the signal")
+	}
+
+	r.setHealthy(1, coreaddon.Health{
+		Status:            coreaddon.HealthUnhealthy,
+		DegradationReason: "systemd unit failed",
+	})
+
+	if got := r.status.State; got != StateUnhealthy {
+		t.Fatalf("unhealthy health must still report StateUnhealthy, got %q", got)
+	}
+
+	r.setHealthy(1, coreaddon.Health{Status: coreaddon.HealthHealthy})
+	if got := r.status.State; got != StateRunning {
+		t.Fatalf("healthy must report StateRunning, got %q", got)
+	}
+	if r.status.DegradationReason != "" {
+		t.Fatal("recovering must clear the degradation reason")
+	}
+}
+
 func TestRecordRestartOpensCircuitUntilRestartWindowExpires(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.RestartLimitPerMinute = 1
