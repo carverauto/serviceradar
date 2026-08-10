@@ -147,6 +147,15 @@ defmodule ServiceRadar.Plugins.AddonRolloutCoordinator do
     in_scope = Enum.reject(targets, &(&1.state in [:excluded, :canceled]))
 
     cond do
+      # Only a paused rollout is reaped. A rollout that can still make progress
+      # must be allowed to: an in-flight rollout whose targets report the
+      # candidate has just SUCCEEDED, and belongs in promote_source/4 as
+      # :completed, not here as :superseded. Reaping on observed version alone
+      # cannot tell those apart -- it hijacked three existing rollout tests
+      # before this guard, turning healthy promotions into supersessions.
+      rollout.state != :paused ->
+        :continue
+
       is_nil(candidate) or in_scope == [] ->
         :continue
 

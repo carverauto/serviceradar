@@ -2,10 +2,16 @@
 
 ### Requirement: Superseded add-on rollouts terminate instead of lingering
 
-An add-on rollout SHALL resolve as superseded when every in-scope target already
-reports the candidate version as its observed version, regardless of how the
-targets reached it. Superseded rollouts SHALL be terminal: they are not paused,
-not resumable, and not counted as outstanding work.
+A PAUSED add-on rollout SHALL resolve as superseded when every in-scope target
+already reports the candidate version as its observed version, regardless of how
+the targets reached it. Superseded rollouts SHALL be terminal: they are not
+paused, not resumable, and not counted as outstanding work.
+
+Supersession SHALL apply only to a rollout that cannot make progress on its own.
+A rollout that is still advancing and whose targets report the candidate version
+has SUCCEEDED, and SHALL complete through the normal promotion path; observed
+version alone cannot distinguish that case from convergence by another route, so
+the paused precondition is what separates them.
 
 Convergence reached outside the rollout -- a later rollout, a direct assignment,
 a reinstall, or an operator action on the host -- SHALL satisfy this the same
@@ -28,6 +34,13 @@ fleet state rather than the rollout's own batch progress.
 - **WHEN** rollout state is next evaluated
 - **THEN** the rollout resolves as superseded
 - **AND** agents already past the candidate version are not rolled back to it
+
+#### Scenario: An advancing rollout that reaches the candidate completes, not superseded
+
+- **GIVEN** a rollout is running and its targets report the candidate version healthy
+- **WHEN** rollout state is next evaluated
+- **THEN** the rollout completes through the normal promotion path
+- **AND** it is NOT resolved as superseded
 
 #### Scenario: Partially converged rollout is left alone
 
@@ -60,7 +73,6 @@ second copy that can drift from the agent's current report.
 - **AND** each agent reports `resource limits not enforced` for the add-on cgroup root
 - **WHEN** a rollout from `0.3.1` to `0.3.2` evaluates candidate health
 - **THEN** the rollout is not paused for that reason
-- **AND** the rollout records the reported reason as an advisory
 - **AND** the fleet row for `anomaly` continues to show the reported reason
 
 #### Scenario: A reported failure state still blocks the rollout
