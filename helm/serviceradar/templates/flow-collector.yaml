@@ -40,6 +40,10 @@ metadata:
     app.kubernetes.io/component: flow-collector
 spec:
   replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
+  # Recreate: avoid dual-publisher cutover window (legacy + new both live while
+  # subjects rehome events → flows). RollingUpdate is unsafe for subject moves.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: serviceradar-flow-collector
@@ -105,11 +109,11 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "pgrep -f flow-collector > /dev/null"
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
+            - "test -f /var/lib/serviceradar/flow-collector.ready"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 12
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
         volumeMounts:

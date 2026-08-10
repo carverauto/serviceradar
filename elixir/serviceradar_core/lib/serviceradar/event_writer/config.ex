@@ -185,23 +185,26 @@ defmodule ServiceRadar.EventWriter.Config do
     base = load()
 
     {pull_batch, pull_batch_override?} =
-      load_int_env_with_override(
+      load_flow_int(
         "EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE",
-        Keyword.get(config, :flow_consumer_pull_batch_size),
+        config,
+        :flow_consumer_pull_batch_size,
         @default_flow_pull_batch_size
       )
 
     {max_ack, max_ack_override?} =
-      load_int_env_with_override(
+      load_flow_int(
         "EVENT_WRITER_FLOW_MAX_ACK_PENDING",
-        Keyword.get(config, :flow_max_ack_pending),
+        config,
+        :flow_max_ack_pending,
         @default_flow_max_ack_pending
       )
 
     {pull_expires, _pull_expires_override?} =
-      load_int_env_with_override(
+      load_flow_int(
         "EVENT_WRITER_FLOW_PULL_EXPIRES_NS",
-        Keyword.get(config, :flow_pull_expires_ns),
+        config,
+        :flow_pull_expires_ns,
         @default_flow_pull_expires_ns
       )
 
@@ -559,8 +562,9 @@ defmodule ServiceRadar.EventWriter.Config do
         reconcile_stream_shape: false,
         # Do not create/reshape the shared events stream from the flow path.
         ensure_stream: false,
-        # If the legacy durable is missing, do not replay all retained history.
-        # :new starts at the end; existing durables keep their ACK floor.
+        # CREATE-only: JetstreamConsumer strips deliver_policy on UPDATE so
+        # existing ...-netflow-raw durables (deliver_policy:all) keep their ACK
+        # cursor. Brand-new drain durables start at stream end (:new).
         consumer_deliver_policy: :new
       }
 
@@ -587,15 +591,29 @@ defmodule ServiceRadar.EventWriter.Config do
   defp put_flow_tuning(stream, key, value, true = _override?), do: Map.put(stream, key, value)
   defp put_flow_tuning(stream, key, value, false), do: Map.put_new(stream, key, value)
 
-  # Returns {value, override?} where override? is true when env or explicit
-  # application config supplied the value (not merely the hard-coded default).
-  defp load_int_env_with_override(env_name, app_value, default) when is_binary(env_name) do
+  # Returns {value, override?} where override? is true when env is set OR the
+  # application config keyword explicitly contains the key. Runtime must not
+  # always inject default 64/1024 or those look like explicit overrides.
+  defp load_flow_int(env_name, config, app_key, default)
+       when is_binary(env_name) and is_atom(app_key) do
     case System.get_env(env_name) do
       nil ->
-        if is_nil(app_value) do
-          {sanitize_non_neg_int(default, default), false}
-        else
-          {sanitize_non_neg_int(app_value, default), true}
+        case Keyword.fetch(config, app_key) do
+          {:ok, app_value} ->
+            # Explicit app key — but treat release defaults as non-override when
+            # they equal the hard-coded default AND no env is set. Operators who
+            # set the same value explicitly still get override behavior only when
+            # the key was intentionally different; for true "always override"
+            # they set the env. Here: only mark override when app value differs
+            # from the module default OR when a dedicated origin marker is set.
+            # Simpler contract: env wins; app key only overrides when present AND
+            # we use put for app-only when env absent — still overwrites custom
+            # streams. Review wants: omit app keys when env absent.
+            # So app key present => override (runtime must omit defaults).
+            {sanitize_non_neg_int(app_value, default), true}
+
+          :error ->
+            {sanitize_non_neg_int(default, default), false}
         end
 
       value ->

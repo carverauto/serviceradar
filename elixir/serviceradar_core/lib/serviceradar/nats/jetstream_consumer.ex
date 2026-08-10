@@ -362,19 +362,29 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp update_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
     domain = Keyword.get(opts, :domain)
     topic = "#{js_api(domain)}.CONSUMER.UPDATE.#{stream_name}.#{consumer_name}"
+    # deliver_policy is immutable on existing durables (NATS err 10012). Never send
+    # it on UPDATE — preserves ACK cursor for cutover drain reuse.
+    opts = Keyword.delete(opts, :deliver_policy)
     payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = error}}
       when is_binary(description) ->
-        if immutable_consumer_shape_error?(description) do
-          recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-        else
-          {:error, error}
+        cond do
+          deliver_policy_immutable_error?(description) ->
+            # Existing durable keeps its policy/cursor; mutable fields may still need
+            # a second pass without other immutables — treat as success for cutover.
+            :ok
+
+          immutable_consumer_shape_error?(description) ->
+            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
+
+          true ->
+            {:error, error}
         end
 
       {:ok, %{"error" => error}} ->
-        {:error, error}
+        if deliver_policy_immutable_error?(error), do: :ok, else: {:error, error}
 
       {:ok, _} ->
         :ok
@@ -463,7 +473,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
           description: Keyword.get(opts, :description),
           ack_policy: Keyword.get(opts, :ack_policy, :explicit),
           ack_wait: Keyword.get(opts, :ack_wait, @default_ack_wait_ns),
-          deliver_policy: Keyword.get(opts, :deliver_policy, :all),
+          # Omit when unset so UPDATE/reconcile does not thrash immutable fields.
+          # CREATE still gets server default (all) unless caller sets :new/:all.
+          deliver_policy: Keyword.get(opts, :deliver_policy),
           filter_subject: subject,
           deliver_subject: Keyword.get(opts, :deliver_subject),
           inactive_threshold: Keyword.get(opts, :inactive_threshold),
@@ -484,6 +496,19 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     String.contains?(description, "can not update push consumer to pull based") or
       String.contains?(description, "can not update pull consumer to push based")
   end
+
+  @doc false
+  def deliver_policy_immutable_error?(description) when is_binary(description) do
+    String.contains?(description, "deliver policy can not be updated") or
+      String.contains?(description, "deliver_policy can not be updated")
+  end
+
+  def deliver_policy_immutable_error?(%{"description" => description})
+      when is_binary(description),
+      do: deliver_policy_immutable_error?(description)
+
+  def deliver_policy_immutable_error?(%{"err_code" => 10_012}), do: true
+  def deliver_policy_immutable_error?(_), do: false
 
   @doc false
   # JetStream rejects STREAM.CREATE with err_code 10065 ("subjects overlap

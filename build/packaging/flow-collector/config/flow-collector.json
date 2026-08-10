@@ -28,5 +28,6 @@
       "key_file": "flow-collector.key",
       "ca_file": "ca.crt"
     }
-  }
+  },
+  "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json"
 }

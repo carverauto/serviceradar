@@ -776,6 +776,7 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_name: "flows"
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
     # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
     # No volumeClaimTemplate mutation.

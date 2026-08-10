@@ -1525,6 +1525,7 @@ flowCollector:
     stream_max_bytes: 10737418240
     stream_max_age_secs: 21600
     stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000

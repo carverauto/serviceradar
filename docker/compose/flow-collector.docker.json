@@ -28,5 +28,6 @@
       "key_file": "flow-collector-key.pem",
       "ca_file": "root.pem"
     }
-  }
+  },
+  "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json"
 }

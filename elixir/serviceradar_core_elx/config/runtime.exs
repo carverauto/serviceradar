@@ -1196,13 +1196,25 @@ if config_env() == :prod do
         }
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
-      flow_streams: ServiceRadar.EventWriter.Config.default_flow_streams(),
-      flow_consumer_pull_batch_size:
-        String.to_integer(System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") || "64"),
-      flow_max_ack_pending:
-        String.to_integer(System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") || "1024"),
-      flow_pull_expires_ns:
-        String.to_integer(System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") || "2000000000")
+      # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so
+      # per-stream custom values are not clobbered by release defaults.
+      flow_streams: ServiceRadar.EventWriter.Config.default_flow_streams()
+
+    # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
+    if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_consumer_pull_batch_size: String.to_integer(v)
+    end
+
+    if v = System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_max_ack_pending: String.to_integer(v)
+    end
+
+    if v = System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") do
+      config :serviceradar_core, ServiceRadar.EventWriter,
+        flow_pull_expires_ns: String.to_integer(v)
+    end
 
     config :serviceradar_core, :event_writer_enabled, true
     config :serviceradar_core, :host_slice_subscriber_enabled, host_slice_subscriber_enabled

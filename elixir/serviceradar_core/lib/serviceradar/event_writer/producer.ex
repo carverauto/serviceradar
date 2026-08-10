@@ -484,6 +484,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     cond do
       expected_count == 0 ->
+        safe_stop_conn(conn)
         {:error, :no_streams_configured}
 
       failures != [] ->
@@ -797,7 +798,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       description: "EventWriter consumer for #{stream.name}",
       ack_policy: :explicit,
       ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
-      deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
+      deliver_policy: Map.get(stream, :consumer_deliver_policy),
       max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
       max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
       inactive_threshold: Map.get(stream, :consumer_inactive_threshold),

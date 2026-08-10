@@ -3,12 +3,15 @@ use crate::metrics::HostSliceMetricsRegistry;
 use anyhow::{Context, Result};
 use async_nats::jetstream::{
     self,
+    message::PublishMessage,
     stream::{DiscardPolicy, RetentionPolicy, StorageType},
 };
 use async_nats::{Client, ConnectOptions};
 use log::{error, info, warn};
 use std::cmp::min;
+use std::collections::VecDeque;
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,30 +44,63 @@ impl Publisher {
 
     pub async fn run(mut self) -> Result<()> {
         let (_, js) = self.connect_with_retry().await?;
+        mark_publisher_ready(&self.config);
 
-        let mut batch: Vec<(String, Vec<u8>)> = Vec::with_capacity(self.config.batch_size);
         let timeout_duration = Duration::from_millis(self.config.publish_timeout_ms);
+        let max_retry_queue = self.config.channel_size.max(self.config.batch_size.saturating_mul(4));
+        let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
+        let mut backoff = Duration::from_millis(100);
+        let max_backoff = Duration::from_secs(5);
 
         info!("Publisher started");
 
         loop {
+            // Drive retained failures from an independent retry path so a quiet
+            // exporter cannot strand messages behind a blocked recv().
+            if !retry_q.is_empty() {
+                self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
+                    .await;
+                if !retry_q.is_empty() {
+                    sleep(backoff).await;
+                    backoff = min(backoff.saturating_mul(2), max_backoff);
+                    continue;
+                }
+                backoff = Duration::from_millis(100);
+            }
+
             let msg = match self.rx.recv().await {
                 Some(msg) => msg,
                 None => {
-                    if !batch.is_empty() {
-                        self.publish_batch(&js, &mut batch, timeout_duration).await;
+                    // Channel closed: drain retries until empty or give up with error.
+                    let mut attempts = 0u32;
+                    while !retry_q.is_empty() {
+                        attempts += 1;
+                        self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
+                            .await;
+                        if retry_q.is_empty() {
+                            break;
+                        }
+                        if attempts >= 60 {
+                            return Err(anyhow::anyhow!(
+                                "publisher shutting down with {} unacked flow message(s)",
+                                retry_q.len()
+                            ));
+                        }
+                        sleep(backoff).await;
+                        backoff = min(backoff.saturating_mul(2), max_backoff);
                     }
                     info!("Publisher channel closed, shutting down");
                     return Ok(());
                 }
             };
 
-            batch.push(msg);
+            let mut batch = Vec::with_capacity(self.config.batch_size);
+            batch.push(PendingPublish::new(msg.0, msg.1));
 
             let mut closed = false;
             while batch.len() < self.config.batch_size {
                 match self.rx.try_recv() {
-                    Ok(msg) => batch.push(msg),
+                    Ok((subject, payload)) => batch.push(PendingPublish::new(subject, payload)),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         closed = true;
@@ -73,60 +109,100 @@ impl Publisher {
                 }
             }
 
-            if !batch.is_empty() {
-                self.publish_batch(&js, &mut batch, timeout_duration).await;
+            let mut pending: VecDeque<PendingPublish> = batch.into();
+            self.publish_pending(&js, &mut pending, timeout_duration, max_retry_queue)
+                .await;
+            // Move residual failures onto the durable retry queue.
+            while let Some(item) = pending.pop_front() {
+                if retry_q.len() >= max_retry_queue {
+                    warn!(
+                        "Publish retry queue full ({}); dropping oldest failed publish",
+                        max_retry_queue
+                    );
+                    retry_q.pop_front();
+                }
+                retry_q.push_back(item);
             }
 
             if closed {
+                // Same shutdown drain as channel-closed path.
+                let mut attempts = 0u32;
+                while !retry_q.is_empty() {
+                    attempts += 1;
+                    self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
+                        .await;
+                    if retry_q.is_empty() {
+                        break;
+                    }
+                    if attempts >= 60 {
+                        return Err(anyhow::anyhow!(
+                            "publisher shutting down with {} unacked flow message(s)",
+                            retry_q.len()
+                        ));
+                    }
+                    sleep(backoff).await;
+                    backoff = min(backoff.saturating_mul(2), max_backoff);
+                }
                 info!("Publisher channel closed, shutting down");
                 return Ok(());
             }
         }
     }
 
-    async fn publish_batch(
+    async fn publish_pending(
         &self,
         js: &jetstream::Context,
-        batch: &mut Vec<(String, Vec<u8>)>,
+        pending: &mut VecDeque<PendingPublish>,
         timeout_duration: Duration,
+        _max_retry_queue: usize,
     ) {
-        let mut failed: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut still_failed: VecDeque<PendingPublish> = VecDeque::new();
+        let limit = pending.len().min(self.config.batch_size.max(1));
 
-        for (subject, msg) in batch.drain(..) {
-            let bytes = msg.len();
+        for _ in 0..limit {
+            let Some(item) = pending.pop_front() else {
+                break;
+            };
+            let bytes = item.payload.len();
+            let publish = PublishMessage::build()
+                .payload(item.payload.clone().into())
+                .message_id(item.msg_id.clone());
 
-            match js.publish(subject.clone(), msg.clone().into()).await {
+            match js.send_publish(item.subject.clone(), publish).await {
                 Ok(ack) => match timeout(timeout_duration, ack).await {
                     Ok(Ok(_seq)) => {
-                        // Only count as published after a successful JetStream ack.
-                        self.host_slice_metrics.record_publish(&subject, bytes);
+                        self.host_slice_metrics
+                            .record_publish(&item.subject, bytes);
                     }
                     Ok(Err(e)) => {
                         error!(
-                            "NATS publish ack failed for subject {} (will retry): {}",
-                            subject, e
+                            "NATS publish ack failed for subject {} id={} (will retry): {}",
+                            item.subject, item.msg_id, e
                         );
-                        failed.push((subject, msg));
+                        still_failed.push_back(item);
                     }
                     Err(_) => {
                         warn!(
-                            "NATS ack timed out after {:?} for subject {} (will retry)",
-                            timeout_duration, subject
+                            "NATS ack timed out after {:?} for subject {} id={} (will retry)",
+                            timeout_duration, item.subject, item.msg_id
                         );
-                        failed.push((subject, msg));
+                        still_failed.push_back(item);
                     }
                 },
                 Err(e) => {
-                    error!("Failed to publish to NATS subject {}: {}", subject, e);
-                    failed.push((subject, msg));
+                    error!(
+                        "Failed to publish to NATS subject {} id={}: {}",
+                        item.subject, item.msg_id, e
+                    );
+                    still_failed.push_back(item);
                 }
             }
         }
 
-        // Retain failed payloads for the next batch attempt rather than dropping them.
-        if !failed.is_empty() {
-            batch.extend(failed);
-        }
+        // Preserve order: remaining unattempted first, then new failures.
+        let mut rest = std::mem::take(pending);
+        still_failed.append(&mut rest);
+        *pending = still_failed;
     }
 
     async fn connect_once(&mut self) -> Result<(Client, jetstream::Context)> {
@@ -402,6 +478,39 @@ async fn ensure_legacy_events_subjects_only(
     Ok(())
 }
 
+
+#[derive(Debug, Clone)]
+struct PendingPublish {
+    subject: String,
+    payload: Vec<u8>,
+    msg_id: String,
+}
+
+impl PendingPublish {
+    fn new(subject: String, payload: Vec<u8>) -> Self {
+        Self {
+            subject,
+            payload,
+            msg_id: next_msg_id(),
+        }
+    }
+}
+
+static MSG_ID_SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn next_msg_id() -> String {
+    // Stable across retries for JetStream de-duplication (Nats-Msg-Id).
+    // Instance prefix avoids collisions after process restart within duplicate_window.
+    let seq = MSG_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    let start = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    // seq is unique per process; start nanos prefixes a process generation.
+    // Using only seq after first call is fine; include pid for multi-replica.
+    format!("fc-{}-{}-{}", std::process::id(), start, seq)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct RehomeMarker {
     target_stream: String,
@@ -415,7 +524,39 @@ fn rehome_state_path(config: &Config) -> PathBuf {
     if let Ok(path) = std::env::var("FLOW_COLLECTOR_REHOME_STATE_PATH") {
         return PathBuf::from(path);
     }
-    std::env::temp_dir().join("serviceradar-flow-collector-rehome.json")
+    // Writable in Helm (PVC at /var/lib/serviceradar), Docker, and packages.
+    // Never default to /tmp: containers use readOnlyRootFilesystem and /tmp is
+    // not durable across pod replacement.
+    PathBuf::from("/var/lib/serviceradar/flow-collector-rehome.json")
+}
+
+fn ready_marker_path(config: &Config) -> PathBuf {
+    if let Ok(path) = std::env::var("FLOW_COLLECTOR_READY_PATH") {
+        return PathBuf::from(path);
+    }
+    // Co-locate with rehome marker on the data volume.
+    let rehome = rehome_state_path(config);
+    rehome
+        .parent()
+        .map(|p| p.join("flow-collector.ready"))
+        .unwrap_or_else(|| PathBuf::from("/var/lib/serviceradar/flow-collector.ready"))
+}
+
+fn mark_publisher_ready(config: &Config) {
+    let path = ready_marker_path(config);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Err(err) = fs::write(&path, b"ready
+") {
+        warn!(
+            "Failed to write readiness marker {}: {} (probe may stay unready)",
+            path.display(),
+            err
+        );
+    } else {
+        info!("Publisher ready marker written to {}", path.display());
+    }
 }
 
 fn load_rehome_marker(path: &Path) -> Result<Option<RehomeMarker>> {

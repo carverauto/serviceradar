@@ -38,9 +38,11 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
     Enum.map(config.streams, fn stream ->
       stream_name = Map.get(stream, :stream_name) || stream.name
 
+      durable_key = Map.get(stream, :durable_source_name) || stream.name
+
       %{
         stream: stream_name,
-        durable: Config.durable_name(config.consumer_name, stream.name),
+        durable: Config.durable_name(config.consumer_name, durable_key),
         subject_class: EventWriterTelemetry.subject_class(stream.subject)
       }
     end)

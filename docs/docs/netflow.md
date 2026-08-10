@@ -361,15 +361,17 @@ nats stream info flows
 #
 # Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
 #
-# Cutover (coordinated / quiesced):
+# Cutover (coordinated):
 # 1. Deploy core EventWriter with flow pipeline dual-consume enabled
 #    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default). Drain durables reuse the
 #    pre-cutover durable names so ACK cursors continue (no full-history replay).
-# 2. Scale flow-collector to a single new revision (or scale to 0 briefly) so
-#    no legacy publisher remains live during subject rehome. The collector
-#    persists a rehome marker before detaching subjects from events.
-# 3. New collector attaches subjects on `flows`, then publishes. Failed publish
-#    acks are retried (not counted as success).
+# 2. Helm uses Deployment strategy Recreate for flow-collector so the legacy
+#    publisher is terminated before the new pod starts. Readiness requires
+#    /var/lib/serviceradar/flow-collector.ready (written only after JetStream
+#    rehome/ensure succeeds). Rehome marker lives on the data PVC at
+#    rehome_state_path (/var/lib/serviceradar/flow-collector-rehome.json).
+# 3. New collector detaches subjects from events, attaches them on flows, then
+#    publishes with Nats-Msg-Id retries (dedup window 5m).
 # 4. When events drain consumers report num_pending=0, set
 #    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```
