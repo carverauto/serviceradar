@@ -1083,7 +1083,7 @@ func (r *runner) setHealthy(pid int, h coreaddon.Health) {
 		r.status.State = StateUnhealthy
 		r.status.DegradationReason = h.DegradationReason
 		r.healthySince = time.Time{}
-	default:
+	case coreaddon.HealthHealthy, coreaddon.HealthUnspecified:
 		r.status.State = StateRunning
 		r.status.DegradationReason = ""
 		if r.healthySince.IsZero() {
