@@ -1515,9 +1515,9 @@ flowCollector:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "flows"
-    # 10 GiB / 6h / R=3 — fits default 30Gi PVC + 25G maxFileStore with headroom
-    # for events/metrics. Raise only after expanding NATS PVCs out-of-band.
-    stream_max_bytes: 10737418240
+    # 1 GiB / 6h / R=3 — must fit under maxFileStore after datasvc KV (5G) +
+    # object store (16G) + events (2G). Raise only after out-of-band PVC expand.
+    stream_max_bytes: 1073741824
     stream_max_age_secs: 21600
     stream_replicas: 3
     channel_size: 10000

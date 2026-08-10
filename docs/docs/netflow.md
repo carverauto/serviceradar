@@ -360,8 +360,14 @@ nats stream info flows
 # recent last_seq growth while exporters are active.
 #
 # Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
-# Residual `flows.raw.*` subjects on the legacy `events` stream are rehomed by
-# the flow-collector on startup (subjects only; message history on events ages out).
+#
+# Cutover (coordinated):
+# 1. Deploy core EventWriter with flow pipeline dual-consume enabled
+#    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default) so residual messages on
+#    `events` continue to drain while new traffic lands on `flows`.
+# 2. Deploy flow-collector so it rehomes subject ownership events → flows.
+# 3. When events drain consumers report num_pending=0, set
+#    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```
 
 ### 5. Query Database

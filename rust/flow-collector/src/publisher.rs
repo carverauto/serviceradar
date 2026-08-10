@@ -18,6 +18,9 @@ pub struct Publisher {
     config: Arc<Config>,
     rx: mpsc::Receiver<(String, Vec<u8>)>,
     host_slice_metrics: Arc<HostSliceMetricsRegistry>,
+    /// Subjects removed from `events` but not yet confirmed on the target stream.
+    /// Preserved across connect retries so a failed restore cannot orphan extension subjects.
+    pending_rehome: Vec<String>,
 }
 
 impl Publisher {
@@ -30,6 +33,7 @@ impl Publisher {
             config,
             rx,
             host_slice_metrics,
+            pending_rehome: Vec::new(),
         }
     }
 
@@ -102,7 +106,7 @@ impl Publisher {
         }
     }
 
-    async fn connect_once(&self) -> Result<(Client, jetstream::Context)> {
+    async fn connect_once(&mut self) -> Result<(Client, jetstream::Context)> {
         let mut options = ConnectOptions::new();
 
         if let Some(sec) = &self.config.security {
@@ -134,32 +138,34 @@ impl Publisher {
         let required_subjects = self.config.stream_subjects_resolved();
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
 
-        // JetStream allows a subject on only one stream. Rehome flow subjects
-        // off `events` first, then attach the full removed set to the target
-        // stream (including extension subjects not in this process config).
-        let rehomed = if self.config.stream_name != "events" {
+        // Keep rehomed subjects across retries so a failed restore cannot orphan
+        // extension subjects that are not in required_subjects.
+        if self.config.stream_name != "events" {
             match rehome_subjects_from_events(&js, &required_subjects).await {
-                Ok(subjects) => subjects,
+                Ok(subjects) => {
+                    for subject in subjects {
+                        if !self.pending_rehome.iter().any(|s| s == &subject) {
+                            self.pending_rehome.push(subject);
+                        }
+                    }
+                }
                 Err(err) => {
                     warn!(
-                        "Could not rehome flow subjects off shared events stream (continuing): {}",
+                        "Could not rehome flow subjects off shared events stream: {}",
                         err
                     );
-                    Vec::new()
+                    return Err(err);
                 }
             }
-        } else {
-            Vec::new()
-        };
+        }
 
         let mut target_subjects = required_subjects.clone();
-        for subject in &rehomed {
+        for subject in &self.pending_rehome {
             if !target_subjects.iter().any(|s| s == subject) {
                 target_subjects.push(subject.clone());
             }
         }
-        target_subjects.sort();
-        target_subjects.dedup();
+        target_subjects = normalize_stream_subjects(target_subjects);
 
         match ensure_flows_stream(
             &js,
@@ -171,15 +177,25 @@ impl Publisher {
         )
         .await
         {
-            Ok(()) => {}
+            Ok(()) => {
+                // Target owns the set; no longer need restore bookkeeping.
+                self.pending_rehome.clear();
+            }
             Err(err) => {
-                if !rehomed.is_empty()
-                    && let Err(restore_err) = restore_subjects_to_events(&js, &rehomed).await
-                {
-                    error!(
-                        "Failed to restore flow subjects to events after target stream error: {}",
-                        restore_err
-                    );
+                // Try to put subjects back on events. If restore fails, keep
+                // pending_rehome so the next retry can still attach them to flows.
+                if !self.pending_rehome.is_empty() {
+                    match restore_subjects_to_events(&js, &self.pending_rehome).await {
+                        Ok(()) => self.pending_rehome.clear(),
+                        Err(restore_err) => {
+                            error!(
+                                "Failed to restore rehomed subjects after target stream error (will retry attach): {restore_err}"
+                            );
+                            return Err(err.context(format!(
+                                "restore also failed: {restore_err}"
+                            )));
+                        }
+                    }
                 }
                 return Err(err);
             }
@@ -197,7 +213,7 @@ impl Publisher {
         Ok((client, js))
     }
 
-    async fn connect_with_retry(&self) -> Result<(Client, jetstream::Context)> {
+    async fn connect_with_retry(&mut self) -> Result<(Client, jetstream::Context)> {
         let mut attempt: u32 = 0;
         let initial_backoff = Duration::from_millis(500);
         let max_backoff = Duration::from_secs(30);
@@ -240,7 +256,12 @@ async fn rehome_subjects_from_events(
 ) -> Result<Vec<String>> {
     let mut events = match js.get_stream("events").await {
         Ok(stream) => stream,
-        Err(_) => return Ok(Vec::new()),
+        Err(err) if is_stream_not_found(&err) => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "failed to INFO events stream during rehome: {err}"
+            ));
+        }
     };
 
     let info = events.info().await?;
@@ -275,7 +296,16 @@ async fn restore_subjects_to_events(js: &jetstream::Context, subjects: &[String]
 
     let mut events = match js.get_stream("events").await {
         Ok(stream) => stream,
-        Err(_) => return Ok(()),
+        Err(err) if is_stream_not_found(&err) => {
+            return Err(anyhow::anyhow!(
+                "events stream missing while restoring rehomed subjects: {err}"
+            ));
+        }
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "failed to INFO events stream during restore: {err}"
+            ));
+        }
     };
 
     let info = events.info().await?;
@@ -313,10 +343,20 @@ async fn ensure_flows_stream(
             let mut needs_update = false;
 
             for required in target_subjects {
-                if !updated_config.subjects.contains(required) {
+                let already_covered = updated_config
+                    .subjects
+                    .iter()
+                    .any(|s| s == required || subject_covers(s, required));
+                if !already_covered {
                     updated_config.subjects.push(required.clone());
                     needs_update = true;
                 }
+            }
+            // Re-normalize after union in case wildcards + exacts both present.
+            let normalized = normalize_stream_subjects(updated_config.subjects.clone());
+            if normalized != updated_config.subjects {
+                updated_config.subjects = normalized;
+                needs_update = true;
             }
 
             if updated_config.num_replicas != replicas {
@@ -357,11 +397,19 @@ async fn ensure_flows_stream(
 
             if needs_update {
                 js.update_stream(updated_config).await?;
-                js.get_stream(stream_name).await?;
+                let mut verified = js.get_stream(stream_name).await?;
+                let verified_info = verified.info().await?;
+                for required in target_subjects {
+                    if !verified_info.config.subjects.iter().any(|s| subject_covers(s, required) || s == required) {
+                        return Err(anyhow::anyhow!(
+                            "stream '{stream_name}' missing required subject '{required}' after update"
+                        ));
+                    }
+                }
             }
             Ok(())
         }
-        Err(_) => {
+        Err(err) if is_stream_not_found(&err) => {
             let stream_config = jetstream::stream::Config {
                 name: stream_name.to_string(),
                 subjects: target_subjects.to_vec(),
@@ -373,16 +421,79 @@ async fn ensure_flows_stream(
                 num_replicas: replicas,
                 ..Default::default()
             };
-            js.get_or_create_stream(stream_config).await?;
+            // Prefer create_stream over get_or_create: get_or_create can return an
+            // existing handle without applying our config when races occur.
+            js.create_stream(stream_config).await?;
+            let mut verified = js.get_stream(stream_name).await?;
+            let verified_info = verified.info().await?;
+            for required in target_subjects {
+                if !verified_info
+                    .config
+                    .subjects
+                    .iter()
+                    .any(|s| subject_covers(s, required) || s == required)
+                {
+                    return Err(anyhow::anyhow!(
+                        "stream '{stream_name}' missing required subject '{required}' after create"
+                    ));
+                }
+            }
             Ok(())
         }
+        Err(err) => Err(anyhow::anyhow!(
+            "failed to INFO stream '{stream_name}': {err}"
+        )),
     }
+}
+
+fn is_stream_not_found(err: &async_nats::jetstream::context::GetStreamError) -> bool {
+    use async_nats::jetstream::context::GetStreamErrorKind;
+    match err.kind() {
+        GetStreamErrorKind::JetStream(js_err) => js_err.code() == 404,
+        _ => {
+            let msg = err.to_string().to_ascii_lowercase();
+            msg.contains("not found") || msg.contains("no stream")
+        }
+    }
+}
+
+/// Drop exact subjects covered by a broader wildcard so NATS does not reject
+/// self-overlapping stream subject lists (e.g. `flows.raw.>` + `flows.raw.netflow`).
+pub(crate) fn normalize_stream_subjects(subjects: Vec<String>) -> Vec<String> {
+    let mut subjects = subjects;
+    subjects.sort();
+    subjects.dedup();
+    let copy = subjects.clone();
+    subjects
+        .into_iter()
+        .filter(|subject| {
+            !copy
+                .iter()
+                .any(|other| other != subject && subject_covers(other, subject))
+        })
+        .collect()
+}
+
+pub(crate) fn subject_covers(broader: &str, narrower: &str) -> bool {
+    if broader == narrower {
+        return true;
+    }
+    if let Some(prefix) = broader.strip_suffix(".>") {
+        return narrower == prefix || narrower.starts_with(&format!("{prefix}."));
+    }
+    if let Some(prefix) = broader.strip_suffix(".*") {
+        if !narrower.starts_with(&format!("{prefix}.")) {
+            return false;
+        }
+        let rest = &narrower[prefix.len() + 1..];
+        return !rest.is_empty() && !rest.contains('.');
+    }
+    false
 }
 
 pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[String]) -> bool {
     if subject.starts_with("flows.raw.") {
         return true;
     }
-    // Host-slice subjects only rehome when this collector is configured to publish them.
     subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
 }

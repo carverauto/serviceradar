@@ -74,6 +74,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     :pending_count,
     :pull_inflight,
     :pull_inflight_by_subject,
+    :sid_to_pull_subject,
     :max_buffered,
     :dropped_overflow,
     :pull_subjects
@@ -106,6 +107,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       pending_count: 0,
       pull_inflight: 0,
       pull_inflight_by_subject: %{},
+      sid_to_pull_subject: %{},
       max_buffered: max_buffered,
       dropped_overflow: 0,
       pull_subjects: MapSet.new()
@@ -158,7 +160,17 @@ defmodule ServiceRadar.EventWriter.Producer do
           %{host: state.config.nats.host}
         )
 
-        new_state = %{state | conn: conn, consumer_context: consumer_context, connected: true}
+        sid_map = Map.get(consumer_context, :sid_to_pull_subject, %{})
+
+        new_state = %{
+          state
+          | conn: conn,
+            consumer_context: consumer_context,
+            connected: true,
+            sid_to_pull_subject: sid_map,
+            pull_subjects: Map.get(consumer_context, :pull_subjects, MapSet.new())
+        }
+
         # Schedule periodic / idle fetch tick (long-poll producers use a slower tick).
         schedule_fetch(new_state)
 
@@ -210,14 +222,19 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   # Handle incoming NATS messages from JetStream pull reply subjects.
   def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to} = msg}, state) do
+    # Data messages carry the original JetStream subject on :topic; status/empty
+    # pulls carry the pull inbox topic. Inflight accounting is always keyed by
+    # the pull inbox subject, resolved via Gnat :sid when present.
+    pull_key = pull_key_for_msg(msg, state)
+
     cond do
       pull_status_message?(msg, state) ->
-        # Expiry/empty status: free the outstanding pull slot and repull
-        # immediately when demand remains (do not wait for the idle tick).
-        state = clear_pull_inflight(state, subject)
-        EventWriterTelemetry.emit_queue(state, :pull_status, subject)
+        # Expiry/empty status: free the outstanding pull slot. Immediate repull
+        # only for long-poll mode — no_wait shared consumers must keep 100ms pacing.
+        state = clear_pull_inflight(state, pull_key)
+        EventWriterTelemetry.emit_queue(state, :pull_status, pull_key)
 
-        if state.connected and state.demand > 0 do
+        if state.connected and state.demand > 0 and long_poll_mode?(state) do
           {messages, state} =
             state
             |> drain_pending_messages()
@@ -236,7 +253,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         state =
           state
-          |> decrement_pull_inflight(subject)
+          |> decrement_pull_inflight(pull_key)
           |> maybe_warn_overflow()
 
         EventWriterTelemetry.emit_queue(state, :overflow, subject)
@@ -244,7 +261,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
       true ->
         state
-        |> decrement_pull_inflight(subject)
+        |> decrement_pull_inflight(pull_key)
         |> buffer_message(body, subject, reply_to, msg)
     end
   end
@@ -437,82 +454,115 @@ defmodule ServiceRadar.EventWriter.Producer do
     default_pull_batch_size =
       config.consumer_pull_batch_size || Config.default_consumer_pull_batch_size()
 
-    consumers =
-      config.streams
-      |> Enum.map(fn stream ->
-        durable_name = Config.durable_name(config.consumer_name, stream.name)
-        pull_subject = pull_subject(config.consumer_name, stream.name)
-        pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
+    expected_count = length(config.streams)
 
-        with {:ok, ensured} <-
-               JetstreamConsumer.ensure_durable(
-                 conn,
-                 ensure_durable_opts(
-                   stream,
-                   durable_name,
-                   ack_wait_ns,
-                   max_ack_pending,
-                   max_deliver
-                 )
-               ),
-             {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
-          # Refuse to run a "flow" durable that resolved onto a non-flow stream
-          # (rollout race / overlap fallback). That strands consumption on events.
-          if Config.flow_stream?(stream) and ensured.stream_name != expected_stream_name(stream) do
-            Logger.error(
-              "Flow consumer resolved onto unexpected stream; refusing to start",
-              configured_stream: expected_stream_name(stream),
-              resolved_stream: ensured.stream_name,
-              filter_subject: stream.subject
-            )
-
-            nil
-          else
-            Logger.info("EventWriter JetStream consumer ready",
-              stream: ensured.stream_name,
-              durable: durable_name,
-              filter_subject: stream.subject,
-              pull_subject: pull_subject,
-              pull_batch_size: pull_batch_size,
-              sid: sid
-            )
-
-            %{
-              stream: ensured.stream_name,
-              durable: durable_name,
-              sid: sid,
-              subject: stream.subject,
-              pull_subject: pull_subject,
-              pull_batch_size: pull_batch_size
-            }
-          end
-        else
-          {:error, reason} ->
-            Logger.error("Failed to initialize EventWriter durable consumer",
-              stream: stream.name,
-              filter_subject: stream.subject,
-              reason: inspect(reason)
-            )
-
-            nil
-        end
+    results =
+      Enum.map(config.streams, fn stream ->
+        setup_one_consumer(conn, config, stream, ack_wait_ns, max_ack_pending, max_deliver, default_pull_batch_size)
       end)
-      |> Enum.reject(&is_nil/1)
 
-    if consumers == [] do
-      {:error, :no_consumers_initialized}
-    else
-      pull_subjects = MapSet.new(consumers, & &1.pull_subject)
+    consumers = Enum.filter(results, &match?({:ok, _}, &1)) |> Enum.map(fn {:ok, c} -> c end)
+    failures = Enum.filter(results, &match?({:error, _}, &1))
+
+    cond do
+      expected_count == 0 ->
+        {:error, :no_streams_configured}
+
+      failures != [] ->
+        # Do not accept a partial flow (or shared) pipeline; close connection so
+        # leaked inbox subscriptions cannot duplicate replies after reconnect.
+        Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
+        safe_stop_conn(conn)
+
+        {:error,
+         {:consumer_setup_failed,
+          Enum.map(failures, fn {:error, reason} -> reason end)}}
+
+      true ->
+        pull_subjects = MapSet.new(consumers, & &1.pull_subject)
+        sid_to_pull = Map.new(consumers, fn c -> {c.sid, c.pull_subject} end)
+
+        {:ok,
+         %{
+           conn: conn,
+           consumer_name: config.consumer_name,
+           consumers: consumers,
+           pull_subjects: pull_subjects,
+           sid_to_pull_subject: sid_to_pull
+         }}
+    end
+  end
+
+  defp setup_one_consumer(conn, config, stream, ack_wait_ns, max_ack_pending, max_deliver, default_pull_batch_size) do
+    durable_name = Config.durable_name(config.consumer_name, stream.name)
+    pull_subject = pull_subject(config.consumer_name, stream.name)
+    pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
+    expected = expected_stream_name(stream)
+
+    with {:ok, ensured} <-
+           JetstreamConsumer.ensure_durable(
+             conn,
+             ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver)
+           ),
+         :ok <- validate_resolved_stream(stream, ensured.stream_name, expected),
+         {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
+      Logger.info("EventWriter JetStream consumer ready",
+        stream: ensured.stream_name,
+        durable: durable_name,
+        filter_subject: stream.subject,
+        pull_subject: pull_subject,
+        pull_batch_size: pull_batch_size,
+        sid: sid
+      )
 
       {:ok,
        %{
-         conn: conn,
-         consumer_name: config.consumer_name,
-         consumers: consumers,
-         pull_subjects: pull_subjects
+         stream: ensured.stream_name,
+         durable: durable_name,
+         sid: sid,
+         subject: stream.subject,
+         pull_subject: pull_subject,
+         pull_batch_size: pull_batch_size
        }}
+    else
+      {:error, reason} ->
+        Logger.error("Failed to initialize EventWriter durable consumer",
+          stream: stream.name,
+          filter_subject: stream.subject,
+          reason: inspect(reason)
+        )
+
+        {:error, {stream.name, reason}}
     end
   end
+
+  defp validate_resolved_stream(stream, resolved, expected) do
+    if Config.flow_stream?(stream) and resolved != expected and
+         Map.get(stream, :allow_stream_fallback, false) == false do
+      {:error, {:unexpected_stream, expected: expected, resolved: resolved}}
+    else
+      :ok
+    end
+  end
+
+  defp safe_unsub(conn, sid) when is_integer(sid) do
+    try do
+      Gnat.unsub(conn, sid)
+    rescue
+      _ -> :ok
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  defp safe_unsub(_conn, _sid), do: :ok
+
+  defp safe_stop_conn(conn) when is_pid(conn) do
+    if Process.alive?(conn), do: Process.exit(conn, :kill)
+    :ok
+  end
+
+  defp safe_stop_conn(_), do: :ok
 
   # Drains up to `demand` buffered messages, preserving FIFO order.
   # `pending_count` is kept in sync so the overflow guard never needs an O(n)
@@ -662,6 +712,27 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp pull_expires_ns(_state), do: 0
 
+  defp long_poll_mode?(state), do: pull_expires_ns(state) > 0
+
+  # Data msgs use original subject on :topic; resolve pull inbox via Gnat :sid.
+  defp pull_key_for_msg(%{sid: sid, topic: topic}, %{sid_to_pull_subject: map})
+       when is_integer(sid) and is_map(map) and map_size(map) > 0 do
+    Map.get(map, sid, topic)
+  end
+
+  defp pull_key_for_msg(%{topic: topic}, state) do
+    # Status/empty replies use the pull inbox topic; unit tests omit :sid.
+    if MapSet.member?(pull_subjects(state), topic) do
+      topic
+    else
+      # Fall back: if only one consumer is outstanding, use its pull subject.
+      case Map.keys(state.pull_inflight_by_subject || %{}) do
+        [only] -> only
+        _ -> topic
+      end
+    end
+  end
+
   defp expected_stream_name(stream) do
     Map.get(stream, :stream_name) || stream.name
   end
@@ -690,7 +761,9 @@ defmodule ServiceRadar.EventWriter.Producer do
       # Flow path: never fall back onto `events` (strands durables after rehome).
       allow_stream_fallback: Map.get(stream, :allow_stream_fallback, not flow?),
       # Flow-collector owns `flows` retention; EventWriter only merges subjects.
-      reconcile_stream_shape: Map.get(stream, :reconcile_stream_shape, not flow?)
+      reconcile_stream_shape: Map.get(stream, :reconcile_stream_shape, not flow?),
+      # Legacy events drain consumers must not create/reshape the shared stream.
+      ensure_stream: Map.get(stream, :ensure_stream, true)
     ]
   end
 

@@ -292,4 +292,163 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
                       %{operation: :pull_status, subject_class: "other"}}
     end
   end
+
+  describe "pull inflight accounting keyed by sid" do
+    test "exactly-full data batch clears inbox inflight via sid mapping" do
+      pull_subject = "_INBOX.serviceradar.event_writer.pull.test.netflow"
+      data_subject = "flows.raw.netflow"
+      sid = 42
+      batch = 4
+
+      config =
+        build_config(
+          max_ack_pending: 64,
+          pull_expires_ns: 1_000_000_000,
+          consumer_pull_batch_size: batch,
+          streams: [
+            %{
+              name: "NETFLOW_RAW",
+              stream_name: "flows",
+              subject: data_subject,
+              consumer_pull_batch_size: batch
+            }
+          ]
+        )
+
+      state = init_state(config)
+
+      # demand: 0 so messages buffer without calling JetstreamConsumerApi.repull
+      state = %{
+        state
+        | demand: 0,
+          pull_inflight: batch,
+          pull_inflight_by_subject: %{pull_subject => batch},
+          pull_subjects: MapSet.new([pull_subject]),
+          sid_to_pull_subject: %{sid => pull_subject},
+          consumer_context: %{
+            consumers: [
+              %{
+                stream: "flows",
+                durable: "test-consumer-NETFLOW_RAW",
+                sid: sid,
+                subject: data_subject,
+                pull_subject: pull_subject,
+                pull_batch_size: batch
+              }
+            ],
+            pull_subjects: MapSet.new([pull_subject]),
+            sid_to_pull_subject: %{sid => pull_subject}
+          }
+      }
+
+      # Exactly-full batch: data msgs use original JetStream topic + Gnat sid,
+      # with no trailing empty status. Inflight must clear via sid→inbox mapping.
+      state =
+        Enum.reduce(1..batch, state, fn i, acc ->
+          msg = %{
+            body: "payload-#{i}",
+            topic: data_subject,
+            reply_to: @reply_to,
+            headers: %{},
+            sid: sid
+          }
+
+          {:noreply, emitted, next} = Producer.handle_info({:msg, msg}, acc)
+          assert emitted == []
+          next
+        end)
+
+      assert state.pending_count == batch
+      assert state.pull_inflight == 0
+      assert state.pull_inflight_by_subject == %{}
+      # outstanding > 0 guard must not block future pulls for this durable
+      assert Map.get(state.pull_inflight_by_subject, pull_subject, 0) == 0
+    end
+
+    test "exactly-full batch without sid would stall if keyed only by topic" do
+      # Documents the regression: decrementing by data topic leaves inbox inflight.
+      pull_subject = "_INBOX.serviceradar.event_writer.pull.test.netflow"
+      data_subject = "flows.raw.netflow"
+      batch = 2
+
+      config = build_config(max_ack_pending: 64, pull_expires_ns: 1_000_000_000)
+      state = init_state(config)
+
+      state = %{
+        state
+        | demand: 0,
+          pull_inflight: batch,
+          pull_inflight_by_subject: %{pull_subject => batch},
+          pull_subjects: MapSet.new([pull_subject]),
+          # Empty sid map forces fallback; with multi-key fallback uses topic.
+          sid_to_pull_subject: %{},
+          consumer_context: %{
+            consumers: [],
+            pull_subjects: MapSet.new([pull_subject]),
+            sid_to_pull_subject: %{}
+          }
+      }
+
+      # Single outstanding subject still resolves via the sole inflight key.
+      state =
+        Enum.reduce(1..batch, state, fn i, acc ->
+          msg = %{
+            body: "payload-#{i}",
+            topic: data_subject,
+            reply_to: @reply_to,
+            headers: %{}
+          }
+
+          {:noreply, _, next} = Producer.handle_info({:msg, msg}, acc)
+          next
+        end)
+
+      assert state.pull_inflight == 0
+      assert state.pull_inflight_by_subject == %{}
+    end
+
+    test "empty status on no_wait shared producer does not immediate-repull" do
+      pull_subject = "_INBOX.serviceradar.event_writer.pull.test.metrics"
+
+      # Shared pipeline: pull_expires_ns 0 => no_wait path.
+      config = build_config(max_ack_pending: 8, pull_expires_ns: 0)
+      state = init_state(config)
+
+      state = %{
+        state
+        | connected: true,
+          demand: 16,
+          pull_inflight: 8,
+          pull_inflight_by_subject: %{pull_subject => 8},
+          pull_subjects: MapSet.new([pull_subject]),
+          conn: nil,
+          consumer_context: %{
+            consumers: [
+              %{
+                stream: "events",
+                durable: "test-consumer-METRICS",
+                sid: 7,
+                subject: "metrics.>",
+                pull_subject: pull_subject,
+                pull_batch_size: 16
+              }
+            ],
+            pull_subjects: MapSet.new([pull_subject]),
+            sid_to_pull_subject: %{7 => pull_subject}
+          }
+      }
+
+      {:noreply, emitted, state} =
+        Producer.handle_info(
+          {:msg, %{body: "", topic: pull_subject, reply_to: nil, sid: 7}},
+          state
+        )
+
+      assert emitted == []
+      # Status cleared inflight but must NOT re-arm a no_wait pull (would
+      # re-bump pull_inflight). Shared idle consumers wait for the 100ms tick.
+      assert state.pull_inflight == 0
+      assert state.pull_inflight_by_subject == %{}
+    end
+  end
 end

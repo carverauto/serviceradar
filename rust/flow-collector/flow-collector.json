@@ -1,6 +1,9 @@
 {
   "nats_url": "nats://nats:4222",
-  "stream_name": "events",
+  "stream_name": "flows",
+  "stream_max_bytes": 1073741824,
+  "stream_max_age_secs": 7200,
+  "stream_replicas": 1,
   "channel_size": 10000,
   "batch_size": 100,
   "publish_timeout_ms": 5000,

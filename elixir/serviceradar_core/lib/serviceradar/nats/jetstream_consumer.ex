@@ -57,13 +57,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp resolve_stream_name(connection_ref, opts, subject) do
     requested = Keyword.get(opts, :stream_name)
     domain = Keyword.get(opts, :domain)
+    allow_fallback = allow_stream_fallback?(opts)
 
     case find_streams_by_subject(connection_ref, subject, domain) do
       {:ok, []} ->
         resolve_empty_streams(requested, subject)
 
       {:ok, streams} ->
-        resolve_discovered_streams(requested, subject, streams)
+        resolve_discovered_streams(requested, subject, streams, allow_fallback)
 
       {:error, _reason} = error ->
         resolve_discovery_error(requested, subject, error)
@@ -574,9 +575,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp resolve_discovered_streams(requested, subject, streams) do
+  defp resolve_discovered_streams(requested, subject, streams, allow_fallback) do
     if valid_requested_stream?(requested) do
-      choose_requested_or_first_stream(requested, subject, streams)
+      choose_requested_or_first_stream(requested, subject, streams, allow_fallback)
     else
       {:ok, hd(streams)}
     end
@@ -598,17 +599,31 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp choose_requested_or_first_stream(requested, subject, streams) do
-    if requested in streams do
-      {:ok, requested}
-    else
-      Logger.warning("Requested stream not matched by subject; using discovered stream",
-        requested_stream: requested,
-        subject: subject,
-        discovered_stream: hd(streams)
-      )
+  defp choose_requested_or_first_stream(requested, subject, streams, allow_fallback) do
+    cond do
+      requested in streams ->
+        {:ok, requested}
 
-      {:ok, hd(streams)}
+      # Strict explicit stream (flows cutover): never bind to a legacy owner such
+      # as events just because STREAM.NAMES found it first.
+      allow_fallback == false ->
+        Logger.info(
+          "Requested stream does not yet own subject; keeping configured stream for ensure",
+          requested_stream: requested,
+          subject: subject,
+          discovered_streams: streams
+        )
+
+        {:ok, requested}
+
+      true ->
+        Logger.warning("Requested stream not matched by subject; using discovered stream",
+          requested_stream: requested,
+          subject: subject,
+          discovered_stream: hd(streams)
+        )
+
+        {:ok, hd(streams)}
     end
   end
 

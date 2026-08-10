@@ -249,10 +249,9 @@ fn default_partition() -> String {
 }
 
 fn default_stream_max_bytes() -> i64 {
-    // Conservative default that fits Docker Compose (10G file store) and
-    // tenant NATS budgets. Helm production overlays may raise this; do not
-    // default to 50 GiB here or local/tenant JetStream placement fails.
-    10 * 1024 * 1024 * 1024
+    // 1 GiB — fits Docker Compose (10G file store), tenant maxFileStore (2G),
+    // and base HA after datasvc KV/object reservations. Helm overlays may raise.
+    1024 * 1024 * 1024
 }
 
 fn default_stream_max_age_secs() -> u64 {
@@ -449,7 +448,7 @@ mod tests {
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);
         assert_eq!(config.stream_max_age_secs, 6 * 60 * 60);
-        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
+        assert_eq!(config.stream_max_bytes, 1024 * 1024 * 1024);
     }
 
     #[test]
@@ -648,13 +647,11 @@ mod tests {
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
 
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("host_slice_allowlist")
-        );
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("host_slice_allowlist"));
     }
 
     #[test]
@@ -773,5 +770,54 @@ mod tests {
         let config: Config = serde_json::from_str(json).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("channel_size"));
+    }
+
+    #[test]
+    fn test_normalize_stream_subjects_drops_covered_exacts() {
+        use crate::publisher::{normalize_stream_subjects, subject_covers};
+
+        assert!(subject_covers("flows.raw.>", "flows.raw.netflow"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.sflow"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.ipfix.v9"));
+        assert!(!subject_covers("flows.raw.netflow", "flows.raw.sflow"));
+        assert!(!subject_covers("flows.raw.*", "flows.raw.ipfix.v9"));
+        assert!(subject_covers("flows.raw.*", "flows.raw.ipfix"));
+
+        let normalized = normalize_stream_subjects(vec![
+            "flows.raw.>".to_string(),
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+        ]);
+        assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
+
+        let star = normalize_stream_subjects(vec![
+            "flows.raw.*".to_string(),
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+        ]);
+        assert_eq!(star, vec!["flows.raw.*".to_string()]);
+
+        let mixed = normalize_stream_subjects(vec![
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+            "events.device".to_string(),
+        ]);
+        assert_eq!(
+            mixed,
+            vec![
+                "events.device".to_string(),
+                "flows.raw.netflow".to_string(),
+                "flows.raw.sflow".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn image_baked_config_targets_flows_with_1gib_cap() {
+        let raw = include_str!("../flow-collector.json");
+        let config: Config = serde_json::from_str(raw).expect("flow-collector.json parses");
+        assert_eq!(config.stream_name, "flows");
+        assert_eq!(config.stream_max_bytes, 1024 * 1024 * 1024);
+        assert!(config.stream_max_age_secs > 0);
     }
 }

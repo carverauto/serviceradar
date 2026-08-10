@@ -131,6 +131,82 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
+    test "load_flow dual-consumes residual events backlog by default" do
+      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+      flow = Config.load_flow()
+      drain = Enum.filter(flow.streams, &(&1.stream_name == "events"))
+      names = Enum.map(drain, & &1.name)
+
+      assert "NETFLOW_RAW_EVENTS_DRAIN" in names
+      assert "SFLOW_RAW_EVENTS_DRAIN" in names
+
+      for stream <- drain do
+        assert stream.allow_stream_fallback == false
+        assert stream.ensure_stream == false
+        assert stream.reconcile_stream_shape == false
+        assert String.starts_with?(stream.subject, "flows.raw.")
+      end
+    end
+
+    test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do
+      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS") end)
+
+      flow = Config.load_flow()
+      refute Enum.any?(flow.streams, &(&1.stream_name == "events"))
+    end
+
+    test "load_flow preserves explicit per-stream pull/ack tuning without env override" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.put(previous, :flow_streams, [
+          %{
+            name: "NETFLOW_RAW",
+            stream_name: "flows",
+            subject: "flows.raw.netflow",
+            processor: ServiceRadar.EventWriter.Processors.Flows,
+            consumer_pull_batch_size: 256,
+            consumer_max_ack_pending: 2048,
+            allow_stream_fallback: false,
+            reconcile_stream_shape: false
+          },
+          %{
+            name: "SFLOW_RAW",
+            stream_name: "flows",
+            subject: "flows.raw.sflow",
+            processor: ServiceRadar.EventWriter.Processors.Flows,
+            allow_stream_fallback: false,
+            reconcile_stream_shape: false
+          }
+        ])
+      )
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      System.delete_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE")
+      System.delete_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING")
+      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS") end)
+
+      flow = Config.load_flow()
+      netflow = Enum.find(flow.streams, &(&1.name == "NETFLOW_RAW"))
+      sflow = Enum.find(flow.streams, &(&1.name == "SFLOW_RAW"))
+
+      assert netflow.consumer_pull_batch_size == 256
+      assert netflow.consumer_max_ack_pending == 2048
+      assert sflow.consumer_pull_batch_size == flow.consumer_pull_batch_size
+      assert sflow.consumer_max_ack_pending == flow.max_ack_pending
+    end
+
     test "routes raw Falco sidekick events from the dedicated Falco stream" do
       falco = Enum.find(Config.default_streams(), &(&1.name == "FALCO"))
 

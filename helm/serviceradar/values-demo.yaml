@@ -776,9 +776,9 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_name: "flows"
-    # 8 GiB / 2h / R=3 — fits existing 30Gi PVC without Helm volumeClaimTemplate
-    # mutation (immutable on live StatefulSets).
-    stream_max_bytes: 8589934592
+    # 1 GiB / 2h / R=3 — fits existing 30Gi PVC + 25G maxFileStore with datasvc
+    # KV/object reservations. No volumeClaimTemplate mutation.
+    stream_max_bytes: 1073741824
     stream_max_age_secs: 7200
     stream_replicas: 3
   data:

@@ -67,7 +67,7 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_flow_max_ack_pending 1024
   # Conservative create-if-missing defaults (10 GiB / 6h). flow-collector owns
   # live retention reconcile; EventWriter must not thrash these on existing streams.
-  @default_flows_stream_max_bytes 10_737_418_240
+  @default_flows_stream_max_bytes 1_073_741_824
   @default_flows_stream_max_age_ns 21_600_000_000_000
 
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
@@ -202,15 +202,16 @@ defmodule ServiceRadar.EventWriter.Config do
         Keyword.get(config, :flow_pull_expires_ns, @default_flow_pull_expires_ns)
       )
 
-    # Push resolved flow tuning into each stream so producer/durable options
-    # honor env overrides (stream-level values win over top-level defaults).
+    # Precedence: env/top-level override > explicit per-stream > default.
+    # Only fill missing stream keys so custom flow_streams keep their tuning.
     streams =
       config
       |> load_flow_streams()
+      |> maybe_append_events_drain_streams()
       |> Enum.map(fn stream ->
         stream
-        |> Map.put(:consumer_pull_batch_size, pull_batch)
-        |> Map.put(:consumer_max_ack_pending, max_ack)
+        |> Map.put_new(:consumer_pull_batch_size, pull_batch)
+        |> Map.put_new(:consumer_max_ack_pending, max_ack)
       end)
 
     %{
@@ -513,8 +514,7 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec default_flow_streams() :: [stream_config()]
   def default_flow_streams do
-    # No per-stream pull/ack literals — load_flow/0 injects resolved env/config
-    # values so EVENT_WRITER_FLOW_* overrides reach each JetStream durable.
+    # No per-stream pull/ack literals — load_flow/0 fills defaults via put_new.
     # Retention create-if-missing only; collector owns reconcile_stream_shape.
     base = %{
       stream_name: "flows",
@@ -534,6 +534,39 @@ defmodule ServiceRadar.EventWriter.Config do
       Map.merge(base, %{name: "SFLOW_RAW", subject: "flows.raw.sflow"}),
       Map.merge(base, %{name: "NETFLOW_RAW", subject: "flows.raw.netflow"})
     ]
+  end
+
+  # Dual-consume drain: keep reading residual flows.raw.* from the legacy
+  # `events` stream until MaxAge expires them. New publishes land on `flows`.
+  # Disable with EVENT_WRITER_FLOW_DRAIN_EVENTS=false after backlog is gone.
+  defp maybe_append_events_drain_streams(streams) do
+    if System.get_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "true") in ~w(true 1 yes) do
+      drain_base = %{
+        stream_name: "events",
+        processor: Flows,
+        batch_size: 100,
+        batch_timeout: 500,
+        # Strict events target: never re-bind drain durables onto flows after rehome.
+        allow_stream_fallback: false,
+        reconcile_stream_shape: false,
+        # Do not create/reshape the shared events stream from the flow path.
+        ensure_stream: false
+      }
+
+      streams ++
+        [
+          Map.merge(drain_base, %{
+            name: "NETFLOW_RAW_EVENTS_DRAIN",
+            subject: "flows.raw.netflow"
+          }),
+          Map.merge(drain_base, %{
+            name: "SFLOW_RAW_EVENTS_DRAIN",
+            subject: "flows.raw.sflow"
+          })
+        ]
+    else
+      streams
+    end
   end
 
   # Private functions
