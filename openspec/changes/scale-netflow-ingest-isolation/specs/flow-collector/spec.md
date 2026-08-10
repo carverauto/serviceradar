@@ -40,12 +40,13 @@ Log-collector and OTEL JetStream ensure paths SHALL NOT create or update the ded
 - **AND** it SHALL NOT move raw flow subjects onto `events`
 
 ### Requirement: Production and demo sizing defaults for flows
-Helm defaults SHALL size the dedicated flows stream for multi-hour recovery lag headroom rather than a thrift 1 GiB shared bus. Production chart defaults SHALL use a large `stream_max_bytes` and multi-hour `max_age` suitable for high exporter counts. Demo overlays MAY use smaller absolute values but MUST keep flows on the dedicated stream and MUST document the NATS `max_file_store` / PVC budget required for the chosen replica count.
+Helm defaults SHALL size the dedicated flows stream for multi-hour recovery lag headroom rather than a thrift 1 GiB shared bus. Production chart defaults SHALL use at least **10 GiB** `stream_max_bytes` and multi-hour `max_age` when JetStream file-store capacity allows, and SHALL size companion NATS reservations (maxFileStore, datasvc KV/object, events) so the R=3 placement fits the chart's PVC without claiming impossible budgets. Docker/tenant/image overlays MAY use smaller explicit overrides. Demo overlays MAY use smaller absolute values but MUST keep flows on the dedicated stream and MUST document the NATS `max_file_store` / PVC budget required for the chosen replica count. Collectors with `stream_name: events` SHALL NOT apply flow retention fields to reshape the shared multi-signal stream.
 
 #### Scenario: Production chart targets dedicated capacity
 - **WHEN** an operator installs with production chart defaults and flow-collector enabled
 - **THEN** flow-collector config SHALL reference the dedicated flows stream
-- **AND** `stream_max_bytes` SHALL be at least an order of magnitude above the historical 1 GiB demo shared cap unless explicitly overridden
+- **AND** `stream_max_bytes` SHALL be at least an order of magnitude above the historical 1 GiB demo shared cap unless an overlay explicitly overrides for a smaller file store
+- **AND** the sum of bounded JetStream reservations at R=3 SHALL fit under `nats.jetstream.maxFileStore` on the chart's default PVC
 
 #### Scenario: Demo no longer shares 1 GiB events budget for flows
 - **WHEN** demo values enable the flow-collector

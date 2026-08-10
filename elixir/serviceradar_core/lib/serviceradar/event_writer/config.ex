@@ -67,7 +67,7 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_flow_max_ack_pending 1024
   # Conservative create-if-missing defaults (10 GiB / 6h). flow-collector owns
   # live retention reconcile; EventWriter must not thrash these on existing streams.
-  @default_flows_stream_max_bytes 1_073_741_824
+  @default_flows_stream_max_bytes 10_737_418_240
   @default_flows_stream_max_age_ns 21_600_000_000_000
 
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
@@ -184,34 +184,37 @@ defmodule ServiceRadar.EventWriter.Config do
     config = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
     base = load()
 
-    pull_batch =
-      load_int_env(
+    {pull_batch, pull_batch_override?} =
+      load_int_env_with_override(
         "EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE",
-        Keyword.get(config, :flow_consumer_pull_batch_size, @default_flow_pull_batch_size)
+        Keyword.get(config, :flow_consumer_pull_batch_size),
+        @default_flow_pull_batch_size
       )
 
-    max_ack =
-      load_int_env(
+    {max_ack, max_ack_override?} =
+      load_int_env_with_override(
         "EVENT_WRITER_FLOW_MAX_ACK_PENDING",
-        Keyword.get(config, :flow_max_ack_pending, @default_flow_max_ack_pending)
+        Keyword.get(config, :flow_max_ack_pending),
+        @default_flow_max_ack_pending
       )
 
-    pull_expires =
-      load_int_env(
+    {pull_expires, _pull_expires_override?} =
+      load_int_env_with_override(
         "EVENT_WRITER_FLOW_PULL_EXPIRES_NS",
-        Keyword.get(config, :flow_pull_expires_ns, @default_flow_pull_expires_ns)
+        Keyword.get(config, :flow_pull_expires_ns),
+        @default_flow_pull_expires_ns
       )
 
     # Precedence: env/top-level override > explicit per-stream > default.
-    # Only fill missing stream keys so custom flow_streams keep their tuning.
+    # put_new only when no explicit env/top-level override is present.
     streams =
       config
       |> load_flow_streams()
       |> maybe_append_events_drain_streams()
       |> Enum.map(fn stream ->
         stream
-        |> Map.put_new(:consumer_pull_batch_size, pull_batch)
-        |> Map.put_new(:consumer_max_ack_pending, max_ack)
+        |> put_flow_tuning(:consumer_pull_batch_size, pull_batch, pull_batch_override?)
+        |> put_flow_tuning(:consumer_max_ack_pending, max_ack, max_ack_override?)
       end)
 
     %{
@@ -537,8 +540,13 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   # Dual-consume drain: keep reading residual flows.raw.* from the legacy
-  # `events` stream until MaxAge expires them. New publishes land on `flows`.
-  # Disable with EVENT_WRITER_FLOW_DRAIN_EVENTS=false after backlog is gone.
+  # `events` stream until pending is zero / MaxAge expires. New publishes land
+  # on `flows`. Disable with EVENT_WRITER_FLOW_DRAIN_EVENTS=false after drain.
+  #
+  # Critical: reuse the pre-cutover durable name (durable_source_name) so JetStream
+  # resumes the existing ACK cursor. A brand-new durable with deliver_policy:all
+  # would replay retained history that the old durable already ACKed (duplicate
+  # ocsf_network_activity rows; on_conflict does not dedupe).
   defp maybe_append_events_drain_streams(streams) do
     if System.get_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "true") in ~w(true 1 yes) do
       drain_base = %{
@@ -550,22 +558,51 @@ defmodule ServiceRadar.EventWriter.Config do
         allow_stream_fallback: false,
         reconcile_stream_shape: false,
         # Do not create/reshape the shared events stream from the flow path.
-        ensure_stream: false
+        ensure_stream: false,
+        # If the legacy durable is missing, do not replay all retained history.
+        # :new starts at the end; existing durables keep their ACK floor.
+        consumer_deliver_policy: :new
       }
 
-      streams ++
-        [
+      drains =
+        streams
+        |> Enum.filter(&flow_stream?/1)
+        |> Enum.reject(fn s -> Map.get(s, :stream_name) == "events" end)
+        |> Enum.map(fn stream ->
           Map.merge(drain_base, %{
-            name: "NETFLOW_RAW_EVENTS_DRAIN",
-            subject: "flows.raw.netflow"
-          }),
-          Map.merge(drain_base, %{
-            name: "SFLOW_RAW_EVENTS_DRAIN",
-            subject: "flows.raw.sflow"
+            name: "#{stream.name}_EVENTS_DRAIN",
+            subject: stream.subject,
+            # Producer uses this for durable_name/2 so the events durable matches
+            # the pre-migration consumer (serviceradar-event-writer-netflow-raw).
+            durable_source_name: stream.name
           })
-        ]
+        end)
+
+      streams ++ drains
     else
       streams
+    end
+  end
+
+  defp put_flow_tuning(stream, key, value, true = _override?), do: Map.put(stream, key, value)
+  defp put_flow_tuning(stream, key, value, false), do: Map.put_new(stream, key, value)
+
+  # Returns {value, override?} where override? is true when env or explicit
+  # application config supplied the value (not merely the hard-coded default).
+  defp load_int_env_with_override(env_name, app_value, default) when is_binary(env_name) do
+    case System.get_env(env_name) do
+      nil ->
+        if is_nil(app_value) do
+          {sanitize_non_neg_int(default, default), false}
+        else
+          {sanitize_non_neg_int(app_value, default), true}
+        end
+
+      value ->
+        case Integer.parse(value) do
+          {int, _} -> {sanitize_non_neg_int(int, default), true}
+          :error -> {sanitize_non_neg_int(default, default), false}
+        end
     end
   end
 
@@ -742,19 +779,6 @@ defmodule ServiceRadar.EventWriter.Config do
           |> Enum.filter(&flow_stream?/1)
 
         if from_main == [], do: default_flow_streams(), else: from_main
-    end
-  end
-
-  defp load_int_env(env_name, default) when is_binary(env_name) do
-    case System.get_env(env_name) do
-      nil ->
-        sanitize_non_neg_int(default, default)
-
-      value ->
-        case Integer.parse(value) do
-          {int, _} -> sanitize_non_neg_int(int, default)
-          :error -> sanitize_non_neg_int(default, default)
-        end
     end
   end
 

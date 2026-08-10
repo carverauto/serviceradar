@@ -776,9 +776,10 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_name: "flows"
-    # 1 GiB / 2h / R=3 — fits existing 30Gi PVC + 25G maxFileStore with datasvc
-    # KV/object reservations. No volumeClaimTemplate mutation.
-    stream_max_bytes: 1073741824
+    # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
+    # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
+    # No volumeClaimTemplate mutation.
+    stream_max_bytes: 8589934592
     stream_max_age_secs: 7200
     stream_replicas: 3
   data:
@@ -870,4 +871,4 @@ nats:
     maxMemoryStore: 1G
     # Within existing 30Gi PVC. Do not change persistence.size here — STS
     # volumeClaimTemplates are immutable and block Helm upgrades.
-    maxFileStore: 25G
+    maxFileStore: 30G

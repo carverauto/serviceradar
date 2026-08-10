@@ -451,4 +451,49 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert state.pull_inflight_by_subject == %{}
     end
   end
+
+  describe "setup failure cleanup" do
+    test "safe_stop_conn unlinks before exit so caller is not killed" do
+      # Spawn a linked child that traps exits poorly — the Producer path must
+      # unlink Gnat before stopping it. We simulate with a plain process.
+      parent = self()
+
+      {:ok, child} =
+        Task.start_link(fn ->
+          receive do
+            {:stop_me, reply_to} ->
+              # Mimic setup failure cleanup from the parent side.
+              send(reply_to, :child_alive_before)
+
+              receive do
+                :go -> :ok
+              end
+          end
+        end)
+
+      # Parent is linked to child. Stopping child with :kill without unlink kills parent.
+      # __safe_stop_conn_for_test__ must unlink first.
+      send(child, {:stop_me, parent})
+      assert_receive :child_alive_before, 500
+
+      # Should not kill this test process.
+      assert Process.alive?(child)
+      assert :ok = Producer.__safe_stop_conn_for_test__(child)
+
+      # Allow the DOWN to settle.
+      Process.sleep(50)
+      refute Process.alive?(child)
+      assert Process.alive?(self())
+    end
+
+    test "durable_source_name drives durable_name for drain consumers" do
+      # Config.durable_name must match the pre-cutover events durable.
+      assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
+               "serviceradar-event-writer-netflow-raw"
+
+      # Drain stream names differ for pull-inbox uniqueness only.
+      assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW_EVENTS_DRAIN") !=
+               Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW")
+    end
+  end
 end

@@ -1,7 +1,7 @@
 ## 1. Spec and design
 - [x] 1.1 Validate this change with `openspec validate scale-netflow-ingest-isolation --strict`.
 - [x] 1.2 Confirm no conflicting active change owns the `flows` stream name or dual EventWriter pipeline (search `openspec/changes`).
-- [x] 1.3 Record demo NATS PVC / `max_file_store` headroom and choose demo stream size that fits (R=3, 10 GiB flows, 80G file store / 100Gi PVC).
+- [x] 1.3 Record demo NATS PVC / `max_file_store` headroom and choose demo stream size that fits (R=3, 8 GiB flows, 30G file store / 30Gi PVC with reduced datasvc reservations).
 
 ## 2. Dedicated `flows` JetStream stream (collector)
 - [x] 2.1 Add flow-collector config fields for `stream_max_age` (and document defaults); keep `stream_max_bytes` / `stream_replicas`.
@@ -12,9 +12,9 @@
 - [x] 2.6 Update `docs/docs/netflow.md` architecture diagram and config examples for the `flows` stream.
 
 ## 3. Helm and NATS storage defaults
-- [x] 3.1 Set production chart defaults for `flowCollector.config.stream_name=flows`, `stream_max_bytes` (50 GiB class), `stream_max_age`, replicas.
+- [x] 3.1 Set production chart defaults for `flowCollector.config.stream_name=flows`, `stream_max_bytes` (10 GiB class within 30Gi PVC), `stream_max_age`, replicas=3.
 - [x] 3.2 Replace demo shared 1 GiB flow pin with a **dedicated** flows budget (10 GiB / 2h) and comment why.
-- [x] 3.3 Raise NATS `jetstream.maxFileStore` / PVC requirements so R=3 flow retention fits.
+- [x] 3.3 Size NATS `jetstream.maxFileStore` (30G) and datasvc KV/object reservations so R=3 flows@10GiB fits the existing 30Gi PVC without Helm PVC mutation.
 - [x] 3.4 Log-collector/OTEL remain on `events` only (do not ensure `flows`).
 
 ## 4. EventWriter flow demand domain

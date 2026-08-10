@@ -356,11 +356,21 @@ defmodule ServiceRadar.EventWriter.Producer do
         {:error, reason}
 
       settings ->
-        with {:ok, conn} <- Gnat.start_link(settings),
-             {:ok, consumer_context} <- setup_jetstream_consumers(conn, config) do
-          Process.monitor(conn)
-          Process.unlink(conn)
-          {:ok, conn, consumer_context}
+        case Gnat.start_link(settings) do
+          {:ok, conn} ->
+            case setup_jetstream_consumers(conn, config) do
+              {:ok, consumer_context} ->
+                Process.monitor(conn)
+                Process.unlink(conn)
+                {:ok, conn, consumer_context}
+
+              {:error, reason} ->
+                # setup_jetstream_consumers already stops conn safely (unlinked).
+                {:error, reason}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
@@ -458,10 +468,18 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     results =
       Enum.map(config.streams, fn stream ->
-        setup_one_consumer(conn, config, stream, ack_wait_ns, max_ack_pending, max_deliver, default_pull_batch_size)
+        setup_one_consumer(
+          conn,
+          config,
+          stream,
+          ack_wait_ns,
+          max_ack_pending,
+          max_deliver,
+          default_pull_batch_size
+        )
       end)
 
-    consumers = Enum.filter(results, &match?({:ok, _}, &1)) |> Enum.map(fn {:ok, c} -> c end)
+    consumers = results |> Enum.filter(&match?({:ok, _}, &1)) |> Enum.map(fn {:ok, c} -> c end)
     failures = Enum.filter(results, &match?({:error, _}, &1))
 
     cond do
@@ -474,9 +492,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
         safe_stop_conn(conn)
 
-        {:error,
-         {:consumer_setup_failed,
-          Enum.map(failures, fn {:error, reason} -> reason end)}}
+        {:error, {:consumer_setup_failed, Enum.map(failures, fn {:error, reason} -> reason end)}}
 
       true ->
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)
@@ -493,8 +509,20 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
-  defp setup_one_consumer(conn, config, stream, ack_wait_ns, max_ack_pending, max_deliver, default_pull_batch_size) do
-    durable_name = Config.durable_name(config.consumer_name, stream.name)
+  defp setup_one_consumer(
+         conn,
+         config,
+         stream,
+         ack_wait_ns,
+         max_ack_pending,
+         max_deliver,
+         default_pull_batch_size
+       ) do
+    # Drain streams set :durable_source_name to the pre-cutover stream name so
+    # JetStream resumes the existing ACK cursor instead of creating a new durable.
+    durable_key = Map.get(stream, :durable_source_name) || stream.name
+    durable_name = Config.durable_name(config.consumer_name, durable_key)
+    # Pull inbox stays unique per config entry (drain names differ from live).
     pull_subject = pull_subject(config.consumer_name, stream.name)
     pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
     expected = expected_stream_name(stream)
@@ -546,23 +574,45 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp safe_unsub(conn, sid) when is_integer(sid) do
-    try do
-      Gnat.unsub(conn, sid)
-    rescue
-      _ -> :ok
-    catch
-      _, _ -> :ok
-    end
+    Gnat.unsub(conn, sid)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp safe_unsub(_conn, _sid), do: :ok
 
+  # Unlink first so :kill/:shutdown does not take down the Producer GenServer.
+  # Gnat.start_link/1 links the connection to the caller until setup succeeds.
   defp safe_stop_conn(conn) when is_pid(conn) do
-    if Process.alive?(conn), do: Process.exit(conn, :kill)
+    if Process.alive?(conn) do
+      Process.unlink(conn)
+      ref = Process.monitor(conn)
+      Process.exit(conn, :shutdown)
+
+      receive do
+        {:DOWN, ^ref, :process, ^conn, _} -> :ok
+      after
+        1_000 ->
+          Process.exit(conn, :kill)
+
+          receive do
+            {:DOWN, ^ref, :process, ^conn, _} -> :ok
+          after
+            200 -> :ok
+          end
+      end
+    end
+
     :ok
   end
 
   defp safe_stop_conn(_), do: :ok
+
+  @doc false
+  # Test helper: same cleanup path used after partial consumer setup failure.
+  def __safe_stop_conn_for_test__(conn), do: safe_stop_conn(conn)
 
   # Drains up to `demand` buffered messages, preserving FIFO order.
   # `pending_count` is kept in sync so the overflow guard never needs an O(n)

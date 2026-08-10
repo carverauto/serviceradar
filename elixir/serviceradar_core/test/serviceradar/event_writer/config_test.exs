@@ -2,6 +2,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Processors.Flows
 
   describe "enabled?/0" do
     test "returns false by default" do
@@ -145,7 +146,19 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert stream.ensure_stream == false
         assert stream.reconcile_stream_shape == false
         assert String.starts_with?(stream.subject, "flows.raw.")
+        # Resume pre-cutover durable (not a brand-new deliver_policy:all name).
+        assert stream.durable_source_name in ["NETFLOW_RAW", "SFLOW_RAW"]
+        assert stream.consumer_deliver_policy == :new
+
+        assert Config.durable_name("serviceradar-event-writer", stream.durable_source_name) ==
+                 Config.durable_name("serviceradar-event-writer", stream.durable_source_name)
       end
+
+      netflow_drain = Enum.find(drain, &(&1.name == "NETFLOW_RAW_EVENTS_DRAIN"))
+      assert netflow_drain.durable_source_name == "NETFLOW_RAW"
+
+      assert Config.durable_name("serviceradar-event-writer", "NETFLOW_RAW") ==
+               "serviceradar-event-writer-netflow-raw"
     end
 
     test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do
@@ -167,7 +180,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
             name: "NETFLOW_RAW",
             stream_name: "flows",
             subject: "flows.raw.netflow",
-            processor: ServiceRadar.EventWriter.Processors.Flows,
+            processor: Flows,
             consumer_pull_batch_size: 256,
             consumer_max_ack_pending: 2048,
             allow_stream_fallback: false,
@@ -177,7 +190,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
             name: "SFLOW_RAW",
             stream_name: "flows",
             subject: "flows.raw.sflow",
-            processor: ServiceRadar.EventWriter.Processors.Flows,
+            processor: Flows,
             allow_stream_fallback: false,
             reconcile_stream_shape: false
           }
@@ -205,6 +218,50 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert netflow.consumer_max_ack_pending == 2048
       assert sflow.consumer_pull_batch_size == flow.consumer_pull_batch_size
       assert sflow.consumer_max_ack_pending == flow.max_ack_pending
+    end
+
+    test "EVENT_WRITER_FLOW_* env overrides win over custom per-stream tuning" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.put(previous, :flow_streams, [
+          %{
+            name: "NETFLOW_RAW",
+            stream_name: "flows",
+            subject: "flows.raw.netflow",
+            processor: Flows,
+            consumer_pull_batch_size: 256,
+            consumer_max_ack_pending: 2048,
+            allow_stream_fallback: false,
+            reconcile_stream_shape: false
+          }
+        ])
+      )
+
+      System.put_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE", "99")
+      System.put_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING", "777")
+      System.put_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "false")
+
+      on_exit(fn ->
+        System.delete_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE")
+        System.delete_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING")
+        System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      flow = Config.load_flow()
+      netflow = Enum.find(flow.streams, &(&1.name == "NETFLOW_RAW"))
+      assert flow.consumer_pull_batch_size == 99
+      assert flow.max_ack_pending == 777
+      assert netflow.consumer_pull_batch_size == 99
+      assert netflow.consumer_max_ack_pending == 777
     end
 
     test "routes raw Falco sidekick events from the dedicated Falco stream" do

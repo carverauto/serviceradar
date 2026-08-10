@@ -136,11 +136,11 @@ nats_file_store ≥ sum(stream_max_bytes × stream_replicas) + headroom for othe
 
 | Setting | Default |
 |---------|---------|
-| `flows` stream `max_bytes` | **10 GiB** default (fits Docker 10G / tenant 2G-class after override; raise only after PVC expand) |
+| `flows` stream `max_bytes` | **10 GiB** binary/Helm default for dedicated `flows`; Docker/tenant JSON override lower to fit local file stores; never reshape `events` |
 | `flows` stream `max_age` | **6 hours** |
 | `flows` stream replicas | 3 (HA) or 1 for single-node |
 | NATS PVC via Helm | **Do not change** live StatefulSet volumeClaimTemplates (immutable) |
-| NATS `max_file_store` | Stay within existing PVC (e.g. 25G on 30Gi PVC) |
+| NATS `max_file_store` | **30G** on default **30Gi** PVC; KV 4 + objects 10 + events 2 + flows 10 GiB (R=3) fits |
 
 **Demo (`values-demo.yaml`):**
 
@@ -148,7 +148,7 @@ nats_file_store ≥ sum(stream_max_bytes × stream_replicas) + headroom for othe
 |---------|---------|
 | `flows` stream `max_bytes` | **8 GiB** (dedicated; not shared with logs) |
 | `flows` stream `max_age` | **2 hours** |
-| NATS `max_file_store` | **25G** within existing 30Gi PVC (no Helm PVC size mutation) |
+| NATS `max_file_store` | **30G** within existing 30Gi PVC (no Helm PVC size mutation) |
 
 Discard policy remains `old` (limits retention). Prefer alerting when lag > 25% of MaxAge over silent success.
 
@@ -215,7 +215,7 @@ events stream (unchanged ownership)
 
 1. **Host-slice subjects** — resolved via existing collector subject merge (`flows.raw.*` / host-slice subjects stay on the dedicated `stream_name`).
 2. **Attributed flows** — remain on `flow.attributed.>` / shared pipeline (not `flows.raw.*`); raw NetFlow/sFlow only on the flow demand domain.
-3. **Demo R=3 vs R=1** — **keep R=3**. Size demo to `flows` 8 GiB / 2h MaxAge and `maxFileStore` 25G within the existing 30Gi PVC (never mutate volumeClaimTemplates via Helm).
+3. **Demo R=3 vs R=1** — **keep R=3**. Size demo to `flows` 8 GiB / 2h MaxAge and `maxFileStore` 30G within the existing 30Gi PVC with reduced demo datasvc object/KV reservations (never mutate volumeClaimTemplates via Helm).
 4. **Review fixes** — rehome only `flows.raw.*` / configured `flow.host-slice.*`; no stream-fallback for flow durables; collector owns retention reconcile; long-poll per-subject inflight accounting; lag reporter covers flow streams; docs never say `nats stream rm flows`.
 
 ## References

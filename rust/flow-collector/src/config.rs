@@ -25,6 +25,9 @@ pub struct Config {
     pub stream_max_age_secs: u64,
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
+    /// Durable path for in-progress subject rehome markers (survives pod restart).
+    #[serde(default)]
+    pub rehome_state_path: Option<PathBuf>,
     #[serde(default = "default_partition")]
     pub partition: String,
 
@@ -249,9 +252,10 @@ fn default_partition() -> String {
 }
 
 fn default_stream_max_bytes() -> i64 {
-    // 1 GiB — fits Docker Compose (10G file store), tenant maxFileStore (2G),
-    // and base HA after datasvc KV/object reservations. Helm overlays may raise.
-    1024 * 1024 * 1024
+    // 10 GiB for the dedicated `flows` stream (order-of-magnitude above the
+    // historical 1 GiB shared-events pin). Docker/tenant/helm overlays override
+    // with capacity-safe values. Must NEVER reshape the shared `events` stream.
+    10 * 1024 * 1024 * 1024
 }
 
 fn default_stream_max_age_secs() -> u64 {
@@ -448,7 +452,7 @@ mod tests {
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);
         assert_eq!(config.stream_max_age_secs, 6 * 60 * 60);
-        assert_eq!(config.stream_max_bytes, 1024 * 1024 * 1024);
+        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
     }
 
     #[test]
@@ -783,12 +787,26 @@ mod tests {
         assert!(!subject_covers("flows.raw.*", "flows.raw.ipfix.v9"));
         assert!(subject_covers("flows.raw.*", "flows.raw.ipfix"));
 
+        // Wildcard vs wildcard: * must NOT cover >; > covers *.
+        assert!(!subject_covers("flows.raw.*", "flows.raw.>"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.*"));
+        assert!(!subject_covers("flows.*.netflow", "flows.raw.sflow"));
+        assert!(subject_covers("flows.*.netflow", "flows.raw.netflow"));
+        assert!(!subject_covers("flows.*.netflow", "flows.raw.other.netflow"));
+
         let normalized = normalize_stream_subjects(vec![
             "flows.raw.>".to_string(),
             "flows.raw.netflow".to_string(),
             "flows.raw.sflow".to_string(),
         ]);
         assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
+
+        let star_and_gt = normalize_stream_subjects(vec![
+            "flows.raw.>".to_string(),
+            "flows.raw.*".to_string(),
+            "flows.raw.netflow".to_string(),
+        ]);
+        assert_eq!(star_and_gt, vec!["flows.raw.>".to_string()]);
 
         let star = normalize_stream_subjects(vec![
             "flows.raw.*".to_string(),
@@ -813,11 +831,25 @@ mod tests {
     }
 
     #[test]
-    fn image_baked_config_targets_flows_with_1gib_cap() {
+    fn image_baked_config_targets_flows_with_capacity_safe_cap() {
         let raw = include_str!("../flow-collector.json");
         let config: Config = serde_json::from_str(raw).expect("flow-collector.json parses");
         assert_eq!(config.stream_name, "flows");
+        // Image/docker bake uses a capacity-safe override, not the 10 GiB binary default.
         assert_eq!(config.stream_max_bytes, 1024 * 1024 * 1024);
         assert!(config.stream_max_age_secs > 0);
+    }
+
+    #[test]
+    fn omitted_retention_fields_default_but_events_name_is_legacy() {
+        let raw = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "listeners": [{"protocol":"netflow","listen_addr":"0.0.0.0:2055","subject":"flows.raw.netflow"}]
+        }"#;
+        let config: Config = serde_json::from_str(raw).unwrap();
+        assert_eq!(config.stream_name, "events");
+        // Defaults apply for parsing; publisher must not reshape events with them.
+        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
     }
 }

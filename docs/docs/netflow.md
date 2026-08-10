@@ -261,7 +261,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `nats_creds_file`: Optional path to NATS credentials file
 - `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes (default: **10 GiB** in the binary — fits Docker Compose `max_file_store: 10G` and tenant budgets). Helm may raise this for production, but **must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band if you raise retention.
+- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** so they fit `max_file_store: 10G`. Tenant overlays use ≤256 MiB under 2G file stores. Helm production default is **10 GiB / R=3** with datasvc KV/object budgets sized to fit a **30Gi PVC / 30G maxFileStore**. **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band before raising retention further.
 - `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream; EventWriter must not shrink those limits on reconcile.
 - `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. Size `nats.jetstream.maxFileStore` within the **existing** PVC capacity.
 - `partition`: Partition tag applied to ingested flows (default: `default`)
@@ -361,12 +361,16 @@ nats stream info flows
 #
 # Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
 #
-# Cutover (coordinated):
+# Cutover (coordinated / quiesced):
 # 1. Deploy core EventWriter with flow pipeline dual-consume enabled
-#    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default) so residual messages on
-#    `events` continue to drain while new traffic lands on `flows`.
-# 2. Deploy flow-collector so it rehomes subject ownership events → flows.
-# 3. When events drain consumers report num_pending=0, set
+#    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default). Drain durables reuse the
+#    pre-cutover durable names so ACK cursors continue (no full-history replay).
+# 2. Scale flow-collector to a single new revision (or scale to 0 briefly) so
+#    no legacy publisher remains live during subject rehome. The collector
+#    persists a rehome marker before detaching subjects from events.
+# 3. New collector attaches subjects on `flows`, then publishes. Failed publish
+#    acks are retried (not counted as success).
+# 4. When events drain consumers report num_pending=0, set
 #    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```
 

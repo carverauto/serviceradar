@@ -8,6 +8,8 @@ use async_nats::jetstream::{
 use async_nats::{Client, ConnectOptions};
 use log::{error, info, warn};
 use std::cmp::min;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -88,21 +90,42 @@ impl Publisher {
         batch: &mut Vec<(String, Vec<u8>)>,
         timeout_duration: Duration,
     ) {
+        let mut failed: Vec<(String, Vec<u8>)> = Vec::new();
+
         for (subject, msg) in batch.drain(..) {
             let bytes = msg.len();
 
-            match js.publish(subject.clone(), msg.into()).await {
-                Ok(ack) => {
-                    self.host_slice_metrics.record_publish(&subject, bytes);
-
-                    if timeout(timeout_duration, ack).await.is_err() {
-                        warn!("NATS ack timed out after {:?}", timeout_duration);
+            match js.publish(subject.clone(), msg.clone().into()).await {
+                Ok(ack) => match timeout(timeout_duration, ack).await {
+                    Ok(Ok(_seq)) => {
+                        // Only count as published after a successful JetStream ack.
+                        self.host_slice_metrics.record_publish(&subject, bytes);
                     }
-                }
+                    Ok(Err(e)) => {
+                        error!(
+                            "NATS publish ack failed for subject {} (will retry): {}",
+                            subject, e
+                        );
+                        failed.push((subject, msg));
+                    }
+                    Err(_) => {
+                        warn!(
+                            "NATS ack timed out after {:?} for subject {} (will retry)",
+                            timeout_duration, subject
+                        );
+                        failed.push((subject, msg));
+                    }
+                },
                 Err(e) => {
-                    error!("Failed to publish to NATS: {}", e);
+                    error!("Failed to publish to NATS subject {}: {}", subject, e);
+                    failed.push((subject, msg));
                 }
             }
+        }
+
+        // Retain failed payloads for the next batch attempt rather than dropping them.
+        if !failed.is_empty() {
+            batch.extend(failed);
         }
     }
 
@@ -137,11 +160,42 @@ impl Publisher {
 
         let required_subjects = self.config.stream_subjects_resolved();
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
+        let rehome_path = rehome_state_path(&self.config);
 
-        // Keep rehomed subjects across retries so a failed restore cannot orphan
-        // extension subjects that are not in required_subjects.
-        if self.config.stream_name != "events" {
-            match rehome_subjects_from_events(&js, &required_subjects).await {
+        // Recover durable rehome marker from a previous process that may have
+        // detached subjects from events without attaching them to the target.
+        if let Some(marker) = load_rehome_marker(&rehome_path)?
+            && marker.target_stream == self.config.stream_name
+        {
+            for subject in marker.subjects {
+                if !self.pending_rehome.iter().any(|s| s == &subject) {
+                    self.pending_rehome.push(subject);
+                }
+            }
+            info!(
+                "Loaded {} subject(s) from durable rehome marker at {}",
+                self.pending_rehome.len(),
+                rehome_path.display()
+            );
+        }
+
+        if self.config.stream_name == "events" {
+            // Legacy conffiles still target events. Never reshape the shared
+            // multi-signal stream with flow retention defaults — subject-merge only.
+            warn!(
+                "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
+            );
+            ensure_legacy_events_subjects_only(&js, &required_subjects).await?;
+        } else {
+            // Rehome flow subjects off events onto the dedicated stream.
+            match rehome_subjects_from_events(
+                &js,
+                &required_subjects,
+                &self.config.stream_name,
+                &rehome_path,
+            )
+            .await
+            {
                 Ok(subjects) => {
                     for subject in subjects {
                         if !self.pending_rehome.iter().any(|s| s == &subject) {
@@ -157,47 +211,49 @@ impl Publisher {
                     return Err(err);
                 }
             }
-        }
 
-        let mut target_subjects = required_subjects.clone();
-        for subject in &self.pending_rehome {
-            if !target_subjects.iter().any(|s| s == subject) {
-                target_subjects.push(subject.clone());
+            let mut target_subjects = required_subjects.clone();
+            for subject in &self.pending_rehome {
+                if !target_subjects.iter().any(|s| s == subject) {
+                    target_subjects.push(subject.clone());
+                }
             }
-        }
-        target_subjects = normalize_stream_subjects(target_subjects);
+            target_subjects = normalize_stream_subjects(target_subjects);
 
-        match ensure_flows_stream(
-            &js,
-            &self.config.stream_name,
-            &target_subjects,
-            self.config.stream_max_bytes,
-            desired_max_age,
-            self.config.stream_replicas,
-        )
-        .await
-        {
-            Ok(()) => {
-                // Target owns the set; no longer need restore bookkeeping.
-                self.pending_rehome.clear();
-            }
-            Err(err) => {
-                // Try to put subjects back on events. If restore fails, keep
-                // pending_rehome so the next retry can still attach them to flows.
-                if !self.pending_rehome.is_empty() {
-                    match restore_subjects_to_events(&js, &self.pending_rehome).await {
-                        Ok(()) => self.pending_rehome.clear(),
-                        Err(restore_err) => {
-                            error!(
-                                "Failed to restore rehomed subjects after target stream error (will retry attach): {restore_err}"
-                            );
-                            return Err(err.context(format!(
-                                "restore also failed: {restore_err}"
-                            )));
+            match ensure_flows_stream(
+                &js,
+                &self.config.stream_name,
+                &target_subjects,
+                self.config.stream_max_bytes,
+                desired_max_age,
+                self.config.stream_replicas,
+            )
+            .await
+            {
+                Ok(()) => {
+                    self.pending_rehome.clear();
+                    clear_rehome_marker(&rehome_path);
+                }
+                Err(err) => {
+                    if !self.pending_rehome.is_empty() {
+                        match restore_subjects_to_events(&js, &self.pending_rehome).await {
+                            Ok(()) => {
+                                self.pending_rehome.clear();
+                                clear_rehome_marker(&rehome_path);
+                            }
+                            Err(restore_err) => {
+                                error!(
+                                    "Failed to restore rehomed subjects after target stream error                                      (marker retained at {}): {restore_err}",
+                                    rehome_path.display()
+                                );
+                                return Err(err.context(format!(
+                                    "restore also failed: {restore_err}"
+                                )));
+                            }
                         }
                     }
+                    return Err(err);
                 }
-                return Err(err);
             }
         }
 
@@ -250,9 +306,14 @@ impl Publisher {
 /// Removes rehomeable flow subjects from `events` and returns the exact set
 /// removed so the caller can union them into the target stream (including
 /// extension subjects like `flows.raw.ipfix` not listed in this process config).
+///
+/// Writes a durable rehome marker **before** the events UPDATE so a crash between
+/// detach and attach can recover the exact subject set on the next start.
 async fn rehome_subjects_from_events(
     js: &jetstream::Context,
     required_subjects: &[String],
+    target_stream: &str,
+    rehome_path: &Path,
 ) -> Result<Vec<String>> {
     let mut events = match js.get_stream("events").await {
         Ok(stream) => stream,
@@ -280,6 +341,15 @@ async fn rehome_subjects_from_events(
         return Ok(removed);
     }
 
+    // Persist before detach so a restart can rediscover extension subjects.
+    write_rehome_marker(
+        rehome_path,
+        &RehomeMarker {
+            target_stream: target_stream.to_string(),
+            subjects: removed.clone(),
+        },
+    )?;
+
     info!(
         "Removing {} flow subject(s) from shared events stream so dedicated stream can own them: {:?}",
         removed.len(),
@@ -287,6 +357,96 @@ async fn rehome_subjects_from_events(
     );
     js.update_stream(updated).await?;
     Ok(removed)
+}
+
+/// Legacy stream_name=events: merge required flow subjects only — never rewrite
+/// shared retention/discard/storage that would evict logs/OTEL.
+async fn ensure_legacy_events_subjects_only(
+    js: &jetstream::Context,
+    required_subjects: &[String],
+) -> Result<()> {
+    let mut events = match js.get_stream("events").await {
+        Ok(stream) => stream,
+        Err(err) if is_stream_not_found(&err) => {
+            return Err(anyhow::anyhow!(
+                "stream_name=events but events stream is missing; create it out-of-band or migrate to stream_name=flows"
+            ));
+        }
+        Err(err) => {
+            return Err(anyhow::anyhow!("failed to INFO events stream: {err}"));
+        }
+    };
+
+    let info = events.info().await?;
+    let existing_max_bytes = info.config.max_bytes;
+    let existing_max_age = info.config.max_age;
+    let mut updated = info.config.clone();
+    let mut needs_update = false;
+    for required in required_subjects {
+        let covered = updated
+            .subjects
+            .iter()
+            .any(|s| s == required || subject_covers(s, required));
+        if !covered {
+            updated.subjects.push(required.clone());
+            needs_update = true;
+        }
+    }
+    if needs_update {
+        // Keep prior retention shape — only subject list may change.
+        updated.max_bytes = existing_max_bytes;
+        updated.max_age = existing_max_age;
+        js.update_stream(updated).await?;
+        info!("Merged flow subjects into legacy events stream without reshaping retention");
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RehomeMarker {
+    target_stream: String,
+    subjects: Vec<String>,
+}
+
+fn rehome_state_path(config: &Config) -> PathBuf {
+    if let Some(path) = &config.rehome_state_path {
+        return path.clone();
+    }
+    if let Ok(path) = std::env::var("FLOW_COLLECTOR_REHOME_STATE_PATH") {
+        return PathBuf::from(path);
+    }
+    std::env::temp_dir().join("serviceradar-flow-collector-rehome.json")
+}
+
+fn load_rehome_marker(path: &Path) -> Result<Option<RehomeMarker>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("read rehome marker {}", path.display()))?;
+    let marker: RehomeMarker = serde_json::from_str(&raw)
+        .with_context(|| format!("parse rehome marker {}", path.display()))?;
+    Ok(Some(marker))
+}
+
+fn write_rehome_marker(path: &Path, marker: &RehomeMarker) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create rehome marker dir {}", parent.display()))?;
+    }
+    let raw = serde_json::to_string_pretty(marker)?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw).with_context(|| format!("write rehome marker {}", tmp.display()))?;
+    fs::rename(&tmp, path).with_context(|| format!("persist rehome marker {}", path.display()))?;
+    Ok(())
+}
+
+fn clear_rehome_marker(path: &Path) {
+    if path.exists()
+        && let Err(err) = fs::remove_file(path)
+    {
+        warn!("Failed to clear rehome marker {}: {}", path.display(), err);
+    }
 }
 
 async fn restore_subjects_to_events(js: &jetstream::Context, subjects: &[String]) -> Result<()> {
@@ -457,7 +617,7 @@ fn is_stream_not_found(err: &async_nats::jetstream::context::GetStreamError) -> 
     }
 }
 
-/// Drop exact subjects covered by a broader wildcard so NATS does not reject
+/// Drop subjects covered by a broader pattern so NATS does not reject
 /// self-overlapping stream subject lists (e.g. `flows.raw.>` + `flows.raw.netflow`).
 pub(crate) fn normalize_stream_subjects(subjects: Vec<String>) -> Vec<String> {
     let mut subjects = subjects;
@@ -474,21 +634,55 @@ pub(crate) fn normalize_stream_subjects(subjects: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Returns true when every subject matched by `narrower` is also matched by `broader`
+/// under NATS subject filter language (`*` = one token, `>` = one or more tokens at end).
 pub(crate) fn subject_covers(broader: &str, narrower: &str) -> bool {
     if broader == narrower {
         return true;
     }
-    if let Some(prefix) = broader.strip_suffix(".>") {
-        return narrower == prefix || narrower.starts_with(&format!("{prefix}."));
-    }
-    if let Some(prefix) = broader.strip_suffix(".*") {
-        if !narrower.starts_with(&format!("{prefix}.")) {
-            return false;
+    let broader_tokens: Vec<&str> = broader.split('.').collect();
+    let narrower_tokens: Vec<&str> = narrower.split('.').collect();
+    pattern_covers_pattern(&broader_tokens, &narrower_tokens)
+}
+
+fn pattern_covers_pattern(broader: &[&str], narrower: &[&str]) -> bool {
+    let mut bi = 0;
+    let mut ni = 0;
+
+    while bi < broader.len() {
+        match broader[bi] {
+            ">" => {
+                // `>` must be the final token and covers one or more remaining tokens.
+                return bi == broader.len() - 1 && ni < narrower.len();
+            }
+            "*" => {
+                // `*` covers exactly one token. It does not cover `>` (multi-token).
+                if ni >= narrower.len() {
+                    return false;
+                }
+                if narrower[ni] == ">" {
+                    return false;
+                }
+                bi += 1;
+                ni += 1;
+            }
+            lit => {
+                if ni >= narrower.len() {
+                    return false;
+                }
+                match narrower[ni] {
+                    ">" | "*" => return false,
+                    nlit if nlit == lit => {
+                        bi += 1;
+                        ni += 1;
+                    }
+                    _ => return false,
+                }
+            }
         }
-        let rest = &narrower[prefix.len() + 1..];
-        return !rest.is_empty() && !rest.contains('.');
     }
-    false
+
+    ni == narrower.len()
 }
 
 pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[String]) -> bool {
@@ -496,4 +690,41 @@ pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[Str
         return true;
     }
     subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn rehome_marker_round_trip() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("rehome-marker-test-{nanos}.json"));
+        let marker = RehomeMarker {
+            target_stream: "flows".to_string(),
+            subjects: vec!["flows.raw.ipfix".to_string(), "flows.raw.netflow".to_string()],
+        };
+        write_rehome_marker(&path, &marker).unwrap();
+        let loaded = load_rehome_marker(&path).unwrap().expect("marker present");
+        assert_eq!(loaded.target_stream, "flows");
+        assert_eq!(loaded.subjects, marker.subjects);
+        clear_rehome_marker(&path);
+        assert!(load_rehome_marker(&path).unwrap().is_none());
+    }
+
+    #[test]
+    fn wildcard_star_does_not_cover_gt() {
+        assert!(!subject_covers("flows.raw.*", "flows.raw.>"));
+        assert!(subject_covers("flows.raw.>", "flows.raw.*"));
+        let normalized = normalize_stream_subjects(vec![
+            "flows.raw.*".to_string(),
+            "flows.raw.>".to_string(),
+        ]);
+        assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
+    }
 }

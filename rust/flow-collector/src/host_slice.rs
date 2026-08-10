@@ -308,6 +308,7 @@ mod tests {
             stream_max_bytes: 1024,
             stream_max_age_secs: 3600,
             stream_replicas: 1,
+            rehome_state_path: None,
             partition: "default".to_string(),
             channel_size: 100,
             batch_size: 10,
