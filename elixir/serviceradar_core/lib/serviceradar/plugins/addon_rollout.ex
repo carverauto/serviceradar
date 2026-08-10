@@ -98,7 +98,13 @@ defmodule ServiceRadar.Plugins.AddonRollout do
                     :completed,
                     :failed,
                     :canceled,
-                    :rolled_back
+                    :rolled_back,
+                    # The fleet reached the candidate version by some other
+                    # route -- a later rollout, a direct assignment, a
+                    # reinstall -- so there is nothing left for this rollout to
+                    # do. Terminal, and distinct from :completed because this
+                    # rollout did not perform the convergence.
+                    :superseded
                   ]
     end
 
