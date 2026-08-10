@@ -14,7 +14,7 @@ use config::Config;
 use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
 use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry};
-use publisher::Publisher;
+use publisher::{OutboundFlow, Publisher};
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     // publisher consumes from a single merged channel. This isolates noisy
     // listeners from quiet ones — a saturated sflow stream no longer steals
     // capacity from a sparse netflow stream.
-    let (publisher_tx, publisher_rx) = mpsc::channel::<(String, Vec<u8>)>(config.channel_size);
+    let (publisher_tx, publisher_rx) = mpsc::channel::<OutboundFlow>(config.channel_size);
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
         // `channel_size` but can be overridden per listener so operators can
         // give sflow more headroom than netflow (or vice versa).
         let cap = listener_cfg.channel_size(config.channel_size);
-        let (listener_tx, mut listener_rx) = mpsc::channel::<(String, Vec<u8>)>(cap);
+        let (listener_tx, mut listener_rx) = mpsc::channel::<OutboundFlow>(cap);
 
         // Forwarder: drains this listener's channel into the shared publisher
         // channel. We use `send().await` here (not `try_send`) — by the time

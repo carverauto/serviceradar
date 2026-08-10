@@ -36,6 +36,11 @@ const NEVER_ATTEMPTED_QUEUE_TTL_SECS: u64 = 900;
 /// Max concurrent JetStream publish+ACK futures (bounds worst-case pass time).
 const PUBLISH_CONCURRENCY: usize = 32;
 
+/// Flow publish channel item: subject, payload, and **ingress** time (UDP accept).
+/// Ingress Instant is set at the listener so never-attempted TTL bounds total hold
+/// across per-listener + shared queues, not only time spent in the publisher.
+pub type OutboundFlow = (String, Vec<u8>, Instant);
+
 /// NATS requires 0 < duplicate_window <= max_age when max_age is finite.
 fn clamp_duplicate_window(desired: Duration, max_age: Duration) -> Duration {
     if max_age.is_zero() {
@@ -54,17 +59,25 @@ fn clamp_duplicate_window(desired: Duration, max_age: Duration) -> Duration {
 
 pub struct Publisher {
     config: Arc<Config>,
-    rx: mpsc::Receiver<(String, Vec<u8>)>,
+    rx: mpsc::Receiver<OutboundFlow>,
     host_slice_metrics: Arc<HostSliceMetricsRegistry>,
     /// Subjects removed from `events` but not yet confirmed on the target stream.
     /// Preserved across connect retries so a failed restore cannot orphan extension subjects.
     pending_rehome: Vec<String>,
 }
 
+/// Outcome of one publish pass over a pending queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PublishPassResult {
+    Ok,
+    /// Owned stream missing/unusable — readiness must clear and ensure re-run.
+    StreamMissing,
+}
+
 impl Publisher {
     pub fn new(
         config: Arc<Config>,
-        rx: mpsc::Receiver<(String, Vec<u8>)>,
+        rx: mpsc::Receiver<OutboundFlow>,
         host_slice_metrics: Arc<HostSliceMetricsRegistry>,
     ) -> Self {
         Self {
@@ -80,8 +93,10 @@ impl Publisher {
         clear_publisher_ready(&self.config)?;
         // verified_dup_window comes from stream ensure INFO — never invent a fallback
         // that could exceed the real window (unsafe for retry age).
-        let (client, js, verified_dup_window) = self.connect_with_retry().await?;
-        let max_retry_age = max_retry_age_from_window(verified_dup_window);
+        // admin_js: control-plane (INFO/CREATE/UPDATE) with default API timeout.
+        // publish_js: data path only; ACK timeout = publish_timeout_ms.
+        let (client, admin_js, publish_js, verified_dup_window) = self.connect_with_retry().await?;
+        let mut max_retry_age = max_retry_age_from_window(verified_dup_window);
         mark_publisher_ready(&self.config)?;
 
         let max_retry_queue = self
@@ -89,7 +104,10 @@ impl Publisher {
             .channel_size
             .max(self.config.batch_size.saturating_mul(4));
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
-        let mut backoff = Duration::from_millis(100);
+        // Independent of fresh-traffic success — fresh batches must not reset a
+        // still-failing retry schedule (would hammer NATS once per batch).
+        let mut next_retry_at = Instant::now();
+        let mut retry_backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
         info!(
             "Publisher started (dup_window={:?}, max_retry_age={:?}, never_attempted_ttl={:?}, concurrency={})",
@@ -106,29 +124,41 @@ impl Publisher {
             // never head-of-line block the listener channels for the full window.
             let (mut batch, closed) = self.drain_fresh_batch();
             if batch.is_empty() && !closed {
-                if retry_q.is_empty() {
+                let wait_retry = !retry_q.is_empty();
+                let retry_wait = next_retry_at.saturating_duration_since(Instant::now());
+                if !wait_retry {
                     match self.rx.recv().await {
                         Some(msg) => {
-                            batch.push(PendingPublish::new(msg.0, msg.1));
+                            batch.push(PendingPublish::from_outbound(msg));
                             let (more, more_closed) = self.drain_fresh_batch();
                             batch.extend(more);
                             if more_closed {
-                                // fall through; process then drain retries
-                                self.publish_and_requeue(
-                                    &client,
-                                    &js,
-                                    &mut batch,
-                                    &mut retry_q,
-                                    max_retry_queue,
-                                    max_retry_age,
-                                )
-                                .await;
+                                if let PublishPassResult::StreamMissing = self
+                                    .publish_and_requeue(
+                                        &client,
+                                        &publish_js,
+                                        &mut batch,
+                                        &mut retry_q,
+                                        max_retry_queue,
+                                        max_retry_age,
+                                    )
+                                    .await
+                                {
+                                    self.recover_owned_stream(
+                                        &client,
+                                        &admin_js,
+                                        &mut max_retry_age,
+                                        "shutdown path",
+                                    )
+                                    .await?;
+                                }
                                 return self
                                     .drain_retries_until_empty(
                                         &client,
-                                        &js,
+                                        &admin_js,
+                                        &publish_js,
                                         &mut retry_q,
-                                        max_retry_age,
+                                        &mut max_retry_age,
                                     )
                                     .await;
                             }
@@ -137,20 +167,21 @@ impl Publisher {
                             return self
                                 .drain_retries_until_empty(
                                     &client,
-                                    &js,
+                                    &admin_js,
+                                    &publish_js,
                                     &mut retry_q,
-                                    max_retry_age,
+                                    &mut max_retry_age,
                                 )
                                 .await;
                         }
                     }
                 } else {
-                    // Wait for either fresh work or retry backoff — never starve recv.
+                    // Wait for either fresh work or independent retry schedule.
                     tokio::select! {
                         msg = self.rx.recv() => {
                             match msg {
                                 Some(m) => {
-                                    batch.push(PendingPublish::new(m.0, m.1));
+                                    batch.push(PendingPublish::from_outbound(m));
                                     let (more, _) = self.drain_fresh_batch();
                                     batch.extend(more);
                                 }
@@ -158,46 +189,75 @@ impl Publisher {
                                     return self
                                         .drain_retries_until_empty(
                                             &client,
-                                            &js,
+                                            &admin_js,
+                                            &publish_js,
                                             &mut retry_q,
-                                            max_retry_age,
+                                            &mut max_retry_age,
                                         )
                                         .await;
                                 }
                             }
                         }
-                        _ = sleep(backoff) => {}
+                        _ = sleep(retry_wait) => {}
                     }
                 }
             }
 
-            if !batch.is_empty() {
-                self.publish_and_requeue(
-                    &client,
-                    &js,
-                    &mut batch,
-                    &mut retry_q,
-                    max_retry_queue,
-                    max_retry_age,
-                )
-                .await;
-                backoff = Duration::from_millis(100);
+            if !batch.is_empty()
+                && let PublishPassResult::StreamMissing = self
+                    .publish_and_requeue(
+                        &client,
+                        &publish_js,
+                        &mut batch,
+                        &mut retry_q,
+                        max_retry_queue,
+                        max_retry_age,
+                    )
+                    .await
+            {
+                self.recover_owned_stream(&client, &admin_js, &mut max_retry_age, "fresh publish")
+                    .await?;
+                // Do not advance retry schedule — stream recovery is separate.
+                // Fresh success must NOT reset retry_backoff / next_retry_at.
             }
 
-            if !retry_q.is_empty() {
+            if !retry_q.is_empty() && Instant::now() >= next_retry_at {
                 wait_until_connected(&client).await;
-                self.publish_pending(&client, &js, &mut retry_q, max_retry_age)
-                    .await;
-                if !retry_q.is_empty() {
-                    backoff = min(backoff.saturating_mul(2), max_backoff);
-                } else {
-                    backoff = Duration::from_millis(100);
+                match self
+                    .publish_pending(&client, &publish_js, &mut retry_q, max_retry_age)
+                    .await
+                {
+                    PublishPassResult::StreamMissing => {
+                        self.recover_owned_stream(
+                            &client,
+                            &admin_js,
+                            &mut max_retry_age,
+                            "retry publish",
+                        )
+                        .await?;
+                        next_retry_at = Instant::now() + retry_backoff;
+                    }
+                    PublishPassResult::Ok => {
+                        if retry_q.is_empty() {
+                            retry_backoff = Duration::from_millis(100);
+                            next_retry_at = Instant::now();
+                        } else {
+                            retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
+                            next_retry_at = Instant::now() + retry_backoff;
+                        }
+                    }
                 }
             }
 
             if closed {
                 return self
-                    .drain_retries_until_empty(&client, &js, &mut retry_q, max_retry_age)
+                    .drain_retries_until_empty(
+                        &client,
+                        &admin_js,
+                        &publish_js,
+                        &mut retry_q,
+                        &mut max_retry_age,
+                    )
                     .await;
             }
         }
@@ -208,7 +268,7 @@ impl Publisher {
         let mut closed = false;
         while batch.len() < self.config.batch_size {
             match self.rx.try_recv() {
-                Ok((subject, payload)) => batch.push(PendingPublish::new(subject, payload)),
+                Ok(msg) => batch.push(PendingPublish::from_outbound(msg)),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     closed = true;
@@ -222,18 +282,19 @@ impl Publisher {
     async fn publish_and_requeue(
         &self,
         client: &Client,
-        js: &jetstream::Context,
+        publish_js: &jetstream::Context,
         batch: &mut Vec<PendingPublish>,
         retry_q: &mut VecDeque<PendingPublish>,
         max_retry_queue: usize,
         max_retry_age: Duration,
-    ) {
+    ) -> PublishPassResult {
         if batch.is_empty() {
-            return;
+            return PublishPassResult::Ok;
         }
         let mut pending: VecDeque<PendingPublish> = std::mem::take(batch).into();
         wait_until_connected(client).await;
-        self.publish_pending(client, js, &mut pending, max_retry_age)
+        let result = self
+            .publish_pending(client, publish_js, &mut pending, max_retry_age)
             .await;
         while let Some(item) = pending.pop_front() {
             if retry_q.len() >= max_retry_queue {
@@ -245,27 +306,37 @@ impl Publisher {
             }
             retry_q.push_back(item);
         }
+        result
     }
 
     async fn drain_retries_until_empty(
         &self,
         client: &Client,
-        js: &jetstream::Context,
+        admin_js: &jetstream::Context,
+        publish_js: &jetstream::Context,
         retry_q: &mut VecDeque<PendingPublish>,
-        max_retry_age: Duration,
+        max_retry_age: &mut Duration,
     ) -> Result<()> {
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
         let mut attempts = 0u32;
         while !retry_q.is_empty() {
-            expire_old_retries(retry_q, max_retry_age);
+            expire_old_retries(retry_q, *max_retry_age);
             if retry_q.is_empty() {
                 break;
             }
             attempts += 1;
             wait_until_connected(client).await;
-            self.publish_pending(client, js, retry_q, max_retry_age)
-                .await;
+            match self
+                .publish_pending(client, publish_js, retry_q, *max_retry_age)
+                .await
+            {
+                PublishPassResult::StreamMissing => {
+                    self.recover_owned_stream(client, admin_js, max_retry_age, "shutdown drain")
+                        .await?;
+                }
+                PublishPassResult::Ok => {}
+            }
             if retry_q.is_empty() {
                 break;
             }
@@ -282,13 +353,54 @@ impl Publisher {
         Ok(())
     }
 
+    /// Clear readiness, re-verify owned stream ownership, then re-assert ready.
+    async fn recover_owned_stream(
+        &self,
+        client: &Client,
+        admin_js: &jetstream::Context,
+        max_retry_age: &mut Duration,
+        reason: &str,
+    ) -> Result<()> {
+        error!("Owned JetStream stream unavailable ({reason}); clearing ready and re-ensuring");
+        clear_publisher_ready(&self.config)?;
+        wait_until_connected(client).await;
+        let window = self.ensure_owned_stream(admin_js).await?;
+        *max_retry_age = max_retry_age_from_window(window);
+        mark_publisher_ready(&self.config)?;
+        info!(
+            "Stream re-ensure complete (dup_window={:?}, max_retry_age={:?})",
+            window, *max_retry_age
+        );
+        Ok(())
+    }
+
+    async fn ensure_owned_stream(&self, admin_js: &jetstream::Context) -> Result<Duration> {
+        let required_subjects = self.config.stream_subjects_resolved();
+        let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
+        if self.config.stream_name == "events" {
+            let mut restore = required_subjects;
+            restore = normalize_stream_subjects(restore);
+            return ensure_legacy_events_subjects_only(admin_js, &restore).await;
+        }
+        let target = normalize_stream_subjects(required_subjects);
+        ensure_flows_stream(
+            admin_js,
+            &self.config.stream_name,
+            &target,
+            self.config.stream_max_bytes,
+            desired_max_age,
+            self.config.stream_replicas,
+        )
+        .await
+    }
+
     async fn publish_pending(
         &self,
         client: &Client,
-        js: &jetstream::Context,
+        publish_js: &jetstream::Context,
         pending: &mut VecDeque<PendingPublish>,
         max_retry_age: Duration,
-    ) {
+    ) -> PublishPassResult {
         // Never enqueue publishes while disconnected — async-nats buffers
         // Command::Request across reconnect and cannot cancel timed-out futures.
         if !matches!(
@@ -299,11 +411,11 @@ impl Publisher {
                 "NATS not connected; deferring {} publish(es)",
                 pending.len()
             );
-            return;
+            return PublishPassResult::Ok;
         }
         let limit = pending.len().min(self.config.batch_size.max(1));
         if limit == 0 {
-            return;
+            return PublishPassResult::Ok;
         }
 
         let mut batch = Vec::with_capacity(limit);
@@ -317,7 +429,7 @@ impl Publisher {
         let mut set = JoinSet::new();
 
         for item in batch {
-            let js = js.clone();
+            let js = publish_js.clone();
             let client = client.clone();
             let sem = semaphore.clone();
             let metrics = self.host_slice_metrics.clone();
@@ -329,11 +441,11 @@ impl Publisher {
                         item.msg_id,
                         horizon_reason(&item, max_retry_age)
                     );
-                    return Ok(());
+                    return TaskOutcome::Done;
                 }
                 let _permit = match sem.acquire_owned().await {
                     Ok(p) => p,
-                    Err(_) => return Err(item),
+                    Err(_) => return TaskOutcome::Retry(item),
                 };
                 if past_retry_horizon(&item, max_retry_age) {
                     error!(
@@ -342,7 +454,7 @@ impl Publisher {
                         item.msg_id,
                         horizon_reason(&item, max_retry_age)
                     );
-                    return Ok(());
+                    return TaskOutcome::Done;
                 }
                 let bytes = item.payload.len();
                 let publish = PublishMessage::build()
@@ -358,76 +470,84 @@ impl Publisher {
                         "NATS disconnected before publish of subject {} id={}; will retry",
                         item.subject, item.msg_id
                     );
-                    return Err(item);
+                    return TaskOutcome::Retry(item);
                 }
 
                 match js.send_publish(item.subject.clone(), publish).await {
                     Ok(ack_fut) => {
-                        // send_publish enqueued Command::Request — mark attempt so
-                        // the duplicate-window horizon applies. Single ACK timer is
-                        // jetstream Context.timeout (set from publish_timeout_ms).
+                        // Command::Request is now in the async-nats client channel.
+                        // A second enqueue after ACK loss + reconnect past
+                        // duplicate_window would store the same Msg-Id twice.
+                        // Policy: never requeue after send_publish Ok — the
+                        // buffered original may still flush once.
                         let item = item.mark_attempted();
                         match ack_fut.await {
                             Ok(_seq) => {
                                 metrics.record_publish(&item.subject, bytes);
-                                Ok(())
+                                TaskOutcome::Done
                             }
                             Err(e) => {
                                 let disposition = classify_publish_error(e.kind());
                                 match disposition {
+                                    PublishDisposition::StreamMissing => {
+                                        error!(
+                                            "NATS stream missing for subject {} id={}: {} — preserving and re-ensuring",
+                                            item.subject, item.msg_id, e
+                                        );
+                                        // Not stored; safe to preserve for retry after ensure.
+                                        // Clear first_attempt so never-attempted path applies
+                                        // until the next successful enqueue.
+                                        TaskOutcome::StreamMissing(item.clear_attempt())
+                                    }
                                     PublishDisposition::Permanent => {
                                         error!(
                                             "Permanent NATS publish failure for subject {} id={}: {} — dropping",
                                             item.subject, item.msg_id, e
                                         );
-                                        Ok(())
+                                        TaskOutcome::Done
                                     }
                                     PublishDisposition::Ambiguous
                                     | PublishDisposition::Transient => {
-                                        // Preserve locally; retry only while first_attempt_at
-                                        // is within max_retry_age (≤ verified duplicate_window).
-                                        // Nats-Msg-Id covers the in-window duplicate half.
-                                        if past_retry_horizon(&item, max_retry_age) {
-                                            error!(
-                                                "Ambiguous ACK for subject {} id={} past retry horizon ({}); dropping to avoid post-window duplicate",
-                                                item.subject,
-                                                item.msg_id,
-                                                horizon_reason(&item, max_retry_age)
-                                            );
-                                            Ok(())
-                                        } else {
-                                            warn!(
-                                                "NATS publish ACK {} for subject {} id={}: {} — preserving for retry within {:?}",
-                                                disposition_label(disposition),
-                                                item.subject,
-                                                item.msg_id,
-                                                e,
-                                                max_retry_age
-                                            );
-                                            Err(item)
-                                        }
+                                        // Do NOT requeue: retry would enqueue a second
+                                        // Command::Request that can flush after the
+                                        // duplicate_window as a second message.
+                                        warn!(
+                                            "NATS publish ACK {} for subject {} id={}: {}; not retrying (async-nats reconnect-buffer safety)",
+                                            disposition_label(disposition),
+                                            item.subject,
+                                            item.msg_id,
+                                            e
+                                        );
+                                        TaskOutcome::Done
                                     }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        // send_publish itself failed — request not enqueued; safe
-                        // to retry without consuming the duplicate-window budget.
+                        // send_publish failed before/without a durable enqueue —
+                        // safe to requeue when not permanent.
                         match classify_publish_error(e.kind()) {
+                            PublishDisposition::StreamMissing => {
+                                error!(
+                                    "NATS stream missing on send for subject {} id={}: {} — preserving",
+                                    item.subject, item.msg_id, e
+                                );
+                                TaskOutcome::StreamMissing(item)
+                            }
                             PublishDisposition::Permanent => {
                                 error!(
                                     "Permanent NATS send failure for subject {} id={}: {} — dropping",
                                     item.subject, item.msg_id, e
                                 );
-                                Ok(())
+                                TaskOutcome::Done
                             }
                             _ => {
                                 error!(
                                     "Failed to publish to NATS subject {} id={}: {} — will retry",
                                     item.subject, item.msg_id, e
                                 );
-                                Err(item)
+                                TaskOutcome::Retry(item)
                             }
                         }
                     }
@@ -436,10 +556,15 @@ impl Publisher {
         }
 
         let mut failed = VecDeque::new();
+        let mut stream_missing = false;
         while let Some(joined) = set.join_next().await {
             match joined {
-                Ok(Ok(())) => {}
-                Ok(Err(item)) => failed.push_back(item),
+                Ok(TaskOutcome::Done) => {}
+                Ok(TaskOutcome::Retry(item)) => failed.push_back(item),
+                Ok(TaskOutcome::StreamMissing(item)) => {
+                    stream_missing = true;
+                    failed.push_back(item);
+                }
                 Err(e) => error!("publish task join error: {}", e),
             }
         }
@@ -447,9 +572,16 @@ impl Publisher {
         // Preserve remaining unattempted (if any) then failures.
         failed.append(pending);
         *pending = failed;
+        if stream_missing {
+            PublishPassResult::StreamMissing
+        } else {
+            PublishPassResult::Ok
+        }
     }
 
-    async fn connect_once(&mut self) -> Result<(Client, jetstream::Context, Duration)> {
+    async fn connect_once(
+        &mut self,
+    ) -> Result<(Client, jetstream::Context, jetstream::Context, Duration)> {
         let mut options = ConnectOptions::new();
 
         if let Some(sec) = &self.config.security {
@@ -476,11 +608,13 @@ impl Publisher {
         }
 
         let client = options.connect(&self.config.nats_url).await?;
-        // One ACK timer: PublishAckFuture uses Context.timeout. Align with
-        // publish_timeout_ms so we do not nest contradictory timeout policies.
-        let mut js = jetstream::new(client.clone());
+        // Control-plane context keeps the library default API timeout so a low
+        // publish_timeout_ms cannot spuriously fail stream INFO/CREATE/UPDATE.
+        let admin_js = jetstream::new(client.clone());
+        // Data-path context: PublishAckFuture timeout only.
+        let mut publish_js = jetstream::new(client.clone());
         let ack_timeout = Duration::from_millis(self.config.publish_timeout_ms.max(1_000));
-        js.set_timeout(ack_timeout);
+        publish_js.set_timeout(ack_timeout);
 
         let required_subjects = self.config.stream_subjects_resolved();
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
@@ -525,7 +659,7 @@ impl Publisher {
             warn!(
                 "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
             );
-            let dup_window = ensure_legacy_events_subjects_only(&js, &restore).await?;
+            let dup_window = ensure_legacy_events_subjects_only(&admin_js, &restore).await?;
             // Verify ownership then clear marker.
             self.pending_rehome.clear();
             clear_rehome_marker(&rehome_path);
@@ -533,14 +667,14 @@ impl Publisher {
                 "Connected to NATS at {} (legacy events stream, dup_window={:?})",
                 self.config.nats_url, dup_window
             );
-            return Ok((client, js, dup_window));
+            return Ok((client, admin_js, publish_js, dup_window));
         }
 
         // Dedicated flows stream path
         {
             // Rehome flow subjects off events onto the dedicated stream.
             match rehome_subjects_from_events(
-                &js,
+                &admin_js,
                 &required_subjects,
                 &self.config.stream_name,
                 &rehome_path,
@@ -572,7 +706,7 @@ impl Publisher {
             target_subjects = normalize_stream_subjects(target_subjects);
 
             let dup_window = match ensure_flows_stream(
-                &js,
+                &admin_js,
                 &self.config.stream_name,
                 &target_subjects,
                 self.config.stream_max_bytes,
@@ -588,7 +722,7 @@ impl Publisher {
                 }
                 Err(err) => {
                     if !self.pending_rehome.is_empty() {
-                        match restore_subjects_to_events(&js, &self.pending_rehome).await {
+                        match restore_subjects_to_events(&admin_js, &self.pending_rehome).await {
                             Ok(()) => {
                                 self.pending_rehome.clear();
                                 clear_rehome_marker(&rehome_path);
@@ -618,11 +752,13 @@ impl Publisher {
                 dup_window
             );
 
-            Ok((client, js, dup_window))
+            Ok((client, admin_js, publish_js, dup_window))
         }
     }
 
-    async fn connect_with_retry(&mut self) -> Result<(Client, jetstream::Context, Duration)> {
+    async fn connect_with_retry(
+        &mut self,
+    ) -> Result<(Client, jetstream::Context, jetstream::Context, Duration)> {
         let mut attempt: u32 = 0;
         let initial_backoff = Duration::from_millis(500);
         let max_backoff = Duration::from_secs(30);
@@ -772,6 +908,14 @@ async fn ensure_legacy_events_subjects_only(
     // Re-INFO for verified window (post-update config). Never invent a larger value.
     let mut events = js.get_stream("events").await?;
     let info = events.info().await?;
+    // Legacy mode must not reshape shared retention, but no_ack=true makes every
+    // publish wait for a timeout (no ACK). Fail closed with an actionable error.
+    if info.config.no_ack {
+        return Err(anyhow::anyhow!(
+            "events stream has no_ack=true; flow-collector requires publish ACKs. \
+             Fix the shared events stream (set no_ack=false) or migrate to stream_name=flows"
+        ));
+    }
     Ok(info.config.duplicate_window)
 }
 
@@ -780,21 +924,26 @@ struct PendingPublish {
     subject: String,
     payload: Vec<u8>,
     msg_id: String,
-    /// When the item first entered a local queue (never-attempted TTL basis).
-    enqueued_at: Instant,
-    /// When send_publish first returned Ok (duplicate-window horizon basis).
+    /// UDP accept / first channel enqueue (never-attempted TTL basis).
+    ingress_at: Instant,
+    /// When send_publish first returned Ok (attempted on client channel).
     first_attempt_at: Option<Instant>,
 }
 
 impl PendingPublish {
-    fn new(subject: String, payload: Vec<u8>) -> Self {
+    fn from_outbound((subject, payload, ingress_at): OutboundFlow) -> Self {
         Self {
             subject,
             payload,
             msg_id: next_msg_id(),
-            enqueued_at: Instant::now(),
+            ingress_at,
             first_attempt_at: None,
         }
+    }
+
+    #[cfg(test)]
+    fn new(subject: String, payload: Vec<u8>) -> Self {
+        Self::from_outbound((subject, payload, Instant::now()))
     }
 
     fn mark_attempted(mut self) -> Self {
@@ -803,6 +952,18 @@ impl PendingPublish {
         }
         self
     }
+
+    fn clear_attempt(mut self) -> Self {
+        self.first_attempt_at = None;
+        self
+    }
+}
+
+/// Per-task publish outcome (joined after concurrent pass).
+enum TaskOutcome {
+    Done,
+    Retry(PendingPublish),
+    StreamMissing(PendingPublish),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -810,6 +971,8 @@ enum PublishDisposition {
     Transient,
     Ambiguous,
     Permanent,
+    /// Stream gone — not stored; re-ensure rather than drop while Ready.
+    StreamMissing,
 }
 
 fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
@@ -819,8 +982,8 @@ fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
             PublishDisposition::Ambiguous
         }
         PublishErrorKind::MaxAckPending => PublishDisposition::Transient,
-        PublishErrorKind::StreamNotFound
-        | PublishErrorKind::MaxPayloadExceeded
+        PublishErrorKind::StreamNotFound => PublishDisposition::StreamMissing,
+        PublishErrorKind::MaxPayloadExceeded
         | PublishErrorKind::WrongLastMessageId
         | PublishErrorKind::WrongLastSequence => PublishDisposition::Permanent,
         PublishErrorKind::Other => PublishDisposition::Ambiguous,
@@ -832,6 +995,7 @@ fn disposition_label(d: PublishDisposition) -> &'static str {
         PublishDisposition::Transient => "transient",
         PublishDisposition::Ambiguous => "ambiguous",
         PublishDisposition::Permanent => "permanent",
+        PublishDisposition::StreamMissing => "stream_missing",
     }
 }
 
@@ -845,7 +1009,7 @@ fn past_retry_horizon(item: &PendingPublish, max_attempt_age: Duration) -> bool 
                 at.elapsed() > max_attempt_age
             }
         }
-        None => item.enqueued_at.elapsed() > Duration::from_secs(NEVER_ATTEMPTED_QUEUE_TTL_SECS),
+        None => item.ingress_at.elapsed() > Duration::from_secs(NEVER_ATTEMPTED_QUEUE_TTL_SECS),
     }
 }
 
@@ -857,8 +1021,8 @@ fn horizon_reason(item: &PendingPublish, max_attempt_age: Duration) -> String {
             max_attempt_age
         ),
         None => format!(
-            "never_attempted_age {:?} > ttl {:?}",
-            item.enqueued_at.elapsed(),
+            "ingress_age {:?} > never_attempted_ttl {:?}",
+            item.ingress_at.elapsed(),
             Duration::from_secs(NEVER_ATTEMPTED_QUEUE_TTL_SECS)
         ),
     }
@@ -1437,6 +1601,10 @@ mod tests {
         );
         assert_eq!(
             classify_publish_error(PublishErrorKind::StreamNotFound),
+            PublishDisposition::StreamMissing
+        );
+        assert_eq!(
+            classify_publish_error(PublishErrorKind::MaxPayloadExceeded),
             PublishDisposition::Permanent
         );
         assert_eq!(

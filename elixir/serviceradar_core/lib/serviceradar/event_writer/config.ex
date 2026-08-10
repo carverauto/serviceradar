@@ -242,21 +242,18 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
-  Returns true when a stream config is raw flow telemetry (`flows.raw.*` or
-  configured `flow.host-slice.*`).
+  Returns true when a stream config is raw NetFlow/sFlow persistence (`flows.raw.*`).
+
+  `flow.host-slice.*` is an intermediate attribution fan-out (joiner path) and
+  must **not** become EventWriter flow consumers — that dilutes Broadway pull
+  budget without reclaiming LimitsPolicy stream storage.
   """
   @spec flow_stream?(stream_config() | map()) :: boolean()
   def flow_stream?(%{subject: subject}) when is_binary(subject),
-    do: flow_consumer_subject?(subject)
+    do: String.starts_with?(subject, "flows.raw.")
 
   def flow_stream?(%{name: name}) when name in ["NETFLOW_RAW", "SFLOW_RAW"], do: true
   def flow_stream?(_), do: false
-
-  @doc false
-  def flow_consumer_subject?(subject) when is_binary(subject) do
-    String.starts_with?(subject, "flows.raw.") or
-      String.starts_with?(subject, "flow.host-slice.")
-  end
 
   @doc """
   Default pull batch size for the dedicated flow EventWriter pipeline.
@@ -645,7 +642,7 @@ defmodule ServiceRadar.EventWriter.Config do
     # silently miss live coverage. Fail closed rather than drop them quietly.
     wildcards =
       Enum.filter(subjects, fn s ->
-        flow_consumer_subject?(s) and not exact_nats_subject?(s)
+        String.starts_with?(s, "flows.raw.") and not exact_nats_subject?(s)
       end)
 
     if wildcards != [] do
@@ -655,8 +652,18 @@ defmodule ServiceRadar.EventWriter.Config do
               "Use concrete subjects (embedded */> in a token are literals)."
     end
 
+    host_slices =
+      Enum.filter(subjects, &String.starts_with?(&1, "flow.host-slice."))
+
+    if host_slices != [] do
+      raise ArgumentError,
+            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS rejects flow.host-slice.* subjects " <>
+              "(attribution intermediate; not the ocsf persistence pipeline): #{inspect(host_slices)}. " <>
+              "Host-slice traffic stays on the joiner path, not EventWriter flow consumers."
+    end
+
     subjects
-    |> Enum.filter(&exact_flow_consumer_subject?/1)
+    |> Enum.filter(&exact_raw_flow_subject?/1)
     # Defaults already have dedicated live/drain entries.
     |> Enum.reject(&(&1 in ["flows.raw.netflow", "flows.raw.sflow"]))
     |> Enum.uniq()
@@ -669,14 +676,6 @@ defmodule ServiceRadar.EventWriter.Config do
   @spec exact_raw_flow_subject?(String.t()) :: boolean()
   def exact_raw_flow_subject?(subject) when is_binary(subject) do
     String.starts_with?(subject, "flows.raw.") and exact_nats_subject?(subject)
-  end
-
-  @doc """
-  Concrete EventWriter consumer subject: `flows.raw.*` or `flow.host-slice.*`.
-  """
-  @spec exact_flow_consumer_subject?(String.t()) :: boolean()
-  def exact_flow_consumer_subject?(subject) when is_binary(subject) do
-    flow_consumer_subject?(subject) and exact_nats_subject?(subject)
   end
 
   @doc false
@@ -699,7 +698,6 @@ defmodule ServiceRadar.EventWriter.Config do
     readable =
       subject
       |> String.replace_prefix("flows.raw.", "")
-      |> String.replace_prefix("flow.host-slice.", "HOST_SLICE_")
       |> String.upcase()
       |> String.replace(~r/[^A-Z0-9]+/, "_")
       |> String.trim("_")

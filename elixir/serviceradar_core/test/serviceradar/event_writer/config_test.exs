@@ -212,24 +212,18 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
     test "exact_nats_subject? allows embedded star but rejects whole-token wildcards" do
       assert Config.exact_nats_subject?("flows.raw.vendor*name")
       assert Config.exact_raw_flow_subject?("flows.raw.vendor*name")
-      assert Config.exact_flow_consumer_subject?("flow.host-slice.agent-1")
+      refute Config.exact_raw_flow_subject?("flow.host-slice.agent-1")
+      refute Config.flow_stream?(%{subject: "flow.host-slice.agent-1"})
       refute Config.exact_nats_subject?("flows.raw.>")
       refute Config.exact_nats_subject?("flows.raw.*")
       refute Config.exact_nats_subject?("flows.raw.*.leaf")
     end
 
-    test "extra_flow_subjects accepts embedded star literals and host-slice" do
-      System.put_env(
-        "EVENT_WRITER_FLOW_EXTRA_SUBJECTS",
-        "flows.raw.vendor*name,flow.host-slice.agent-1"
-      )
-
+    test "extra_flow_subjects accepts embedded star literals" do
+      System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.vendor*name")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
-      assert Config.extra_flow_subjects() == [
-               "flows.raw.vendor*name",
-               "flow.host-slice.agent-1"
-             ]
+      assert Config.extra_flow_subjects() == ["flows.raw.vendor*name"]
     end
 
     test "extra_flow_subjects raises on whole-token wildcards" do
@@ -245,30 +239,13 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
-    test "load_flow includes host-slice live + events drain pair" do
+    test "extra_flow_subjects raises on host-slice intermediates" do
       System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flow.host-slice.agent-1")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
-      flow = Config.load_flow()
-      expected = Config.flow_subject_stream_name("flow.host-slice.agent-1")
-
-      live =
-        Enum.filter(
-          flow.streams,
-          &(&1.subject == "flow.host-slice.agent-1" and &1.stream_name == "flows")
-        )
-
-      drain =
-        Enum.filter(
-          flow.streams,
-          &(&1.subject == "flow.host-slice.agent-1" and &1.stream_name == "events")
-        )
-
-      assert length(live) == 1
-      assert length(drain) == 1
-      assert hd(live).name == expected
-      assert hd(drain).durable_source_name == expected
-      assert Config.flow_stream?(hd(live))
+      assert_raise ArgumentError, ~r/flow\.host-slice/, fn ->
+        Config.extra_flow_subjects()
+      end
     end
 
     test "assert_no_canonical_consumer_collisions! catches case/punct durable collapse" do

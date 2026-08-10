@@ -493,9 +493,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
-      # subject (netflow/sflow/ipfix/extensions + host-slice) hits Processors.Flows.
-      {:flows_raw, &String.starts_with?(&1, "flows.raw.")},
-      {:flows_raw, &String.starts_with?(&1, "flow.host-slice.")}
+      # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
+      # flow.host-slice.* is intentionally excluded (attribution joiner path).
+      {:flows_raw, &String.starts_with?(&1, "flows.raw.")}
     ]
   end
 
