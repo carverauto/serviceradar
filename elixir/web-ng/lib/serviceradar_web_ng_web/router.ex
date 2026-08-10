@@ -302,6 +302,32 @@ defmodule ServiceRadarWebNGWeb.Router do
   # `:json` rather than `:auto`: the HTML denial path redirects to the login
   # page, which for a link clicked out of an email would read as "your
   # acknowledgement needs an account" - the opposite of what happened.
+  # Inbound provider interactions (design D7 phase 2, task 4.3.0b). Accepts the
+  # content types providers actually send - Slack posts urlencoded, others post
+  # JSON - which is why this cannot reuse `:notification_action`, whose
+  # `accepts ["html"]` would answer a provider POST with 406.
+  #
+  # Deliberately excludes fetch_session, every auth plug, and
+  # `protect_from_forgery`: the request arrives from a provider with no cookie
+  # and no CSRF token, and the provider's signature over the raw body IS the
+  # authorisation. The routes below sit under `/api/notifications/callbacks/`,
+  # which `ServiceRadarWebNGWeb.Api.RawBodyReader` buffers - without that the
+  # signature would be checked against a re-encoded body and never match.
+  pipeline :notification_callback do
+    plug(:accepts, ["json", "urlencoded"])
+    plug(SecurityHeaders)
+  end
+
+  # Its own bucket, not the action-link one. A provider retrying a delivery must
+  # not exhaust the budget an on-call engineer needs to click Acknowledge.
+  pipeline :rate_limit_notification_callback do
+    plug(RateLimit,
+      bucket: :notification_callback,
+      subject: :ip,
+      response_mode: :json
+    )
+  end
+
   pipeline :rate_limit_notification_action do
     plug(RateLimit,
       bucket: :notification_action,
@@ -353,6 +379,17 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/actions/:token", NotificationActionController, :show)
     post("/actions/:token", NotificationActionController, :create)
+  end
+
+  # The provider segment is part of the path so each provider gets a distinct URL
+  # to register with, and so the prefix stays under
+  # `/api/notifications/callbacks/` - RawBodyReader matches on
+  # `String.starts_with?`, so a route at the bare `/api/notifications/callbacks`
+  # would NOT be buffered and every signature check would fail confusingly.
+  scope "/api/notifications/callbacks", ServiceRadarWebNGWeb.Api do
+    pipe_through([:notification_callback, :rate_limit_notification_callback])
+
+    post("/:provider", NotificationCallbackController, :create)
   end
 
   scope "/api/v1/automation", ServiceRadarWebNGWeb.Api do

@@ -43,7 +43,126 @@ defmodule ServiceRadar.Notifications.Callbacks.Slack do
   @tolerance_seconds 300
 
   @impl true
-  def provider_key, do: "slack"
+  def provider_key, do: :slack
+
+  @impl true
+  @doc """
+  Reads the interaction Slack posted.
+
+  Slack sends `application/x-www-form-urlencoded` with the whole interaction as
+  a JSON string in a single `payload` parameter, so this is two decodes: Plug's
+  form parse, then `Jason`. The raw body is accepted as a fallback for a caller
+  that has not run the form parser.
+
+  Only `block_actions` is handled. Anything else - a view submission, a shortcut -
+  is refused rather than half-interpreted, because a payload whose shape we did
+  not anticipate is not one to guess an alert id out of.
+  """
+  @spec decode_interaction(map(), binary()) :: {:ok, map()} | {:error, atom()}
+  def decode_interaction(params, raw_body) do
+    with {:ok, json} <- payload_json(params, raw_body),
+         {:ok, decoded} <- decode_json(json),
+         :ok <- check_type(decoded),
+         {:ok, app_id} <- non_empty(decoded, "api_app_id", :missing_app_id),
+         {:ok, action} <- first_action(decoded) do
+      {:ok,
+       %{
+         app_id: app_id,
+         user_id: get_in(decoded, ["user", "id"]),
+         team_id: get_in(decoded, ["team", "id"]),
+         action_id: Map.get(action, "action_id"),
+         value: Map.get(action, "value")
+       }}
+    end
+  end
+
+  @impl true
+  @doc """
+  Turns a decoded interaction into the capability the redemption path accepts.
+
+  The button's `value` is the string `SlackBlocks.control_value/1` wrote, parsed
+  here rather than re-derived: the two must agree, and the way they stop agreeing
+  is one of them being rewritten from memory.
+
+  `external_principal` is `"slack:<user id>"` - the Slack user is not a platform
+  user, so the acknowledgement is attributed to an external principal, which is
+  what `actor_kind: :external_principal` records.
+  """
+  @spec capability(map()) :: {:ok, map()} | {:error, atom()}
+  def capability(%{value: value} = interaction) when is_binary(value) do
+    case String.split(value, ":") do
+      [action, alert_id, delivery_id | rest] ->
+        with {:ok, action} <- known_action(action) do
+          {:ok,
+           %{
+             action: action,
+             alert_id: alert_id,
+             delivery_id: delivery_id,
+             snooze_seconds: snooze_seconds(rest),
+             external_principal: principal(interaction)
+           }}
+        end
+
+      _other ->
+        {:error, :unparseable_control_value}
+    end
+  end
+
+  def capability(_interaction), do: {:error, :missing_control_value}
+
+  defp payload_json(params, raw_body) do
+    case Map.get(params || %{}, "payload") do
+      value when is_binary(value) and value != "" ->
+        {:ok, value}
+
+      _absent ->
+        # A caller that has not run Plug's form parser, e.g. a test posting raw
+        # bytes. Decoding the form here keeps the verifier usable either way.
+        case URI.decode_query(raw_body || "") do
+          %{"payload" => value} when is_binary(value) and value != "" -> {:ok, value}
+          _other -> {:error, :missing_payload}
+        end
+    end
+  end
+
+  defp decode_json(json) do
+    case Jason.decode(json) do
+      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+      _other -> {:error, :invalid_payload}
+    end
+  end
+
+  defp check_type(%{"type" => "block_actions"}), do: :ok
+  defp check_type(_decoded), do: {:error, :unsupported_interaction_type}
+
+  defp non_empty(decoded, key, error) do
+    case Map.get(decoded, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _absent -> {:error, error}
+    end
+  end
+
+  defp first_action(%{"actions" => [action | _rest]}) when is_map(action), do: {:ok, action}
+  defp first_action(_decoded), do: {:error, :missing_action}
+
+  defp known_action("acknowledge"), do: {:ok, :acknowledge}
+  defp known_action("snooze"), do: {:ok, :snooze}
+  defp known_action("resolve"), do: {:ok, :resolve}
+  defp known_action(_other), do: {:error, :unknown_action}
+
+  defp snooze_seconds([seconds | _rest]) when is_binary(seconds) do
+    case Integer.parse(seconds) do
+      {value, ""} when value > 0 -> value
+      _other -> nil
+    end
+  end
+
+  defp snooze_seconds(_rest), do: nil
+
+  defp principal(%{user_id: user_id}) when is_binary(user_id) and user_id != "",
+    do: "slack:" <> user_id
+
+  defp principal(_interaction), do: "slack"
 
   @doc "The headers this verifier reads, for route and fixture assertions."
   @spec headers() :: %{signature: String.t(), timestamp: String.t()}

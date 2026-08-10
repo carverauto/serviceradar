@@ -1992,13 +1992,13 @@ one is a silent-failure source if done per-provider.
       binding than the Phase 1 link it replaces, which refuses to mint without
       both - and every interactive snooze fails `:missing_snooze_seconds`,
       because `apply_native/2` deliberately refuses a house default.
-- [ ] 4.3.0b Platform seam: notification callback route plus its own pipeline.
+- [x] 4.3.0b Platform seam: notification callback route plus its own pipeline.
       The existing `/api/notifications` scope pipes `:notification_action`, which
       is `accepts ["html"]` and would 406 a JSON provider POST, and shares its
       rate-limit bucket. Assert `RawBodyReader.buffered?/1` for each concrete
       route: the prefix match is `String.starts_with?`, so a route without the
       trailing slash is silently unbuffered.
-- [ ] 4.3.0c Platform seam: verify -> enqueue -> ack. Every provider has a 3-5 s
+- [x] 4.3.0c Platform seam: verify -> enqueue -> ack. Every provider has a 3-5 s
       response budget and `apply_native/2` opens a `Repo.transaction`. Doing that
       work inline is fragile under load; the callback verifies, enqueues, and
       acknowledges, and the job applies the capability.
@@ -2077,7 +2077,7 @@ one is a silent-failure source if done per-provider.
       compare with `Plug.Crypto.secure_compare/2`. The HMAC proves PagerDuty sent
       it; the token binds the request to this subscription. Verify
       `custom_headers` against the current API schema before committing to it.
-- [ ] 4.3.5 Confirm the notification callback route prefix registered with
+- [x] 4.3.5 Confirm the notification callback route prefix registered with
       `ServiceRadarWebNGWeb.Api.RawBodyReader` in 1.6.4 actually covers the routes
       these three providers post to. `RawBodyReader` buffers raw bodies only for
       registered prefixes, and an unregistered prefix fails silently by verifying

@@ -63,6 +63,26 @@ defmodule ServiceRadar.Notifications.Callbacks.Signature do
   @callback verify(raw_body :: binary(), headers(), key_material(), opts :: keyword()) ::
               :ok | {:error, reason()}
 
-  @doc "The provider key this verifier serves, for dispatch and for log context."
-  @callback provider_key() :: String.t()
+  @doc "The provider this verifier serves, for key lookup and log context."
+  @callback provider_key() :: atom()
+
+  @doc """
+  Extracts what the callback needs from a provider's request body.
+
+  Runs BEFORE verification, because the app id that selects the signing secret is
+  inside the request. That is safe only because this performs no side effect: it
+  reads identifiers and nothing else. The raw bytes, not this result, are what
+  the signature is checked against.
+  """
+  @callback decode_interaction(params :: map(), raw_body :: binary()) ::
+              {:ok, map()} | {:error, atom()}
+
+  @doc """
+  Turns a decoded interaction into the capability `apply_native/2` accepts.
+
+  Separate from `decode_interaction/2` so the controller cannot build a
+  capability from an unverified interaction by accident: the two are called on
+  either side of `verify/4`.
+  """
+  @callback capability(interaction :: map()) :: {:ok, map()} | {:error, atom()}
 end
