@@ -36,7 +36,6 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.16")
-bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
@@ -45,16 +44,6 @@ bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_bui
 # "-fuse-ld=gold" as a literal in templates/BUILD.tpl -- no substitution placeholder, so no
 # attribute could select anything else. gold is deprecated, binutils keeps it in
 # maintenance-only mode, and rustc warns on every Rust link that it "has known bugs with Rust".
-#
-# The fork replaces that literal with %{use_ld} and threads an attribute through
-# extensions.bzl -> rules.bzl -> the template, defaulting to "gold" so every other consumer of
-# the module is byte-identical. //MODULE.bazel's buildbuddy_toolchain_ext.gcc_toolchain sets
-# "bfd". Intended for upstream; drop this override once it lands and the version is released.
-#
-# Overriding rather than --linkopt for a reason that was measured: --linkopt APPENDS, so rustc
-# received both flags. The link did use bfd (the driver honours the last -fuse-ld) but the
-# warning stayed, because rustc reports gold on sight without evaluating last-wins. Only
-# removing the flag at source silences it.
 git_override(
     module_name = "toolchains_buildbuddy",
     commit = "22e5bbd9748cd041e16416226ac00b32d78f0fdc",
@@ -2534,47 +2523,6 @@ toolchains_musl.config(
     extra_target_compatible_with = ["//build/platforms:linux_musl"],
 )
 use_repo(toolchains_musl, "musl_toolchains_hub")
-
-# REGISTERED HERE, AND BEFORE @llvm_toolchain BELOW. Both facts are load-bearing.
-#
-# @toolchains_musl already registers this from its own MODULE.bazel, but a DEPENDENCY's
-# registrations are ordered after every one of the root module's -- including
-# `register_toolchains("@llvm_toolchain//:all")` further down. @toolchains_llvm generates
-# its toolchain set from the HOST, and on a linux-x86_64 host that set includes
-# `cc-toolchain-x86_64-linux`, whose target_compatible_with is [x86_64, linux] with nothing
-# about libc. It therefore matches a musl target platform and, being registered first, wins.
-#
-# That made musl builds host-dependent, which is a miserable failure mode: on a macOS host
-# @toolchains_llvm emits only darwin/none toolchains, none of which match musl, so the musl
-# hub won and `bazel build //...` passed. The same commit failed on the Linux workflow
-# runner, compiling musl targets with glibc headers and failing at link on symbols musl does
-# not have (`__memcpy_chk` from zstd-sys, `__isoc23_sscanf` from aws-lc-sys).
-#
-# Repeating the registration here puts it in root-module order, ahead of @llvm_toolchain.
-# Do not move it below that line, and do not drop it as redundant.
-register_toolchains("@musl_toolchains_hub//:all")
-
-# --- LLVM Toolchain (clang/lld) ----------------------------------
-llvm_ext = use_extension(
-    "@toolchains_llvm//toolchain/extensions:llvm.bzl",
-    "llvm",
-)
-llvm_ext.toolchain(
-    name = "llvm_toolchain",
-    llvm_versions = {
-        # Fallback for hosts whose distro-specific key is not listed below
-        # (e.g. ubuntu-24.04-x86_64, debian-12-x86_64).
-        "": "17.0.4",
-        # Explicit generic Linux key to cover distros like Oracle Linux 9.
-        "linux-x86_64": "17.0.4",
-        "darwin-aarch64": "17.0.4",
-        "darwin-x86_64": "15.0.7",
-        "ubuntu-22.04-x86_64": "17.0.4",
-    },
-)
-use_repo(llvm_ext, "llvm_toolchain")
-
-register_toolchains("@llvm_toolchain//:all")
 
 # --- RBE Toolchain and platforms  ----------------------------------
 register_execution_platforms(
