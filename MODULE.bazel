@@ -180,8 +180,8 @@ hex_archive(
     name = "hex_ash",
     package_name = "ash",
     build_file = "//third_party/hex:ash.BUILD",
-    sha256 = "2a7a45d3a3b980457b5cc7e339a84a35c232a7ab99047bbf7ce55e7dc36df357",
-    version = "3.29.3",
+    sha256 = "7126c1857f57cd73b2bf5c36dda3fa36a46b5353433207999c60727d59d3edac",
+    version = "3.31.2",
 )
 
 hex_archive(
