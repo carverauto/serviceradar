@@ -1168,6 +1168,18 @@ here.
         MTR predicates -- trace target, trace error code, hop hostname, hop ASN org -- stay
         with 1.4-a. A bound may have sites under two owners; what it may
         not have is a site under none.
+        NORMATIVE DECISIONS -- LANDED, and not re-openable by a later vector:
+        (1) The seven residual bounds are frozen BY VALUE, each an INCLUSIVE maximum, with
+            lower bounds stated where one exists. Inclusivity is normative ON ITS OWN because
+            a refusal-only boundary cannot detect `>` tightened to `>=`.
+        (2) The plan-RANGE `availability_policy_id` length check is DERIVED, stated as such,
+            and SHALL NOT be claimed as an independently provable site.
+        (3) An IPv6 ZONE in any plan range address string is REFUSED, before either parser,
+            and SHALL NOT be stripped or normalised -- those strings feed the range, page,
+            manifest-root, header and assignment digest chain, so repairing one forks a plan's
+            identity from the bytes its author signed.
+        (4) An EMPTY tombstone reason is REFUSED. The maximum was frozen and the lower bound
+            was not, which is what let the runtimes disagree.
         VECTOR RULES: one N/N+1 pair per DISTINCT 1.5-h-owned limit, not per field. Relational
         cases use an ACCEPTED EQUALITY control and the FIRST violation, moving ONE OPERAND
         only. Every row SHALL reach the gate it names: a rejection arriving from 1.5-f
