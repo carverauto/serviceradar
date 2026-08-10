@@ -33,6 +33,7 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   differs, and the vectors assert the layered reason rather than pretending otherwise.
   """
 
+  alias ServiceRadar.Edge.BoundedList
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.PlanValidate
   alias ServiceRadar.Edge.SemanticValidate
@@ -129,8 +130,11 @@ defmodule ServiceRadar.Edge.AssignmentValidate do
   defp bound_page_count(header, page_bytes) do
     declared = Map.get(header, :page_count)
 
+    # BOUNDED COUNT, not `length/1`. The ceiling exists to stop unbounded work, so measuring the
+    # whole supplied list to compare it performs exactly the traversal being forbidden. Walking
+    # at most declared+1 cells answers the same question for the same inputs.
     if is_integer(declared) and declared > 0 and declared <= @max_manifest_pages and
-         length(page_bytes) == declared,
+         BoundedList.count_at_most(page_bytes, declared) == {:ok, declared},
        do: :ok,
        else: {:error, :page_bounds}
   end

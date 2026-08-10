@@ -21,10 +21,18 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
 
   import Bitwise, only: []
 
+  alias ServiceRadar.Edge.BoundedList
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.SemanticValidate
+  alias Serviceradar.Edge.V1.EdgeAttributedActiveV1
+  alias Serviceradar.Edge.V1.EdgeAttributedPassiveV1
+  alias Serviceradar.Edge.V1.EdgeAttributedSpanIdentityV1
+  alias Serviceradar.Edge.V1.EdgeClassificationSpanV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
+  alias Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1
+  alias Serviceradar.Edge.V1.EdgeUnattributableV1
   alias ServiceRadar.Edge.WireDecode
+  alias ServiceRadar.Edge.WireShape
 
   # Mirrors Go's edgerecord constants. A divergence here is a cross-language bug, so
   # the shared fixtures pin them rather than trusting these literals.
@@ -48,12 +56,12 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # path rejected.
   @accepted_reasons Map.fetch!(
                       SemanticValidate.enum_field_policy(),
-                      {Serviceradar.Edge.V1.EdgeUnattributableV1, :reason}
+                      {EdgeUnattributableV1, :reason}
                     )
 
   @accepted_source_kinds Map.fetch!(
                            SemanticValidate.enum_field_policy(),
-                           {Serviceradar.Edge.V1.EdgeSourceSpanIdentityV1, :kind}
+                           {EdgeSourceSpanIdentityV1, :kind}
                          )
 
   @typedoc """
@@ -105,6 +113,9 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec manifest_chain_from_raw([binary()], binary() | nil) :: :ok | {:error, raw_error()}
   def manifest_chain_from_raw([], _expected_root), do: {:error, :manifest_empty}
 
+  def manifest_chain_from_raw(raw, _expected_root) when not is_list(raw),
+    do: {:error, :manifest_bounds}
+
   def manifest_chain_from_raw(raw, expected_root) when is_list(raw) do
     with :ok <- bound_received(raw),
          {:ok, pages} <- decode_all(raw) do
@@ -112,14 +123,27 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
-  defp bound_received(raw) when length(raw) > @max_manifest_pages, do: {:error, :manifest_bounds}
+  # BOUNDED COUNT, not a `length/1` GUARD. A guard clause calling `length/1` walks the whole
+  # supplied list before the ceiling can reject it -- the traversal the ceiling exists to
+  # prevent. `within?/2` walks at most @max_manifest_pages + 1 cells and answers the same
+  # question for every input.
+  defp bound_received(raw) when not is_list(raw), do: {:error, :manifest_bounds}
 
   defp bound_received(raw) do
+    if BoundedList.within?(raw, @max_manifest_pages),
+      do: bound_received_bytes(raw),
+      else: {:error, :manifest_bounds}
+  end
+
+  defp bound_received_bytes(raw) do
     total =
       Enum.reduce_while(raw, 0, fn b, acc ->
-        size = byte_size(b)
+        # TOTAL over the supplied term. `byte_size/1` RAISES on a non-binary, and this
+        # function's contract is `{:error, reason}`; a page that is not bytes has no size to
+        # bound, which is a bounds refusal.
+        size = if is_binary(b), do: byte_size(b), else: :not_bytes
 
-        if size > @max_manifest_bytes or acc + size > @max_manifest_bytes do
+        if size == :not_bytes or size > @max_manifest_bytes or acc + size > @max_manifest_bytes do
           {:halt, :over}
         else
           {:cont, acc + size}
@@ -163,11 +187,28 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   @spec manifest_chain([struct()], binary() | nil) :: :ok | {:error, error()}
   def manifest_chain([], _expected_root), do: {:error, :manifest_empty}
 
-  def manifest_chain(pages, expected_root) when is_list(pages) do
-    count = length(pages)
+  def manifest_chain(pages, _expected_root) when not is_list(pages),
+    do: {:error, :manifest_bounds}
 
-    with :ok <- check(Enum.all?(pages, &no_unknown_fields?/1), :unknown_fields),
-         :ok <- check(count <= @max_manifest_pages, :manifest_bounds),
+  def manifest_chain(pages, expected_root) when is_list(pages) do
+    # STRUCTURAL COUNTS BEFORE THE RECURSIVE WALK. `no_unknown_fields?/1` descends into every
+    # classification span of every page, so bounding the page list and each page's span count
+    # afterwards did the work these ceilings exist to prevent. Both are bounded counts.
+    #
+    # PRECEDENCE, frozen and matching Go: an oversize page list whose pages ALSO carry
+    # unknown fields is a :manifest_bounds refusal.
+    with :ok <- check(BoundedList.within?(pages, @max_manifest_pages), :manifest_bounds),
+         :ok <-
+           check(
+             Enum.all?(pages, &BoundedList.nonempty_within?(spans_of(&1), @max_spans_per_page)),
+             :manifest_bounds
+           ),
+         # AFTER both ceilings, which read only through the total `spans_of/1`. Placing it
+         # first would report a partial map carrying an over-ceiling span list as a chain
+         # fault when it is a bounds fault.
+         :ok <- page_shapes(pages),
+         :ok <- check(Enum.all?(pages, &no_unknown_fields?/1), :unknown_fields),
+         count = length(pages),
          recovery_id = hd(pages).recovery_id,
          :ok <- check(uuidv7?(recovery_id), :manifest_recovery_id),
          :ok <- walk_pages(pages, recovery_id, count) do
@@ -197,9 +238,9 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     with :ok <- check(page.digest_version == @recovery_digest_version, :manifest_digest_version),
          :ok <- check(page.recovery_id == recovery_id, :manifest_recovery_id),
          :ok <- check(page.page_count == count and page.page_index == i, :manifest_chain),
-         # At least one span: an empty page has no derivable extent, so it can be
-         # neither validated nor chained.
-         :ok <- check(spans != [] and length(spans) <= @max_spans_per_page, :manifest_bounds),
+         # The span count (at least one -- an empty page has no derivable extent -- and at
+         # most @max_spans_per_page) is bounded ABOVE, before the recursive walk. Re-checking
+         # it here would be dead code that reads like the enforcement point.
          # REJECT BEFORE HASHING. Every span body -- including the CLOSED enum sets --
          # is checked before this page is hashed, so the verdict for an unaccepted
          # value cannot depend on the supplied digest.
@@ -216,7 +257,13 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   end
 
   defp body_reducer(span, :ok) do
-    case span_body(span) do
+    # DEEP here, where the reason is `:manifest_span_body`. This covers the oneof body and
+    # everything under it -- identity, source -- so a term the wire could not carry is a body
+    # fault rather than a raise inside the digest.
+    case if(WireShape.wire_shaped?(span),
+           do: span_body(span),
+           else: {:error, :manifest_span_body}
+         ) do
       :ok -> {:cont, :ok}
       err -> {:halt, err}
     end
@@ -257,24 +304,28 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   # The oneof guarantees AT MOST ONE body; exactly-one is enforced here, because a
   # proto3 oneof can legitimately be unset. Likewise proto3 still permits a set body
   # with a nil identity, empty required bytes, or a wrong-width digest.
-  defp span_body(%{classification: {:attributed_active, b}}) do
+  # EACH ONEOF BODY IS MATCHED AS ITS GENERATED STRUCT. A span may be a real
+  # `%EdgeClassificationSpanV1{}` while its oneof body is a bare map, and `b.identity` on a
+  # map without that key raises KeyError inside a function contracted to return
+  # `{:error, reason}`. Matching the struct makes an unrecognised body the same typed
+  # refusal as an unset oneof, which is what it is: a classification no consumer can act on.
+  defp span_body(%{classification: {:attributed_active, %EdgeAttributedActiveV1{} = b}}) do
     with :ok <- identity(b.identity) do
       # range_sha256 is REQUIRED on ACTIVE and absent on PASSIVE.
       check(digest32?(b.range_sha256), :manifest_span_body)
     end
   end
 
-  defp span_body(%{classification: {:attributed_passive, b}}), do: identity(b.identity)
+  defp span_body(%{classification: {:attributed_passive, %EdgeAttributedPassiveV1{} = b}}),
+    do: identity(b.identity)
 
-  defp span_body(%{classification: {:unattributable, b}}),
+  defp span_body(%{classification: {:unattributable, %EdgeUnattributableV1{} = b}}),
     do: check(b.reason in @accepted_reasons, :manifest_span_body)
 
-  # Unset oneof: an interval with no classification, which no consumer can act on.
+  # An unset oneof, or a body that is not the generated struct its tag names.
   defp span_body(_), do: {:error, :manifest_span_body}
 
-  defp identity(nil), do: {:error, :manifest_span_body}
-
-  defp identity(id) do
+  defp identity(%EdgeAttributedSpanIdentityV1{} = id) do
     # Canonical UUIDs, not merely non-empty: the accepted-record validators already
     # require canonical UUIDs for these, and a weaker manifest rule would admit
     # attributed identities no valid record could have produced.
@@ -293,6 +344,9 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     end
   end
 
+  # Absent, or not the generated struct -- same reason as the bodies above.
+  defp identity(_), do: {:error, :manifest_span_body}
+
   # An ABSENT source is legal HERE -- and is NOT the same as PASSIVE. Source presence and
   # attribution classification are INDEPENDENT axes; all four combinations are
   # representable at the record/classification layers. A PAYLOAD contract may still
@@ -301,7 +355,12 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   defp source(nil), do: :ok
 
   # All four members travel together; a partial combination is rejected.
-  defp source(src) do
+  #
+  # NO CATCH-ALL, DELIBERATELY. `nil` is handled above and every other non-struct value is
+  # refused by `WireShape.wire_shaped?/1` before `span_body/1` runs, so a fallback here is a
+  # clause no input reaches. Shape is WireShape's job at this depth; this clause owns
+  # SEMANTICS only.
+  defp source(%EdgeSourceSpanIdentityV1{} = src) do
     check(
       src.kind in @accepted_source_kinds and uuid?(src.context_id) and
         uuid?(src.source_scope_id) and digest32?(src.source_scope_sha256),
@@ -319,6 +378,8 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   authenticated second source of truth.
   """
   @spec tombstone(struct(), [struct()]) :: :ok | {:error, error()}
+  def tombstone(_t, pages) when not is_list(pages), do: {:error, :manifest_bounds}
+
   def tombstone(t, pages) when is_list(pages) do
     with :ok <- check(no_unknown_fields?(t), :unknown_fields),
          :ok <- check(uuidv7?(t.recovery_id), :tombstone_mismatch),
@@ -329,7 +390,12 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
            ),
          :ok <- check(t.prior_spool_id != t.new_spool_id, :tombstone_mismatch),
          :ok <- check(t.digest_version == @recovery_digest_version, :manifest_digest_version),
-         :ok <- check(t.manifest_page_count == length(pages), :manifest_chain),
+         # BOUNDED, and the two outcomes are DIFFERENT FAULTS. This runs before
+         # manifest_chain/2's own ceiling, so `length/1` here walked the whole supplied list
+         # ahead of the boundary meant to bound it -- and folding :over into the equality
+         # reported an over-ceiling manifest as a CHAIN mismatch, which Go and the frozen
+         # requirement both call a bounds fault.
+         :ok <- tombstone_page_count(t, pages),
          :ok <- manifest_chain(pages, t.manifest_root_sha256) do
       check(t.recovery_id == hd(pages).recovery_id, :tombstone_mismatch)
     end
@@ -461,6 +527,56 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
   #
   # The RAW path already rejects ordinary unknown tags at the WireDecode gate; this
   # closes the same hole for callers handing in already-decoded structs.
+  # TOTAL span accessor. `manifest_chain/2` accepts decoded structs, but a hand-built map may
+  # omit the field entirely; returning a non-list lets the bounded count report :improper
+  # rather than raising inside a counting helper.
+  defp spans_of(%{classification_spans: spans}), do: spans
+  defp spans_of(_), do: :absent
+
+  # :over and a count mismatch are DIFFERENT FAULTS. Comparing the declared count is only
+  # meaningful once the list is known to be within the ceiling.
+  defp tombstone_page_count(t, pages) do
+    case BoundedList.count_at_most(pages, @max_manifest_pages) do
+      :over -> {:error, :manifest_bounds}
+      :improper -> {:error, :manifest_bounds}
+      {:ok, n} -> check(t.manifest_page_count == n, :manifest_chain)
+    end
+  end
+
+  # TOTALITY: the count ceilings run ahead of the structural walk, so `hd(pages)` and every
+  # field read below it would otherwise see shapes nothing has validated, raising KeyError
+  # inside a function contracted to return `{:error, reason}`.
+  #
+  # THE GENERATED STRUCT, not a map with the right keys. `match?(%{recovery_id: _}, ...)`
+  # accepts any map carrying that key and leaves every OTHER field -- page_index, page_count,
+  # prev_page_sha256, terminal, and each span's own fields -- free to be missing, so the
+  # KeyError simply moves further down. A page that is not `%EdgeLossManifestPageV1{}` has no
+  # complete field set to validate, and the same holds for each span it carries.
+  defp page_shapes(pages) do
+    if Enum.all?(pages, &page_struct?/1), do: :ok, else: {:error, :manifest_chain}
+  end
+
+  # THE STRUCT NAME IS NOT THE SHAPE. `%EdgeLossManifestPageV1{}` proves what the struct is
+  # CALLED; every field is still `term()`, so `terminal: :bad` or a non-integer sequence
+  # reaches the field-framed digest and raises FunctionClauseError on `u64/1` or `bytes/1`.
+  # `WireShape.wire_shaped?/1` checks each field against its GENERATED declared type and
+  # recurses through spans, bodies, identities and sources.
+  defp page_struct?(%EdgeLossManifestPageV1{classification_spans: spans} = page)
+       when is_list(spans) do
+    # SHALLOW at this level. A recursive check here would report a malformed classification
+    # body as a PAGE fault, collapsing it into `:manifest_chain`; the span level below reports
+    # `:manifest_span_body`, which is what a body no consumer can interpret actually is.
+    WireShape.scalars_wire_shaped?(page) and
+      Enum.all?(spans, &span_wire_shaped?/1)
+  end
+
+  defp page_struct?(_), do: false
+
+  defp span_wire_shaped?(%EdgeClassificationSpanV1{} = span),
+    do: WireShape.scalars_wire_shaped?(span)
+
+  defp span_wire_shaped?(_), do: false
+
   defp no_unknown_fields?(%{__unknown_fields__: unknown}) when unknown not in [nil, []], do: false
 
   defp no_unknown_fields?(%_{} = struct) do
@@ -470,7 +586,14 @@ defmodule ServiceRadar.Edge.RecoveryValidate do
     |> Enum.all?(&no_unknown_fields?/1)
   end
 
-  defp no_unknown_fields?(list) when is_list(list), do: Enum.all?(list, &no_unknown_fields?/1)
+  # PROPER-LIST TOTAL, WHICH IS NOT THE SAME AS REFUSING. `is_list([1 | :tail])` is TRUE and
+  # `Enum.all?/2` then raises on the tail, inside a predicate whose callers treat `false` as a
+  # refusal and have no clause for an exception. Walking the cells explicitly stops the crash;
+  # the improper TAIL then falls to the catch-all below, which answers `true` -- this predicate
+  # asks about unknown fields, and an improper tail carries none. The REFUSAL comes from the
+  # count ceiling or the shape check, both of which run first.
+  defp no_unknown_fields?([]), do: true
+  defp no_unknown_fields?([h | t]), do: no_unknown_fields?(h) and no_unknown_fields?(t)
   defp no_unknown_fields?({_tag, value}), do: no_unknown_fields?(value)
   defp no_unknown_fields?(_), do: true
 

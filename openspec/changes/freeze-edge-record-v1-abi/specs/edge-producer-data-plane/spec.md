@@ -2976,22 +2976,31 @@ rule is never read as evidence for this one.
   constrained by the lane biconditional before its typed check is reached, so removing that
   check alone changes no verdict and the scenario cannot be satisfied for it
 
-### Requirement: Residual domain-semantic bounds are frozen by value, and every one is an INCLUSIVE maximum
-Each bound below SHALL hold the stated value in every implementation, and each SHALL be
-INCLUSIVE: a value AT the bound SHALL be accepted and a value ONE OVER SHALL be refused. The
-inclusivity half is normative on its own. A boundary asserted only as "too big is refused"
-permits an implementation to tighten `>` into `>=` and silently refuse conforming producers at
-the exact ceiling, which is a compatibility break no refusal-only evidence can detect.
+### Requirement: Residual domain-semantic bounds are frozen by value, each as an attainable maximum or a pre-parse guard
+Each bound below SHALL hold the stated value in every implementation.
 
-| bound | value | applies to | lower bound |
-| --- | --- | --- | --- |
-| `MaxPolicyIDBytes` | 128 | `availability_policy_id` on a plan HEADER and on a `SweepAssignmentRecordV1` | 1 (empty is refused) |
-| `MaxRangeStrBytes` | 64 | `cidr`, `first_address`, `last_address` on a `TargetRangeV1` | none |
-| `MaxTransportProvenanceHeaderBytes` | 512 | one encoded `Sr-Edge-Transport-Provenance` header, on RECEIVED bytes before decode | none |
-| `MaxPrincipalBytes` | 128 | an authenticated component-id principal, at every site that carries one | 1 (empty is refused) |
-| `MaxManifestPages` | 1024 | the supplied page LIST of a PLAN, matching the value already frozen for a recovery manifest | 1 (an empty list is refused) |
-| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | 1 (an empty page is refused) |
-| `MaxSweepHostsPerBatch` | 2000 | host entries in one `SweepObservationBatchV1` | none |
+FOR AN ATTAINABLE MAXIMUM the bound SHALL be INCLUSIVE: a value AT the bound SHALL be accepted
+and a value ONE OVER SHALL be refused. The inclusivity half is normative on its own. A boundary
+asserted only as "too big is refused" permits an implementation to tighten `>` into `>=` and
+silently refuse conforming producers at the exact ceiling, which is a compatibility break no
+refusal-only evidence can detect.
+
+FOR A GUARD-CLASS BOUND the obligation is DIFFERENT, because no valid value reaches the
+ceiling: the LARGEST VALID input SHALL be accepted, and an over-limit input SHALL be refused
+BEFORE the parser the guard protects is entered. "Accepted at the ceiling" is not required of
+these and SHALL NOT be demanded as evidence -- there is no such input to construct. The table
+names which bounds are which.
+
+| bound | value | applies to | lower bound | class |
+| --- | --- | --- | --- | --- |
+| `MaxPolicyIDBytes` | 128 | `availability_policy_id` on a plan HEADER and on a `SweepAssignmentRecordV1` | 1 (empty is refused) | attainable |
+| `MaxRangeStrBytes` | 64 | `cidr`, `first_address`, `last_address` on a `TargetRangeV1` | none | **GUARD** |
+| `MaxTransportProvenanceHeaderBytes` | 512 | one encoded `Sr-Edge-Transport-Provenance` header, on RECEIVED bytes before decode | none | **GUARD** |
+| `MaxPrincipalBytes` | 128 | an authenticated component-id principal, at every site that carries one | 1 (empty is refused) | attainable |
+| `MaxManifestPages` | 1024 | the supplied page LIST of a PLAN, matching the value already frozen for a recovery manifest | 1 (an empty list is refused) | attainable |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | 1 (an empty page is refused) | attainable |
+| `MaxSweepHostsPerBatch` | 2000 | host entries in one `SweepObservationBatchV1` | none | attainable |
+| `MaxTraceStrBytes` | 256 | `abort_reason` on a `SweepExecutionEventV1`, **only when its kind is ABORTED** | 1 when ABORTED; **exactly 0 for every other kind** | attainable |
 
 A RANGE's `availability_policy_id` is NOT an independent bound. It SHALL equal the plan header's,
 and the header's is already bounded, so the range's length is DERIVED. An implementation MAY
@@ -3005,13 +3014,23 @@ zones are forbidden no canonical range string approaches 64. Their obligation is
 input is refused BEFORE the parser they protect is entered; the inclusivity rule above binds them
 only in the sense that a conforming value SHALL NOT be refused for length.
 
-#### Scenario: A value at the ceiling is admitted
-- **WHEN** a field carries exactly its frozen maximum and is otherwise valid
+#### Scenario: An ATTAINABLE maximum admits a value at the ceiling
+- **WHEN** a field bounded by an attainable maximum carries exactly that value and is
+  otherwise valid
 - **THEN** the boundary accepts it
 
-#### Scenario: A value one over the ceiling is refused
-- **WHEN** a field carries exactly one more than its frozen maximum
+#### Scenario: An ATTAINABLE maximum refuses one over
+- **WHEN** a field bounded by an attainable maximum carries exactly one more than it
 - **THEN** the boundary refuses it
+
+#### Scenario: A GUARD-class bound admits the largest valid input
+- **WHEN** an input bounded by a pre-parse guard carries the largest value its own grammar
+  permits
+- **THEN** the boundary accepts it, and no at-ceiling input is required to exist
+
+#### Scenario: A GUARD-class bound refuses before parsing
+- **WHEN** an input exceeds a pre-parse guard
+- **THEN** it is refused before the parser that guard protects is entered
 
 #### Scenario: A derived length check cannot be reached on its own
 - **WHEN** a plan range's `availability_policy_id` is longer than the frozen maximum
@@ -3033,8 +3052,8 @@ SPELLING, because the re-encoded form no longer matches what arrived. One accept
 and neither says "zone".
 
 THE ZONE SHALL NOT BE STRIPPED, NORMALISED, OR OTHERWISE REPAIRED. These strings are inputs to
-the range, page, manifest-root, header and assignment digest chain, so rewriting one changes
-every digest above it and silently forks a plan's identity from the bytes its author signed. The
+the range, page, PLAN-ROOT, header and assignment digest chain, so rewriting one changes every
+digest above it and silently forks a plan's identity from the bytes its author signed. The
 only conforming handling is refusal. A plan carrying zoned addresses SHALL be REGENERATED by its
 author, not rewritten by a consumer.
 
@@ -3042,9 +3061,6 @@ author, not rewritten by a consumer.
 - **WHEN** any plan range address string contains `%`
 - **THEN** it is refused, and the address parser is not entered
 
-#### Scenario: The refusal is not a spelling verdict
-- **WHEN** a scoped address is refused
-- **THEN** the reason identifies the ZONE, so the two runtimes agree on why and not merely that
 
 ### Requirement: A spool-loss tombstone reason is bounded on BOTH sides
 A tombstone's `reason` SHALL be at least 1 and at most `MaxReasonBytes` bytes. An EMPTY reason
@@ -3063,3 +3079,100 @@ boundary, and satisfying this requirement there would not satisfy it here.
 #### Scenario: An empty reason is refused
 - **WHEN** a tombstone carries a zero-length `reason`
 - **THEN** the signed recovery-control boundary refuses it
+
+### Requirement: A count ceiling SHALL be enforced before the traversal it bounds, and SHALL NOT require that traversal to enforce
+A count ceiling on a collection THIS CHANGE OWNS SHALL be applied BEFORE any recursive walk
+over that collection, and SHALL be obtained without traversing more than `ceiling + 1` elements.
+The owned collections are a plan's page list and each page's range list, a recovery manifest's
+page list and each page's classification-span list, and a sweep batch's host list.
+
+SCOPED DELIBERATELY. Stating it of "every structural count ceiling" would reallocate bounds
+other tasks own, and this requirement is not a licence to restructure them.
+
+These are two rules because they fail independently, and both were violated while every
+implementation returned the correct verdict.
+
+ORDER. A ceiling checked after a recursive walk has already permitted the work it exists to
+forbid. Rejecting unknown fields before hashing is a real obligation and is NOT weakened here:
+what changes is that a COUNT -- available without interpreting anything -- SHALL precede the
+walk. Where a per-element count bounds a nested collection, it SHALL precede descent into that
+element's children.
+
+WHAT THE COUNT DOES NOT OVERTAKE: rules that validate the CONTAINER the collection arrived
+with. A plan header, or a tombstone's own identity and digest version, is validated before
+that container's collection is counted, so a stale header digest is reported as a digest fault
+rather than masked by a count mismatch. The ceilings move ahead of the WALK, not ahead of
+everything.
+
+WHAT THE COUNT DOES OVERTAKE: any RELATION over that collection's SIZE, including a count the
+container declares for it. An over-ceiling collection is a BOUNDS fault whatever the container
+declares, and reporting it as a mismatch describes the wrong problem -- the collection is not
+merely the wrong size, it is a size no conforming producer may send. This is also the only
+order every implementation can hold: obtaining a declared-count comparison first requires
+knowing the actual count, and an implementation whose count is not O(1) cannot learn it
+without the traversal the ceiling forbids. A declared count is therefore compared ONLY once
+the collection is known to be within its ceiling.
+
+#### Scenario: A ceiling outranks a declared count
+- **WHEN** a collection exceeds its ceiling AND its container declares a different size
+- **THEN** the refusal is the ceiling's, not the mismatch
+
+COST. `length/1`-style measurement of an attacker-supplied list performs exactly the traversal
+the ceiling forbids: the list is walked in full to discover it is too long. A conforming
+implementation stops at `ceiling + 1` elements, which is the smallest walk that can distinguish
+"at the ceiling" from "over" it. An implementation whose language makes the count O(1) satisfies
+this trivially and SHALL NOT restructure to imitate the bounded walk.
+
+NEITHER RULE IS OBSERVABLE FROM A VERDICT, which is why this requirement exists at all. A
+correct implementation and a violating one refuse the same inputs and admit the same inputs;
+they differ only in WHICH refusal arrives when two rules are violated at once, and in how much
+work precedes it. Evidence SHALL therefore assert PRECEDENCE -- an input violating both a count
+ceiling and the walk's rule, refused by the ceiling -- and SHALL assert bounded traversal by a
+means that fails deterministically, not by timing.
+
+A COUNT RUNNING AHEAD OF A STRUCTURAL WALK SEES UNVALIDATED SHAPES, and SHALL remain TOTAL over
+them: a collection element that is not the expected shape has no count to take, which is a
+refusal and never a crash.
+
+#### Scenario: The ceiling wins when both rules are violated
+- **WHEN** a supplied collection is over its count ceiling AND its elements would also fail the
+  recursive walk
+- **THEN** the refusal is the count ceiling's
+
+#### Scenario: The walk still precedes semantics
+- **WHEN** a collection is within every count ceiling and an element fails both the recursive
+  walk and a semantic rule
+- **THEN** the refusal is the walk's
+
+#### Scenario: Counting does not walk the whole collection
+- **WHEN** a supplied collection exceeds its ceiling
+- **THEN** the refusal is produced without examining elements beyond `ceiling + 1`
+
+### Requirement: A record's declared projected cost SHALL NOT exceed the maxima its production capability carries
+A record's `cost_model_version` SHALL equal the one in its production capability, and its
+`projected_row_count` and `projected_write_bytes` SHALL each be less than or equal to the
+corresponding maximum that capability declares. A record failing any of the three SHALL be
+refused.
+
+THIS IS A STRUCTURAL RULE, NOT AN AUTHORIZATION ONE, and the distinction is normative. The
+comparison runs during whole-record validation, which performs NO cryptographic verification, so
+the maxima being compared against are UNVERIFIED at that moment. It bounds a record's declared
+self-description against the grant it claims to fit; it does not establish that the grant is
+genuine. An implementation SHALL NOT present this check as evidence that a capability was
+honoured.
+
+THE RELATION IS INCLUSIVE on both quantities: a record declaring EXACTLY its maximum SHALL be
+accepted. Each of the three conditions SHALL be independently refusable -- evidence moving two
+at once cannot show which one a validator read.
+
+WHETHER A DECLARED COST COVERS THE WORK A RECORD ACTUALLY CAUSES is a different question and is
+NOT frozen here.
+
+#### Scenario: A declared cost at the maximum is admitted
+- **WHEN** a record declares exactly the row count and write bytes its capability permits
+- **THEN** it is admitted
+
+#### Scenario: Each operand refuses on its own
+- **WHEN** a record exceeds exactly one of row count or write bytes, or disagrees on
+  `cost_model_version`, with the others valid
+- **THEN** it is refused
