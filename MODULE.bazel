@@ -985,6 +985,35 @@ local_path_override(
     path = "third_party/rules_aya_ebpf",
 )
 
+# Pinned HERE, not inherited from the ruleset's defaults, and that is deliberate.
+#
+# `-Z build-std` compiles core from source, so it resolves the std workspace's own
+# crates.io dependencies alongside netprobe's -- and those are what
+# //third_party/netprobe_ebpf_vendor holds. The vendor tree is therefore a function
+# of this exact nightly. Inheriting the ruleset's default would put one half of that
+# pair under someone else's control: once rules_aya_ebpf lives in its own repo,
+# bumping its default nightly would invalidate our vendor tree from the outside.
+#
+# With the pin here, the nightly and the vendor tree live in one repo and move in one
+# commit, and upgrading the ruleset cannot change what we compile against. Same reason
+# the OTP and Elixir versions are pinned above rather than taken from DEFAULT_*.
+#
+# Bumping: see //third_party/rules_aya_ebpf/README.md. rustc's LLVM must not exceed
+# bpf-linker's, and the vendor tree must be regenerated in the same commit.
+aya_ebpf_ext = use_extension("@rules_aya_ebpf//bzlmod:extensions.bzl", "aya_ebpf")
+aya_ebpf_ext.nightly(
+    cargo_sha256 = "fe5f7e032778e3ecb543c23a254f2862a5ce2682daff281fdaeb6fd0f2c02d5c",
+    date = "2026-08-05",
+    rust_src_sha256 = "b03bfe0cc73b77d00e57cdfe895fa1bbcb0b6cfad236eaae4294ebe55aca6526",
+    rust_std_sha256 = "d1fa3abf0ba340bd055a6de89786a3b9510bb5ab43efe433836b21d729a52c44",
+    rustc_sha256 = "a20c82439bff4a21873e88b6a14d836285ba79a4e9196d602af2b4ff1ddf2c8b",
+)
+aya_ebpf_ext.bpf_linker(
+    archive_extension = "tar.zst",
+    sha256 = "4dda77daab6c5f120a468e6d3ede2498f5bd47ece712172cfb7290176d93d015",
+    version = "0.10.4",
+)
+
 tinygo_host_repository(
     name = "tinygo_host",
     version = "0.40.1",

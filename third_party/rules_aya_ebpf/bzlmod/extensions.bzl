@@ -195,11 +195,13 @@ def _impl(module_ctx):
 
     _hub(name = "aya_ebpf_toolchains", platforms = _EXEC_PLATFORMS.keys())
 
-    return module_ctx.extension_metadata(
-        root_module_direct_deps = ["aya_ebpf_toolchains"],
-        root_module_direct_dev_deps = [],
-        reproducible = True,
-    )
+    # No root_module_direct_deps: the hub is this ruleset's own plumbing, use_repo'd
+    # and registered by its MODULE.bazel. A consumer uses this extension only to move
+    # the pins, and should not have to name a repository it never references.
+    #
+    # Every spoke is content-addressed by sha256 or a pinned commit, so re-evaluating
+    # cannot produce a different result -- which keeps them out of MODULE.bazel.lock.
+    return module_ctx.extension_metadata(reproducible = True)
 
 nightly = tag_class(attrs = {
     "date": attr.string(default = DEFAULT_NIGHTLY_DATE),

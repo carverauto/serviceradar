@@ -78,7 +78,14 @@ rustc_bin="$prefix/bin/rustc"
 src="$work/crate"
 mkdir -p "$src"
 cp -R "$ROOT/{crate_dir}/." "$src/"
-printf '\\n[workspace]\\n' >> "$src/Cargo.toml"   # detach from any enclosing workspace
+# The crate has to resolve on its own rather than as part of an enclosing Cargo
+# workspace. Declaring [workspace] in the crate's own manifest is the better place
+# for it -- that is what makes plain `cargo` usable in the source directory -- so
+# only add one when the author has not. Appending unconditionally would be a TOML
+# duplicate-key error for exactly the crates that got it right.
+if ! grep -qE '^[[:space:]]*\\[workspace\\][[:space:]]*$' "$src/Cargo.toml"; then
+  printf '\\n[workspace]\\n' >> "$src/Cargo.toml"
+fi
 mkdir -p "$src/.cargo"
 cat > "$src/.cargo/config.toml" <<EOF
 [source.crates-io]
