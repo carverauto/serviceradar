@@ -61,13 +61,20 @@ JetStream sizing values
   - `logCollector.streamReplicas`
   - `logCollector.streamMaxBytes`
   - `trapd.streamReplicas`
+- Dedicated **`flows`** stream (owned by flow-collector; isolated from logs/OTEL on `events`):
+  - `flowCollector.config.stream_name` (default `flows`)
   - `flowCollector.config.stream_replicas`
-  - `flowCollector.config.stream_max_bytes`
+  - `flowCollector.config.stream_max_bytes` (default 10 GiB)
+  - `flowCollector.config.stream_max_age_secs` (default 6h)
+  - EventWriter consumers use concrete `flows.raw.<name>` leaves only; do not put
+    ownership wildcards such as `flows.raw.>` in collector subjects expecting
+    automatic CNPG consumers. Host-slice uses `flow.host-slice.<agent_id>` and
+    the attribution joiner path, not EventWriter flow consumers.
 - Datasvc owns the KV/object streams and now reconciles both replica count and reserved capacity:
   - `datasvc.jetstreamReplicas`
-  - `datasvc.bucketMaxBytes`
+  - `datasvc.bucketMaxBytes` (default 4 GiB)
   - `datasvc.objectMaxBytes`
-  - `datasvc.objectStoreBytes`
+  - `datasvc.objectStoreBytes` (default 10 GiB)
 - The example HA profile intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
 - Agent release object cleanup is enabled by default through `objectStoreRetention`; it keeps the most recently imported release plus any releases still referenced by active rollout state.
 - `bmpCollector` is scaled to `3` pods in the example profile, but its dedicated causal-overlay stream still uses `bmpCollector.config.streamReplicas=1`. That is an explicit sizing choice, not a pod-level HA limitation.

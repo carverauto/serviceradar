@@ -1013,10 +1013,16 @@ defmodule ServiceRadar.EventWriter.Config do
   defp sanitize_positive_int(_value, default), do: default
 
   defp load_streams(config) do
-    case Keyword.get(config, :streams) do
-      nil -> default_streams()
-      streams when is_list(streams) -> streams
-    end
+    streams =
+      case Keyword.get(config, :streams) do
+        nil -> default_streams()
+        streams when is_list(streams) -> streams
+      end
+
+    # Apply the same subject guards as EXTRA env so custom :streams cannot
+    # reintroduce wildcards or host-slice no-op consumers.
+    Enum.each(streams, &assert_valid_event_writer_stream_subject!/1)
+    streams
   end
 
   defp load_non_flow_streams(config) do
@@ -1040,7 +1046,44 @@ defmodule ServiceRadar.EventWriter.Config do
           if from_main == [], do: default_flow_streams(), else: from_main
       end
 
+    Enum.each(base, &assert_valid_flow_pipeline_subject!/1)
     base ++ extra_live_flow_streams(base)
+  end
+
+  @doc false
+  def assert_valid_event_writer_stream_subject!(stream) when is_map(stream) do
+    subject = Map.get(stream, :subject) || Map.get(stream, "subject")
+
+    cond do
+      not is_binary(subject) or subject == "" ->
+        :ok
+
+      String.starts_with?(subject, "flow.host-slice.") ->
+        raise ArgumentError,
+              "EventWriter stream config rejects flow.host-slice.* subjects " <>
+                "(attribution intermediate, not ocsf persistence): #{inspect(subject)}"
+
+      String.starts_with?(subject, "flows.raw.") and not exact_nats_subject?(subject) ->
+        raise ArgumentError,
+              "EventWriter stream config rejects whole-token wildcards under flows.raw " <>
+                "(use concrete leaves): #{inspect(subject)}"
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc false
+  def assert_valid_flow_pipeline_subject!(stream) when is_map(stream) do
+    assert_valid_event_writer_stream_subject!(stream)
+    subject = Map.get(stream, :subject) || Map.get(stream, "subject")
+
+    if is_binary(subject) and subject != "" and not String.starts_with?(subject, "flows.raw.") do
+      raise ArgumentError,
+            "flow EventWriter pipeline only accepts flows.raw.* subjects, got: #{inspect(subject)}"
+    end
+
+    :ok
   end
 
   defp sanitize_non_neg_int(value, _default) when is_integer(value) and value >= 0, do: value

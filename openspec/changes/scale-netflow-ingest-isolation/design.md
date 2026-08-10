@@ -54,7 +54,16 @@ Evidence from demo incident (2026-08-09):
 
 - `flows.raw.netflow`
 - `flows.raw.sflow`
-- `flows.raw.>` (catch-all for host-slice / future flow variants if already published under that prefix)
+- concrete extension leaves such as `flows.raw.ipfix` when configured
+- `flow.host-slice.<agent_id>` when host-network-visibility slices are configured
+  (attribution intermediate; **not** an EventWriter ocsf consumer subject)
+
+EventWriter consumers require **concrete** `flows.raw.<name>` leaves only.
+Whole-token ownership wildcards such as `flows.raw.>` or `flows.>` are **not**
+auto-consumed: they leave future leaves stored without a consumer and can block
+subject rehome onto the dedicated stream. Host-slice traffic uses the separate
+`flow.host-slice.*` namespace and the attribution joiner path, not the
+`flows.raw.*` Broadway demand domain.
 
 **Rationale:** Isolation of retention and storage from logs/OTEL. Metrics already moved toward a dedicated `metrics` stream pattern; flows get the same treatment.
 

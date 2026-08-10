@@ -225,9 +225,9 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | Parameter | Purpose | Default |
 |-----------|---------|---------|
 | `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `1` |
-| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `5368709120` |
+| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `4294967296` (4 GiB) |
 | `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
-| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `17179869184` |
+| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `10737418240` (10 GiB) |
 | `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
@@ -236,10 +236,17 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `1` |
 | `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `1` |
-| `flowCollector.config.stream_replicas` | JetStream replica count for the dedicated `flows` stream | `3` |
-| `flowCollector.config.stream_max_bytes` | Max bytes for flow subjects on `events` | `10737418240` |
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
 | `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | `10737418240` |
+
+Dedicated **`flows`** stream (flow-collector owns ensure/reconcile; not the shared `events` bus):
+
+| Parameter | Purpose | Default |
+|-----------|---------|---------|
+| `flowCollector.config.stream_name` | JetStream stream name for raw flows | `flows` |
+| `flowCollector.config.stream_replicas` | JetStream replica count for the dedicated `flows` stream | `3` |
+| `flowCollector.config.stream_max_bytes` | Max bytes for the dedicated `flows` stream | `10737418240` (10 GiB) |
+| `flowCollector.config.stream_max_age_secs` | Max age for the dedicated `flows` stream | `21600` (6h) |
 
 In `demo`, the shared `events` path runs at `3` replicas with smaller reserved caps so JetStream placement fits within the account budget. Datasvc keeps the KV stream small while leaving object-store headroom for one retained agent release plus a replacement import before retention runs. `bmpCollector` runs with `3` pods in demo, but its dedicated stream is still intentionally left at `1` replica until that stream budget is sized separately.
 

@@ -69,9 +69,12 @@ pub struct Publisher {
 /// Outcome of one publish pass over a pending queue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PublishPassResult {
-    Ok,
+    /// Finished a chunk. `succeeded` = ACKed; `retryable` = requeued failures.
+    Completed { succeeded: usize, retryable: usize },
     /// Owned stream missing/unusable — readiness must clear and ensure re-run.
     StreamMissing,
+    /// Client not Connected — caller must clear readiness.
+    Disconnected,
 }
 
 impl Publisher {
@@ -98,14 +101,15 @@ impl Publisher {
         let (client, admin_js, publish_js, verified_dup_window) = self.connect_with_retry().await?;
         let mut max_retry_age = max_retry_age_from_window(verified_dup_window);
         mark_publisher_ready(&self.config)?;
+        let mut publisher_ready = true;
 
         let max_retry_queue = self
             .config
             .channel_size
             .max(self.config.batch_size.saturating_mul(4));
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
-        // Independent of fresh-traffic success — fresh batches must not reset a
-        // still-failing retry schedule (would hammer NATS once per batch).
+        // Independent of fresh-traffic success — only no-progress retry passes
+        // advance exponential backoff.
         let mut next_retry_at = Instant::now();
         let mut retry_backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
@@ -118,6 +122,24 @@ impl Publisher {
         );
 
         loop {
+            // Clear readiness while disconnected so kube endpoints stop sending
+            // UDP to a collector that cannot publish; re-ensure after reconnect.
+            let connected = matches!(
+                client.connection_state(),
+                async_nats::connection::State::Connected
+            );
+            if !connected {
+                if publisher_ready {
+                    warn!("NATS disconnected; clearing readiness marker");
+                    clear_publisher_ready(&self.config)?;
+                    publisher_ready = false;
+                }
+            } else if !publisher_ready {
+                self.recover_owned_stream(&client, &admin_js, &mut max_retry_age, "reconnect")
+                    .await?;
+                publisher_ready = true;
+            }
+
             expire_old_retries(&mut retry_q, max_retry_age);
 
             // Interleave: non-blocking drain of fresh traffic first so retries
@@ -133,25 +155,21 @@ impl Publisher {
                             let (more, more_closed) = self.drain_fresh_batch();
                             batch.extend(more);
                             if more_closed {
-                                if let PublishPassResult::StreamMissing = self
-                                    .publish_and_requeue(
-                                        &client,
-                                        &publish_js,
-                                        &mut batch,
-                                        &mut retry_q,
-                                        max_retry_queue,
-                                        max_retry_age,
-                                    )
-                                    .await
-                                {
-                                    self.recover_owned_stream(
-                                        &client,
-                                        &admin_js,
-                                        &mut max_retry_age,
-                                        "shutdown path",
-                                    )
-                                    .await?;
-                                }
+                                self.handle_publish_pass(
+                                    &client,
+                                    &admin_js,
+                                    &publish_js,
+                                    &mut batch,
+                                    &mut retry_q,
+                                    max_retry_queue,
+                                    &mut max_retry_age,
+                                    &mut publisher_ready,
+                                    &mut next_retry_at,
+                                    &mut retry_backoff,
+                                    max_backoff,
+                                    true,
+                                )
+                                .await?;
                                 return self
                                     .drain_retries_until_empty(
                                         &client,
@@ -159,6 +177,7 @@ impl Publisher {
                                         &publish_js,
                                         &mut retry_q,
                                         &mut max_retry_age,
+                                        &mut publisher_ready,
                                     )
                                     .await;
                             }
@@ -171,6 +190,7 @@ impl Publisher {
                                     &publish_js,
                                     &mut retry_q,
                                     &mut max_retry_age,
+                                    &mut publisher_ready,
                                 )
                                 .await;
                         }
@@ -193,6 +213,7 @@ impl Publisher {
                                             &publish_js,
                                             &mut retry_q,
                                             &mut max_retry_age,
+                                            &mut publisher_ready,
                                         )
                                         .await;
                                 }
@@ -203,50 +224,40 @@ impl Publisher {
                 }
             }
 
-            if !batch.is_empty()
-                && let PublishPassResult::StreamMissing = self
-                    .publish_and_requeue(
-                        &client,
-                        &publish_js,
-                        &mut batch,
-                        &mut retry_q,
-                        max_retry_queue,
-                        max_retry_age,
-                    )
-                    .await
-            {
-                self.recover_owned_stream(&client, &admin_js, &mut max_retry_age, "fresh publish")
-                    .await?;
-                // Do not advance retry schedule — stream recovery is separate.
-                // Fresh success must NOT reset retry_backoff / next_retry_at.
+            if !batch.is_empty() {
+                self.handle_publish_pass(
+                    &client,
+                    &admin_js,
+                    &publish_js,
+                    &mut batch,
+                    &mut retry_q,
+                    max_retry_queue,
+                    &mut max_retry_age,
+                    &mut publisher_ready,
+                    &mut next_retry_at,
+                    &mut retry_backoff,
+                    max_backoff,
+                    false, // fresh pass does not drive retry backoff schedule
+                )
+                .await?;
             }
 
             if !retry_q.is_empty() && Instant::now() >= next_retry_at {
-                wait_until_connected(&client).await;
-                match self
-                    .publish_pending(&client, &publish_js, &mut retry_q, max_retry_age)
-                    .await
-                {
-                    PublishPassResult::StreamMissing => {
-                        self.recover_owned_stream(
-                            &client,
-                            &admin_js,
-                            &mut max_retry_age,
-                            "retry publish",
-                        )
-                        .await?;
-                        next_retry_at = Instant::now() + retry_backoff;
-                    }
-                    PublishPassResult::Ok => {
-                        if retry_q.is_empty() {
-                            retry_backoff = Duration::from_millis(100);
-                            next_retry_at = Instant::now();
-                        } else {
-                            retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
-                            next_retry_at = Instant::now() + retry_backoff;
-                        }
-                    }
-                }
+                self.handle_publish_pass(
+                    &client,
+                    &admin_js,
+                    &publish_js,
+                    &mut Vec::new(), // empty fresh; drain retry_q directly
+                    &mut retry_q,
+                    max_retry_queue,
+                    &mut max_retry_age,
+                    &mut publisher_ready,
+                    &mut next_retry_at,
+                    &mut retry_backoff,
+                    max_backoff,
+                    true,
+                )
+                .await?;
             }
 
             if closed {
@@ -257,10 +268,91 @@ impl Publisher {
                         &publish_js,
                         &mut retry_q,
                         &mut max_retry_age,
+                        &mut publisher_ready,
                     )
                     .await;
             }
         }
+    }
+
+    /// Publish `batch` (if any) then one chunk of `retry_q`, updating readiness
+    /// and retry schedule from pass stats.
+    #[allow(clippy::too_many_arguments)]
+    async fn handle_publish_pass(
+        &self,
+        client: &Client,
+        admin_js: &jetstream::Context,
+        publish_js: &jetstream::Context,
+        batch: &mut Vec<PendingPublish>,
+        retry_q: &mut VecDeque<PendingPublish>,
+        max_retry_queue: usize,
+        max_retry_age: &mut Duration,
+        publisher_ready: &mut bool,
+        next_retry_at: &mut Instant,
+        retry_backoff: &mut Duration,
+        max_backoff: Duration,
+        drive_retry_schedule: bool,
+    ) -> Result<()> {
+        // Merge fresh batch into a local pending for one pass, or process retry_q.
+        let result = if !batch.is_empty() {
+            self.publish_and_requeue(
+                client,
+                publish_js,
+                batch,
+                retry_q,
+                max_retry_queue,
+                *max_retry_age,
+            )
+            .await
+        } else {
+            wait_until_connected(client).await;
+            self.publish_pending(client, publish_js, retry_q, *max_retry_age)
+                .await
+        };
+
+        match result {
+            PublishPassResult::StreamMissing => {
+                self.recover_owned_stream(client, admin_js, max_retry_age, "stream missing")
+                    .await?;
+                *publisher_ready = true;
+                if drive_retry_schedule {
+                    *next_retry_at = Instant::now() + *retry_backoff;
+                }
+            }
+            PublishPassResult::Disconnected => {
+                if *publisher_ready {
+                    clear_publisher_ready(&self.config)?;
+                    *publisher_ready = false;
+                }
+                if drive_retry_schedule {
+                    *retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
+                    *next_retry_at = Instant::now() + *retry_backoff;
+                }
+            }
+            PublishPassResult::Completed {
+                succeeded,
+                retryable,
+            } => {
+                if !drive_retry_schedule {
+                    return Ok(());
+                }
+                // Progress: at least one ACK → process next chunk immediately.
+                // No progress with retryable failures → exponential backoff.
+                if succeeded > 0 {
+                    *next_retry_at = Instant::now();
+                    if retry_q.is_empty() {
+                        *retry_backoff = Duration::from_millis(100);
+                    }
+                } else if retryable > 0 || !retry_q.is_empty() {
+                    *retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
+                    *next_retry_at = Instant::now() + *retry_backoff;
+                } else {
+                    *retry_backoff = Duration::from_millis(100);
+                    *next_retry_at = Instant::now();
+                }
+            }
+        }
+        Ok(())
     }
 
     fn drain_fresh_batch(&mut self) -> (Vec<PendingPublish>, bool) {
@@ -289,7 +381,10 @@ impl Publisher {
         max_retry_age: Duration,
     ) -> PublishPassResult {
         if batch.is_empty() {
-            return PublishPassResult::Ok;
+            return PublishPassResult::Completed {
+                succeeded: 0,
+                retryable: 0,
+            };
         }
         let mut pending: VecDeque<PendingPublish> = std::mem::take(batch).into();
         wait_until_connected(client).await;
@@ -316,6 +411,7 @@ impl Publisher {
         publish_js: &jetstream::Context,
         retry_q: &mut VecDeque<PendingPublish>,
         max_retry_age: &mut Duration,
+        publisher_ready: &mut bool,
     ) -> Result<()> {
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
@@ -334,20 +430,43 @@ impl Publisher {
                 PublishPassResult::StreamMissing => {
                     self.recover_owned_stream(client, admin_js, max_retry_age, "shutdown drain")
                         .await?;
+                    *publisher_ready = true;
+                    // Progress may resume after re-ensure — do not sleep yet.
+                    continue;
                 }
-                PublishPassResult::Ok => {}
+                PublishPassResult::Disconnected => {
+                    if *publisher_ready {
+                        clear_publisher_ready(&self.config)?;
+                        *publisher_ready = false;
+                    }
+                    sleep(backoff).await;
+                    backoff = min(backoff.saturating_mul(2), max_backoff);
+                }
+                PublishPassResult::Completed {
+                    succeeded,
+                    retryable,
+                } => {
+                    if retry_q.is_empty() {
+                        break;
+                    }
+                    // Immediate next chunk after successful ACKs; back off only
+                    // when the pass made no progress.
+                    if succeeded > 0 {
+                        backoff = Duration::from_millis(100);
+                        continue;
+                    }
+                    if retryable > 0 {
+                        sleep(backoff).await;
+                        backoff = min(backoff.saturating_mul(2), max_backoff);
+                    }
+                }
             }
-            if retry_q.is_empty() {
-                break;
-            }
-            if attempts >= 120 {
+            if attempts >= 500 {
                 return Err(anyhow::anyhow!(
                     "publisher shutting down with {} unacked flow message(s)",
                     retry_q.len()
                 ));
             }
-            sleep(backoff).await;
-            backoff = min(backoff.saturating_mul(2), max_backoff);
         }
         info!("Publisher channel closed, shutting down");
         Ok(())
@@ -375,23 +494,51 @@ impl Publisher {
     }
 
     async fn ensure_owned_stream(&self, admin_js: &jetstream::Context) -> Result<Duration> {
-        let required_subjects = self.config.stream_subjects_resolved();
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
-        if self.config.stream_name == "events" {
-            let mut restore = required_subjects;
-            restore = normalize_stream_subjects(restore);
-            return ensure_legacy_events_subjects_only(admin_js, &restore).await;
+        let mut subjects = self.config.stream_subjects_resolved();
+        // Recover post-cutover ownership (includes migrated extension subjects
+        // that are no longer in live config / pending_rehome).
+        let ownership_path = ownership_state_path(&self.config);
+        if let Some(inv) = load_ownership_inventory(&ownership_path)?
+            && inv.stream == self.config.stream_name
+        {
+            for s in inv.subjects {
+                if !subjects.iter().any(|x| x == &s) {
+                    subjects.push(s);
+                }
+            }
         }
-        let target = normalize_stream_subjects(required_subjects);
-        ensure_flows_stream(
+        // In-progress rehome marker still applies during cutover recovery.
+        let rehome_path = rehome_state_path(&self.config);
+        if let Some(marker) = load_rehome_marker(&rehome_path)? {
+            for s in marker.subjects {
+                if !subjects.iter().any(|x| x == &s) {
+                    subjects.push(s);
+                }
+            }
+        }
+        subjects = normalize_stream_subjects(subjects);
+
+        if self.config.stream_name == "events" {
+            return ensure_legacy_events_subjects_only(admin_js, &subjects).await;
+        }
+        let window = ensure_flows_stream(
             admin_js,
             &self.config.stream_name,
-            &target,
+            &subjects,
             self.config.stream_max_bytes,
             desired_max_age,
             self.config.stream_replicas,
         )
-        .await
+        .await?;
+        write_ownership_inventory(
+            &ownership_path,
+            &OwnershipInventory {
+                stream: self.config.stream_name.clone(),
+                subjects: subjects.clone(),
+            },
+        )?;
+        Ok(window)
     }
 
     async fn publish_pending(
@@ -411,11 +558,14 @@ impl Publisher {
                 "NATS not connected; deferring {} publish(es)",
                 pending.len()
             );
-            return PublishPassResult::Ok;
+            return PublishPassResult::Disconnected;
         }
         let limit = pending.len().min(self.config.batch_size.max(1));
         if limit == 0 {
-            return PublishPassResult::Ok;
+            return PublishPassResult::Completed {
+                succeeded: 0,
+                retryable: 0,
+            };
         }
 
         let mut batch = Vec::with_capacity(limit);
@@ -475,11 +625,8 @@ impl Publisher {
 
                 match js.send_publish(item.subject.clone(), publish).await {
                     Ok(ack_fut) => {
-                        // Command::Request is now in the async-nats client channel.
-                        // A second enqueue after ACK loss + reconnect past
-                        // duplicate_window would store the same Msg-Id twice.
-                        // Policy: never requeue after send_publish Ok — the
-                        // buffered original may still flush once.
+                        // Command::Request is in the async-nats client channel —
+                        // not yet a confirmed store. Classify ACK carefully.
                         let item = item.mark_attempted();
                         match ack_fut.await {
                             Ok(_seq) => {
@@ -494,9 +641,6 @@ impl Publisher {
                                             "NATS stream missing for subject {} id={}: {} — preserving and re-ensuring",
                                             item.subject, item.msg_id, e
                                         );
-                                        // Not stored; safe to preserve for retry after ensure.
-                                        // Clear first_attempt so never-attempted path applies
-                                        // until the next successful enqueue.
                                         TaskOutcome::StreamMissing(item.clear_attempt())
                                     }
                                     PublishDisposition::Permanent => {
@@ -506,19 +650,29 @@ impl Publisher {
                                         );
                                         TaskOutcome::Done
                                     }
-                                    PublishDisposition::Ambiguous
-                                    | PublishDisposition::Transient => {
-                                        // Do NOT requeue: retry would enqueue a second
-                                        // Command::Request that can flush after the
-                                        // duplicate_window as a second message.
+                                    PublishDisposition::Negative | PublishDisposition::Transient => {
+                                        // Explicit negative ACK or backpressure —
+                                        // server did not store; safe to retry.
                                         warn!(
-                                            "NATS publish ACK {} for subject {} id={}: {}; not retrying (async-nats reconnect-buffer safety)",
+                                            "NATS publish {} for subject {} id={}: {} — will retry",
                                             disposition_label(disposition),
                                             item.subject,
                                             item.msg_id,
                                             e
                                         );
-                                        TaskOutcome::Done
+                                        TaskOutcome::Retry(item.clear_attempt())
+                                    }
+                                    PublishDisposition::Ambiguous => {
+                                        // TimedOut/BrokenPipe: may still be in the
+                                        // client/socket buffer. Requeue only after
+                                        // force_reconnect abandons that buffer so a
+                                        // later flush cannot double-store past the
+                                        // duplicate_window.
+                                        warn!(
+                                            "NATS publish ACK ambiguous for subject {} id={}: {} — will force-reconnect then retry",
+                                            item.subject, item.msg_id, e
+                                        );
+                                        TaskOutcome::Ambiguous(item)
                                     }
                                 }
                             }
@@ -556,11 +710,14 @@ impl Publisher {
         }
 
         let mut failed = VecDeque::new();
+        let mut ambiguous = VecDeque::new();
         let mut stream_missing = false;
+        let mut succeeded = 0usize;
         while let Some(joined) = set.join_next().await {
             match joined {
-                Ok(TaskOutcome::Done) => {}
+                Ok(TaskOutcome::Done) => succeeded += 1,
                 Ok(TaskOutcome::Retry(item)) => failed.push_back(item),
+                Ok(TaskOutcome::Ambiguous(item)) => ambiguous.push_back(item),
                 Ok(TaskOutcome::StreamMissing(item)) => {
                     stream_missing = true;
                     failed.push_back(item);
@@ -569,13 +726,43 @@ impl Publisher {
             }
         }
 
+        // Abandon client-buffered ambiguous publishes before requeueing them.
+        if !ambiguous.is_empty() {
+            warn!(
+                "Force-reconnecting NATS to abandon {} ambiguous in-flight publish(es)",
+                ambiguous.len()
+            );
+            if let Err(e) = client.force_reconnect().await {
+                error!("force_reconnect failed: {e}");
+            }
+            wait_until_connected(client).await;
+            while let Some(item) = ambiguous.pop_front() {
+                // Still within first_attempt horizon for Msg-Id dedup if the
+                // original was stored before the socket was dropped.
+                if past_retry_horizon(&item, max_retry_age) {
+                    error!(
+                        "Dropping ambiguous publish for subject {} id={} after reconnect ({})",
+                        item.subject,
+                        item.msg_id,
+                        horizon_reason(&item, max_retry_age)
+                    );
+                } else {
+                    failed.push_back(item);
+                }
+            }
+        }
+
+        let retryable = failed.len();
         // Preserve remaining unattempted (if any) then failures.
         failed.append(pending);
         *pending = failed;
         if stream_missing {
             PublishPassResult::StreamMissing
         } else {
-            PublishPassResult::Ok
+            PublishPassResult::Completed {
+                succeeded,
+                retryable,
+            }
         }
     }
 
@@ -705,6 +892,20 @@ impl Publisher {
             }
             target_subjects = normalize_stream_subjects(target_subjects);
 
+            // Union durable post-cutover ownership so runtime recovery after
+            // stream delete still recreates extension subjects (e.g. ipfix).
+            let ownership_path = ownership_state_path(&self.config);
+            if let Some(inv) = load_ownership_inventory(&ownership_path)?
+                && inv.stream == self.config.stream_name
+            {
+                for s in inv.subjects {
+                    if !target_subjects.iter().any(|x| x == &s) {
+                        target_subjects.push(s);
+                    }
+                }
+                target_subjects = normalize_stream_subjects(target_subjects);
+            }
+
             let dup_window = match ensure_flows_stream(
                 &admin_js,
                 &self.config.stream_name,
@@ -718,6 +919,13 @@ impl Publisher {
                 Ok(window) => {
                     self.pending_rehome.clear();
                     clear_rehome_marker(&rehome_path);
+                    write_ownership_inventory(
+                        &ownership_path,
+                        &OwnershipInventory {
+                            stream: self.config.stream_name.clone(),
+                            subjects: target_subjects.clone(),
+                        },
+                    )?;
                     window
                 }
                 Err(err) => {
@@ -963,12 +1171,17 @@ impl PendingPublish {
 enum TaskOutcome {
     Done,
     Retry(PendingPublish),
+    /// Ambiguous ACK — must force_reconnect before requeue.
+    Ambiguous(PendingPublish),
     StreamMissing(PendingPublish),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PublishDisposition {
     Transient,
+    /// Explicit JetStream Response::Err (not wrong-last) — not stored; retry.
+    Negative,
+    /// TimedOut/BrokenPipe — may still be buffered client-side.
     Ambiguous,
     Permanent,
     /// Stream gone — not stored; re-ensure rather than drop while Ready.
@@ -978,7 +1191,7 @@ enum PublishDisposition {
 fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
     match kind {
         PublishErrorKind::TimedOut | PublishErrorKind::BrokenPipe => {
-            // May or may not have been stored; never treat as accepted.
+            // May or may not have been stored; client buffer may still hold it.
             PublishDisposition::Ambiguous
         }
         PublishErrorKind::MaxAckPending => PublishDisposition::Transient,
@@ -986,13 +1199,16 @@ fn classify_publish_error(kind: PublishErrorKind) -> PublishDisposition {
         PublishErrorKind::MaxPayloadExceeded
         | PublishErrorKind::WrongLastMessageId
         | PublishErrorKind::WrongLastSequence => PublishDisposition::Permanent,
-        PublishErrorKind::Other => PublishDisposition::Ambiguous,
+        // async-nats maps other JetStream Response::Err to Other — definitive
+        // negative ACKs (insufficient resources, store failed, …).
+        PublishErrorKind::Other => PublishDisposition::Negative,
     }
 }
 
 fn disposition_label(d: PublishDisposition) -> &'static str {
     match d {
         PublishDisposition::Transient => "transient",
+        PublishDisposition::Negative => "negative",
         PublishDisposition::Ambiguous => "ambiguous",
         PublishDisposition::Permanent => "permanent",
         PublishDisposition::StreamMissing => "stream_missing",
@@ -1081,6 +1297,57 @@ fn rehome_state_path(config: &Config) -> PathBuf {
     // Never default to /tmp: containers use readOnlyRootFilesystem and /tmp is
     // not durable across pod replacement.
     PathBuf::from("/var/lib/serviceradar/flow-collector-rehome.json")
+}
+
+/// Durable post-cutover ownership inventory (survives marker clear + stream delete).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct OwnershipInventory {
+    stream: String,
+    subjects: Vec<String>,
+}
+
+fn ownership_state_path(config: &Config) -> PathBuf {
+    if let Ok(path) = std::env::var("FLOW_COLLECTOR_OWNERSHIP_PATH") {
+        return PathBuf::from(path);
+    }
+    // Sibling of rehome marker on the same data PVC.
+    let rehome = rehome_state_path(config);
+    if let Some(parent) = rehome.parent() {
+        return parent.join("flow-collector-ownership.json");
+    }
+    PathBuf::from("/var/lib/serviceradar/flow-collector-ownership.json")
+}
+
+fn write_ownership_inventory(path: &Path, inv: &OwnershipInventory) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create ownership inventory dir {}",
+                parent.display()
+            )
+        })?;
+    }
+    let json = serde_json::to_vec_pretty(inv).context("failed to serialize ownership inventory")?;
+    fs::write(path, json)
+        .with_context(|| format!("failed to write ownership inventory {}", path.display()))?;
+    info!(
+        "Wrote ownership inventory for stream '{}' ({} subject(s)) to {}",
+        inv.stream,
+        inv.subjects.len(),
+        path.display()
+    );
+    Ok(())
+}
+
+fn load_ownership_inventory(path: &Path) -> Result<Option<OwnershipInventory>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = fs::read(path)
+        .with_context(|| format!("failed to read ownership inventory {}", path.display()))?;
+    let inv: OwnershipInventory = serde_json::from_slice(&data)
+        .with_context(|| format!("failed to parse ownership inventory {}", path.display()))?;
+    Ok(Some(inv))
 }
 
 fn ready_marker_path(config: &Config) -> PathBuf {
@@ -1611,6 +1878,31 @@ mod tests {
             classify_publish_error(PublishErrorKind::MaxAckPending),
             PublishDisposition::Transient
         );
+        assert_eq!(
+            classify_publish_error(PublishErrorKind::Other),
+            PublishDisposition::Negative
+        );
+    }
+
+    #[test]
+    fn ownership_inventory_round_trip() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("ownership-inv-{nanos}.json"));
+        let inv = OwnershipInventory {
+            stream: "flows".to_string(),
+            subjects: vec![
+                "flows.raw.netflow".to_string(),
+                "flows.raw.ipfix".to_string(),
+            ],
+        };
+        write_ownership_inventory(&path, &inv).unwrap();
+        let loaded = load_ownership_inventory(&path).unwrap().expect("present");
+        assert_eq!(loaded.stream, "flows");
+        assert!(loaded.subjects.iter().any(|s| s == "flows.raw.ipfix"));
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Dedicated flows JetStream stream
-The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional `flows.raw.*` subjects required by host-slice or extension publishers. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL.
+The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional concrete `flows.raw.<name>` extension subjects and concrete `flow.host-slice.<agent_id>` subjects when host-slice publication is configured. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL. EventWriter persistence consumers SHALL use concrete `flows.raw.<name>` leaves only; host-slice subjects SHALL remain on the attribution joiner path and SHALL NOT become EventWriter flow pipeline consumers. Whole-token wildcards under the flow namespace (e.g. `flows.raw.>`, `flows.>`) SHALL NOT be treated as EventWriter consumer filters.
 
 #### Scenario: Default stream name is flows
 - **WHEN** the collector starts without an explicit override that points at `events`

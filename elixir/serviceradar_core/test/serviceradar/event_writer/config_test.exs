@@ -248,6 +248,63 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       end
     end
 
+    test "load_flow rejects wildcard and host-slice in custom flow_streams" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.put(previous, :flow_streams, [
+          %{
+            name: "NETFLOW_RAW",
+            stream_name: "flows",
+            subject: "flows.raw.>",
+            processor: Flows
+          }
+        ])
+      )
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      assert_raise ArgumentError, ~r/whole-token wildcards/, fn ->
+        Config.load_flow()
+      end
+    end
+
+    test "load rejects host-slice in main streams list" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.put(previous, :streams, [
+          %{
+            name: "HOST_SLICE",
+            subject: "flow.host-slice.agent-1",
+            processor: Flows
+          }
+        ])
+      )
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      assert_raise ArgumentError, ~r/flow\.host-slice/, fn ->
+        Config.load()
+      end
+    end
+
     test "assert_no_canonical_consumer_collisions! catches case/punct durable collapse" do
       streams = [
         %{name: "FLOW_RAW_IPFIX_84c80497", stream_name: "flows", subject: "flows.raw.a"},
