@@ -24,7 +24,7 @@
 //!   Motor OS, which is based on Rust, does not support dynamic libraries,
 //!   as Rust does not support them "natively" (as in rdylib).
 #![no_std]
-#![feature(linkage)]
+#![cfg_attr(feature = "libc", feature(linkage))]
 
 // Mod error is the only one currently shared b/w the kernel and the userspace.
 #[macro_use]
@@ -235,6 +235,10 @@ pub struct RtVdsoVtable {
     pub num_cpus: AtomicU64,
     pub internal_helper: AtomicU64,
     pub current_exe: AtomicU64,
+
+    // Optional ABI-16 extensions; keep additions at the end.
+    pub fs_file_lock: AtomicU64,
+    pub fs_move_noreplace: AtomicU64,
 }
 
 #[cfg(not(feature = "base"))]
@@ -329,4 +333,19 @@ pub fn internal_helper(a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> 
     };
 
     vdso_internal_helper(a0, a1, a2, a3, a4, a5)
+}
+
+/// FNV-1a hash.
+///
+/// See https://en.wikipedia.org/wiki/Fowler-Noll-Vo_hash_function
+pub fn fnv1a_hash_64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV_OFFSET_BASIS
+    const FNV_PRIME: u64 = 0x100000001b3; // FNV_PRIME
+
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+
+    hash
 }

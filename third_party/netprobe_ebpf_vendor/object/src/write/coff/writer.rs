@@ -3,7 +3,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
 
-use crate::endian::{LittleEndian as LE, U16Bytes, U32Bytes, U16, U32};
 use crate::pe;
 use crate::write::string::{StringId, StringTable};
 use crate::write::util;
@@ -132,13 +131,13 @@ impl<'a> Writer<'a> {
 
         // Write file header.
         let header = pe::ImageFileHeader {
-            machine: U16::new(LE, header.machine),
-            number_of_sections: U16::new(LE, self.section_num),
-            time_date_stamp: U32::new(LE, header.time_date_stamp),
-            pointer_to_symbol_table: U32::new(LE, self.symtab_offset),
-            number_of_symbols: U32::new(LE, self.symtab_num),
-            size_of_optional_header: U16::default(),
-            characteristics: U16::new(LE, header.characteristics),
+            machine: header.machine.into(),
+            number_of_sections: self.section_num.into(),
+            time_date_stamp: header.time_date_stamp.into(),
+            pointer_to_symbol_table: self.symtab_offset.into(),
+            number_of_symbols: self.symtab_num.into(),
+            size_of_optional_header: 0.into(),
+            characteristics: header.characteristics.into(),
         };
         self.buffer.write(&header);
 
@@ -159,19 +158,19 @@ impl<'a> Writer<'a> {
     pub fn write_section_header(&mut self, section: SectionHeader) {
         let mut coff_section = pe::ImageSectionHeader {
             name: [0; 8],
-            virtual_size: U32::default(),
-            virtual_address: U32::default(),
-            size_of_raw_data: U32::new(LE, section.size_of_raw_data),
-            pointer_to_raw_data: U32::new(LE, section.pointer_to_raw_data),
-            pointer_to_relocations: U32::new(LE, section.pointer_to_relocations),
-            pointer_to_linenumbers: U32::new(LE, section.pointer_to_linenumbers),
+            virtual_size: 0.into(),
+            virtual_address: 0.into(),
+            size_of_raw_data: section.size_of_raw_data.into(),
+            pointer_to_raw_data: section.pointer_to_raw_data.into(),
+            pointer_to_relocations: section.pointer_to_relocations.into(),
+            pointer_to_linenumbers: section.pointer_to_linenumbers.into(),
             number_of_relocations: if section.number_of_relocations > 0xffff {
-                U16::new(LE, 0xffff)
+                0xffff.into()
             } else {
-                U16::new(LE, section.number_of_relocations as u16)
+                (section.number_of_relocations as u16).into()
             },
-            number_of_linenumbers: U16::default(),
-            characteristics: U32::new(LE, section.characteristics),
+            number_of_linenumbers: 0.into(),
+            characteristics: section.characteristics.into(),
         };
         match section.name {
             Name::Short(name) => coff_section.name = name,
@@ -283,9 +282,9 @@ impl<'a> Writer<'a> {
     pub fn write_relocations_count(&mut self, count: usize) {
         if count > 0xffff {
             let coff_relocation = pe::ImageRelocation {
-                virtual_address: U32Bytes::new(LE, count as u32 + 1),
-                symbol_table_index: U32Bytes::new(LE, 0),
-                typ: U16Bytes::new(LE, 0),
+                virtual_address: (count as u32 + 1).into(),
+                symbol_table_index: 0.into(),
+                typ: 0.into(),
             };
             self.buffer.write(&coff_relocation);
         }
@@ -294,9 +293,9 @@ impl<'a> Writer<'a> {
     /// Write a relocation.
     pub fn write_relocation(&mut self, reloc: Relocation) {
         let coff_relocation = pe::ImageRelocation {
-            virtual_address: U32Bytes::new(LE, reloc.virtual_address),
-            symbol_table_index: U32Bytes::new(LE, reloc.symbol),
-            typ: U16Bytes::new(LE, reloc.typ),
+            virtual_address: reloc.virtual_address.into(),
+            symbol_table_index: reloc.symbol.into(),
+            typ: reloc.typ.into(),
         };
         self.buffer.write(&coff_relocation);
     }
@@ -321,9 +320,9 @@ impl<'a> Writer<'a> {
     pub fn write_symbol(&mut self, symbol: Symbol) {
         let mut coff_symbol = pe::ImageSymbol {
             name: [0; 8],
-            value: U32Bytes::new(LE, symbol.value),
-            section_number: U16Bytes::new(LE, symbol.section_number),
-            typ: U16Bytes::new(LE, symbol.typ),
+            value: symbol.value.into(),
+            section_number: symbol.section_number.into(),
+            typ: symbol.typ.into(),
             storage_class: symbol.storage_class,
             number_of_aux_symbols: symbol.number_of_aux_symbols,
         };
@@ -372,18 +371,18 @@ impl<'a> Writer<'a> {
     /// Write an auxiliary symbol for a section.
     pub fn write_aux_section(&mut self, section: AuxSymbolSection) {
         let aux = pe::ImageAuxSymbolSection {
-            length: U32Bytes::new(LE, section.length),
+            length: section.length.into(),
             number_of_relocations: if section.number_of_relocations > 0xffff {
-                U16Bytes::new(LE, 0xffff)
+                0xffff.into()
             } else {
-                U16Bytes::new(LE, section.number_of_relocations as u16)
+                (section.number_of_relocations as u16).into()
             },
-            number_of_linenumbers: U16Bytes::new(LE, section.number_of_linenumbers),
-            check_sum: U32Bytes::new(LE, section.check_sum),
-            number: U16Bytes::new(LE, section.number as u16),
+            number_of_linenumbers: section.number_of_linenumbers.into(),
+            check_sum: section.check_sum.into(),
+            number: (section.number as u16).into(),
             selection: section.selection,
             reserved: 0,
-            high_number: U16Bytes::new(LE, (section.number >> 16) as u16),
+            high_number: ((section.number >> 16) as u16).into(),
         };
         self.buffer.write(&aux);
     }
@@ -402,8 +401,8 @@ impl<'a> Writer<'a> {
     /// Write an auxiliary symbol for a weak external.
     pub fn write_aux_weak_external(&mut self, weak: AuxSymbolWeak) {
         let aux = pe::ImageAuxSymbolWeak {
-            weak_default_sym_index: U32Bytes::new(LE, weak.weak_default_sym_index),
-            weak_search_type: U32Bytes::new(LE, weak.weak_search_type),
+            weak_default_sym_index: weak.weak_default_sym_index.into(),
+            weak_search_type: weak.weak_search_type.into(),
         };
         self.buffer.write(&aux);
         // write padding for the unused field

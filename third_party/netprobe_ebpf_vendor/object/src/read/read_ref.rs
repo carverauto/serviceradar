@@ -80,7 +80,8 @@ pub trait ReadRef<'a>: Clone + Copy {
     /// `read_bytes` does not return bytes with the correct alignment for `T`.
     /// Implementors may want to provide their own implementation that ensures
     /// the alignment can be satisfied. Alternatively, only use this method with
-    /// types that do not need alignment (see the `unaligned` feature of this crate).
+    /// types that do not need alignment. The types provided by this crate do not
+    /// need alignment.
     fn read<T: Pod>(self, offset: &mut u64) -> Result<&'a T> {
         let size = mem::size_of::<T>().try_into().map_err(|_| ())?;
         let bytes = self.read_bytes(offset, size)?;

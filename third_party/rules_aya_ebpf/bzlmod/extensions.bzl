@@ -17,21 +17,36 @@ resolves the std workspace's own crates.io dependencies alongside the program's.
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-DEFAULT_NIGHTLY_DATE = "2026-05-31"
+# nightly-2026-08-05 is rustc 1.99.0-nightly (1ed2df61a), on **LLVM 22.1.8**.
+#
+# That LLVM major is the binding constraint, not the date. bpf-linker consumes the
+# bitcode rustc emits, and LLVM bitcode is backward- but not forward-compatible, so
+# rustc's LLVM must not exceed bpf-linker's. bpf-linker 0.10.4 bundles LLVM 22.1.7.
+#
+# rust-lang/rust#158734 moved rustc to LLVM 23 on 2026-08-05, so this is the LAST
+# nightly that can be used until bpf-linker ships an LLVM 23 build. Do not bump the
+# date past it on the assumption that newer is better: nightly-2026-08-08 is LLVM
+# 23.1.0 and fails to link.
+DEFAULT_NIGHTLY_DATE = "2026-08-05"
 
 # rustup-dist component archives for the execution platform, plus the
 # arch-independent sources. Validated together against aya-ebpf 0.1.1.
 DEFAULT_NIGHTLY_COMPONENTS = {
-    "rustc": "9e6ac5e346606f4245930ff868e187d339a1ad5c2e60557bfacdd25a51689bf4",
-    "cargo": "45c7eca0c2c4707becdb1ba3eb597168f50c5da07c9fe3434ab840161bfbffa8",
+    "rustc": "a20c82439bff4a21873e88b6a14d836285ba79a4e9196d602af2b4ff1ddf2c8b",
+    "cargo": "fe5f7e032778e3ecb543c23a254f2862a5ce2682daff281fdaeb6fd0f2c02d5c",
     # Host std, needed to compile proc-macro crates such as aya-ebpf-macros.
-    "rust_std": "9ff25d516ce437b35d2b6f5fd8572489f22738699408d00ee94b18e502ced829",
-    "rust_src": "921bc11d275d46f6711879ebba37a52b0e738c5ee3ee587bad0a8acf05129ff9",
+    "rust_std": "d1fa3abf0ba340bd055a6de89786a3b9510bb5ab43efe433836b21d729a52c44",
+    "rust_src": "b03bfe0cc73b77d00e57cdfe895fa1bbcb0b6cfad236eaae4294ebe55aca6526",
 }
 
-DEFAULT_BPF_LINKER_VERSION = "0.10.3"
+DEFAULT_BPF_LINKER_VERSION = "0.10.4"
 
-DEFAULT_BPF_LINKER_SHA256 = "0fa4645d2dfbb5cafe6231b0aa9fad4f1430bd0871e3bd7319e82d827bf6262c"
+DEFAULT_BPF_LINKER_SHA256 = "4dda77daab6c5f120a468e6d3ede2498f5bd47ece712172cfb7290176d93d015"
+
+# 0.10.4 ported its own build to Bazel, split debuginfo into a separate asset, and
+# switched the release archives from .tar.gz to .tar.zst. Overridable so pinning an
+# older bpf-linker stays possible.
+DEFAULT_BPF_LINKER_ARCHIVE_EXTENSION = "tar.zst"
 
 # Only linux-x86_64 is wired up today. Upstream publishes darwin builds of every
 # input (rustup-dist components and bpf-linker alike), so adding a platform is
@@ -125,6 +140,7 @@ def _impl(module_ctx):
     components = dict(DEFAULT_NIGHTLY_COMPONENTS)
     bpf_linker_version = DEFAULT_BPF_LINKER_VERSION
     bpf_linker_sha256 = DEFAULT_BPF_LINKER_SHA256
+    bpf_linker_extension = DEFAULT_BPF_LINKER_ARCHIVE_EXTENSION
 
     # Last tag wins and the root module is evaluated last, so a consumer can move
     # the pins without every module in the graph having to agree.
@@ -140,6 +156,7 @@ def _impl(module_ctx):
         for tag in mod.tags.bpf_linker:
             bpf_linker_version = tag.version
             bpf_linker_sha256 = tag.sha256
+            bpf_linker_extension = tag.archive_extension
 
     for name in _EXEC_PLATFORMS:
         platform = _EXEC_PLATFORMS[name]
@@ -169,9 +186,10 @@ def _impl(module_ctx):
             name = _component_repo_name(name, "bpf_linker"),
             build_file_content = _BPF_LINKER_BUILD_FILE,
             sha256 = bpf_linker_sha256,
-            urls = ["https://github.com/aya-rs/bpf-linker/releases/download/v{}/bpf-linker-{}.tar.gz".format(
+            urls = ["https://github.com/aya-rs/bpf-linker/releases/download/v{}/bpf-linker-{}.{}".format(
                 bpf_linker_version,
                 platform.bpf_linker_triple,
+                bpf_linker_extension,
             )],
         )
 
@@ -194,6 +212,7 @@ nightly = tag_class(attrs = {
 bpf_linker = tag_class(attrs = {
     "version": attr.string(default = DEFAULT_BPF_LINKER_VERSION),
     "sha256": attr.string(default = DEFAULT_BPF_LINKER_SHA256),
+    "archive_extension": attr.string(default = DEFAULT_BPF_LINKER_ARCHIVE_EXTENSION),
 })
 
 aya_ebpf = module_extension(

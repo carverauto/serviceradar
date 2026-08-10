@@ -17,7 +17,7 @@ ebpf_object(
 )
 ```
 
-## Why this needs a toolchain at all
+## Why?
 
 Compiling an aya program is not a normal `rust_binary`. It needs a **nightly**
 rustc (`-Z build-std` is nightly-only), the **`rust-src`** component (the
@@ -65,16 +65,33 @@ aya_ebpf.nightly(date = "...", rustc_sha256 = "...", ...)
 aya_ebpf.bpf_linker(version = "...", sha256 = "...")
 ```
 
-**A nightly bump is not a one-line change.** The date must be one that compiles
-your aya version, and `-Z build-std` resolves the *std workspace's* own crates.io
-dependencies alongside your program's — so the vendor tree has to be regenerated
-against the matching `rust-src`:
+**A nightly bump is not a one-line change**, for two reasons.
+
+*The vendor tree moves with it.* `-Z build-std` resolves the whole sysroot, so the
+std workspace's own crates.io dependencies are vendored alongside your program's
+and change whenever the nightly does. Regenerate against the matching `rust-src`:
 
 ```sh
 cargo vendor --sync <rust-src>/library/Cargo.toml
 ```
 
-Vendoring and the nightly pin move together, always.
+Vendoring and the nightly pin always move together.
+
+*LLVM is the real ceiling.* bpf-linker consumes the bitcode rustc
+emits, and LLVM bitcode is backward- but **not** forward-compatible, so rustc's
+LLVM must be no newer than bpf-linker's. Check both before picking a date:
+
+```sh
+rustc +nightly-<DATE> --version --verbose | grep LLVM   # rustc's LLVM
+strings <bpf-linker> | grep -oE 'LLVM [0-9.]+' | sort -u # the linker's
+```
+
+At the time of writing bpf-linker 0.10.4 bundles LLVM 22.1.7, and
+rust-lang/rust#158734 moved rustc to LLVM 23 on 2026-08-05 — so
+`nightly-2026-08-05` (LLVM 22.1.8) is the newest usable nightly, and the pin sits
+deliberately on that boundary. Going further needs an LLVM 23 bpf-linker
+upstream, not a change here. A mismatch shows up as a link failure, so it fails
+loudly rather than producing a bad object.
 
 ## Not a `rust_binary`
 

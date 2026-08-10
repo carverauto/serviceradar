@@ -9,7 +9,7 @@
 
 use core::convert::TryInto;
 
-use crate::endian::{I32Bytes, LittleEndian as LE, U16Bytes, U32Bytes, I32, U16, U32, U64};
+use crate::endian::{LittleEndian as LE, I32, U16, U32, U64};
 use crate::pod::Pod;
 
 /// MZ
@@ -811,15 +811,14 @@ pub const IMAGE_SCN_SCALE_INDEX: u32 = 0x0000_0001;
 // Symbol format.
 //
 
-// This struct has alignment 1.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageSymbol {
     /// If first 4 bytes are 0, then second 4 bytes are offset into string table.
     pub name: [u8; 8],
-    pub value: U32Bytes<LE>,
-    pub section_number: U16Bytes<LE>,
-    pub typ: U16Bytes<LE>,
+    pub value: U32<LE>,
+    pub section_number: U16<LE>,
+    pub typ: U16<LE>,
     pub storage_class: u8,
     pub number_of_aux_symbols: u8,
 }
@@ -830,15 +829,14 @@ pub const IMAGE_SIZEOF_SYMBOL: usize = 18;
 #[repr(C)]
 pub struct ImageSymbolBytes(pub [u8; IMAGE_SIZEOF_SYMBOL]);
 
-// This struct has alignment 1.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageSymbolEx {
     /// If first 4 bytes are 0, then second 4 bytes are offset into string table.
     pub name: [u8; 8],
-    pub value: U32Bytes<LE>,
-    pub section_number: I32Bytes<LE>,
-    pub typ: U16Bytes<LE>,
+    pub value: U32<LE>,
+    pub section_number: I32<LE>,
+    pub typ: U16<LE>,
     pub storage_class: u8,
     pub number_of_aux_symbols: u8,
 }
@@ -950,7 +948,6 @@ pub const IMAGE_SYM_DTYPE_SHIFT: usize = N_BTSHFT;
 //
 
 // Used for both ImageSymbol and ImageSymbolEx (with padding).
-// This struct has alignment 1.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageAuxSymbolTokenDef {
@@ -958,7 +955,7 @@ pub struct ImageAuxSymbolTokenDef {
     pub aux_type: u8,
     /// Must be 0
     pub reserved1: u8,
-    pub symbol_table_index: U32Bytes<LE>,
+    pub symbol_table_index: U32<LE>,
     /// Must be 0
     pub reserved2: [u8; 12],
 }
@@ -966,14 +963,13 @@ pub struct ImageAuxSymbolTokenDef {
 pub const IMAGE_AUX_SYMBOL_TYPE_TOKEN_DEF: u16 = 1;
 
 /// Auxiliary symbol format 1: function definitions.
-// This struct has alignment 1.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageAuxSymbolFunction {
-    pub tag_index: U32Bytes<LE>,
-    pub total_size: U32Bytes<LE>,
-    pub pointer_to_linenumber: U32Bytes<LE>,
-    pub pointer_to_next_function: U32Bytes<LE>,
+    pub tag_index: U32<LE>,
+    pub total_size: U32<LE>,
+    pub pointer_to_linenumber: U32<LE>,
+    pub pointer_to_next_function: U32<LE>,
     pub unused: [u8; 2],
 }
 
@@ -984,9 +980,9 @@ pub struct ImageAuxSymbolFunction {
 pub struct ImageAuxSymbolFunctionBeginEnd {
     pub unused1: [u8; 4],
     /// declaration line number
-    pub linenumber: U16Bytes<LE>,
+    pub linenumber: U16<LE>,
     pub unused2: [u8; 6],
-    pub pointer_to_next_function: U32Bytes<LE>,
+    pub pointer_to_next_function: U32<LE>,
     pub unused3: [u8; 2],
 }
 
@@ -998,8 +994,8 @@ pub struct ImageAuxSymbolFunctionBeginEnd {
 #[repr(C)]
 pub struct ImageAuxSymbolWeak {
     /// the weak extern default symbol index
-    pub weak_default_sym_index: U32Bytes<LE>,
-    pub weak_search_type: U32Bytes<LE>,
+    pub weak_default_sym_index: U32<LE>,
+    pub weak_search_type: U32<LE>,
 }
 
 /// Auxiliary symbol format 5: sections.
@@ -1010,20 +1006,20 @@ pub struct ImageAuxSymbolWeak {
 #[repr(C)]
 pub struct ImageAuxSymbolSection {
     /// section length
-    pub length: U32Bytes<LE>,
+    pub length: U32<LE>,
     /// number of relocation entries
-    pub number_of_relocations: U16Bytes<LE>,
+    pub number_of_relocations: U16<LE>,
     /// number of line numbers
-    pub number_of_linenumbers: U16Bytes<LE>,
+    pub number_of_linenumbers: U16<LE>,
     /// checksum for communal
-    pub check_sum: U32Bytes<LE>,
+    pub check_sum: U32<LE>,
     /// section number to associate with
-    pub number: U16Bytes<LE>,
+    pub number: U16<LE>,
     /// communal selection type
     pub selection: u8,
     pub reserved: u8,
     /// high bits of the section number
-    pub high_number: U16Bytes<LE>,
+    pub high_number: U16<LE>,
 }
 
 // Used for both ImageSymbol and ImageSymbolEx (both with padding).
@@ -1031,7 +1027,7 @@ pub struct ImageAuxSymbolSection {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageAuxSymbolCrc {
-    pub crc: U32Bytes<LE>,
+    pub crc: U32<LE>,
 }
 
 //
@@ -1060,9 +1056,9 @@ pub const IMAGE_WEAK_EXTERN_ANTI_DEPENDENCY: u32 = 4;
 #[repr(C)]
 pub struct ImageRelocation {
     /// Also `RelocCount` when IMAGE_SCN_LNK_NRELOC_OVFL is set
-    pub virtual_address: U32Bytes<LE>,
-    pub symbol_table_index: U32Bytes<LE>,
-    pub typ: U16Bytes<LE>,
+    pub virtual_address: U32<LE>,
+    pub symbol_table_index: U32<LE>,
+    pub typ: U16<LE>,
 }
 
 //
@@ -1721,9 +1717,9 @@ pub const X3_EMPTY_INST_VAL_POS_X: u16 = 0;
 pub struct ImageLinenumber {
     /// Symbol table index of function name if Linenumber is 0.
     /// Otherwise virtual address of line number.
-    pub symbol_table_index_or_virtual_address: U32Bytes<LE>,
+    pub symbol_table_index_or_virtual_address: U32<LE>,
     /// Line number.
-    pub linenumber: U16Bytes<LE>,
+    pub linenumber: U16<LE>,
 }
 
 //
@@ -1918,17 +1914,17 @@ pub struct ImageTlsDirectory32 {
 pub struct ImageImportDescriptor {
     /// RVA to original unbound IAT (`ImageThunkData32`/`ImageThunkData64`)
     /// 0 for terminating null import descriptor
-    pub original_first_thunk: U32Bytes<LE>,
+    pub original_first_thunk: U32<LE>,
     /// 0 if not bound,
     /// -1 if bound, and real date\time stamp
     ///     in IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT (new BIND)
     /// O.W. date/time stamp of DLL bound to (Old BIND)
-    pub time_date_stamp: U32Bytes<LE>,
+    pub time_date_stamp: U32<LE>,
     /// -1 if no forwarders
-    pub forwarder_chain: U32Bytes<LE>,
-    pub name: U32Bytes<LE>,
+    pub forwarder_chain: U32<LE>,
+    pub name: U32<LE>,
     /// RVA to IAT (if bound this IAT has actual addresses)
-    pub first_thunk: U32Bytes<LE>,
+    pub first_thunk: U32<LE>,
 }
 
 impl ImageImportDescriptor {
@@ -2237,10 +2233,10 @@ pub struct ImagePrologueDynamicRelocationHeader {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ImageEpilogueDynamicRelocationHeader {
-    pub epilogue_count: U32Bytes<LE>,
+    pub epilogue_count: U32<LE>,
     pub epilogue_byte_count: u8,
     pub branch_descriptor_element_size: u8,
-    pub branch_descriptor_count: U16Bytes<LE>,
+    pub branch_descriptor_count: U16<LE>,
     // pub branch_descriptors[...],
     // pub branch_descriptor_bit_map[...],
 }

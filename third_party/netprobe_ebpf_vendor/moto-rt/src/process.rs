@@ -201,10 +201,15 @@ pub struct SpawnResult {
     pub stdin: RtFd,
     pub stdout: RtFd,
     pub stderr: RtFd,
-    pub _reserved: i32,
+    /// The child's pid: fits i32 by kernel invariant, see
+    /// docs/plans/pid-refactoring-design.md.
+    pub pid: i32,
 }
 
-pub fn spawn(args: SpawnArgs) -> Result<(u64, RtFd, RtFd, RtFd)> {
+// The pid took over a reserved slot, so the layout is unchanged.
+const _: () = assert!(core::mem::size_of::<SpawnResult>() == 24);
+
+pub fn spawn(args: SpawnArgs) -> Result<SpawnResult> {
     use alloc::borrow::ToOwned;
     let vdso_spawn: extern "C" fn(*const SpawnArgsRt, *mut SpawnResult) -> crate::ErrorCode = unsafe {
         core::mem::transmute(
@@ -271,12 +276,7 @@ pub fn spawn(args: SpawnArgs) -> Result<(u64, RtFd, RtFd, RtFd)> {
     }
 
     into_result(res)?;
-    Ok((
-        result_rt.handle,
-        result_rt.stdin,
-        result_rt.stdout,
-        result_rt.stderr,
-    ))
+    Ok(result_rt)
 }
 
 pub fn kill(handle: u64) -> Result<()> {
@@ -364,7 +364,7 @@ fn encode_env(keys: Vec<String>, vals: Vec<String>) -> (u64, Option<core::alloc:
     assert_ne!(result_addr, 0);
 
     unsafe {
-        let mut pos = result_addr as usize;
+        let mut pos = result_addr;
         *((pos as *mut u32).as_mut().unwrap()) = num_args;
         pos += 4;
 

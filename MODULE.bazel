@@ -132,19 +132,13 @@ local_path_override(
 )
 
 # --- Hex packages ------------------------------------------------------------
-# The Elixir/Erlang dependency closure -- ~270 Hex packages plus one git pin -- compiled by
-# the Bazel Elixir toolchain rather than fetched by `mix deps.get`. Every package becomes a
-# real Bazel target producing ErlangAppInfo, which is what elixir_app and ex_unit_test need.
-#
-# This used to be ~2,200 lines of hex_archive() calls right here, pasted in by hand from a
-# file the generator wrote. The closure now lives in //third_party/hex/hex_packages.bzl,
-# beside the generated BUILD stubs it describes, and both come out of the same generator run:
+# The Elixir/Erlang dependency closure compiled by the Bazel Elixir toolchain.
 #
 #   bazel run  //third_party/hex:gen       regenerate after any mix.lock change
 #   bazel test //third_party/hex:gen_test  fails when that has not been done
 #
 # Depend on a package as @hexpm//:<app> -- for example @hexpm//:ecto. (Not to be confused
-# with @hex, further down: that is the Hex package manager itself, not a package.)
+# with @hex, further down: that is the Hex package manager itself.)
 hexpm_ext = use_extension("//third_party/hex:extensions.bzl", "hex")
 use_repo(hexpm_ext, "hexpm")
 

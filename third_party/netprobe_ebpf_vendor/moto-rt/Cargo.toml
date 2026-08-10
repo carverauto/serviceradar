@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "moto-rt"
-version = "0.16.0"
+version = "0.16.4"
 authors = ["The Motor OS Project Developers"]
 build = false
 autolib = false

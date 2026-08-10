@@ -6,6 +6,12 @@ on:
     branches: [staging]
     paths:
       - 'rust/netprobe/**'
+      # The toolchain pins and the vendored crates decide the object's bytes just as
+      # much as its source does. They used to live in MODULE.bazel; when they moved
+      # into the ruleset this filter had to follow, or a nightly bump would change the
+      # object without ever running the kernel matrix that validates it.
+      - 'third_party/rules_aya_ebpf/**'
+      - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'
       - 'build/toolchains/**'
@@ -19,6 +25,12 @@ on:
     branches: [staging]
     paths:
       - 'rust/netprobe/**'
+      # The toolchain pins and the vendored crates decide the object's bytes just as
+      # much as its source does. They used to live in MODULE.bazel; when they moved
+      # into the ruleset this filter had to follow, or a nightly bump would change the
+      # object without ever running the kernel matrix that validates it.
+      - 'third_party/rules_aya_ebpf/**'
+      - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'
       - 'build/toolchains/**'

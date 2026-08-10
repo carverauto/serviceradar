@@ -72,6 +72,12 @@ impl<'a> Object<'a> {
                 // Unsupported section.
                 (&[], &[], SectionKind::Note, SectionFlags::None)
             }
+            StandardSection::EhFrame => (
+                &[],
+                &b".eh_frame"[..],
+                SectionKind::ReadOnlyData,
+                SectionFlags::None,
+            ),
         }
     }
 
@@ -132,7 +138,10 @@ impl<'a> Object<'a> {
         SymbolFlags::None
     }
 
-    pub(crate) fn coff_translate_relocation(&mut self, reloc: &mut Relocation) -> Result<()> {
+    pub(crate) fn coff_translate_relocation(
+        &mut self,
+        reloc: &mut RelocationInternal,
+    ) -> Result<()> {
         use RelocationEncoding as E;
         use RelocationKind as K;
 
@@ -218,7 +227,7 @@ impl<'a> Object<'a> {
         Ok(())
     }
 
-    pub(crate) fn coff_adjust_addend(&self, relocation: &mut Relocation) -> Result<bool> {
+    pub(crate) fn coff_adjust_addend(&self, relocation: &mut RelocationInternal) -> Result<bool> {
         let typ = if let RelocationFlags::Coff { typ } = relocation.flags {
             typ
         } else {
@@ -262,7 +271,7 @@ impl<'a> Object<'a> {
         Ok(true)
     }
 
-    pub(crate) fn coff_relocation_size(&self, reloc: &Relocation) -> Result<u8> {
+    pub(crate) fn coff_relocation_size(&self, reloc: &RelocationInternal) -> Result<u8> {
         let typ = if let RelocationFlags::Coff { typ } = reloc.flags {
             typ
         } else {
