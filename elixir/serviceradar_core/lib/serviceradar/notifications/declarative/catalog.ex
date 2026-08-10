@@ -123,7 +123,13 @@ defmodule ServiceRadar.Notifications.Declarative.Catalog do
   # Bumped when a shipped document changes. `ProviderSeeder` applies a template
   # exactly when the stored version differs from this one, and only to a row whose
   # fingerprint still matches what the previous release wrote.
-  @template_version "1"
+  # Bumped to "2" when PagerDuty's action links moved from payload.custom_details
+  # to the top-level `links` array. A declarative entry's `definition` is a
+  # seeder-managed field, so without a bump a deployed row keeps the old document
+  # and the fix ships without taking effect. This version is independent of
+  # `ProviderSeeder`'s: the two catalogs are reconciled separately, and sharing a
+  # constant would reseed one on the other's unrelated change.
+  @template_version "2"
 
   # The retry sets nearly every HTTP destination wants: a request timeout, a rate
   # limit, and a server-side fault are worth repeating; every other non-2xx is a
@@ -216,12 +222,21 @@ defmodule ServiceRadar.Notifications.Declarative.Catalog do
             "device" => "{{ device.name }}",
             "device_ip" => "{{ device.ip }}",
             "partition" => "{{ device.partition_id }}",
-            "alert_url" => "{{ links.alert }}",
-            "acknowledge_url" => "{{ links.acknowledge }}",
-            "snooze_url" => "{{ links.snooze }}",
-            "resolve_url" => "{{ links.resolve }}"
+            "alert_url" => "{{ links.alert }}"
           }
-        }
+        },
+        # Top-level `links`, NOT payload.custom_details. PagerDuty renders
+        # custom_details as a flat key/value blob, so an acknowledge URL placed
+        # there arrives as inert text an on-call engineer has to select and
+        # paste at 03:00. `links` is the field PagerDuty renders as actual
+        # clickable links on the incident, which is the entire point of shipping
+        # them.
+        "links" => [
+          %{"href" => "{{ links.alert }}", "text" => "Open in ServiceRadar"},
+          %{"href" => "{{ links.acknowledge }}", "text" => "Acknowledge"},
+          %{"href" => "{{ links.snooze }}", "text" => "Snooze 1h"},
+          %{"href" => "{{ links.resolve }}", "text" => "Resolve"}
+        ]
       }
     },
     "success" => %{"status" => [202]},

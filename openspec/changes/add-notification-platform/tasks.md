@@ -2034,14 +2034,38 @@ one is a silent-failure source if done per-provider.
       platform-level callback endpoint outside the provider tiers. Snooze can
       never round-trip (there is no `incident.snoozed` event in v3) and stays on
       the signed-link path permanently.
-- [ ] 4.3.3a PagerDuty outbound defects, independent of interactivity and worth
-      fixing first so any later inbound path lands on correct data: the catalog
-      entry declares `payload_formats: ["plain"]`, so `renderers/pagerduty_v2.ex`
-      is dead code on the shipping path and its correct `links/1` output never
-      ships; the action links instead ride inside `payload.custom_details`, where
-      PagerDuty renders them as inert text; and the shipping correlation key is
-      the catalog's `{{ alert.id }}`, not the renderer's `dedupe_key`, so an
-      inbound lookup written against the renderer would miss every real delivery.
+- [x] 4.3.3a PagerDuty action links now ship in the top-level `links` array
+      instead of `payload.custom_details`, where PagerDuty rendered them as inert
+      text an on-call engineer had to select and paste. Catalog template_version
+      bumped to "2" so deployed rows reconcile.
+
+      Two claims investigated and NOT defects, recorded so they are not
+      re-reported: `renderers/pagerduty_v2.ex` is unreachable on the shipping
+      path, but deliberately so - `template_seeder.ex` documents that
+      `:pagerduty_v2` has no first-party native provider yet and the template
+      exists so a future one does not land on a format with no default. The
+      dedup_key "disagreement" follows from that: the catalog's `{{ alert.id }}`
+      is what ships, consistently, and an inbound lookup should be written
+      against it.
+- [ ] 4.3.3b PagerDuty incidents never auto-resolve. Confirmed live defect,
+      independent of interactivity. `:resolve` is a dispatched lifecycle reason
+      (`routing_worker.ex:83`, `dispatcher.ex:320`), but nothing in the
+      notification path ever passes `:event_action` to `Renderer.render/4`, so
+      `Content.event_action` is always `:trigger` - and the PagerDuty catalog
+      document hardcodes `"event_action" => "trigger"` besides. A ServiceRadar
+      alert resolving therefore sends PagerDuty a TRIGGER carrying the same
+      `dedup_key`, which updates the open incident instead of closing it. Every
+      incident stays open until a human closes it by hand.
+
+      The fix is not a template edit: templates are restricted substitution with
+      no conditionals, so `renotify -> trigger` and `resolve -> resolve` cannot
+      be expressed in the document and must be derived. It needs the lifecycle
+      reason to reach render time, and today it reaches neither
+      `notification_deliveries` (no such column) nor `delivery_namespace/1`. So:
+      carry the reason on the delivery, expose a derived
+      `delivery.event_action` ("trigger" | "resolve") in the template variable
+      catalog, pass `:event_action` from the dispatcher for native renderers
+      too, and bump the declarative catalog version again.
 - [ ] 4.3.4 AMENDED. This task previously required all three callback paths to
       "reuse the northbound stack verbatim: token from header / Bearer / body,
       sha256-only persistence, `Edge.Crypto`-encrypted HMAC secret,

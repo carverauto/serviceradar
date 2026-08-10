@@ -378,6 +378,38 @@ defmodule ServiceRadar.Notifications.Declarative.CatalogTest do
 
   # --- reconciliation contract ----------------------------------------------
 
+  describe "PagerDuty action links" do
+    test "the acknowledge links are top-level links, not custom_details text" do
+      # PagerDuty renders custom_details as a flat key/value blob, so an
+      # acknowledge URL placed there arrives as inert text an on-call engineer
+      # has to select and paste. `links` is what PagerDuty renders as clickable.
+      body = get_in(by_key()["pagerduty"], [:definition, "request", "body"])
+
+      hrefs = Enum.map(body["links"], & &1["href"])
+
+      assert "{{ links.acknowledge }}" in hrefs
+      assert "{{ links.snooze }}" in hrefs
+      assert "{{ links.resolve }}" in hrefs
+      assert "{{ links.alert }}" in hrefs
+
+      details = get_in(body, ["payload", "custom_details"])
+
+      for key <- ["acknowledge_url", "snooze_url", "resolve_url"] do
+        refute Map.has_key?(details, key),
+               "#{key} is back in custom_details, where PagerDuty renders it as text"
+      end
+    end
+
+    test "every link carries the text PagerDuty labels it with" do
+      body = get_in(by_key()["pagerduty"], [:definition, "request", "body"])
+
+      for link <- body["links"] do
+        assert is_binary(link["text"]) and link["text"] != "",
+               "a link with no text renders as a bare URL"
+      end
+    end
+  end
+
   describe "reconciliation contract" do
     test "the managed set for this tier covers the definition" do
       # Without it an operator's edit to a catalog entry's request template would
