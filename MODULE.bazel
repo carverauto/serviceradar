@@ -40,21 +40,7 @@ bazel_dep(name = "toolchains_llvm", version = "1.6.0")
 bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "toolchains_buildbuddy", version = "0.0.4", repo_name = "io_buildbuddy_buildbuddy_toolchain")
-
-# FORKED for one attribute: `use_ld` on the gcc_toolchain tag. Upstream hardcodes
-# "-fuse-ld=gold" as a literal in templates/BUILD.tpl -- no substitution placeholder, so no
-# attribute could select anything else. gold is deprecated, binutils keeps it in
-# maintenance-only mode, and rustc warns on every Rust link that it "has known bugs with Rust".
-#
-# The fork replaces that literal with %{use_ld} and threads an attribute through
-# extensions.bzl -> rules.bzl -> the template, defaulting to "gold" so every other consumer of
-# the module is byte-identical. //MODULE.bazel's buildbuddy_toolchain_ext.gcc_toolchain sets
-# "bfd". Intended for upstream; drop this override once it lands and the version is released.
-#
-# Overriding rather than --linkopt for a reason that was measured: --linkopt APPENDS, so rustc
-# received both flags. The link did use bfd (the driver honours the last -fuse-ld) but the
-# warning stayed, because rustc reports gold on sight without evaluating last-wins. Only
-# removing the flag at source silences it.
+# FORKED for one attribute: `use_ld` on the gcc_toolchain tag.
 git_override(
     module_name = "toolchains_buildbuddy",
     commit = "22e5bbd9748cd041e16416226ac00b32d78f0fdc",
@@ -288,8 +274,6 @@ buildbuddy_toolchain_ext = use_extension(
     "buildbuddy",
 )
 
-# Align BuildBuddy's generated GCC toolchain with the Oracle Linux based
-# executor image so Bazel treats the system headers as hermetic.
 buildbuddy_toolchain_ext.gcc_toolchain(
     extra_cxx_builtin_include_directories = [
         "/opt/rh/gcc-toolset-13/root/usr/include/c++/13",
@@ -310,31 +294,7 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
     ],
     gcc_major_version = "13",
-    # Replaces gold, which is deprecated, sits in binutils maintenance-only mode, and makes
-    # rustc warn on every Rust link that it "has known bugs with Rust". Needs the `use_ld`
-    # attribute from the fork -- see the git_override above.
-    #
-    # lld is the ONLY workable replacement, which is not obvious. Measured, not assumed:
-    #
-    #   linker   --start-lib   in rbe-executor
-    #   bfd      FAILS         yes (binutils, via build-essential)
-    #   gold     ok            yes (binutils)
-    #   lld      ok            yes, SINCE v1.0.24.3 -- separate apt package
-    #
-    # Bazel's C++ rules pass --start-lib/--end-lib, a gold/lld extension classic GNU ld never
-    # implemented. "bfd" links Rust fine and then dies on the first C++ binary --
-    #   /usr/bin/ld.bfd: unrecognized option '--start-lib'
-    # on protoc_minimal and the two upb generators. That is almost certainly why upstream
-    # hardcoded gold in the first place.
-    #
-    # PAIRED WITH THE IMAGE: ld.lld arrives only in rbe-executor v1.0.24.3
-    # (//docker/Dockerfile.rbe). Selecting "lld" against an older tag fails every link with
-    #   collect2: error: cannot find 'ld.lld'
-    # so this line and the executor tag move together. The fork prints a warning when a Linux
-    # client lacks ld.lld; it cannot check the executor, which is why the pairing is manual.
-    #
-    # Note this re-keys EVERY action -- the cc toolchain is part of the action key -- so the
-    # first build after the switch is a full rebuild with no cache hits.
+    # Replaces gold, which is deprecated, with LLD from LLVM.
     use_ld = "lld",
 )
 
@@ -748,7 +708,7 @@ use_repo(
 )
 
 # --- Rust toolchain bootstrap -----------------------------------------------
-RUST_DEFAULT_VERSION = "1.93.0"
+RUST_DEFAULT_VERSION = "1.97.1"
 
 RUST_EDITION = "2024"
 
