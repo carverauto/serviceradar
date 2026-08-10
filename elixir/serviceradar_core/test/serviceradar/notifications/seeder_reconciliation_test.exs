@@ -488,7 +488,7 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert :ok = TemplateSeeder.seed_all()
 
       markdown = template!(:markdown, actor)
-      assert markdown.template_version == ProviderSeeder.template_version()
+      assert markdown.template_version == TemplateSeeder.template_version()
       assert markdown.managed
     end
 

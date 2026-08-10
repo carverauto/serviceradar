@@ -83,6 +83,16 @@ defmodule ServiceRadar.Notifications.TemplateSeeder do
 
   @template_version "1"
 
+  @doc """
+  The version stamped on every seeder-managed template.
+
+  Deliberately independent of `ProviderSeeder.template_version/0`: a change to a
+  provider's config schema has nothing to do with the default templates, and
+  sharing one constant would reseed every template on an unrelated bump.
+  """
+  @spec template_version() :: String.t()
+  def template_version, do: @template_version
+
   @default_alert_class "default"
 
   @doc "The seeder-owned attribute set covered by the divergence fingerprint."

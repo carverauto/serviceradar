@@ -2011,7 +2011,7 @@ one is a silent-failure source if done per-provider.
       the channel `test` action asserts both - there is no API that detects a
       missing Interactivity Request URL, and inert buttons produce no request and
       no log.
-- [ ] 4.3.1a App-scoped storage for the Slack signing secret, resolved by
+- [x] 4.3.1a App-scoped storage for the Slack signing secret, resolved by
       `api_app_id`. It is deliberately NOT in channel config: the secret belongs
       to the Slack app, so channel config would hold one copy per channel backed
       by the same app, and the inbound interaction names `api_app_id` and never
