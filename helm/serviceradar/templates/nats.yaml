@@ -184,6 +184,11 @@ spec:
                     allow: [
                       "\$O.{{ $pluginBucket }}.>",
                       "\$O.{{ $fieldSurveyBucket }}.>",
+                      # Notification firehose (design D10): web-ng consumes it
+                      # with a durable cursor so a reconnecting subscriber
+                      # replays what it missed. Subscribe only - web-ng is not a
+                      # firehose publisher.
+                      "notifications.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -210,6 +215,12 @@ spec:
                       "signals.analytics.>",
                       "events.>",
                       "config.>",
+                      # Notification firehose (design D10). Core is the only
+                      # publisher; web-ng subscribes. New subject namespaces are
+                      # denied by default, so omitting this does not surface as
+                      # an error - every notification on the firehose is simply
+                      # dropped.
+                      "notifications.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

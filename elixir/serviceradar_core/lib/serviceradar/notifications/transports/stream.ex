@@ -71,6 +71,7 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
   @behaviour ServiceRadar.Notifications.Transport
 
   alias ServiceRadar.Automation.Northbound.ActionRedaction
+  alias ServiceRadar.Notifications.StreamPublisher
   alias ServiceRadar.Notifications.Transport
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
@@ -275,10 +276,57 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
     exception -> {:error, Exception.message(exception)}
   end
 
+  @doc """
+  The composed publish seam: durable first, live second.
+
+  Publishes to the JetStream firehose stream and, only once JetStream has
+  acknowledged persistence, fans the same envelope out to connected subscribers
+  over `Phoenix.PubSub`.
+
+  The order is deliberate and the reverse is the intuitive mistake:
+
+    * **JetStream first.** If it fails, nothing has reached `Phoenix.PubSub`
+      yet, so returning an error lets the retry machinery republish without
+      live subscribers seeing the envelope twice.
+    * **PubSub failure does not fail the delivery.** The envelope is already
+      durably recorded at that point. Returning an error would republish it to
+      JetStream and duplicate the durable record - and a subscriber that missed
+      the live broadcast replays it from its cursor anyway, which is the entire
+      reason the durable half exists.
+
+  Override with `opts[:broadcast]` to publish somewhere else, as the tests do.
+
+  The third argument carries the publisher and PubSub seams
+  (`:request`, `:connection`, `:pubsub`). It exists so this ordering contract is
+  testable without a broker: asserting it only through the arity-2 capture would
+  mean asserting it against live NATS, which is exactly the test nobody runs.
+  """
+  @spec default_publish(String.t(), map(), keyword()) :: :ok | {:error, term()}
+  def default_publish(topic, envelope, opts \\ []) do
+    case StreamPublisher.publish(topic, envelope, opts) do
+      :ok ->
+        case default_broadcast(topic, envelope, Keyword.get(opts, :pubsub, @default_pubsub)) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "notification stream persisted but live broadcast failed " <>
+                "topic=#{topic} reason=#{inspect(reason)}"
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # --- publishing -----------------------------------------------------------
 
   defp publish(topic, envelope, opts) do
-    broadcast = Keyword.get(opts, :broadcast, &default_broadcast/2)
+    broadcast = Keyword.get(opts, :broadcast, &default_publish/2)
 
     case broadcast.(topic, envelope) do
       :ok -> delivered(topic, envelope)

@@ -1935,14 +1935,14 @@ directories are still on that branch at their original commits.
 
 ### 4.1 Firehose subject and broker allowlist
 
-- [ ] 4.1.1 Define the notification subject namespace (for example
+- [x] 4.1.1 Define the notification subject namespace (for example
       `notifications.>`) and its JetStream stream with a durable cursor so
       reconnecting consumers replay instead of losing events.
-- [ ] 4.1.2 Add the new namespace to the per-CN publish and subscribe allowlists
+- [x] 4.1.2 Add the new namespace to the per-CN publish and subscribe allowlists
       in `helm/serviceradar/templates/nats.yaml:205-217`. New subject namespaces
       are DENIED at the broker by default - omitting this silently breaks the
       firehose.
-- [ ] 4.1.3 Add the namespace to every CN that needs it (core publish, web-ng
+- [x] 4.1.3 Add the namespace to every CN that needs it (core publish, web-ng
       subscribe) and to the NATS credential generation job if scoped credentials
       are used.
 - [ ] 4.1.4 Verify on a live stack with the `nats` CLI from the tools pod that
@@ -1963,7 +1963,7 @@ directories are still on that branch at their original commits.
       the DELIVERY LOG UI displays those suppressed rows with their
       `suppression_reason` (1.7.8) rather than omitting them. Nothing publishes a
       "suppressed" envelope to subscribers.
-- [ ] 4.2.2 Add the RBAC-scoped Phoenix Channel topic in web-ng, authorizing on
+- [x] 4.2.2 Add the RBAC-scoped Phoenix Channel topic in web-ng, authorizing on
       `notifications.stream.subscribe` and filtering the envelope to what the
       subscriber may see.
 - [ ] 4.2.3 Define and document the canonical notification envelope shape. It
@@ -2010,12 +2010,12 @@ directories are still on that branch at their original commits.
 
 - [ ] 4.4.1 HMAC verification tests: valid signature, wrong secret, replayed
       timestamp beyond tolerance, and tampered body.
-- [ ] 4.4.2 Phoenix Channel authorization test asserting a user without
+- [x] 4.4.2 Phoenix Channel authorization test asserting a user without
       `notifications.stream.subscribe` cannot join the firehose topic.
 - [ ] 4.4.2a Stream-suppression test: a suppressed dispatch to a `:stream` channel
       publishes nothing to subscribers and still writes a `:suppressed` delivery
       row that the Delivery Log renders with its reason.
-- [ ] 4.4.2b Stream action-link exemption test: no envelope published on the
+- [x] 4.4.2b Stream action-link exemption test: no envelope published on the
       firehose contains an action link or capability token.
 - [ ] 4.4.2c Seeded `:stream` provider test: the row exists after install as a
       first-party `managed` provider, and an operator disable survives upgrade

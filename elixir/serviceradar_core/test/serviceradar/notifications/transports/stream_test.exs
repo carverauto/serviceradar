@@ -307,6 +307,47 @@ defmodule ServiceRadar.Notifications.Transports.StreamTest do
     end
   end
 
+  describe "default_publish/3" do
+    test "persists to JetStream before broadcasting to live subscribers" do
+      pubsub = start_pubsub()
+      Phoenix.PubSub.subscribe(pubsub, "notifications:stream")
+
+      assert :ok =
+               Stream.default_publish("notifications:stream", %{"alert_id" => "alert-1"},
+                 request: fn _subject, _payload -> {:ok, %{"stream" => "N", "seq" => 1}} end,
+                 pubsub: pubsub
+               )
+
+      assert_receive {:notification_envelope, %{"alert_id" => "alert-1"}}
+    end
+
+    test "does not broadcast when JetStream refuses the envelope" do
+      # Broadcasting first would show live subscribers an envelope that is not
+      # durably recorded, and the retry would then show it to them twice.
+      pubsub = start_pubsub()
+      Phoenix.PubSub.subscribe(pubsub, "notifications:stream")
+
+      assert {:error, _reason} =
+               Stream.default_publish("notifications:stream", %{"alert_id" => "alert-1"},
+                 request: fn _subject, _payload -> {:error, {:nats_not_connected, :down}} end,
+                 pubsub: pubsub
+               )
+
+      refute_receive {:notification_envelope, _envelope}, 50
+    end
+
+    test "still succeeds when the live broadcast fails after a durable publish" do
+      # The envelope is already persisted at that point. Failing here would
+      # republish it to JetStream and duplicate the durable record, and a
+      # subscriber that missed the broadcast replays it from its cursor anyway.
+      assert :ok =
+               Stream.default_publish("notifications:stream", %{"alert_id" => "alert-1"},
+                 request: fn _subject, _payload -> {:ok, %{"stream" => "N", "seq" => 1}} end,
+                 pubsub: :"pubsub_not_running_#{System.unique_integer([:positive])}"
+               )
+    end
+  end
+
   describe "strip_action_links/1" do
     test "leaves a payload with no action links untouched" do
       assert Stream.strip_action_links(@payload) == @payload
@@ -344,4 +385,16 @@ defmodule ServiceRadar.Notifications.Transports.StreamTest do
   end
 
   defp encoded(envelope), do: Jason.encode!(envelope)
+
+  defp start_pubsub do
+    # The PG2 adapter joins a `:pg` scope owned by the :phoenix_pubsub
+    # application, which `mix test --no-start` does not start. Without this the
+    # instance fails to boot in the database-free tier and passes under
+    # :requires_app, which is the tier-dependent result this suite avoids.
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    name = :"pubsub_#{System.unique_integer([:positive])}"
+    start_supervised!({Phoenix.PubSub, name: name})
+    name
+  end
 end
