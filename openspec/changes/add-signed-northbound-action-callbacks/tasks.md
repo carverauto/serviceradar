@@ -1,7 +1,7 @@
 ## 1. Data Model and Policy
 - [x] 1.1 Add callback authentication mode and HMAC signing-secret storage to northbound action invocation targets using platform-schema Elixir migrations.
 - [x] 1.2 Extend provider/action descriptor metadata parsing so integrations can advertise `token`, `hmac_optional`, or `hmac_required` callback modes.
-- [x] 1.3 Ensure sensitive callback token and signing-secret material is redacted from logs, task history, API responses, and persisted result payloads.
+- [x] 1.3 Ensure sensitive callback token and signing-secret material is redacted from logs, Action History, API responses, and persisted result payloads.
 
 ## 2. Callback Verification
 - [x] 2.1 Preserve the raw request body for northbound callback verification in web-ng.

@@ -14,7 +14,7 @@ It does not handle the CA private key. Keep the private key in the ServiceRadar 
 
 Treat the SSH user CA private key as a signing authority, not as an agent
 credential. It must not be copied to ServiceRadar agents, target hosts, AWX
-inventory variables, or playbook `extra_vars`.
+inventory variables, or playbook launch inputs.
 
 The production pattern is:
 
@@ -53,30 +53,18 @@ ServiceRadar's Ansible integration runs playbooks through a registered AWX/AAP c
 1. Put this directory, or a copy of `playbook.yml`, in a git repository that AWX can use as a Project.
 2. Create an AWX Job Template for `playbook.yml`.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want ServiceRadar to enroll.
-4. Add a Survey or allow `extra_vars` for these variables:
-   - `serviceradar_ssh_ca_public_key`
-   - `serviceradar_sshd_service`
-   - `serviceradar_manage_authorized_principals`
-   - `serviceradar_authorized_principals`
+4. Configure the exact ServiceRadar dispatch-marker survey and reviewed immutable binding described in the [remote-access guide](../../docs/remote-access.md#ansible-enrollment). Integrated callback mode supplies the CA and target policy through the reviewed callback; do not add them to browser inputs. Put only optional, non-secret operator values such as `serviceradar_sshd_service` in the binding's typed input schema.
 5. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
 6. Let AWX inventory sync mark the matching devices as `ansible_managed`.
-7. In ServiceRadar, select the target devices from inventory and launch the AWX-sourced job template from **Run Task** or `/ansible/launch?devices=<device-uids>`.
+7. In ServiceRadar, select the target devices from inventory and choose **Launch Playbook**, or open `/ansible/launch?devices=<device-uids>` directly. The separate provider-neutral **Run Action** workflow does not launch Ansible playbooks.
 
 ServiceRadar passes an AWX `limit` built from the selected device inventory refs, so this playbook uses `hosts: all`. AWX narrows execution to the selected hosts at launch time.
 
-Example raw `extra_vars` from the ServiceRadar launch page:
-
-```json
-{
-  "serviceradar_ssh_ca_public_key": "ssh-ed25519 AAAA... serviceradar-remote-access-ca",
-  "serviceradar_sshd_service": "sshd",
-  "serviceradar_manage_authorized_principals": false
-}
-```
+The ServiceRadar launch page renders only reviewed typed, non-secret inputs. It does not accept free-form payloads, undeclared variables, password fields, or connection variables. Keep SSH private keys, become passwords, and vault secrets in AWX credentials rather than adding them to the binding or browser form.
 
 For Debian or Ubuntu targets, use `"serviceradar_sshd_service": "ssh"` if that is the systemd service name.
 
-Use `serviceradar_ssh_ca_public_key_file` only when the public key file is available inside the AWX execution environment or when running the playbook locally. For ServiceRadar-launched AWX jobs, passing the public key inline as `serviceradar_ssh_ca_public_key` is usually the correct path.
+Use `serviceradar_ssh_ca_public_key_file` or inline `serviceradar_ssh_ca_public_key` only for the manual/lab fallback outside the integrated callback path.
 
 ## Local Fallback
 

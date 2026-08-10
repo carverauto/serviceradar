@@ -9,7 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureLaunchResolver.AshAdapter do
   @impl true
   def load_playbook(playbook_id, actor) do
     playbook_id
-    |> Playbook.get_by_id(actor: actor)
+    |> Playbook.get_launch_candidate_by_id(actor: actor)
     |> required(:playbook_not_found)
   end
 

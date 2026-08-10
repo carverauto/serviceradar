@@ -8,8 +8,9 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
   controller) is required before the playbook is launchable.
 
   `source_type = :awx` entries are produced by AwxCatalogSyncWorker mirroring
-  AWX Job Templates; the `survey_spec` on the AWX template provides
-  variable prompts directly. AWX-sourced entries are launchable by definition.
+  AWX Job Templates. A parse-valid AWX row with a job-template ID is only a
+  launch candidate; current immutable binding and exact target membership are
+  resolved separately before launch.
 
   See openspec change `add-ansible-integration` for the full design.
   """
@@ -24,6 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.catalog.view"}
+  @launch_check {ActorHasPermission, permission: "ansible.runs.launch"}
   @manage_check {ActorHasPermission, permission: "ansible.repositories.manage"}
 
   @public_fields [
@@ -48,6 +50,15 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     :controller_id,
     :inserted_at,
     :updated_at | @public_fields
+  ]
+
+  @launch_read_fields [
+    :id,
+    :source_type,
+    :name,
+    :controller_id,
+    :awx_job_template_id,
+    :parse_status
   ]
 
   postgres do
@@ -80,6 +91,7 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
     define :list_by_repository, action: :by_repository, args: [:repository_id]
     define :list_by_controller, action: :by_controller, args: [:controller_id]
     define :list_launchable, action: :launchable
+    define :get_launch_candidate_by_id, action: :launch_candidate_by_id, args: [:id]
     define :upsert_git, action: :upsert_git
     define :upsert_awx, action: :upsert_awx
     define :destroy_playbook, action: :destroy
@@ -93,22 +105,32 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
       prepare build(select: @public_read_fields)
     end
 
-    # Canonical "launchable playbooks" read — the single source of truth for
-    # every launch surface (device-details Ansible panel, ad-hoc /ansible/launch
-    # page, northbound action sync). A playbook is launchable once it is bound to
-    # an AWX Job Template (`awx_job_template_id`). Pass `controller_id` to scope
-    # the list to a single AWX controller (e.g. the controller a device belongs
-    # to); omit it (nil) to list launchable playbooks across all controllers.
+    # Canonical launch-candidate read shared by the device panel and launch page.
+    # It exposes only parse-valid AWX rows with a job-template ID; the secure
+    # resolver still requires a current approved binding and exact memberships.
     read :launchable do
       description "AWX-launchable playbooks, optionally scoped to one controller"
       argument :controller_id, :uuid, allow_nil?: true
 
       filter expr(
-               not is_nil(awx_job_template_id) and
+               source_type == :awx and parse_status == :ok and
+                 not is_nil(awx_job_template_id) and
                  (is_nil(^arg(:controller_id)) or controller_id == ^arg(:controller_id))
              )
 
-      prepare build(select: @public_read_fields, sort: [name: :asc], limit: 200)
+      prepare build(select: @launch_read_fields, sort: [name: :asc], limit: 200)
+    end
+
+    read :launch_candidate_by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+
+      filter expr(
+               id == ^arg(:id) and source_type == :awx and parse_status == :ok and
+                 not is_nil(awx_job_template_id)
+             )
+
+      prepare build(select: @launch_read_fields)
     end
 
     read :by_id do
@@ -181,10 +203,12 @@ defmodule ServiceRadar.Automation.Ansible.Playbook do
 
     system_bypass()
 
-    action_with_permission(
-      [:read, :launchable, :by_id, :by_repository, :by_controller],
-      @view_check
-    )
+    action_with_permission([:read, :by_id, :by_repository, :by_controller], @view_check)
+
+    policy action([:launchable, :launch_candidate_by_id]) do
+      authorize_if @view_check
+      authorize_if @launch_check
+    end
 
     action_type_with_permission([:create, :update, :destroy], @manage_check)
   end

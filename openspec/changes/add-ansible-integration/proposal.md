@@ -10,10 +10,10 @@ This change introduces a first-class `ansible-integration` capability that:
 2. Lets operators register **git repositories** as the canonical playbook catalog source, with metadata sync handled by AshOban workers.
 3. Marks devices in the inventory as **Ansible-managed**, with linkage to AWX inventory hosts.
 4. Adds a **Run Playbook** action to the device detail LiveView, gated by RBAC.
-5. Persists a **run / play / task / host-result** hierarchy in Ash resources so operators can drill into a run after the fact — replacing ARA's role.
-6. Streams **events into ServiceRadar's observability plane** (NATS JetStream → EventBatcher) so the UI updates live and the data is queryable via SRQL.
+5. Persists canonical operation, execution, and exact-target evidence for operator inspection while retaining the scrubbed internal **run / play / task / host-result** hierarchy used by existing ingestion, audit, retention, and observability paths — replacing ARA's role without exposing two history models.
+6. Projects retained internal job events into ServiceRadar's observability plane (NATS JetStream → EventBatcher) while canonical operation pages read persisted evidence explicitly; the UI does not depend on the legacy run PubSub stream.
 
-Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** stored by ServiceRadar; they remain in AWX's credential vault. ServiceRadar only stores the AWX API token used to authenticate to the controller, encrypted via AshCloak.
+Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** stored by ServiceRadar; they remain in AWX's credential vault. AWX API tokens are referenced through the ServiceRadar credential broker and resolved only at the edge for purpose-scoped requests.
 
 ## What Changes
 
@@ -26,10 +26,10 @@ Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** 
 
 - **ADD** `AnsibleController` Ash resource (AWX/AAP base_url, version, **credential broker reference** for the API token, agent_id that reaches it, health status, sync intervals). Token is held by the existing credential broker, not on the resource — same pattern as proxmox / unifi today. Tracked by AshPaperTrail.
 - **ADD** `PlaybookRepository` Ash resource (git URL, branch/ref, sync schedule, last-sync state) with AshOban sync workers. Tracked by AshPaperTrail.
-- **ADD** `Playbook` Ash resource — **polymorphic catalog entry**. `source_type ∈ {git, awx}`. For git-sourced playbooks: `repository_id` + `path` + parsed metadata (name, description, declared vars, `vars_prompt`, tags, hosts pattern). For AWX-sourced playbooks: `controller_id` + `awx_job_template_id` + AWX `survey_spec`-derived variable prompts. A single playbook can be reachable through both sources (operators choose one or both).
-- **ADD** `PlaybookRun` Ash resource using **Ash State Machine** (`pending → launching → running → succeeded | failed | partial | unreachable | canceled`), with launch-time snapshot of vars, AWX job id, `last_event_id` watermark, `requested_by_actor_id`, optional `schedule_id` (when launched by a schedule). Tracked by AshPaperTrail.
-- **ADD** `PlaybookRunTarget` Ash resource — one row per device targeted by a run, with per-device status (`ok | failed | unreachable | skipped`) and stats (changed, failed, ok, skipped, unreachable counts). Replaces single-device coupling: a run with N selected devices has N `PlaybookRunTarget` rows.
-- **ADD** `PlaybookSchedule` Ash resource — `name`, `enabled`, `playbook_id`, `target_device_uids[]`, `extra_vars`, `cron`, `timezone`, `allow_concurrent`, `last_evaluated_at`, `last_run_id`, `next_run_at`, `owner_id`. Tracked by AshPaperTrail. RBAC: `ansible.schedules.view`, `ansible.schedules.manage`.
+- **ADD** `Playbook` Ash resource — **polymorphic catalog entry**. `source_type ∈ {git, awx}`. Git-sourced rows carry repository/path and parsed metadata for discovery and review. AWX-sourced rows carry controller/template and survey metadata. Hardened launch accepts only an AWX-sourced row with a current approved immutable binding; mutable catalog survey data and git `vars_prompt` do not become launch authority.
+- **ADD** retained `PlaybookRun` Ash resource using **Ash State Machine** (`pending → launching → running → succeeded | failed | partial | unreachable | canceled`), with AWX job id, `last_event_id` watermark, actor/schedule attribution, and scrubbed metadata. It remains an internal ingestion/audit/retention resource and is not created or exposed by the hardened interactive launch path. Tracked by AshPaperTrail.
+- **ADD** retained `PlaybookRunTarget` Ash resource — one row per device attributed to an internal run, with per-device status (`ok | failed | unreachable | skipped`) and stats (changed, failed, ok, skipped, unreachable counts). It does not drive canonical operation history.
+- **ADD** retained `PlaybookSchedule` Ash resource for migration/audit compatibility. Rows default disabled, raw requested variables are not accepted, enablement fails closed, and no schedule UI or execution workflow is exposed until a separate approved immutable-delegation change lands. Existing RBAC identifiers remain reserved for compatibility.
 - **ADD** `PlaybookPlay`, `PlaybookTask`, `PlaybookTaskResult` Ash resources mirroring the run hierarchy (replaces ARA's data model). `PlaybookTaskResult` references `PlaybookRunTarget` for per-host attribution.
 - **ADD** **`awx` WASM plugin** (`cmd/wasm-plugins/awx/`, built with `serviceradar-sdk-go`) — the network bridge into the customer network. **Controller-agnostic**: one plugin instance per agent serves N controllers; per-call credential broker grants carry the base_url + token for the target controller. Two entrypoints:
   - `run_check` (on-demand via CommandBus): all AWX REST verbs — `awx.ping`, `awx.list_inventories`, `awx.list_hosts`, `awx.list_projects`, `awx.list_templates`, `awx.fetch_template`, `awx.launch_job`, `awx.fetch_job`, `awx.cancel_job`, and the bulk `awx.fetch_events_for_jobs([(job_id, since_id), …])` that drives the run-event tail. One `CommandRequest` → one `CommandResult`. **No long-lived streams.**
@@ -38,16 +38,16 @@ Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** 
 - **ADD** `Serviceradar.Automation.Ansible.RunPulseWorker` (AshOban, one job per controller) — ticks every `run_pulse_interval_ms` (default 2000), batches active-run watermarks, dispatches `awx.fetch_events_for_jobs`, persists results, drives state machine, projects OCSF events. Skips ticks when there are no active runs.
 - **ADD** `Serviceradar.Automation.Ansible.AwxCatalogSyncWorker` (AshOban) — for each `AnsibleController`, periodically syncs Job Templates (and their `survey_spec`) via `awx.list_templates` and upserts them as `Playbook` rows with `source_type = "awx"`.
 - **ADD** `Serviceradar.Automation.Ansible.GitCatalogSyncWorker` (AshOban) — for each `PlaybookRepository`, syncs the git repo and upserts playbooks with `source_type = "git"`.
-- **ADD** `Serviceradar.Automation.Ansible.ScheduleEvaluatorWorker` (AshOban) — evaluates `PlaybookSchedule` rows against their cron expressions and creates `PlaybookRun`s when they fire; respects per-schedule `allow_concurrent` policy.
+- **ADD** retained `Serviceradar.Automation.Ansible.ScheduleEvaluatorWorker` (AshOban) — preserves evaluation compatibility for disabled historical rows but cannot authorize or launch work through the fail-closed legacy launcher.
 - **ADD** `Serviceradar.Automation.Ansible.RetentionWorker` (AshOban) — applies the configured retention policy.
 - **ADD** **LiveView**:
-  - **Device Actions modal** (new, multi-device): launched from the inventory list when one or more devices are selected, or from the device detail page (with the current device pre-selected). Displays a list of available actions; in v1 only `Run Playbook` is wired up. Action registry is structured so future actions (Run MTR, Perform Network Scan, etc.) can register declaratively in later changes without touching the modal.
-  - `Recent Ansible Runs` panel on the device detail page (filtered to runs targeting that device).
-  - New `/ansible/runs` index and `/ansible/runs/:id` detail with live event streams; the detail page shows the per-device target table with per-host status pills, plus the play/task tree.
-  - `/settings/ansible` admin page for controllers, git repositories, and retention configuration display.
-- **ADD** RBAC permissions: `ansible.controllers.manage`, `ansible.repositories.manage`, `ansible.catalog.view`, `ansible.runs.view`, `ansible.runs.launch`, `ansible.runs.cancel`, `ansible.schedules.view`, `ansible.schedules.manage`. **No** `devices.ansible.mark` — derived, not toggled.
+  - Hardened launch surfaces: inventory multi-select navigates to `/ansible/launch` with the canonical device UIDs; device detail opens the same reviewed launch contract in an in-panel modal for the current device.
+  - `Recent Ansible operations` panel on the device detail page, sourced only from canonical operation targets.
+  - Canonical `/ansible/operations` index and `/ansible/operations/:id` evidence detail; no separate `PlaybookRun` index or detail route is exposed.
+  - `/settings/ansible` admin page for controllers and git repositories; retained lifecycle configuration is deployment-internal and not presented as a supported UI workflow.
+- **ADD** RBAC permissions: `ansible.controllers.manage`, `ansible.repositories.manage`, `ansible.catalog.view`, `ansible.runs.view`, `ansible.runs.launch`, `ansible.runs.cancel`, plus retained compatibility identifiers `ansible.schedules.view` and `ansible.schedules.manage`. Schedule permissions do not enable scheduled execution. **No** `devices.ansible.mark` — derived, not toggled.
 - **ADD** SRQL aliases for `ansible_runs`, `ansible_run_targets`, `ansible_playbooks`, `ansible_controllers`, `ansible_schedules`.
-- **ADD** OCSF event emission: each task result and run state transition is also written as an OCSF-shaped event into the existing observability events stream — giving operators ansible visibility in the universal log viewer with no extra collector hop.
+- **ADD** OCSF event emission for the retained internal run/event pipeline: each task result and internal run state transition is written as an OCSF-shaped event into the existing observability events stream. These events remain searchable but do not claim a canonical-operation correlation unless one is explicitly persisted.
 - **ADD** AshPaperTrail-backed audit trail on `PlaybookRun`, `AnsibleController`, `PlaybookRepository`.
 
 ### Observability
@@ -60,8 +60,8 @@ Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** 
 - Direct `ansible-playbook` execution by a ServiceRadar agent (AWX-only in v1; the Go-side execution path is reserved for a follow-up).
 - Storing SSH keys, become passwords, or vault passwords in ServiceRadar (AWX vault only).
 - Webhook ingestion from AWX (deferred to v2 — see design.md "Deferred to v2: Webhook Augmentation" for the agent-side receiver sketch).
-- Advanced schedule features: timezones-per-target, blackout windows, holiday calendars. v1 ships standard 5-field cron + timezone-per-schedule; the rest can come later.
-- Wiring up Run MTR, Perform Network Scan, or other non-ansible actions in the new Device Actions modal — the modal architecture supports them, but only Run Playbook is implemented in this change. Other actions land in their own changes.
+- Scheduled or recurring execution and all schedule controls. Retained schedule rows stay disabled until a separate change defines immutable delegation, reapproval, typed non-secret inputs, and canonical operation evidence.
+- Wiring up Run MTR, Perform Network Scan, or other non-Ansible actions. Those actions land in their own changes.
 - Replacing ARA for non-ServiceRadar contexts.
 
 ## Impact
@@ -76,10 +76,10 @@ Credentials (SSH keys, become passwords, sudo passwords) are explicitly **not** 
   - `elixir/serviceradar_core/lib/serviceradar/identity/rbac/catalog.ex` (modified — new permissions)
   - `elixir/serviceradar_core/lib/serviceradar/edge/agent_command_bus.ex` (extended — new typed verbs `awx.*`)
   - `elixir/serviceradar_core/lib/serviceradar/observability/` (extended — OCSF event mapping for ansible task results)
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/inventory_live/` (modified — multi-select + Run Task button)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/inventory_live/` (modified — multi-select + canonical Launch Playbook button)
   - `elixir/web-ng/lib/serviceradar_web_ng_web/components/device_actions_modal.ex` (new — extensible action registry, only Run Playbook enabled in v1)
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex` (modified — Run Task action shortcut, runs panel)
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/ansible_live/` (new — runs index, run detail with per-device-target table, settings pages)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/show.ex` (modified — Launch Playbook shortcut, canonical operations panel)
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/ansible_live/` (new — canonical operation index/evidence detail and settings pages)
   - `go/cmd/wasm-plugins/awx/` (new — WASM plugin with `run_check` for per-call REST and `stream_awx_events` for the job event tail; built with `serviceradar-sdk-go`)
   - `go/pkg/agent/` (extended — register the `awx_events` chunk source so streamed chunks route to Elixir)
   - `elixir/serviceradar_core/lib/serviceradar/srql/` (modified — new resource aliases)

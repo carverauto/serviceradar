@@ -51,6 +51,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     {:noreply, assign(socket, :selected_devices, MapSet.new())}
   end
 
+  def handle_event("launch_ansible_for_selection", _params, socket) do
+    cond do
+      not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "You are not authorized to launch Ansible playbooks."
+         )}
+
+      socket.assigns.select_all_matching ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Choose specific devices before launching an Ansible playbook."
+         )}
+
+      true ->
+        case validate_device_selection(socket) do
+          {:error, message} ->
+            {:noreply, put_flash(socket, :error, message)}
+
+          :ok ->
+            device_uids = socket |> selected_uids() |> Enum.sort() |> Enum.join(",")
+
+            {:noreply,
+             push_navigate(
+               socket,
+               to: ~p"/ansible/launch?#{%{devices: device_uids}}"
+             )}
+        end
+    end
+  end
+
   def handle_event("open_bulk_edit_modal", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
       {:noreply, assign(socket, :show_bulk_edit_modal, true)}
@@ -131,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     cond do
       not socket.assigns.select_all_matching and
           MapSet.size(socket.assigns.selected_devices) == 0 ->
-        {:error, "Select at least one device before Run Task."}
+        {:error, "Select at least one device first."}
 
       socket.assigns.select_all_matching and
           not is_integer(socket.assigns.total_matching_count) ->

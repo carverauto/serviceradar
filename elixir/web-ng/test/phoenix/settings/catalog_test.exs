@@ -18,6 +18,16 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
   @moduletag :db_free
 
   describe "structural validation (the gate)" do
+    test "Ansible copy exposes only supported settings workflows" do
+      ansible = Catalog.view(:ansible)
+
+      assert ansible.description == "Manage Ansible controllers and repositories."
+      refute String.contains?(String.downcase(ansible.description), "schedule")
+      refute String.contains?(String.downcase(ansible.description), "retention")
+      refute "schedule" in ansible.keywords
+      refute "retention" in ansible.keywords
+    end
+
     test "every view.category exists in @categories" do
       category_ids = MapSet.new(Catalog.categories(), & &1.id)
 
@@ -27,13 +37,15 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       end
     end
 
-    test "every view.permission is a key in RBAC.Catalog.permission_keys/0" do
+    test "every view.permission key is in RBAC.Catalog.permission_keys/0" do
       permission_keys = MapSet.new(RBACCatalog.permission_keys())
 
       for view <- Catalog.views(), not is_nil(view.permission) do
-        assert MapSet.member?(permission_keys, view.permission),
-               "view #{inspect(view.id)} permission #{inspect(view.permission)} " <>
-                 "is not in RBAC.Catalog.permission_keys/0"
+        for permission <- List.wrap(view.permission) do
+          assert MapSet.member?(permission_keys, permission),
+                 "view #{inspect(view.id)} permission #{inspect(permission)} " <>
+                   "is not in RBAC.Catalog.permission_keys/0"
+        end
       end
     end
 
@@ -251,6 +263,30 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert :agent_releases in ids
       assert :agent_deploy in ids
       refute :plugins in ids, "plugins needs plugins.view"
+    end
+
+    test "either retained Ansible management permission exposes catalog navigation" do
+      for permission <- ["ansible.controllers.manage", "ansible.repositories.manage"] do
+        scope = %Scope{permissions: MapSet.new([permission])}
+
+        assert :ansible in Enum.map(Catalog.visible_views(scope, :edge_ops), & &1.id)
+
+        assert Enum.any?(Catalog.nav_tree(scope, :edge_ops), fn group ->
+                 Enum.any?(group.sections, fn section ->
+                   Enum.any?(section.views, &(&1.id == :ansible))
+                 end)
+               end)
+
+        assert Enum.any?(Catalog.palette_index(scope), &(&1.id == :ansible))
+        assert Catalog.category_landing_route(scope, :edge_ops) == "/settings/ansible"
+
+        assert [_, %{label: "Edge Ops", route: "/settings/ansible"}, _] =
+                 Catalog.breadcrumbs_for_path("/settings/ansible", scope)
+      end
+
+      schedule_scope = %Scope{permissions: MapSet.new(["ansible.schedules.manage"])}
+      refute :ansible in Enum.map(Catalog.visible_views(schedule_scope, :edge_ops), & &1.id)
+      refute Enum.any?(Catalog.palette_index(schedule_scope), &(&1.id == :ansible))
     end
 
     test "a cluster viewer sees System / Cluster Status" do

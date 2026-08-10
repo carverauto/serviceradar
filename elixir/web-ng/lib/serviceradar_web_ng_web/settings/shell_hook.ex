@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
           socket
           |> assign(:settings_active_view, view)
           |> assign(:settings_active_category, category)
-          |> assign(:settings_breadcrumbs, Catalog.breadcrumbs_for_path(path))
+          |> assign(:settings_breadcrumbs, Catalog.breadcrumbs_for_path(path, scope))
           |> assign(:settings_nav_tree, %{
             categories: Catalog.visible_categories(scope),
             groups: nav_groups(scope, category)

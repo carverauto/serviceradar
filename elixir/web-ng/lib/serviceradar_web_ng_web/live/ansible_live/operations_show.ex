@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
   @moduledoc """
-  Read-only evidence view for one hardened Ansible automation operation.
+  Read-only evidence view for one Ansible automation operation.
   """
 
   use ServiceRadarWebNGWeb, :live_view
@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
     if RBAC.can?(scope, "ansible.runs.view") do
       socket =
         socket
-        |> assign(:page_title, "Secure Ansible operation #{short_id(id)}")
+        |> assign(:page_title, "Ansible operation #{short_id(id)}")
         |> assign(:operation_id, id)
         |> assign(:bundle, nil)
 
@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
     else
       {:ok,
        socket
-       |> put_flash(:error, "You don't have permission to view Ansible runs.")
+       |> put_flash(:error, "You don't have permission to view Ansible operations.")
        |> push_navigate(to: ~p"/dashboard")}
     end
   end
@@ -49,16 +49,24 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
   @impl true
   def render(assigns) do
     ~H"""
-    <div
-      :if={is_nil(@bundle)}
-      id="secure-operation-loading"
-      role="status"
-      class="mx-auto w-full max-w-7xl p-6"
+    <Layouts.app
+      flash={@flash}
+      current_scope={@current_scope}
+      current_path={~p"/ansible/operations/#{@operation_id}"}
+      page_title={@page_title}
+      shell={:operations}
     >
-      <.ui_spinner size="sm" />
-      <span class="ml-2 text-sm text-sr-muted">Loading secure operation evidence…</span>
-    </div>
-    <AutomationHistoryComponents.operation_detail :if={@bundle} bundle={@bundle} />
+      <div
+        :if={is_nil(@bundle)}
+        id="secure-operation-loading"
+        role="status"
+        class="mx-auto w-full max-w-7xl p-6"
+      >
+        <.ui_spinner size="sm" />
+        <span class="ml-2 text-sm text-sr-muted">Loading operation evidence…</span>
+      </div>
+      <AutomationHistoryComponents.operation_detail :if={@bundle} bundle={@bundle} />
+    </Layouts.app>
     """
   end
 
@@ -72,14 +80,14 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
 
       {:error, :not_found} ->
         socket
-        |> put_flash(:error, "Secure Ansible operation not found.")
+        |> put_flash(:error, "Ansible operation not found.")
         |> push_navigate(to: ~p"/ansible/operations")
 
       {:error, _reason} ->
-        Logger.warning("Could not load secure Ansible operation evidence")
+        Logger.warning("Could not load Ansible operation evidence")
 
         socket
-        |> put_flash(:error, "Secure operation evidence could not be loaded.")
+        |> put_flash(:error, "Operation evidence could not be loaded.")
         |> push_navigate(to: ~p"/ansible/operations")
     end
   end

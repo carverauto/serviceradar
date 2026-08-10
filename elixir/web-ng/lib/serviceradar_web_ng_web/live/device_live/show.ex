@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.RBAC
@@ -56,7 +55,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       DevicePubSub.subscribe()
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:commands")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
-      AnsiblePubSub.subscribe_runs()
     end
 
     socket =
@@ -208,10 +206,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info({:refresh_camera_relay_session, relay_session_id}, socket) do
     {:noreply, CameraRelayRuntime.refresh_session(socket, relay_session_id)}
-  end
-
-  def handle_info({:ansible_run_updated, _run}, socket) do
-    {:noreply, AnsiblePanelRuntime.refresh_runs(socket)}
   end
 
   def handle_info(msg, socket) do
@@ -1518,8 +1512,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, InterfaceRuntime.clear_selection(socket)}
   end
 
-  def handle_event("run_task_for_interface_selection", _params, socket) do
-    {:noreply, InterfaceRuntime.run_task_for_selection(socket)}
+  def handle_event("run_action_for_interface_selection", _params, socket) do
+    {:noreply, InterfaceRuntime.run_action_for_selection(socket)}
   end
 
   def handle_event("close_northbound_interface_action_modal", _params, socket) do

@@ -47,4 +47,4 @@ The agent Wasm runtime SHALL support a poll/resume entrypoint for deferred north
 - **GIVEN** the external API reports that the task is still running
 - **WHEN** the plugin handles the poll request
 - **THEN** it SHALL return the next poll delay without marking the target completed
-- **AND** ServiceRadar SHALL update progress metadata for Task History
+- **AND** ServiceRadar SHALL update progress metadata for Action History

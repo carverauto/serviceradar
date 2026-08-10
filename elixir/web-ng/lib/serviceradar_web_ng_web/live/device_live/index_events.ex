@@ -41,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     toggle_device_select
     toggle_select_all
     clear_selection
+    launch_ansible_for_selection
     open_bulk_edit_modal
     open_bulk_delete_modal
     open_bulk_availability_source_modal
@@ -51,9 +52,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
   )
 
   @northbound_events ~w(
-    run_task_for_selection
+    run_action_for_selection
     close_northbound_action_modal
-    toggle_northbound_raw_extra_vars
     northbound_action_change
     launch_northbound_action
   )

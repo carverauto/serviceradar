@@ -2,18 +2,19 @@
 
 ## Why
 
-ServiceRadar is starting to grow one-off automation paths, with Ansible as the first visible example. If every external tool gets its own button, LiveView flow, payload shape, and event handling path, the UI and backend will become integration-specific quickly and operators will still lack a consistent way to audit, retry, secure, or trigger remediation.
+ServiceRadar is starting to grow one-off automation paths. Ansible was the first visible example, but its hardened AWX launch now has a distinct immutable-binding, target-membership, and canonical-operation contract. Other external actions still need a provider-neutral model; folding Ansible back into that generic path would discard its security invariants and recreate a second execution history.
 
 This change creates a provider-neutral northbound action model: operators can select devices or interfaces, choose an eligible action exposed by an approved integration or Wasm plugin, provide action-specific inputs through a controlled schema-driven modal, and execute that action with full RBAC, audit, event, and result tracking.
 
 ## What Changes
 
 - Add a `northbound-actions` capability that defines action providers, descriptors, targets, invocations, results, and event-handler execution.
-- Generalize the current device "Run Task" entry point so it is disabled when no eligible action providers are configured and so Ansible is one provider rather than the model itself.
+- Add a provider-neutral **Run Action** entry point that is disabled when no eligible non-Ansible providers are configured. Keep canonical Ansible **Launch Playbook** navigation separate.
 - Add interface-scoped actions so operators can select one or more interfaces and run external NMS/NCM tasks that need device and interface context.
 - Extend approved Wasm plugin metadata with action descriptors, target scopes, input schemas, required context fields, safety metadata, and credential/capability requirements.
 - Extend the dynamic configuration UI contract to render action launch forms from a documented schema subset without letting plugins inject arbitrary UI code.
 - Add persisted action invocation state, target snapshots, submitted inputs, result summaries, external correlation IDs, and audit events.
+- Exclude retained Ansible-provider descriptors and invocations from operator-facing northbound action catalogs and Action History. Preserve their stored rows as internal evidence for a separate migration.
 - Add event-handler support so ServiceRadar events can invoke northbound actions after target resolution, cooldown, rate-limit, and optional approval checks.
 - Update the Go and Rust SDK contracts so plugin authors can define action descriptors, decode invocation context, validate inputs, and return action results.
 
@@ -28,7 +29,7 @@ This change creates a provider-neutral northbound action model: operators can se
 
 ### Risks of Not Doing This Work
 
-- Ansible-specific concepts will harden into the product architecture and every later integration will copy them with slight differences.
+- New integrations will copy Ansible-specific concepts instead of using a provider-neutral contract designed for their action model.
 - Operators will not have a consistent audit trail, RBAC model, or result view for actions that change external systems.
 - Device and interface remediation will stay manual or be pushed into external automation tools that lack ServiceRadar inventory and event context.
 - Event-driven workflows will become a separate later system instead of reusing the same action contract.
@@ -44,12 +45,14 @@ This change creates a provider-neutral northbound action model: operators can se
   - `observability-signals`
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/automation/` for action resources, dispatcher, policies, and event handler execution.
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/` and interface views for provider-neutral action launch UI.
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/ansible_live/` to adapt Ansible launch into the provider-neutral action registry.
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/` and interface views for provider-neutral action launch UI, separation from canonical Ansible launch, and filtered operator history.
+  - `elixir/serviceradar_core/lib/serviceradar/automation/northbound/` to exclude retained Ansible providers from operator catalog/history reads without deleting evidence.
   - `go/pkg/agent/` and Wasm plugin runtime command paths for on-demand action invocation.
   - `go/cmd/wasm-plugins/*` for plugin descriptor examples and fixtures.
   - `~/src/serviceradar-sdk/go` and `~/src/serviceradar-sdk-rust` for action descriptor/result APIs.
 - Operator impact:
   - No action appears just because a device exists. Operators see only actions backed by configured, approved, reachable providers.
-  - Device and interface action launches get a consistent modal, history, audit, and result model.
+  - **Run Action** requires `northbound.actions.launch`; generic Action History requires `northbound.actions.view` and contains only non-Ansible providers.
+  - **Launch Playbook** remains a separate canonical Ansible workflow requiring `ansible.runs.launch`; its operation history requires `ansible.runs.view`.
+  - Device and interface non-Ansible action launches get a consistent modal, history, audit, and result model.
   - Event-driven action execution is opt-in and guarded; no automatic remediation runs without an explicit handler.
