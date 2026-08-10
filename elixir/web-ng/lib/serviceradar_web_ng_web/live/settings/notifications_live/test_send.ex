@@ -149,11 +149,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.TestSend do
 
   defp url_values(_config), do: []
 
+  # These heads must match the atoms the policy ACTUALLY returns. The full surface is
+  # `:invalid_url`, `:disallowed_scheme`, `:disallowed_port` from
+  # ServiceRadar.Policies.OutboundURLPolicy, plus `:disallowed_host`,
+  # `:dns_resolution_failed` and `:invalid_cidr` passed through from
+  # ServiceRadar.Policies.NetworkAddressPolicy. An earlier version of this function
+  # named four atoms nobody returns (`:scheme_not_allowed`, `:port_not_allowed`,
+  # `:host_not_allowed`, `:private_address`), so every scheme, port and host refusal
+  # fell through to the generic clause - defeating the whole point of this function,
+  # which is to tell an operator WHICH rule refused their URL instead of leaving them
+  # guessing. If you add a reason to either policy, add it here too.
   defp url_rejection(:invalid_url), do: "the value is not a URL"
-  defp url_rejection(:scheme_not_allowed), do: "only https:// URLs are allowed"
-  defp url_rejection(:port_not_allowed), do: "the port is not allowed"
-  defp url_rejection(:host_not_allowed), do: "the host is not allowed"
-  defp url_rejection(:private_address), do: "the host resolves to a private address"
+  defp url_rejection(:disallowed_scheme), do: "only https:// URLs are allowed"
+  defp url_rejection(:disallowed_port), do: "the port is not allowed"
+
+  defp url_rejection(:disallowed_host),
+    do: "the host is not allowed (loopback, link-local, and private addresses are refused)"
+
+  defp url_rejection(:dns_resolution_failed), do: "the host name could not be resolved"
+  defp url_rejection(:invalid_cidr), do: "the configured address policy is invalid"
   defp url_rejection(reason), do: "rejected by the outbound URL policy (#{inspect(reason)})"
 
   defp validate_config(module, config) do

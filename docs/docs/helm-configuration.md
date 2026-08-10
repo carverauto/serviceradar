@@ -327,3 +327,74 @@ UI management:
 - Open **Settings → Network → Device Enrichment**.
 - Use the typed rule editor to create/update/delete rules.
 - For writable UI-managed rules in Kubernetes, back the mount with a PVC (`existingClaim`) rather than ConfigMap/Secret.
+
+## Outbound Mail (SMTP)
+
+Outbound mail carries identity messages (confirmation, password reset) and the
+`email` notification transport. Both go through one mail path, so configuring it
+here configures both. See [Notifications](./notifications.md) for the channel
+side.
+
+Configure it with the `core.mailer` block:
+
+```yaml
+core:
+  mailer:
+    # "smtp", "local", "sendgrid", ... Leave empty to infer SMTP from `relay`.
+    adapter: ""
+    relay: "smtp.example.com"
+    port: 587
+    # HELO/EHLO name this deployment announces; empty lets the relay decide.
+    hostname: ""
+    auth: "if_available"     # always | never | if_available
+    tls: "if_available"      # STARTTLS
+    ssl: false               # implicit TLS (port 465)
+    from:
+      name: "ServiceRadar"
+      email: "noreply@example.com"
+    # Relay credentials come from an existing Secret, never from values.
+    existingSecret: "serviceradar-smtp"
+    usernameKey: "smtp-username"
+    passwordKey: "smtp-password"
+```
+
+Create the credential Secret separately:
+
+```bash
+kubectl create secret generic serviceradar-smtp \
+  -n serviceradar \
+  --from-literal=smtp-username='serviceradar' \
+  --from-literal=smtp-password='...'
+```
+
+The password is deliberately not a chart value. A password in `values.yaml` is a
+password in the rendered manifest, in `helm get values`, and in whatever GitOps
+repository holds the file.
+
+The block renders into these container environment variables on
+`serviceradar-core`:
+
+| Variable | From | Meaning |
+| --- | --- | --- |
+| `SERVICERADAR_MAILER_ADAPTER` | `core.mailer.adapter` | `smtp`, `local`, `test`, or an API adapter name |
+| `SMTP_RELAY_HOST` | `core.mailer.relay` | Relay hostname. Setting it alone selects the SMTP adapter |
+| `SMTP_RELAY_PORT` | `core.mailer.port` | Default 587 |
+| `SMTP_RELAY_HOSTNAME` | `core.mailer.hostname` | HELO/EHLO name |
+| `SMTP_RELAY_AUTH` | `core.mailer.auth` | `always`, `never`, `if_available` |
+| `SMTP_RELAY_TLS` | `core.mailer.tls` | STARTTLS mode |
+| `SMTP_RELAY_SSL` | `core.mailer.ssl` | `true` for implicit TLS |
+| `SMTP_RELAY_USERNAME` / `SMTP_RELAY_PASSWORD` | `core.mailer.existingSecret` | Relay credentials, by Secret reference |
+| `SERVICERADAR_MAIL_FROM_NAME` / `SERVICERADAR_MAIL_FROM_EMAIL` | `core.mailer.from` | Default `From:` |
+
+With none of this set, the mailer resolves to a non-delivering test adapter that
+reports every send as successful. That is why an email notification channel
+refuses to validate until a relay is configured here (or in Settings > Mail)
+rather than looking healthy and paging nobody. An unrecognised
+`SERVICERADAR_MAILER_ADAPTER` value fails the pod's boot with the accepted list,
+which is a deployment that does not start rather than one that starts and mails
+nowhere.
+
+Also relevant for notifications: set
+`SERVICERADAR_NOTIFICATION_ACTION_BASE_URL` (via `core.extraEnv`) to the
+externally reachable base URL of the web UI, so acknowledge / snooze / resolve
+links inside notifications resolve to a real address.

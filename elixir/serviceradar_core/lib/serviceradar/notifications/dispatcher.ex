@@ -206,6 +206,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   alias ServiceRadar.Notifications.Renderer
   alias ServiceRadar.Notifications.Router
   alias ServiceRadar.Notifications.Suppression
+  alias ServiceRadar.Notifications.Telemetry
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
   alias ServiceRadar.Notifications.Transports
@@ -304,11 +305,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
       log_route_errors(alert_id, decision)
 
-      if Router.unrouted?(decision) do
-        route_unrouted(scope, decision, lifecycle_reason, actor, opts)
-      else
-        route_matched(scope, decision, lifecycle_reason, actor, opts)
-      end
+      result =
+        if Router.unrouted?(decision) do
+          route_unrouted(scope, decision, lifecycle_reason, actor, opts)
+        else
+          route_matched(scope, decision, lifecycle_reason, actor, opts)
+        end
+
+      emit_routed(alert_id, lifecycle_reason, decision, result)
+
+      result
     end
   end
 
@@ -574,6 +580,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
     case create_delivery(:record_dispatch, attrs, actor) do
       {:ok, delivery, notifications} ->
+        emit_escalated(delivery, channel)
         {[delivery.id], notifications}
 
       {:error, reason} ->
@@ -610,8 +617,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     case Suppression.to_delivery_attributes(outcome, context) do
       {:ok, attrs} ->
         case create_delivery(:record_suppression, drop_absent_execution_route(attrs), actor) do
-          {:ok, delivery, notifications} -> {:ok, delivery.id, notifications}
-          {:error, reason} -> {:error, reason}
+          {:ok, delivery, notifications} ->
+            emit_suppressed(delivery, context, :routing)
+            {:ok, delivery.id, notifications}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       :allow ->
@@ -647,14 +658,14 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
     case Suppression.evaluate(scope.suppression) do
       {:suppress, reason, detail} ->
-        suppress_delivery(delivery, reason, detail, now, actor)
+        suppress_delivery(delivery, channel, reason, detail, now, actor)
 
       :allow ->
         consume_budget(delivery, channel, provider, scope, now, actor, opts)
     end
   end
 
-  defp suppress_delivery(delivery, reason, detail, now, actor) do
+  defp suppress_delivery(delivery, channel, reason, detail, now, actor) do
     attrs = %{
       suppression_reason: reason,
       result_summary: %{
@@ -667,8 +678,20 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     }
 
     case update_delivery(delivery, :record_suppressed, attrs, actor) do
-      {:ok, _delivery} -> {:ok, :suppressed}
-      {:error, reason} -> {:error, reason}
+      {:ok, suppressed} ->
+        delivery
+        |> telemetry_fields(channel)
+        |> Map.merge(%{
+          suppression_reason: reason,
+          occurrence_count: suppressed.occurrence_count,
+          phase: :dispatch
+        })
+        |> Telemetry.suppressed()
+
+        {:ok, :suppressed}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -683,7 +706,15 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
+  # The dispatch-attempted signal fires here rather than around the transport
+  # call, so it covers the attempts that never reach a transport at all - an
+  # unresolvable secret, a provider with no transport module. Those consume an
+  # attempt slot and settle exactly like a transport failure, and an
+  # "attempted" denominator that excluded them would report a per-channel error
+  # rate above one.
   defp prepare_and_send(delivery, channel, provider, scope, now, actor, opts) do
+    Telemetry.dispatched(telemetry_fields(delivery, channel))
+
     case build_request(delivery, channel, provider, scope, opts) do
       {:ok, request, rendered} ->
         send_request(delivery, channel, provider, request, rendered, now, actor, opts)
@@ -724,13 +755,13 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     attempts_remaining? = delivery.attempt_count + 1 < delivery.max_attempts
 
     case Result.outcome(result, attempts_remaining?) do
-      :sent -> record_sent(delivery, channel, result, rendered, actor)
-      :retry -> record_retry(delivery, result, now, actor)
+      :sent -> record_sent(delivery, channel, result, rendered, now, actor)
+      :retry -> record_retry(delivery, channel, result, now, actor)
       :failed -> record_failed(delivery, channel, result, now, actor)
     end
   end
 
-  defp record_sent(delivery, channel, result, rendered, actor) do
+  defp record_sent(delivery, channel, result, rendered, now, actor) do
     attrs =
       put_rendered(
         %{
@@ -743,6 +774,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     case update_delivery(delivery, :record_sent, attrs, actor) do
       {:ok, _delivery} ->
         _ = record_channel_success(channel, actor)
+
+        delivery
+        |> telemetry_fields(channel)
+        |> Map.put(:dispatch_latency_ms, dispatch_latency_ms(delivery, now))
+        |> Telemetry.sent()
+
         {:ok, :sent}
 
       {:error, reason} ->
@@ -750,7 +787,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
-  defp record_retry(delivery, result, now, actor) do
+  defp record_retry(delivery, channel, result, now, actor) do
     delay_ms = backoff_ms(delivery.attempt_count + 1, result.retry_after_ms, rand_source())
     next_attempt_at = DateTime.add(now, delay_ms, :millisecond)
 
@@ -762,8 +799,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     }
 
     case update_delivery(delivery, :record_retry_scheduled, attrs, actor) do
-      {:ok, _delivery} -> {:retry, next_attempt_at}
-      {:error, reason} -> {:error, reason}
+      {:ok, _delivery} ->
+        delivery
+        |> telemetry_fields(channel)
+        |> Map.merge(%{error_class: result.error_class, delay_ms: delay_ms})
+        |> Telemetry.retried()
+
+        {:retry, next_attempt_at}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -778,6 +823,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     case update_delivery(delivery, :record_failed, attrs, actor) do
       {:ok, failed} ->
         _ = record_channel_failure(channel, result, actor)
+
+        delivery
+        |> telemetry_fields(channel)
+        |> Map.put(:error_class, result.error_class)
+        |> Telemetry.failed()
+
         _ = maybe_failover(failed, channel, now, actor)
         {:error, {:delivery_failed, result.error_class}}
 
@@ -832,6 +883,15 @@ defmodule ServiceRadar.Notifications.Dispatcher do
               delivery_id: delivery.id,
               failover_delivery_id: successor.id
             )
+
+            Telemetry.failed_over(%{
+              alert_id: delivery.alert_id,
+              delivery_id: delivery.id,
+              successor_delivery_id: successor.id,
+              channel_id: delivery.channel_id,
+              fallback_channel_id: fallback.id,
+              step_number: delivery.step_number
+            })
 
             {:ok, successor.id}
 
@@ -1703,6 +1763,102 @@ defmodule ServiceRadar.Notifications.Dispatcher do
         end
     end
   end
+
+  # --- telemetry ------------------------------------------------------------
+
+  # Metadata carries ids and classifications ONLY. Nothing assembled here may be
+  # a payload, a rendered subject or body, a resolved secret, or an alert title:
+  # a telemetry handler ships metadata to label sets, logs, and traces
+  # indiscriminately, so a leak here is a leak everywhere at once.
+  defp telemetry_fields(delivery, channel) do
+    provider = field(channel, :provider)
+
+    %{
+      alert_id: delivery.alert_id,
+      delivery_id: delivery.id,
+      channel_id: delivery.channel_id,
+      policy_id: delivery.policy_id,
+      route_id: delivery.route_id,
+      step_number: delivery.step_number,
+      # `delivery` is always the PRE-update row here, so every event for one
+      # attempt reports the same attempt number.
+      attempt: (delivery.attempt_count || 0) + 1,
+      provider_key: field(provider, :provider_key),
+      provider_type: field(provider, :provider_type),
+      execution_route: delivery.execution_route,
+      is_test: delivery.is_test == true
+    }
+  end
+
+  defp emit_routed(alert_id, lifecycle_reason, decision, {:ok, result}) do
+    Telemetry.routed(%{
+      alert_id: alert_id,
+      lifecycle_reason: lifecycle_reason,
+      matched_routes: length(decision.matched),
+      planned: length(Map.get(result, :planned, [])),
+      suppressed: length(Map.get(result, :suppressed, []))
+    })
+  end
+
+  # A routing request that failed produced no decision to measure. Emitting a
+  # zero-planned event for it would read as "this alert was routed and owed
+  # nothing", which is the opposite of what happened.
+  defp emit_routed(_alert_id, _lifecycle_reason, _decision, _other), do: :ok
+
+  defp emit_suppressed(delivery, context, phase) do
+    provider = Map.get(context, :provider) || field(Map.get(context, :channel), :provider)
+
+    Telemetry.suppressed(%{
+      alert_id: delivery.alert_id,
+      delivery_id: delivery.id,
+      channel_id: delivery.channel_id,
+      policy_id: delivery.policy_id,
+      step_number: delivery.step_number,
+      provider_key: field(provider, :provider_key),
+      provider_type: field(provider, :provider_type),
+      suppression_reason: delivery.suppression_reason,
+      occurrence_count: delivery.occurrence_count,
+      phase: phase
+    })
+  end
+
+  # Step 1 is the first notification, not an escalation. Counting it as one
+  # would make every paged alert look escalated and the escalation series
+  # useless for answering "did the ladder fire?".
+  defp emit_escalated(%{step_number: step_number} = delivery, channel)
+       when is_integer(step_number) and step_number > 1 do
+    Telemetry.escalated(%{
+      alert_id: delivery.alert_id,
+      delivery_id: delivery.id,
+      policy_id: delivery.policy_id,
+      channel_id: delivery.channel_id,
+      step_number: step_number,
+      provider_key: field(field(channel, :provider), :provider_key)
+    })
+  end
+
+  defp emit_escalated(_delivery, _channel), do: :ok
+
+  # End-to-end dispatch latency is measured from ALERT FIRE TIME, not from
+  # `queued_at` - a rung that was owed fifteen minutes after the alert fired is
+  # not fifteen minutes late, and a rung whose dispatch was delayed by retries
+  # is. `first_seen_at` on the snapshot is the alert's `triggered_at`, which is
+  # denormalised precisely because the alert row may already be pruned.
+  defp dispatch_latency_ms(delivery, now) do
+    delivery.alert_snapshot
+    |> snapshot_field("first_seen_at")
+    |> parse_iso8601()
+    |> Telemetry.latency_ms(now)
+  end
+
+  defp parse_iso8601(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp parse_iso8601(_value), do: nil
 
   # --- small helpers --------------------------------------------------------
 

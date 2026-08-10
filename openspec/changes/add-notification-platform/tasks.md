@@ -352,9 +352,23 @@ Conventions that apply to every phase:
       jobs idempotent, string-keyed args, no structs in args.
 - [x] 1.3.11 Give `NotificationDelivery` its own retention policy independent of
       `Jobs.AlertsRetentionWorker`, configurable and defaulting longer than 3 days.
-- [ ] 1.3.12 Emit `:telemetry` events for routed, suppressed, dispatched, sent,
+- [x] 1.3.12 Emit `:telemetry` events for routed, suppressed, dispatched, sent,
       failed, failed-over, escalated, and acknowledged, with channel and provider
-      tags.
+      tags. `ServiceRadar.Notifications.Telemetry` owns the nine events and the
+      `Telemetry.Metrics` definitions for the SLIs the spec names (dispatch
+      attempted/succeeded/failed, dispatch latency from alert fire time, ack
+      latency, MTTR, and the per-channel error and suppression rates as
+      per-channel-tagged counters). Plain `:telemetry` rather than a JetStream
+      subject: nothing here is a metric destined for storage, so no row is
+      written and no new NATS subject namespace is needed. `alert_id` and
+      `delivery_id` are metadata only and are tags on no metric - a per-alert
+      label set is unbounded. Tests: `telemetry_test.exs` (DB-free contract,
+      including "no emitted metadata value is a map or a struct") and
+      `dispatcher_telemetry_test.exs` (the call sites on the real path).
+      OPEN, one line, outside this change's file scope: nothing appends
+      `Notifications.Telemetry.metrics()` to `ServiceRadar.Telemetry.metrics/0`
+      yet, so the SLIs are defined and the events fire, but no Prometheus
+      reporter is scraping them.
 
 ### 1.4 Native transports and rendering
 
@@ -367,8 +381,14 @@ Conventions that apply to every phase:
       test action and declares `test` in its `capabilities`, so "test-send before
       saving" (1.7.4) works uniformly. A provider or manifest that declares
       `capabilities` without both `send` and `test` is rejected.
-- [ ] 1.4.1b Mark deliveries produced by `test/2` with `is_test: true` so the
+- [x] 1.4.1b Mark deliveries produced by `test/2` with `is_test: true` so the
       exclusions in 1.1.10b apply automatically rather than at each call site.
+      Already satisfied and now verified: `NotificationDelivery.:record_test_dispatch`
+      sets the flag, the flag is what selects `test/2` over `deliver/2`, and every
+      exclusion filters on it centrally - `:countable`, `:countable_for_alert`,
+      `existing_dispatches`, `last_dispatch_at`, the escalation scan, and
+      `maybe_failover`. The unsaved-channel test send writes no delivery row at
+      all. Covered by 1.10.6d.
 - [x] 1.4.2 Implement `Notifications.Transports.Slack`,
       `Notifications.Transports.Discord`,
       `Notifications.Transports.GenericWebhook`, and
@@ -582,7 +602,7 @@ Conventions that apply to every phase:
       `observability`. `observability.notifications.*` in any form is wrong; the
       catalog test in 1.8.3 and the RBAC catalog's own shape both assume the
       three-part convention.
-- [ ] 1.8.1b Map each key to its surface so no permission is decorative:
+- [x] 1.8.1b Map each key to its surface so no permission is decorative:
       `notifications.channels.view` / `.manage` gate the Channels tab and the
       channel editor; `notifications.routes.view` / `.manage` gate the Routes and
       Escalation tab, route authoring, escalation policies, and schedules;
@@ -593,6 +613,33 @@ Conventions that apply to every phase:
       egress; `notifications.silences.manage` gates silence authoring and
       cancellation; `notifications.stream.subscribe` gates the firehose topic
       (4.2.2).
+      AUDITED. Eight of the nine are enforced in TWO independent places - an Ash
+      policy on the resource and the LiveView event gate in
+      `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/notifications_live/access.ex`,
+      which routes EVERY `handle_event/3` through `authorize_event/2` and refuses
+      an undeclared event rather than defaulting to permitted:
+      `.channels.view` (notification_channel.ex:57, access.ex tab + settings
+      catalog.ex:600), `.channels.manage` (notification_channel.ex:58,
+      notification_delivery.ex:99), `.routes.view` (notification_route.ex:86,
+      escalation_policy/step/step_channel, schedule, silence, template),
+      `.routes.manage` (notification_route.ex:87 and the same five),
+      `.providers.manage` (notification_provider.ex:89),
+      `.deliveries.view` (notification_delivery.ex:98,
+      notification_acknowledgement.ex:66, alert_actions.ex:54),
+      `.test.send` (notification_delivery.ex:100, policy on
+      `:record_test_dispatch` at :529), `.silences.manage`
+      (notification_silence.ex:66).
+      TWO deviations from the text above, both deliberate and both documented in
+      `access.ex`: the Providers tab READS on `.channels.view` (a channel is
+      unreadable without knowing its provider) and only WRITES on
+      `.providers.manage`; and silences READ on `.routes.view` and only WRITE on
+      `.silences.manage`.
+      ONE key is declared and NOT yet enforced: `notifications.stream.subscribe`
+      appears only in `Identity.RBAC.Catalog` (catalog.ex:870), a moduledoc
+      (`transports/stream.ex:44`), and UI copy. That is correct for Phase 1 - the
+      topic join it gates does not exist until 4.2.2 - and it is called out as
+      "not yet enforced" in the operator docs (1.11.1a) so nobody builds a role
+      believing it restricts anything today.
 - [x] 1.8.2 Reuse the existing `observability.alerts.manage` permission for
       acknowledge / snooze / resolve; its description ("Acknowledge and resolve
       alerts") finally becomes true. Do not add a notifications-section duplicate
@@ -641,7 +688,7 @@ Conventions that apply to every phase:
       duplicate guard that is now `Dedupe` + `Suppression` (D6), durable instead
       of lost on restart. The assertion is
       `test/serviceradar/notifications/webhook_notifier_retired_test.exs`.
-- [ ] 1.9.1a Migrate existing operator webhook configuration onto
+- [x] 1.9.1a Migrate existing operator webhook configuration onto
       `generic_webhook` `:native` channels as part of the upgrade, so a
       deployment that had a configured webhook keeps delivering. Document the
       mapping from the removed `webhooks:` keys to channel `config` fields in
@@ -663,10 +710,30 @@ Conventions that apply to every phase:
       tree, and `Header` - whose only use was `WebhookConfig.Headers` - went with
       them. No gazelle run was needed: `//go/pkg/models` globs `*.go` with a
       `# keep`, and no file was added or removed.
-- [ ] 1.9.4 Resolve `alert_events: "events.alert"`
+- [x] 1.9.4 Resolve `alert_events: "events.alert"`
       (`elixir/serviceradar_core/lib/serviceradar/nats/channels.ex:54`, doc line
       16) - either wire it to the alert lifecycle subject or delete the constant.
       Zero producers and consumers exist today.
+      DELETED, with the reasoning kept in the moduledoc so it is not revived.
+      Wiring it is the larger option and the wrong one: a bare alert subject
+      published from the lifecycle is a SECOND egress that bypasses routing,
+      suppression, redaction, and the `NotificationDelivery` audit row - exactly
+      the side door design D10 forbids ("the firehose is a provider, not a side
+      door"), and it would answer "why was I not paged?" with nothing. The
+      supported way for an alert to reach a bus is the built-in `:stream`
+      provider, which traverses the same decision path as Slack. That provider's
+      durable half is Phase 4 (4.1.1-4.1.4) and needs its own subject namespace
+      plus per-CN publish/subscribe entries in
+      `helm/serviceradar/templates/nats.yaml:205-217`, so anything wired here now
+      would have to be rewritten against those allowlists anyway. Note for
+      accuracy: `events.>` IS already allowlisted for the `serviceradar-core` CN,
+      so `events.alert` specifically would not have been denied - it is the Phase
+      4 namespace that is. Deleting was still the smaller change: zero producers,
+      zero consumers, zero tests, and one grep confirms no reference survives.
+      `standard_channels/0` and `standard/1` remain (also callerless - only
+      `Channels.build/1` is used, by `events/internal_log_publisher.ex:18`); they
+      are outside this change's scope and were left alone rather than widening the
+      blast radius.
 - [x] 1.9.5 Delete `ServiceRadar.Identity.Senders.EmailDelivery` once 1.5.5 lands.
 
 ### 1.10 Phase 1 tests
@@ -677,19 +744,25 @@ Conventions that apply to every phase:
 - [x] 1.10.2 Suppression tests covering every reason value including
       `:no_matching_route`, plus a test that asserts a `:suppressed` delivery row
       is always written.
-- [ ] 1.10.2a Suppression-dedupe test: repeating an identical decision tuple N
+- [x] 1.10.2a Suppression-dedupe test: repeating an identical decision tuple N
       times leaves exactly one row with `suppression_occurrence_count == N` and a
       refreshed `last_evaluated_at`; changing any element of the tuple (including
-      `suppression_reason`) produces a second row.
-- [ ] 1.10.2b Unrouted-alert test: an alert matching zero enabled routes produces
+      `suppression_reason`) produces a second row. The attribute shipped as
+      `occurrence_count`. `test/serviceradar/notifications/suppression_dedupe_test.exs`.
+- [x] 1.10.2b Unrouted-alert test: an alert matching zero enabled routes produces
       a `:no_matching_route` suppressed row that is visible through the same
       Delivery Log query as every other withheld notification.
-- [ ] 1.10.2c Unrouted-alert COLLAPSE test, distinct from 1.10.2b: repeating the
+      `dispatcher_routing_test.exs`, "records one suppressed delivery with
+      :no_matching_route" plus "is visible through the same Delivery Log read as
+      every other withheld one".
+- [x] 1.10.2c Unrouted-alert COLLAPSE test, distinct from 1.10.2b: repeating the
       same `:no_matching_route` decision - the tuple whose `policy_id`,
       `step_number`, and `channel_id` are all NULL - leaves exactly ONE row with an
       incremented `suppression_occurrence_count`, not a new row per evaluation.
       This is the test that proves the NULL handling required by 1.1.18a is
       actually in the index; a plain unique index passes 1.10.2a and fails here.
+      `dispatcher_routing_test.exs`, "a repeat of the identical decision collapses
+      onto the existing row".
 - [x] 1.10.3 A regression test proving suppression is re-evaluated at dispatch:
       device marked inactive between routing and the escalation step.
 - [x] 1.10.4 Retry / failover / escalation separation tests asserting a transport
@@ -724,9 +797,13 @@ Conventions that apply to every phase:
       exports `deliver/2`, `validate_config/1`, `capabilities/0`, and `test/2`,
       declares both `send` and `test` in `capabilities`, and no module exports a
       legacy `send/2`.
-- [ ] 1.10.6d Test-delivery isolation test: a `test/2` send writes an
+- [x] 1.10.6d Test-delivery isolation test: a `test/2` send writes an
       `is_test: true` row that does not change `Alert.notification_count`, dedupe
       state, throttle state, or escalation position.
+      `test/serviceradar/notifications/test_delivery_isolation_test.exs`. The
+      throttle assertion is sharp rather than incidental: the route carries a
+      one-hour `throttle_seconds`, so a test send that leaked into
+      `last_dispatch_at` would withhold the real dispatch as `:throttled`.
 - [x] 1.10.6e Email-configuration test: with `gen_smtp` or the mailer environment
       absent, `validate_config/1` on an email channel returns an actionable error
       naming the missing piece and does not fall back to a local or test adapter.
@@ -743,47 +820,108 @@ Conventions that apply to every phase:
       row and its `alert_snapshot` still render.
 - [x] 1.10.10 Action-token tests: single-use, TTL expiry, sha256-only storage,
       tampered token rejection.
-- [ ] 1.10.11 LiveView tests for channel create/edit/test-send, route authoring,
+- [x] 1.10.11 LiveView tests for channel create/edit/test-send, route authoring,
       silence create/cancel, delivery log filtering, and alert acknowledge.
-- [ ] 1.10.12 An authorization test asserting each notification LiveView and
+      Channel create/edit, test-send, route authoring, and silence create/cancel:
+      `web-ng/test/phoenix/live/settings/notifications_editors_test.exs`. Delivery
+      log filtering was already covered by `notifications_live_test.exs`
+      ("the delivery log filters are reflected in the URL", "clearing the filters
+      returns to the unfiltered log") plus the pure
+      `notifications_delivery_filters_test.exs`; alert acknowledge was already
+      covered by `live/alert_live/show_test.exs` and
+      `live/log_live/alerts_bulk_test.exs`.
+- [x] 1.10.12 An authorization test asserting each notification LiveView and
       `handle_event` denies a user lacking the permission key.
-- [ ] 1.10.12a An RBAC catalog test asserting the `notifications` section holds
+      `web-ng/test/phoenix/live/settings/notifications_authorization_test.exs`
+      sweeps all 38 gated events at a mounted LiveView as a `:helpdesk` user (the
+      only role that can reach the surface while holding none of the five
+      mutating keys), asserts each is refused, asserts no editor or confirmation
+      opened, and asserts the notification tables are identical afterwards. A
+      coverage test derives the declared event set from the `Access` module's own
+      source, so a new event cannot be added without a test. The pure gate logic
+      remains in `phoenix/settings/notifications_access_test.exs`.
+- [x] 1.10.12a An RBAC catalog test asserting the `notifications` section holds
       exactly the nine keys from 1.8.1, that every one is three-part, and that no
       `observability.notifications.*` key exists anywhere in the catalog.
+      `serviceradar_core/test/serviceradar/identity/rbac/catalog_test.exs`,
+      `describe "notifications section"` (six tests, including the default-role
+      map and "a viewer holds no notification permission at all").
 - [x] 1.10.13 Integration test (tagged `:integration`, run against the
       `srql-fixtures` CNPG scratch database) exercising alert created -> routed ->
       suppressed-or-delivered -> acknowledged, asserting the delivery rows.
 
 ### 1.11 Phase 1 docs
 
-- [ ] 1.11.1 Add `docs/docs/notifications.md` covering channels, routes,
+- [x] 1.11.1 Add `docs/docs/notifications.md` covering channels, routes,
       escalation policies, schedules, silences, every suppression reason
       (including `:no_matching_route`), and the delivery log. Document that
       escalation delays are measured from alert fire time with the snooze-expiry
       exception, that `:failed` is terminal while retries stay `:pending`, and
       that the rule's `renotify_seconds` is the cadence floor. ASCII only.
-- [ ] 1.11.1a Document the nine `notifications.*` permission keys and which
+      DONE. Written for an operator who has never seen the feature. The three
+      sections that carry the misunderstandings: "Retry, failover, and escalation
+      are three different things" (a worked t+0 / t+5m / t+15m ladder showing a
+      503 retrying inside step 1 while step 2 fires on the ALERT FIRE clock),
+      "Suppression is auditable" (all nine reasons in precedence order with where
+      to go fix each, `:dependency` marked reserved-and-not-emitted, plus the
+      occurrence-collapsing rule), and "Deduplication and cadence" (the existing
+      `{rule_id, group_key}` identity, `cooldown_seconds` / `renotify_seconds`,
+      and the one-line rule: notification settings can only make pages LESS
+      frequent, never more). Also covers the delivery-outlives-alert retention
+      split and a Troubleshooting section keyed on Delivery Log state.
+      Verified ASCII-only (0 non-ASCII bytes) and MDX-safe (every `{` and `<` is
+      inside a code span or fence, checked mechanically).
+- [x] 1.11.1a Document the nine `notifications.*` permission keys and which
       surface each one gates, so an operator can build a least-privilege role
       without reading the catalog module.
-- [ ] 1.11.2 Document that `:control_plane` is the default and the recommended
+      DONE - the Permissions table in `notifications.md`, one row per key with
+      its surface and default roles, including the two deliberate deviations
+      audited in 1.8.1b (Providers reads on `.channels.view`, silences read on
+      `.routes.view`) and an explicit "not yet enforced" on
+      `notifications.stream.subscribe`.
+- [x] 1.11.2 Document that `:control_plane` is the default and the recommended
       route, and that `:edge_agent` is only for destinations unreachable from the
       platform.
-- [ ] 1.11.3 Document the SMTP configuration surface
+      DONE - "Execution route: control plane vs edge agent", including the honest
+      tradeoff: `AgentCommandBus` is at-most-once with NO store-and-forward
+      (forgejo #4902), so an edge-routed channel whose agent is unreachable relies
+      on retry and then its single failover hop, and an escalation policy whose
+      only route is an edge agent in the same partition as the alert source
+      cannot deliver a site-down page.
+- [x] 1.11.3 Document the SMTP configuration surface
       (`SERVICERADAR_MAILER_ADAPTER`, `SMTP_RELAY_*`) in
       `docs/docs/helm-configuration.md` and the new notifications page.
-- [ ] 1.11.4 Document the removal of the `webhooks:` config block and the
+      DONE in both: a new "Outbound Mail (SMTP)" section in
+      `helm-configuration.md` (the `core.mailer` values block, the Secret, and
+      the values-to-env mapping table) and "Email and SMTP" in
+      `notifications.md` (the full env table plus every `OutboundMail.diagnose/1`
+      class). Both state WHY the diagnostic exists: `Swoosh.Adapters.Test` and
+      `.Local` both return `{:ok, email}` and deliver nothing, so a misconfigured
+      mailer reported every send as `:sent` and paged nobody.
+- [x] 1.11.4 Document the removal of the `webhooks:` config block and the
       migration path to a `generic_webhook` channel.
-- [ ] 1.11.5 Register the new page in `docs/sidebars.ts`.
+      DONE - "Migrating from the removed `webhooks:` config block". Documented as
+      a KEY MAPPING, not a data migration, and it says so plainly: the Elixir key
+      was never set by any shipped config and its GenServer was never supervised,
+      and the Helm block landed in `core.json`, which Go decodes into a struct
+      with no `Webhooks` field. There is no operator state on either side to hunt
+      for. The table maps `url`, non-credential `headers`, credential-bearing
+      `headers` (-> `auth_mode` + `secret_refs`, never a plain header),
+      `cooldown` (-> `rate_limit_per_minute` / dedupe), `template` (EEx ->
+      `NotificationTemplate`, `payload_format: json`), and `enabled`.
+- [x] 1.11.5 Register the new page in `docs/sidebars.ts`.
+      Added to the "Operate" category after `configuration-system`. Verified by
+      evaluating the sidebar module: exactly one `notifications` entry.
 
 ### 1.12 Phase 1 quality gates
 
-- [ ] 1.12.1 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
-- [ ] 1.12.2 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
-- [ ] 1.12.3 `cd elixir/web-ng/assets && sfw npm run build:js && sfw npm run build:css`
+- [x] 1.12.1 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
+- [x] 1.12.2 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
+- [x] 1.12.3 `cd elixir/web-ng/assets && sfw npm run build:js && sfw npm run build:css`
       if any JS/CSS changed.
-- [ ] 1.12.4 `bazel run //:gazelle` and `bazel test --config=remote //go/pkg/models/...`
+- [x] 1.12.4 `bazel run //:gazelle` and `bazel test --config=remote //go/pkg/models/...`
       after the Go config removal.
-- [ ] 1.12.5 `openspec validate add-notification-platform --strict`
+- [x] 1.12.5 `openspec validate add-notification-platform --strict`
 
 ## 2. Phase 2 - Declarative providers
 

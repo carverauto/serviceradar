@@ -325,8 +325,18 @@ defmodule ServiceRadar.Telemetry do
       observability_signal_metrics() ++
       event_writer_metrics() ++
       prefix_tag_metrics() ++
-      capacity_forecasting_metrics() ++ stateful_alert_engine_metrics()
+      capacity_forecasting_metrics() ++
+      stateful_alert_engine_metrics() ++ notification_metrics()
   end
+
+  @doc """
+  Returns notification dispatch, suppression, escalation, and acknowledgement metrics.
+
+  Defined next to the events in `ServiceRadar.Notifications.Telemetry` so the SLIs
+  and their emission sites cannot drift. Without this line the events fire and
+  nothing scrapes them.
+  """
+  def notification_metrics, do: ServiceRadar.Notifications.Telemetry.metrics()
 
   @doc """
   Returns prefix-tag lookup, swap, rebuild, freshness, and import metrics.

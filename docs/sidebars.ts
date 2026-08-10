@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
         {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
+        {type: 'doc', id: 'notifications', label: 'Notifications'},
         {type: 'doc', id: 'anomaly-engine', label: 'Anomaly Engine'},
         {type: 'doc', id: 'anomaly-detection', label: 'Anomaly Detection (Tuning)'},
         {type: 'doc', id: 'database-bootstrap', label: 'Database Bootstrap'},

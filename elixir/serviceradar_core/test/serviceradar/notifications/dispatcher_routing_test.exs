@@ -176,6 +176,26 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       assert delivery.occurrence_count == 1
     end
 
+    test "is visible through the same Delivery Log read as every other withheld one", %{
+      actor: actor
+    } do
+      # "You were never paged and nobody can tell you why" is the failure this
+      # row exists to prevent, so it has to arrive through the SAME query the
+      # Delivery Log uses for a silence or an acknowledgement - not through a
+      # special case an operator has to know to look for.
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{suppressed: [delivery_id]}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      withheld =
+        NotificationDelivery
+        |> Ash.Query.for_read(:suppressed)
+        |> Ash.read!(actor: actor)
+
+      assert delivery_id in Enum.map(withheld, & &1.id)
+    end
+
     test "a repeat of the identical decision collapses onto the existing row", %{actor: actor} do
       # Design D5: record every withheld decision, but do not let a long-lived
       # one grow the table without bound. The identity tuple carries NULLs in

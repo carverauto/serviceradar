@@ -66,6 +66,8 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.ActionToken
   alias ServiceRadar.Notifications.NotificationAcknowledgement
+  alias ServiceRadar.Notifications.NotificationDelivery
+  alias ServiceRadar.Notifications.Telemetry
   alias ServiceRadar.Repo
 
   @acknowledged_statuses [:acknowledged]
@@ -132,7 +134,7 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
     opts = Keyword.put(opts, :actor, actor)
 
     case ActionToken.verify(token, opts) do
-      {:ok, :already_consumed, record} -> {:ok, replayed(record)}
+      {:ok, :already_consumed, record} -> {:ok, emit_acknowledged(replayed(record), nil, opts)}
       {:ok, :active, record} -> apply_capability(record, opts)
       {:error, reason} -> {:error, reason}
     end
@@ -146,9 +148,13 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
     # Two per click is a paper cut operators report as a bug, so they are carried
     # out of the transaction and sent once it has committed.
     case Repo.transaction(fn -> consume_and_apply(record, opts) end) do
-      {:ok, {outcome, notifications}} ->
+      {:ok, {outcome, notifications, triggered_at}} ->
         _ = Ash.Notifier.notify(notifications)
-        {:ok, outcome}
+        # Emitted AFTER the commit. A rollback would otherwise report an
+        # acknowledgement that never happened, which is worse than none at all -
+        # it drags the acknowledgement-latency distribution toward zero with
+        # samples for actions nobody took.
+        {:ok, emit_acknowledged(outcome, triggered_at, opts)}
 
       {:error, reason} ->
         {:error, reason}
@@ -160,14 +166,14 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
       # Lost a concurrent race: the other presentation is the one that acted, and
       # this one is a replay by another name.
       {:error, :already_consumed} ->
-        {replayed(record), []}
+        {replayed(record), [], nil}
 
       {:error, reason} ->
         Repo.rollback(reason)
 
       {:ok, consumed, notifications} ->
         case apply_to_alert(consumed, opts) do
-          {:ok, outcome, more} -> {outcome, notifications ++ more}
+          {:ok, outcome, more, triggered_at} -> {outcome, notifications ++ more, triggered_at}
           {:error, reason} -> Repo.rollback(reason)
         end
     end
@@ -190,7 +196,10 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
         consumed_at: record.consumed_at
       }
 
-      {:ok, outcome, transition_notifications ++ audit_notifications}
+      # Carried out rather than re-read: the alert is already loaded here, and
+      # MTTR is measured from its fire time.
+      {:ok, outcome, transition_notifications ++ audit_notifications,
+       Map.get(alert, :triggered_at)}
     end
   end
 
@@ -293,6 +302,67 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
       consumed_at: Map.get(record, :consumed_at)
     }
   end
+
+  # --- telemetry ------------------------------------------------------------
+
+  # Ids and classifications only. The note an operator typed is deliberately NOT
+  # here: it is free text on an incident and telemetry metadata reaches label
+  # sets, logs, and traces without further review.
+  #
+  # Returns the outcome so the caller can pipe through it.
+  defp emit_acknowledged(%Outcome{} = outcome, triggered_at, opts) do
+    received_at = now(opts)
+
+    Telemetry.acknowledged(%{
+      alert_id: outcome.alert_id,
+      delivery_id: outcome.delivery_id,
+      action: outcome.action,
+      # Phase 1 redemption is always a signed action link presented by an
+      # external principal; the UI and API paths write their own audit rows.
+      source: :action_link,
+      actor_kind: :external_principal,
+      status: outcome.status,
+      ack_latency_ms: ack_latency_ms(outcome, received_at, opts),
+      resolution_latency_ms: resolution_latency_ms(outcome, triggered_at, received_at)
+    })
+
+    outcome
+  end
+
+  # Only the FIRST accepted acknowledgement is a latency sample. A replayed or
+  # already-applied redemption is still counted - `status` is a tag, and a
+  # fan-out of double-clicks is worth seeing - but it contributes no latency:
+  # every later presentation of the same link would add a larger sample for one
+  # incident and drag the distribution to the right.
+  defp ack_latency_ms(%Outcome{status: :applied, delivery_id: delivery_id}, received_at, opts) do
+    Telemetry.latency_ms(first_sent_at(delivery_id, opts), received_at)
+  end
+
+  defp ack_latency_ms(_outcome, _received_at, _opts), do: nil
+
+  # MTTR is the fire-time-to-resolve interval, so only a resolve contributes one.
+  # An acknowledge is measured by `ack_latency_ms` and counting it here would
+  # report every acknowledged incident as repaired.
+  defp resolution_latency_ms(%Outcome{action: :resolve, status: :applied}, triggered_at, now) do
+    Telemetry.latency_ms(triggered_at, now)
+  end
+
+  defp resolution_latency_ms(_outcome, _triggered_at, _now), do: nil
+
+  # The delivery that carried the link is the one whose `:sent` instant starts
+  # the acknowledgement clock. A read failure yields no measurement rather than a
+  # wrong one - a redemption must never fail because telemetry could not be
+  # measured.
+  defp first_sent_at(delivery_id, opts) when is_binary(delivery_id) do
+    case NotificationDelivery.get_by_id(delivery_id, actor: Keyword.fetch!(opts, :actor)) do
+      {:ok, %{state: :sent, finished_at: %DateTime{} = finished_at}} -> finished_at
+      _other -> nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp first_sent_at(_delivery_id, _opts), do: nil
 
   # --- helpers --------------------------------------------------------------
 
