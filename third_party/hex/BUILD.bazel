@@ -35,7 +35,7 @@ hex_gen(
 # packages silently drifted before this existed.
 hex_gen_test(
     name = "gen_test",
-    size = "short",
+    size = "small",
     data = glob(["*.BUILD"]) + ["hex_packages.bzl"],
     generator = "gen_hex_bazel.exs",
     locks = MIX_LOCKS,

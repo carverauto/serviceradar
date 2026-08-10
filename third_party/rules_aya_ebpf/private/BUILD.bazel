@@ -1,0 +1,16 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+
+package(default_visibility = ["//:__subpackages__"])
+
+bzl_library(
+    name = "toolchain",
+    srcs = ["toolchain.bzl"],
+    visibility = ["//visibility:public"],
+)
+
+bzl_library(
+    name = "ebpf_object",
+    srcs = ["ebpf_object.bzl"],
+    visibility = ["//visibility:public"],
+    deps = [":toolchain"],
+)

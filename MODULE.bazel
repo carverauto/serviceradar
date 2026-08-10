@@ -979,58 +979,16 @@ filegroup(
     ],
 )
 
-# --- Hermetic netprobe eBPF toolchain ---------------------------------------
-# Pinned rustup-dist nightly components + a static bpf-linker, assembled into a
-# scratch sysroot by //rust/netprobe/ebpf:build-ebpf-object.sh so the eBPF object
-# builds with no host toolchain and no network (RBE-correct). These are isolated
-# inputs to that one action and do NOT affect the default rules_rust stable
-# (1.93.0) toolchain. Pins/rationale: openspec/changes/add-hermetic-netprobe-ebpf-build/.
-_RUST_NIGHTLY_BUILD_FILE = """
-package(default_visibility = ["//visibility:public"])
-exports_files(["install.sh"])
-filegroup(name = "all", srcs = glob(["**"]))
-"""
-
-http_archive(
-    name = "netprobe_ebpf_rustc",
-    build_file_content = _RUST_NIGHTLY_BUILD_FILE,
-    sha256 = "9e6ac5e346606f4245930ff868e187d339a1ad5c2e60557bfacdd25a51689bf4",
-    strip_prefix = "rustc-nightly-x86_64-unknown-linux-gnu",
-    urls = ["https://static.rust-lang.org/dist/2026-05-31/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz"],
-)
-
-http_archive(
-    name = "netprobe_ebpf_cargo",
-    build_file_content = _RUST_NIGHTLY_BUILD_FILE,
-    sha256 = "45c7eca0c2c4707becdb1ba3eb597168f50c5da07c9fe3434ab840161bfbffa8",
-    strip_prefix = "cargo-nightly-x86_64-unknown-linux-gnu",
-    urls = ["https://static.rust-lang.org/dist/2026-05-31/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz"],
-)
-
-http_archive(
-    name = "netprobe_ebpf_rust_std",
-    build_file_content = _RUST_NIGHTLY_BUILD_FILE,
-    sha256 = "9ff25d516ce437b35d2b6f5fd8572489f22738699408d00ee94b18e502ced829",
-    strip_prefix = "rust-std-nightly-x86_64-unknown-linux-gnu",
-    urls = ["https://static.rust-lang.org/dist/2026-05-31/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz"],
-)
-
-http_archive(
-    name = "netprobe_ebpf_rust_src",
-    build_file_content = _RUST_NIGHTLY_BUILD_FILE,
-    sha256 = "921bc11d275d46f6711879ebba37a52b0e738c5ee3ee587bad0a8acf05129ff9",
-    strip_prefix = "rust-src-nightly",
-    urls = ["https://static.rust-lang.org/dist/2026-05-31/rust-src-nightly.tar.xz"],
-)
-
-http_archive(
-    name = "netprobe_ebpf_bpf_linker",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-exports_files(["bpf-linker"])
-""",
-    sha256 = "0fa4645d2dfbb5cafe6231b0aa9fad4f1430bd0871e3bd7319e82d827bf6262c",
-    urls = ["https://github.com/aya-rs/bpf-linker/releases/download/v0.10.3/bpf-linker-x86_64-unknown-linux-musl.tar.gz"],
+# --- Hermetic netprobe eBPF toolchain ----------------------------------------
+# Building an aya eBPF program needs a nightly rustc, the std sources for
+# `-Z build-std=core`, and bpf-linker -- none of which should perturb the stable
+# rules_rust toolchain every other Rust target uses, and all of which have to be
+# selected for whichever machine runs the action. That is toolchain resolution,
+# so it lives behind @rules_aya_ebpf//:toolchain_type.
+bazel_dep(name = "rules_aya_ebpf", version = "0.1.0")
+local_path_override(
+    module_name = "rules_aya_ebpf",
+    path = "third_party/rules_aya_ebpf",
 )
 
 tinygo_host_repository(

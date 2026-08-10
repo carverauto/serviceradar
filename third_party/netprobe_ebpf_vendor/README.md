@@ -26,8 +26,8 @@ cargo vendor --sync <nightly-rust-src>/library/Cargo.toml \
   ../../../third_party/netprobe_ebpf_vendor
 ```
 
-`cargo vendor` prints a `[source]` replacement stanza; ignore it.
-`build-ebpf-object.sh` writes that stanza itself, with an absolute path to this
+`cargo vendor` prints a `[source]` replacement stanza; ignore it. The
+`ebpf_object` rule writes that stanza itself, with an absolute path to this
 directory, into the staged workspace at build time. Nothing on disk needs a
 `.cargo/config.toml`.
 
