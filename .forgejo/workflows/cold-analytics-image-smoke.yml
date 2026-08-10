@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu24
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
 
       - name: Boot-smoke pinned pgduckdb analytics base
         run: ./scripts/ci/cold-analytics-image-smoke.sh

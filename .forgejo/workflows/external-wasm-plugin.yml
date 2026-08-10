@@ -31,7 +31,7 @@ jobs:
       plugin_version: ${{ steps.bundle.outputs.version }}
     steps:
       - name: Checkout trusted ServiceRadar release code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
           fetch-depth: 0
 
@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Checkout external plugin tag
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
           repository: ${{ github.event.inputs.plugin_repository }}
           ref: ${{ github.event.inputs.plugin_tag }}
@@ -249,7 +249,7 @@ jobs:
 
     steps:
       - name: Checkout trusted ServiceRadar release code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
           fetch-depth: 0
 

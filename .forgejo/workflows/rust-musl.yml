@@ -53,7 +53,7 @@ jobs:
     # (openspec/notes/bazel-ci.md); the test below rides a plain `bazel test //...`.
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
 
       - name: Install Socket Firewall
         run: bash scripts/ci/install-sfw.sh
