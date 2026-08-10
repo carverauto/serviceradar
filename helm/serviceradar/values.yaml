@@ -531,6 +531,26 @@ core:
     queueIntervalMs: 2000
     timeoutMs: 120000
     poolTimeoutMs: 120000
+  # Notification platform (openspec add-notification-platform).
+  notifications:
+    # Which serviceradar-agent runs `:control_plane` wasm notification plugins.
+    # There is exactly one Wasm host in the product - wazero inside the agent -
+    # so a platform-egress plugin notification is dispatched to the agent this
+    # chart already deploys, through the same plugin.run_action command an edge
+    # dispatch uses. Left empty, both fields fall back to `agent.agentId` and
+    # the deployment partition. Set them only when the platform-resident agent
+    # lives outside this release; with `agent.enabled: false` and no override,
+    # nothing is configured and a :control_plane plugin channel fails with
+    # `platform_agent_unconfigured` rather than dispatching somewhere arbitrary.
+    platformAgent:
+      agentId: ""
+      partitionId: ""
+    # The bounded sweep that closes out an agent-routed delivery whose command
+    # result never came back. It reads only what core itself wrote, so it does
+    # not depend on STATUS_HANDLER_ENABLED. Disabling it leaves those rows to
+    # the blind stall sweep, which re-sends rather than settling.
+    receiptSweep:
+      enabled: true
   obanQueues:
     default: 10
     maintenance: 5

@@ -29,15 +29,21 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
   `ServiceRadar.Notifications.Validations.ProviderTransportContract` rather than
   being left to the manifest validator, which only sees the `:wasm_plugin` tier.
 
-  ## Phase 1 guard (design R2, tasks 1.1.2a)
+  ## The plugin reference (design R2, tasks 1.1.2a and 3.1.1b)
 
-  `provider_type: :wasm_plugin` is REJECTED outright by this resource until
-  Phase 3. Phase 1 has no `notifications:` manifest block to resolve
-  `{plugin_package_id, action_key}` against and no `notify:v1` agent-side
-  capability enforcement, so a plugin provider saved now would be a
-  configuration dispatch cannot resolve. The database CHECK constraint
-  `notification_providers_plugin_ref` is deliberately left describing the full
-  contract; only this application-level guard is removed in Phase 3.
+  Phase 1 REJECTED `provider_type: :wasm_plugin` outright, because there was no
+  `notifications:` manifest block to resolve `{plugin_package_id, action_key}`
+  against and no agent-side `notify:v1` enforcement, so a plugin provider saved
+  then would have been a configuration dispatch could not resolve. Phase 3 added
+  both, so that guard is gone and the reference is checked for real:
+
+  - `notification_providers_plugin_ref` (below) requires a `:wasm_plugin` row to
+    carry BOTH `plugin_package_id` and `action_key`, and every other tier to
+    carry neither.
+  - `ServiceRadar.Notifications.Validations.ProviderActionKeyDeclared` requires
+    `action_key` to name a `key` in the referenced package's validated
+    `notifications:` block, so a typo fails at save rather than at the first
+    page.
 
   ## Field coherence
 
@@ -81,6 +87,8 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Transports.Registry, as: TransportRegistry
+  alias ServiceRadar.Notifications.Validations.ProviderActionKeyDeclared
+  alias ServiceRadar.Notifications.Validations.ProviderPackageApproved
   alias ServiceRadar.Notifications.Validations.ProviderTransportContract
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -178,6 +186,24 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
 
   @doc "Compile-time allowlist of `:native` transport modules."
   def implementation_module_allowlist, do: @implementation_module_allowlist
+
+  @doc """
+  Capabilities a provider may declare.
+
+  `ServiceRadar.Plugins.Manifest` keeps a second, string-valued copy of this
+  vocabulary for the `notifications:` block, because naming this resource from
+  the manifest validator would close a compile cycle through
+  `Plugins.PluginPackage`. This accessor exists so a test can assert the two
+  stay equal rather than discovering the drift when a plugin declares a
+  capability the provider row cannot store.
+  """
+  def capabilities, do: @capabilities
+
+  @doc "Payload formats a provider may declare. Mirrored in `Plugins.Manifest`."
+  def payload_formats, do: @payload_formats
+
+  @doc "Execution routes a provider may support. Mirrored in `Plugins.Manifest`."
+  def execution_routes, do: @execution_routes
 
   postgres do
     table "notification_providers"
@@ -287,6 +313,14 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
     end
 
     update :activate do
+      # tasks 3.3.2. Activation is the moment a plugin-backed provider becomes
+      # usable, so it is the moment its package must be approved. Deliberately
+      # not on `:create` (registering against a package still in review is a
+      # normal workflow) and deliberately not on `:disable` (turning off a
+      # provider whose package was revoked is the correct response, and must
+      # not be blocked by the revocation itself).
+      validate {ProviderPackageApproved, []}
+
       change transition_state(:active)
     end
 
@@ -312,16 +346,6 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
   end
 
   validations do
-    # --- Phase 1 guard (design R2, tasks 1.1.2a) -------------------------
-    validate attribute_does_not_equal(:provider_type, :wasm_plugin) do
-      message """
-      plugin-backed notification providers arrive in Phase 3. Phase 1 cannot \
-      resolve a plugin entrypoint: the `notifications:` manifest block and the \
-      agent-side `notify:v1` capability check do not exist yet. Use a :native \
-      or :declarative provider\
-      """
-    end
-
     # --- notification_providers_plugin_ref -------------------------------
     validate present([:plugin_package_id, :action_key]) do
       where attribute_equals(:provider_type, :wasm_plugin)
@@ -365,6 +389,12 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
       where attribute_does_not_equal(:provider_type, :declarative)
       message "only a :declarative provider may set definition"
     end
+
+    # `action_key` must name a notifier the referenced package's validated
+    # `notifications:` manifest block actually declares (tasks 3.1.1b). This is
+    # the half of the plugin reference Phase 1 could not enforce, because the
+    # manifest block did not exist yet.
+    validate {ProviderActionKeyDeclared, []}
 
     # --- transport contract (design D2) ----------------------------------
     validate {ProviderTransportContract, []}

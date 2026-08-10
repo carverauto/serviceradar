@@ -21,7 +21,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.Observability.SignalDisplayComponents, only: [signal_display_widget: 1]
+
   alias ServiceRadarWebNGWeb.PluginConfigForm
+  alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Contracts
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.DeliveryFilters
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafety
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Predicate
@@ -191,6 +194,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                     <p class="mt-1 max-w-xs break-words text-xs text-sr-muted">
                       {Presentation.truncate(channel.last_error, 300)}
                     </p>
+                    <.contract_view
+                      view={Contracts.channel_health_view(channel, channel_provider(channel))}
+                      class="mt-2 max-w-xs"
+                    />
                   </details>
                 </td>
                 <td class="text-xs text-sr-muted">
@@ -200,6 +207,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                 <td class="text-xs text-sr-muted">
                   <div>{fallback_label(channel, @channel_index)}</div>
                   <div :if={channel.fail_closed}>fail closed: no failover</div>
+                  <.channel_failover_badge advisory={
+                    EdgeRouteSafety.channel_advisory(channel, @channel_index)
+                  } />
                 </td>
                 <td class="text-right">
                   <div class="inline-flex gap-1">
@@ -260,6 +270,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
     assigns =
       assigns
       |> assign(:provider, assigns.form[:provider])
+      |> assign(:config_contract, Contracts.config_contract(assigns.form[:provider]))
       |> assign(:warnings, assigns.form[:warnings] || [])
 
     ~H"""
@@ -388,42 +399,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
             />
             <span class="text-xs text-sr-muted">Leave blank for no budget.</span>
           </label>
-
-          <label class="space-y-1">
-            <span class="text-sm font-medium text-sr-ink">Failover channel</span>
-            <select name="channel[fallback_channel_id]" class={ui_field_class(class: "w-full")}>
-              <option value="">None</option>
-              <option
-                :for={{id, channel} <- Enum.sort_by(@channel_index, fn {_id, c} -> c.name end)}
-                :if={id != @form.params["id"]}
-                value={id}
-                selected={id == @form.params["fallback_channel_id"]}
-              >
-                {channel.name} ({Presentation.execution_route_label(channel.execution_route)})
-              </option>
-            </select>
-            <span class="text-xs text-sr-muted">
-              One hop, taken when retries are exhausted or the agent is offline.
-            </span>
-          </label>
-
-          <label class="flex items-center gap-2 pt-6">
-            <input type="hidden" name="channel[fail_closed]" value="false" />
-            <input
-              type="checkbox"
-              name="channel[fail_closed]"
-              value="true"
-              checked={truthy?(@form.params["fail_closed"])}
-              class={ui_checkbox_class()}
-            />
-            <span class="text-sm text-sr-ink">Fail closed (never fail over)</span>
-          </label>
         </div>
 
+        <.failover_fields params={@form.params} channel_index={@channel_index} />
+
         <div :if={@provider} class="rounded-sr-surface border border-sr-line p-3">
-          <div class="mb-2 text-sm font-semibold">Provider configuration</div>
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <span class="text-sm font-semibold">Provider configuration</span>
+            <.ui_badge size="sm" variant="ghost">
+              {config_source_label(@config_contract.source)}
+            </.ui_badge>
+          </div>
+          <p :for={diagnostic <- @config_contract.diagnostics} class="mb-2 text-xs text-warning">
+            {diagnostic}
+          </p>
           <PluginConfigForm.plugin_config_fields
-            schema={@provider.config_schema || %{}}
+            schema={@config_contract.schema}
             params={@form.config_params || %{}}
             base_name="config"
           />
@@ -470,6 +461,144 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
         </div>
       </div>
     </.ui_panel>
+    """
+  end
+
+  attr :params, :map, required: true
+  attr :channel_index, :map, default: %{}
+
+  @doc """
+  Failover configuration, given its own section rather than two fields in a grid.
+
+  On the `:edge_agent` route these two fields decide whether a page survives the
+  site going dark, so they are not interchangeable with rate limits. The section
+  is emphasised, states the at-most-once constraint that makes it matter, and
+  renders `EdgeRouteSafety.channel_advisory/2` live on every `phx-change` - so
+  the consequence of ticking fail closed is on screen at the moment it is
+  ticked, not in a delivery log three days later.
+
+  On the `:control_plane` route the advisory is `nil` and the section renders
+  plainly, because the condition does not exist when egress is from the platform.
+  """
+  def failover_fields(assigns) do
+    assigns =
+      assigns
+      |> assign(:edge?, assigns.params["execution_route"] == "edge_agent")
+      |> assign(:advisory, EdgeRouteSafety.channel_advisory(assigns.params, assigns.channel_index))
+
+    ~H"""
+    <fieldset
+      class={[
+        "space-y-3 rounded-sr-surface border p-3",
+        if(@edge?, do: "border-amber-500/50 bg-amber-500/5", else: "border-sr-line")
+      ]}
+      data-failover-fields
+      data-execution-route={@params["execution_route"]}
+    >
+      <legend class="px-1 text-sm font-semibold">
+        {if @edge?, do: "Failover (required reading on the edge route)", else: "Failover"}
+      </legend>
+
+      <p class="text-xs text-sr-muted">
+        Failover is one hop, taken when retries are exhausted or the agent is offline. It is not
+        escalation: it substitutes a destination for the same page.
+      </p>
+
+      <p :if={@edge?} class="text-xs text-sr-muted">
+        This channel egresses from a site agent. Agent commands are at-most-once with no
+        store-and-forward, and core is the component that detects a site went dark, so these two
+        fields decide whether the site-down page for this site can be delivered at all.
+      </p>
+
+      <.channel_failover_advisory advisory={@advisory} />
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <label class="space-y-1">
+          <span class="text-sm font-medium text-sr-ink">Failover channel</span>
+          <select name="channel[fallback_channel_id]" class={ui_field_class(class: "w-full")}>
+            <option value="">None</option>
+            <option
+              :for={{id, channel} <- Enum.sort_by(@channel_index, fn {_id, c} -> c.name end)}
+              :if={id != @params["id"]}
+              value={id}
+              selected={id == @params["fallback_channel_id"]}
+            >
+              {channel.name} ({Presentation.execution_route_label(channel.execution_route)})
+            </option>
+          </select>
+          <span class="text-xs text-sr-muted">
+            {if @edge?,
+              do:
+                "Pick a control-plane channel: it is the only one that can page while this site is unreachable.",
+              else: "One hop, taken when retries are exhausted."}
+          </span>
+        </label>
+
+        <label class="flex items-start gap-2 pt-6">
+          <input type="hidden" name="channel[fail_closed]" value="false" />
+          <input
+            type="checkbox"
+            name="channel[fail_closed]"
+            value="true"
+            checked={truthy?(@params["fail_closed"])}
+            class={ui_checkbox_class()}
+          />
+          <span class="space-y-1">
+            <span class="block text-sm text-sr-ink">Fail closed (never fail over)</span>
+            <span :if={@edge?} class="block text-xs text-sr-muted">
+              On a site-agent channel this is a decision to drop the page rather than deliver it
+              somewhere else. Leave it off unless a page reaching another destination is worse
+              than no page at all.
+            </span>
+          </span>
+        </label>
+      </div>
+    </fieldset>
+    """
+  end
+
+  attr :advisory, :map, default: nil
+
+  @doc """
+  The compact form of the advisory, for the saved channel row.
+
+  Carries the full sentence as a title so the row states the condition and the
+  operator can read the reasoning without opening the editor. The badge text
+  alone carries the meaning; the colour is never the only signal.
+  """
+  def channel_failover_badge(assigns) do
+    ~H"""
+    <.state_badge
+      :if={@advisory}
+      label={@advisory.badge}
+      variant={advisory_variant(@advisory)}
+      hint={@advisory.message}
+    />
+    """
+  end
+
+  attr :advisory, :map, default: nil
+
+  @doc """
+  The per-channel edge-failover advisory (design D3, mitigation 1).
+
+  Rendered in the editor and, in compact badge form, on the saved channel row.
+  Like the policy warning it never blocks a save: an operator may knowingly ship
+  a fail-closed site channel, and the requirement is that they are told.
+  """
+  def channel_failover_advisory(assigns) do
+    ~H"""
+    <div
+      :if={@advisory}
+      class={ui_alert_class(variant: advisory_variant(@advisory))}
+      data-channel-failover-advisory={@advisory && to_string(@advisory.level)}
+    >
+      <div>
+        <div class="font-medium">{@advisory.headline}</div>
+        <p class="mt-1">{@advisory.message}</p>
+        <p :if={@advisory.remediation} class="mt-1">{@advisory.remediation}</p>
+      </div>
+    </div>
     """
   end
 
@@ -2220,6 +2349,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
               <dd class="break-words">{value}</dd>
             </div>
           </dl>
+          <.contract_view
+            view={
+              Contracts.delivery_view(
+                @selected.delivery.result_summary,
+                delivery_provider(@selected, @channel_index)
+              )
+            }
+            class="mt-3"
+            only_contract={true}
+          />
         </div>
 
         <div :if={Presentation.suppressing_silence_id(@selected.delivery.result_summary)}>
@@ -2272,6 +2411,56 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   defp provider_name(%{provider: %{display_name: name}}) when is_binary(name), do: name
   defp provider_name(_channel), do: "(provider unavailable)"
 
+  # --- package-supplied contract rendering (tasks 3.5.4) ---------------------
+  #
+  # The widget renderer is the SAME one the events and logs pages use
+  # (`SignalDisplayComponents.signal_display_widget/1`). Notifications get a
+  # second surface for package contracts, not a second renderer: a widget type
+  # that rendered one way on an event page and another way in the Delivery Log
+  # would be two contracts wearing one name.
+
+  attr :view, :map, required: true
+  attr :class, :string, default: nil
+
+  attr :only_contract, :boolean,
+    default: false,
+    doc:
+      "Render nothing when the view degraded to the generic form. Used where the " <>
+        "surrounding markup already shows the generic view."
+
+  defp contract_view(assigns) do
+    ~H"""
+    <div :if={render_contract_view?(@view, @only_contract)} class={@class}>
+      <div class="space-y-3">
+        <.signal_display_widget :for={widget <- @view.widgets} widget={widget} />
+      </div>
+      <p :for={diagnostic <- @view.diagnostics} class="mt-1 text-xs text-warning">
+        {diagnostic}
+      </p>
+    </div>
+    """
+  end
+
+  defp render_contract_view?(%{widgets: []}, _only_contract), do: false
+  defp render_contract_view?(%{source: :generic}, true), do: false
+  defp render_contract_view?(_view, _only_contract), do: true
+
+  defp config_source_label(:package), do: "from the package manifest"
+  defp config_source_label(:provider), do: "from the provider record"
+  defp config_source_label(_source), do: "no configuration schema"
+
+  defp channel_provider(%{provider: provider}) when is_struct(provider, Ash.NotLoaded), do: nil
+  defp channel_provider(%{provider: %{} = provider}), do: provider
+  defp channel_provider(_channel), do: nil
+
+  defp delivery_provider(%{delivery: %{channel_id: channel_id}}, channel_index) when not is_nil(channel_id) do
+    channel_index
+    |> Map.get(to_string(channel_id))
+    |> channel_provider()
+  end
+
+  defp delivery_provider(_selected, _channel_index), do: nil
+
   defp provider_field(%{provider: provider}, key) when is_map(provider), do: Map.get(provider, key)
   defp provider_field(_channel, _key), do: nil
 
@@ -2280,6 +2469,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
 
   defp supported_routes(%{supported_routes: routes}) when is_list(routes), do: routes
   defp supported_routes(_provider), do: [:control_plane]
+
+  defp advisory_variant(%{level: :error}), do: "error"
+  defp advisory_variant(%{level: :warning}), do: "warning"
+  defp advisory_variant(%{level: :ok}), do: "success"
+  defp advisory_variant(_advisory), do: "ghost"
 
   defp fallback_label(%{fallback_channel_id: nil}, _index), do: "none"
 

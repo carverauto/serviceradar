@@ -140,4 +140,141 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafetyTest do
 
     assert EdgeRouteSafety.warns?([["edge-1"]], channels)
   end
+
+  describe "channel_advisory/2" do
+    test "a control-plane channel has no advisory at all" do
+      assert EdgeRouteSafety.channel_advisory(channel("cp-1", %{}), %{}) == nil
+    end
+
+    test "fail_closed on an edge channel is an error naming the loss" do
+      channel =
+        channel("edge-1", %{
+          execution_route: :edge_agent,
+          partition_id: "site-a",
+          fail_closed: true,
+          fallback_channel_id: "cp-1"
+        })
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel, channel("cp-1", %{})]))
+
+      assert advisory.level == :error
+      assert advisory.badge =~ "Fail closed"
+      assert advisory.message =~ "site-a"
+      assert advisory.message =~ "dropped"
+      assert advisory.remediation =~ "control-plane"
+    end
+
+    test "an edge channel with no fallback is warned" do
+      channel = channel("edge-1", %{execution_route: :edge_agent, partition_id: "site-a"})
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel]))
+
+      assert advisory.level == :warning
+      assert advisory.badge == "No failover"
+      assert advisory.message =~ "site-a"
+    end
+
+    test "a control-plane fallback is the documented remediation and reads as ok" do
+      channel =
+        channel("edge-1", %{
+          execution_route: :edge_agent,
+          partition_id: "site-a",
+          fallback_channel_id: "cp-1"
+        })
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel, channel("cp-1", %{})]))
+
+      assert advisory.level == :ok
+      assert advisory.badge == "Control-plane failover"
+      assert advisory.remediation == nil
+    end
+
+    test "a fallback in the same site is an error, because both die together" do
+      channel =
+        channel("edge-1", %{
+          execution_route: :edge_agent,
+          partition_id: "site-a",
+          fallback_channel_id: "edge-2"
+        })
+
+      other = channel("edge-2", %{execution_route: :edge_agent, partition_id: "site-a"})
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel, other]))
+
+      assert advisory.level == :error
+      assert advisory.badge == "Failover in the same site"
+      assert advisory.message =~ "same instant"
+    end
+
+    test "a fallback at a different site is a warning, not an error" do
+      channel =
+        channel("edge-1", %{
+          execution_route: :edge_agent,
+          partition_id: "site-a",
+          fallback_channel_id: "edge-2"
+        })
+
+      other = channel("edge-2", %{execution_route: :edge_agent, partition_id: "site-b"})
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel, other]))
+
+      assert advisory.level == :warning
+      assert advisory.message =~ "site-a"
+      assert advisory.message =~ "site-b"
+    end
+
+    test "an unreadable fallback is reported as unverified rather than assumed safe" do
+      channel =
+        channel("edge-1", %{
+          execution_route: :edge_agent,
+          partition_id: "site-a",
+          fallback_channel_id: "gone"
+        })
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel]))
+
+      assert advisory.level == :warning
+      assert advisory.badge == "Failover unverified"
+    end
+
+    # The editor holds string keys and has no partition_id yet - it is bound
+    # server side from the agent's mTLS session - so an unsaved form and a saved
+    # row must still report the same thing.
+    test "the editor's string-keyed params produce the same advisory" do
+      params = %{
+        "id" => "edge-1",
+        "execution_route" => "edge_agent",
+        "agent_uid" => "agent-a",
+        "fail_closed" => "true",
+        "fallback_channel_id" => ""
+      }
+
+      advisory = EdgeRouteSafety.channel_advisory(params, %{})
+
+      assert advisory.level == :error
+      assert advisory.message =~ "agent-a"
+    end
+
+    test "an unticked fail_closed checkbox is not truthy" do
+      params = %{
+        "id" => "edge-1",
+        "execution_route" => "edge_agent",
+        "agent_uid" => "agent-a",
+        "fail_closed" => "false",
+        "fallback_channel_id" => ""
+      }
+
+      assert %{badge: "No failover"} = EdgeRouteSafety.channel_advisory(params, %{})
+    end
+
+    test "a same-site comparison never matches on two unlabelled sites" do
+      channel = channel("edge-1", %{execution_route: :edge_agent, fallback_channel_id: "edge-2"})
+      other = channel("edge-2", %{execution_route: :edge_agent})
+
+      advisory = EdgeRouteSafety.channel_advisory(channel, index([channel, other]))
+
+      assert advisory.level == :warning
+      assert advisory.badge == "Failover is another site"
+    end
+  end
 end

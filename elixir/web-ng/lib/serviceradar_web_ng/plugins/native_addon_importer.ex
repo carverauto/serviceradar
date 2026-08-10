@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Core
   alias ServiceRadar.Plugins.RetiredNativeAddons
@@ -133,12 +134,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          {:ok, entry} <- find_entry(index, requested_addon_id, requested_version),
          :ok <- ensure_not_retired_entry(entry),
          {:ok, fetched} <- fetch_artifact(repo, entry),
-         {:ok, manifest, config_schema} <- extract_manifest(fetched.bundle) do
+         {:ok, manifest, config_schema, contracts} <- extract_manifest(fetched.bundle) do
       Core.import_entry_with_disposition(manifest, entry, fetched.artifacts,
         public_key: public_key,
         mirror: build_mirror(addon_id(manifest, entry), version(manifest, entry)),
         actor: SystemActor.system(:native_addon_importer),
         config_schema: config_schema,
+        display_contracts: contracts.valid,
+        display_contract_errors: contracts.errors,
         release_tag: release_tag
       )
     end
@@ -378,11 +381,30 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     with {:ok, files} <- extract_bundle(bundle),
          {:ok, addon_yaml} <- fetch_bundle_file(files, "addon.yaml"),
          {:ok, manifest} <- parse_yaml(addon_yaml) do
-      {:ok, manifest, optional_bundle_json(files, "config.schema.json")}
+      {:ok, manifest, optional_bundle_json(files, "config.schema.json"), extract_display_contracts(files)}
     end
   end
 
   defp extract_manifest(_bundle), do: {:error, :invalid_bundle}
+
+  # `normalize_zip_name/1` flattens bundle entries to their basename, so a
+  # contract shipped at `display/dns_activity.display.json` arrives here as
+  # `dns_activity.display.json`. Match on the suffix rather than the directory.
+  #
+  # Validation happens here, at import, so a stored contract is always known-good
+  # data; a contract this release refuses is dropped and reported rather than
+  # failing the whole signed add-on over a UI file (`DisplayContract.partition/1`).
+  defp extract_display_contracts(files) do
+    {valid, errors} =
+      files
+      |> Enum.filter(fn {name, payload} ->
+        is_binary(name) and is_binary(payload) and String.ends_with?(name, ".display.json")
+      end)
+      |> Map.new()
+      |> DisplayContract.partition()
+
+    %{valid: valid, errors: errors}
+  end
 
   @sobelow_skip ["Traversal.FileModule"]
   defp extract_bundle(bundle) do

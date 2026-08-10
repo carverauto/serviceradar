@@ -64,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Access
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Components
+  alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Contracts
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Data
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.DeliveryFilters
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafety
@@ -1116,8 +1117,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     {config, secrets}
   end
 
-  defp provider_schema(%{config_schema: schema}) when is_map(schema), do: schema
-  defp provider_schema(_provider), do: %{}
+  # Resolved through the same runtime contract mechanism the form renders from
+  # (tasks 3.5.4). Secret-field detection and the test-send payload MUST see the
+  # schema the operator actually filled in: reading the stored copy here while
+  # the form rendered the package's would classify a package-declared secret as
+  # ordinary configuration and put a credential in `config`.
+  defp provider_schema(provider), do: Contracts.config_schema(provider)
 
   defp provider_default(%{default_max_attempts: value}) when is_integer(value), do: value
   defp provider_default(_provider), do: 3

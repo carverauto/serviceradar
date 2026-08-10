@@ -1173,46 +1173,94 @@ Conventions that apply to every phase:
 
 ### 3.1 Manifest and capability contract
 
-- [ ] 3.1.1 Add the `notifications:` block to `plugin.yaml` parsing and validation
+- [x] 3.1.1 Add the `notifications:` block to `plugin.yaml` parsing and validation
       in `elixir/serviceradar_core/lib/serviceradar/plugins/manifest.ex`. The
       manifest validator owns these entry keys and they are spelled exactly:
       `key`, `display_name`, `description`, `entrypoint`, `config_schema`,
       `capabilities`, `payload_formats`, `routes`, `credential_requirements`,
       `inbound`. There is no `provider_key` key and no `inbound_callback` key in
       the manifest block; reject unknown keys rather than ignoring them.
-- [ ] 3.1.1a Reject a `notifications:` entry whose `capabilities` omits `send` or
+- [x] 3.1.1a Reject a `notifications:` entry whose `capabilities` omits `send` or
       `test`. Both are mandatory in every tier (1.4.1a), so a manifest that
       declares one without the other fails validation with a message naming the
       missing capability.
-- [ ] 3.1.1b Bind `NotificationProvider.action_key` to a `key` value in the
+- [x] 3.1.1b Bind `NotificationProvider.action_key` to a `key` value in the
       validated `notifications:` block of the referenced package (1.1.2a), and
       reject a provider row whose `action_key` the package manifest does not
       declare.
-- [ ] 3.1.2 Add `notify:v1` to `@allowed_capabilities`
+- [x] 3.1.2 Add `notify:v1` to `@allowed_capabilities`
       (`plugins/manifest.ex:61-83`).
-- [ ] 3.1.3 Enforce `notify:v1` with a `hasCapability` check in `go/pkg/agent`
+- [x] 3.1.3 Enforce `notify:v1` with a `hasCapability` check in `go/pkg/agent`
       alongside the existing checks in `plugin_runtime_execution.go`,
       `plugin_runtime_http.go`, and `plugin_runtime_network.go`. A capability
       declared only in Elixir is unenforced; `advisory-feed:v1` and
       `producer-schedule:v1` are existing examples of that defect and this change
       must not add a third.
-- [ ] 3.1.4 Add a Go test asserting a plugin without `notify:v1` is denied the
+- [x] 3.1.4 Add a Go test asserting a plugin without `notify:v1` is denied the
       notification host path.
-- [ ] 3.1.5 Run `bazel run //:gazelle` and
+- [x] 3.1.5 Run `bazel run //:gazelle` and
       `bazel test --config=remote //go/pkg/agent/...`.
 
 ### 3.2 Notification action dispatch on the agent
 
-- [ ] 3.2.1 Implement notification dispatch in `go/pkg/agent` behind the existing
+- [x] 3.2.1 Implement notification dispatch in `go/pkg/agent` behind the existing
       `plugin.run_action` command type; do not introduce a new command type.
-- [ ] 3.2.2 Add notification command payload fields to `proto/monitoring.proto`
+      DONE. `control_stream.go` `handlePluginRunAction` decodes the delivery
+      envelope once (`plugin_runtime_notify.go` `decodeNotificationDelivery`) and
+      differs from the northbound path in exactly two places: how the target
+      assignment is addressed, and which correlation identity is stamped on the
+      result (`pluginActionResultEnvelope`). No new command type, no new
+      execution mode, and no second `RunAction`.
+      One agent-side gap CLOSED here: the handler previously refused any payload
+      with no `plugin_assignment_id`, so an edge notification - which addresses a
+      provider, not an assignment - was dead on arrival. It now resolves through
+      `resolveNotificationAssignmentID` (explicit id wins; otherwise
+      `plugin_package_id`, failing CLOSED when one package has several
+      assignments on the agent, because two assignments of one package are two
+      channel configurations and picking either delivers to the wrong
+      destination and records it as sent).
+      The agent stays a COURIER for the guest result: it passes the submitted
+      body through and stamps only `schema` / `status` /
+      `delivery_id` / `channel_id` / `action_key`, exactly as the northbound path
+      stamps `invocation_id` / `action_id`. Synthesising a notification result
+      body here would fork the notifier guest ABI the SDKs own (3.8).
+- [x] 3.2.2 Add notification command payload fields to `proto/monitoring.proto`
       only where the edge route requires them; regenerate the Go and Elixir stubs
       through the single-source codegen path.
-- [ ] 3.2.3 Keep secrets out of guest memory and out of `params_json`. Use
+      NO PROTO CHANGE REQUIRED, and none was made. Everything the edge route
+      needs was already on the wire: the command payload is
+      `CommandRequest.payload_json` (opaque JSON, so notification fields there
+      are not a wire-contract change); `plugin_assignment_id` /
+      `plugin_package_id` already exist on the run_action payload; credential
+      grants already ride it as `credential_broker` / `credential_brokers`; and
+      trusted-host-only material already has `PluginAssignmentConfig` field 23,
+      `host_params_json`. No other language binding needs regenerating.
+      FINDING (not 3.2's to fix, needs its own task): the `notifications:`
+      manifest block lets each entry declare its own `entrypoint`, and nothing
+      carries that to the host - `edge/agent_config_generator.ex:1206` sets an
+      assignment's entrypoint from `package.entrypoint`, and
+      `plugin_runtime_wazero.go` calls `assignment.Entrypoint`. A per-notifier
+      entrypoint is therefore DECLARED IN ELIXIR AND UNENFORCED AT RUNTIME - the
+      same defect class as `advisory-feed:v1`. Today a multi-notifier package
+      must dispatch on `action_key` inside one export. Closing it needs the
+      config generator to emit the binding BEFORE the host can honour it; adding
+      a proto field no producer fills would be a permanent wire commitment that
+      changes nothing.
+- [x] 3.2.3 Keep secrets out of guest memory and out of `params_json`. Use
       `CredentialBrokerGrant` host-side injection
       (`go/pkg/agent/plugin_runtime_actions.go:308-356`) or the trusted-host-only
       `host_params_json` field (`proto/monitoring.proto:615-623`).
-- [ ] 3.2.4 Document and enforce the Slack/Discord incoming-webhook constraint:
+      VERIFIED, no host change needed: `buildActionPluginConfig` builds the guest
+      config from `assignment.ParamsJSON` plus the invocation envelope only, and
+      `newPluginAssignment` never merges `host_params_json` into `ParamsJSON`.
+      Covered by `TestNotificationGuestConfigNeverCarriesCredentialMaterial`,
+      which asserts the guest config carries the secret REFERENCE and neither the
+      resolved material nor the `host_params_json` webhook URL, and then shows
+      the same grant injecting that material into an `http.Request` at the host
+      boundary. Asserting on that config IS asserting on guest memory:
+      `hostGetConfig` (`plugin_runtime_execution.go:188`) returns
+      `e.configJSON` verbatim and is its only reader.
+- [x] 3.2.4 Document and enforce the Slack/Discord incoming-webhook constraint:
       the secret lives in the URL path and no injection mode rewrites a path. The
       supported modes are exactly `http_header`, `bearer_token`, `basic_auth`,
       `query`, `form_urlencoded`, and `oauth2_password_bearer`
@@ -1221,61 +1269,317 @@ Conventions that apply to every phase:
       `form`. On `:edge_agent`, such channels use the bot-token API with
       `bearer_token` or carry the URL via `host_params_json`. A URL-path injection
       mode is out of scope for v1.
-- [ ] 3.2.5 Compute what reaches the agent through the existing narrowing funnel
+      Elixir half VERIFIED already present from Phase 1: refused at save by
+      `transports/slack.ex:475-481` `route_errors/2` and `transports/discord.ex:337-341`,
+      and again at dispatch by `slack.ex:202` / `discord.ex:150` `check_route/2`.
+      Agent half ADDED: `notificationCredentialInjectionModes` is a closed set of
+      exactly those six canonical names, enforced at ADMISSION for a notification
+      dispatch (`authorizeNotificationDelivery`), on both entrances, before the
+      module is loaded. It is deliberately narrower than
+      `applyCredentialBrokerHTTPInjection`, which still honours the legacy
+      shorthands `header` / `http_basic_auth` / `query_param` / `http_query` for
+      existing integrations - so a notifier declaring a shorthand fails in Elixir
+      AND at the host, and `url_path` is unrepresentable in either.
+      `edge_command_contract_test.exs` reads the Go allowlist and asserts it
+      equals `Manifest.allowed_credential_injection_modes/0`, so the two cannot
+      drift.
+- [x] 3.2.5 Compute what reaches the agent through the existing narrowing funnel
       (`effective_capabilities` / `effective_permissions` / `effective_resources`,
       `edge/agent_config_generator.ex:1848-1877`).
+      The funnel already existed and is what the host reads; these tests pin that
+      it BINDS a notifier rather than merely describing it.
+      `TestNotificationEgressBoundByNarrowedPermissions` builds an assignment
+      from a `PluginAssignmentConfig` whose `permissions_json` was narrowed to one
+      domain and one port, then asserts
+      `pluginHTTPRequestDestinationAllowed` - the same call
+      `hostHTTPRequest` makes - denies a host narrowed away, an arbitrary host, a
+      port narrowed away, and plaintext on 80. That is the answer to "a
+      notification plugin that can reach arbitrary hosts MUST flow through it".
+      `TestNotificationCapabilityReflectsNarrowedAssignment` pins the other half:
+      `deliversNotifications` and `pluginExecution.hasCapability` read the same
+      narrowed map, so neither is decorative.
 
 ### 3.3 Control-plane plugin execution
 
-- [ ] 3.3.1 Implement `:control_plane` + `:wasm_plugin` execution via
+- [x] 3.3.1 Implement `:control_plane` + `:wasm_plugin` execution via
       `ServiceRadar.Edge.AgentCommandBus.dispatch/4` targeting the
       platform-resident `serviceradar-agent` that already ships
       (`helm/serviceradar/templates/agent.yaml:40`).
-- [ ] 3.3.2 Bind notification providers only to approved plugin packages; a
+      DONE. `Dispatcher.invoke_transport/5` now sends a delivery to an agent for
+      EITHER reason - `execution_route == :edge_agent`, or a `:wasm_plugin`
+      provider on any route - and both land in the same `edge_dispatch/4`, the
+      same `plugin.run_action` command, and the same guest ABI. Which agent is
+      the only difference, and `ServiceRadar.Notifications.PluginTarget` is what
+      resolves it: the channel's `agent_uid` on the edge route, the configured
+      platform agent (`SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID`, wired by
+      Helm from `agent.agentId`) on the control plane.
+      The dispatch also resolves the `plugin_assignment_id` rather than leaving
+      the agent to infer it. That is not redundant with 3.2.1's
+      `resolveNotificationAssignmentID`: resolving in core is the only place
+      that can consult package approval and `effective_capabilities` BEFORE a
+      command is sent, and it turns the agent-side ambiguity failure (one
+      package with several assignments on the agent) into a legible, permanent
+      Delivery Log reason.
+      There is deliberately no default platform agent id. Guessing one would
+      dispatch a customer's notifications to whichever agent happened to match;
+      unconfigured fails the delivery with `platform_agent_unconfigured`.
+- [x] 3.3.2 Bind notification providers only to approved plugin packages; a
       provider whose package approval is revoked deactivates.
-- [ ] 3.3.3 Assert in a test that there is exactly one Wasm host implementation -
+      DONE in three layers, because they fail at different times and only one of
+      them can explain itself in a form:
+      (a) ACTIVATION - `Validations.ProviderPackageApproved` on
+      `NotificationProvider.:activate`. Deliberately not on `:create`
+      (registering against a package still in review is a normal workflow:
+      reviewer approves, then operator activates) and deliberately not on
+      `:disable` (turning a provider off is the correct response to a
+      revocation, and a validation there would trap exactly the rows an operator
+      needs to clean up, since `:disabled` has no outbound transition).
+      (b) DEACTIVATION - `Notifications.PackageApprovalWatcher`, an Ash notifier
+      on `PluginPackage`'s `:revoke`/`:deny`. A notifier rather than a change on
+      the action because `:revoke` is atomic and an `after_action` inside a
+      `change/3` goes silently inert on an atomic update. It disables `:active`
+      providers only; a `:draft` one is already inert (`Suppression` withholds
+      any dispatch to a channel whose provider is not `:active`) and cannot be
+      activated while the package is unapproved.
+      (c) ENFORCEMENT - `PluginTarget` re-reads the package status on every
+      dispatch. A notifier is a signal, not a guarantee: a bulk update that
+      bypasses the action, or a node that dies between commit and notify, skips
+      it. This is the layer that actually stops the page.
+- [x] 3.3.3 Assert in a test that there is exactly one Wasm host implementation -
       no Rustler/wasmtime NIF and no second Go host is introduced.
+      DONE - `test/serviceradar/notifications/single_wasm_host_test.exs`. It
+      scans every `elixir/*/mix.exs` for a runtime dependency, every in-tree
+      `Cargo.toml` for one, and every `go/**/*.go` for a wazero import, asserting
+      the importing package set is exactly `["go/pkg/agent"]`. Verified to FAIL
+      by adding a throwaway package that imports wazero. A legitimate second
+      instantiation is not silently accommodated: it goes in `@allowed_go_hosts`
+      with a reason, which is a decision someone reviews.
 
 ### 3.4 Edge route, failover, and durable receipts
 
-- [ ] 3.4.1 Implement `:edge_agent` dispatch with explicit handling of
+- [x] 3.4.1 Implement `:edge_agent` dispatch with explicit handling of
       `{:error, {:agent_offline, agent_id}}` from
       `agent_command_bus.ex:204-225`.
-- [ ] 3.4.2 On agent-offline, fail over one hop to `fallback_channel_id` unless
+      ALREADY IMPLEMENTED in Phase 1 - `dispatcher.ex` `dispatch_command/4` maps
+      `{:error, {:agent_offline, _}}` to `Result.retryable_failure("agent_offline")`
+      and every other bus error to `"agent_command_failed"`, both retryable, so
+      the row stays `:pending` and the delivery row IS the core-side outbox R2
+      requires. It was entirely UNTESTED; `dispatcher_edge_test.exs` now proves
+      it (row stays `:pending`, attempt burned, `next_attempt_at` in the future).
+- [x] 3.4.2 On agent-offline, fail over one hop to `fallback_channel_id` unless
       the channel is `fail_closed`; record the failover on the delivery row.
-- [ ] 3.4.3 Treat the agent command result as a wake-up signal only; the
+      IMPLEMENTED, but NOT "immediately on agent-offline" - and that divergence
+      from this task's wording is deliberate and is what R2 asks for. Failing
+      over on the first offline reply abandons a site that was briefly
+      disconnected, which is precisely the disconnect an escalation ladder
+      exists to survive. Offline is retryable; failover fires when the budget is
+      spent and the row reaches `:failed`, takes exactly one hop, is skipped for
+      a `fail_closed` channel, and stamps `originating_delivery_id` on the
+      successor. All four now covered by tests.
+      The one contradicting sentence in `docs/docs/notifications.md` ("or
+      immediately on an agent-offline error") is corrected here.
+- [x] 3.4.3 Treat the agent command result as a wake-up signal only; the
       `NotificationDelivery` row is always the system of record, mirroring the
       pattern documented at
       `automation/ansible/callback_command_result_coordinator.ex:1-10`.
-- [ ] 3.4.4 Before the edge route ships, either enable
+      HOLDS. Nothing in the dispatch path waits on a command result: bus hand-off
+      settles the row, and `command_id` / `agent_uid` / `execution_route` record
+      how it went out. Proven by test, together with the payload carrying no
+      secret material.
+- [x] 3.4.4 Before the edge route ships, either enable
       `:status_handler_enabled` (default `false`,
       `cluster/coordinator_children.ex:96-113`) so
       `ServiceRadar.AgentCommands.StatusHandler` durably persists command acks,
       progress, and results, or ship the poll-based reconciler. If reconciling,
       follow the ready-made shape: the `ActionInvocationTarget` `:poll_due` read
       plus its currently-callerless `list_poll_due` code interface.
-- [ ] 3.4.5 Add a bounded periodic scan that recovers deliveries whose wake-up
+      DECIDED: the poll-based reconciler (`Dispatcher.reconcile/2` +
+      `Notifications.ReceiptWorker`). `:status_handler_enabled` is NOT flipped.
+      Three reasons, in order of weight:
+      1. Flipping it is a no-op where it matters and a blast radius where it does
+         not. Both deployed releases already default the env var to `"true"`
+         (`serviceradar_core/config/runtime.exs`,
+         `serviceradar_core_elx/config/runtime.exs`), so production already runs
+         the handler; the `false` supervision default is only reached where no
+         config sets the key - `config/test.exs` sets it false ON PURPOSE. So the
+         change would alter behaviour for sync ingest, DIRE, and the results
+         router in exactly the contexts where it is off deliberately, and change
+         nothing in production. The design doc's premise ("with stock config an
+         edge delivery leaves no receipt") is inaccurate for a release.
+      2. It would not deliver a receipt anyway. Nothing maps an `agent_commands`
+         row onto a `notification_deliveries` row, so enabling the handler
+         persists results no notification reads. The reconciler is needed either
+         way; the handler only makes its answer arrive sooner.
+      3. A delivery guarantee must not vary with another subsystem's supervision
+         flag. `reconcile/2` reads only what CORE writes - the command row the
+         bus itself creates, its status, and the `expires_at` it computes from
+         the TTL - so it reaches the same answer with the handler on or off.
+      Shape: a bounded scan over `:dispatching` rows carrying a `command_id`
+      (the `:poll_due` shape this task points at, expressed as an Ash filter
+      rather than a new read action, because the selection is two columns and
+      does not warrant one). A completed command settles `:sent`; a failed,
+      expired, canceled, or offline one goes through the ordinary retry/failover
+      machinery; an in-flight command inside its TTL is left alone; past its TTL
+      it is a `command_receipt_timeout` and is owed another attempt.
+      NOT done: reconciling a row already `:sent`. Hand-off is what `:sent`
+      records for an agent route, and `:sent` is terminal with no outbound
+      transition. Making `:sent` conditional on a receipt instead would make
+      every edge delivery depend on the status handler and would re-page on every
+      lost ack - the exact dependency this option exists to avoid.
+- [x] 3.4.5 Add a bounded periodic scan that recovers deliveries whose wake-up
       signal was lost, and a reconnect drain for commands queued while an agent
       was offline.
-- [ ] 3.4.6 Add the Helm value and template wiring for whichever option 3.4.4
+      The bounded periodic scan for a LOST job already existed: `due/2`'s
+      `stalled_ids` hands back rows stuck in `:dispatching` past
+      `@dispatching_stall_seconds`, and `ContinuationWorker` re-drives them. What
+      it does blindly is re-dispatch, which sends a SECOND notification for a
+      command the agent may already have run; `reconcile/2` (3.4.4) settles those
+      rows from the command row first, on a one-minute cron, long before the
+      five-minute stall threshold. The two are complementary and the ordering is
+      what makes the duplicate rare.
+      Reconnect drain: there are no commands queued at the agent to drain - the
+      bus is at-most-once and marks the command `offline` rather than spooling
+      it - so what is drained is the delivery row waiting out a backoff in core.
+      `reconcile/2` returns a `:drain` list of `:pending` rows whose last error
+      was `agent_offline` and whose agent now has a control session
+      (`AgentCommandBus.lookup_control_session_entries/1`), and `ReceiptWorker`
+      re-queues each with `replace: [scheduled: [:scheduled_at]]` - the only
+      thing that moves a job Oban already has, since `DispatchWorker`'s unique
+      key spans the incomplete states and a plain enqueue would silently keep the
+      old `scheduled_at`. No new process and no cross-app hook into the gateway:
+      the scan asks the registry rather than waiting to be told.
+- [x] 3.4.6 Add the Helm value and template wiring for whichever option 3.4.4
       selects, plus its documentation.
+      DONE. `core.notifications.platformAgent.{agentId,partitionId}` (defaulting
+      to `agent.agentId` and the deployment partition) and
+      `core.notifications.receiptSweep.enabled` in `values.yaml`, rendered into
+      `templates/core.yaml` as `SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID`,
+      `..._PARTITION`, and `SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED`.
+      With `agent.enabled: false` and no explicit override NOTHING is rendered,
+      so a control-plane plugin channel fails with `platform_agent_unconfigured`
+      instead of dispatching to an arbitrary agent. Verified with
+      `helm template` for all three shapes (default, agent disabled, agent
+      disabled with an explicit override).
+      Cron and bounds are built by `Notifications.DispatchSchedule` so the two
+      runtime.exs trees cannot drift, gated by
+      `SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_{ENABLED,CRON}` and
+      `SERVICERADAR_NOTIFICATION_RECEIPT_LIMIT`.
+      Docs: `docs/docs/notifications.md` gains "Plugin providers run on an agent
+      even on the control plane" (including the four permanent `error_class`
+      values an operator will see) and "Receipts for agent-routed deliveries".
 
 ### 3.5 Runtime display and config contract resolution
 
-- [ ] 3.5.1 Replace the compile-time `@built_in_contracts` `File.read!` in
+- [x] 3.5.1 Replace the compile-time `@built_in_contracts` `File.read!` in
       `elixir/web-ng/lib/serviceradar_web_ng/observability/signal_display.ex` with
       runtime resolution from the installed package, so a third-party package can
       ship a renderable contract without recompiling web-ng. The map holds SEVEN
       MAP ENTRIES over SIX DISTINCT PATHS (powerdns 0.1.0 and 0.1.1 share a
       path), so the replacement must key on the (package, version) pair those
       entries already distinguish, not on the file path.
-- [ ] 3.5.2 Validate display and config contracts at import time and version them.
-- [ ] 3.5.3 Degrade gracefully when a contract is missing or invalid, and make the
+      DONE, but the compile-time map is DEMOTED rather than replaced, and that is
+      deliberate: the six first-party contracts are NOT shipped inside their
+      bundles (`build/native_addons/addon_inventory.bzl:72-75` gives powerdns
+      exactly `addon.yaml` + `config.schema.json`), so deleting it would stop
+      PowerDNS, Axis, UniFi Protect, Proxmox, Trivy, and Falco rendering.
+      Resolution is now ordered: caller/application override, then
+      `ServiceRadarWebNG.Observability.ContractRegistry` (the runtime index), then
+      the built-in map - `signal_display.ex` `resolve_contract_with_source/2`.
+      Storage is a new `display_contracts` jsonb column on BOTH package resources
+      (migration `20260810120000_add_display_contracts_to_packages.exs`), keyed
+      `"<contract_id>@<contract_version>"`; the registry indexes it by the same
+      four-part `{producer_id, producer_version, schema_id, schema_version}` key
+      the stored signal ref carries, which is the (package, version) pair the old
+      seven entries distinguished.
+- [x] 3.5.2 Validate display and config contracts at import time and version them.
+      Display contracts: new `ServiceRadar.Plugins.DisplayContract` - closed
+      top-level key list, closed widget-type and widget-key lists, `id` +
+      `version` (semver) as the storage key, `schema_id` + `schema_version` as
+      the binding, and a `surface` of `signal` (default) /
+      `notification_delivery` / `notification_channel_health`. The nine UI-code
+      keys the manifest already refuses on an action are refused here at ANY
+      DEPTH, so a contract cannot become a second door into that capability.
+      Enforced at three points: the bundle importers, the resource
+      (`Validations.DisplayContracts` on `PluginPackage` create/update and
+      `AddonPackage` create/update/reimport - the admin API and the packages
+      LiveView are writers too), and again on the way out of the database in the
+      registry, because a row may predate the current validator.
+      Config contracts were ALREADY validated at import from Phase 3.1: a
+      `notifications:` entry's `config_schema` goes through
+      `ConfigSchema.validate_schema/1` (`manifest.ex` `validate_notification_config_schema/3`).
+- [x] 3.5.3 Degrade gracefully when a contract is missing or invalid, and make the
       diagnostics enumerable to operators.
-- [ ] 3.5.4 Render notification channel config forms, the delivery log, and
+      Three failure modes, three dispositions. A bundle contract this release
+      refuses is DROPPED, not fatal to the import (`DisplayContract.partition/1`):
+      a `display/` entry cannot change what a plugin does, and an existing
+      first-party bundle already ships a placeholder there, so failing the signed
+      artifact over it would break installs for a UI file. The reasons are
+      recorded in `source_metadata["display_contract_errors"]`. A stored contract
+      that fails re-validation is skipped with a diagnostic
+      (`ContractRegistry.diagnostics/0`). A contract that renders no widgets
+      degrades to `SignalDisplay.generic_widgets/2` - scalars as facts,
+      containers as JSON, labels derived from the RECORD's keys so a rejected
+      contract cannot smuggle text through the fallback. Both diagnostic sources
+      are listed per package in the admin package panel
+      (`plugin_package_live/index.ex` "Runtime Display Contracts").
+      Note the asymmetry: a contract typed into the API or admin UI still fails
+      loudly (`DisplayContract.validate_all/1`), because there a silent drop is a
+      lie about what the operator saved.
+- [x] 3.5.4 Render notification channel config forms, the delivery log, and
       channel health from the package-supplied contracts.
+      `Settings.NotificationsLive.Contracts` resolves all three at runtime.
+      The channel config form now reads the notifier's `config_schema` from the
+      package's CURRENT `notifications:` manifest block rather than the copy
+      taken when the provider row was created, so a package upgrade reaches the
+      form; `index.ex` `provider_schema/1` resolves through the SAME function, or
+      secret-field detection and the test-send payload would classify a
+      package-declared secret as ordinary configuration. The Delivery Log detail
+      and channel health render `notification_delivery` and
+      `notification_channel_health` surface contracts through the SAME widget
+      renderer the events and logs pages use
+      (`SignalDisplayComponents.signal_display_widget/1`) - a second renderer
+      would be two contracts wearing one name - and fall back to the generic view
+      when a package ships none.
 
 ### 3.6 Bundle registration (three hand-synced places)
+
+**NOT APPLICABLE to this change. Do not do this work.** 3.6 is conditional on
+shipping a FIRST-PARTY notification wasm bundle, and this change deliberately
+ships none. Recorded here rather than left dangling, with the reasoning, so a
+later reader knows it was decided and not forgotten.
+
+1. Nothing first party belongs on the `:wasm_plugin` tier. D2 reserves that tier
+   for request signing, OAuth exchanges, non-HTTP transports, payload transforms
+   templating cannot express, and site-local egress. Every destination we would
+   ship ourselves is reachable from the platform and is "POST this JSON to this
+   URL", which is the `:declarative` tier - the tier D2 says covers ~85% of
+   destinations with no code and no release. A first-party notifier bundle would
+   be a third in-tree implementation of something `:native` and `:declarative`
+   already implement, and the only in-tree consumer of a contract built for
+   third parties.
+2. The contract does not need a bundle to be proven. What Phase 3 owes is that
+   the manifest block validates, that `notify:v1` is enforced at the host, and
+   that `action_key` binds to a declared notifier. All three are proven by the
+   tests landed under 3.1, none of which needs a signed OCI artifact. The
+   example notifier and its fixture corpus already have a home: 3.8.2, in
+   `serviceradar-sdk-go`.
+3. Two of the three registration points would be no-ops anyway. A notifier
+   bundle introduces no new bundle FILE KIND - the `notifications:` block lives
+   inside `plugin.yaml`, and a notifier's `config_schema` is inline in that
+   block rather than a separate file. `first_party_importer.ex` already accepts
+   `plugin.yaml`, `plugin.wasm`, `config.schema.json`, `display_contract.json`,
+   `docs/*`, `display/*.json`, and `schemas/*.json`, and
+   `validate-external-wasm-plugin-bundle.py` already requires exactly
+   `{config.schema.json, plugin.wasm, plugin.yaml}`. So 3.6.1 and 3.6.2 have
+   nothing to add; only 3.6.3's inventory tuple and 3.6.4's verification would
+   be real work.
+4. The cost of registering is permanent and the cost of deferring is not. Each
+   hand-synced place is a spot a future bundle can be forgotten, and a missing
+   entry fails the RELEASE PUBLISH rather than a local build. Paying that to
+   ship an example is a bad trade; if a first-party notifier is later justified
+   (a destination that genuinely needs signing or a non-HTTP transport), 3.6.3
+   and 3.6.4 are mechanical and nothing in the manifest or capability contract
+   has to change to accommodate them.
 
 - [ ] 3.6.1 Register any new first-party notification bundle file in the
       bundle-entry allowlist in
@@ -1291,16 +1595,67 @@ Conventions that apply to every phase:
 
 ### 3.7 UI safety for the edge route
 
-- [ ] 3.7.1 Warn in the escalation policy editor when the only reachable route is
+- [x] 3.7.1 Warn in the escalation policy editor when the only reachable route is
       an `:edge_agent` channel bound to the same `partition_id` as the alert
       source - the configuration that silently guarantees no page exactly when one
       is owed.
-- [ ] 3.7.2 Surface `fallback_channel_id` and `fail_closed` prominently on any
+
+      **Already satisfied by Phase 1.** `notifications_live/edge_route_safety.ex`
+      is the pure decision (`evaluate/2`, `warns?/2`, `reachable_channels/2`),
+      `components.ex:1084` is the `edge_route_warning` component, and it renders
+      in THREE places, not only the editor: the policy editor
+      (`components.ex:1128`), the policy row outside the editor
+      (`components.ex:1048`), and a badge on every route bound to the policy
+      (`components.ex:538-542`). `index.ex:321` computes the map for saved
+      policies and `index.ex:1726` recomputes it live on `validate_policy`.
+      Covered by `notifications_edge_route_safety_test.exs` and
+      `notifications_components_test.exs` "the warning appears on the policy row,
+      outside the editor".
+
+      One deliberate difference from the task text, recorded so it is not read as
+      a gap: the implementation does NOT compare against the alert source's
+      `partition_id`, because a policy is bound to routes matching many alerts
+      and there is no single alert source at editing time. It warns whenever
+      EVERY reachable channel is `:edge_agent` - a strict superset of the
+      same-partition case - and names the partitions in the message so an
+      operator can see which site is affected.
+
+- [x] 3.7.2 Surface `fallback_channel_id` and `fail_closed` prominently on any
       channel using `:edge_agent`.
+
+      `EdgeRouteSafety.channel_advisory/2` answers the policy-level question one
+      channel at a time, so the two cannot drift. It accepts either a loaded
+      channel (atom keys) or the editor's string-keyed params - a form has no
+      `partition_id` yet, so `agent_uid` stands in as the site label - and grades
+      the outcome by what the operator loses: `:error` for `fail_closed` (the
+      page is dropped) and for a fallback in the SAME site (both die at the same
+      instant), `:warning` for no fallback / an unreadable fallback / another
+      site's agent, `:ok` for a control-plane fallback.
+
+      `components.ex` `failover_fields/1` lifts the two fields out of the general
+      grid into their own emphasised section that states the at-most-once
+      constraint, and renders the advisory live on every `phx-change` - so the
+      consequence of ticking fail closed is on screen at the moment it is ticked.
+      `channel_failover_badge/1` puts the compact form on the saved channel row.
+      Covered by `notifications_edge_route_safety_test.exs` "channel_advisory/2"
+      and `notifications_components_test.exs` "channel editor failover section".
 
 ### 3.8 Cross-repository SDK work (SEPARATE REPOSITORIES)
 
-- [ ] 3.8.1 `serviceradar-sdk-go` (separate repository): add the notifier plugin
+Both SDKs are committed on a branch named `add-notifier-plugin-kind` in their own
+repository, UNPUSHED and with no PR opened, for separate review:
+
+* `serviceradar-sdk-go` `add-notifier-plugin-kind` @ `5879c0a`, branched from
+  `origin/main` @ `e892cd5`.
+* `serviceradar-sdk-rust` `add-notifier-plugin-kind` @ `c093ef7`, branched from
+  `origin/main` @ `1e9fc52`.
+
+Both repositories were checked out on an unmerged, fully-pushed
+`add-service-monitoring-sdk-parity` branch. Neither checkout was disturbed: the
+work was done in a `git worktree` at `<repo>-notifier`, so the original working
+directories are still on that branch at their original commits.
+
+- [x] 3.8.1 `serviceradar-sdk-go` (separate repository): add the notifier plugin
       kind, the delivery request and result envelopes, notifier intents,
       capability-gated behaviour, credential-broker helpers for outbound HTTP,
       config decoding against the manifest config schema, and the
@@ -1310,46 +1665,268 @@ Conventions that apply to every phase:
       `capabilities`, `payload_formats`, `routes`, `credential_requirements`,
       `inbound`. An SDK that emits `provider_key` or `inbound_callback` produces
       manifests the platform rejects.
-- [ ] 3.8.1a Both SDKs use the canonical credential injection mode names from
+
+      `sdk/notification.go` (envelopes, intents, three statuses,
+      `ExecuteNotification`), `sdk/secret_ref.go` (opaque `SecretRef`, the six
+      canonical injection modes, the leak guard), `sdk/notification_config.go`
+      (`DecodeChannelConfig`, `ValidateChannelConfig`),
+      `sdk/notification_manifest.go` (`NotificationProviderContract`,
+      `Validate`, `RenderNotificationsManifestBlock`), `sdk/notification_http.go`
+      (notifier request helpers, `ClassifyNotificationResponse`).
+
+      The renderer emits nine of the ten keys unconditionally, with the same
+      defaults the platform validator fills in, and `description` only when set.
+      That is deliberate: a block whose key set depends on which optional fields
+      happen to be populated is a block two SDKs render differently for the same
+      contract, which is the drift the shared corpus exists to catch.
+
+- [x] 3.8.1a Both SDKs use the canonical credential injection mode names from
       3.2.4 (`http_header`, `bearer_token`, `basic_auth`, `query`,
       `form_urlencoded`, `oauth2_password_bearer`) in their helper APIs and
       fixtures, so a plugin author never learns a shorthand the host does not
       accept.
-- [ ] 3.8.2 `serviceradar-sdk-go` (separate repository): add an example notifier
+
+      Go exposes them as `sdk.InjectHTTPHeader` ... `sdk.InjectOAuth2PasswordBearer`
+      and returns `sdk.ErrUnsupportedInjection` for anything else;
+      `TestOnlyTheSixCanonicalInjectionModesAreAccepted` asserts `bearer`,
+      `basic`, `header`, `form`, `query_param`, `http_basic_auth`, `url_path`,
+      and `path` are all refused, and that the error lists the alternatives.
+      Rust makes the mode a typed enum so a shorthand cannot be spelled, and
+      `CredentialInjectionMode::parse` refuses the same list with
+      `Error::UnsupportedInjection`.
+
+- [x] 3.8.2 `serviceradar-sdk-go` (separate repository): add an example notifier
       plugin and a fixture-based conformance test.
-- [ ] 3.8.3 `serviceradar-sdk-rust` (separate repository): implement notifier
+
+      `examples/notifier/` builds under `tinygo build -o plugin.wasm
+      -target=wasi ./` and the module exports `send_notification`, `alloc`, and
+      `dealloc` (verified). Its `plugin.yaml` `notifications:` block is what
+      `RenderNotificationsManifestBlock(exampleContract())` emits, and
+      `main_test.go` fails if the two drift. The six shared fixtures live in
+      `fixtures/notification_*.json` with a `fixtures/README.md` stating they are
+      test fixtures, not runtime defaults;
+      `sdk/notification_conformance_test.go` decodes each request fixture,
+      asserts the typed accessors, re-encodes each result fixture, and asserts
+      the rendered manifest block equals `notification_provider_contract.json`.
+
+- [x] 3.8.3 `serviceradar-sdk-rust` (separate repository): implement notifier
       parity with the Go SDK against the same fixture corpus.
+
+      `src/notification.rs`, `src/secret_ref.rs`, `src/notification_config.rs`,
+      `src/notification_manifest.rs`, `src/notification_http.rs`, plus
+      `examples/notifier/`, which builds for `wasm32-unknown-unknown` and exports
+      `send_notification`, `alloc`, and `dealloc` (verified). The API is
+      idiomatic Rust - free functions, `Result`, typed enums, no plugin trait and
+      no registration macro - while the bytes are identical. The six fixture
+      files are byte-identical to the Go SDK's (sha256-verified) and both
+      conformance suites assert against them.
+
+      Two Rust-specific decisions worth recording. `decode_channel_config`
+      requires `Serialize` on the target type because Rust has no runtime
+      reflection to check the destination TYPE the way the Go guard does; it
+      re-serializes what it decoded and refuses the result if a sentinel
+      survived, which it can only do if the sentinel landed in a `String` rather
+      than a `SecretRef`. And intents / payload formats / routes are OPEN enums
+      that preserve an unknown value through a round trip, so an older plugin
+      never silently rewrites a field a newer control plane sent, while the three
+      result statuses are CLOSED - a fourth status is a contract change and must
+      fail to decode rather than be guessed at.
+
 - [ ] 3.8.4 Version and release both SDKs jointly against one notifier contract
       version; pin the new SDK versions in every in-repo Wasm plugin.
-- [ ] 3.8.5 Add notifier logging and payload redaction safety to both SDKs so a
+
+      **Prerequisites in place; the release itself is not done and cannot be
+      until both branches are reviewed and merged.** Both SDKs export the same
+      contract version - `sdk.NotifierContractVersion` in Go,
+      `NOTIFIER_CONTRACT_VERSION` in Rust, both `"1.0.0"` - and emit it as
+      `sdk_contract_version` on EVERY result including the synthesised
+      `plugin_no_result` one, so a mismatch is detectable at dispatch. Neither
+      repository has been tagged, no crate or module version was bumped, and no
+      module under `go/cmd/wasm-plugins/` pins the new SDK. The repository gate
+      described in the spec (verify every module whose `plugin.yaml` declares a
+      `notifications:` block pins an SDK at or above the notifier release) is
+      also not built; it has nothing to check until a first notifier-bearing
+      module exists, and 3.6 records that this change deliberately ships none.
+
+- [x] 3.8.5 Add notifier logging and payload redaction safety to both SDKs so a
       guest cannot log an injected credential.
+
+      Neither SDK logs `rendered_payload`, `channel_config`, `alert_snapshot`, or
+      any `action_links` value, and neither provides a helper that does.
+      `sdk.RedactedRequestSummary` / `redacted_request_summary` return identity
+      fields only. `SanitizeNotificationErrorMessage` /
+      `sanitize_notification_error_message` bound every SDK-generated
+      `error_message` to 512 bytes and strip both a `secretref:` sentinel and a
+      full action-link URL - reducing a URL to scheme plus host, which keeps the
+      diagnostic while dropping the capability token that would otherwise let
+      anyone reading a delivery log acknowledge the alert. `WithError` /
+      `with_error` route through it, so an author cannot bypass it by
+      constructing a result directly. `SecretRef` renders a placeholder through
+      `String()`/`Display`, `MarshalJSON`/`Serialize`, and `%v`/`%s`/`%#v` /
+      `{}`/`{:?}`.
 
 ### 3.9 Phase 3 tests, docs, and gates
 
-- [ ] 3.9.1 Elixir tests for manifest parsing of the `notifications:` block,
+- [x] 3.9.1 Elixir tests for manifest parsing of the `notifications:` block,
       including rejection of UI-markup keys, of an undeclared capability, of an
       unknown block key (`provider_key` and `inbound_callback` are the two
       near-miss spellings to assert on), and of a `capabilities` list missing
       `send` or `test`.
-- [ ] 3.9.1a A test asserting a provider whose `action_key` is absent from the
+
+      Already covered by the tests landed with 3.1.1, and nothing was added -
+      a second copy of any of these would be a rule asserted in two places that
+      can disagree. `test/serviceradar/plugins/manifest_notifications_test.exs`:
+      `provider_key` at `:88`, `inbound_callback` at `:94`, the nine UI-markup
+      keys at `:100`, missing `send` at `:110`, missing `test` at `:116`, an
+      undeclared capability at `:122`. The file goes further than the task text
+      in three places worth noting, because they are what make the block a
+      contract rather than a shape: `:363-385` asserts the capability, payload
+      format, and route vocabularies are EQUAL to
+      `NotificationProvider`'s (the two lists are deliberately separate literals
+      to avoid a compile cycle, so only a test keeps them from drifting);
+      `:213` asserts the four shorthand injection-mode spellings are refused
+      rather than silently accepted; and `:232` pins that no accepted mode
+      rewrites a URL path, which is the reason Slack and Discord incoming
+      webhooks cannot run on the edge route.
+
+- [x] 3.9.1a A test asserting a provider whose `action_key` is absent from the
       referenced package's `notifications:` block is rejected.
-- [ ] 3.9.2 Go tests for `notify:v1` enforcement and for credential injection mode
+
+      Already covered:
+      `test/serviceradar/notifications/provider_action_key_db_test.exs:143`
+      ("an undeclared key is rejected and the message lists what is declared"),
+      with `:158` covering the adjacent case of a package that declares no
+      `notifications:` block at all, and `:125` the positive case.
+
+- [x] 3.9.2 Go tests for `notify:v1` enforcement and for credential injection mode
       selection, asserting the canonical mode names from 3.2.4 and that a
       shorthand name is not silently accepted.
-- [ ] 3.9.3 Agent-offline failover test and a fail-closed test asserting no
+
+      Already covered by `go/pkg/agent/plugin_runtime_notify_test.go`.
+      Enforcement is asserted on BOTH entrances to plugin execution, which is
+      the property that makes it a permission rather than a warning:
+      `TestRunActionDeniesNotificationWithoutNotifyCapability` (`:156`),
+      `TestRunActionAdmitsNotificationWithNotifyCapability` (`:173`),
+      `TestRunPluginVerbDeniesNotificationWithoutNotifyCapability` (`:220`),
+      and `TestRunActionLeavesNonNotificationActionsUngated` (`:199`) so the
+      gate is not simply denying everything. Injection modes:
+      `TestNotificationCredentialInjectionModesAreTheCanonicalSix` (`:644`)
+      pins the six names against the manifest allowlist and refuses `url_path`;
+      `TestNotificationCredentialGrantsServiceable` (`:671`) refuses `header`,
+      `http_basic_auth`, `query_param`, `url_path`, and an invented mode;
+      `TestRunActionDeniesNotificationWithUnserviceableInjectionMode` (`:722`)
+      proves the allowlist is enforced at the same admission point as the
+      capability rather than only deep in the HTTP path; and
+      `TestNotificationMalformedGrantBlockFailsClosed` (`:744`) proves an
+      undecodable grant block is not treated as "no grants".
+
+- [x] 3.9.3 Agent-offline failover test and a fail-closed test asserting no
       failover occurs.
-- [ ] 3.9.4 Reconciler test proving a delivery whose command result was lost still
+
+      Already covered by
+      `test/serviceradar/notifications/dispatcher_edge_test.exs`:
+      "takes exactly one hop and back-references its origin" (`:207`) and
+      "a fail_closed channel never fails over" (`:224`). The negative case that
+      makes the pair meaningful is also there - "does not fail over while the
+      retry budget is unspent" (`:182`) - since a failover test passes just as
+      well against an implementation that fails over on the first offline
+      reply, which is the behaviour R2 forbids.
+
+- [x] 3.9.4 Reconciler test proving a delivery whose command result was lost still
       reaches a terminal state.
-- [ ] 3.9.5 Contract-resolution tests for a third-party package shipping a display
+
+      **Partially covered; the terminal-state half was missing and was written.**
+      The 3.4.4 block proved a lost result is settled from the command row
+      (`:283` completed, `:300` failed, `:317` in flight, `:326` past its TTL),
+      but every one of those ends at `:pending` or is deliberately left alone.
+      "Owed another attempt" is not a terminal state, so the block did not
+      actually prove the at-most-once command bus (forgejo #4902) cannot strand
+      a page.
+
+      New describe block "a lost command result still reaches a terminal state
+      (tasks 3.9.4)" at `dispatcher_edge_test.exs:376`, covering the two ways a
+      result is lost:
+
+        * `:377` the command row is READABLE but never answered, on a delivery
+          with no budget left: the sweep drives it to `:failed` with
+          `command_receipt_timeout` and it takes its failover hop, so a lost
+          result costs one channel rather than the page. The same pass is then
+          re-run to prove the sweep converges - a settled row leaves the
+          `:dispatching` scan, so there is no second failover.
+        * `:417` the command row is UNREADABLE (purged, or never persisted).
+          `reconcile/2` deliberately refuses to invent an outcome there, so the
+          backstop has to be the stalled-row sweep in `due/2` - and without it
+          the row is selected by nothing in the system, since `read :retry_due`
+          takes only `:pending`. This is the case no existing test touched.
+
+- [x] 3.9.5 Contract-resolution tests for a third-party package shipping a display
       contract without a web-ng recompile.
-- [ ] 3.9.6 Add `docs/docs/notification-plugin-authoring.md` covering the
+
+      Already covered:
+      `elixir/web-ng/test/serviceradar/observability/contract_registry_test.exs:202`
+      ("a third-party package's contract renders with no web-ng recompile")
+      installs a package that is not in `@built_in_contracts`, refreshes the
+      registry, and asserts the signal resolves `:runtime` and RENDERS - the
+      widget values, not just the lookup. The surrounding cases are what make it
+      a resolution test rather than a lookup test: `:217` the same signal
+      renders nothing once the package is uninstalled, `:228` a first-party
+      signal still resolves from the compile-time map (the built-in map is the
+      fallback, not a removed layer), `:251` an installed package overrides
+      nothing it did not declare, and `:259` a refused contract degrades to no
+      contract with an enumerable diagnostic rather than a crash. The notifier
+      surfaces are covered at
+      `elixir/web-ng/test/phoenix/settings/notifications_contracts_test.exs:161`
+      (delivery log) and `:191` (channel health), including the degrade path.
+
+- [x] 3.9.6 Add `docs/docs/notification-plugin-authoring.md` covering the
       `notifications:` manifest block, `notify:v1`, credential handling, and the
       two supported routes. Restate that `:edge_agent` is only for destinations
       unreachable from the platform and that an edge-only policy cannot deliver
       the "this site went dark" page. ASCII only.
-- [ ] 3.9.7 Update `docs/docs/sdks.md` and `docs/docs/edge-agent-onboarding.md`
+
+      Written. Covers the ten manifest keys with their required/default columns,
+      the two near-miss spellings and WHY each is refused, the capability and
+      payload-format vocabularies, the `inbound` block, and the
+      `notifications:` / `notify:v1` coherence rule. `notify:v1` is presented as
+      enforced at the host on both entrances against the NARROWED capability set
+      rather than declared in a manifest, with the "two capabilities are
+      declared and enforced nowhere; this must not become the third" framing.
+      Credentials: secrets never enter guest memory or `params_json`, the grant
+      names a secret rather than carrying one, host-side injection at the HTTP
+      boundary, the six canonical modes in a table, the refused shorthands, and
+      the URL-path constraint with the Slack/Discord consequence and the
+      bot-token workaround. The edge route is restated as unreachable
+      destinations only, with the site-down page called out in a blockquote and
+      forgejo #4902 named. Cross-links to `notifications.md`,
+      `notification-providers.md`, `wasm-plugins.md`, `sdks.md`,
+      `telemetry-display-contracts.md`, and `edge-agent-onboarding.md` rather
+      than repeating them. ASCII only; verified with a static pass for
+      non-ASCII, fence balance, bare `{` / `<` outside code spans (the MDX
+      hazard), in-page anchors, and relative link targets.
+
+      Two adjacent staleness fixes, since this page is what they should point
+      at: `notifications.md:99` said `wasm_plugin` providers "arrive in a later
+      phase", which stopped being true when Phase 3 landed, and
+      `notification-providers.md:52` now names the page its own tier table
+      keeps deferring to.
+
+- [x] 3.9.7 Update `docs/docs/sdks.md` and `docs/docs/edge-agent-onboarding.md`
       for notifier support.
-- [ ] 3.9.8 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`,
+
+      `sdks.md`: the notifier surface added to both SDK descriptions plus a
+      "Notifier plugins" section covering the shared envelopes, the manifest
+      builder, the opaque secret reference, the ten keys / six modes both SDKs
+      agree on, and the contract version stamped on every result.
+      `edge-agent-onboarding.md`: a "Notification Delivery From This Site (Edge
+      Route)" section under "Next: Turn On Collection", with the three setup
+      steps and the three constraints an operator has to know before routing a
+      page through a site agent - the route is for unreachable destinations
+      only, the at-most-once bus means an edge-only policy cannot deliver the
+      site-down page, and Slack/Discord incoming webhooks are refused there.
+      Registered in `docs/sidebars.ts` next to its two sibling notification
+      pages; `sidebars.ts` re-verified under node (75 doc entries, no missing
+      files, no new duplicate ids).
+- [x] 3.9.8 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`,
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`,
       `bazel run //:gazelle`, `bazel test --config=remote //go/pkg/agent/...`, and
       `bazel build --config=remote //rust/...` if any Rust changed.

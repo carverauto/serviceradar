@@ -22,6 +22,7 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
   | Worker | Cron | Queue |
   | --- | --- | --- |
   | `ContinuationWorker` | every minute | `:notifications` |
+  | `ReceiptWorker` | every minute | `:notifications` |
   | `SilenceExpiryWorker` | every minute | `:notifications` |
   | `DeliveryRetentionWorker` | daily 04:11 | `:maintenance` |
 
@@ -63,6 +64,7 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
 
   alias ServiceRadar.Notifications.ContinuationWorker
   alias ServiceRadar.Notifications.DeliveryRetentionWorker
+  alias ServiceRadar.Notifications.ReceiptWorker
   alias ServiceRadar.Notifications.SilenceExpiryWorker
 
   @type env_fetch :: (String.t(), String.t() | nil -> String.t() | nil)
@@ -83,6 +85,7 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
   def cron_entries(fetch \\ &System.get_env/2) do
     Enum.concat([
       continuation_entries(fetch),
+      receipt_entries(fetch),
       silence_expiry_entries(fetch),
       delivery_retention_entries(fetch)
     ])
@@ -100,6 +103,15 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
       limit: positive_int(fetch, "SERVICERADAR_NOTIFICATION_CONTINUATION_LIMIT"),
       stall_seconds: positive_int(fetch, "SERVICERADAR_NOTIFICATION_DISPATCH_STALL_SECONDS")
     )
+  end
+
+  @doc """
+  Runtime options for `ServiceRadar.Notifications.ReceiptWorker`
+  (tasks 3.4.4, 3.4.6).
+  """
+  @spec receipt_worker_config(env_fetch()) :: keyword()
+  def receipt_worker_config(fetch \\ &System.get_env/2) do
+    present(limit: positive_int(fetch, "SERVICERADAR_NOTIFICATION_RECEIPT_LIMIT"))
   end
 
   @doc """
@@ -134,6 +146,23 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
     if truthy?(fetch, "SERVICERADAR_NOTIFICATION_CONTINUATION_ENABLED", "true") do
       [
         {fetch.("SERVICERADAR_NOTIFICATION_CONTINUATION_CRON", "* * * * *"), ContinuationWorker,
+         queue: :notifications}
+      ]
+    else
+      []
+    end
+  end
+
+  # The receipt sweep is what makes an agent-routed delivery reach a terminal
+  # state without depending on `:status_handler_enabled` (tasks 3.4.4). Turning
+  # it off is supported for the same reason the continuation tick can be turned
+  # off - a staged bring-up - but it means a delivery whose dispatching process
+  # died is only recovered by `due/2`'s blind stall sweep, which re-sends rather
+  # than settling from the command row.
+  defp receipt_entries(fetch) do
+    if truthy?(fetch, "SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED", "true") do
+      [
+        {fetch.("SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_CRON", "* * * * *"), ReceiptWorker,
          queue: :notifications}
       ]
     else

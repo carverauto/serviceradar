@@ -53,6 +53,38 @@
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $mailer := default (dict) $coreVals.mailer -}}
+{{- /*
+  Notification platform (openspec add-notification-platform, tasks 3.4.6).
+
+  `:control_plane` wasm notification plugins execute on the platform-resident
+  serviceradar-agent this chart already deploys, through the same
+  plugin.run_action command an edge dispatch uses - which is why there is
+  exactly one Wasm host in the product. Core has to be told which agent that
+  is; there is deliberately no default in the application, because guessing an
+  agent id would dispatch a customer's notifications to whichever agent
+  happened to match. The chart knows the answer, so it supplies it.
+
+  With agent.enabled=false and no explicit override, nothing is set and a
+  :control_plane plugin channel fails with `platform_agent_unconfigured`
+  instead of dispatching somewhere arbitrary.
+*/ -}}
+{{- $notificationAgentVals := default (dict) .Values.agent -}}
+{{- $notificationAgentEnabled := true -}}
+{{- if hasKey $notificationAgentVals "enabled" -}}
+{{- $notificationAgentEnabled = $notificationAgentVals.enabled -}}
+{{- end -}}
+{{- $notificationVals := default (dict) $coreVals.notifications -}}
+{{- $notificationPlatformAgent := default (dict) $notificationVals.platformAgent -}}
+{{- $notificationAgentId := default "" $notificationPlatformAgent.agentId -}}
+{{- if and (eq $notificationAgentId "") $notificationAgentEnabled -}}
+{{- $notificationAgentId = default "k8s-agent" $notificationAgentVals.agentId -}}
+{{- end -}}
+{{- $notificationAgentPartition := default (coalesce .Values.partitionId $notificationAgentVals.partitionId "default") $notificationPlatformAgent.partitionId -}}
+{{- $notificationReceiptSweep := default (dict) $notificationVals.receiptSweep -}}
+{{- $notificationReceiptSweepEnabled := true -}}
+{{- if hasKey $notificationReceiptSweep "enabled" -}}
+{{- $notificationReceiptSweepEnabled = $notificationReceiptSweep.enabled -}}
+{{- end -}}
 {{- $mailerFrom := default (dict) $mailer.from -}}
 {{- $mailerSecret := default "" $mailer.existingSecret -}}
 {{- $automationCallbacks := default (dict) .Values.automationCallbacks -}}
@@ -386,6 +418,20 @@ spec:
           value: {{ default 5 $obanQueues.alerts | quote }}
         - name: OBAN_QUEUE_SERVICE_CHECKS
           value: {{ default 10 $obanQueues.serviceChecks | quote }}
+        {{- if ne $notificationAgentId "" }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID
+          value: {{ $notificationAgentId | quote }}
+        - name: SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION
+          value: {{ $notificationAgentPartition | quote }}
+        {{- end }}
+        {{- if not $notificationReceiptSweepEnabled }}
+        # The receipt sweep is what closes out an agent-routed delivery whose
+        # command result never came back, without depending on
+        # STATUS_HANDLER_ENABLED. Turning it off leaves those rows to the blind
+        # stall sweep, which re-sends rather than settling from the command row.
+        - name: SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED
+          value: "false"
+        {{- end }}
         - name: OBAN_QUEUE_NOTIFICATIONS
           value: {{ default 5 $obanQueues.notifications | quote }}
         - name: OBAN_QUEUE_ONBOARDING

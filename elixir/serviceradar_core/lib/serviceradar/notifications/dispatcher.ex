@@ -16,13 +16,14 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   which is what makes a routing or suppression decision replayable when an
   operator asks "why was I paged?" - or, more often, "why was I not?".
 
-  ## Three entry points, and what drives each
+  ## Four entry points, and what drives each
 
   | Function | Called by | Emits |
   | --- | --- | --- |
   | `route/3` | `AlertLifecycle` for a new incident notification; the scheduler for escalation/renotify continuation | `:pending` and `:suppressed` `NotificationDelivery` rows |
   | `deliver/2` | the delivery Oban worker | one transport attempt, and the row that records it |
   | `due/2` | the scheduler tick | the work owed right now |
+  | `reconcile/2` | the receipt sweep | agent-routed rows settled from their command row, plus the ones a reconnected agent made due early |
 
   Design D8 splits those deliberately and they are not interchangeable:
   `AlertLifecycle` is the **only** path that may originate a first notification,
@@ -143,6 +144,22 @@ defmodule ServiceRadar.Notifications.Dispatcher do
      function is the only place the retry rule lives; a status code is never
      re-classified here.
 
+  ### Both plugin routes end at an agent, because there is one Wasm host
+
+  `:edge_agent` and `:wasm_plugin` are different reasons to reach an agent and
+  both land in `edge_dispatch/4`. `:edge_agent` is the operator's choice of
+  EGRESS: the notification must leave from the customer's own network (design
+  R1). A `:wasm_plugin` provider reaches an agent whatever its route, because
+  the only Wasm host in the product is wazero inside `go/pkg/agent` - on
+  `:control_plane` the host is the platform-resident `serviceradar-agent` that
+  already ships (design D3, tasks 3.3.1). Same command, same binary, same
+  runtime; only the agent id differs, which is what
+  `ServiceRadar.Notifications.PluginTarget` resolves.
+
+  That resolution is also where package approval and `notify:v1` are checked
+  before a command is sent, and its failures are PERMANENT: an unapproved
+  package or a missing assignment is a configuration error that no retry fixes.
+
   ### The edge route is retryable, not immediately failed over
 
   An `:edge_agent` channel dispatches `plugin.run_action` through
@@ -161,15 +178,21 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   disconnect an escalation ladder is supposed to survive.
 
   The delivery row is the system of record throughout; the command result is a
-  wake-up signal only. `ServiceRadar.AgentCommands.StatusHandler` is gated on
-  `:status_handler_enabled`, default `false`, so with stock configuration the
-  command result persists nowhere at all.
+  wake-up signal only. `ServiceRadar.AgentCommands.StatusHandler` - the only
+  thing that durably persists command acks and results - is a coordinator
+  singleton whose supervision default is `false`, and even when it runs nothing
+  maps its command rows onto deliveries. So a delivery's terminal state never
+  depends on it: hand-off to the bus is what `:sent` records, and `reconcile/2`
+  is the bounded pass that closes out the rows that never got that far, using
+  only what core itself wrote (tasks 3.4.4).
 
-  In Phase 1 this path is **not reachable in a supported configuration**:
-  `:wasm_plugin` providers are rejected at save time, so only a `:native`
-  provider bound to an `:edge_agent` channel reaches it, and no agent-side
-  handler exists for one. It is implemented defensively so that Phase 3 inherits
-  a working outbox rather than discovering it needs one.
+  This path was implemented in Phase 1, before anything could reach it, so that
+  Phase 3 would inherit a working outbox rather than discover it needed one.
+  Phase 3 opened the gate at the provider: `:wasm_plugin` rows now save, bound
+  to a notifier their package's `notifications:` manifest block declares
+  (`ServiceRadar.Notifications.Validations.ProviderActionKeyDeclared`). The
+  agent refuses the dispatch unless the assignment's narrowed capability set
+  carries `notify:v1` (`go/pkg/agent/plugin_runtime_notify.go`).
 
   ## Failover is one hop, and only from `:failed`
 
@@ -194,6 +217,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.ActionLinks
@@ -206,6 +230,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.NotificationSilence
   alias ServiceRadar.Notifications.NotificationTemplate
+  alias ServiceRadar.Notifications.PluginTarget
   alias ServiceRadar.Notifications.RateLimiter
   alias ServiceRadar.Notifications.Renderer
   alias ServiceRadar.Notifications.Router
@@ -222,6 +247,24 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   require Logger
 
   @edge_command_type "plugin.run_action"
+
+  # The discriminator that makes a `plugin.run_action` payload a NOTIFICATION
+  # dispatch (tasks 3.1.3). It is what `go/pkg/agent` keys the `notify:v1`
+  # capability gate on, so it is a wire contract, not a label: the agent refuses
+  # a payload carrying this schema unless the assignment's narrowed capability
+  # set includes `notify:v1`. Its Go counterpart is
+  # `notificationDeliveryEnvelopeSchema` in `plugin_runtime_notify.go`; the two
+  # strings must stay identical.
+  @edge_command_schema "serviceradar.notification_delivery.v1"
+
+  @doc """
+  The envelope schema every edge notification dispatch carries.
+
+  Exposed so a test can assert the Elixir and Go halves of the capability gate
+  name the same envelope rather than each asserting its own constant.
+  """
+  @spec edge_command_schema() :: String.t()
+  def edge_command_schema, do: @edge_command_schema
 
   # Backoff floor, ceiling, and jitter. Thirty seconds is long enough that a
   # rate-limited or briefly-down destination has actually changed state by the
@@ -411,6 +454,186 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       retry: due_retry(now, limit, actor, opts),
       escalation: due_escalation(limit, actor)
     }
+  end
+
+  # --- reconcile ------------------------------------------------------------
+
+  @doc """
+  Closes out agent-routed deliveries whose wake-up signal never arrived, and
+  names the ones a reconnected agent has made due early.
+
+  Two lists come back:
+
+    * `:settled` - delivery ids this pass drove to a terminal state (or back to
+      `:pending` with a fresh backoff) from the durable `agent_commands` row.
+    * `:drain` - delivery ids waiting out a backoff they no longer need,
+      because the agent they are bound to has a control session again. The
+      caller reschedules them; nothing is written here.
+
+  ## Why this exists (design D3, tasks 3.4.4)
+
+  `ServiceRadar.AgentCommands.StatusHandler` is the only thing that durably
+  persists command acks, progress, and results, and it is a coordinator
+  singleton gated on `:status_handler_enabled`. Both deployed releases default
+  that env var to `true`, but the supervision default behind it is `false` - so
+  a notification whose terminal state depended on the command result would have
+  a delivery guarantee that varies with another subsystem's supervision flag.
+  It does not: hand-off to the bus is what `:sent` records, and this pass is
+  what recovers the rows that never got that far.
+
+  It reads only what CORE writes, so it works with the status handler off:
+  `AgentCommandBus.dispatch/4` itself writes the command row and moves it
+  `queued -> sent`/`offline`/`failed`, and `expires_at` is computed from the TTL
+  at dispatch. A command whose deadline has passed with no result is therefore
+  decidable from the row alone.
+
+  Only rows stuck in `:dispatching` are reconciled. A `:dispatching` row is one
+  where the bus answered but the process died before the outcome was written -
+  the exact rows `due/2`'s stall sweep would otherwise re-dispatch blind, which
+  would send a second notification for a command the agent may have already
+  run. Settling them from the command row turns that duplicate into a correct
+  terminal state.
+
+  Options: `:actor`, `:limit`, `:load_command`, and `:agent_online?`.
+  """
+  @spec reconcile(DateTime.t(), keyword()) :: %{settled: [binary()], drain: [binary()]}
+  def reconcile(now, opts \\ [])
+
+  def reconcile(%DateTime{} = now, opts) when is_list(opts) do
+    actor = fetch_actor(opts)
+    limit = Keyword.get(opts, :limit, @default_due_limit)
+
+    %{
+      settled: settle_receipts(now, limit, actor, opts),
+      drain: drain_ready(now, limit, actor, opts)
+    }
+  end
+
+  defp settle_receipts(now, limit, actor, opts) do
+    NotificationDelivery
+    |> Ash.Query.filter(state == :dispatching and not is_nil(command_id))
+    |> Ash.Query.load(channel: [:provider])
+    |> Ash.Query.sort(started_at: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, deliveries} ->
+        Enum.flat_map(deliveries, &settle_receipt(&1, now, actor, opts))
+
+      {:error, reason} ->
+        log_read_failure("deliveries awaiting a command receipt", reason)
+        []
+    end
+  end
+
+  defp settle_receipt(delivery, now, actor, opts) do
+    loader = Keyword.get(opts, :load_command, &load_command/2)
+
+    case delivery.command_id |> loader.(actor) |> command_outcome(now) do
+      nil ->
+        []
+
+      %Result{} = result ->
+        _ = settle(delivery, delivery.channel, result, nil, now, actor)
+        [delivery.id]
+    end
+  end
+
+  # A command row that cannot be read is left alone rather than guessed at: the
+  # stall sweep in `due/2` is the backstop, and inventing a failure here would
+  # fail a delivery whose command may have succeeded.
+  defp command_outcome(nil, _now), do: nil
+
+  defp command_outcome({:error, _reason}, _now), do: nil
+
+  defp command_outcome({:ok, nil}, _now), do: nil
+
+  defp command_outcome({:ok, command}, now), do: command_outcome(command, now)
+
+  defp command_outcome(%{status: :completed} = command, _now) do
+    Result.delivered(
+      external_correlation_id: to_string(Map.get(command, :id)),
+      result_summary: %{
+        "receipt" => "command_completed",
+        "command_id" => to_string(Map.get(command, :id)),
+        "completed_at" => iso8601(Map.get(command, :completed_at))
+      }
+    )
+  end
+
+  defp command_outcome(%{status: status} = command, _now)
+       when status in [:failed, :expired, :canceled, :offline] do
+    Result.retryable_failure("command_#{status}",
+      error_message:
+        Map.get(command, :failure_reason) || Map.get(command, :message) ||
+          "the agent command ended #{status} without delivering",
+      result_summary: %{
+        "receipt" => "command_#{status}",
+        "command_id" => to_string(Map.get(command, :id))
+      }
+    )
+  end
+
+  # In flight and still inside its own TTL: the agent may yet answer, so the row
+  # is left where it is. Past the TTL with no result, the command is dead
+  # whether or not anything was listening for its ack, and the delivery is owed
+  # another attempt within its ordinary budget.
+  defp command_outcome(%{} = command, now) do
+    if expired?(Map.get(command, :expires_at), now) do
+      Result.retryable_failure("command_receipt_timeout",
+        error_message: "the agent command passed its TTL with no result",
+        result_summary: %{
+          "receipt" => "timeout",
+          "command_id" => to_string(Map.get(command, :id)),
+          "expires_at" => iso8601(Map.get(command, :expires_at))
+        }
+      )
+    end
+  end
+
+  defp expired?(%DateTime{} = expires_at, now), do: DateTime.before?(expires_at, now)
+  defp expired?(_expires_at, _now), do: false
+
+  defp load_command(command_id, actor) do
+    Ash.get(AgentCommand, command_id, actor: actor)
+  end
+
+  # The "reconnect drain" (tasks 3.4.5). There is nothing queued AT the agent to
+  # drain - the bus is at-most-once and marks the command `offline` rather than
+  # spooling it - so what is drained is the delivery row waiting out a backoff
+  # in core. A row whose next attempt is still in the future is not selected by
+  # `due/2`; when the agent it is bound to has a control session again, waiting
+  # out the rest of that backoff is pure lost time on a page that is already
+  # late.
+  #
+  # Rows already due are deliberately excluded: `due/2` returns those, and
+  # naming them here as well would only enqueue the same work twice.
+  defp drain_ready(now, limit, actor, opts) do
+    online? = Keyword.get(opts, :agent_online?, &agent_online?/1)
+
+    NotificationDelivery
+    |> Ash.Query.filter(
+      state == :pending and error_class == "agent_offline" and not is_nil(agent_uid) and
+        attempt_count < max_attempts and next_attempt_at > ^now
+    )
+    |> Ash.Query.sort(next_attempt_at: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, deliveries} ->
+        deliveries
+        |> Enum.group_by(& &1.agent_uid)
+        |> Enum.filter(fn {agent_uid, _rows} -> online?.(agent_uid) end)
+        |> Enum.flat_map(fn {_agent_uid, rows} -> Enum.map(rows, & &1.id) end)
+
+      {:error, reason} ->
+        log_read_failure("offline deliveries awaiting a reconnect", reason)
+        []
+    end
+  end
+
+  defp agent_online?(agent_uid) do
+    AgentCommandBus.lookup_control_session_entries(agent_uid) != []
   end
 
   # --- backoff --------------------------------------------------------------
@@ -939,12 +1162,29 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   # --- transport ------------------------------------------------------------
 
+  # Two things send a delivery to an agent, and they are not the same thing.
+  #
+  # `:edge_agent` is the operator's choice of egress: the notification must
+  # leave from the customer's own network (design R1), so it goes to the site
+  # agent named on the channel.
+  #
+  # A `:wasm_plugin` provider goes to an agent whatever its route, because the
+  # ONLY Wasm host in the product is wazero inside `go/pkg/agent`. On
+  # `:control_plane` the host is the platform-resident `serviceradar-agent` that
+  # already ships (design D3, tasks 3.3.1), reached through the SAME
+  # `plugin.run_action` command as any edge dispatch - which is what lets one
+  # plugin binary serve both routes and is why core never needed a second host.
   defp invoke_transport(delivery, channel, provider, request, opts) do
-    if execution_route(channel) == :edge_agent do
+    if agent_routed?(channel, provider) do
       edge_dispatch(request, channel, provider, opts)
     else
       {local_dispatch(delivery, provider, request, opts), nil}
     end
+  end
+
+  defp agent_routed?(channel, provider) do
+    execution_route(channel) == :edge_agent or
+      field(provider, :provider_type) == :wasm_plugin
   end
 
   defp local_dispatch(delivery, provider, request, opts) do
@@ -989,29 +1229,81 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     {:ok, Transports.Declarative}
   end
 
-  defp resolve_provider_transport(%{provider_type: type}) do
+  # A `:wasm_plugin` provider never resolves to a module here: it is dispatched
+  # to an agent by `invoke_transport/5` before this is reached, on both routes
+  # (tasks 3.3.1). Reaching this clause means the `:transport` seam was not
+  # supplied and the tier has no in-process transport, which is a programming
+  # error rather than a configuration one, so it says so.
+  defp resolve_provider_transport(%{provider_type: :wasm_plugin}) do
     {:error,
-     "provider tier #{inspect(type)} has no control-plane transport in this phase; " <>
-       "plugin providers land in Phase 3"}
+     "a :wasm_plugin provider executes on an agent through plugin.run_action, " <>
+       "never through an in-process transport"}
+  end
+
+  defp resolve_provider_transport(%{provider_type: type}) do
+    {:error, "provider tier #{inspect(type)} has no transport"}
   end
 
   defp resolve_provider_transport(_provider), do: {:error, "the channel has no provider"}
 
   # Design R2 / forgejo #4902. `AgentCommandBus.dispatch/4` is at-most-once with
-  # no store-and-forward, so EVERY failure here is retryable and the delivery row
-  # is the outbox. Failing over on the first offline reply would abandon a site
-  # that was briefly disconnected; the retry budget, and only then failover, is
-  # the bound.
+  # no store-and-forward, so every TRANSPORT failure here is retryable and the
+  # delivery row is the outbox. Failing over on the first offline reply would
+  # abandon a site that was briefly disconnected; the retry budget, and only
+  # then failover, is the bound.
+  #
+  # Target resolution failures are the exception and are PERMANENT: an
+  # unapproved package, a missing assignment, or an unconfigured platform agent
+  # is a configuration error that no retry fixes, and the useful response is to
+  # fail over to a channel that can actually page. See
+  # `ServiceRadar.Notifications.PluginTarget`.
   #
   # No secrets and no rendered credentials cross this boundary: the agent is
   # handed the redacted payload only. Secret material reaches an agent through
   # `CredentialBrokerGrant` host-side injection, never `params_json`.
   defp edge_dispatch(request, channel, provider, opts) do
+    case resolve_plugin_target(channel, provider, opts) do
+      {:ok, target} ->
+        dispatch_command(request, provider, target, opts)
+
+      {:error, {error_class, message}} ->
+        {Result.permanent_failure(error_class,
+           error_message: message,
+           result_summary: %{
+             "execution_route" => to_string(execution_route(channel)),
+             "reason" => error_class
+           }
+         ), nil}
+    end
+  end
+
+  defp resolve_plugin_target(channel, provider, opts) do
+    resolver = Keyword.get(opts, :plugin_target, PluginTarget)
+
+    resolver.resolve(channel, provider, Keyword.take(opts, [:platform_agent]))
+  end
+
+  defp dispatch_command(request, provider, target, opts) do
     bus = Keyword.get(opts, :command_bus, AgentCommandBus)
+    route = to_string(target.execution_route)
 
     payload = %{
+      "schema" => @edge_command_schema,
+      # Both addressing fields are sent, and the agent prefers the exact one.
+      # `plugin_assignment_id` is the address that matters: the assignment, not
+      # the package, carries the narrowed capability set, the config, and the
+      # resource limits the module runs under. `plugin_package_id` is the
+      # fallback the agent resolves when no assignment id is supplied, and it
+      # fails CLOSED when one package has several assignments on that agent -
+      # two assignments of one package are two channel configurations, so
+      # picking either would deliver to the wrong destination and record it as
+      # sent (`go/pkg/agent/plugin_runtime_notify.go`,
+      # `resolveNotificationAssignmentID`).
+      "plugin_assignment_id" => target.plugin_assignment_id,
+      "plugin_package_id" => target.plugin_package_id,
       "action_key" => field(provider, :action_key),
       "provider_key" => field(provider, :provider_key),
+      "execution_route" => route,
       "channel_id" => request.channel_id,
       "delivery_id" => request.delivery_id,
       "payload_format" => to_string(request.payload_format),
@@ -1020,26 +1312,43 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       "is_test" => request.is_test
     }
 
-    case bus.dispatch(channel.agent_uid, @edge_command_type, payload,
-           required_partition: channel.partition_id,
-           source: :automation
+    case bus.dispatch(target.agent_uid, @edge_command_type, payload,
+           required_partition: target.partition_id,
+           source: :automation,
+           context: %{
+             notification_delivery_id: request.delivery_id,
+             notification_channel_id: request.channel_id,
+             plugin_assignment_id: target.plugin_assignment_id
+           }
          ) do
       {:ok, command_id} ->
         {Result.delivered(
            external_correlation_id: to_string(command_id),
-           result_summary: %{"execution_route" => "edge_agent", "command_id" => command_id}
+           result_summary: %{
+             "execution_route" => route,
+             "agent_uid" => target.agent_uid,
+             "command_id" => command_id
+           }
          ), command_id}
 
       {:error, {:agent_offline, _agent} = reason} ->
         {Result.retryable_failure("agent_offline",
-           error_message: "the site agent has no control session; the delivery row is the outbox",
-           result_summary: %{"execution_route" => "edge_agent", "reason" => inspect(reason)}
+           error_message: "the agent has no control session; the delivery row is the outbox",
+           result_summary: %{
+             "execution_route" => route,
+             "agent_uid" => target.agent_uid,
+             "reason" => inspect(reason)
+           }
          ), nil}
 
       {:error, reason} ->
         {Result.retryable_failure("agent_command_failed",
            error_message: "the agent command could not be dispatched: #{inspect(reason)}",
-           result_summary: %{"execution_route" => "edge_agent", "reason" => inspect(reason)}
+           result_summary: %{
+             "execution_route" => route,
+             "agent_uid" => target.agent_uid,
+             "reason" => inspect(reason)
+           }
          ), nil}
     end
   end

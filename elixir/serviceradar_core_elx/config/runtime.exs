@@ -11,6 +11,8 @@ alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
 alias ServiceRadar.Notifications.DispatchSchedule
+alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
+alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
@@ -960,8 +962,23 @@ if config_env() == :prod do
          DispatchSchedule.delivery_retention_worker_config()
 
   config :serviceradar_core,
+         NotificationReceiptWorker,
+         DispatchSchedule.receipt_worker_config()
+
+  config :serviceradar_core,
          NotificationSilenceExpiryWorker,
          DispatchSchedule.silence_expiry_worker_config()
+
+  # The platform-resident serviceradar-agent that runs :control_plane wasm
+  # notification plugins (design D3, tasks 3.3.1). There is deliberately no
+  # default: guessing an agent id would dispatch notifications to whichever
+  # agent happened to match, so an unset value fails the delivery with
+  # `platform_agent_unconfigured` instead.
+  config :serviceradar_core,
+         NotificationPluginTarget,
+         platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
+         platform_agent_partition_id:
+           System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days

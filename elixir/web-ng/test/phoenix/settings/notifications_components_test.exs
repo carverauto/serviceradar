@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
   import Phoenix.Component
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.Components
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.DeliveryFilters
   alias ServiceRadarWebNGWeb.Settings.NotificationsLive.EdgeRouteSafety
@@ -464,6 +465,385 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
       # A read-only viewer gets no mutation controls at all.
       refute html =~ "New channel"
       refute html =~ "phx-click=\"edit_channel\""
+    end
+
+    test "a fail-closed edge channel carries the loss on its saved row" do
+      channel = %{
+        id: "edge-1",
+        name: "Site A agent page",
+        description: nil,
+        enabled: true,
+        health: :healthy,
+        last_success_at: nil,
+        last_failure_at: nil,
+        last_error: nil,
+        max_attempts: 3,
+        rate_limit_per_minute: nil,
+        execution_route: :edge_agent,
+        agent_uid: "agent-a",
+        partition_id: "site-a",
+        fail_closed: true,
+        fallback_channel_id: nil,
+        provider: %{display_name: "Mattermost", provider_type: :wasm_plugin}
+      }
+
+      assigns = %{
+        streams: %{channels: [{"channels-1", channel}]},
+        channel_index: Map.put(channel_index(), "edge-1", channel)
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channels_tab
+          streams={@streams}
+          can_manage={false}
+          can_test={false}
+          channel_form={nil}
+          providers={[]}
+          channel_index={@channel_index}
+          test_result={nil}
+          loading={false}
+        />
+        """)
+
+      assert html =~ "Fail closed: page is lost"
+      assert html =~ "site-a"
+    end
+
+    test "a control-plane channel gets no failover advisory badge" do
+      channel = %{
+        id: "chan-1",
+        name: "Slack #noc",
+        description: nil,
+        enabled: true,
+        health: :healthy,
+        last_success_at: nil,
+        last_failure_at: nil,
+        last_error: nil,
+        max_attempts: 3,
+        rate_limit_per_minute: nil,
+        execution_route: :control_plane,
+        agent_uid: nil,
+        partition_id: nil,
+        fail_closed: true,
+        fallback_channel_id: nil,
+        provider: %{display_name: "Slack", provider_type: :native}
+      }
+
+      assigns = %{
+        streams: %{channels: [{"channels-1", channel}]},
+        channel_index: channel_index()
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channels_tab
+          streams={@streams}
+          can_manage={false}
+          can_test={false}
+          channel_form={nil}
+          providers={[]}
+          channel_index={@channel_index}
+          test_result={nil}
+          loading={false}
+        />
+        """)
+
+      # fail_closed still shows as configuration, but the edge-route advisory
+      # does not, because there is no site agent for the platform to lose.
+      assert html =~ "fail closed: no failover"
+      refute html =~ "Fail closed: page is lost"
+      refute html =~ "No failover</"
+    end
+  end
+
+  describe "channel editor failover section" do
+    defp render_failover(params, index \\ %{}) do
+      assigns = %{params: params, channel_index: index}
+
+      rendered_to_string(~H"""
+      <Components.failover_fields params={@params} channel_index={@channel_index} />
+      """)
+    end
+
+    defp edge_params(overrides) do
+      Map.merge(
+        %{
+          "id" => "edge-1",
+          "execution_route" => "edge_agent",
+          "agent_uid" => "agent-a",
+          "fail_closed" => "false",
+          "fallback_channel_id" => ""
+        },
+        overrides
+      )
+    end
+
+    test "the consequence of fail closed is on screen at the moment it is ticked" do
+      html = render_failover(edge_params(%{"fail_closed" => "true"}))
+
+      assert html =~ ~s(data-channel-failover-advisory="error")
+      assert html =~ "Fail closed on a site-agent channel loses the page"
+      assert html =~ "agent-a"
+      assert html =~ "Set a control-plane failover channel"
+    end
+
+    test "an edge channel with no failover is warned before it is saved" do
+      html = render_failover(edge_params(%{}))
+
+      assert html =~ ~s(data-channel-failover-advisory="warning")
+      assert html =~ "No failover channel for a site-agent channel"
+    end
+
+    test "a control-plane failover reads as resolved rather than silent" do
+      index = %{
+        "cp-1" => %{
+          id: "cp-1",
+          name: "Slack #noc",
+          enabled: true,
+          execution_route: :control_plane,
+          partition_id: nil,
+          agent_uid: nil,
+          fail_closed: false,
+          fallback_channel_id: nil
+        }
+      }
+
+      html = render_failover(edge_params(%{"fallback_channel_id" => "cp-1"}), index)
+
+      assert html =~ ~s(data-channel-failover-advisory="ok")
+      assert html =~ "Failover reaches the control plane"
+    end
+
+    test "the edge route gets the at-most-once explanation, the control plane does not" do
+      edge = render_failover(edge_params(%{}))
+      control = render_failover(%{"execution_route" => "control_plane", "id" => "cp-1"})
+
+      assert edge =~ "Agent commands are at-most-once"
+      assert edge =~ ~s(data-execution-route="edge_agent")
+      refute control =~ "Agent commands are at-most-once"
+      refute control =~ "data-channel-failover-advisory"
+    end
+
+    test "both fields are always present, on either route" do
+      for html <- [
+            render_failover(edge_params(%{})),
+            render_failover(%{"execution_route" => "control_plane", "id" => "cp-1"})
+          ] do
+        assert html =~ ~s(name="channel[fallback_channel_id]")
+        assert html =~ ~s(name="channel[fail_closed]")
+      end
+    end
+
+    test "an operator-supplied channel name in the picker is escaped, never markup" do
+      index = %{
+        "cp-1" => %{
+          id: "cp-1",
+          name: "<script>alert(1)</script>",
+          enabled: true,
+          execution_route: :control_plane,
+          partition_id: nil,
+          agent_uid: nil,
+          fail_closed: false,
+          fallback_channel_id: nil
+        }
+      }
+
+      html = render_failover(edge_params(%{}), index)
+
+      refute html =~ "<script>alert(1)</script>"
+      assert html =~ "&lt;script&gt;"
+    end
+  end
+
+  # Tasks 3.5.4: the three notification surfaces render from package-supplied
+  # contracts, resolved at runtime. These are render tests rather than unit
+  # tests on `Contracts` because what the task owes is that the SCREEN changes
+  # when a package is installed, not that a function returns a map.
+  describe "package-supplied contracts on the notification surfaces" do
+    @package_id "33333333-3333-3333-3333-333333333333"
+
+    @health_contract %{
+      "id" => "com.thirdparty.pageco.health.display",
+      "version" => "1.0.0",
+      "schema_id" => "pageco",
+      "schema_version" => "1.0.0",
+      "surface" => "notification_channel_health",
+      "widgets" => [
+        %{
+          "type" => "facts",
+          "fields" => [%{"label" => "Upstream status", "path" => "last_error"}]
+        }
+      ]
+    }
+
+    @package %{
+      id: @package_id,
+      plugin_id: "pageco",
+      version: "2.0.0",
+      display_contracts: %{"com.thirdparty.pageco.health.display@1.0.0" => @health_contract},
+      manifest: %{
+        "id" => "pageco",
+        "name" => "PageCo",
+        "version" => "2.0.0",
+        "entrypoint" => "run",
+        "outputs" => "serviceradar.plugin_result.v1",
+        "capabilities" => ["log", "notify:v1"],
+        "resources" => %{"requested_memory_mb" => 16, "requested_cpu_ms" => 500},
+        "notifications" => [
+          %{
+            "key" => "pageco",
+            "display_name" => "PageCo",
+            "entrypoint" => "notify",
+            "capabilities" => ["send", "test"],
+            "payload_formats" => ["json"],
+            "config_schema" => %{
+              "type" => "object",
+              "properties" => %{
+                "escalation_policy" => %{"type" => "string", "title" => "Escalation policy"}
+              }
+            }
+          }
+        ]
+      }
+    }
+
+    @provider %{
+      id: "provider-pageco",
+      display_name: "PageCo",
+      provider_type: :wasm_plugin,
+      plugin_package_id: @package_id,
+      action_key: "pageco",
+      supported_routes: [:control_plane],
+      default_max_attempts: 3,
+      # Stale: what the provider row was created with, before the package moved on.
+      config_schema: %{
+        "type" => "object",
+        "properties" => %{"legacy_token" => %{"type" => "string", "title" => "Legacy token"}}
+      }
+    }
+
+    setup do
+      if is_nil(Process.whereis(ContractRegistry)) do
+        start_supervised!({ContractRegistry, []})
+      end
+
+      original = Application.get_env(:serviceradar_web_ng, ContractRegistry)
+
+      on_exit(fn ->
+        case original do
+          nil -> Application.delete_env(:serviceradar_web_ng, ContractRegistry)
+          config -> Application.put_env(:serviceradar_web_ng, ContractRegistry, config)
+        end
+
+        ContractRegistry.refresh()
+      end)
+
+      :ok
+    end
+
+    defp install(packages) do
+      Application.put_env(:serviceradar_web_ng, ContractRegistry, packages: packages)
+      :ok = ContractRegistry.refresh()
+    end
+
+    defp channel_form do
+      %{
+        mode: :new,
+        record: nil,
+        provider: @provider,
+        params: %{"name" => "PageCo primary", "provider_id" => "provider-pageco"},
+        config_params: %{},
+        warnings: []
+      }
+    end
+
+    test "the channel config form renders the package manifest's fields, not the stored copy" do
+      install([@package])
+
+      assigns = %{form: channel_form(), channel_index: %{}}
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channel_editor
+          form={@form}
+          providers={[]}
+          channel_index={@channel_index}
+          can_test={false}
+          test_result={nil}
+        />
+        """)
+
+      assert html =~ "Escalation policy"
+      assert html =~ "from the package manifest"
+      refute html =~ "Legacy token"
+    end
+
+    test "an uninstalled package falls back to the stored schema and says so" do
+      install([])
+
+      assigns = %{form: channel_form(), channel_index: %{}}
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channel_editor
+          form={@form}
+          providers={[]}
+          channel_index={@channel_index}
+          can_test={false}
+          test_result={nil}
+        />
+        """)
+
+      assert html =~ "Legacy token"
+      assert html =~ "from the provider record"
+      assert html =~ "not in the runtime contract index"
+    end
+
+    test "channel health renders the package's health contract" do
+      install([@package])
+
+      channel = %{
+        id: "chan-pageco",
+        name: "PageCo primary",
+        description: nil,
+        enabled: true,
+        health: :failing,
+        last_success_at: nil,
+        last_failure_at: nil,
+        last_error: "upstream 503",
+        max_attempts: 3,
+        rate_limit_per_minute: nil,
+        execution_route: :control_plane,
+        agent_uid: nil,
+        partition_id: nil,
+        fail_closed: false,
+        fallback_channel_id: nil,
+        provider: @provider
+      }
+
+      assigns = %{
+        streams: %{channels: [{"channels-1", channel}]},
+        channel_index: %{"chan-pageco" => channel}
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channels_tab
+          streams={@streams}
+          can_manage={false}
+          can_test={false}
+          channel_form={nil}
+          providers={[]}
+          channel_index={@channel_index}
+          test_result={nil}
+          loading={false}
+        />
+        """)
+
+      # The package's own label for the field, which nothing in web-ng knows.
+      assert html =~ "Upstream status"
+      assert html =~ "upstream 503"
     end
   end
 end

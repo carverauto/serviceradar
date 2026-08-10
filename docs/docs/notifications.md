@@ -96,9 +96,14 @@ HTTP request in YAML or JSON. See
 [Notification Providers (Declarative)](./notification-providers.md) for the
 document format, the worked example, and the limits of the tier.
 
-You cannot author a `stream` provider, and `wasm_plugin` providers - the tier for
-threading, attachments, inbound callbacks, and edge-routed egress - arrive in a
-later phase.
+A **`wasm_plugin`** provider is the tier for what a document cannot express:
+request signing, an OAuth exchange, a second request, threading, attachments,
+inbound callbacks, and egress from inside your own network. It is a signed Wasm
+package that declares its notifiers in a `notifications:` manifest block and runs
+on an agent. See
+[Notification Plugins (Wasm)](./notification-plugin-authoring.md).
+
+You cannot author a `stream` provider.
 
 ### Every provider supports `test`
 
@@ -162,8 +167,10 @@ transient bug.
 Three consequences you must design around:
 
 1. **An edge-routed channel whose agent is unreachable relies on retry and then
-   failover.** The delivery stays retry-eligible while attempts remain, and when
-   they are exhausted (or immediately on an agent-offline error) it takes its one
+   failover.** An agent-offline reply is a *retryable* outcome, not an immediate
+   failover: the delivery stays `pending` with its next attempt scheduled, so a
+   site that was briefly disconnected is not abandoned on the first missed
+   heartbeat. Only when the attempts are exhausted does the delivery take its one
    failover hop to `fallback_channel_id`. If you set no fallback, or you set
    `fail_closed`, there is no second chance.
 2. **An escalation policy whose only route is an edge agent in the same
@@ -178,6 +185,78 @@ Three consequences you must design around:
 The delivery row is always the system of record. An agent command result is a
 wake-up signal, never the truth; if the signal is lost, a bounded periodic scan
 recovers the delivery's real state.
+
+### Plugin providers run on an agent even on the control plane
+
+There is exactly **one** Wasm host in ServiceRadar: the runtime inside
+`serviceradar-agent`. A plugin-backed notification provider therefore always
+executes on an agent, and `execution_route` decides only *which* agent:
+
+| Route | Agent |
+| --- | --- |
+| `control_plane` | the platform-resident `serviceradar-agent` deployed alongside core |
+| `edge_agent` | the site agent named on the channel |
+
+Both use the same `plugin.run_action` command, so a plugin authored for a site
+agent runs unchanged on the platform agent - moving a channel between the two is
+a configuration edit plus a plugin assignment, never a repackage.
+
+Core has to be told which agent is the platform-resident one. The Helm chart
+fills this in from the agent it deploys; there is deliberately no application
+default, because guessing an agent id would send your notifications to whichever
+agent happened to match.
+
+| Setting | Helm value | Environment variable |
+| --- | --- | --- |
+| Platform agent id | `core.notifications.platformAgent.agentId` (defaults to `agent.agentId`) | `SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID` |
+| Platform agent partition | `core.notifications.platformAgent.partitionId` (defaults to the deployment partition) | `SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION` |
+
+With `agent.enabled: false` and no override, a `control_plane` channel bound to a
+plugin provider fails its deliveries with `platform_agent_unconfigured` rather
+than dispatching somewhere arbitrary. Native and declarative providers are
+unaffected - they egress from core itself and need none of this.
+
+Four other things must line up before a plugin channel can deliver, and each
+failure names itself on the delivery row:
+
+| `error_class` | Meaning |
+| --- | --- |
+| `plugin_package_unapproved` | The plugin package is staged, denied, or revoked. Only an approved package delivers |
+| `notify_capability_denied` | The package's approved capabilities do not include `notify:v1` |
+| `plugin_assignment_missing` | The package is approved but is not assigned to that agent |
+| `platform_agent_unconfigured` | No platform-resident agent is configured (above) |
+
+All four are configuration errors, so they fail **permanently** on the first
+attempt rather than consuming the retry budget: no number of retries approves a
+package, and the useful behaviour is to fail over to a channel that can page.
+
+Revoking a plugin package disables every notification provider bound to it, and a
+provider whose package is not approved cannot be activated. Disabling a provider
+is never blocked - that is the correct response to a revocation.
+
+### Receipts for agent-routed deliveries
+
+A delivery handed to an agent is recorded `sent` when the command reaches the
+agent's control session, with the command id on the row. If the dispatching
+process dies between the command going out and the outcome being written, the row
+is left mid-flight - and blindly retrying it would send a second page for a
+notification the agent may already have delivered.
+
+A bounded sweep runs every minute and settles those rows from the durable
+`agent_commands` record instead: a completed command settles the delivery as
+sent, a failed or expired one hands it back to its retry budget, and a command
+still inside its own TTL is left alone. The same pass re-drives a delivery that is
+waiting out a backoff for an agent that has since reconnected, so a site coming
+back does not have to wait out the rest of the backoff.
+
+This reads only what core itself writes, so it does not depend on
+`STATUS_HANDLER_ENABLED`.
+
+| Setting | Helm value | Environment variable |
+| --- | --- | --- |
+| Sweep enabled | `core.notifications.receiptSweep.enabled` (default `true`) | `SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED` |
+| Sweep schedule | - | `SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_CRON` (default `* * * * *`) |
+| Rows per pass | - | `SERVICERADAR_NOTIFICATION_RECEIPT_LIMIT` (default 500) |
 
 ## Routes
 

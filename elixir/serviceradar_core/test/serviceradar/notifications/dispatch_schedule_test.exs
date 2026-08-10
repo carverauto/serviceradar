@@ -22,6 +22,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
   alias ServiceRadar.Notifications.DeliveryRetentionWorker
   alias ServiceRadar.Notifications.DispatchSchedule
   alias ServiceRadar.Notifications.DispatchWorker
+  alias ServiceRadar.Notifications.ReceiptWorker
   alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Notifications.SilenceExpiryWorker
 
@@ -41,6 +42,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
       workers = %{} |> fetch() |> DispatchSchedule.cron_entries() |> by_worker() |> Map.keys()
 
       assert ContinuationWorker in workers
+      assert ReceiptWorker in workers
       assert SilenceExpiryWorker in workers
       assert DeliveryRetentionWorker in workers
     end
@@ -75,6 +77,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
     test "each cron expression is overridable" do
       env = %{
         "SERVICERADAR_NOTIFICATION_CONTINUATION_CRON" => "*/2 * * * *",
+        "SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_CRON" => "*/4 * * * *",
         "SERVICERADAR_NOTIFICATION_SILENCE_SWEEP_CRON" => "*/3 * * * *",
         "SERVICERADAR_NOTIFICATION_DELIVERY_RETENTION_CRON" => "5 2 * * *"
       }
@@ -82,6 +85,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
       entries = env |> fetch() |> DispatchSchedule.cron_entries() |> by_worker()
 
       assert {"*/2 * * * *", _} = entries[ContinuationWorker]
+      assert {"*/4 * * * *", _} = entries[ReceiptWorker]
       assert {"*/3 * * * *", _} = entries[SilenceExpiryWorker]
       assert {"5 2 * * *", _} = entries[DeliveryRetentionWorker]
     end
@@ -89,6 +93,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
     test "each entry is individually disablable" do
       env = %{
         "SERVICERADAR_NOTIFICATION_CONTINUATION_ENABLED" => "false",
+        "SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED" => "no",
         "SERVICERADAR_NOTIFICATION_SILENCE_SWEEP_ENABLED" => "0",
         "SERVICERADAR_NOTIFICATION_DELIVERY_RETENTION_ENABLED" => "off"
       }
@@ -102,6 +107,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
       workers = env |> fetch() |> DispatchSchedule.cron_entries() |> by_worker() |> Map.keys()
 
       refute ContinuationWorker in workers
+      assert ReceiptWorker in workers
       assert SilenceExpiryWorker in workers
       assert DeliveryRetentionWorker in workers
     end
@@ -111,6 +117,7 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
     test "nothing is configured when the operator set nothing" do
       # The worker modules' own defaults stay authoritative when unset.
       assert DispatchSchedule.continuation_worker_config(fetch(%{})) == []
+      assert DispatchSchedule.receipt_worker_config(fetch(%{})) == []
       assert DispatchSchedule.silence_expiry_worker_config(fetch(%{})) == []
       assert DispatchSchedule.delivery_retention_worker_config(fetch(%{})) == []
     end
@@ -133,6 +140,12 @@ defmodule ServiceRadar.Notifications.DispatchScheduleTest do
                limit: 250,
                stall_seconds: 600
              ]
+    end
+
+    test "the receipt sweep bound is settable" do
+      env = %{"SERVICERADAR_NOTIFICATION_RECEIPT_LIMIT" => "120"}
+
+      assert DispatchSchedule.receipt_worker_config(fetch(env)) == [limit: 120]
     end
 
     test "a blank value counts as unset" do

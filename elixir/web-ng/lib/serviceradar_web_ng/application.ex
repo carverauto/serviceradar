@@ -27,7 +27,11 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
-        ServiceRadarWebNG.Topology.RuntimeGraph
+        ServiceRadarWebNG.Topology.RuntimeGraph,
+        # Runtime index of package-shipped display and config contracts. Owns an
+        # ETS table so a LiveView mount - including a disconnected one - resolves
+        # a contract without querying.
+        ServiceRadarWebNG.Observability.ContractRegistry
       ]
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_control_plane_runtime_listener()

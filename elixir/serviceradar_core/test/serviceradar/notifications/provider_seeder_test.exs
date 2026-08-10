@@ -198,7 +198,10 @@ defmodule ServiceRadar.Notifications.ProviderSeederTest do
       assert is_nil(stream.implementation_module)
     end
 
-    test "no provider is a :wasm_plugin, which Phase 1 rejects outright" do
+    # Phase 3 admits the :wasm_plugin tier, but nothing SEEDED is one: a seeded
+    # provider would have to reference an installed plugin package, and the
+    # seeder runs before any package exists.
+    test "no seeded provider is a :wasm_plugin" do
       for provider <- catalog() do
         refute provider.provider_type == :wasm_plugin
         refute Map.has_key?(provider, :plugin_package_id)

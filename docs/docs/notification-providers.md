@@ -49,6 +49,9 @@ and it is what the tier can honour.
 with a message pointing at the plugin tier. `send` and `test` are both
 **mandatory** in every tier, so that "test-send before saving" works uniformly.
 
+Everything in the right-hand column above is
+[Notification Plugins (Wasm)](./notification-plugin-authoring.md).
+
 Everything the document cannot express is listed honestly in
 [What the format cannot express](#what-the-format-cannot-express). Read that
 section before you start writing, not after.

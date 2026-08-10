@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   import ServiceRadarWebNG.Plugins.ForgejoOciClient, except: [default_repo_url: 0]
 
+  alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadarWebNG.Plugins.ForgejoOciClient
   alias ServiceRadarWebNG.Plugins.Storage
@@ -128,6 +129,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          :ok <- verify_upload_signature(signature, manifest_map, content_hash),
          :ok <- verify_entry_identity(entry, manifest_struct) do
       now = DateTime.truncate(DateTime.utc_now(), :second)
+      {display_contracts, display_contract_errors} = bundle_display_contracts(bundle)
 
       {:ok,
        %{
@@ -138,6 +140,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
            optional_bundle_json(bundle, "display_contract.json") ||
              Map.get(manifest_map, "display_contract") ||
              %{},
+         display_contracts: display_contracts,
          wasm: wasm,
          content_hash: content_hash,
          signature: signature,
@@ -146,7 +149,10 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          source_oci_ref: entry_value(entry, "oci_ref"),
          source_oci_digest: fetched.oci_digest || entry_value(entry, "oci_digest"),
          source_bundle_digest: normalize_digest(Storage.sha256(fetched.bundle)),
-         source_metadata: source_metadata(repo, release, entry, fetched, now),
+         source_metadata:
+           repo
+           |> source_metadata(release, entry, fetched, now)
+           |> put_display_contract_errors(display_contract_errors),
          imported_at: now,
          verification_status: "verified"
        }}
@@ -459,6 +465,33 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
       nil -> :ok
       path when is_binary(path) -> if Map.has_key?(bundle, path), do: :ok, else: {:error, :missing_plugin_documentation}
     end
+  end
+
+  # Display contracts ship as `display/*.json` bundle entries. They are validated
+  # HERE, at import, rather than at render time: a contract that reaches the
+  # packages table has already been proven to be data, so the renderer never has
+  # to decide whether to trust a stored document.
+  #
+  # A contract this release refuses is DROPPED rather than fatal (see
+  # `DisplayContract.partition/1`). A `display/` entry is a UI file and cannot
+  # change what the plugin does, so rejecting a signed, otherwise valid artifact
+  # over one would be a disproportionate failure - and bundles already published
+  # with a placeholder there would stop installing. The reasons ride along in
+  # `source_metadata` so a refused contract is visible on the package rather than
+  # only conspicuous by the panel it never renders.
+  defp bundle_display_contracts(bundle) do
+    bundle
+    |> Enum.filter(fn {name, payload} ->
+      is_binary(payload) and String.starts_with?(name, "display/") and Path.extname(name) == ".json"
+    end)
+    |> Map.new()
+    |> DisplayContract.partition()
+  end
+
+  defp put_display_contract_errors(metadata, []), do: metadata
+
+  defp put_display_contract_errors(metadata, errors) do
+    Map.put(metadata, "display_contract_errors", errors)
   end
 
   defp optional_bundle_json(bundle, name) do
