@@ -550,6 +550,61 @@ defmodule ServiceRadar.EventWriter.Config do
   # resumes the existing ACK cursor. A brand-new durable with deliver_policy:all
   # would replay retained history that the old durable already ACKed (duplicate
   # ocsf_network_activity rows; on_conflict does not dedupe).
+  # Shared source of truth for extension raw-flow subjects (live + drain).
+  # EVENT_WRITER_FLOW_EXTRA_SUBJECTS is preferred; legacy
+  # EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS is still accepted.
+  @doc false
+  def extra_flow_subjects do
+    primary =
+      System.get_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") ||
+        System.get_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS") ||
+        ""
+
+    primary
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.filter(&String.starts_with?(&1, "flows.raw."))
+    |> Enum.uniq()
+  end
+
+  @doc false
+  def flow_subject_stream_name(subject) when is_binary(subject) do
+    suffix =
+      subject
+      |> String.replace_prefix("flows.raw.", "")
+      |> String.upcase()
+      |> String.replace(~r/[^A-Z0-9]+/, "_")
+
+    "FLOW_RAW_#{suffix}"
+  end
+
+  defp extra_live_flow_streams(existing) do
+    existing_subjects = MapSet.new(existing, & &1.subject)
+
+    extra_flow_subjects()
+    |> Enum.reject(&MapSet.member?(existing_subjects, &1))
+    |> Enum.map(fn subject ->
+      name = flow_subject_stream_name(subject)
+
+      %{
+        name: name,
+        stream_name: "flows",
+        subject: subject,
+        processor: Flows,
+        batch_size: 100,
+        batch_timeout: 500,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: @default_flows_stream_max_bytes,
+        stream_max_age: @default_flows_stream_max_age_ns,
+        allow_stream_fallback: false,
+        reconcile_stream_shape: false
+      }
+    end)
+  end
+
   defp maybe_append_events_drain_streams(streams) do
     if System.get_env("EVENT_WRITER_FLOW_DRAIN_EVENTS", "true") in ~w(true 1 yes) do
       drain_base = %{
@@ -557,58 +612,28 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: Flows,
         batch_size: 100,
         batch_timeout: 500,
-        # Strict events target: never re-bind drain durables onto flows after rehome.
         allow_stream_fallback: false,
         reconcile_stream_shape: false,
-        # Do not create/reshape the shared events stream from the flow path.
-        ensure_stream: false
-        # Intentionally omit consumer_deliver_policy: legacy durables use
-        # deliver_policy:all. Sending :new on CREATE fails with NATS 10012 when
-        # the durable already exists; JetstreamConsumer also strips it on UPDATE.
+        ensure_stream: false,
+        # Prefer :new only when INFO shows the durable is missing (see JetstreamConsumer).
+        consumer_deliver_policy_if_absent: :new
       }
 
-      primary =
+      # Drain every live flows.* entry (defaults + EXTRA subjects).
+      live =
         streams
         |> Enum.filter(&flow_stream?/1)
         |> Enum.reject(fn s -> Map.get(s, :stream_name) == "events" end)
 
-      primary_subjects = MapSet.new(primary, & &1.subject)
-
-      from_config =
-        Enum.map(primary, fn stream ->
-          Map.merge(drain_base, %{
-            name: "#{stream.name}_EVENTS_DRAIN",
-            subject: stream.subject,
-            # Producer uses this for durable_name/2 so the events durable matches
-            # the pre-migration consumer (serviceradar-event-writer-netflow-raw).
-            durable_source_name: stream.name
-          })
-        end)
-
-      # Extension subjects rehomed by the collector (e.g. flows.raw.ipfix) that are
-      # not in default flow streams. Comma-separated EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS.
-      extras =
-        "EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS"
-        |> System.get_env("")
-        |> String.split(",", trim: true)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == "" or MapSet.member?(primary_subjects, &1)))
-        |> Enum.map(fn subject ->
-          suffix =
-            subject
-            |> String.replace_prefix("flows.raw.", "")
-            |> String.upcase()
-            |> String.replace(~r/[^A-Z0-9]+/, "_")
-
-          Map.merge(drain_base, %{
-            name: "FLOW_RAW_#{suffix}_EVENTS_DRAIN",
-            subject: subject,
-            # New durable (no pre-cutover consumer); omit deliver_policy → all.
-            durable_source_name: "FLOW_RAW_#{suffix}"
-          })
-        end)
-
-      streams ++ from_config ++ extras
+      live
+      |> Enum.map(fn stream ->
+        Map.merge(drain_base, %{
+          name: "#{stream.name}_EVENTS_DRAIN",
+          subject: stream.subject,
+          durable_source_name: stream.name
+        })
+      end)
+      |> then(&(streams ++ &1))
     else
       streams
     end
@@ -812,18 +837,21 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   defp load_flow_streams(config) do
-    case Keyword.get(config, :flow_streams) do
-      streams when is_list(streams) and streams != [] ->
-        streams
+    base =
+      case Keyword.get(config, :flow_streams) do
+        streams when is_list(streams) and streams != [] ->
+          streams
 
-      _ ->
-        from_main =
-          config
-          |> load_streams()
-          |> Enum.filter(&flow_stream?/1)
+        _ ->
+          from_main =
+            config
+            |> load_streams()
+            |> Enum.filter(&flow_stream?/1)
 
-        if from_main == [], do: default_flow_streams(), else: from_main
-    end
+          if from_main == [], do: default_flow_streams(), else: from_main
+      end
+
+    base ++ extra_live_flow_streams(base)
   end
 
   defp sanitize_non_neg_int(value, _default) when is_integer(value) and value >= 0, do: value

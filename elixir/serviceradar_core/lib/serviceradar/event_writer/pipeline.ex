@@ -482,8 +482,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:logs, &String.starts_with?(&1, "logs.")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
-      {:sflow_raw, &String.starts_with?(&1, "flows.raw.sflow")},
-      {:netflow_raw, &String.starts_with?(&1, "flows.raw.netflow")}
+      # Catch-all before specific prefixes are unnecessary: every raw-flow
+      # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
+      {:flows_raw, &String.starts_with?(&1, "flows.raw.")}
     ]
   end
 
@@ -549,6 +550,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:flows_raw), do: Flows
   defp get_processor(:sflow_raw), do: Flows
   defp get_processor(:netflow_raw), do: Flows
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default

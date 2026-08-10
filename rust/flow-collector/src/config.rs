@@ -28,6 +28,9 @@ pub struct Config {
     /// Durable path for in-progress subject rehome markers (survives pod restart).
     #[serde(default)]
     pub rehome_state_path: Option<PathBuf>,
+    /// Explicit readiness marker path (must match the K8s readinessProbe path).
+    #[serde(default)]
+    pub ready_state_path: Option<PathBuf>,
     #[serde(default = "default_partition")]
     pub partition: String,
 

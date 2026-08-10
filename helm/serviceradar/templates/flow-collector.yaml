@@ -96,6 +96,12 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        - name: FLOW_COLLECTOR_READY_PATH
+          value: {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" | quote }}
+        - name: FLOW_COLLECTOR_REHOME_STATE_PATH
+          value: {{ .Values.flowCollector.config.rehome_state_path | default "/var/lib/serviceradar/flow-collector-rehome.json" | quote }}
+        - name: TERMINATION_GRACE_PERIOD_SECONDS
+          value: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 | quote }}
         livenessProbe:
           exec:
             command:
@@ -111,7 +117,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - "test -f /var/lib/serviceradar/flow-collector.ready"
+            - "test -f {{ .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" }}"
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3

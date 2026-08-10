@@ -861,7 +861,8 @@ bmpCollector:
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
   data:
-    enabled: true
+    # Keep false: three HA replicas cannot safely share one RWO PVC.
+    enabled: false
   service:
     type: LoadBalancer
     annotations:

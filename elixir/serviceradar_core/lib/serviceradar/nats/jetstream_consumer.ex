@@ -37,8 +37,57 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
          {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
          {:ok, stream_name} <-
            ensure_stream_for_subject(connection_ref, stream_name, subject, opts),
-         :ok <- create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
+         :ok <- upsert_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
       {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
+    end
+  end
+
+  # Prefer CONSUMER.CREATE upsert (NATS 2.12 has no usable CONSUMER.UPDATE responder).
+  # INFO first: preserve existing deliver_policy; if absent, use if_absent / default.
+  defp upsert_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+
+    opts =
+      case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+        {:ok, existing} ->
+          policy = existing_deliver_policy(existing)
+
+          opts
+          |> Keyword.put(:deliver_policy, policy)
+          |> Keyword.put(:consumer_already_exists, true)
+
+        {:error, _} ->
+          case Keyword.fetch(opts, :deliver_policy_if_absent) do
+            {:ok, policy} when not is_nil(policy) ->
+              Keyword.put(opts, :deliver_policy, policy)
+
+            _ ->
+              # Leave deliver_policy unset → server default (all) unless caller set it.
+              opts
+          end
+      end
+
+    create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+  end
+
+  defp existing_deliver_policy(config) when is_map(config) do
+    case Map.get(config, "deliver_policy") || Map.get(config, :deliver_policy) do
+      policy when is_binary(policy) ->
+        case String.downcase(policy) do
+          "all" -> :all
+          "last" -> :last
+          "new" -> :new
+          "by_start_sequence" -> :by_start_sequence
+          "by_start_time" -> :by_start_time
+          "last_per_subject" -> :last_per_subject
+          other -> other
+        end
+
+      policy when is_atom(policy) and not is_nil(policy) ->
+        policy
+
+      _ ->
+        :all
     end
   end
 
@@ -382,6 +431,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
        ) do
     cond do
       consumer_exists_error?(description) or deliver_policy_immutable_error?(description) ->
+        # Re-INFO + filter check + CREATE upsert with existing deliver_policy.
         reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
 
       immutable_consumer_shape_error?(description) ->
@@ -398,7 +448,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
          consumer_name,
          subject,
          opts,
-         domain,
+         _domain,
          error
        ) do
     if deliver_policy_immutable_error?(error) or
@@ -409,40 +459,41 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp update_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
-    domain = Keyword.get(opts, :domain)
-    topic = "#{js_api(domain)}.CONSUMER.UPDATE.#{stream_name}.#{consumer_name}"
-    # deliver_policy is immutable on existing durables (NATS err 10012). Never send
-    # it on UPDATE — preserves ACK cursor for cutover drain reuse.
-    opts = Keyword.delete(opts, :deliver_policy)
-    payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
+  defp create_with_existing_policy(
+         connection_ref,
+         stream_name,
+         consumer_name,
+         subject,
+         opts,
+         domain
+       ) do
+    case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+      {:ok, existing} ->
+        opts =
+          opts
+          |> Keyword.put(:deliver_policy, existing_deliver_policy(existing))
+          |> Keyword.put(:consumer_already_exists, true)
 
-    case Util.request(connection_ref, topic, payload) do
-      {:ok, %{"error" => %{"description" => description} = error}}
-      when is_binary(description) ->
-        cond do
-          deliver_policy_immutable_error?(description) ->
-            # Existing durable keeps its policy/cursor; mutable fields may still need
-            # a second pass without other immutables — treat as success for cutover.
-            :ok
-
-          immutable_consumer_shape_error?(description) ->
-            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
-
-          true ->
-            {:error, error}
-        end
-
-      {:ok, %{"error" => error}} ->
-        if deliver_policy_immutable_error?(error), do: :ok, else: {:error, error}
-
-      {:ok, _} ->
-        :ok
+        # Direct CREATE upsert; do not recurse into handle_create_error forever.
+        create_consumer_once(connection_ref, stream_name, consumer_name, subject, opts)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp create_consumer_once(connection_ref, stream_name, consumer_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+    topic = "#{js_api(domain)}.CONSUMER.DURABLE.CREATE.#{stream_name}.#{consumer_name}"
+    payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
+
+    case Util.request(connection_ref, topic, payload) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
 
   # An existing durable can have a non-mutable field (notably filter_subject) that no
   # longer matches the desired config. NATS forbids changing filter_subject via
@@ -458,7 +509,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         desired_deliver_subject = Keyword.get(opts, :deliver_subject)
 
         if existing_filter == subject and existing_deliver_subject == desired_deliver_subject do
-          update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          # Upsert via CREATE with existing deliver_policy (NATS 2.12 has no UPDATE).
+          create_with_existing_policy(
+            connection_ref,
+            stream_name,
+            consumer_name,
+            subject,
+            opts,
+            domain
+          )
         else
           Logger.info("Recreating JetStream durable due to immutable consumer config drift",
             stream: stream_name,
@@ -473,8 +532,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         end
 
       {:error, _reason} ->
-        # Could not read the existing filter; fall back to a best-effort update.
-        update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+        create_with_existing_policy(
+          connection_ref,
+          stream_name,
+          consumer_name,
+          subject,
+          opts,
+          domain
+        )
     end
   end
 

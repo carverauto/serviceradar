@@ -27,6 +27,9 @@ rust_binary(
     name = "flow-collector",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
+    # Needed for include_str!("../flow-collector.json") in unit tests (and
+    # rust_test(crate = ...) inherits compile_data from the crate).
+    compile_data = ["flow-collector.json"],
     deps = all_crate_deps(normal = True) + [
         ":build_script",
         "//rust/config-bootstrap:config_bootstrap",
@@ -38,4 +41,5 @@ rust_binary(
 rust_test(
     name = "flow_collector_test",
     crate = ":flow-collector",
+    compile_data = ["flow-collector.json"],
 )

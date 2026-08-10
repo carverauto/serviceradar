@@ -1512,6 +1512,9 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
+  # Must match FLOW_COLLECTOR_READY_PATH / readinessProbe (default path).
+  readyPath: "/var/lib/serviceradar/flow-collector.ready"
+  terminationGracePeriodSeconds: 45
   # flow-collector publishes raw flow subjects into the dedicated "flows" stream
   # (isolated from the shared multi-signal "events" bus).
   streamReplicas: 3
@@ -1526,6 +1529,7 @@ flowCollector:
     stream_max_age_secs: 21600
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000

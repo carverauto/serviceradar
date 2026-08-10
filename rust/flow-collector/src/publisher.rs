@@ -14,10 +14,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::task::JoinSet;
 use tokio::time::{sleep, timeout};
+
+/// JetStream de-duplication window applied to the flows stream and used as
+/// the upper bound for publish retries (must exceed one concurrent ACK pass).
+pub(crate) const DUPLICATE_WINDOW_SECS: u64 = 600;
+/// Max concurrent JetStream publish+ACK futures (bounds worst-case pass time).
+const PUBLISH_CONCURRENCY: usize = 32;
+/// Drop retries older than this (must be < DUPLICATE_WINDOW_SECS).
+const MAX_RETRY_AGE_SECS: u64 = 480;
 
 pub struct Publisher {
     config: Arc<Config>,
@@ -44,9 +54,9 @@ impl Publisher {
 
     pub async fn run(mut self) -> Result<()> {
         // Never inherit a previous pod/process readiness or half-written marker.
-        clear_publisher_ready(&self.config);
+        clear_publisher_ready(&self.config)?;
         let (_, js) = self.connect_with_retry().await?;
-        mark_publisher_ready(&self.config);
+        mark_publisher_ready(&self.config)?;
 
         let timeout_duration = Duration::from_millis(self.config.publish_timeout_ms);
         let max_retry_queue = self
@@ -56,14 +66,14 @@ impl Publisher {
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
+        let max_retry_age = Duration::from_secs(MAX_RETRY_AGE_SECS);
 
         info!("Publisher started");
 
         loop {
-            // Drive retained failures from an independent retry path so a quiet
-            // exporter cannot strand messages behind a blocked recv().
             if !retry_q.is_empty() {
-                self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
+                expire_old_retries(&mut retry_q, max_retry_age);
+                self.publish_pending(&js, &mut retry_q, timeout_duration)
                     .await;
                 if !retry_q.is_empty() {
                     sleep(backoff).await;
@@ -76,26 +86,14 @@ impl Publisher {
             let msg = match self.rx.recv().await {
                 Some(msg) => msg,
                 None => {
-                    // Channel closed: drain retries until empty or give up with error.
-                    let mut attempts = 0u32;
-                    while !retry_q.is_empty() {
-                        attempts += 1;
-                        self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
-                            .await;
-                        if retry_q.is_empty() {
-                            break;
-                        }
-                        if attempts >= 60 {
-                            return Err(anyhow::anyhow!(
-                                "publisher shutting down with {} unacked flow message(s)",
-                                retry_q.len()
-                            ));
-                        }
-                        sleep(backoff).await;
-                        backoff = min(backoff.saturating_mul(2), max_backoff);
-                    }
-                    info!("Publisher channel closed, shutting down");
-                    return Ok(());
+                    return self
+                        .drain_retries_until_empty(
+                            &js,
+                            &mut retry_q,
+                            timeout_duration,
+                            max_retry_age,
+                        )
+                        .await;
                 }
             };
 
@@ -115,9 +113,8 @@ impl Publisher {
             }
 
             let mut pending: VecDeque<PendingPublish> = batch.into();
-            self.publish_pending(&js, &mut pending, timeout_duration, max_retry_queue)
+            self.publish_pending(&js, &mut pending, timeout_duration)
                 .await;
-            // Move residual failures onto the durable retry queue.
             while let Some(item) = pending.pop_front() {
                 if retry_q.len() >= max_retry_queue {
                     warn!(
@@ -130,28 +127,44 @@ impl Publisher {
             }
 
             if closed {
-                // Same shutdown drain as channel-closed path.
-                let mut attempts = 0u32;
-                while !retry_q.is_empty() {
-                    attempts += 1;
-                    self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_queue)
-                        .await;
-                    if retry_q.is_empty() {
-                        break;
-                    }
-                    if attempts >= 60 {
-                        return Err(anyhow::anyhow!(
-                            "publisher shutting down with {} unacked flow message(s)",
-                            retry_q.len()
-                        ));
-                    }
-                    sleep(backoff).await;
-                    backoff = min(backoff.saturating_mul(2), max_backoff);
-                }
-                info!("Publisher channel closed, shutting down");
-                return Ok(());
+                return self
+                    .drain_retries_until_empty(&js, &mut retry_q, timeout_duration, max_retry_age)
+                    .await;
             }
         }
+    }
+
+    async fn drain_retries_until_empty(
+        &self,
+        js: &jetstream::Context,
+        retry_q: &mut VecDeque<PendingPublish>,
+        timeout_duration: Duration,
+        max_retry_age: Duration,
+    ) -> Result<()> {
+        let mut backoff = Duration::from_millis(100);
+        let max_backoff = Duration::from_secs(5);
+        let mut attempts = 0u32;
+        while !retry_q.is_empty() {
+            expire_old_retries(retry_q, max_retry_age);
+            if retry_q.is_empty() {
+                break;
+            }
+            attempts += 1;
+            self.publish_pending(js, retry_q, timeout_duration).await;
+            if retry_q.is_empty() {
+                break;
+            }
+            if attempts >= 120 {
+                return Err(anyhow::anyhow!(
+                    "publisher shutting down with {} unacked flow message(s)",
+                    retry_q.len()
+                ));
+            }
+            sleep(backoff).await;
+            backoff = min(backoff.saturating_mul(2), max_backoff);
+        }
+        info!("Publisher channel closed, shutting down");
+        Ok(())
     }
 
     async fn publish_pending(
@@ -159,54 +172,80 @@ impl Publisher {
         js: &jetstream::Context,
         pending: &mut VecDeque<PendingPublish>,
         timeout_duration: Duration,
-        _max_retry_queue: usize,
     ) {
-        let mut still_failed: VecDeque<PendingPublish> = VecDeque::new();
         let limit = pending.len().min(self.config.batch_size.max(1));
+        if limit == 0 {
+            return;
+        }
 
+        let mut batch = Vec::with_capacity(limit);
         for _ in 0..limit {
-            let Some(item) = pending.pop_front() else {
-                break;
-            };
-            let bytes = item.payload.len();
-            let publish = PublishMessage::build()
-                .payload(item.payload.clone().into())
-                .message_id(item.msg_id.clone());
-
-            match js.send_publish(item.subject.clone(), publish).await {
-                Ok(ack) => match timeout(timeout_duration, ack).await {
-                    Ok(Ok(_seq)) => {
-                        self.host_slice_metrics.record_publish(&item.subject, bytes);
-                    }
-                    Ok(Err(e)) => {
-                        error!(
-                            "NATS publish ack failed for subject {} id={} (will retry): {}",
-                            item.subject, item.msg_id, e
-                        );
-                        still_failed.push_back(item);
-                    }
-                    Err(_) => {
-                        warn!(
-                            "NATS ack timed out after {:?} for subject {} id={} (will retry)",
-                            timeout_duration, item.subject, item.msg_id
-                        );
-                        still_failed.push_back(item);
-                    }
-                },
-                Err(e) => {
-                    error!(
-                        "Failed to publish to NATS subject {} id={}: {}",
-                        item.subject, item.msg_id, e
-                    );
-                    still_failed.push_back(item);
-                }
+            if let Some(item) = pending.pop_front() {
+                batch.push(item);
             }
         }
 
-        // Preserve order: remaining unattempted first, then new failures.
-        let mut rest = std::mem::take(pending);
-        still_failed.append(&mut rest);
-        *pending = still_failed;
+        let semaphore = std::sync::Arc::new(Semaphore::new(PUBLISH_CONCURRENCY));
+        let mut set = JoinSet::new();
+
+        for item in batch {
+            let js = js.clone();
+            let sem = semaphore.clone();
+            let metrics = self.host_slice_metrics.clone();
+            set.spawn(async move {
+                let _permit = match sem.acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => return Err(item),
+                };
+                let bytes = item.payload.len();
+                let publish = PublishMessage::build()
+                    .payload(item.payload.clone().into())
+                    .message_id(item.msg_id.clone());
+
+                match js.send_publish(item.subject.clone(), publish).await {
+                    Ok(ack) => match timeout(timeout_duration, ack).await {
+                        Ok(Ok(_seq)) => {
+                            metrics.record_publish(&item.subject, bytes);
+                            Ok(())
+                        }
+                        Ok(Err(e)) => {
+                            error!(
+                                "NATS publish ack failed for subject {} id={} (will retry): {}",
+                                item.subject, item.msg_id, e
+                            );
+                            Err(item)
+                        }
+                        Err(_) => {
+                            warn!(
+                                "NATS ack timed out after {:?} for subject {} id={} (will retry)",
+                                timeout_duration, item.subject, item.msg_id
+                            );
+                            Err(item)
+                        }
+                    },
+                    Err(e) => {
+                        error!(
+                            "Failed to publish to NATS subject {} id={}: {}",
+                            item.subject, item.msg_id, e
+                        );
+                        Err(item)
+                    }
+                }
+            });
+        }
+
+        let mut failed = VecDeque::new();
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok(Ok(())) => {}
+                Ok(Err(item)) => failed.push_back(item),
+                Err(e) => error!("publish task join error: {}", e),
+            }
+        }
+
+        // Preserve remaining unattempted (if any) then failures.
+        failed.append(pending);
+        *pending = failed;
     }
 
     async fn connect_once(&mut self) -> Result<(Client, jetstream::Context)> {
@@ -242,30 +281,46 @@ impl Publisher {
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
         let rehome_path = rehome_state_path(&self.config);
 
-        // Recover durable rehome marker from a previous process that may have
-        // detached subjects from events without attaching them to the target.
-        if let Some(marker) = load_rehome_marker(&rehome_path)?
-            && marker.target_stream == self.config.stream_name
-        {
-            for subject in marker.subjects {
-                if !self.pending_rehome.iter().any(|s| s == &subject) {
-                    self.pending_rehome.push(subject);
+        // Recover durable rehome marker — always union subjects, even on target mismatch
+        // (e.g. crash after detach then Helm rollback to stream_name=events).
+        if let Some(marker) = load_rehome_marker(&rehome_path)? {
+            for subject in &marker.subjects {
+                if !self.pending_rehome.iter().any(|s| s == subject) {
+                    self.pending_rehome.push(subject.clone());
                 }
             }
             info!(
-                "Loaded {} subject(s) from durable rehome marker at {}",
+                "Loaded {} subject(s) from durable rehome marker at {} (marker_target={}, config_stream={})",
                 self.pending_rehome.len(),
-                rehome_path.display()
+                rehome_path.display(),
+                marker.target_stream,
+                self.config.stream_name
             );
+
+            if marker.target_stream != self.config.stream_name {
+                warn!(
+                    "Rehome marker target '{}' differs from configured stream '{}'; transferring recorded subjects",
+                    marker.target_stream, self.config.stream_name
+                );
+            }
         }
 
         if self.config.stream_name == "events" {
-            // Legacy conffiles still target events. Never reshape the shared
-            // multi-signal stream with flow retention defaults — subject-merge only.
+            // Legacy / rollback: restore every unresolved marker subject onto events
+            // (required_subjects alone would drop extension subjects).
+            let mut restore = required_subjects.clone();
+            for s in &self.pending_rehome {
+                if !restore.iter().any(|r| r == s) {
+                    restore.push(s.clone());
+                }
+            }
             warn!(
                 "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
             );
-            ensure_legacy_events_subjects_only(&js, &required_subjects).await?;
+            ensure_legacy_events_subjects_only(&js, &restore).await?;
+            // Verify ownership then clear marker.
+            self.pending_rehome.clear();
+            clear_rehome_marker(&rehome_path);
         } else {
             // Rehome flow subjects off events onto the dedicated stream.
             match rehome_subjects_from_events(
@@ -421,14 +476,24 @@ async fn rehome_subjects_from_events(
         return Ok(removed);
     }
 
-    // Persist before detach so a restart can rediscover extension subjects.
+    // Persist complete unresolved set (existing marker ∪ removed) before detach.
+    let mut subjects = removed.clone();
+    if let Ok(Some(existing)) = load_rehome_marker(rehome_path) {
+        for s in existing.subjects {
+            if !subjects.iter().any(|x| x == &s) {
+                subjects.push(s);
+            }
+        }
+    }
     write_rehome_marker(
         rehome_path,
         &RehomeMarker {
             target_stream: target_stream.to_string(),
-            subjects: removed.clone(),
+            subjects: subjects.clone(),
         },
     )?;
+    // Return the full set so callers can union into pending_rehome.
+    let removed = subjects;
 
     info!(
         "Removing {} flow subject(s) from shared events stream so dedicated stream can own them: {:?}",
@@ -487,6 +552,7 @@ struct PendingPublish {
     subject: String,
     payload: Vec<u8>,
     msg_id: String,
+    first_seen: Instant,
 }
 
 impl PendingPublish {
@@ -495,7 +561,29 @@ impl PendingPublish {
             subject,
             payload,
             msg_id: next_msg_id(),
+            first_seen: Instant::now(),
         }
+    }
+}
+
+fn expire_old_retries(retry_q: &mut VecDeque<PendingPublish>, max_age: Duration) {
+    let before = retry_q.len();
+    retry_q.retain(|item| {
+        if item.first_seen.elapsed() <= max_age {
+            true
+        } else {
+            error!(
+                "Dropping publish retry for subject {} id={} after {:?} (exceeds retry horizon under duplicate_window)",
+                item.subject,
+                item.msg_id,
+                item.first_seen.elapsed()
+            );
+            false
+        }
+    });
+    let dropped = before.saturating_sub(retry_q.len());
+    if dropped > 0 {
+        warn!("Expired {} publish retries past max retry age", dropped);
     }
 }
 
@@ -534,47 +622,43 @@ fn rehome_state_path(config: &Config) -> PathBuf {
 }
 
 fn ready_marker_path(config: &Config) -> PathBuf {
+    if let Some(path) = &config.ready_state_path {
+        return path.clone();
+    }
     if let Ok(path) = std::env::var("FLOW_COLLECTOR_READY_PATH") {
         return PathBuf::from(path);
     }
-    // Co-locate with rehome marker on the data volume.
-    let rehome = rehome_state_path(config);
-    rehome
-        .parent()
-        .map(|p| p.join("flow-collector.ready"))
-        .unwrap_or_else(|| PathBuf::from("/var/lib/serviceradar/flow-collector.ready"))
+    // Fixed default must match Helm readinessProbe path.
+    PathBuf::from("/var/lib/serviceradar/flow-collector.ready")
 }
 
-fn clear_publisher_ready(config: &Config) {
+fn clear_publisher_ready(config: &Config) -> Result<()> {
     let path = ready_marker_path(config);
-    if path.exists()
-        && let Err(err) = fs::remove_file(&path)
-    {
-        warn!(
-            "Failed to clear stale readiness marker {}: {}",
-            path.display(),
-            err
-        );
+    if path.exists() {
+        fs::remove_file(&path).with_context(|| {
+            format!(
+                "failed to clear stale readiness marker {} (fail closed)",
+                path.display()
+            )
+        })?;
     }
+    Ok(())
 }
 
-fn mark_publisher_ready(config: &Config) {
+fn mark_publisher_ready(config: &Config) -> Result<()> {
     let path = ready_marker_path(config);
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create readiness marker dir {}", parent.display()))?;
     }
-    if let Err(err) = fs::write(
-        &path, b"ready
-",
-    ) {
-        warn!(
-            "Failed to write readiness marker {}: {} (probe may stay unready)",
-            path.display(),
-            err
-        );
-    } else {
-        info!("Publisher ready marker written to {}", path.display());
-    }
+    fs::write(&path, b"ready\n").with_context(|| {
+        format!(
+            "failed to write readiness marker {} (fail closed)",
+            path.display()
+        )
+    })?;
+    info!("Publisher ready marker written to {}", path.display());
+    Ok(())
 }
 
 fn load_rehome_marker(path: &Path) -> Result<Option<RehomeMarker>> {
@@ -714,7 +798,7 @@ async fn ensure_flows_stream(
                 needs_update = true;
             }
 
-            let desired_dup = Duration::from_secs(300);
+            let desired_dup = Duration::from_secs(DUPLICATE_WINDOW_SECS);
             if updated_config.duplicate_window < desired_dup {
                 info!(
                     "Updating stream '{}' duplicate_window from {:?} to {:?}",
@@ -754,7 +838,7 @@ async fn ensure_flows_stream(
                 max_age,
                 num_replicas: replicas,
                 // Cover publish ack-timeout retries that reuse Nats-Msg-Id.
-                duplicate_window: Duration::from_secs(300),
+                duplicate_window: Duration::from_secs(DUPLICATE_WINDOW_SECS),
                 ..Default::default()
             };
             // Prefer create_stream over get_or_create: get_or_create can return an

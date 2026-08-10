@@ -19,5 +19,6 @@
       "subject": "flows.raw.netflow"
     }
   ],
-  "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json"
+  "rehome_state_path": "/var/lib/serviceradar/flow-collector-rehome.json",
+  "ready_state_path": "/var/lib/serviceradar/flow-collector.ready"
 }

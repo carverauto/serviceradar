@@ -181,11 +181,12 @@ async fn main() -> Result<()> {
             log::info!("Metrics reporter task completed");
         }
         _ = shutdown_signal() => {
-            log::info!("Shutdown signal received; stopping listeners so publisher can drain");
+            log::info!(
+                "Shutdown signal received; stopping UDP listeners (not forwarders) so queued flows drain"
+            );
+            // Abort only listeners. Each aborted listener drops its mpsc Sender;
+            // forwarders keep draining their Receivers, then drop publisher Senders.
             for handle in listener_handles {
-                handle.abort();
-            }
-            for handle in _forwarder_handles {
                 handle.abort();
             }
             draining = true;
@@ -193,13 +194,29 @@ async fn main() -> Result<()> {
     }
 
     if draining {
-        // Forwarder aborts drop their mpsc Senders → publisher sees channel
-        // close and drains the retry queue before returning.
-        match tokio::time::timeout(std::time::Duration::from_secs(25), publisher_handle).await {
+        // Await forwarders so in-flight listener-queue messages reach the publisher.
+        for handle in _forwarder_handles {
+            let _ = handle.await;
+        }
+        // Derive drain budget from pod termination grace (env set by Helm).
+        let grace_secs: u64 = std::env::var("TERMINATION_GRACE_PERIOD_SECONDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(45);
+        // Leave a few seconds for process teardown after publisher returns.
+        let drain_secs = grace_secs.saturating_sub(5).max(15);
+        log::info!(
+            "Waiting up to {}s for publisher retry drain (grace={}s)",
+            drain_secs,
+            grace_secs
+        );
+        match tokio::time::timeout(std::time::Duration::from_secs(drain_secs), publisher_handle)
+            .await
+        {
             Ok(Ok(Ok(()))) => log::info!("Publisher drained and exited cleanly"),
             Ok(Ok(Err(e))) => log::error!("Publisher exited with error during drain: {}", e),
             Ok(Err(e)) => log::error!("Publisher task panicked during drain: {}", e),
-            Err(_) => log::error!("Timed out waiting for publisher drain (25s)"),
+            Err(_) => log::error!("Timed out waiting for publisher drain ({}s)", drain_secs),
         }
     }
 

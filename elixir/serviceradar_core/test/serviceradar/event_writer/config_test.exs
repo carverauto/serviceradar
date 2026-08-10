@@ -161,15 +161,29 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                "serviceradar-event-writer-netflow-raw"
     end
 
-    test "EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS adds extension drain streams" do
-      System.put_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS", "flows.raw.ipfix")
-      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS") end)
+    test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do
+      System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.ipfix")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
       flow = Config.load_flow()
-      extra = Enum.find(flow.streams, &(&1.subject == "flows.raw.ipfix"))
-      assert extra
-      assert extra.stream_name == "events"
-      assert extra.durable_source_name == "FLOW_RAW_IPFIX"
+
+      live =
+        Enum.filter(
+          flow.streams,
+          &(&1.subject == "flows.raw.ipfix" and &1.stream_name == "flows")
+        )
+
+      drain =
+        Enum.filter(
+          flow.streams,
+          &(&1.subject == "flows.raw.ipfix" and &1.stream_name == "events")
+        )
+
+      assert length(live) == 1
+      assert length(drain) == 1
+      assert hd(live).name == "FLOW_RAW_IPFIX"
+      assert hd(drain).durable_source_name == "FLOW_RAW_IPFIX"
+      assert hd(drain).consumer_deliver_policy_if_absent == :new
     end
 
     test "EVENT_WRITER_FLOW_DRAIN_EVENTS=false disables events dual-consume" do

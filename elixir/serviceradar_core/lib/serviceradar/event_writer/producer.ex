@@ -799,6 +799,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       ack_policy: :explicit,
       ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
       deliver_policy: Map.get(stream, :consumer_deliver_policy),
+      deliver_policy_if_absent: Map.get(stream, :consumer_deliver_policy_if_absent),
       max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
       max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
       inactive_threshold: Map.get(stream, :consumer_inactive_threshold),

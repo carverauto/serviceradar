@@ -368,6 +368,23 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ default true $eventWriter.enabled | quote }}
+
+        {{- /* Extension raw-flow subjects (beyond netflow/sflow) shared with flow-collector. */ -}}
+        {{- $extraFlowSubjects := list -}}
+        {{- $fcListeners := list -}}
+        {{- if and .Values.flowCollector .Values.flowCollector.config .Values.flowCollector.config.listeners }}
+          {{- $fcListeners = .Values.flowCollector.config.listeners -}}
+        {{- end }}
+        {{- range $fcListeners }}
+          {{- $subj := default "" .subject -}}
+          {{- if and $subj (ne $subj "flows.raw.netflow") (ne $subj "flows.raw.sflow") (hasPrefix "flows.raw." $subj) }}
+            {{- $extraFlowSubjects = append $extraFlowSubjects $subj -}}
+          {{- end }}
+        {{- end }}
+        {{- if $extraFlowSubjects }}
+        - name: EVENT_WRITER_FLOW_EXTRA_SUBJECTS
+          value: {{ $extraFlowSubjects | uniq | join "," | quote }}
+        {{- end }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
           value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
