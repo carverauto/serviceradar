@@ -13,3 +13,19 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # commit -- any branch far enough behind that remote_oid..local_oid spans it -- does
 # not block on it.
 73a6f4a05d8df76a5fe5516cf8ba6d67eb5094e3:elixir/serviceradar_core/test/serviceradar/credentials/credential_secret_builder_test.exs:private-key:146
+# Notification transport test fixtures. None is a credential; each is the INPUT to
+# an assertion that the code which HIDES credentials works, so weakening the
+# literal would weaken the test it exists to serve. Values are described rather
+# than reproduced here, because quoting them makes this file itself a finding.
+#   slack_test.exs:51    a structurally valid xoxb- bot token whose three segments
+#                        are zeros, ones and the sequential lowercase alphabet. The
+#                        Slack transport checks the prefix, so the shape must survive.
+#   stream_test.exs:108  a short alphanumeric string under a credential-NAMED key,
+#                        the input proving ActionRedaction redacts by key name.
+#   stream_test.exs:254  a longer synthetic string passed as a declared sensitive
+#                        value, proving it is scrubbed from a broadcast envelope --
+#                        the value-based pass ActionRedaction cannot do, because a
+#                        secret inside a url value has no key to match on.
+9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/slack_test.exs:slack-bot-token:51
+9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:108
+9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:254
