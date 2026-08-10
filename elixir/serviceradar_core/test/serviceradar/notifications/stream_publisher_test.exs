@@ -188,13 +188,37 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
       assert decoded["storage"] == "file"
     end
 
-    test "treats an already-created stream as success so concurrent nodes can race" do
+    test "treats a bare name collision as success so concurrent nodes can race" do
+      # NATS 2.14 answers an identical create with an ordinary success, so this
+      # branch only covers an older broker that reports the benign race as an
+      # error. Verified against a live 2.14 broker: a repeated identical
+      # STREAM.CREATE returns did_create: true.
       assert :ok =
                StreamPublisher.ensure_stream(
                  request: fn _subject, _payload ->
                    {:error, %{"description" => "stream name already in use"}}
                  end
                )
+    end
+
+    test "refuses a collision with a different configuration instead of swallowing it" do
+      # This is the message a live broker actually returns (err_code 10058), and
+      # it means the name is taken by a stream capturing other subjects - so
+      # nothing captures notifications.> and every envelope is dropped. Reporting
+      # it as success would leave the firehose dead and looking healthy.
+      assert {:error, {:stream_config_conflict, description}} =
+               StreamPublisher.ensure_stream(
+                 request: fn _subject, _payload ->
+                   {:error,
+                    %{
+                      "code" => 400,
+                      "err_code" => 10_058,
+                      "description" => "stream name already in use with a different configuration"
+                    }}
+                 end
+               )
+
+      assert description =~ "different configuration"
     end
 
     test "surfaces a creation error that is not a name collision" do

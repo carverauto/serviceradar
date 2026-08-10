@@ -25,12 +25,20 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   ## Self-healing stream creation
 
-  `publish/3` treats "no responders" as "the stream may not exist yet", calls
-  `ensure_stream/1`, and retries once. Stream creation is idempotent, so this is
-  safe to race across nodes. It is deliberately not a boot-time-only step: core
-  can start before the broker is reachable, and a firehose that stays dead until
-  the next restart because provisioning ran too early is worse than one that
-  provisions on demand.
+  `publish/3` treats "nothing responded on the subject" as "the stream may not
+  exist yet", calls `ensure_stream/1`, and retries once. In practice that arrives
+  as `{:error, :timeout}` rather than `{:error, :no_responders}`, because Gnat
+  only reports the latter when the connection opted into `no_responders: true`
+  and ServiceRadar's does not - which is also why `request/3` bounds the wait
+  instead of inheriting Gnat's 60 second default.
+
+  Stream creation is idempotent and safe to race across nodes. It is deliberately
+  not a boot-time-only step: core can start before the broker is reachable, and a
+  firehose that stays dead until the next restart because provisioning ran too
+  early is worse than one that provisions on demand.
+
+  A connection failure deliberately does not trigger that retry - see
+  `retry_after_ensure?/2`.
 
   ## Subjects
 
@@ -50,7 +58,6 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   the tests here are `async: true` with no broker and no connection process.
   """
 
-  alias Gnat.Jetstream.API.Util
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -66,6 +73,10 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   # come back and replay, and an absent consumer registers no interest.
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
+
+  # Bounds the JetStream request wait. See `request/3` for why inheriting Gnat's
+  # 60_000 ms default would stall a dispatcher queue on a missing stream.
+  @default_receive_timeout_ms 5_000
 
   @type seam_opts :: keyword()
 
@@ -142,11 +153,26 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   end
 
   @doc """
-  Creates the firehose stream if it is missing, reconciling its subjects if it
-  already exists under different ones.
+  Creates the firehose stream if it is missing.
 
-  Idempotent, and safe to race: "stream name already in use" is reconciled, not
-  an error.
+  Idempotent and safe to race. A concurrent create with the *same* configuration
+  is answered by JetStream with an ordinary success response, not an error, so
+  two nodes racing both come away with `:ok` and no special case is needed.
+  (Verified against NATS 2.14: a repeated identical `STREAM.CREATE` returns
+  `did_create: true` rather than a collision.)
+
+  A collision is therefore reported only when the stream exists with a
+  **different** configuration (`err_code` 10058), and that is deliberately NOT
+  treated as success. It means something owns the name with other subjects, so
+  `notifications.>` is captured by nothing and every envelope published to the
+  firehose is dropped. Swallowing it would leave the exact
+  looks-healthy-but-silently-broken state this module exists to prevent; the
+  caller gets `{:error, {:stream_config_conflict, description}}` and an operator
+  gets a message naming the real problem.
+
+  A server that answers an identical create with a bare "stream name already in
+  use" - no mention of a differing configuration - is still treated as success,
+  so this stays correct on older brokers.
   """
   @spec ensure_stream(seam_opts()) :: :ok | {:error, term()}
   def ensure_stream(opts \\ []) do
@@ -167,11 +193,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         :ok
 
       {:error, %{"description" => description}} when is_binary(description) ->
-        if stream_exists?(description) do
-          :ok
-        else
-          {:error, description}
-        end
+        classify_create_error(description)
 
       {:error, reason} ->
         {:error, reason}
@@ -241,6 +263,14 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   defp missing_stream?({:no_responders, _details}), do: true
   defp missing_stream?(_reason), do: false
 
+  # Deliberately NOT `Gnat.Jetstream.API.Util.request/3`: it passes no options,
+  # so it inherits Gnat's 60_000 ms default receive timeout. Gnat's
+  # `no_responders` behaviour is off unless the connection opted in, and
+  # ServiceRadar's does not, so "no stream captures this subject" does not fail
+  # fast - it blocks for a full minute and then reports `:timeout`. A dispatcher
+  # publishing from an Oban worker would stall the queue for a minute per
+  # delivery, and the retry would stall it again. Bounding the wait here is what
+  # turns a missing stream into a prompt retryable failure.
   defp request(opts, subject, payload) do
     case Keyword.get(opts, :request) do
       fun when is_function(fun, 2) ->
@@ -248,10 +278,26 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
       nil ->
         with {:ok, conn} <- connection(opts) do
-          Util.request(conn, subject, payload)
+          conn
+          |> Gnat.request(subject, payload, receive_timeout: receive_timeout(opts))
+          |> decode_response()
         end
     end
   end
+
+  defp receive_timeout(opts), do: Keyword.get(opts, :receive_timeout, @default_receive_timeout_ms)
+
+  # Mirrors Util.request/3's decoding: JetStream answers on the same subject with
+  # either a PubAck or an `error` object, and both arrive as a JSON body.
+  defp decode_response({:ok, %{body: body}}) do
+    case Jason.decode(body) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, decoded} -> {:ok, decoded}
+      {:error, reason} -> {:error, {:undecodable_response, reason}}
+    end
+  end
+
+  defp decode_response({:error, reason}), do: {:error, reason}
 
   defp connection(opts) do
     case Keyword.get(opts, :connection) do
@@ -266,11 +312,24 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
     |> JetstreamConsumer.js_api()
   end
 
-  defp stream_exists?(description) do
-    description = String.downcase(description)
+  defp classify_create_error(description) do
+    normalised = String.downcase(description)
 
-    String.contains?(description, "already in use") or
-      String.contains?(description, "stream name already")
+    cond do
+      # err_code 10058. The name is taken by a stream capturing other subjects,
+      # so nothing captures `notifications.>` and the firehose is dead. Naming it
+      # is the whole point - a bare timeout on the next publish would not tell an
+      # operator what to fix.
+      String.contains?(normalised, "different configuration") ->
+        {:error, {:stream_config_conflict, description}}
+
+      # An older broker answering an identical create this way is a benign race.
+      String.contains?(normalised, "already in use") ->
+        :ok
+
+      true ->
+        {:error, description}
+    end
   end
 
   # NATS subject tokens may not contain the separators the broker reserves.

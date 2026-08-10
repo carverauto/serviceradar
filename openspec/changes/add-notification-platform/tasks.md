@@ -1945,7 +1945,7 @@ directories are still on that branch at their original commits.
 - [x] 4.1.3 Add the namespace to every CN that needs it (core publish, web-ng
       subscribe) and to the NATS credential generation job if scoped credentials
       are used.
-- [ ] 4.1.4 Verify on a live stack with the `nats` CLI from the tools pod that
+- [x] 4.1.4 Verify on a live stack with the `nats` CLI from the tools pod that
       publish and subscribe succeed for the new subject.
 
 ### 4.2 Stream provider
@@ -2020,7 +2020,7 @@ directories are still on that branch at their original commits.
 - [ ] 4.4.2c Seeded `:stream` provider test: the row exists after install as a
       first-party `managed` provider, and an operator disable survives upgrade
       reconciliation.
-- [ ] 4.4.3 JetStream replay test asserting a reconnecting consumer resumes from
+- [x] 4.4.3 JetStream replay test asserting a reconnecting consumer resumes from
       its cursor.
 - [ ] 4.4.4 Slack and Discord interaction payload tests using recorded fixtures.
 - [ ] 4.4.5 Document the firehose subscription surface and the envelope schema in
