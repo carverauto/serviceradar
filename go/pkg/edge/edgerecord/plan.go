@@ -249,6 +249,23 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		return err
 	}
 
+	// STRUCTURAL COUNTS BEFORE ANY RECURSIVE WALK. Both checks below are O(1) per page on an
+	// already-decoded slice, and both bound the traversal that follows: hasUnknownFields
+	// RECURSES into every range of every page, so counting afterwards did the work the ceiling
+	// exists to prevent. Every count precedes every walk, rather than interleaving per page, so
+	// the rule is statable in one sentence instead of depending on iteration order.
+	//
+	// PRECEDENCE, frozen: an oversize page list whose pages ALSO carry unknown fields is a
+	// BOUNDS refusal. Both are refusals, so only a precedence assertion can hold this.
+	if len(pages) == 0 || len(pages) > MaxManifestPages {
+		return ErrPlanBounds
+	}
+	for _, p := range pages {
+		if len(p.GetRanges()) == 0 || len(p.GetRanges()) > MaxRangesPerPage {
+			return ErrPlanBounds
+		}
+	}
+
 	for _, p := range pages {
 		if hasUnknownFields(p) {
 			return ErrUnknownFields
@@ -257,9 +274,6 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 
 	if int(h.GetPageCount()) != len(pages) {
 		return ErrPlanChain
-	}
-	if len(pages) == 0 || len(pages) > MaxManifestPages {
-		return ErrPlanBounds
 	}
 	var total uint64
 	rangeIDs := map[string]bool{}
@@ -273,9 +287,8 @@ func ValidatePlanPages(h *edgev1.ScheduledPlanHeaderV1, pages []*edgev1.Schedule
 		if int(p.GetPageIndex()) != i || int(p.GetPageCount()) != len(pages) {
 			return ErrPlanChain
 		}
-		if len(p.GetRanges()) == 0 || len(p.GetRanges()) > MaxRangesPerPage {
-			return ErrPlanBounds
-		}
+		// The range count is bounded ABOVE, before the recursive walk. Re-checking it here
+		// would be dead code that reads like the enforcement point.
 		if !bytes.Equal(p.GetCheckSetSha256(), h.GetCheckSetSha256()) {
 			return ErrPlanCheckSet
 		}

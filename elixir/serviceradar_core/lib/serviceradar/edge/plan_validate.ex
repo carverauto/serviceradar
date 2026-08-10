@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.PlanValidate do
   `AssignmentValidate.validate_against_plan/3` now does.
   """
 
+  alias ServiceRadar.Edge.BoundedList
   alias ServiceRadar.Edge.HashGrammar
 
   @sha256_len 32
@@ -48,11 +49,23 @@ defmodule ServiceRadar.Edge.PlanValidate do
   @spec validate(term(), term()) ::
           {:ok, %{binary() => non_neg_integer()}} | {:error, reason()}
   def validate(header, pages) when is_map(header) and is_list(pages) do
+    # STRUCTURAL COUNTS BEFORE THE RECURSIVE WALK. `no_unknown/1` descends into every range of
+    # every page, so bounding the page list and each page's range count afterwards did the work
+    # these ceilings exist to prevent. Both are BOUNDED counts, not `length/1`.
+    #
+    # PRECEDENCE, frozen and matching Go and the recovery peer: an oversize page list whose
+    # pages ALSO carry unknown fields is a :page_bounds refusal.
     with :ok <- no_unknown(header),
-         :ok <- Enum.reduce_while(pages, :ok, &halt_on_error(no_unknown(&1), &2)),
          :ok <- header_identity(header),
          :ok <- header_digest(header),
-         :ok <- page_bounds(header, pages),
+         # PURE CEILING PREFLIGHT, after the header is trusted and before any page is
+         # descended into. Only the ceilings move here: the page_count EQUALITY is a header
+         # RELATION and stays below, so a stale header digest is still reported as a digest
+         # fault rather than masked by a count mismatch. Go validates its header first for
+         # the same reason.
+         :ok <- count_ceilings(pages),
+         :ok <- Enum.reduce_while(pages, :ok, &halt_on_error(no_unknown(&1), &2)),
+         :ok <- page_count_matches(header, pages),
          :ok <- pages_and_ranges(header, pages),
          :ok <- plan_root(header, pages),
          {:ok, windows, _total} <- compute_windows(pages),
@@ -122,16 +135,42 @@ defmodule ServiceRadar.Edge.PlanValidate do
        else: {:error, :header_digest}
   end
 
-  defp page_bounds(h, pages) do
-    cond do
+  # PURE: the page-list and per-page range ceilings, and nothing that reads the header.
+  defp count_ceilings(pages) do
+    # BOUNDED COUNT, walked at most @max_manifest_pages + 1 cells. `length/1` measured the whole
+    # attacker-supplied list to decide it was too long -- the traversal the ceiling forbids.
+    case BoundedList.count_at_most(pages, @max_manifest_pages) do
       # A header declaring pages while supplying none is the case that made every
       # downstream check vacuous: with no pages, nothing is walked and nothing fails.
-      pages == [] -> {:error, :page_bounds}
-      length(pages) > @max_manifest_pages -> {:error, :page_bounds}
-      Map.get(h, :page_count) != length(pages) -> {:error, :page_chain}
-      true -> :ok
+      {:ok, 0} -> {:error, :page_bounds}
+      :over -> {:error, :page_bounds}
+      :improper -> {:error, :page_bounds}
+      {:ok, _} -> range_counts(pages)
     end
   end
+
+  # A HEADER RELATION, not a ceiling: it stays after header validation and after the walk,
+  # exactly where it was before the ceilings moved.
+  defp page_count_matches(h, pages) do
+    if Map.get(h, :page_count) == length(pages), do: :ok, else: {:error, :page_chain}
+  end
+
+  # Per-page range count, bounded, BEFORE any page's ranges are descended into.
+  #
+  # TOTAL over the supplied term. Running ahead of the structural walk means this now sees
+  # page shapes nothing has validated -- `[:bad]` reached `Map.get(:bad, :ranges)` and raised
+  # BadMapError, in a function whose contract is `{:error, reason}`. A page that is not a map
+  # has no range list to count, which is a :page_bounds refusal and not a crash.
+  defp range_counts(pages) do
+    Enum.reduce_while(pages, :ok, fn p, :ok ->
+      if BoundedList.nonempty_within?(ranges_of(p), @max_ranges_per_page),
+        do: {:cont, :ok},
+        else: {:halt, {:error, :page_bounds}}
+    end)
+  end
+
+  defp ranges_of(%{ranges: ranges}), do: ranges
+  defp ranges_of(_), do: :absent
 
   defp pages_and_ranges(h, pages) do
     plan_id = Map.get(h, :execution_plan_id)
@@ -177,8 +216,8 @@ defmodule ServiceRadar.Edge.PlanValidate do
         (Map.get(p, :prev_page_sha256) || <<>>) != prev ->
           {:halt, {:error, :page_chain}}
 
-        ranges == [] or length(ranges) > @max_ranges_per_page ->
-          {:halt, {:error, :page_bounds}}
+        # The range count is bounded ABOVE, before the recursive walk. Re-checking it here
+        # would be dead code that reads like the enforcement point.
 
         Map.get(p, :check_set_sha256) != header_check_set ->
           {:halt, {:error, :check_set}}

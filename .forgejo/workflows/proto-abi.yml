@@ -255,6 +255,14 @@ jobs:
       - name: Edge framing-family corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/family_corpus_test.exs
+      # PRECEDENCE and TRAVERSAL COST, not verdicts. Both runtimes returned the right answer
+      # before the count ceilings moved ahead of the recursive walk, so an N/N+1 pair passes
+      # either way; only these assertions fail when the ordering is reverted or when the
+      # bounded count regresses to `length/1`. Gated separately because a suite that proves
+      # WHEN a rule runs is worthless if nothing runs it.
+      - name: Edge bounds precedence, bounded traversal and wire shape (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/bounds_precedence_test.exs
       # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
       # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
       # so a proto-side variant addition already fails there; this is the peer that keeps
