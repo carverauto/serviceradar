@@ -34,6 +34,7 @@ go_test(
     name = "edgerecord_test",
     srcs = [
         "assignment_test.go",
+        "bounds_precedence_test.go",
         "capability_test.go",
         "asn_corpus_test.go",
         "canonical_micros_corpus_test.go",

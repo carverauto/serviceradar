@@ -728,7 +728,9 @@ here.
     1.5-h DEPENDS ON NOTHING. Its single closure policy is that a single-runtime row closes
     once its owner is NAMED, so the `MaxReasonBytes`, single-page `MaxSpansPerPage` and
     record-level `MaxPrincipalBytes` rows are DELEGATED, NOT AWAITED, and SHALL NOT be listed
-    as dependencies of 1.5-h. Compression admission (1.5-f) is CLOSED, delivered on
+    as dependencies of 1.5-h. THE LIST IS EXHAUSTIVE and is FOUR rows, not three: the
+    lifecycle `abort_reason` bound is delegated to 1.6-c on the same rule, whose evidence
+    obligation is widened for it there. Compression admission (1.5-f) is CLOSED, delivered on
     `usp-32-compression-admission`; #4734 remains closed unmerged and is prior art, not
     delivery.
   - EVIDENCE: `dispatchContract` in `go/pkg/edge/edgerecord/domain.go`,
@@ -1169,17 +1171,33 @@ here.
         with 1.4-a. A bound may have sites under two owners; what it may
         not have is a site under none.
         NORMATIVE DECISIONS -- LANDED, and not re-openable by a later vector:
-        (1) The seven residual bounds are frozen BY VALUE, each an INCLUSIVE maximum, with
-            lower bounds stated where one exists. Inclusivity is normative ON ITS OWN because
-            a refusal-only boundary cannot detect `>` tightened to `>=`.
+        (1) The residual bounds are frozen BY VALUE and CLASSIFIED. An ATTAINABLE maximum is
+            inclusive: at the ceiling accepted, one over refused, and inclusivity is normative
+            on its own because a refusal-only boundary cannot detect `>` tightened to `>=`. A
+            GUARD-class bound (`MaxRangeStrBytes`, `MaxTransportProvenanceHeaderBytes`) has no
+            attainable ceiling, so its obligation is instead: largest VALID input accepted,
+            over-limit refused BEFORE the parser it protects.
         (2) The plan-RANGE `availability_policy_id` length check is DERIVED, stated as such,
             and SHALL NOT be claimed as an independently provable site.
         (3) An IPv6 ZONE in any plan range address string is REFUSED, before either parser,
             and SHALL NOT be stripped or normalised -- those strings feed the range, page,
-            manifest-root, header and assignment digest chain, so repairing one forks a plan's
+            PLAN-ROOT, header and assignment digest chain, so repairing one forks a plan's
             identity from the bytes its author signed.
         (4) An EMPTY tombstone reason is REFUSED. The maximum was frozen and the lower bound
             was not, which is what let the runtimes disagree.
+        (5) `abort_reason` is CONDITIONAL on the lifecycle kind: 1..`MaxTraceStrBytes` when
+            ABORTED, and exactly empty for every other kind. Freezing it as an unconditional
+            1..N would have made every non-aborted event non-conforming.
+        (6) The COUNT-BEFORE-WALK and N+1-BOUNDED-TRAVERSAL rules are normative, SCOPED to the
+            collections this change owns. A ceiling does NOT overtake validation of the
+            CONTAINER a collection arrived with -- a plan header, or a tombstone's own
+            identity and digest version, is validated first. A ceiling DOES overtake any
+            relation over that collection's SIZE, INCLUDING a count the container declares:
+            an over-ceiling collection is a bounds fault whatever the container says, and it
+            is the only order both runtimes can hold, since comparing a declared count first
+            presupposes knowing the actual count.
+        (7) The PROJECTED-COST relation is normative and STRUCTURAL, not authorization: it runs
+            where nothing has verified the capability it compares against.
         VECTOR RULES: one N/N+1 pair per DISTINCT 1.5-h-owned limit, not per field. Relational
         cases use an ACCEPTED EQUALITY control and the FIRST violation, moving ONE OPERAND
         only. Every row SHALL reach the gate it names: a rejection arriving from 1.5-f
@@ -1211,50 +1229,45 @@ here.
         which the canonical-spelling check refuses it as a mis-spelling. Two parsers, one
         contract, opposite verdicts. The measured figures are in `design.md`; this entry names
         the bound, never its value.
-        DECIDE THE SYNTAX BEFORE THE BOUND: a zone names an interface on the writing machine
-        and cannot be interpreted at the receiver, so this subtask SHALL forbid zones
-        normatively in plan range strings -- WHICH PUTS THE CEILING BACK OUT OF REACH and
-        makes this the SECOND guard-class bound. Its corpus is three parts: a ZONE-PRESENT
+        THE SYNTAX IS DECIDED AND FROZEN: a zone names an interface on the writing machine and
+        cannot be interpreted at the receiver, so zones are REFUSED and never stripped. That
+        PUTS THE CEILING BACK OUT OF REACH and makes this the SECOND guard-class bound. What
+        remains here is the runtime gate and its evidence. Its corpus is three parts: a ZONE-PRESENT
         REFUSAL in both runtimes (the only row that changes verdict if the prohibition is
         dropped); ACCEPTED CONTROLS at the largest valid syntax, per field; and ONE
         OVER-LIMIT, PARSER-NOT-ENTERED control per field.
-        RUNTIME WORK, NOT ONLY VECTORS -- AND THE DEFECT IS PER SITE, NOT UNIVERSAL. Go's RAW
-        entrypoints (`ValidatePlanFromRaw`, `ValidateManifestChainFromRaw`) already count
-        BEFORE decoding and need no change. Go's DECODED validators do not: `ValidatePlanPages`
-        recurses every page and every nested range for unknown fields before comparing
-        `len(pages)`, and a page's range count is checked after its ranges were walked. This
-        runtime's RAW gates are staged correctly but call `length/1` over the whole
-        attacker-supplied list to compare it, and its DECODED checks run late like Go's.
-        THIS SUBTASK OWNS the decoded-side reordering AND the N+1-bounded traversal, each as
-        its own site with its own stage-sensitive evidence. A single "the count gates run
-        late" claim is FALSE for two of the four situations. A vector alone would freeze the
-        wrong stage everywhere: both runtimes return the right verdict today, so every N/N+1
-        pair passes while the work the ceiling exists to prevent has already happened.
+        RUNTIME WORK, NOT ONLY VECTORS. This subtask owns the count-stage ORDERING in both
+        runtimes' decoded validators and the N+1-bounded traversal at every bounded-count
+        site, each with its own stage-sensitive evidence. Go's raw entrypoints
+        (`ValidatePlanFromRaw`, `ValidateManifestChainFromRaw`) are CORRECT AS THEY STAND and
+        are excluded. Verdict-only evidence cannot serve here: a conforming and a violating
+        implementation refuse the same inputs, so every row asserts PRECEDENCE or bounded
+        traversal. `design.md` holds the site-by-site findings and the mutation results.
         PARITY IS CLAIMED ONLY WHERE BOTH RUNTIMES HAVE PRODUCTION VALIDATORS. ONE CLOSURE
         POLICY, APPLIED UNIFORMLY: a single-runtime row may close this subtask if and only if
         the missing side has a NAMED OWNING SUBTASK. Not "an owner is recorded somewhere" --
         a subtask id. This subtask SHALL NOT close while any single-runtime row names no
         owner, and SHALL NOT wait on a row whose owner is named.
-        By that rule the `MaxReasonBytes` row records 1.6-d, the Elixir record-level
-        `MaxPrincipalBytes` site records 1.5-n, and the `MaxSpansPerPage` single-page site
-        records 1.6-d. 1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
+        By that rule, and EXHAUSTIVELY -- four rows, not three: the `MaxReasonBytes` row
+        records 1.6-d, the Elixir record-level `MaxPrincipalBytes` site records 1.5-n, the
+        `MaxSpansPerPage` single-page site records 1.6-d, and the lifecycle `abort_reason`
+        bound records 1.6-c, whose evidence obligation is widened there because the version
+        row it already owns cannot prove a string length. 1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
         them; each owner stays independently open and flips its own row to both-runtime when
         it lands. A subtask that both delegates a gap and blocks on it has not delegated it.
         NORMATIVE VALUES LIVE IN THE SPEC. Bounds this subtask freezes that have no normative
         statement today SHALL get one; this task list references bound NAMES and copies no
         numbers. This applies to bounds that are implemented AND tested but unstated:
-        `MaxSweepHostsPerBatch` splits: its cross-language VECTOR EVIDENCE is task 1.3's and
-        is complete, and this subtask owes only the NORMATIVE REQUIREMENT naming the value.
-        It SHALL NOT be recorded closed until that requirement exists, and 1.5-h SHALL NOT
-        re-author vectors 1.3 already has. `MaxManifestPages` is normative for RECOVERY only;
-        its use as a plan page-list ceiling is unstated, as is `MaxRangesPerPage`, and both
-        need a plan requirement.
-        DECIDE BEFORE VECTORING: whether an EMPTY tombstone reason is invalid. The spec
-        freezes `MaxReasonBytes` as a maximum and says nothing about a lower bound, while Go
-        refuses length 0. A vector written first would freeze whichever behaviour was
-        convenient. The reason gate is NOT in `ValidateTombstone` -- it is in the signed
-        recovery-control body path, so its Elixir peer is 1.6-d's to build. That is a
-        RECORDED OWNER, so this row closes here and flips when 1.6-d lands.
+        `MaxSweepHostsPerBatch` splits: its cross-language VECTOR EVIDENCE is task 1.3's, and
+        the NORMATIVE REQUIREMENT is 1.5-h's. Both exist, so the bound is CLOSED, and 1.5-h
+        SHALL NOT re-author vectors 1.3 holds. `MaxManifestPages`'s PLAN use and
+        `MaxRangesPerPage` are stated alongside it; neither is outstanding.
+        THE EMPTY TOMBSTONE REASON IS DECIDED AND FROZEN: refused. THREE controls remain, not
+        two -- EMPTY refused, the MAXIMUM accepted, one over refused. The empty arm is a
+        SEPARATE rule from the ceiling and a pair that omits it leaves the newly frozen lower
+        bound unproven. The reason gate is NOT in `ValidateTombstone` -- it is on
+        the signed recovery-control body path, so its Elixir peer is 1.6-d's to build. That
+        is a RECORDED OWNER, so this row closes here and flips when 1.6-d lands.
   - [ ] 1.5-i SEMANTIC-ENVELOPE GRAMMAR coverage, and its DIGEST SEPARATION from gateway
         receipt, physical placement, spool coordinates and renewable delivery proof
   - [ ] 1.5-j BROKER PUBLICATION IDENTITY defined separately from the semantic envelope
@@ -1454,7 +1467,14 @@ here.
         EXPLICITLY OUT OF SCOPE: `ValidateLifecycleRecord`'s signature and trust resolution,
         contract dispatch, raw extraction, the authority join, and plan-state verification.
         Those are distinct boundaries; pulling them in would make this slice sprawl.
-        NO NEW VECTORS: when it lands, the `mtr_completion` row flips from `go_only` to `both`
+        ALSO CARRIES THE LIFECYCLE `abort_reason` BOUND, which 1.5-h delegates here because
+        this subtask creates the only Elixir boundary that could enforce it. IT NEEDS ITS OWN
+        VECTORS: the bound is CONDITIONAL -- 1..`MaxTraceStrBytes` when the kind is ABORTED and
+        exactly empty otherwise -- so it owes an at-ceiling and one-over pair for the ABORTED
+        arm plus a non-empty refusal for a non-aborted kind. The `mtr_completion` version row
+        cannot serve: it proves a digest-version relation and says nothing about a string
+        length or a kind-conditional rule.
+        NO NEW VECTORS FOR THE VERSION ROW: when it lands, `mtr_completion` flips from `go_only` to `both`
         and REUSES the committed control and alternate artifacts. Parent 1.6 then needs 1.6-d as
         well -- three of the four go_only members are its, not this subtask's.
   - [ ] 1.6-d ELIXIR SIGNED RECOVERY-CONTROL BOUNDARY, for the three scope transcripts.
