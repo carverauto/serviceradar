@@ -510,7 +510,12 @@ spec:
                alerts — the safety net that stops a stalled exporter from
                filling the primary — can never fire (review F34). Rendered
                whenever CNPG is chart-managed so the value is always present. */}}
-        {{- if default true $cnpg.enabled }}
+        {{- /* Skip when the caller already supplies it through core.extraEnv:
+               two entries with the same name make the rendered Deployment
+               invalid, and a strategic-merge upgrade fails with "The order in
+               patch list ... doesn't match $setElementOrder list". Same guard
+               as SERVICERADAR_LOCAL_MAILER above. */}}
+        {{- if and (default true $cnpg.enabled) (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
         - name: SERVICERADAR_CNPG_STORAGE_SIZE
           value: {{ default "100Gi" $cnpg.storageSize | quote }}
         {{- end }}
