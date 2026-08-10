@@ -249,8 +249,10 @@ fn default_partition() -> String {
 }
 
 fn default_stream_max_bytes() -> i64 {
-    // 50 GiB dedicated flows stream default (production-class lag headroom).
-    50 * 1024 * 1024 * 1024
+    // Conservative default that fits Docker Compose (10G file store) and
+    // tenant NATS budgets. Helm production overlays may raise this; do not
+    // default to 50 GiB here or local/tenant JetStream placement fails.
+    10 * 1024 * 1024 * 1024
 }
 
 fn default_stream_max_age_secs() -> u64 {
@@ -447,7 +449,32 @@ mod tests {
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);
         assert_eq!(config.stream_max_age_secs, 6 * 60 * 60);
-        assert_eq!(config.stream_max_bytes, 50 * 1024 * 1024 * 1024);
+        assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_rehomeable_flow_subject_is_prefix_safe() {
+        use crate::publisher::is_rehomeable_flow_subject;
+
+        let required = vec![
+            "flows.raw.netflow".to_string(),
+            "flow.host-slice.agent-1".to_string(),
+        ];
+        assert!(is_rehomeable_flow_subject("flows.raw.netflow", &required));
+        assert!(is_rehomeable_flow_subject("flows.raw.sflow", &required));
+        assert!(is_rehomeable_flow_subject(
+            "flow.host-slice.agent-1",
+            &required
+        ));
+        // Not configured host-slice — leave on events.
+        assert!(!is_rehomeable_flow_subject(
+            "flow.host-slice.other",
+            &required
+        ));
+        // Unrelated events subjects must never rehome.
+        assert!(!is_rehomeable_flow_subject("logs.syslog", &required));
+        assert!(!is_rehomeable_flow_subject("k8s.inventory", &required));
+        assert!(!is_rehomeable_flow_subject("events.>", &required));
     }
 
     #[test]

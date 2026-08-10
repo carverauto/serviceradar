@@ -224,7 +224,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         state =
           state
-          |> decrement_pull_inflight()
+          |> decrement_pull_inflight(subject)
           |> maybe_warn_overflow()
 
         EventWriterTelemetry.emit_queue(state, :overflow, subject)
@@ -232,7 +232,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
       true ->
         state
-        |> decrement_pull_inflight()
+        |> decrement_pull_inflight(subject)
         |> buffer_message(body, subject, reply_to, msg)
     end
   end
@@ -433,43 +433,47 @@ defmodule ServiceRadar.EventWriter.Producer do
         pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
 
         with {:ok, ensured} <-
-               JetstreamConsumer.ensure_durable(conn,
-                 stream_name: Map.get(stream, :stream_name) || stream.name,
-                 consumer_name: durable_name,
-                 filter_subject: stream.subject,
-                 description: "EventWriter consumer for #{stream.name}",
-                 ack_policy: :explicit,
-                 ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
-                 deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
-                 max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
-                 max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
-                 inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
-                 stream_retention: Map.get(stream, :stream_retention),
-                 stream_storage: Map.get(stream, :stream_storage),
-                 stream_discard: Map.get(stream, :stream_discard),
-                 stream_replicas: Map.get(stream, :stream_replicas),
-                 stream_max_bytes: Map.get(stream, :stream_max_bytes),
-                 stream_max_age: Map.get(stream, :stream_max_age),
-                 stream_duplicate_window: Map.get(stream, :stream_duplicate_window)
+               JetstreamConsumer.ensure_durable(
+                 conn,
+                 ensure_durable_opts(
+                   stream,
+                   durable_name,
+                   ack_wait_ns,
+                   max_ack_pending,
+                   max_deliver
+                 )
                ),
              {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
-          Logger.info("EventWriter JetStream consumer ready",
-            stream: ensured.stream_name,
-            durable: durable_name,
-            filter_subject: stream.subject,
-            pull_subject: pull_subject,
-            pull_batch_size: pull_batch_size,
-            sid: sid
-          )
+          # Refuse to run a "flow" durable that resolved onto a non-flow stream
+          # (rollout race / overlap fallback). That strands consumption on events.
+          if Config.flow_stream?(stream) and ensured.stream_name != expected_stream_name(stream) do
+            Logger.error(
+              "Flow consumer resolved onto unexpected stream; refusing to start",
+              configured_stream: expected_stream_name(stream),
+              resolved_stream: ensured.stream_name,
+              filter_subject: stream.subject
+            )
 
-          %{
-            stream: ensured.stream_name,
-            durable: durable_name,
-            sid: sid,
-            subject: stream.subject,
-            pull_subject: pull_subject,
-            pull_batch_size: pull_batch_size
-          }
+            nil
+          else
+            Logger.info("EventWriter JetStream consumer ready",
+              stream: ensured.stream_name,
+              durable: durable_name,
+              filter_subject: stream.subject,
+              pull_subject: pull_subject,
+              pull_batch_size: pull_batch_size,
+              sid: sid
+            )
+
+            %{
+              stream: ensured.stream_name,
+              durable: durable_name,
+              sid: sid,
+              subject: stream.subject,
+              pull_subject: pull_subject,
+              pull_batch_size: pull_batch_size
+            }
+          end
         else
           {:error, reason} ->
             Logger.error("Failed to initialize EventWriter durable consumer",
@@ -538,13 +542,21 @@ defmodule ServiceRadar.EventWriter.Producer do
       Enum.reduce_while(consumers, {0, [], budget}, fn consumer,
                                                        {requested, requested_by_subject,
                                                         remaining} ->
+        # One outstanding pull per reply subject at a time so long-poll
+        # accounting cannot stack overlapping batch budgets.
+        outstanding = Map.get(state.pull_inflight_by_subject, consumer.pull_subject, 0)
+
         batch_size =
-          remaining
-          |> min(per_consumer_budget)
-          |> pull_request_batch_size(consumer.pull_batch_size)
+          if outstanding > 0 do
+            0
+          else
+            remaining
+            |> min(per_consumer_budget)
+            |> pull_request_batch_size(consumer.pull_batch_size)
+          end
 
         if batch_size <= 0 do
-          {:halt, {requested, requested_by_subject, remaining}}
+          {:cont, {requested, requested_by_subject, remaining}}
         else
           request_next_messages(state.conn, consumer, batch_size, state)
 
@@ -638,6 +650,38 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp pull_expires_ns(_state), do: 0
 
+  defp expected_stream_name(stream) do
+    Map.get(stream, :stream_name) || stream.name
+  end
+
+  defp ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver) do
+    flow? = Config.flow_stream?(stream)
+
+    [
+      stream_name: expected_stream_name(stream),
+      consumer_name: durable_name,
+      filter_subject: stream.subject,
+      description: "EventWriter consumer for #{stream.name}",
+      ack_policy: :explicit,
+      ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
+      deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
+      max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
+      max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
+      inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
+      stream_retention: Map.get(stream, :stream_retention),
+      stream_storage: Map.get(stream, :stream_storage),
+      stream_discard: Map.get(stream, :stream_discard),
+      stream_replicas: Map.get(stream, :stream_replicas),
+      stream_max_bytes: Map.get(stream, :stream_max_bytes),
+      stream_max_age: Map.get(stream, :stream_max_age),
+      stream_duplicate_window: Map.get(stream, :stream_duplicate_window),
+      # Flow path: never fall back onto `events` (strands durables after rehome).
+      allow_stream_fallback: Map.get(stream, :allow_stream_fallback, not flow?),
+      # Flow-collector owns `flows` retention; EventWriter only merges subjects.
+      reconcile_stream_shape: Map.get(stream, :reconcile_stream_shape, not flow?)
+    ]
+  end
+
   defp record_pull_inflight(state, []), do: state
 
   defp record_pull_inflight(state, requested_by_subject) do
@@ -651,8 +695,23 @@ defmodule ServiceRadar.EventWriter.Producer do
     %{state | pull_inflight_by_subject: by_subject}
   end
 
-  defp decrement_pull_inflight(state) do
-    %{state | pull_inflight: max(state.pull_inflight - 1, 0)}
+  # Decrement both the global counter and the per-pull-subject remaining budget
+  # so long-poll accounting cannot double-subtract on a later status clear.
+  defp decrement_pull_inflight(state, pull_subject) when is_binary(pull_subject) do
+    remaining = Map.get(state.pull_inflight_by_subject, pull_subject, 0)
+
+    by_subject =
+      if remaining <= 1 do
+        Map.delete(state.pull_inflight_by_subject, pull_subject)
+      else
+        Map.put(state.pull_inflight_by_subject, pull_subject, remaining - 1)
+      end
+
+    %{
+      state
+      | pull_inflight: max(state.pull_inflight - 1, 0),
+        pull_inflight_by_subject: by_subject
+    }
   end
 
   defp clear_pull_inflight(state, pull_subject) do

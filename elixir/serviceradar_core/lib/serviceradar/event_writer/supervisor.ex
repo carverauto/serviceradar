@@ -40,17 +40,24 @@ defmodule ServiceRadar.EventWriter.Supervisor do
       flow_streams: length(flow_config.streams)
     )
 
+    # Lag reporter watches both demand domains (shared + flow).
+    lag_config = merge_lag_streams(config, flow_config)
+
     children =
       [
         # Non-flow telemetry (logs, metrics, falco, otel, …) — shared demand domain.
         {Pipeline, {config, [name: Pipeline]}},
         # Raw NetFlow/sFlow — dedicated GenStage demand + long-poll pulls on stream `flows`.
         {Pipeline, {flow_config, [name: ServiceRadar.EventWriter.FlowPipeline]}},
-        {ServiceRadar.EventWriter.ConsumerLagReporter, config},
+        {ServiceRadar.EventWriter.ConsumerLagReporter, lag_config},
         ServiceRadar.FlowAttribution.Correlator
       ]
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp merge_lag_streams(%Config{} = config, %Config{} = flow_config) do
+    %{config | streams: config.streams ++ flow_config.streams}
   end
 
   @doc """

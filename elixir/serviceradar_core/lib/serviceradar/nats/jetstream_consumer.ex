@@ -106,11 +106,30 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         {:ok, stream_name}
 
       {:error, reason} = error ->
-        if subject_overlap_error?(reason) do
+        if subject_overlap_error?(reason) and allow_stream_fallback?(opts) do
           retry_stream_for_overlap(connection_ref, stream_name, subject, opts, error)
         else
+          if subject_overlap_error?(reason) do
+            Logger.error(
+              "JetStream subject overlap for explicit stream; refusing fallback (would strand consumer)",
+              requested_stream: stream_name,
+              subject: subject,
+              reason: inspect(reason)
+            )
+          end
+
           error
         end
+    end
+  end
+
+  # Explicit stream targets (e.g. dedicated `flows`) must not fall back onto a
+  # legacy owner such as `events` — that strands durables on the wrong stream
+  # after subjects are rehomed. Opt in with allow_stream_fallback: true.
+  defp allow_stream_fallback?(opts) do
+    case Keyword.get(opts, :allow_stream_fallback, true) do
+      false -> false
+      _ -> true
     end
   end
 
@@ -252,17 +271,25 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       |> Map.get("subjects", [])
       |> normalized_subjects(subject)
 
+    # When another component owns retention (flow-collector for `flows`), only
+    # merge subjects — never thrash max_bytes/max_age/replicas on reconcile.
     payload =
-      config
-      |> Map.put("name", Map.get(config, "name", stream_name))
-      |> Map.put("subjects", subjects)
-      |> put_configured(opts, :stream_retention, "retention")
-      |> put_configured(opts, :stream_storage, "storage")
-      |> put_configured(opts, :stream_discard, "discard")
-      |> put_configured(opts, :stream_replicas, "num_replicas")
-      |> put_configured(opts, :stream_max_bytes, "max_bytes")
-      |> put_configured(opts, :stream_max_age, "max_age")
-      |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
+      if Keyword.get(opts, :reconcile_stream_shape, true) == false do
+        config
+        |> Map.put("name", Map.get(config, "name", stream_name))
+        |> Map.put("subjects", subjects)
+      else
+        config
+        |> Map.put("name", Map.get(config, "name", stream_name))
+        |> Map.put("subjects", subjects)
+        |> put_configured(opts, :stream_retention, "retention")
+        |> put_configured(opts, :stream_storage, "storage")
+        |> put_configured(opts, :stream_discard, "discard")
+        |> put_configured(opts, :stream_replicas, "num_replicas")
+        |> put_configured(opts, :stream_max_bytes, "max_bytes")
+        |> put_configured(opts, :stream_max_age, "max_age")
+        |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
+      end
 
     {:ok, payload}
   end

@@ -265,8 +265,13 @@ impl Publisher {
     }
 }
 
-/// Removes `required_subjects` from the shared `events` stream when present so a
+/// Removes **only** raw-flow subjects from the shared `events` stream so a
 /// dedicated flows stream can own them exclusively.
+///
+/// Safety: never strip subjects by bulk equality against the collector's full
+/// required subject list. Only known flow prefixes are eligible for rehome:
+/// `flows.raw.*` and configured `flow.host-slice.*` subjects. Unrelated
+/// `events` subjects (logs, inventory signals, etc.) must never be removed.
 async fn rehome_subjects_from_events(
     js: &jetstream::Context,
     required_subjects: &[String],
@@ -281,17 +286,26 @@ async fn rehome_subjects_from_events(
     let mut updated = info.config.clone();
     updated
         .subjects
-        .retain(|s| !required_subjects.iter().any(|req| req == s) && !s.starts_with("flows.raw."));
+        .retain(|s| !is_rehomeable_flow_subject(s, required_subjects));
 
     if updated.subjects.len() == before {
         return Ok(());
     }
 
+    let removed = before - updated.subjects.len();
     info!(
-        "Removing flow subjects from shared events stream ({} → {} subjects) so stream can own them exclusively",
+        "Removing {removed} flow subject(s) from shared events stream ({} → {}) so dedicated stream can own them",
         before,
         updated.subjects.len()
     );
     js.update_stream(updated).await?;
     Ok(())
+}
+
+pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[String]) -> bool {
+    if subject.starts_with("flows.raw.") {
+        return true;
+    }
+    // Host-slice subjects only rehome when this collector is configured to publish them.
+    subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
 }

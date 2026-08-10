@@ -65,8 +65,9 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_flow_pull_expires_ns 2_000_000_000
   @default_flow_pull_batch_size 64
   @default_flow_max_ack_pending 1024
-  # 50 GiB / 6h dedicated flows stream retention (nanoseconds for JetStream API).
-  @default_flows_stream_max_bytes 53_687_091_200
+  # Conservative create-if-missing defaults (10 GiB / 6h). flow-collector owns
+  # live retention reconcile; EventWriter must not thrash these on existing streams.
+  @default_flows_stream_max_bytes 10_737_418_240
   @default_flows_stream_max_age_ns 21_600_000_000_000
 
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
@@ -479,37 +480,27 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec default_flow_streams() :: [stream_config()]
   def default_flow_streams do
+    # stream_max_* values apply only when creating a missing stream. Reconcile of
+    # retention is owned by flow-collector (`reconcile_stream_shape: false`).
+    base = %{
+      stream_name: "flows",
+      processor: Flows,
+      batch_size: 100,
+      batch_timeout: 500,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: @default_flows_stream_max_bytes,
+      stream_max_age: @default_flows_stream_max_age_ns,
+      consumer_pull_batch_size: @default_flow_pull_batch_size,
+      consumer_max_ack_pending: @default_flow_max_ack_pending,
+      allow_stream_fallback: false,
+      reconcile_stream_shape: false
+    }
+
     [
-      %{
-        name: "SFLOW_RAW",
-        stream_name: "flows",
-        subject: "flows.raw.sflow",
-        processor: Flows,
-        batch_size: 100,
-        batch_timeout: 500,
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: @default_flows_stream_max_bytes,
-        stream_max_age: @default_flows_stream_max_age_ns,
-        consumer_pull_batch_size: @default_flow_pull_batch_size,
-        consumer_max_ack_pending: @default_flow_max_ack_pending
-      },
-      %{
-        name: "NETFLOW_RAW",
-        stream_name: "flows",
-        subject: "flows.raw.netflow",
-        processor: Flows,
-        batch_size: 100,
-        batch_timeout: 500,
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: @default_flows_stream_max_bytes,
-        stream_max_age: @default_flows_stream_max_age_ns,
-        consumer_pull_batch_size: @default_flow_pull_batch_size,
-        consumer_max_ack_pending: @default_flow_max_ack_pending
-      }
+      Map.merge(base, %{name: "SFLOW_RAW", subject: "flows.raw.sflow"}),
+      Map.merge(base, %{name: "NETFLOW_RAW", subject: "flows.raw.netflow"})
     ]
   end
 

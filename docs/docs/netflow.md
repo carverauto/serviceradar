@@ -214,7 +214,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "flows",
   "stream_subjects": ["flows.raw.netflow", "flows.raw.sflow"],
-  "stream_max_bytes": 53687091200,
+  "stream_max_bytes": 10737418240,
   "stream_max_age_secs": 21600,
   "stream_replicas": 3,
   "partition": "default",
@@ -261,9 +261,9 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `nats_creds_file`: Optional path to NATS credentials file
 - `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes (default: 50 GiB). Size NATS `max_file_store` and PVC for `stream_max_bytes × stream_replicas` plus other streams
-- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). Collector reconciles this on existing streams so log/OTEL reconcilers cannot pin flow retention to 30 minutes
-- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA
+- `stream_max_bytes`: Stream size cap in bytes (default: **10 GiB** in the binary — fits Docker Compose `max_file_store: 10G` and tenant budgets). Helm may raise this for production, but **must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band if you raise retention.
+- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream; EventWriter must not shrink those limits on reconcile.
+- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. Size `nats.jetstream.maxFileStore` within the **existing** PVC capacity.
 - `partition`: Partition tag applied to ingested flows (default: `default`)
 - `listeners`: One entry per UDP socket (`netflow` or `sflow`)
 - `channel_size`: Bounded channel depth (default: 10,000)
@@ -353,14 +353,15 @@ grep -i "error\|warn" /var/log/flow-collector.log
 ### 4. Query NATS Stream
 
 ```bash
-# Check stream has messages
-nats stream info events
+# Raw NetFlow lives on the dedicated `flows` stream (not shared `events`).
+nats stream info flows
 
-# Should show flows.raw.netflow in the subjects list.
+# Should list flows.raw.netflow / flows.raw.sflow in the subjects list and show
+# recent last_seq growth while exporters are active.
 #
-# Note: If an old `flows` stream already owns flows.raw.netflow, delete it so the
-# `events` stream can claim the subject:
-# nats stream rm flows
+# Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
+# Residual `flows.raw.*` subjects on the legacy `events` stream are rehomed by
+# the flow-collector on startup (subjects only; message history on events ages out).
 ```
 
 ### 5. Query Database

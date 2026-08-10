@@ -80,6 +80,9 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         assert stream.consumer_max_ack_pending == Config.default_flow_max_ack_pending()
         assert stream.stream_retention == "limits"
         assert stream.stream_discard == "old"
+        # Must not fall back onto events or thrash collector-owned retention.
+        assert stream.allow_stream_fallback == false
+        assert stream.reconcile_stream_shape == false
       end
     end
 

@@ -26,6 +26,33 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload["discard"] == "old"
   end
 
+  test "reconciled stream payload can skip shape thrash when collector owns retention" do
+    config = %{
+      "name" => "flows",
+      "subjects" => ["flows.raw.sflow"],
+      "max_age" => 7_200_000_000_000,
+      "max_bytes" => 8_589_934_592,
+      "num_replicas" => 3
+    }
+
+    assert {:ok, payload} =
+             JetstreamConsumer.reconciled_stream_payload(
+               config,
+               "flows",
+               "flows.raw.netflow",
+               reconcile_stream_shape: false,
+               stream_max_bytes: 53_687_091_200,
+               stream_max_age: 21_600_000_000_000,
+               stream_replicas: 1
+             )
+
+    assert payload["subjects"] == ["flows.raw.sflow", "flows.raw.netflow"]
+    # Collector-owned limits must remain untouched.
+    assert payload["max_bytes"] == 8_589_934_592
+    assert payload["max_age"] == 7_200_000_000_000
+    assert payload["num_replicas"] == 3
+  end
+
   test "reconciled stream payload preserves existing limits when no replacement is configured" do
     config = %{
       "name" => "metrics",

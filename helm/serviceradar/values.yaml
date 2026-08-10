@@ -202,12 +202,13 @@ nats:
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
-    # JetStream file store must cover sum(stream_max_bytes × replicas) with
-    # headroom. Dedicated flows stream defaults to 50 GiB × R=3 plus events,
-    # metrics, object stores — size PVC and maxFileStore together.
-    maxFileStore: 200G
+    # Stay within the existing PVC size. volumeClaimTemplates are immutable —
+    # do not raise persistence.size via Helm on a live StatefulSet; expand PVCs
+    # out-of-band first, then raise maxFileStore / stream_max_bytes.
+    maxFileStore: 25G
   persistence:
-    size: 250Gi
+    # Immutable after first install for this StatefulSet. Keep stable defaults.
+    size: 30Gi
     storageClassName: ""
 certs:
   runtimeSecretName: serviceradar-runtime-certs
@@ -1514,9 +1515,9 @@ flowCollector:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "flows"
-    # 50 GiB / 6h / R=3 — production lag headroom for high exporter counts.
-    # Ensure nats.jetstream.maxFileStore and PVC cover stream_max_bytes × replicas.
-    stream_max_bytes: 53687091200
+    # 10 GiB / 6h / R=3 — fits default 30Gi PVC + 25G maxFileStore with headroom
+    # for events/metrics. Raise only after expanding NATS PVCs out-of-band.
+    stream_max_bytes: 10737418240
     stream_max_age_secs: 21600
     stream_replicas: 3
     channel_size: 10000

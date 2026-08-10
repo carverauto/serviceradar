@@ -776,8 +776,9 @@ flowCollector:
   streamReplicas: 3
   config:
     stream_name: "flows"
-    # 10 GiB × R=3 — requires nats.jetstream.maxFileStore / PVC headroom below.
-    stream_max_bytes: 10737418240
+    # 8 GiB / 2h / R=3 — fits existing 30Gi PVC without Helm volumeClaimTemplate
+    # mutation (immutable on live StatefulSets).
+    stream_max_bytes: 8589934592
     stream_max_age_secs: 7200
     stream_replicas: 3
   data:
@@ -867,9 +868,6 @@ nats:
   replicas: 3
   jetstream:
     maxMemoryStore: 1G
-    # Must cover dedicated flows (10 GiB × R=3) plus events/metrics/object
-    # streams. Keep PVC size above maxFileStore.
-    maxFileStore: 80G
-  persistence:
-    size: 100Gi
-    storageClassName: local-path
+    # Within existing 30Gi PVC. Do not change persistence.size here — STS
+    # volumeClaimTemplates are immutable and block Helm upgrades.
+    maxFileStore: 25G
