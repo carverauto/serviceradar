@@ -137,18 +137,19 @@ platform(
     visibility = ["//visibility:public"],
 )
 
-# Local Linux platform that explicitly satisfies rules_pkg's rpm compatibility gate.
-platform(
-    name = "linux_pkg_local",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-        "@rules_pkg//pkg:not_compatible",
-        "@erlang_config//:erlang_internal",
-        "@elixir_config//:elixir_internal",
-    ],
-    visibility = ["//visibility:public"],
-)
+# No `linux_pkg_local` platform. It existed to force RPM packaging into its own target
+# platform by carrying `@rules_pkg//pkg:not_compatible` -- satisfying, rather than passing, the
+# compatibility gate on rules_pkg's LEGACY make_rpm binary. That gate never applied here:
+# //build/packaging/package_rules.bzl passes `srcs=` to pkg_rpm, which selects pkg_rpm_pfg, the
+# toolchain-based implementation. The rpm targets are simply
+# `target_compatible_with = ["@platforms//os:linux"]`, which //build/rbe:rbe_platform satisfies.
+#
+# Its only user was //.forgejo/workflows/release.yml, where `--platforms` OVERRODE the
+# rbe_platform that --config=ci sets, giving the packaging step a private configuration: every
+# binary shared with the container images was built twice per release, and the .rpm shipped a
+# DIFFERENT build of the agent than the image did. Verified before removal by building both
+# ways -- the binaries differ only in 14 embedded `bazel-out/<platform>-opt/...` path strings
+# (an artifact of --experimental_platform_in_output_dir) and in nothing else.
 
 # Remote execution platforms for BuildBuddy
 platform(

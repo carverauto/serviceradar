@@ -82,25 +82,6 @@ actions:
       disk: "40GB"
 
     steps:
-      # CACHE-PROXY CLIENT ROUTE: PUBLIC TLS, AND NOTHING TO DO HERE.
-      #
-      # //.bazelrc's `build:remote_base` sends --remote_cache to
-      # grpcs://cache-proxy.carverauto.dev:443, and `--config=ci` inherits remote_base -- so
-      # every bazel call below already takes the proxy path with no step of its own. The shared
-      # Envoy gateway terminates TLS and forwards gRPC to the proxy's private Service;
-      # BuildBuddy's native proxy authentication, not Envoy, remains authoritative.
-      #
-      # THE PUBLIC EDGE IS WHAT MAKES THIS WORK HERE AT ALL. A ClusterIP does not: the Bazel
-      # client runs inside a per-action network namespace with no route to the service CIDR
-      # (see "Where the runner runs decides what it can reach" in //k8s/buildbuddy/README.md).
-      # A public hostname it can reach over ordinary egress is the whole point.
-      #
-      # DO NOT write a `--config=cache_proxy` opt-in into .bazelrc.remote. That profile was
-      # folded into build:remote_base and no longer exists; naming it fails the run outright
-      # with "Config value 'cache_proxy' is not defined in any .rc file". The runner injects
-      # `common --remote_header=x-buildbuddy-api-key=...` through its own buildbuddy.bazelrc --
-      # never write that credential here.
-
       # The BuildBuddy runner image ships a ~/.docker/config.json, so with no credentials in
       # the environment the script writes nothing and exits 0. The run then continues for three
       # more minutes and dies in the LOADING phase of the next step, on a target that has
@@ -291,6 +272,3 @@ actions:
       # Largely a cache hit from the //... build above;
       - run: "bazel build -c opt --config=ci //:images"
 
-      # //:push is rules_multirun over the per-image push targets. The //.bazelrc note about it
-      # failing on macOS does not apply; this runner is Linux.
-      # - run: "bazel run -c opt --config=ci //:push"
