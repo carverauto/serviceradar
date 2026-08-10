@@ -2,8 +2,8 @@ load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("//third_party/crates:defs.bzl", "crate_deps")
 load("//build/rbe:exec_properties.bzl", "NATIVE_ADDON_EXEC_PROPERTIES")
+load("//third_party/crates:defs.bzl", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -70,7 +70,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.27"
+NETPROBE_VERSION = "0.2.28"
 
 cargo_build_script(
     name = "build_script",
@@ -100,7 +100,6 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
-    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -110,6 +109,7 @@ rust_binary(
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
+    exec_properties = NATIVE_ADDON_EXEC_PROPERTIES,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,

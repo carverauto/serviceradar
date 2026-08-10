@@ -181,8 +181,14 @@ path_belongs_to_addon() {
       esac
       ;;
     netprobe)
+      # The vendor tree is what -Z build-std compiles netprobe_ebpf.o against, so it
+      # determines the shipped object's bytes just as much as rust/netprobe does. A
+      # nightly bump touches neither addons/netprobe nor rust/netprobe, and without
+      # it here the gate would let a changed artifact ship under an unchanged
+      # version -- the false negative it exists to prevent.
       case "${path}" in
         addons/netprobe/*|rust/netprobe/*) return 0 ;;
+        third_party/netprobe_ebpf_vendor/*) return 0 ;;
       esac
       ;;
     powerdns)

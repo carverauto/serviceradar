@@ -15,10 +15,11 @@ jobs:
           - aarch64-unknown-linux-gnu
           - riscv64gc-unknown-linux-gnu
           - riscv32gc-unknown-linux-gnu
+          - loongarch64-unknown-linux-gnu
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Install Rust
       run: |
         rustup update nightly

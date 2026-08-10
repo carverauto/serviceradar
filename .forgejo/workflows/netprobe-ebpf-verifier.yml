@@ -6,6 +6,11 @@ on:
     branches: [staging]
     paths:
       - 'rust/netprobe/**'
+      # The toolchain pins and the vendored crates decide the object's bytes just as
+      # much as its source does. The pins are in MODULE.bazel (already listed below)
+      # and the crates are here; between them a nightly bump, or an upgrade of the
+      # external @rules_aya_ebpf module, always reaches this lane.
+      - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'
       - 'build/toolchains/**'
@@ -19,6 +24,11 @@ on:
     branches: [staging]
     paths:
       - 'rust/netprobe/**'
+      # The toolchain pins and the vendored crates decide the object's bytes just as
+      # much as its source does. The pins are in MODULE.bazel (already listed below)
+      # and the crates are here; between them a nightly bump, or an upgrade of the
+      # external @rules_aya_ebpf module, always reaches this lane.
+      - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'
       - 'build/toolchains/**'

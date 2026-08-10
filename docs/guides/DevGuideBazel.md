@@ -21,16 +21,16 @@ It is generally recommended to build and test only the source tree one is workin
 For example, working on the Golang source tree leads to:
 
 ```Bash
-bazel build -c opt --config=remote //go/...
+bazel build -c opt --config=ci//go/...
 
-bazel test -c opt --config=remote //go/...
+bazel test -c opt --config=ci//go/...
 ```
 
 
 For even more specific targets, use the file path. For example:
 
 ```Bash
-bazel build -c opt --config=remote //elixir/serviceradar_srql/...
+bazel build -c opt --config=ci//elixir/serviceradar_srql/...
 ```
 
 Note that the trailing three dots simply mean "anything" below this path. Also note that Bazel 

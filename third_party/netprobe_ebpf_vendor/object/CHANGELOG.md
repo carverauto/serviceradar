@@ -2,6 +2,210 @@
 
 --------------------------------------------------------------------------------
 
+## 0.39.1
+
+Released 2026/04/21.
+
+### Changed
+
+* Changed `read::PeFile::imports` to return an error for empty import names.
+  [#873](https://github.com/gimli-rs/object/pull/873)
+
+* Fixed `read::PeFile::imports` to handle import names in a different section.
+  [#881](https://github.com/gimli-rs/object/pull/881)
+
+* Fixed the ELF section flags for `write::StandardSection::EhFrame`.
+  [#877](https://github.com/gimli-rs/object/pull/877)
+
+* Updated `hashbrown`, `indexmap`, and `wasmparser` dependencies.
+  [#879](https://github.com/gimli-rs/object/pull/879)
+
+### Added
+
+* Added Android definitions for ELF.
+  [#875](https://github.com/gimli-rs/object/pull/875)
+
+* Updated Mach-O definitions.
+  [#883](https://github.com/gimli-rs/object/pull/883)
+
+* Added `read::macho::LoadCommandData::dylib_use_flags`.
+  [#887](https://github.com/gimli-rs/object/pull/887)
+
+--------------------------------------------------------------------------------
+
+## 0.39.0
+
+Released 2026/03/29.
+
+### Breaking changes
+
+* Changed `read::NativeFile` to use `NativeEndian` instead of `Endianness`.
+  [#851](https://github.com/gimli-rs/object/pull/851)
+
+* Changed the type of `elf::Dyn32/64::d_tag` to signed (`i32`/`i64`).
+  Changed the type of `DT_*` constants to `i64`.
+  Changed `write::elf::Writer::write_dynamic` parameter to match.
+  [#852](https://github.com/gimli-rs/object/pull/852)
+
+* Changed parsing to always support unaligned data.
+  The `unaligned` feature now has no effect.
+  [#861](https://github.com/gimli-rs/object/pull/861)
+
+* Changed `read::SymbolMapName::new` to accept a `size` parameter.
+  [#863](https://github.com/gimli-rs/object/pull/863)
+
+### Changed
+
+* Changed `read::MachOFile::entry` to handle `LC_UNIXTHREAD` load commands.
+  [#837](https://github.com/gimli-rs/object/pull/837)
+
+* Reduced the size of `read::elf::CrelIterator`.
+  [#840](https://github.com/gimli-rs/object/pull/840)
+
+* Improved debug output for `read::*File` by hiding the raw data bytes.
+  [#853](https://github.com/gimli-rs/object/pull/853)
+
+* Removed `DT_SYMBOLIC` from the `read::elf::Dyn::is_address` check.
+  [#854](https://github.com/gimli-rs/object/pull/854)
+
+* Changed `read::macho` to treat `ltmp*` symbols as section symbols.
+  [#856](https://github.com/gimli-rs/object/pull/856)
+
+* Changed `read::Relocation::encoding` for unknown relocations to
+  `RelocationEncoding::Unknown`.
+  [#857](https://github.com/gimli-rs/object/pull/857)
+
+* Changed `read::RelocationMap` to handle `RelocationKind::None` and
+  check for supported `RelocationEncoding`.
+  [#857](https://github.com/gimli-rs/object/pull/857)
+
+* Changed `read::elf` to return `RelocationKind::GotRelative` for
+  `elf::R_X86_64_GOTPCRELX` and `elf::R_X86_64_REX_GOTPCRELX`.
+  [#859](https://github.com/gimli-rs/object/pull/859)
+
+* Changed `elf::R_X86_64_PLT32` and `macho::X86_64_RELOC_BRANCH`
+  to use `RelocationKind::PltRelative` and `RelocationEncoding::X86Branch`.
+  [#860](https://github.com/gimli-rs/object/pull/860)
+
+* Changed `read::macho` and `write::Object` to handle `macho::ARM64_RELOC_BRANCH26`.
+  [#860](https://github.com/gimli-rs/object/pull/860)
+
+* Changed `read::SymbolMap` to include symbol sizes.
+  Deprecated `read::SymbolMap::get`. Use `before` or `containing` instead.
+  [#863](https://github.com/gimli-rs/object/pull/863)
+
+* Changed `read::elf` to include unsized symbols in `is_definition`.
+  [#866](https://github.com/gimli-rs/object/pull/866)
+
+* Changed `pod::slice_from_all_bytes/_mut` to handle zero-sized types.
+  [#868](https://github.com/gimli-rs/object/pull/868)
+
+* Updated `wasmparser` dependency.
+
+### Added
+
+* Added `read::ObjectSegment::permissions`.
+  [#838](https://github.com/gimli-rs/object/pull/838)
+
+* Added `elf::R_X86_64_CODE_*` relocations.
+  [#839](https://github.com/gimli-rs/object/pull/839)
+
+* Added `read::macho::Section::reserved1` and `Section::reserved2`.
+  [#846](https://github.com/gimli-rs/object/pull/846)
+
+* Added `From` implementations for fixed endian integers.
+  [#850](https://github.com/gimli-rs/object/pull/850)
+
+* Added `Native*File` types for each file format.
+  [#851](https://github.com/gimli-rs/object/pull/851)
+
+* Added `read::elf::ElfFile::elf_dynamic_table`.
+  [#854](https://github.com/gimli-rs/object/pull/854)
+
+* Added `read::Relocation::subtractor` and `write::Object::add_relocation_with_subtractor`
+  to handle `macho::ARM64_RELOC_SUBTRACTOR` and `macho::X86_64_RELOC_SUBTRACTOR`.
+  [#856](https://github.com/gimli-rs/object/pull/856)
+  [#860](https://github.com/gimli-rs/object/pull/860)
+
+* Added `write::StandardSection::EhFrame`.
+  [#856](https://github.com/gimli-rs/object/pull/856)
+
+* Added `SymbolFlags::elf_visibility`.
+  [#859](https://github.com/gimli-rs/object/pull/859)
+
+* Added `read::macho::Section::symbol_stub_size` and `indirect_symbols`.
+  [#862](https://github.com/gimli-rs/object/pull/862)
+
+* Added missing `elf::DT_RELR*` constants.
+  [#864](https://github.com/gimli-rs/object/pull/864)
+
+* Added `elf::R_AARCH64_PLT32` and `elf::R_AARCH64_GOTPCREL32`.
+  [#865](https://github.com/gimli-rs/object/pull/865)
+
+--------------------------------------------------------------------------------
+
+## 0.38.1
+
+Released 2026/01/02.
+
+### Changed
+
+* Updated `wasmparser` dependency.
+
+### Added
+
+* Added basic PowerPC relocation support for Mach-O.
+  [#825](https://github.com/gimli-rs/object/pull/825)
+
+* Added more ELF relocations for LoongArch.
+  [#826](https://github.com/gimli-rs/object/pull/826)
+  [#827](https://github.com/gimli-rs/object/pull/827)
+
+* Added `RelocationKind::None`.
+  [#828](https://github.com/gimli-rs/object/pull/828)
+
+* Added `write::StreamingBuffer::flush`.
+  [#829](https://github.com/gimli-rs/object/pull/829)
+
+--------------------------------------------------------------------------------
+
+## 0.38.0
+
+Released 2025/11/21.
+
+### Breaking changes
+
+* Changed the type of `macho::EXPORT_SYMBOL_FLAGS` constants to `u8`.
+  [#817](https://github.com/gimli-rs/object/pull/817)
+
+* Fixed the type of the `StringTable` parameter for `read::elf::Dyn::string`.
+  [#812](https://github.com/gimli-rs/object/pull/812)
+
+### Changed
+
+* Updated `hashbrown` and `wasmparser` dependencies.
+  [#806](https://github.com/gimli-rs/object/pull/806)
+
+* The minimum supported rust version with all features enabled has changed to 1.87.0.
+  Changes to the minimum supported rust version are not considered breaking changes.
+
+### Added
+
+* Added more RISC-V constants for ELF.
+  [#809](https://github.com/gimli-rs/object/pull/809)
+
+* Added more AArch64 constants for ELF.
+  [#819](https://github.com/gimli-rs/object/pull/819)
+
+* Added `macho::LinkeditDataCommand::function_starts` and associated parser.
+  [#814](https://github.com/gimli-rs/object/pull/814)
+  [#816](https://github.com/gimli-rs/object/pull/816)
+
+* Added `macho::LinkeditDataCommand::exports_trie` and associated parser.
+  [#817](https://github.com/gimli-rs/object/pull/817)
+
+--------------------------------------------------------------------------------
+
 ## 0.37.3
 
 Released 2025/08/13.

@@ -1,6 +1,6 @@
 [package]
 name = "rustc-literal-escaper"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2021"
 description = "Provides code to unescape string literals"
 license = "Apache-2.0 OR MIT"

@@ -4,9 +4,10 @@ use alloc::vec::Vec;
 use crate::endian::Endianness;
 use crate::read::{
     self, Architecture, CodeView, ComdatKind, CompressedData, CompressedFileRange, Export,
-    FileFlags, Import, ObjectKind, ObjectMap, Relocation, RelocationMap, Result, SectionFlags,
-    SectionIndex, SectionKind, SegmentFlags, SubArchitecture, SymbolFlags, SymbolIndex, SymbolKind,
-    SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
+    FileFlags, Import, ObjectKind, ObjectMap, Permissions, Relocation, RelocationMap, Result,
+    SectionFlags, SectionIndex, SectionKind, SegmentFlags, SubArchitecture, SymbolFlags,
+    SymbolIndex, SymbolKind, SymbolMap, SymbolMapBuilder, SymbolMapName, SymbolScope,
+    SymbolSection,
 };
 
 /// An object file.
@@ -212,65 +213,9 @@ pub trait Object<'data>: read::private::Sealed {
 
     /// Construct a map from addresses to symbol names.
     ///
-    /// The map will only contain defined text and data symbols.
-    /// The dynamic symbol table will only be used if there are no debugging symbols.
+    /// See [`SymbolMapBuilder::build`] for details of the map contents.
     fn symbol_map(&self) -> SymbolMap<SymbolMapName<'data>> {
-        let mut symbols = Vec::new();
-        if let Some(table) = self.symbol_table().or_else(|| self.dynamic_symbol_table()) {
-            // Sometimes symbols share addresses. Collect them all then choose the "best".
-            let mut all_symbols = Vec::new();
-            for symbol in table.symbols() {
-                // Must have an address.
-                if !symbol.is_definition() {
-                    continue;
-                }
-                // Must have a name.
-                let name = match symbol.name() {
-                    Ok(name) => name,
-                    _ => continue,
-                };
-                if name.is_empty() {
-                    continue;
-                }
-
-                // Lower is better.
-                let mut priority = 0u32;
-
-                // Prefer known kind.
-                match symbol.kind() {
-                    SymbolKind::Text | SymbolKind::Data => {}
-                    SymbolKind::Unknown => priority += 1,
-                    _ => continue,
-                }
-                priority *= 2;
-
-                // Prefer global visibility.
-                priority += match symbol.scope() {
-                    SymbolScope::Unknown => 3,
-                    SymbolScope::Compilation => 2,
-                    SymbolScope::Linkage => 1,
-                    SymbolScope::Dynamic => 0,
-                };
-                priority *= 4;
-
-                // Prefer later entries (earlier symbol is likely to be less specific).
-                let index = !0 - symbol.index().0;
-
-                // Tuple is ordered for sort.
-                all_symbols.push((symbol.address(), priority, index, name));
-            }
-            // Unstable sort is okay because tuple includes index.
-            all_symbols.sort_unstable();
-
-            let mut previous_address = !0;
-            for (address, _priority, _index, name) in all_symbols {
-                if address != previous_address {
-                    symbols.push(SymbolMapName::new(address, name));
-                    previous_address = address;
-                }
-            }
-        }
-        SymbolMap::new(symbols)
+        SymbolMapBuilder::new().build(self)
     }
 
     /// Construct a map from addresses to symbol names and object file names.
@@ -371,6 +316,9 @@ pub trait ObjectSegment<'data>: read::private::Sealed {
 
     /// Return the flags of segment.
     fn flags(&self) -> SegmentFlags;
+
+    /// Return the permissions of the segment.
+    fn permissions(&self) -> Permissions;
 }
 
 /// A section in an [`Object`].

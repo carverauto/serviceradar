@@ -14,6 +14,9 @@ type Result<T> = result::Result<T, ()>;
 
 /// A trait for types that can safely be converted from and to byte slices.
 ///
+/// Note: `Pod` is implemented for `[T; 0]`, but this isn't useful in practice
+/// and may be removed or become a compile-time error in future.
+///
 /// # Safety
 /// A type that is `Pod` must:
 /// - be `#[repr(C)]` or `#[repr(transparent)]`
@@ -118,7 +121,12 @@ pub fn slice_from_bytes_mut<T: Pod>(
 /// of the type size, or the alignment is invalid.
 #[inline]
 pub fn slice_from_all_bytes<T: Pod>(data: &[u8]) -> Result<&[T]> {
-    let count = data.len() / mem::size_of::<T>();
+    // TODO: change to compile time assert when MSRV allows.
+    let size = mem::size_of::<T>();
+    if size == 0 {
+        return Err(());
+    }
+    let count = data.len() / size;
     let (slice, tail) = slice_from_bytes(data, count)?;
     if !tail.is_empty() {
         return Err(());
@@ -134,7 +142,12 @@ pub fn slice_from_all_bytes<T: Pod>(data: &[u8]) -> Result<&[T]> {
 /// of the type size, or the alignment is invalid.
 #[inline]
 pub fn slice_from_all_bytes_mut<T: Pod>(data: &mut [u8]) -> Result<&mut [T]> {
-    let count = data.len() / mem::size_of::<T>();
+    // TODO: change to compile time assert when MSRV allows.
+    let size = mem::size_of::<T>();
+    if size == 0 {
+        return Err(());
+    }
+    let count = data.len() / size;
     let (slice, tail) = slice_from_bytes_mut(data, count)?;
     if !tail.is_empty() {
         return Err(());
@@ -277,5 +290,11 @@ mod tests {
         assert_eq!(slice_from_bytes_mut::<u16>(bytes_mut, 5), Err(()));
         assert_eq!(slice_from_bytes_mut::<u16>(&mut bytes_mut[2..], 4), Err(()));
         assert_eq!(slice_from_bytes_mut::<u16>(&mut bytes_mut[1..], 2), Err(()));
+    }
+
+    #[test]
+    fn slice_zero() {
+        assert_eq!(slice_from_all_bytes::<[u8; 0]>(&[]), Err(()));
+        assert_eq!(slice_from_all_bytes_mut::<[u8; 0]>(&mut []), Err(()));
     }
 }

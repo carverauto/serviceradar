@@ -4,7 +4,7 @@ use core::{result, slice, str};
 use crate::endian::{self, Endianness};
 use crate::macho;
 use crate::pod::Pod;
-use crate::read::{self, ObjectSegment, ReadError, ReadRef, Result, SegmentFlags};
+use crate::read::{self, ObjectSegment, Permissions, ReadError, ReadRef, Result, SegmentFlags};
 
 use super::{LoadCommandData, MachHeader, MachOFile, Section};
 
@@ -154,6 +154,16 @@ where
             maxprot,
             initprot,
         }
+    }
+
+    #[inline]
+    fn permissions(&self) -> Permissions {
+        let maxprot = self.internal.segment.maxprot(self.file.endian);
+        Permissions::new(
+            maxprot & macho::VM_PROT_READ != 0,
+            maxprot & macho::VM_PROT_WRITE != 0,
+            maxprot & macho::VM_PROT_EXECUTE != 0,
+        )
     }
 }
 

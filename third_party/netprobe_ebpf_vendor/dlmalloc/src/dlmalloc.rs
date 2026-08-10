@@ -40,6 +40,8 @@ pub struct Dlmalloc<A> {
     trim_check: usize,
     least_addr: *mut u8,
     release_checks: usize,
+    granularity: usize,
+    max_release_check_rate: usize,
     system_allocator: A,
 }
 unsafe impl<A: Send> Send for Dlmalloc<A> {}
@@ -53,10 +55,13 @@ const TREEBIN_SHIFT: usize = 8;
 const NSMALLBINS_U32: u32 = NSMALLBINS as u32;
 const NTREEBINS_U32: u32 = NTREEBINS as u32;
 
-// TODO: runtime configurable? documentation?
-const DEFAULT_GRANULARITY: usize = 64 * 1024;
 const DEFAULT_TRIM_THRESHOLD: usize = 2 * 1024 * 1024;
-const MAX_RELEASE_CHECK_RATE: usize = 4095;
+
+// Minimum legal granularity. Smaller values would let `sys_trim` compute
+// a non-`malloc_alignment`-aligned residual `topsize`, which corrupts the
+// flag bits packed into the top chunk's size encoding. Kept equal to the
+// runtime `malloc_alignment()` so chunk math stays sound.
+const MIN_GRANULARITY: usize = 2 * mem::size_of::<usize>();
 
 #[repr(C)]
 struct Chunk {
@@ -127,6 +132,8 @@ impl<A> Dlmalloc<A> {
             trim_check: 0,
             least_addr: ptr::null_mut(),
             release_checks: 0,
+            granularity: 64 * 1024,
+            max_release_check_rate: 4095,
             system_allocator,
         }
     }
@@ -137,6 +144,55 @@ impl<A> Dlmalloc<A> {
 
     pub fn allocator_mut(&mut self) -> &mut A {
         &mut self.system_allocator
+    }
+
+    /// Sets the maximum number of large-chunk frees between
+    /// release-unused-segment passes. A value of `0` disables the periodic
+    /// release check entirely.
+    ///
+    /// The new rate is applied immediately: the active countdown is reseeded
+    /// from the new value (or to `usize::MAX` when disabling). This ensures a
+    /// disabled -> enabled transition takes effect on the next free rather
+    /// than after `usize::MAX` decrements.
+    pub const fn set_max_release_check_rate(&mut self, rate: usize) {
+        self.max_release_check_rate = rate;
+        self.release_checks = self.release_check_target();
+    }
+
+    /// Sets the granularity used for system allocations.
+    ///
+    /// Returns `true` if the value was accepted, `false` otherwise. To be
+    /// accepted, `granularity` must be a power of two and at least
+    /// `2 * size_of::<usize>()` (the malloc alignment); smaller values are
+    /// rejected because they would corrupt the flag bits packed into the
+    /// top chunk's size encoding during `trim`.
+    ///
+    /// Unlike C dlmalloc's `mallopt(M_GRANULARITY, ...)`, which rejects
+    /// sub-page values, this accepts any pow-of-two >= the malloc alignment.
+    /// Sub-page granularity is intentionally allowed for embedded targets
+    /// that need tightly-packed allocations on small heaps; the underlying
+    /// system allocator may still round individual requests up to its page
+    /// size.
+    ///
+    /// For best results call this before the first allocation; existing
+    /// segments retain their original alignment.
+    pub const fn set_granularity(&mut self, granularity: usize) -> bool {
+        if !granularity.is_power_of_two() || granularity < MIN_GRANULARITY {
+            return false;
+        }
+        self.granularity = granularity;
+        true
+    }
+
+    /// Returns the value to seed `release_checks` with. When the configured
+    /// rate is zero the periodic release pass is disabled by using
+    /// `usize::MAX` so the countdown never reaches zero.
+    const fn release_check_target(&self) -> usize {
+        if self.max_release_check_rate == 0 {
+            usize::MAX
+        } else {
+            self.max_release_check_rate
+        }
     }
 }
 
@@ -187,11 +243,11 @@ impl<A: Allocator> Dlmalloc<A> {
         //                                `max_request` will not be honored
         //   + self.top_foot_size()
         //   + self.malloc_alignment()
-        //   + DEFAULT_GRANULARITY
+        //   + self.granularity
         // ==
         //   usize::MAX
         let min_sys_alloc_space =
-            ((!0 - (DEFAULT_GRANULARITY + self.top_foot_size() + self.malloc_alignment()) + 1)
+            ((!0 - (self.granularity + self.top_foot_size() + self.malloc_alignment()) + 1)
                 & !self.malloc_alignment())
                 - self.chunk_overhead()
                 + 1;
@@ -386,7 +442,7 @@ impl<A: Allocator> Dlmalloc<A> {
         // keep in sync with max_request
         let asize = align_up(
             size + self.top_foot_size() + self.malloc_alignment(),
-            DEFAULT_GRANULARITY,
+            self.granularity,
         );
 
         let (tbase, tsize, flags) = self.system_allocator.alloc(asize);
@@ -404,7 +460,7 @@ impl<A: Allocator> Dlmalloc<A> {
             self.seg.base = tbase;
             self.seg.size = tsize;
             self.seg.flags = flags;
-            self.release_checks = MAX_RELEASE_CHECK_RATE;
+            self.release_checks = self.release_check_target();
             self.init_bins();
             let tsize = tsize - self.top_foot_size();
             self.init_top(tbase.cast(), tsize);
@@ -562,7 +618,7 @@ impl<A: Allocator> Dlmalloc<A> {
         }
 
         // Keep the old chunk if it's big enough but not too big
-        if oldsize >= nb + mem::size_of::<usize>() && (oldsize - nb) <= (DEFAULT_GRANULARITY << 1) {
+        if oldsize >= nb + mem::size_of::<usize>() && (oldsize - nb) <= (self.granularity << 1) {
             return oldp;
         }
 
@@ -1297,7 +1353,7 @@ impl<A: Allocator> Dlmalloc<A> {
         if pad < self.max_request() && !self.top.is_null() {
             pad += self.top_foot_size();
             if self.topsize > pad {
-                let unit = DEFAULT_GRANULARITY;
+                let unit = self.granularity;
                 let extra = ((self.topsize - pad + unit - 1) / unit - 1) * unit;
                 let sp = self.segment_holding(self.top.cast());
                 debug_assert!(!sp.is_null());
@@ -1390,11 +1446,7 @@ impl<A: Allocator> Dlmalloc<A> {
             pred = sp;
             sp = next;
         }
-        self.release_checks = if nsegs > MAX_RELEASE_CHECK_RATE {
-            nsegs
-        } else {
-            MAX_RELEASE_CHECK_RATE
-        };
+        self.release_checks = cmp::max(nsegs, self.release_check_target());
         return released;
     }
 
@@ -1892,6 +1944,174 @@ mod tests {
             setup_treemap(&mut a);
             let max_request_size = a.max_request() - 1;
             assert_eq!(a.malloc(max_request_size), ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn default_constructor_preserves_legacy_defaults() {
+        // Regression guard: `Dlmalloc::new` must keep the pre-config values so
+        // existing wasm32/Linux targets see no behavioral change.
+        let a = Dlmalloc::new(System::new());
+        assert_eq!(a.granularity, 64 * 1024);
+        assert_eq!(a.max_release_check_rate, 4095);
+    }
+
+    // Verifies the const-fn setter chain works end-to-end in a `const` block
+    // (the supported pattern in lieu of dedicated constructors). Validation
+    // failures become compile-time errors via `assert!`.
+    #[test]
+    fn const_block_configuration() {
+        let a = const {
+            let mut a = Dlmalloc::new(System::new());
+            assert!(a.set_granularity(MIN_GRANULARITY * 2));
+            a.set_max_release_check_rate(0);
+            a
+        };
+        assert_eq!(a.granularity, MIN_GRANULARITY * 2);
+        assert_eq!(a.max_release_check_rate, 0);
+        assert_eq!(a.release_checks, usize::MAX);
+    }
+
+    #[test]
+    fn set_granularity_validates() {
+        let mut a = Dlmalloc::new(System::new());
+
+        // non-power-of-two rejected
+        assert!(!a.set_granularity(3 * 1024));
+        assert_eq!(a.granularity, 64 * 1024);
+
+        // zero rejected (is_power_of_two(0) == false)
+        assert!(!a.set_granularity(0));
+        assert_eq!(a.granularity, 64 * 1024);
+
+        // below malloc_alignment rejected
+        assert!(!a.set_granularity(MIN_GRANULARITY / 2));
+        assert_eq!(a.granularity, 64 * 1024);
+
+        // exactly malloc_alignment accepted (the smallest legal value)
+        assert!(a.set_granularity(MIN_GRANULARITY));
+        assert_eq!(a.granularity, MIN_GRANULARITY);
+
+        // sub-page but >= malloc_alignment accepted (the embedded use case)
+        let page = a.system_allocator.page_size();
+        let sub_page = MIN_GRANULARITY * 2;
+        assert!(sub_page < page);
+        assert!(a.set_granularity(sub_page));
+        assert_eq!(a.granularity, sub_page);
+
+        // page-sized pow2 accepted
+        assert!(a.set_granularity(page));
+        assert_eq!(a.granularity, page);
+
+        // larger pow2 accepted
+        assert!(a.set_granularity(2 * 64 * 1024));
+        assert_eq!(a.granularity, 2 * 64 * 1024);
+    }
+
+    #[test]
+    fn set_max_release_check_rate_zero_disables_countdown() {
+        let mut a = Dlmalloc::new(System::new());
+        a.set_max_release_check_rate(0);
+        assert_eq!(a.max_release_check_rate, 0);
+        assert_eq!(a.release_checks, usize::MAX);
+    }
+
+    // Regression test for the disabled -> enabled bug: prior to the fix, the
+    // setter only reseeded the countdown when transitioning to `0`, so a
+    // subsequent positive rate left `release_checks` at `usize::MAX` and the
+    // periodic pass effectively never fired again.
+    #[test]
+    fn set_max_release_check_rate_reenable_reseeds_countdown() {
+        let mut a = Dlmalloc::new(System::new());
+        a.set_max_release_check_rate(0);
+        assert_eq!(a.release_checks, usize::MAX);
+
+        a.set_max_release_check_rate(8);
+        assert_eq!(a.max_release_check_rate, 8);
+        assert_eq!(a.release_checks, 8);
+    }
+
+    #[test]
+    fn set_max_release_check_rate_updates_active_countdown() {
+        // The setter takes effect immediately even when going between two
+        // non-zero rates; this avoids a stale large countdown sticking around
+        // after the user lowers the rate.
+        let mut a = Dlmalloc::new(System::new());
+        assert_eq!(a.max_release_check_rate, 4095);
+        a.set_max_release_check_rate(2);
+        assert_eq!(a.max_release_check_rate, 2);
+        assert_eq!(a.release_checks, 2);
+    }
+
+    // End-to-end: drive enough large-chunk frees under a tiny release rate to
+    // tick the countdown to zero and trigger `release_unused_segments` from
+    // `dispose_chunk`. The test passes if the allocator stays consistent.
+    #[test]
+    #[cfg(not(miri))]
+    fn small_release_rate_drives_periodic_pass() {
+        let mut a = Dlmalloc::new(System::new());
+        a.set_max_release_check_rate(2);
+        let large = NSMALLBINS * (1 << SMALLBIN_SHIFT);
+        assert!(!a.is_small(large));
+        unsafe {
+            for _ in 0..32 {
+                let p1 = a.malloc(large);
+                let p2 = a.malloc(large);
+                assert!(!p1.is_null());
+                assert!(!p2.is_null());
+                a.free(p1);
+                a.free(p2);
+            }
+        }
+    }
+
+    // End-to-end: page-sized custom granularity survives a basic workload.
+    #[test]
+    #[cfg(not(miri))]
+    fn custom_page_granularity_alloc_free() {
+        let page = System::new().page_size();
+        let mut a = Dlmalloc::new(System::new());
+        assert!(a.set_granularity(page));
+        assert_eq!(a.granularity, page);
+        unsafe {
+            let mut ptrs = [ptr::null_mut::<u8>(); 16];
+            for (i, slot) in ptrs.iter_mut().enumerate() {
+                let p = a.malloc(64 + i * 7);
+                assert!(!p.is_null());
+                *p = i as u8;
+                *slot = p;
+            }
+            for (i, &p) in ptrs.iter().enumerate() {
+                assert_eq!(*p, i as u8);
+                a.free(p);
+            }
+        }
+    }
+
+    // End-to-end: sub-page granularity (the embedded-target use case the
+    // configurable granularity was added for). The system allocator may
+    // still round individual requests up to its page size, but dlmalloc
+    // itself must remain consistent.
+    #[test]
+    #[cfg(not(miri))]
+    fn custom_sub_page_granularity_alloc_free() {
+        let sub_page = MIN_GRANULARITY * 2;
+        assert!(sub_page < System::new().page_size());
+        let mut a = Dlmalloc::new(System::new());
+        assert!(a.set_granularity(sub_page));
+        assert_eq!(a.granularity, sub_page);
+        unsafe {
+            let mut ptrs = [ptr::null_mut::<u8>(); 16];
+            for (i, slot) in ptrs.iter_mut().enumerate() {
+                let p = a.malloc(64 + i * 7);
+                assert!(!p.is_null());
+                *p = i as u8;
+                *slot = p;
+            }
+            for (i, &p) in ptrs.iter().enumerate() {
+                assert_eq!(*p, i as u8);
+                a.free(p);
+            }
         }
     }
 }

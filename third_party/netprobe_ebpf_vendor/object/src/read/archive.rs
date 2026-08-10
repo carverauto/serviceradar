@@ -23,9 +23,9 @@
 use core::convert::TryInto;
 use core::slice;
 
-use crate::archive;
-use crate::endian::{BigEndian as BE, LittleEndian as LE, U16Bytes, U32Bytes, U64Bytes};
+use crate::endian::{BigEndian as BE, LittleEndian as LE, U16, U32, U64};
 use crate::read::{self, Bytes, Error, ReadError, ReadRef};
+use crate::{archive, SkipDebugList};
 
 /// The kind of archive format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,7 +64,7 @@ enum Members<'data> {
 /// A partially parsed archive file.
 #[derive(Debug, Clone, Copy)]
 pub struct ArchiveFile<'data, R: ReadRef<'data> = &'data [u8]> {
-    data: R,
+    data: SkipDebugList<R>,
     kind: ArchiveKind,
     members: Members<'data>,
     symbols: (u64, u64),
@@ -95,7 +95,7 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
         let members_end_offset = len;
 
         let mut file = ArchiveFile {
-            data,
+            data: SkipDebugList(data),
             kind: ArchiveKind::Unknown,
             members: Members::Common {
                 offset: 0,
@@ -207,7 +207,7 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
         debug_assert_eq!(file_header.magic, archive::AIX_BIG_MAGIC);
 
         let mut file = ArchiveFile {
-            data,
+            data: SkipDebugList(data),
             kind: ArchiveKind::AixBig,
             members: Members::AixBig { index: &[] },
             symbols: (0, 0),
@@ -282,7 +282,7 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
     #[inline]
     pub fn members(&self) -> ArchiveMemberIterator<'data, R> {
         ArchiveMemberIterator {
-            data: self.data,
+            data: self.data.0,
             members: self.members,
             names: self.names,
             thin: self.thin,
@@ -297,11 +297,11 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
                     return Err(Error("Invalid archive member offset"));
                 }
                 let mut offset = member.0;
-                ArchiveMember::parse(self.data, &mut offset, self.names, self.thin)
+                ArchiveMember::parse(self.data.0, &mut offset, self.names, self.thin)
             }
             Members::AixBig { .. } => {
                 let offset = member.0;
-                ArchiveMember::parse_aixbig(self.data, offset)
+                ArchiveMember::parse_aixbig(self.data.0, offset)
             }
         }
     }
@@ -312,7 +312,7 @@ impl<'data, R: ReadRef<'data>> ArchiveFile<'data, R> {
             return Ok(None);
         }
         let (offset, size) = self.symbols;
-        ArchiveSymbolIterator::new(self.kind, self.data, offset, size)
+        ArchiveSymbolIterator::new(self.kind, self.data.0, offset, size)
             .read_error("Invalid archive symbol table")
             .map(Some)
     }
@@ -612,7 +612,7 @@ enum SymbolIteratorInternal<'data> {
     /// - the offsets of the member headers as 32-bit big-endian integers
     /// - the symbol names as null-terminated strings
     Gnu {
-        offsets: slice::Iter<'data, U32Bytes<BE>>,
+        offsets: slice::Iter<'data, U32<BE>>,
         names: Bytes<'data>,
     },
     /// A GNU 64-bit symbol table
@@ -622,7 +622,7 @@ enum SymbolIteratorInternal<'data> {
     /// - the offsets of the member headers as 64-bit big-endian integers
     /// - the symbol names as null-terminated strings
     Gnu64 {
-        offsets: slice::Iter<'data, U64Bytes<BE>>,
+        offsets: slice::Iter<'data, U64<BE>>,
         names: Bytes<'data>,
     },
     /// A BSD symbol table.
@@ -634,7 +634,7 @@ enum SymbolIteratorInternal<'data> {
     /// - the size in bytes of the symbol names as a 32-bit little-endian integer
     /// - the symbol names as null-terminated strings
     Bsd {
-        offsets: slice::Iter<'data, [U32Bytes<LE>; 2]>,
+        offsets: slice::Iter<'data, [U32<LE>; 2]>,
         names: Bytes<'data>,
     },
     /// A BSD 64-bit symbol table.
@@ -646,7 +646,7 @@ enum SymbolIteratorInternal<'data> {
     /// - the size in bytes of the symbol names as a 64-bit little-endian integer
     /// - the symbol names as null-terminated strings
     Bsd64 {
-        offsets: slice::Iter<'data, [U64Bytes<LE>; 2]>,
+        offsets: slice::Iter<'data, [U64<LE>; 2]>,
         names: Bytes<'data>,
     },
     /// A Windows COFF symbol table.
@@ -658,8 +658,8 @@ enum SymbolIteratorInternal<'data> {
     /// - the member index for each symbol as a 16-bit little-endian integer
     /// - the symbol names as null-terminated strings in lexical order
     Coff {
-        members: &'data [U32Bytes<LE>],
-        indices: slice::Iter<'data, U16Bytes<LE>>,
+        members: &'data [U32<LE>],
+        indices: slice::Iter<'data, U16<LE>>,
         names: Bytes<'data>,
     },
 }
@@ -675,25 +675,25 @@ impl<'data> ArchiveSymbolIterator<'data> {
         match kind {
             ArchiveKind::Unknown => Ok(ArchiveSymbolIterator(SymbolIteratorInternal::None)),
             ArchiveKind::Gnu => {
-                let offsets_count = data.read::<U32Bytes<BE>>()?.get(BE);
-                let offsets = data.read_slice::<U32Bytes<BE>>(offsets_count as usize)?;
+                let offsets_count = data.read::<U32<BE>>()?.get(BE);
+                let offsets = data.read_slice::<U32<BE>>(offsets_count as usize)?;
                 Ok(ArchiveSymbolIterator(SymbolIteratorInternal::Gnu {
                     offsets: offsets.iter(),
                     names: data,
                 }))
             }
             ArchiveKind::Gnu64 => {
-                let offsets_count = data.read::<U64Bytes<BE>>()?.get(BE);
-                let offsets = data.read_slice::<U64Bytes<BE>>(offsets_count as usize)?;
+                let offsets_count = data.read::<U64<BE>>()?.get(BE);
+                let offsets = data.read_slice::<U64<BE>>(offsets_count as usize)?;
                 Ok(ArchiveSymbolIterator(SymbolIteratorInternal::Gnu64 {
                     offsets: offsets.iter(),
                     names: data,
                 }))
             }
             ArchiveKind::Bsd => {
-                let offsets_size = data.read::<U32Bytes<LE>>()?.get(LE);
-                let offsets = data.read_slice::<[U32Bytes<LE>; 2]>(offsets_size as usize / 8)?;
-                let names_size = data.read::<U32Bytes<LE>>()?.get(LE);
+                let offsets_size = data.read::<U32<LE>>()?.get(LE);
+                let offsets = data.read_slice::<[U32<LE>; 2]>(offsets_size as usize / 8)?;
+                let names_size = data.read::<U32<LE>>()?.get(LE);
                 let names = data.read_bytes(names_size as usize)?;
                 Ok(ArchiveSymbolIterator(SymbolIteratorInternal::Bsd {
                     offsets: offsets.iter(),
@@ -701,9 +701,9 @@ impl<'data> ArchiveSymbolIterator<'data> {
                 }))
             }
             ArchiveKind::Bsd64 => {
-                let offsets_size = data.read::<U64Bytes<LE>>()?.get(LE);
-                let offsets = data.read_slice::<[U64Bytes<LE>; 2]>(offsets_size as usize / 16)?;
-                let names_size = data.read::<U64Bytes<LE>>()?.get(LE);
+                let offsets_size = data.read::<U64<LE>>()?.get(LE);
+                let offsets = data.read_slice::<[U64<LE>; 2]>(offsets_size as usize / 16)?;
+                let names_size = data.read::<U64<LE>>()?.get(LE);
                 let names = data.read_bytes(names_size as usize)?;
                 Ok(ArchiveSymbolIterator(SymbolIteratorInternal::Bsd64 {
                     offsets: offsets.iter(),
@@ -711,10 +711,10 @@ impl<'data> ArchiveSymbolIterator<'data> {
                 }))
             }
             ArchiveKind::Coff => {
-                let members_count = data.read::<U32Bytes<LE>>()?.get(LE);
-                let members = data.read_slice::<U32Bytes<LE>>(members_count as usize)?;
-                let indices_count = data.read::<U32Bytes<LE>>()?.get(LE);
-                let indices = data.read_slice::<U16Bytes<LE>>(indices_count as usize)?;
+                let members_count = data.read::<U32<LE>>()?.get(LE);
+                let members = data.read_slice::<U32<LE>>(members_count as usize)?;
+                let indices_count = data.read::<U32<LE>>()?.get(LE);
+                let indices = data.read_slice::<U16<LE>>(indices_count as usize)?;
                 Ok(ArchiveSymbolIterator(SymbolIteratorInternal::Coff {
                     members,
                     indices: indices.iter(),

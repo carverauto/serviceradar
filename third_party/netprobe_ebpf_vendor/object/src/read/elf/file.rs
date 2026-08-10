@@ -3,19 +3,19 @@ use core::convert::TryInto;
 use core::fmt::Debug;
 use core::mem;
 
-use crate::elf;
-use crate::endian::{self, Endian, Endianness, U32};
+use crate::endian::{self, Endian, Endianness, NativeEndian, U32};
 use crate::pod::Pod;
 use crate::read::{
     self, util, Architecture, ByteString, Bytes, Error, Export, FileFlags, Import, Object,
     ObjectKind, ReadError, ReadRef, SectionIndex, StringTable, SymbolIndex,
 };
+use crate::{elf, SkipDebugList};
 
 use super::{
-    CompressionHeader, Dyn, ElfComdat, ElfComdatIterator, ElfDynamicRelocationIterator, ElfSection,
-    ElfSectionIterator, ElfSegment, ElfSegmentIterator, ElfSymbol, ElfSymbolIterator,
-    ElfSymbolTable, NoteHeader, ProgramHeader, Rel, Rela, RelocationSections, Relr, SectionHeader,
-    SectionTable, Sym, SymbolTable,
+    CompressionHeader, Dyn, DynamicTable, ElfComdat, ElfComdatIterator,
+    ElfDynamicRelocationIterator, ElfSection, ElfSectionIterator, ElfSegment, ElfSegmentIterator,
+    ElfSymbol, ElfSymbolIterator, ElfSymbolTable, NoteHeader, ProgramHeader, Rel, Rela,
+    RelocationSections, Relr, SectionHeader, SectionTable, Sym, SymbolTable,
 };
 
 /// A 32-bit ELF object file.
@@ -24,12 +24,21 @@ use super::{
 /// to [`crate::FileKind::Elf32`].
 pub type ElfFile32<'data, Endian = Endianness, R = &'data [u8]> =
     ElfFile<'data, elf::FileHeader32<Endian>, R>;
+
 /// A 64-bit ELF object file.
 ///
 /// This is a file that starts with [`elf::FileHeader64`], and corresponds
 /// to [`crate::FileKind::Elf64`].
 pub type ElfFile64<'data, Endian = Endianness, R = &'data [u8]> =
     ElfFile<'data, elf::FileHeader64<Endian>, R>;
+
+/// The ELF file format that matches the pointer width and endianness of the target platform.
+#[cfg(target_pointer_width = "32")]
+pub type NativeElfFile<'data, R = &'data [u8]> = ElfFile32<'data, NativeEndian, R>;
+
+/// The ELF file format that matches the pointer width and endianness of the target platform.
+#[cfg(target_pointer_width = "64")]
+pub type NativeElfFile<'data, R = &'data [u8]> = ElfFile64<'data, NativeEndian, R>;
 
 /// A partially parsed ELF file.
 ///
@@ -41,7 +50,7 @@ where
     R: ReadRef<'data>,
 {
     pub(super) endian: Elf::Endian,
-    pub(super) data: R,
+    pub(super) data: SkipDebugList<R>,
     pub(super) header: &'data Elf,
     pub(super) segments: &'data [Elf::ProgramHeader],
     pub(super) sections: SectionTable<'data, Elf, R>,
@@ -69,7 +78,7 @@ where
 
         Ok(ElfFile {
             endian,
-            data,
+            data: SkipDebugList(data),
             header,
             segments,
             sections,
@@ -86,7 +95,7 @@ where
 
     /// Returns the raw data.
     pub fn data(&self) -> R {
-        self.data
+        self.data.0
     }
 
     /// Returns the raw ELF file header.
@@ -137,6 +146,13 @@ where
     /// Get a mapping for linked relocation sections.
     pub fn elf_relocation_sections(&self) -> &RelocationSections {
         &self.relocations
+    }
+
+    /// Get the first `SHT_DYNAMIC` section.
+    ///
+    /// Returns an empty dynamic table if there is no `SHT_DYNAMIC` section.
+    pub fn elf_dynamic_table(&self) -> read::Result<DynamicTable<'data, Elf, R>> {
+        self.sections.dynamic_table(self.endian, self.data.0)
     }
 
     fn raw_section_by_name<'file>(
@@ -389,7 +405,7 @@ where
     }
 
     fn imports(&self) -> read::Result<Vec<Import<'data>>> {
-        let versions = self.sections.versions(self.endian, self.data)?;
+        let versions = self.sections.versions(self.endian, self.data.0)?;
 
         let mut imports = Vec::new();
         for (index, symbol) in self.dynamic_symbols.enumerate() {
@@ -416,7 +432,7 @@ where
     fn exports(&self) -> read::Result<Vec<Export<'data>>> {
         let mut exports = Vec::new();
         for symbol in self.dynamic_symbols.iter() {
-            if symbol.is_definition(self.endian) {
+            if symbol.is_definition(self.endian, self.dynamic_symbols.strings()) {
                 let name = symbol.name(self.endian, self.dynamic_symbols.strings())?;
                 let address = symbol.st_value(self.endian).into();
                 exports.push(Export {
@@ -444,7 +460,7 @@ where
         // Use section headers if present, otherwise use program headers.
         if !self.sections.is_empty() {
             for section in self.sections.iter() {
-                if let Some(mut notes) = section.notes(endian, self.data)? {
+                if let Some(mut notes) = section.notes(endian, self.data.0)? {
                     while let Some(note) = notes.next()? {
                         if note.name() == elf::ELF_NOTE_GNU
                             && note.n_type(endian) == elf::NT_GNU_BUILD_ID
@@ -456,7 +472,7 @@ where
             }
         } else {
             for segment in self.segments {
-                if let Some(mut notes) = segment.notes(endian, self.data)? {
+                if let Some(mut notes) = segment.notes(endian, self.data.0)? {
                     while let Some(note) = notes.next()? {
                         if note.name() == elf::ELF_NOTE_GNU
                             && note.n_type(endian) == elf::NT_GNU_BUILD_ID
@@ -477,7 +493,7 @@ where
         };
         let data = section
             .section
-            .data(self.endian, self.data)
+            .data(self.endian, self.data.0)
             .read_error("Invalid ELF .gnu_debuglink section offset or size")
             .map(Bytes)?;
         let filename = data
@@ -498,7 +514,7 @@ where
         };
         let mut data = section
             .section
-            .data(self.endian, self.data)
+            .data(self.endian, self.data.0)
             .read_error("Invalid ELF .gnu_debugaltlink section offset or size")
             .map(Bytes)?;
         let filename = data

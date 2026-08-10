@@ -207,25 +207,25 @@ impl<'a> Writer<'a> {
     /// Uses default values for all fields.
     pub fn write_empty_dos_header(&mut self) -> Result<()> {
         self.write_custom_dos_header(&pe::ImageDosHeader {
-            e_magic: U16::new(LE, pe::IMAGE_DOS_SIGNATURE),
-            e_cblp: U16::new(LE, 0),
-            e_cp: U16::new(LE, 0),
-            e_crlc: U16::new(LE, 0),
-            e_cparhdr: U16::new(LE, 0),
-            e_minalloc: U16::new(LE, 0),
-            e_maxalloc: U16::new(LE, 0),
-            e_ss: U16::new(LE, 0),
-            e_sp: U16::new(LE, 0),
-            e_csum: U16::new(LE, 0),
-            e_ip: U16::new(LE, 0),
-            e_cs: U16::new(LE, 0),
-            e_lfarlc: U16::new(LE, 0),
-            e_ovno: U16::new(LE, 0),
-            e_res: [U16::new(LE, 0); 4],
-            e_oemid: U16::new(LE, 0),
-            e_oeminfo: U16::new(LE, 0),
-            e_res2: [U16::new(LE, 0); 10],
-            e_lfanew: U32::new(LE, self.nt_headers_offset),
+            e_magic: pe::IMAGE_DOS_SIGNATURE.into(),
+            e_cblp: 0.into(),
+            e_cp: 0.into(),
+            e_crlc: 0.into(),
+            e_cparhdr: 0.into(),
+            e_minalloc: 0.into(),
+            e_maxalloc: 0.into(),
+            e_ss: 0.into(),
+            e_sp: 0.into(),
+            e_csum: 0.into(),
+            e_ip: 0.into(),
+            e_cs: 0.into(),
+            e_lfarlc: 0.into(),
+            e_ovno: 0.into(),
+            e_res: [0.into(); 4],
+            e_oemid: 0.into(),
+            e_oeminfo: 0.into(),
+            e_res2: [0.into(); 10],
+            e_lfanew: self.nt_headers_offset.into(),
         })
     }
 
@@ -242,25 +242,25 @@ impl<'a> Writer<'a> {
     /// Use `write_custom_dos_header` and `write` if you need a custom stub.
     pub fn write_dos_header_and_stub(&mut self) -> Result<()> {
         self.write_custom_dos_header(&pe::ImageDosHeader {
-            e_magic: U16::new(LE, pe::IMAGE_DOS_SIGNATURE),
-            e_cblp: U16::new(LE, 0x90),
-            e_cp: U16::new(LE, 3),
-            e_crlc: U16::new(LE, 0),
-            e_cparhdr: U16::new(LE, 4),
-            e_minalloc: U16::new(LE, 0),
-            e_maxalloc: U16::new(LE, 0xffff),
-            e_ss: U16::new(LE, 0),
-            e_sp: U16::new(LE, 0xb8),
-            e_csum: U16::new(LE, 0),
-            e_ip: U16::new(LE, 0),
-            e_cs: U16::new(LE, 0),
-            e_lfarlc: U16::new(LE, 0x40),
-            e_ovno: U16::new(LE, 0),
-            e_res: [U16::new(LE, 0); 4],
-            e_oemid: U16::new(LE, 0),
-            e_oeminfo: U16::new(LE, 0),
-            e_res2: [U16::new(LE, 0); 10],
-            e_lfanew: U32::new(LE, self.nt_headers_offset),
+            e_magic: pe::IMAGE_DOS_SIGNATURE.into(),
+            e_cblp: 0x90.into(),
+            e_cp: 3.into(),
+            e_crlc: 0.into(),
+            e_cparhdr: 4.into(),
+            e_minalloc: 0.into(),
+            e_maxalloc: 0xffff.into(),
+            e_ss: 0.into(),
+            e_sp: 0xb8.into(),
+            e_csum: 0.into(),
+            e_ip: 0.into(),
+            e_cs: 0.into(),
+            e_lfarlc: 0x40.into(),
+            e_ovno: 0.into(),
+            e_res: [0.into(); 4],
+            e_oemid: 0.into(),
+            e_oeminfo: 0.into(),
+            e_res2: [0.into(); 10],
+            e_lfanew: self.nt_headers_offset.into(),
         })?;
 
         #[rustfmt::skip]
@@ -324,28 +324,28 @@ impl<'a> Writer<'a> {
         self.pad_until(self.nt_headers_offset);
         self.buffer.write(&U32::new(LE, pe::IMAGE_NT_SIGNATURE));
         let file_header = pe::ImageFileHeader {
-            machine: U16::new(LE, nt_headers.machine),
-            number_of_sections: U16::new(LE, self.section_header_num),
-            time_date_stamp: U32::new(LE, nt_headers.time_date_stamp),
-            pointer_to_symbol_table: U32::new(LE, self.symbol_offset),
-            number_of_symbols: U32::new(LE, self.symbol_num),
-            size_of_optional_header: U16::new(LE, self.optional_header_size() as u16),
-            characteristics: U16::new(LE, nt_headers.characteristics),
+            machine: nt_headers.machine.into(),
+            number_of_sections: self.section_header_num.into(),
+            time_date_stamp: nt_headers.time_date_stamp.into(),
+            pointer_to_symbol_table: self.symbol_offset.into(),
+            number_of_symbols: self.symbol_num.into(),
+            size_of_optional_header: (self.optional_header_size() as u16).into(),
+            characteristics: nt_headers.characteristics.into(),
         };
         self.buffer.write(&file_header);
         if self.is_64 {
             let optional_header = pe::ImageOptionalHeader64 {
-                magic: U16::new(LE, pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC),
+                magic: pe::IMAGE_NT_OPTIONAL_HDR64_MAGIC.into(),
                 major_linker_version: nt_headers.major_linker_version,
                 minor_linker_version: nt_headers.minor_linker_version,
-                size_of_code: U32::new(LE, self.code_len),
-                size_of_initialized_data: U32::new(LE, self.data_len),
-                size_of_uninitialized_data: U32::new(LE, self.bss_len),
-                address_of_entry_point: U32::new(LE, nt_headers.address_of_entry_point),
-                base_of_code: U32::new(LE, self.code_address),
-                image_base: U64::new(LE, nt_headers.image_base),
-                section_alignment: U32::new(LE, self.section_alignment),
-                file_alignment: U32::new(LE, self.file_alignment),
+                size_of_code: self.code_len.into(),
+                size_of_initialized_data: self.data_len.into(),
+                size_of_uninitialized_data: self.bss_len.into(),
+                address_of_entry_point: nt_headers.address_of_entry_point.into(),
+                base_of_code: self.code_address.into(),
+                image_base: nt_headers.image_base.into(),
+                section_alignment: self.section_alignment.into(),
+                file_alignment: self.file_alignment.into(),
                 major_operating_system_version: U16::new(
                     LE,
                     nt_headers.major_operating_system_version,
@@ -354,38 +354,38 @@ impl<'a> Writer<'a> {
                     LE,
                     nt_headers.minor_operating_system_version,
                 ),
-                major_image_version: U16::new(LE, nt_headers.major_image_version),
-                minor_image_version: U16::new(LE, nt_headers.minor_image_version),
-                major_subsystem_version: U16::new(LE, nt_headers.major_subsystem_version),
-                minor_subsystem_version: U16::new(LE, nt_headers.minor_subsystem_version),
-                win32_version_value: U32::new(LE, 0),
-                size_of_image: U32::new(LE, self.virtual_len),
-                size_of_headers: U32::new(LE, self.headers_len),
-                check_sum: U32::new(LE, 0),
-                subsystem: U16::new(LE, nt_headers.subsystem),
-                dll_characteristics: U16::new(LE, nt_headers.dll_characteristics),
-                size_of_stack_reserve: U64::new(LE, nt_headers.size_of_stack_reserve),
-                size_of_stack_commit: U64::new(LE, nt_headers.size_of_stack_commit),
-                size_of_heap_reserve: U64::new(LE, nt_headers.size_of_heap_reserve),
-                size_of_heap_commit: U64::new(LE, nt_headers.size_of_heap_commit),
-                loader_flags: U32::new(LE, 0),
-                number_of_rva_and_sizes: U32::new(LE, self.data_directories.len() as u32),
+                major_image_version: nt_headers.major_image_version.into(),
+                minor_image_version: nt_headers.minor_image_version.into(),
+                major_subsystem_version: nt_headers.major_subsystem_version.into(),
+                minor_subsystem_version: nt_headers.minor_subsystem_version.into(),
+                win32_version_value: 0.into(),
+                size_of_image: self.virtual_len.into(),
+                size_of_headers: self.headers_len.into(),
+                check_sum: 0.into(),
+                subsystem: nt_headers.subsystem.into(),
+                dll_characteristics: nt_headers.dll_characteristics.into(),
+                size_of_stack_reserve: nt_headers.size_of_stack_reserve.into(),
+                size_of_stack_commit: nt_headers.size_of_stack_commit.into(),
+                size_of_heap_reserve: nt_headers.size_of_heap_reserve.into(),
+                size_of_heap_commit: nt_headers.size_of_heap_commit.into(),
+                loader_flags: 0.into(),
+                number_of_rva_and_sizes: (self.data_directories.len() as u32).into(),
             };
             self.buffer.write(&optional_header);
         } else {
             let optional_header = pe::ImageOptionalHeader32 {
-                magic: U16::new(LE, pe::IMAGE_NT_OPTIONAL_HDR32_MAGIC),
+                magic: pe::IMAGE_NT_OPTIONAL_HDR32_MAGIC.into(),
                 major_linker_version: nt_headers.major_linker_version,
                 minor_linker_version: nt_headers.minor_linker_version,
-                size_of_code: U32::new(LE, self.code_len),
-                size_of_initialized_data: U32::new(LE, self.data_len),
-                size_of_uninitialized_data: U32::new(LE, self.bss_len),
-                address_of_entry_point: U32::new(LE, nt_headers.address_of_entry_point),
-                base_of_code: U32::new(LE, self.code_address),
-                base_of_data: U32::new(LE, self.data_address),
-                image_base: U32::new(LE, nt_headers.image_base as u32),
-                section_alignment: U32::new(LE, self.section_alignment),
-                file_alignment: U32::new(LE, self.file_alignment),
+                size_of_code: self.code_len.into(),
+                size_of_initialized_data: self.data_len.into(),
+                size_of_uninitialized_data: self.bss_len.into(),
+                address_of_entry_point: nt_headers.address_of_entry_point.into(),
+                base_of_code: self.code_address.into(),
+                base_of_data: self.data_address.into(),
+                image_base: (nt_headers.image_base as u32).into(),
+                section_alignment: self.section_alignment.into(),
+                file_alignment: self.file_alignment.into(),
                 major_operating_system_version: U16::new(
                     LE,
                     nt_headers.major_operating_system_version,
@@ -394,30 +394,30 @@ impl<'a> Writer<'a> {
                     LE,
                     nt_headers.minor_operating_system_version,
                 ),
-                major_image_version: U16::new(LE, nt_headers.major_image_version),
-                minor_image_version: U16::new(LE, nt_headers.minor_image_version),
-                major_subsystem_version: U16::new(LE, nt_headers.major_subsystem_version),
-                minor_subsystem_version: U16::new(LE, nt_headers.minor_subsystem_version),
-                win32_version_value: U32::new(LE, 0),
-                size_of_image: U32::new(LE, self.virtual_len),
-                size_of_headers: U32::new(LE, self.headers_len),
-                check_sum: U32::new(LE, 0),
-                subsystem: U16::new(LE, nt_headers.subsystem),
-                dll_characteristics: U16::new(LE, nt_headers.dll_characteristics),
-                size_of_stack_reserve: U32::new(LE, nt_headers.size_of_stack_reserve as u32),
-                size_of_stack_commit: U32::new(LE, nt_headers.size_of_stack_commit as u32),
-                size_of_heap_reserve: U32::new(LE, nt_headers.size_of_heap_reserve as u32),
-                size_of_heap_commit: U32::new(LE, nt_headers.size_of_heap_commit as u32),
-                loader_flags: U32::new(LE, 0),
-                number_of_rva_and_sizes: U32::new(LE, self.data_directories.len() as u32),
+                major_image_version: nt_headers.major_image_version.into(),
+                minor_image_version: nt_headers.minor_image_version.into(),
+                major_subsystem_version: nt_headers.major_subsystem_version.into(),
+                minor_subsystem_version: nt_headers.minor_subsystem_version.into(),
+                win32_version_value: 0.into(),
+                size_of_image: self.virtual_len.into(),
+                size_of_headers: self.headers_len.into(),
+                check_sum: 0.into(),
+                subsystem: nt_headers.subsystem.into(),
+                dll_characteristics: nt_headers.dll_characteristics.into(),
+                size_of_stack_reserve: (nt_headers.size_of_stack_reserve as u32).into(),
+                size_of_stack_commit: (nt_headers.size_of_stack_commit as u32).into(),
+                size_of_heap_reserve: (nt_headers.size_of_heap_reserve as u32).into(),
+                size_of_heap_commit: (nt_headers.size_of_heap_commit as u32).into(),
+                loader_flags: 0.into(),
+                number_of_rva_and_sizes: (self.data_directories.len() as u32).into(),
             };
             self.buffer.write(&optional_header);
         }
 
         for dir in &self.data_directories {
             self.buffer.write(&pe::ImageDataDirectory {
-                virtual_address: U32::new(LE, dir.virtual_address),
-                size: U32::new(LE, dir.size),
+                virtual_address: dir.virtual_address.into(),
+                size: dir.size.into(),
             })
         }
     }
@@ -448,15 +448,15 @@ impl<'a> Writer<'a> {
         for section in &self.sections {
             let section_header = pe::ImageSectionHeader {
                 name: section.name,
-                virtual_size: U32::new(LE, section.range.virtual_size),
-                virtual_address: U32::new(LE, section.range.virtual_address),
-                size_of_raw_data: U32::new(LE, section.range.file_size),
-                pointer_to_raw_data: U32::new(LE, section.range.file_offset),
-                pointer_to_relocations: U32::new(LE, 0),
-                pointer_to_linenumbers: U32::new(LE, 0),
-                number_of_relocations: U16::new(LE, 0),
-                number_of_linenumbers: U16::new(LE, 0),
-                characteristics: U32::new(LE, section.characteristics),
+                virtual_size: section.range.virtual_size.into(),
+                virtual_address: section.range.virtual_address.into(),
+                size_of_raw_data: section.range.file_size.into(),
+                pointer_to_raw_data: section.range.file_offset.into(),
+                pointer_to_relocations: 0.into(),
+                pointer_to_linenumbers: 0.into(),
+                number_of_relocations: 0.into(),
+                number_of_linenumbers: 0.into(),
+                characteristics: section.characteristics.into(),
             };
             self.buffer.write(&section_header);
         }
@@ -677,7 +677,7 @@ impl<'a> Writer<'a> {
     ///
     /// `typ` must be one of the `IMAGE_REL_BASED_*` constants.
     pub fn add_reloc(&mut self, mut virtual_address: u32, typ: u16) {
-        let reloc = U16::new(LE, typ << 12 | (virtual_address & 0xfff) as u16);
+        let reloc = (typ << 12 | (virtual_address & 0xfff) as u16).into();
         virtual_address &= !0xfff;
         if let Some(block) = self.reloc_blocks.last_mut() {
             if block.virtual_address == virtual_address {
@@ -687,7 +687,7 @@ impl<'a> Writer<'a> {
             }
             // Blocks must have an even number of relocations.
             if block.count & 1 != 0 {
-                self.relocs.push(U16::new(LE, 0));
+                self.relocs.push(0.into());
                 block.count += 1;
             }
             debug_assert!(block.virtual_address < virtual_address);
@@ -713,7 +713,7 @@ impl<'a> Writer<'a> {
         if let Some(block) = self.reloc_blocks.last_mut() {
             // Blocks must have an even number of relocations.
             if block.count & 1 != 0 {
-                self.relocs.push(U16::new(LE, 0));
+                self.relocs.push(0.into());
                 block.count += 1;
             }
         }
@@ -748,8 +748,8 @@ impl<'a> Writer<'a> {
         let mut total = 0;
         for block in &self.reloc_blocks {
             self.buffer.write(&pe::ImageBaseRelocation {
-                virtual_address: U32::new(LE, block.virtual_address),
-                size_of_block: U32::new(LE, block.size()),
+                virtual_address: block.virtual_address.into(),
+                size_of_block: block.size().into(),
             });
             self.buffer
                 .write_slice(&self.relocs[total..][..block.count as usize]);

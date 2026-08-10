@@ -37,7 +37,7 @@ mix_app(
     srcs = [":srcs"],
     app_name = "connection",
     deps = [
-        "@hex_boundary//:erlang_app",
+        "@hexpm//:boundary",
         "@rules_elixir//elixir",
     ],
 )

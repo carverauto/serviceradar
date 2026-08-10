@@ -71,10 +71,6 @@ Rand is built with these features enabled by default:
 -   `std_rng` enables inclusion of `StdRng`, `ThreadRng`
 -   `small_rng` enables inclusion of the `SmallRng` PRNG
 
-Optionally, the following dependencies can be enabled:
-
--   `log` enables logging via [log](https://crates.io/crates/log)
-
 Additionally, these features configure Rand:
 
 -   `nightly` includes some additions requiring nightly Rust

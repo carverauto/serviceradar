@@ -1,6 +1,6 @@
 [package]
 name = "wasip3"
-version = "0.6.0+wasi-0.3.0-rc-2026-03-15"
+version = "0.7.0+wasi-0.3.0"
 description = "WASIp3 API bindings for Rust"
 categories = ["no-std", "wasm"]
 keywords = ["webassembly", "wasm"]

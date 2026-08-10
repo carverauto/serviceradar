@@ -2,7 +2,7 @@ use core::fmt::Debug;
 use core::{iter, slice, str};
 
 use crate::elf;
-use crate::endian::{self, Endianness, U32Bytes};
+use crate::endian::{self, Endianness, U32};
 use crate::pod::{self, Pod};
 use crate::read::{
     self, gnu_compression, CompressedData, CompressedFileRange, CompressionFormat, Error,
@@ -11,9 +11,9 @@ use crate::read::{
 };
 
 use super::{
-    AttributesSection, CompressionHeader, CrelIterator, ElfFile, ElfSectionRelocationIterator,
-    FileHeader, GnuHashTable, HashTable, NoteIterator, RelocationSections, RelrIterator,
-    SymbolTable, VerdefIterator, VerneedIterator, VersionTable,
+    AttributesSection, CompressionHeader, CrelIterator, DynamicTable, ElfFile,
+    ElfSectionRelocationIterator, FileHeader, GnuHashTable, HashTable, NoteIterator,
+    RelocationSections, RelrIterator, SymbolTable, VerdefIterator, VerneedIterator, VersionTable,
 };
 
 /// The table of section headers in an ELF file.
@@ -175,6 +175,21 @@ impl<'data, Elf: FileHeader, R: ReadRef<'data>> SectionTable<'data, Elf, R> {
         symbol_section: SectionIndex,
     ) -> read::Result<RelocationSections> {
         RelocationSections::parse(endian, self, symbol_section)
+    }
+
+    /// Return the contents of the first `SHT_DYNAMIC` section.
+    ///
+    /// Returns an empty dynamic table if there is no `SHT_DYNAMIC` section.
+    pub fn dynamic_table(
+        &self,
+        endian: Elf::Endian,
+        data: R,
+    ) -> read::Result<DynamicTable<'data, Elf, R>> {
+        let section = match self.iter().find(|s| s.sh_type(endian) == elf::SHT_DYNAMIC) {
+            Some(s) => s,
+            None => return Ok(DynamicTable::default()),
+        };
+        DynamicTable::parse(endian, data, self, section)
     }
 
     /// Return the contents of a dynamic section.
@@ -460,7 +475,7 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSection<'data, 'file, 
             return Ok(&[]);
         };
         // The linked symbol table was already checked when self.file.relocations was created.
-        let Some((rel, _)) = relocation_section.rel(self.file.endian, self.file.data)? else {
+        let Some((rel, _)) = relocation_section.rel(self.file.endian, self.file.data.0)? else {
             return Ok(&[]);
         };
         Ok(rel)
@@ -475,7 +490,7 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSection<'data, 'file, 
             return Ok(&[]);
         };
         // The linked symbol table was already checked when self.file.relocations was created.
-        let Some((rela, _)) = relocation_section.rela(self.file.endian, self.file.data)? else {
+        let Some((rela, _)) = relocation_section.rela(self.file.endian, self.file.data.0)? else {
             return Ok(&[]);
         };
         Ok(rela)
@@ -483,14 +498,14 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSection<'data, 'file, 
 
     fn bytes(&self) -> read::Result<&'data [u8]> {
         self.section
-            .data(self.file.endian, self.file.data)
+            .data(self.file.endian, self.file.data.0)
             .read_error("Invalid ELF section size or offset")
     }
 
     fn maybe_compressed(&self) -> read::Result<Option<CompressedFileRange>> {
         let endian = self.file.endian;
         if let Some((header, offset, compressed_size)) =
-            self.section.compression(endian, self.file.data)?
+            self.section.compression(endian, self.file.data.0)?
         {
             let format = match header.ch_type(endian) {
                 elf::ELFCOMPRESS_ZLIB => CompressionFormat::Zlib,
@@ -520,7 +535,7 @@ impl<'data, 'file, Elf: FileHeader, R: ReadRef<'data>> ElfSection<'data, 'file, 
         let (section_offset, section_size) = self
             .file_range()
             .read_error("Invalid ELF GNU compressed section type")?;
-        gnu_compression::compressed_file_range(self.file.data, section_offset, section_size)
+        gnu_compression::compressed_file_range(self.file.data.0, section_offset, section_size)
             .map(Some)
     }
 }
@@ -589,7 +604,7 @@ where
     }
 
     fn compressed_data(&self) -> read::Result<CompressedData<'data>> {
-        self.compressed_file_range()?.data(self.file.data)
+        self.compressed_file_range()?.data(self.file.data.0)
     }
 
     fn name_bytes(&self) -> read::Result<&'data [u8]> {
@@ -893,7 +908,25 @@ pub trait SectionHeader: Debug + Pod {
         Ok(Some((relrs?, self.link(endian))))
     }
 
-    /// Return entries in a dynamic section.
+    /// Return the contents of a dynamic section.
+    ///
+    /// Also finds the linked string table in `sections`.
+    ///
+    /// Returns `Ok(None)` if the section type is not `SHT_DYNAMIC`.
+    /// Returns `Err` for invalid values.
+    fn dynamic_table<'data, R: ReadRef<'data>>(
+        &self,
+        endian: Self::Endian,
+        data: R,
+        sections: &SectionTable<'data, Self::Elf, R>,
+    ) -> read::Result<Option<DynamicTable<'data, Self::Elf, R>>> {
+        if self.sh_type(endian) != elf::SHT_DYNAMIC {
+            return Ok(None);
+        }
+        DynamicTable::parse(endian, data, sections, self).map(Some)
+    }
+
+    /// Return the slice of entries in a dynamic section.
     ///
     /// Also returns the linked string table index.
     ///
@@ -943,13 +976,13 @@ pub trait SectionHeader: Debug + Pod {
         &self,
         endian: Self::Endian,
         data: R,
-    ) -> read::Result<Option<(u32, &'data [U32Bytes<Self::Endian>])>> {
+    ) -> read::Result<Option<(u32, &'data [U32<Self::Endian>])>> {
         if self.sh_type(endian) != elf::SHT_GROUP {
             return Ok(None);
         }
         let msg = "Invalid ELF group section offset or size";
         let data = self.data(endian, data).read_error(msg)?;
-        let (flag, data) = pod::from_bytes::<U32Bytes<_>>(data).read_error(msg)?;
+        let (flag, data) = pod::from_bytes::<U32<_>>(data).read_error(msg)?;
         let sections = pod::slice_from_all_bytes(data).read_error(msg)?;
         Ok(Some((flag.get(endian), sections)))
     }

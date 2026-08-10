@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::identity_op)]
 
-use crate::endian::{Endian, U32Bytes, U64Bytes, I32, I64, U16, U32, U64};
+use crate::endian::{Endian, I32, I64, U16, U32, U64};
 use crate::pod::Pod;
 
 /// The header at the start of every 32-bit ELF file.
@@ -717,8 +717,14 @@ pub const SHT_RELR: u32 = 19;
 pub const SHT_CREL: u32 = 0x40000014;
 /// Start of OS-specific section types.
 pub const SHT_LOOS: u32 = 0x6000_0000;
+/// Android-specific compressed version of `SHT_REL`.
+pub const SHT_ANDROID_REL: u32 = 0x60000001;
+/// Android-specific compressed version of `SHT_RELA`.
+pub const SHT_ANDROID_RELA: u32 = 0x60000002;
 /// LLVM-style dependent libraries.
 pub const SHT_LLVM_DEPENDENT_LIBRARIES: u32 = 0x6fff4c04;
+/// Android-specific precursor of `SHT_RELR`; differs only by constants and required API level.
+pub const SHT_ANDROID_RELR: u32 = 0x6fff_ff00;
 /// GNU SFrame stack trace format.
 pub const SHT_GNU_SFRAME: u32 = 0x6fff_fff4;
 /// Object attributes.
@@ -804,11 +810,11 @@ pub const SHF_EXCLUDE: u32 = 0x8000_0000;
 #[repr(C)]
 pub struct CompressionHeader32<E: Endian> {
     /// Compression format. One of the `ELFCOMPRESS_*` values.
-    pub ch_type: U32Bytes<E>,
+    pub ch_type: U32<E>,
     /// Uncompressed data size.
-    pub ch_size: U32Bytes<E>,
+    pub ch_size: U32<E>,
     /// Uncompressed data alignment.
-    pub ch_addralign: U32Bytes<E>,
+    pub ch_addralign: U32<E>,
 }
 
 /// Section compression header.
@@ -821,13 +827,13 @@ pub struct CompressionHeader32<E: Endian> {
 #[repr(C)]
 pub struct CompressionHeader64<E: Endian> {
     /// Compression format. One of the `ELFCOMPRESS_*` values.
-    pub ch_type: U32Bytes<E>,
+    pub ch_type: U32<E>,
     /// Reserved.
-    pub ch_reserved: U32Bytes<E>,
+    pub ch_reserved: U32<E>,
     /// Uncompressed data size.
-    pub ch_size: U64Bytes<E>,
+    pub ch_size: U64<E>,
     /// Uncompressed data alignment.
-    pub ch_addralign: U64Bytes<E>,
+    pub ch_addralign: U64<E>,
 }
 
 /// ZLIB/DEFLATE algorithm.
@@ -1481,7 +1487,7 @@ pub const NT_VERSION: u32 = 1;
 #[repr(C)]
 pub struct Dyn32<E: Endian> {
     /// Dynamic entry type.
-    pub d_tag: U32<E>,
+    pub d_tag: I32<E>,
     /// Value (integer or address).
     pub d_val: U32<E>,
 }
@@ -1491,7 +1497,7 @@ pub struct Dyn32<E: Endian> {
 #[repr(C)]
 pub struct Dyn64<E: Endian> {
     /// Dynamic entry type.
-    pub d_tag: U64<E>,
+    pub d_tag: I64<E>,
     /// Value (integer or address).
     pub d_val: U64<E>,
 }
@@ -1499,154 +1505,174 @@ pub struct Dyn64<E: Endian> {
 // Values for `Dyn*::d_tag`.
 
 /// Marks end of dynamic section
-pub const DT_NULL: u32 = 0;
+pub const DT_NULL: i64 = 0;
 /// Name of needed library
-pub const DT_NEEDED: u32 = 1;
+pub const DT_NEEDED: i64 = 1;
 /// Size in bytes of PLT relocs
-pub const DT_PLTRELSZ: u32 = 2;
+pub const DT_PLTRELSZ: i64 = 2;
 /// Processor defined value
-pub const DT_PLTGOT: u32 = 3;
+pub const DT_PLTGOT: i64 = 3;
 /// Address of symbol hash table
-pub const DT_HASH: u32 = 4;
+pub const DT_HASH: i64 = 4;
 /// Address of string table
-pub const DT_STRTAB: u32 = 5;
+pub const DT_STRTAB: i64 = 5;
 /// Address of symbol table
-pub const DT_SYMTAB: u32 = 6;
+pub const DT_SYMTAB: i64 = 6;
 /// Address of Rela relocs
-pub const DT_RELA: u32 = 7;
+pub const DT_RELA: i64 = 7;
 /// Total size of Rela relocs
-pub const DT_RELASZ: u32 = 8;
+pub const DT_RELASZ: i64 = 8;
 /// Size of one Rela reloc
-pub const DT_RELAENT: u32 = 9;
+pub const DT_RELAENT: i64 = 9;
 /// Size of string table
-pub const DT_STRSZ: u32 = 10;
+pub const DT_STRSZ: i64 = 10;
 /// Size of one symbol table entry
-pub const DT_SYMENT: u32 = 11;
+pub const DT_SYMENT: i64 = 11;
 /// Address of init function
-pub const DT_INIT: u32 = 12;
+pub const DT_INIT: i64 = 12;
 /// Address of termination function
-pub const DT_FINI: u32 = 13;
+pub const DT_FINI: i64 = 13;
 /// Name of shared object
-pub const DT_SONAME: u32 = 14;
+pub const DT_SONAME: i64 = 14;
 /// Library search path (deprecated)
-pub const DT_RPATH: u32 = 15;
+pub const DT_RPATH: i64 = 15;
 /// Start symbol search here
-pub const DT_SYMBOLIC: u32 = 16;
+pub const DT_SYMBOLIC: i64 = 16;
 /// Address of Rel relocs
-pub const DT_REL: u32 = 17;
+pub const DT_REL: i64 = 17;
 /// Total size of Rel relocs
-pub const DT_RELSZ: u32 = 18;
+pub const DT_RELSZ: i64 = 18;
 /// Size of one Rel reloc
-pub const DT_RELENT: u32 = 19;
+pub const DT_RELENT: i64 = 19;
 /// Type of reloc in PLT
-pub const DT_PLTREL: u32 = 20;
+pub const DT_PLTREL: i64 = 20;
 /// For debugging; unspecified
-pub const DT_DEBUG: u32 = 21;
+pub const DT_DEBUG: i64 = 21;
 /// Reloc might modify .text
-pub const DT_TEXTREL: u32 = 22;
+pub const DT_TEXTREL: i64 = 22;
 /// Address of PLT relocs
-pub const DT_JMPREL: u32 = 23;
+pub const DT_JMPREL: i64 = 23;
 /// Process relocations of object
-pub const DT_BIND_NOW: u32 = 24;
+pub const DT_BIND_NOW: i64 = 24;
 /// Array with addresses of init fct
-pub const DT_INIT_ARRAY: u32 = 25;
+pub const DT_INIT_ARRAY: i64 = 25;
 /// Array with addresses of fini fct
-pub const DT_FINI_ARRAY: u32 = 26;
+pub const DT_FINI_ARRAY: i64 = 26;
 /// Size in bytes of DT_INIT_ARRAY
-pub const DT_INIT_ARRAYSZ: u32 = 27;
+pub const DT_INIT_ARRAYSZ: i64 = 27;
 /// Size in bytes of DT_FINI_ARRAY
-pub const DT_FINI_ARRAYSZ: u32 = 28;
+pub const DT_FINI_ARRAYSZ: i64 = 28;
 /// Library search path
-pub const DT_RUNPATH: u32 = 29;
+pub const DT_RUNPATH: i64 = 29;
 /// Flags for the object being loaded
-pub const DT_FLAGS: u32 = 30;
+pub const DT_FLAGS: i64 = 30;
 /// Start of encoded range
-pub const DT_ENCODING: u32 = 32;
+pub const DT_ENCODING: i64 = 32;
 /// Array with addresses of preinit fct
-pub const DT_PREINIT_ARRAY: u32 = 32;
+pub const DT_PREINIT_ARRAY: i64 = 32;
 /// size in bytes of DT_PREINIT_ARRAY
-pub const DT_PREINIT_ARRAYSZ: u32 = 33;
+pub const DT_PREINIT_ARRAYSZ: i64 = 33;
 /// Address of SYMTAB_SHNDX section
-pub const DT_SYMTAB_SHNDX: u32 = 34;
+pub const DT_SYMTAB_SHNDX: i64 = 34;
+/// Address of Relr relocs
+pub const DT_RELR: i64 = 36;
+/// Total size of Relr relocs
+pub const DT_RELRSZ: i64 = 35;
+/// Size of one Relr reloc
+pub const DT_RELRENT: i64 = 37;
 /// Start of OS-specific
-pub const DT_LOOS: u32 = 0x6000_000d;
+pub const DT_LOOS: i64 = 0x6000_000d;
+/// Address of Android-specific compressed Rel relocs
+pub const DT_ANDROID_REL: i64 = 0x6000000f;
+/// Total size of Android-specific compressed Rel relocs
+pub const DT_ANDROID_RELSZ: i64 = 0x60000010;
+/// Address of Android-specific compressed Rela relocs
+pub const DT_ANDROID_RELA: i64 = 0x60000011;
+/// Total size of Android-specific compressed Rela relocs
+pub const DT_ANDROID_RELASZ: i64 = 0x60000012;
+/// Address of Android-specific Relr relocs
+pub const DT_ANDROID_RELR: i64 = 0x6fff_e000;
+/// Total size of Android-specific Relr relocs
+pub const DT_ANDROID_RELRSZ: i64 = 0x6fff_e001;
+/// Size of one Android-specific Relr reloc
+pub const DT_ANDROID_RELRENT: i64 = 0x6fff_e003;
 /// End of OS-specific
-pub const DT_HIOS: u32 = 0x6fff_f000;
+pub const DT_HIOS: i64 = 0x6fff_f000;
 /// Start of processor-specific
-pub const DT_LOPROC: u32 = 0x7000_0000;
+pub const DT_LOPROC: i64 = 0x7000_0000;
 /// End of processor-specific
-pub const DT_HIPROC: u32 = 0x7fff_ffff;
+pub const DT_HIPROC: i64 = 0x7fff_ffff;
 
 // `DT_*` entries between `DT_VALRNGHI` & `DT_VALRNGLO` use `d_val` as a value.
-pub const DT_VALRNGLO: u32 = 0x6fff_fd00;
+pub const DT_VALRNGLO: i64 = 0x6fff_fd00;
 /// Prelinking timestamp
-pub const DT_GNU_PRELINKED: u32 = 0x6fff_fdf5;
+pub const DT_GNU_PRELINKED: i64 = 0x6fff_fdf5;
 /// Size of conflict section
-pub const DT_GNU_CONFLICTSZ: u32 = 0x6fff_fdf6;
+pub const DT_GNU_CONFLICTSZ: i64 = 0x6fff_fdf6;
 /// Size of library list
-pub const DT_GNU_LIBLISTSZ: u32 = 0x6fff_fdf7;
-pub const DT_CHECKSUM: u32 = 0x6fff_fdf8;
-pub const DT_PLTPADSZ: u32 = 0x6fff_fdf9;
-pub const DT_MOVEENT: u32 = 0x6fff_fdfa;
-pub const DT_MOVESZ: u32 = 0x6fff_fdfb;
+pub const DT_GNU_LIBLISTSZ: i64 = 0x6fff_fdf7;
+pub const DT_CHECKSUM: i64 = 0x6fff_fdf8;
+pub const DT_PLTPADSZ: i64 = 0x6fff_fdf9;
+pub const DT_MOVEENT: i64 = 0x6fff_fdfa;
+pub const DT_MOVESZ: i64 = 0x6fff_fdfb;
 /// Feature selection (DTF_*).
-pub const DT_FEATURE_1: u32 = 0x6fff_fdfc;
+pub const DT_FEATURE_1: i64 = 0x6fff_fdfc;
 /// Flags for DT_* entries, affecting the following DT_* entry.
-pub const DT_POSFLAG_1: u32 = 0x6fff_fdfd;
+pub const DT_POSFLAG_1: i64 = 0x6fff_fdfd;
 /// Size of syminfo table (in bytes)
-pub const DT_SYMINSZ: u32 = 0x6fff_fdfe;
+pub const DT_SYMINSZ: i64 = 0x6fff_fdfe;
 /// Entry size of syminfo
-pub const DT_SYMINENT: u32 = 0x6fff_fdff;
-pub const DT_VALRNGHI: u32 = 0x6fff_fdff;
+pub const DT_SYMINENT: i64 = 0x6fff_fdff;
+pub const DT_VALRNGHI: i64 = 0x6fff_fdff;
 
 // `DT_*` entries between `DT_ADDRRNGHI` & `DT_ADDRRNGLO` use `d_val` as an address.
 //
 // If any adjustment is made to the ELF object after it has been
 // built these entries will need to be adjusted.
-pub const DT_ADDRRNGLO: u32 = 0x6fff_fe00;
+pub const DT_ADDRRNGLO: i64 = 0x6fff_fe00;
 /// GNU-style hash table.
-pub const DT_GNU_HASH: u32 = 0x6fff_fef5;
-pub const DT_TLSDESC_PLT: u32 = 0x6fff_fef6;
-pub const DT_TLSDESC_GOT: u32 = 0x6fff_fef7;
+pub const DT_GNU_HASH: i64 = 0x6fff_fef5;
+pub const DT_TLSDESC_PLT: i64 = 0x6fff_fef6;
+pub const DT_TLSDESC_GOT: i64 = 0x6fff_fef7;
 /// Start of conflict section
-pub const DT_GNU_CONFLICT: u32 = 0x6fff_fef8;
+pub const DT_GNU_CONFLICT: i64 = 0x6fff_fef8;
 /// Library list
-pub const DT_GNU_LIBLIST: u32 = 0x6fff_fef9;
+pub const DT_GNU_LIBLIST: i64 = 0x6fff_fef9;
 /// Configuration information.
-pub const DT_CONFIG: u32 = 0x6fff_fefa;
+pub const DT_CONFIG: i64 = 0x6fff_fefa;
 /// Dependency auditing.
-pub const DT_DEPAUDIT: u32 = 0x6fff_fefb;
+pub const DT_DEPAUDIT: i64 = 0x6fff_fefb;
 /// Object auditing.
-pub const DT_AUDIT: u32 = 0x6fff_fefc;
+pub const DT_AUDIT: i64 = 0x6fff_fefc;
 /// PLT padding.
-pub const DT_PLTPAD: u32 = 0x6fff_fefd;
+pub const DT_PLTPAD: i64 = 0x6fff_fefd;
 /// Move table.
-pub const DT_MOVETAB: u32 = 0x6fff_fefe;
+pub const DT_MOVETAB: i64 = 0x6fff_fefe;
 /// Syminfo table.
-pub const DT_SYMINFO: u32 = 0x6fff_feff;
-pub const DT_ADDRRNGHI: u32 = 0x6fff_feff;
+pub const DT_SYMINFO: i64 = 0x6fff_feff;
+pub const DT_ADDRRNGHI: i64 = 0x6fff_feff;
 
 // The versioning entry types.  The next are defined as part of the
 // GNU extension.
-pub const DT_VERSYM: u32 = 0x6fff_fff0;
-pub const DT_RELACOUNT: u32 = 0x6fff_fff9;
-pub const DT_RELCOUNT: u32 = 0x6fff_fffa;
+pub const DT_VERSYM: i64 = 0x6fff_fff0;
+pub const DT_RELACOUNT: i64 = 0x6fff_fff9;
+pub const DT_RELCOUNT: i64 = 0x6fff_fffa;
 /// State flags, see DF_1_* below.
-pub const DT_FLAGS_1: u32 = 0x6fff_fffb;
+pub const DT_FLAGS_1: i64 = 0x6fff_fffb;
 /// Address of version definition table
-pub const DT_VERDEF: u32 = 0x6fff_fffc;
+pub const DT_VERDEF: i64 = 0x6fff_fffc;
 /// Number of version definitions
-pub const DT_VERDEFNUM: u32 = 0x6fff_fffd;
+pub const DT_VERDEFNUM: i64 = 0x6fff_fffd;
 /// Address of table with needed versions
-pub const DT_VERNEED: u32 = 0x6fff_fffe;
+pub const DT_VERNEED: i64 = 0x6fff_fffe;
 /// Number of needed versions
-pub const DT_VERNEEDNUM: u32 = 0x6fff_ffff;
+pub const DT_VERNEEDNUM: i64 = 0x6fff_ffff;
 
 // Machine-independent extensions in the "processor-specific" range.
 /// Shared object to load before self
-pub const DT_AUXILIARY: u32 = 0x7fff_fffd;
+pub const DT_AUXILIARY: i64 = 0x7fff_fffd;
 /// Shared object to get values from
-pub const DT_FILTER: u32 = 0x7fff_ffff;
+pub const DT_FILTER: i64 = 0x7fff_ffff;
 
 // Values of `Dyn*::d_val` in the `DT_FLAGS` entry.
 /// Object may use DF_ORIGIN
@@ -2524,7 +2550,7 @@ pub const R_SPARC_REV32: u32 = 252;
 
 // Sparc64 values for `Dyn32::d_tag`.
 
-pub const DT_SPARC_REGISTER: u32 = 0x7000_0001;
+pub const DT_SPARC_REGISTER: i64 = 0x7000_0001;
 
 // MIPS R3000 specific definitions.
 
@@ -2836,89 +2862,89 @@ pub const PF_MIPS_LOCAL: u32 = 0x1000_0000;
 // MIPS values for `Dyn32::d_tag`.
 
 /// Runtime linker interface version
-pub const DT_MIPS_RLD_VERSION: u32 = 0x7000_0001;
+pub const DT_MIPS_RLD_VERSION: i64 = 0x7000_0001;
 /// Timestamp
-pub const DT_MIPS_TIME_STAMP: u32 = 0x7000_0002;
+pub const DT_MIPS_TIME_STAMP: i64 = 0x7000_0002;
 /// Checksum
-pub const DT_MIPS_ICHECKSUM: u32 = 0x7000_0003;
+pub const DT_MIPS_ICHECKSUM: i64 = 0x7000_0003;
 /// Version string (string tbl index)
-pub const DT_MIPS_IVERSION: u32 = 0x7000_0004;
+pub const DT_MIPS_IVERSION: i64 = 0x7000_0004;
 /// Flags
-pub const DT_MIPS_FLAGS: u32 = 0x7000_0005;
+pub const DT_MIPS_FLAGS: i64 = 0x7000_0005;
 /// Base address
-pub const DT_MIPS_BASE_ADDRESS: u32 = 0x7000_0006;
-pub const DT_MIPS_MSYM: u32 = 0x7000_0007;
+pub const DT_MIPS_BASE_ADDRESS: i64 = 0x7000_0006;
+pub const DT_MIPS_MSYM: i64 = 0x7000_0007;
 /// Address of CONFLICT section
-pub const DT_MIPS_CONFLICT: u32 = 0x7000_0008;
+pub const DT_MIPS_CONFLICT: i64 = 0x7000_0008;
 /// Address of LIBLIST section
-pub const DT_MIPS_LIBLIST: u32 = 0x7000_0009;
+pub const DT_MIPS_LIBLIST: i64 = 0x7000_0009;
 /// Number of local GOT entries
-pub const DT_MIPS_LOCAL_GOTNO: u32 = 0x7000_000a;
+pub const DT_MIPS_LOCAL_GOTNO: i64 = 0x7000_000a;
 /// Number of CONFLICT entries
-pub const DT_MIPS_CONFLICTNO: u32 = 0x7000_000b;
+pub const DT_MIPS_CONFLICTNO: i64 = 0x7000_000b;
 /// Number of LIBLIST entries
-pub const DT_MIPS_LIBLISTNO: u32 = 0x7000_0010;
+pub const DT_MIPS_LIBLISTNO: i64 = 0x7000_0010;
 /// Number of DYNSYM entries
-pub const DT_MIPS_SYMTABNO: u32 = 0x7000_0011;
+pub const DT_MIPS_SYMTABNO: i64 = 0x7000_0011;
 /// First external DYNSYM
-pub const DT_MIPS_UNREFEXTNO: u32 = 0x7000_0012;
+pub const DT_MIPS_UNREFEXTNO: i64 = 0x7000_0012;
 /// First GOT entry in DYNSYM
-pub const DT_MIPS_GOTSYM: u32 = 0x7000_0013;
+pub const DT_MIPS_GOTSYM: i64 = 0x7000_0013;
 /// Number of GOT page table entries
-pub const DT_MIPS_HIPAGENO: u32 = 0x7000_0014;
+pub const DT_MIPS_HIPAGENO: i64 = 0x7000_0014;
 /// Address of run time loader map.
-pub const DT_MIPS_RLD_MAP: u32 = 0x7000_0016;
+pub const DT_MIPS_RLD_MAP: i64 = 0x7000_0016;
 /// Delta C++ class definition.
-pub const DT_MIPS_DELTA_CLASS: u32 = 0x7000_0017;
+pub const DT_MIPS_DELTA_CLASS: i64 = 0x7000_0017;
 /// Number of entries in DT_MIPS_DELTA_CLASS.
-pub const DT_MIPS_DELTA_CLASS_NO: u32 = 0x7000_0018;
+pub const DT_MIPS_DELTA_CLASS_NO: i64 = 0x7000_0018;
 /// Delta C++ class instances.
-pub const DT_MIPS_DELTA_INSTANCE: u32 = 0x7000_0019;
+pub const DT_MIPS_DELTA_INSTANCE: i64 = 0x7000_0019;
 /// Number of entries in DT_MIPS_DELTA_INSTANCE.
-pub const DT_MIPS_DELTA_INSTANCE_NO: u32 = 0x7000_001a;
+pub const DT_MIPS_DELTA_INSTANCE_NO: i64 = 0x7000_001a;
 /// Delta relocations.
-pub const DT_MIPS_DELTA_RELOC: u32 = 0x7000_001b;
+pub const DT_MIPS_DELTA_RELOC: i64 = 0x7000_001b;
 /// Number of entries in DT_MIPS_DELTA_RELOC.
-pub const DT_MIPS_DELTA_RELOC_NO: u32 = 0x7000_001c;
+pub const DT_MIPS_DELTA_RELOC_NO: i64 = 0x7000_001c;
 /// Delta symbols that Delta relocations refer to.
-pub const DT_MIPS_DELTA_SYM: u32 = 0x7000_001d;
+pub const DT_MIPS_DELTA_SYM: i64 = 0x7000_001d;
 /// Number of entries in DT_MIPS_DELTA_SYM.
-pub const DT_MIPS_DELTA_SYM_NO: u32 = 0x7000_001e;
+pub const DT_MIPS_DELTA_SYM_NO: i64 = 0x7000_001e;
 /// Delta symbols that hold the class declaration.
-pub const DT_MIPS_DELTA_CLASSSYM: u32 = 0x7000_0020;
+pub const DT_MIPS_DELTA_CLASSSYM: i64 = 0x7000_0020;
 /// Number of entries in DT_MIPS_DELTA_CLASSSYM.
-pub const DT_MIPS_DELTA_CLASSSYM_NO: u32 = 0x7000_0021;
+pub const DT_MIPS_DELTA_CLASSSYM_NO: i64 = 0x7000_0021;
 /// Flags indicating for C++ flavor.
-pub const DT_MIPS_CXX_FLAGS: u32 = 0x7000_0022;
-pub const DT_MIPS_PIXIE_INIT: u32 = 0x7000_0023;
-pub const DT_MIPS_SYMBOL_LIB: u32 = 0x7000_0024;
-pub const DT_MIPS_LOCALPAGE_GOTIDX: u32 = 0x7000_0025;
-pub const DT_MIPS_LOCAL_GOTIDX: u32 = 0x7000_0026;
-pub const DT_MIPS_HIDDEN_GOTIDX: u32 = 0x7000_0027;
-pub const DT_MIPS_PROTECTED_GOTIDX: u32 = 0x7000_0028;
+pub const DT_MIPS_CXX_FLAGS: i64 = 0x7000_0022;
+pub const DT_MIPS_PIXIE_INIT: i64 = 0x7000_0023;
+pub const DT_MIPS_SYMBOL_LIB: i64 = 0x7000_0024;
+pub const DT_MIPS_LOCALPAGE_GOTIDX: i64 = 0x7000_0025;
+pub const DT_MIPS_LOCAL_GOTIDX: i64 = 0x7000_0026;
+pub const DT_MIPS_HIDDEN_GOTIDX: i64 = 0x7000_0027;
+pub const DT_MIPS_PROTECTED_GOTIDX: i64 = 0x7000_0028;
 /// Address of .options.
-pub const DT_MIPS_OPTIONS: u32 = 0x7000_0029;
+pub const DT_MIPS_OPTIONS: i64 = 0x7000_0029;
 /// Address of .interface.
-pub const DT_MIPS_INTERFACE: u32 = 0x7000_002a;
-pub const DT_MIPS_DYNSTR_ALIGN: u32 = 0x7000_002b;
+pub const DT_MIPS_INTERFACE: i64 = 0x7000_002a;
+pub const DT_MIPS_DYNSTR_ALIGN: i64 = 0x7000_002b;
 /// Size of the .interface section.
-pub const DT_MIPS_INTERFACE_SIZE: u32 = 0x7000_002c;
+pub const DT_MIPS_INTERFACE_SIZE: i64 = 0x7000_002c;
 /// Address of rld_text_rsolve function stored in GOT.
-pub const DT_MIPS_RLD_TEXT_RESOLVE_ADDR: u32 = 0x7000_002d;
+pub const DT_MIPS_RLD_TEXT_RESOLVE_ADDR: i64 = 0x7000_002d;
 /// Default suffix of dso to be added by rld on dlopen() calls.
-pub const DT_MIPS_PERF_SUFFIX: u32 = 0x7000_002e;
+pub const DT_MIPS_PERF_SUFFIX: i64 = 0x7000_002e;
 /// (O32)Size of compact rel section.
-pub const DT_MIPS_COMPACT_SIZE: u32 = 0x7000_002f;
+pub const DT_MIPS_COMPACT_SIZE: i64 = 0x7000_002f;
 /// GP value for aux GOTs.
-pub const DT_MIPS_GP_VALUE: u32 = 0x7000_0030;
+pub const DT_MIPS_GP_VALUE: i64 = 0x7000_0030;
 /// Address of aux .dynamic.
-pub const DT_MIPS_AUX_DYNAMIC: u32 = 0x7000_0031;
+pub const DT_MIPS_AUX_DYNAMIC: i64 = 0x7000_0031;
 /// The address of .got.plt in an executable using the new non-PIC ABI.
-pub const DT_MIPS_PLTGOT: u32 = 0x7000_0032;
+pub const DT_MIPS_PLTGOT: i64 = 0x7000_0032;
 /// The base of the PLT in an executable using the new non-PIC ABI if that PLT is writable.  For a non-writable PLT, this is omitted or has a zero value.
-pub const DT_MIPS_RWPLT: u32 = 0x7000_0034;
+pub const DT_MIPS_RWPLT: i64 = 0x7000_0034;
 /// An alternative description of the classic MIPS RLD_MAP that is usable in a PIE as it stores a relative offset from the address of the tag rather than an absolute address.
-pub const DT_MIPS_RLD_MAP_REL: u32 = 0x7000_0035;
+pub const DT_MIPS_RLD_MAP_REL: i64 = 0x7000_0035;
 
 // Values for `DT_MIPS_FLAGS` `Dyn32` entry.
 
@@ -3357,7 +3383,7 @@ pub const LITUSE_ALPHA_TLS_GD: u32 = 4;
 pub const LITUSE_ALPHA_TLS_LDM: u32 = 5;
 
 // Alpha values for `Dyn64::d_tag`.
-pub const DT_ALPHA_PLTRO: u32 = DT_LOPROC + 0;
+pub const DT_ALPHA_PLTRO: i64 = DT_LOPROC + 0;
 
 // PowerPC specific declarations.
 
@@ -3533,8 +3559,8 @@ pub const R_PPC_REL16_HA: u32 = 252;
 pub const R_PPC_TOC16: u32 = 255;
 
 // PowerPC specific values for `Dyn*::d_tag`.
-pub const DT_PPC_GOT: u32 = DT_LOPROC + 0;
-pub const DT_PPC_OPT: u32 = DT_LOPROC + 1;
+pub const DT_PPC_GOT: i64 = DT_LOPROC + 0;
+pub const DT_PPC_OPT: i64 = DT_LOPROC + 1;
 
 // PowerPC specific values for the `DT_PPC_OPT` entry.
 pub const PPC_OPT_TLS: u32 = 1;
@@ -3766,10 +3792,10 @@ pub const R_PPC64_REL16_HA: u32 = 252;
 pub const EF_PPC64_ABI: u32 = 3;
 
 // PowerPC64 values for `Dyn64::d_tag.
-pub const DT_PPC64_GLINK: u32 = DT_LOPROC + 0;
-pub const DT_PPC64_OPD: u32 = DT_LOPROC + 1;
-pub const DT_PPC64_OPDSZ: u32 = DT_LOPROC + 2;
-pub const DT_PPC64_OPT: u32 = DT_LOPROC + 3;
+pub const DT_PPC64_GLINK: i64 = DT_LOPROC + 0;
+pub const DT_PPC64_OPD: i64 = DT_LOPROC + 1;
+pub const DT_PPC64_OPDSZ: i64 = DT_LOPROC + 2;
+pub const DT_PPC64_OPT: i64 = DT_LOPROC + 3;
 
 // PowerPC64 bits for `DT_PPC64_OPT` entry.
 pub const PPC64_OPT_TLS: u32 = 1;
@@ -3855,6 +3881,15 @@ pub const SHT_ARM_ATTRIBUTES: u32 = SHT_LOPROC + 3;
 // AArch64 values for `SectionHeader*::sh_type`.
 /// AArch64 attributes section.
 pub const SHT_AARCH64_ATTRIBUTES: u32 = SHT_LOPROC + 3;
+
+// AArch64 values for `Sym64::st_other`.
+pub const STO_AARCH64_VARIANT_PCS: u8 = 0x80;
+
+// AArch64 values for `Dyn64::d_tag`.
+pub const DT_AARCH64_BTI_PLT: i64 = DT_LOPROC + 1;
+pub const DT_AARCH64_PAC_PLT: i64 = DT_LOPROC + 3;
+pub const DT_AARCH64_VARIANT_PCS: i64 = DT_LOPROC + 5;
+pub const DT_AARCH64_NUM: i64 = 6;
 
 // AArch64 values for `Rel*::r_type`.
 
@@ -3986,6 +4021,10 @@ pub const R_AARCH64_ADR_GOT_PAGE: u32 = 311;
 pub const R_AARCH64_LD64_GOT_LO12_NC: u32 = 312;
 /// GOT-page-rel. GOT off. LD/ST 14:3
 pub const R_AARCH64_LD64_GOTPAGE_LO15: u32 = 313;
+/// PC-relative 32-bit.
+pub const R_AARCH64_PLT32: u32 = 314;
+/// GOT-relative PC-relative.
+pub const R_AARCH64_GOTPCREL32: u32 = 315;
 /// PC-relative ADR imm. 20:0.
 pub const R_AARCH64_TLSGD_ADR_PREL21: u32 = 512;
 /// page-rel. ADRP imm. 32:12.
@@ -4201,6 +4240,8 @@ pub const R_AVR_32_PCREL: u32 = 36;
 
 // MSP430 values for `Rel*::r_type`.
 
+/// No reloc
+pub const R_MSP430_NONE: u32 = 0;
 /// Direct 32 bit
 pub const R_MSP430_32: u32 = 1;
 /// Direct 16 bit
@@ -4208,6 +4249,8 @@ pub const R_MSP430_16_BYTE: u32 = 5;
 
 // Hexagon values for `Rel*::r_type`.
 
+/// No reloc
+pub const R_HEX_NONE: u32 = 0;
 /// Direct 32 bit
 pub const R_HEX_32: u32 = 6;
 
@@ -4595,7 +4638,7 @@ pub const SHF_IA_64_SHORT: u32 = 0x1000_0000;
 pub const SHF_IA_64_NORECOV: u32 = 0x2000_0000;
 
 // IA-64 values for `Dyn64::d_tag`.
-pub const DT_IA_64_PLT_RESERVE: u32 = DT_LOPROC + 0;
+pub const DT_IA_64_PLT_RESERVE: i64 = DT_LOPROC + 0;
 
 // IA-64 values for `Rel*::r_type`.
 /// none
@@ -5067,6 +5110,24 @@ pub const R_X86_64_RELATIVE64: u32 = 38;
 pub const R_X86_64_GOTPCRELX: u32 = 41;
 /// Load from 32 bit signed pc relative offset to GOT entry with REX prefix, relaxable.
 pub const R_X86_64_REX_GOTPCRELX: u32 = 42;
+/// 32 bit signed PC relative offset to GOT if the instruction starts at 4 bytes before the relocation offset, relaxable.
+pub const R_X86_64_CODE_4_GOTPCRELX: u32 = 43;
+/// 32 bit signed PC relative offset to GOT entry for IE symbol if the instruction starts at 4 bytes before the relocation offset.
+pub const R_X86_64_CODE_4_GOTTPOFF: u32 = 44;
+/// 32-bit PC relative to TLS descriptor in GOT if the instruction starts at 4 bytes before the relocation offset.
+pub const R_X86_64_CODE_4_GOTPC32_TLSDESC: u32 = 45;
+/// 32 bit signed PC relative offset to GOT if the instruction starts at 5 bytes before the relocation offset, relaxable.
+pub const R_X86_64_CODE_5_GOTPCRELX: u32 = 46;
+/// 32 bit signed PC relative offset to GOT entry for IE symbol if the instruction starts at 5 bytes before the relocation offset.
+pub const R_X86_64_CODE_5_GOTTPOFF: u32 = 47;
+/// 32-bit PC relative to TLS descriptor in GOT if the instruction starts at 5 bytes before the relocation offset.
+pub const R_X86_64_CODE_5_GOTPC32_TLSDESC: u32 = 48;
+/// 32 bit signed PC relative offset to GOT if the instruction starts at 6 bytes before the relocation offset, relaxable.
+pub const R_X86_64_CODE_6_GOTPCRELX: u32 = 49;
+/// 32 bit signed PC relative offset to GOT entry for IE symbol if the instruction starts at 6 bytes before the relocation offset.
+pub const R_X86_64_CODE_6_GOTTPOFF: u32 = 50;
+/// 32-bit PC relative to TLS descriptor in GOT if the instruction starts at 6 bytes before the relocation offset.
+pub const R_X86_64_CODE_6_GOTPC32_TLSDESC: u32 = 51;
 
 // AMD x86-64 values `SectionHeader*::sh_type`.
 /// Unwind information.
@@ -5296,7 +5357,7 @@ pub const R_MICROBLAZE_TLSTPREL32: u32 = 29;
 
 // Nios II values `Dyn::d_tag`.
 /// Address of _gp.
-pub const DT_NIOS2_GP: u32 = 0x7000_0002;
+pub const DT_NIOS2_GP: i64 = 0x7000_0002;
 
 // Nios II values `Rel*::r_type`.
 /// No reloc.
@@ -5834,9 +5895,21 @@ pub const EF_RISCV_RVE: u32 = 0x0008;
 pub const EF_RISCV_TSO: u32 = 0x0010;
 pub const EF_RISCV_RV64ILP32: u32 = 0x0020;
 
+// RISC-V values for `Sym64::st_other`.
+/// Function uses variant calling convention.
+pub const STO_RISCV_VARIANT_CC: u8 = 0x80;
+
 // RISC-V values for `SectionHeader*::sh_type`.
 /// RISC-V attributes section.
 pub const SHT_RISCV_ATTRIBUTES: u32 = SHT_LOPROC + 3;
+
+// RISC-V values for `ProgramHeader*::p_type`.
+
+pub const PT_RISCV_ATTRIBUTES: u32 = PT_LOPROC + 3;
+
+// RISC-V values for `Dyn64::d_tag`.
+
+pub const DT_RISCV_VARIANT_CC: i64 = DT_LOPROC + 1;
 
 // RISC-V values `Rel*::r_type`.
 pub const R_RISCV_NONE: u32 = 0;
@@ -6028,6 +6101,10 @@ pub const R_LARCH_TLS_TPREL32: u32 = 10;
 pub const R_LARCH_TLS_TPREL64: u32 = 11;
 /// Runtime local indirect function resolving
 pub const R_LARCH_IRELATIVE: u32 = 12;
+/// Runtime relocation for TLS descriptors
+pub const R_LARCH_TLS_DESC32: u32 = 13;
+/// Runtime relocation for TLS descriptors
+pub const R_LARCH_TLS_DESC64: u32 = 14;
 /// Mark la.abs: load absolute address for static link.
 pub const R_LARCH_MARK_LA: u32 = 20;
 /// Mark external label branch: access PC relative address for static link.
@@ -6263,6 +6340,62 @@ pub const R_LARCH_TLS_LD_PCREL20_S2: u32 = 124;
 pub const R_LARCH_TLS_GD_PCREL20_S2: u32 = 125;
 /// 22-bit PC-relative offset to TLS DESC GOT entry
 pub const R_LARCH_TLS_DESC_PCREL20_S2: u32 = 126;
+/// 12..=31 bits of `S + A - PC` into the `pcaddu12i` instruction at `PC`,
+/// and 2..=11 bits of `S + A - PC` into the `jirl` instruction at `PC + 4`
+pub const R_LARCH_CALL30: u32 = 127;
+/// The signed 32-bit offset `offs` from `PC` to `(S + A + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for `S + A` as `PC + offs` (`offs`
+/// is sign-extended to VA bits).
+pub const R_LARCH_PCADD_HI20: u32 = 128;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC relative anchor][R_LARCH_PCADD_HI20].
+pub const R_LARCH_PCADD_LO12: u32 = 129;
+/// The signed 32-bit offset `offs` from `PC` to
+/// `(GP + G + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for the GOT entry at `GP + G` as
+/// `PC + offs` (`offs` is sign-extended to VA bits).
+pub const R_LARCH_GOT_PCADD_HI20: u32 = 130;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC relative anchor][R_LARCH_GOT_PCADD_HI20] to the GOT entry.
+pub const R_LARCH_GOT_PCADD_LO12: u32 = 131;
+/// The signed 32-bit offset `offs` from `PC` to
+/// `(GP + IE + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for the TLS IE GOT entry at
+/// `GP + IE` as `PC + offs` (`offs` is sign-extended to VA bits).
+pub const R_LARCH_TLS_IE_PCADD_HI20: u32 = 132;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC-relative anchor][R_LARCH_TLS_IE_PCADD_HI20] to the TLS IE GOT entry.
+pub const R_LARCH_TLS_IE_PCADD_LO12: u32 = 133;
+/// The signed 32-bit offset `offs` from `PC` to
+/// `(GP + GD + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for the TLS LD GOT entry at
+/// `GP + GD` as `PC + offs` (`offs` is sign-extended to VA bits).
+pub const R_LARCH_TLS_LD_PCADD_HI20: u32 = 134;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC-relative anchor][R_LARCH_TLS_LD_PCADD_HI20] to the TLS LD GOT entry.
+pub const R_LARCH_TLS_LD_PCADD_LO12: u32 = 135;
+/// The signed 32-bit offset `offs` from `PC` to
+/// `(GP + GD + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for the TLS GD GOT entry at
+/// `GP + GD` as `PC + offs` (`offs` is sign-extended to VA bits).
+pub const R_LARCH_TLS_GD_PCADD_HI20: u32 = 136;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC-relative anchor][R_LARCH_TLS_GD_PCADD_HI20] to the TLS GD GOT entry.
+pub const R_LARCH_TLS_GD_PCADD_LO12: u32 = 137;
+/// The signed 32-bit offset `offs` from `PC` to
+/// `(GP + GD + 0x800) & 0xfffff000`.
+///
+/// We define the *PC relative anchor* for the TLS DESC GOT entry at
+/// `GP + GD` as `PC + offs` (`offs` is sign-extended to VA bits).
+pub const R_LARCH_TLS_DESC_PCADD_HI20: u32 = 138;
+/// 0..=11 bits of the 32-bit offset from the
+/// [PC-relative anchor][R_LARCH_TLS_DESC_PCADD_HI20] to the TLS DESC GOT entry.
+pub const R_LARCH_TLS_DESC_PCADD_LO12: u32 = 139;
 
 // Xtensa values Rel*::r_type`.
 pub const R_XTENSA_NONE: u32 = 0;
@@ -6482,16 +6615,16 @@ pub const R_E2K_64_PC: u32 = 258;
 
 // E2K values for `Dyn32::d_tag`.
 
-pub const DT_E2K_LAZY: u32 = DT_LOPROC + 1;
-pub const DT_E2K_LAZY_GOT: u32 = DT_LOPROC + 3;
+pub const DT_E2K_LAZY: i64 = DT_LOPROC + 1;
+pub const DT_E2K_LAZY_GOT: i64 = DT_LOPROC + 3;
 
-pub const DT_E2K_INIT_GOT: u32 = DT_LOPROC + 0x101c;
-pub const DT_E2K_EXPORT_PL: u32 = DT_LOPROC + 0x101d;
-pub const DT_E2K_EXPORT_PLSZ: u32 = DT_LOPROC + 0x101e;
-pub const DT_E2K_REAL_PLTGOT: u32 = DT_LOPROC + 0x101f;
-pub const DT_E2K_NO_SELFINIT: u32 = DT_LOPROC + 0x1020;
+pub const DT_E2K_INIT_GOT: i64 = DT_LOPROC + 0x101c;
+pub const DT_E2K_EXPORT_PL: i64 = DT_LOPROC + 0x101d;
+pub const DT_E2K_EXPORT_PLSZ: i64 = DT_LOPROC + 0x101e;
+pub const DT_E2K_REAL_PLTGOT: i64 = DT_LOPROC + 0x101f;
+pub const DT_E2K_NO_SELFINIT: i64 = DT_LOPROC + 0x1020;
 
-pub const DT_E2K_NUM: u32 = 0x1021;
+pub const DT_E2K_NUM: i64 = 0x1021;
 
 #[allow(non_upper_case_globals)]
 pub const Tag_File: u8 = 1;

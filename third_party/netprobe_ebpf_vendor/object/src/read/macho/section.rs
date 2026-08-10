@@ -1,12 +1,12 @@
 use core::fmt::Debug;
-use core::{fmt, result, slice, str};
+use core::{fmt, mem, result, slice, str};
 
-use crate::endian::{self, Endianness};
+use crate::endian::{self, Endianness, U32};
 use crate::macho;
 use crate::pod::Pod;
 use crate::read::{
-    self, gnu_compression, CompressedData, CompressedFileRange, ObjectSection, ReadError, ReadRef,
-    RelocationMap, Result, SectionFlags, SectionIndex, SectionKind,
+    self, gnu_compression, CompressedData, CompressedFileRange, Error, ObjectSection, ReadError,
+    ReadRef, RelocationMap, Result, SectionFlags, SectionIndex, SectionKind,
 };
 
 use super::{MachHeader, MachOFile, MachORelocationIterator};
@@ -186,7 +186,7 @@ where
     }
 
     fn compressed_data(&self) -> read::Result<CompressedData<'data>> {
-        self.compressed_file_range()?.data(self.file.data)
+        self.compressed_file_range()?.data(self.file.data.0)
     }
 
     #[inline]
@@ -295,6 +295,8 @@ pub trait Section: Debug + Pod {
     fn reloff(&self, endian: Self::Endian) -> u32;
     fn nreloc(&self, endian: Self::Endian) -> u32;
     fn flags(&self, endian: Self::Endian) -> u32;
+    fn reserved1(&self, endian: Self::Endian) -> u32;
+    fn reserved2(&self, endian: Self::Endian) -> u32;
 
     /// Return the `sectname` bytes up until the null terminator.
     fn name(&self) -> &[u8] {
@@ -314,11 +316,16 @@ pub trait Section: Debug + Pod {
         }
     }
 
+    /// Return the section type from the flags field.
+    fn section_type(&self, endian: Self::Endian) -> u32 {
+        self.flags(endian) & macho::SECTION_TYPE
+    }
+
     /// Return the offset and size of the section in the file.
     ///
     /// Returns `None` for sections that have no data in the file.
     fn file_range(&self, endian: Self::Endian) -> Option<(u64, u64)> {
-        match self.flags(endian) & macho::SECTION_TYPE {
+        match self.section_type(endian) {
             macho::S_ZEROFILL | macho::S_GB_ZEROFILL | macho::S_THREAD_LOCAL_ZEROFILL => None,
             _ => Some((self.offset(endian).into(), self.size(endian).into())),
         }
@@ -350,6 +357,47 @@ pub trait Section: Debug + Pod {
     ) -> Result<&'data [macho::Relocation<Self::Endian>]> {
         data.read_slice_at(self.reloff(endian).into(), self.nreloc(endian) as usize)
             .read_error("Invalid Mach-O relocations offset or number")
+    }
+
+    /// Return the size of symbol stubs in this section.
+    ///
+    /// Returns 0 if this section does not contain symbol stubs.
+    fn symbol_stub_size(&self, endian: Self::Endian) -> u32 {
+        if self.section_type(endian) == macho::S_SYMBOL_STUBS {
+            self.reserved2(endian)
+        } else {
+            0
+        }
+    }
+
+    /// Return the indirect symbols referenced by this section.
+    ///
+    /// Returns an empty slice if this section does not reference indirect symbols.
+    fn indirect_symbols<'data>(
+        &self,
+        endian: Self::Endian,
+        indirect_symbols: &'data [U32<Self::Endian>],
+    ) -> Result<&'data [U32<Self::Endian>]> {
+        let entry_size = match self.section_type(endian) {
+            macho::S_NON_LAZY_SYMBOL_POINTERS
+            | macho::S_LAZY_SYMBOL_POINTERS
+            | macho::S_LAZY_DYLIB_SYMBOL_POINTERS
+            | macho::S_THREAD_LOCAL_VARIABLE_POINTERS => mem::size_of::<Self::Word>(),
+            macho::S_SYMBOL_STUBS => {
+                let reserved2 = self.reserved2(endian);
+                if reserved2 == 0 {
+                    return Err(Error("Invalid Mach-O stub size"));
+                }
+                reserved2 as usize
+            }
+            _ => return Ok(&[]),
+        };
+        let start = self.reserved1(endian) as usize;
+        let count = self.size(endian).into() as usize / entry_size;
+        indirect_symbols
+            .get(start..)
+            .and_then(|symbols| symbols.get(..count))
+            .read_error("Invalid Mach-O indirect symbol index or count")
     }
 }
 
@@ -384,6 +432,12 @@ impl<Endian: endian::Endian> Section for macho::Section32<Endian> {
     fn flags(&self, endian: Self::Endian) -> u32 {
         self.flags.get(endian)
     }
+    fn reserved1(&self, endian: Self::Endian) -> u32 {
+        self.reserved1.get(endian)
+    }
+    fn reserved2(&self, endian: Self::Endian) -> u32 {
+        self.reserved2.get(endian)
+    }
 }
 
 impl<Endian: endian::Endian> Section for macho::Section64<Endian> {
@@ -416,5 +470,11 @@ impl<Endian: endian::Endian> Section for macho::Section64<Endian> {
     }
     fn flags(&self, endian: Self::Endian) -> u32 {
         self.flags.get(endian)
+    }
+    fn reserved1(&self, endian: Self::Endian) -> u32 {
+        self.reserved1.get(endian)
+    }
+    fn reserved2(&self, endian: Self::Endian) -> u32 {
+        self.reserved2.get(endian)
     }
 }
