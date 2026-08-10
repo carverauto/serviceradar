@@ -5,6 +5,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntimeTest do
 
   @moduletag :db_free
 
+  test "defaults expose canonical operation history without legacy run assigns" do
+    socket =
+      AnsiblePanelRuntime.assign_defaults(%Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}}
+      })
+
+    assert socket.assigns.ansible_operation_history == []
+    refute Map.has_key?(socket.assigns, :ansible_secure_history)
+    refute Map.has_key?(socket.assigns, :ansible_runs)
+  end
+
+  test "AWX-managed detection retains existing device-data fallbacks" do
+    assert AnsiblePanelRuntime.awx_managed?(%{
+             "metadata" => %{"awx" => %{"host_id" => 42}}
+           })
+
+    assert AnsiblePanelRuntime.awx_managed?(%{"ansible_managed" => true})
+    assert AnsiblePanelRuntime.awx_managed?(%{"discovery_sources" => ["awx"]})
+    assert AnsiblePanelRuntime.awx_managed?(%{"discovery_sources" => "{snmp,ansible}"})
+    refute AnsiblePanelRuntime.awx_managed?(%{"discovery_sources" => ["snmp"]})
+  end
+
   test "launch_error_message distinguishes hold and preflight failures from the approval catch-all" do
     assert AnsiblePanelRuntime.launch_error_message({:target_held, "sr:device-1"}) =~
              "automation hold"

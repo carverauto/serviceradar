@@ -1,5 +1,10 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
+# Read by //:agent_release_key_consistency_test, which asserts this key matches the
+# agentReleasePublicKey the control plane gets from the helm charts. This package sets no
+# default_visibility, so without the export the label is private and that test cannot see it.
+exports_files(["release_signing_key.txt"])
+
 go_library(
     name = "agent",
     srcs = [
@@ -109,6 +114,7 @@ go_library(
         "test_helpers.go",
         "types.go",
     ],
+    embedsrcs = ["release_signing_key.txt"],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [

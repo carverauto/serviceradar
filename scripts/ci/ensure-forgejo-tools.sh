@@ -66,13 +66,6 @@ case "${profile}" in
       install_as_root build-essential pkg-config libssl-dev libpcap-dev protobuf-compiler cmake flex bison file binutils rpm rpm2cpio postgresql-client || true
     fi
     ;;
-  release-rpm)
-    require_cmd rpmbuild
-    require_cmd rpm2cpio
-    if ((${#missing[@]})); then
-      install_as_root rpm rpm2cpio || true
-    fi
-    ;;
   skopeo)
     require_cmd skopeo
     if ((${#missing[@]})); then
@@ -95,10 +88,6 @@ case "${profile}" in
     require_cmd rpmbuild
     require_cmd rpm2cpio
     require_cmd psql
-    ;;
-  release-rpm)
-    require_cmd rpmbuild
-    require_cmd rpm2cpio
     ;;
   skopeo)
     require_cmd skopeo

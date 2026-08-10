@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.Northbound.History do
 
   @default_limit 10
   @max_limit 50
+  @provider_types [:native, :wasm_plugin, :ansible]
 
   @type history_entry :: %{
           id: String.t(),
@@ -67,8 +68,36 @@ defmodule ServiceRadar.Automation.Northbound.History do
     ActionInvocationTarget
     |> Ash.Query.for_read(action, args)
     |> Ash.Query.load(invocation: [:provider, :descriptor])
+    |> maybe_exclude_provider_types(opts)
     |> Ash.Query.limit(normalize_limit(Keyword.get(opts, :limit)))
   end
+
+  defp maybe_exclude_provider_types(query, opts) do
+    provider_types = normalize_provider_types(Keyword.get(opts, :exclude_provider_types, []))
+
+    case provider_types do
+      [] ->
+        query
+
+      provider_types ->
+        provider_type_names = Enum.map(provider_types, &Atom.to_string/1)
+
+        Ash.Query.filter(
+          query,
+          (not is_nil(invocation.provider_id) and
+             invocation.provider.provider_type not in ^provider_types) or
+            (is_nil(invocation.provider_id) and
+               (is_nil(invocation.metadata["provider_type"]) or
+                  invocation.metadata["provider_type"] not in ^provider_type_names))
+        )
+    end
+  end
+
+  defp normalize_provider_types(provider_types) when is_list(provider_types) do
+    Enum.filter(provider_types, &(&1 in @provider_types))
+  end
+
+  defp normalize_provider_types(_provider_types), do: []
 
   defp read_targets(query, opts) do
     query
@@ -143,9 +172,19 @@ defmodule ServiceRadar.Automation.Northbound.History do
     case provider(invocation) do
       %{provider_type: type} when is_atom(type) -> Atom.to_string(type)
       %{provider_type: type} when is_binary(type) -> type
+      _ -> invocation |> value(:metadata) |> metadata_provider_type()
+    end
+  end
+
+  defp metadata_provider_type(%{} = metadata) do
+    case Map.get(metadata, "provider_type") || Map.get(metadata, :provider_type) do
+      type when is_atom(type) -> Atom.to_string(type)
+      type when is_binary(type) -> type
       _ -> nil
     end
   end
+
+  defp metadata_provider_type(_metadata), do: nil
 
   defp provider(nil), do: nil
   defp provider(%{provider: %Ash.NotLoaded{}}), do: nil

@@ -113,7 +113,11 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       </div>
 
       <div class="border-b border-sr-line px-3 py-2">
-        <.category_switcher categories={@categories} active_category={@active_category} />
+        <.category_switcher
+          categories={@categories}
+          active_category={@active_category}
+          current_scope={@current_scope}
+        />
       </div>
 
       <div class="relative flex-1 min-h-0 md:grid md:grid-cols-[16rem_1fr]">
@@ -188,6 +192,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   # cramming into unreadable slivers.
   attr(:categories, :list, default: [])
   attr(:active_category, :map, default: nil)
+  attr(:current_scope, :map, default: nil)
 
   defp category_switcher(assigns) do
     ~H"""
@@ -199,7 +204,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       <.link
         :for={category <- @categories}
         role="tab"
-        navigate={Catalog.category_landing_route(category)}
+        navigate={Catalog.category_landing_route(@current_scope, category)}
         aria-selected={active_category?(@active_category, category)}
         title={category.title}
         class={[

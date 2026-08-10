@@ -5,10 +5,10 @@
 - [ ] 1.3 Define `AnsibleController` Ash resource (id, name, base_url, version, `credential_broker_ref` for the API token, agent_id (which agent reaches it), status, last_health_at, inventory_sync_interval, catalog_sync_interval) with policies wired to `ansible.controllers.manage`. Add `AshPaperTrail` extension.
 - [ ] 1.4 Define `PlaybookRepository` Ash resource (id, name, git_url, ref, sync_interval, `credential_broker_ref` (optional, for private HTTPS deploy tokens), last_sync_at, last_sync_status, parse_diagnostics). Add `AshPaperTrail`.
 - [ ] 1.5 Define `Playbook` Ash resource — polymorphic catalog entry. Attributes: id, source_type (enum: `git | awx`), repository_id (nullable, when source_type = git), controller_id (nullable, when source_type = awx), awx_job_template_id (nullable), path, name, description, declared_vars (jsonb), survey_spec (jsonb, AWX-sourced), tags, hosts_pattern, parse_status. Constraint: exactly one of (repository_id, controller_id) is set per source_type.
-- [ ] 1.6 Define `PlaybookRun` Ash resource using **AshStateMachine** with states `pending → launching → running → succeeded | partial | failed | unreachable | canceled`; attributes include playbook_id, controller_id, awx_job_id, requested_extra_vars, started_at, ended_at, last_event_id, summary, requested_by_actor_id, schedule_id (nullable). Add `AshPaperTrail`.
+- [ ] 1.6 Retain the internal `PlaybookRun` AshStateMachine and its ingestion/audit fields, but remove raw requested variables from create/update inputs and keep hardened interactive launches on `AutomationOperation` / `AutomationExecution` / exact targets. Add `AshPaperTrail` only for the retained internal lifecycle.
 - [ ] 1.7 Define `PlaybookRunTarget` Ash resource (run_id, device_uid, awx_host_id, awx_host_name, status enum, changed_count, failed_count, ok_count, skipped_count, unreachable_count, started_at, ended_at). Replaces the earlier `PlaybookHostStat` design.
 - [ ] 1.8 Define `PlaybookPlay`, `PlaybookTask`, `PlaybookTaskResult` Ash resources. `PlaybookTaskResult` references both `PlaybookTask` and `PlaybookRunTarget` (so a result is attributable to its host). Add `PlaybookContent` blob table with sha256 dedup for stdout/stderr.
-- [ ] 1.9 Define `PlaybookSchedule` Ash resource (name, enabled, playbook_id, target_device_uids[], extra_vars, cron, timezone, allow_concurrent (default false), last_evaluated_at, last_run_id, next_run_at, owner_id) with cron-string validator. Add `AshPaperTrail`.
+- [ ] 1.9 Retain `PlaybookSchedule` for migration/audit compatibility, force new rows disabled, reject enablement and raw requested variables, and keep its PaperTrail history until a separate approved backend-retirement or immutable-delegation change.
 - [ ] 1.10 Run `mix ash.codegen --dev` and verify generated migrations; iterate
 - [ ] 1.11 Run `mix ash.codegen add_ansible_integration` for the named migration; commit
 - [ ] 1.12 Add Ash policies enforcing the new RBAC permissions on every action
@@ -32,7 +32,7 @@
 - [ ] 3.4 `AwxCatalogSyncWorker` (AshOban) — for each controller, calls `AwxClient.list_projects` + `AwxClient.list_templates` periodically and upserts catalog `Playbook` rows with `source_type = "awx"`, populating `survey_spec` from AWX
 - [ ] 3.5 `ControllerHealthWorker` (AshOban) — calls `AwxClient.ping` periodically per controller; updates `last_health_at` / `status`
 - [ ] 3.6 `RunPulseWorker` (AshOban, one job per controller) — ticks every `controller.run_pulse_interval_ms` (default 2000); reads non-terminal `PlaybookRun`s for this controller; if any exist, dispatches one `awx.fetch_events_for_jobs(pairs)` command via the bus; on response, persists Play/Task/Result rows attributed to the right `PlaybookRunTarget`, advances each run's `last_event_id`, drives state machine transitions (including `partial` vs `failed` decision based on per-target outcomes), emits NATS events, and emits OCSF-shaped events. Skips ticks when there are no active runs. Also dispatches `awx.fetch_job` for any run whose watermark hasn't moved in this tick to catch terminal status changes.
-- [ ] 3.7 `ScheduleEvaluatorWorker` (AshOban) — evaluates `PlaybookSchedule` rows by their cron expressions. On a fire: if the schedule's previous `PlaybookRun` is still non-terminal AND `allow_concurrent = false`, record `skipped_overlap` and continue; otherwise create a new `PlaybookRun` + `PlaybookRunTarget`s, dispatch launch via AwxClient, link `PlaybookRun.schedule_id` to the schedule, update `last_evaluated_at` / `last_run_id` / `next_run_at`.
+- [ ] 3.7 Keep `ScheduleEvaluatorWorker` fail-closed for retained disabled rows; prove it cannot create a `PlaybookRun`, canonical operation, or AWX launch command through the retired launcher.
 - [ ] 3.8 `RunWatchdog` (AshOban) — flags runs stuck in non-terminal states past 2× job-template timeout (or 1h fallback) and transitions them to `unreachable`
 - [ ] 3.9 `RetentionWorker` (AshOban) — daily sweep that deletes detail rows past `ansible.retention.run_detail_days` and (if configured) run/target rows past `ansible.retention.run_summary_days`. Excludes runs accessed within the last hour.
 - [ ] 3.10 Backoff/concurrency caps per-controller in oban queues; circuit-break the AwxClient verbs when the bus reports persistent agent unreachability
@@ -57,40 +57,38 @@
 
 ## 5. Catalog UI + settings
 
-- [ ] 5.1 New LiveView `/settings/ansible` admin page with tabs: Controllers, Repositories, Unmatched AWX Hosts, Schedules, Retention. Gated by `ansible.controllers.manage` / `ansible.repositories.manage` / `ansible.schedules.manage`
-- [ ] 5.2 Controller form: base_url, api_token (write-only — writes to credential broker), agent_id selector (which agent reaches it), inventory_sync_interval, catalog_sync_interval, run_pulse_interval_ms (default 2000), test-connection action
+- [ ] 5.1 New LiveView `/settings/ansible` admin page with Controllers, Repositories, and Unmatched AWX Hosts surfaces. Do not expose retained schedule, ingestion, watchdog, retention, or history controls.
+- [ ] 5.2 Controller form: base_url, api_token (write-only — writes to credential broker), agent_id selector (which agent reaches it), inventory_sync_interval, catalog_sync_interval, and test-connection action
 - [ ] 5.3 Repository form: git_url, ref, sync_interval, optional deploy token (credential broker)
-- [ ] 5.4 Retention configuration display showing current values from Helm/docker-compose; read-only in UI (config is operator-managed at deploy time)
-- [ ] 5.5 Catalog browser at `/ansible/catalog`: searchable, filter by tag / source (`git` / `awx`) / repository / controller; per-entry source badge; AWX-sourced entries always launchable, git-sourced entries show "AWX template binding required" if not bound
+- [ ] 5.4 Keep retained lifecycle and evidence-retention configuration out of the operator UI; deployment configuration remains internal until the backend is migrated or retired.
+- [ ] 5.5 Catalog browser at `/ansible/catalog`: searchable, filter by tag / source (`git` / `awx`) / repository / controller; per-entry source badge; treat binding metadata as informational. Only parse-valid AWX-sourced entries are eligible for hardened selection, and launch readiness still requires a current approved binding plus live preflight.
 - [ ] 5.6 Empty / error states for unbound (git-sourced), broken-parse, stale-sync, and missing-AWX-template states
 
-## 6. Device Actions modal + run UI
+## 6. Hardened launch + canonical operation UI
 
-- [ ] 6.1 Build `DeviceActionsModal` LiveComponent under `elixir/web-ng/lib/serviceradar_web_ng_web/components/device_actions_modal.ex` with an action registry (action behaviour: `title/0`, `icon/0`, `required_permission/0`, `applicable?/1` (target list → bool), `render_form/2`, `on_confirm/3`)
-- [ ] 6.2 Register `RunPlaybookAction` as the only v1 action; structure ensures additional actions register declaratively without modal changes
-- [ ] 6.3 Inventory list LiveView: per-row checkbox, "Run Task" button enabled when ≥1 device selected, opens modal with the selected device list pre-populated
-- [ ] 6.4 Device detail LiveView: "Run Task" button opens the modal with that single device pre-populated; replaces the earlier device-detail-specific Run Playbook button
-- [ ] 6.5 RunPlaybookAction form: pick playbook from catalog (filtered to launchable: AWX-sourced, or git-sourced with valid AWX template binding); render `vars_prompt` (git) or `survey_spec` (AWX) inputs as typed fields; raw-YAML override toggle
-- [ ] 6.6 Confirm screen showing target device list, AWX controller, AWX job template, project, branch, effective extra_vars; permission gate `ansible.runs.launch`
-- [ ] 6.7 On confirm: create one `PlaybookRun` + N `PlaybookRunTarget` rows; call `AwxClient.launch_job` with `host_limit` = comma-joined AWX host names of the targets; transition `pending → launching → running` as the bus call returns and events arrive
-- [ ] 6.8 New LiveView `/ansible/runs` index — list with filters by status / device / playbook / source, live-updating via PubSub
-- [ ] 6.9 New LiveView `/ansible/runs/:id` detail — header with state pill (incl. `partial`), per-target table with per-device status pills, plays/tasks tree, live event tail, link back to AWX UI for the underlying job
-- [ ] 6.10 Cancel action on a non-terminal run (gated by `ansible.runs.cancel`) calls `AwxClient.cancel_job`
-- [ ] 6.11 `Recent Ansible Runs` panel on device detail page (filtered to runs whose `PlaybookRunTarget`s include this device)
+- [ ] 6.1 Inventory list LiveView: per-row selection and **Launch Playbook** navigation to `/ansible/launch?devices=...` using canonical device UIDs; keep provider-neutral **Run Action** separate under `northbound.actions.launch`.
+- [ ] 6.2 Device detail LiveView: **Launch Playbook** opens the in-panel hardened launch modal for the current canonical device.
+- [ ] 6.3 Route both surfaces through `SecureLaunchService`, which re-resolves the current human, approved binding, durable memberships, target holds, and live AWX preflight on submit.
+- [ ] 6.4 Filter the launch picker to parse-valid AWX-sourced rows and keep launch unavailable until the current approved binding and exact memberships resolve.
+- [ ] 6.5 Render only typed non-secret inputs declared by the approved immutable binding; reject raw JSON/YAML, password fields, undeclared names, transport variables, callback controls, and git `vars_prompt` as browser launch inputs.
+- [ ] 6.6 Show exact target and binding readiness without exposing mutable host limits, credentials, or arbitrary `extra_vars`; permission gate `ansible.runs.launch`.
+- [ ] 6.7 On confirm: use the hardened launch service to persist one canonical `AutomationOperation`, its inventory-bound child execution, and exact immutable target evidence before dispatch; call `AwxClient.launch_job` only through the reviewed plan and navigate success to `/ansible/operations/:id`
+- [ ] 6.8 Canonical LiveView `/ansible/operations` index — list operations with state filters, initiator, request source, mode, timestamps, and evidence links; do not expose a separate `PlaybookRun` index
+- [ ] 6.9 Canonical LiveView `/ansible/operations/:id` detail — show operation state and authority evidence, inventory-bound child executions, exact target tuples, immutable revision/digests, dispatch/AWX correlation, diagnostics, and active holds
+- [ ] 6.10 Keep canonical operation history read-only until the complete hardened cancellation path is explicitly exposed; retain `ansible.runs.cancel` for authorized service compatibility.
+- [ ] 6.11 `Recent Ansible operations` panel on device detail, sourced only from canonical execution targets and linked only to `/ansible/operations/:id`; retained `PlaybookRunTarget` rows do not affect history or the empty state
 
-## 6b. Schedule UI
+## 6b. Retained schedule boundary
 
-- [ ] 6b.1 Schedules tab on `/settings/ansible` and standalone `/ansible/schedules` route, gated by `ansible.schedules.view`
-- [ ] 6b.2 Schedule form: name, playbook picker (catalog), target devices picker (multi-select from inventory; same single-controller rule as ad-hoc launch), extra_vars, cron expression with picker + human-readable preview ("every weekday at 03:00 UTC"), timezone, allow_concurrent toggle (default off)
-- [ ] 6b.3 "Schedule this playbook" affordance from the Device Actions modal — pre-fills the schedule form with the selected devices + chosen playbook
-- [ ] 6b.4 Schedule detail page: shows schedule, next 5 fire times, recent runs (linked), enable/disable toggle, delete (with confirm)
-- [ ] 6b.5 Skipped-overlap badge on the schedule detail when last fire was skipped due to a still-running previous run
+- [ ] 6b.1 Remove schedule tabs, forms, routes, enable/disable controls, and "Schedule this playbook" affordances from the supported UI.
+- [ ] 6b.2 Preserve retained schedule rows and compatibility permissions without accepting raw variables or authorizing execution.
+- [ ] 6b.3 Defer scheduled execution to a separate approved change that defines immutable delegation, fire-time reauthorization, typed non-secret inputs, and canonical operation evidence.
 
 ## 7. Events, telemetry, NATS
 
 - [ ] 7.1 Define NATS subjects: `serviceradar.ansible.run.started`, `serviceradar.ansible.run.task`, `serviceradar.ansible.run.completed`, `serviceradar.ansible.run.failed`, `serviceradar.ansible.run.canceled`
 - [ ] 7.2 `EventBatcher.queue_event/2` calls on every state transition and on each task result
-- [ ] 7.3 PubSub broadcasts so the runs LiveView updates without page refresh
+- [ ] 7.3 Canonical operation pages read persisted operation evidence and support explicit refresh; they do not subscribe to the retained `PlaybookRun` PubSub stream or expose a separate run-history LiveView.
 - [ ] 7.4 Add observability events / spans schema docs to `openspec/specs/observability-signals` follow-up if reviewers request
 
 ## 8. Helm + docker-compose + ops
@@ -108,15 +106,15 @@
 - [ ] 9.4 Git catalog sync integration test against an in-process bare git repo with sample playbooks
 - [ ] 9.5 AWX catalog sync test: stub bus returns AWX templates with surveys; assert `Playbook` rows appear with `source_type = "awx"` and survey_spec populated
 - [ ] 9.6 Inventory plugin DeviceDiscovery test: plugin emits AWX hosts overlapping with proxmox-discovered devices; assert DIRE merge, `discovery_sources` reflects both, `ansible_managed` flips correctly
-- [ ] 9.7 Multi-device run test: launch one playbook against 3 devices, fake plugin returns events for all 3 hosts via `awx.fetch_events_for_jobs`; assert one PlaybookRun + 3 PlaybookRunTargets, mixed outcome → state = `partial`
+- [ ] 9.7 Retained ingestion test: seed one internal PlaybookRun with 3 PlaybookRunTargets, have the fake plugin return events for all 3 hosts via `awx.fetch_events_for_jobs`, and assert host attribution plus mixed outcome → state = `partial`; do not launch it through the hardened UI.
 - [ ] 9.8 RunPulseWorker test: tick with N active runs dispatches one bulk command, persists results, advances watermarks, skips ticks when no active runs; agent-offline tick fails cleanly and the next tick after reconnect resumes from the persisted watermark
-- [ ] 9.9 Schedule evaluator tests: cron firing creates a run; firing while a previous run is non-terminal and `allow_concurrent = false` records `skipped_overlap`; `allow_concurrent = true` launches concurrently
-- [ ] 9.10 Run launch integration tests covering: success, failure, cancel, watchdog timeout
+- [ ] 9.9 Schedule retirement tests: new rows are disabled, enablement fails, raw requested variables are not accepted, the evaluator cannot launch, and no schedule controls render in Ansible settings.
+- [ ] 9.10 Hardened operation launch integration tests covering success, preflight or authorization refusal before persistence or dispatch, canonical operation/execution/target evidence, and the operation-detail redirect.
 - [ ] 9.11 OCSF emission test: every distinct task outcome produces an OCSF-valid event in the events stream
 - [ ] 9.12 Retention worker test: detail rows past threshold are deleted; recently-accessed runs are excluded; summary rows persist when `run_summary_days = null`
-- [ ] 9.13 LiveView tests for Device Actions modal (multi-select, single-select), launch dialog, runs index live updates, run detail tail with per-target table, schedule create/edit/disable
+- [ ] 9.13 LiveView tests for inventory multi-select launch navigation, device in-panel launch, reviewed non-secret input enforcement, canonical operation index/detail evidence, canonical device operation history, retired execution-history routes returning not found, and absence of schedule controls.
 - [ ] 9.14 SRQL aliases query test (incl. `ansible_run_targets`, `ansible_schedules`)
-- [ ] 9.15 End-to-end test in dev compose stack: real AWX (helm subchart or docker), real agent + WASM plugin, both a git repo and an AWX-sourced template, launch a hello-world playbook against multiple devices, also create a schedule that fires within the test window; assert run hierarchy + OCSF events + audit trail + schedule attribution all populated
+- [ ] 9.15 End-to-end test in dev compose stack: real AWX, real agent + WASM plugin, an AWX-sourced template with a current approved binding, and multiple exact devices; assert hardened launch creates canonical operation/execution/target evidence and that no git/raw-input or schedule path can dispatch.
 
 ## 10. Validation + archive
 

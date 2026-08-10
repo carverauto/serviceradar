@@ -26,11 +26,11 @@ jobs:
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      # ghcr.io is a PULL registry here, not the push target above: Bazel fetches
-      # ghcr.io/cloudnative-pg/postgresql, which //integration_tests/srql takes as test data.
-      # Anonymous pulls are rate limited, and a throttled fetch fails during the loading.
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      # No GHCR_*. ghcr.io/cloudnative-pg/postgresql -- the //integration_tests/srql test data
+      # this used to authenticate -- was mirrored into Harbor. //MODULE.bazel now has ZERO
+      # ghcr.io pulls; the only ghcr mentions there are comments recording what was mirrored.
+      # DOCKERHUB_* above stays for the single remaining upstream pull,
+      # docker.io/pgduckdb/pgduckdb.
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
 
@@ -50,9 +50,10 @@ jobs:
             # into the workspace, so the repository cache lives under Bazel's own
             # machine-local root and `git clean` cannot reach it. This previously needed
             # `-e` exclusions, because wiping the repository cache made Bazel refetch every
-            # external repo each run -- including the 3 ghcr.io and 7 docker.io base images
-            # in MODULE.bazel, which walks into ghcr's anonymous rate limit and surfaces as
-            # a loading-phase "no such package" on targets unrelated to containers.
+            # external repo each run -- including the base images in MODULE.bazel, which walked
+            # into an anonymous rate limit and surfaced as a loading-phase "no such package" on
+            # targets unrelated to containers. (Those base images are mirrored into Harbor now;
+            # only docker.io/pgduckdb/pgduckdb is still fetched upstream.)
             git clean -ffdx
             if git remote get-url origin >/dev/null 2>&1; then
               git remote set-url origin "${REPO_URL}"
@@ -202,9 +203,9 @@ jobs:
       # The `if:` guard is kept, unlike those two, which hard-exit when Harbor credentials are
       # missing. This workflow runs on every pull request, including ones without access to
       # secrets, where skipping is correct and failing is not. GHCR_* is in the condition so
-      # ghcr credentials alone are enough to run it.
+      # Docker Hub credentials alone are enough to run it.
       - name: Authenticate Docker for OCI registry
-        if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.GHCR_USERNAME != '' && env.GHCR_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        if: ${{ env.OCI_USERNAME != '' && env.OCI_TOKEN != '' || env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         run: |
           set -euo pipefail
           login_registry() {

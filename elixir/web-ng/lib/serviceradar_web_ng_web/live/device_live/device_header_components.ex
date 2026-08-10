@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           variant="primary"
           size="sm"
         >
-          <.icon name="hero-play" class="size-4" /> Run Task
+          <.icon name="hero-play" class="size-4" /> Launch Playbook
         </.ui_button>
         <.ui_button
           :if={

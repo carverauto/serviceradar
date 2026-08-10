@@ -1,6 +1,6 @@
 ## 1. Discovery and Schema
 
-- [x] 1.1 Inventory existing Ansible launch resources, device action UI, plugin manifest fields, and Wasm host functions that can be reused.
+- [x] 1.1 Inventory existing Ansible launch resources, device action UI, plugin manifest fields, and Wasm host functions; identify the hardened Ansible contract that must remain outside the provider-neutral path.
 - [x] 1.2 Define Ash resources for providers, descriptors, invocations, invocation targets, and event handlers.
 - [x] 1.3 Add migrations under `elixir/serviceradar_core/priv/repo/migrations/` using the `platform` schema only.
 - [x] 1.4 Define redaction and retention policy for action inputs and results.
@@ -10,7 +10,7 @@
 - [x] 2.1 Extend plugin manifest validation to accept versioned action descriptors.
 - [x] 2.2 Add action descriptor approval review alongside existing plugin capability approval.
 - [x] 2.3 Implement action invocation dispatch for approved Wasm providers through the agent-routed command path.
-- [x] 2.4 Adapt Ansible/AWX launch as a northbound action provider without removing the existing Ansible run history.
+- [x] 2.4 Keep Ansible/AWX launch on its canonical operation path; exclude retained Ansible providers and descriptors from operator catalog reads without deleting stored evidence.
 
 ## 3. SDK Updates
 
@@ -21,10 +21,10 @@
 
 ## 4. UI
 
-- [x] 4.1 Replace Ansible-specific "Run Task" launch gating with provider-neutral eligibility checks.
+- [x] 4.1 Split device inventory actions into **Launch Playbook** gated only by `ansible.runs.launch` and provider-neutral **Run Action** gated only by `northbound.actions.launch`.
 - [x] 4.2 Add a reusable device action modal rendered from the descriptor schema subset.
 - [x] 4.3 Add interface selection action entry points.
-- [x] 4.4 Add action invocation history and per-target results in device and interface details without integration-specific panels.
+- [x] 4.4 Add non-Ansible action invocation history and per-target results in device and interface details without integration-specific panels; exclude retained Ansible invocations from generic Action History.
 
 ## 5. Event Handlers
 
@@ -36,7 +36,7 @@
 ## 6. Validation
 
 - [x] 6.1 Add unit tests for descriptor validation, eligibility filtering, RBAC, redaction, and target resolution.
-- [x] 6.2 Add LiveView tests for disabled action buttons, device launches, interface launches, and schema-driven forms.
+- [x] 6.2 Add LiveView tests for exact Ansible/northbound action permissions, disabled action buttons, device launches, interface launches, constrained schema-driven forms, absence of raw Ansible `extra_vars`, and filtered Action History.
 - [x] 6.3 Add integration tests for a fixture Wasm action provider.
 - [x] 6.4 Run `openspec validate add-northbound-action-integrations --strict`.
 - [ ] 6.5 Run applicable Elixir, Go, and SDK quality checks before implementation PRs are merged.

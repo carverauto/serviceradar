@@ -197,16 +197,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
-              <.ansible_runs_section
+              <.ansible_operations_section
                 :if={is_map(@device_row) and @device_awx_managed}
                 device_uid={@device_uid}
                 device_awx_managed={@device_awx_managed}
-                can_view_ansible_runs={@can_view_ansible_runs}
+                can_view_ansible_operations={@can_view_ansible_operations}
                 can_run_ansible={@can_run_ansible}
                 device_deleted={@device_deleted}
                 ansible_controller_id={@ansible_controller_id}
-                secure_history={@ansible_secure_history}
-                runs={@ansible_runs}
+                operation_history={@ansible_operation_history}
                 playbooks={@ansible_playbooks}
                 launch_open={@ansible_launch_open}
                 selected_playbook_id={@ansible_selected_playbook_id}
@@ -272,12 +271,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
               <.northbound_action_history
                 :if={@can_view_northbound_history}
-                title="Task History"
+                title="Action History"
                 subtitle="Recent actions for this device and its interfaces"
                 entries={@northbound_device_history}
                 error={@northbound_device_history_error}
                 notice={@northbound_launch_notice}
-                empty_message="No task invocations have been recorded for this device yet."
+                empty_message="No action invocations have been recorded for this device yet."
               />
 
               <.metric_sections_content
@@ -474,7 +473,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       <.northbound_action_modal
         :if={@show_northbound_interface_action_modal}
         id="northbound_interface_action_modal"
-        title="Run Interface Task"
+        title="Run Interface Action"
         subtitle={"#{MapSet.size(@selected_interfaces)} selected interface(s)"}
         form={@northbound_interface_action_form}
         actions={@northbound_interface_actions}

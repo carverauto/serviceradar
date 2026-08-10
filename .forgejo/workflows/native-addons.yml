@@ -213,8 +213,8 @@ jobs:
           # locally on the forgejo-ci runner, which has no linker, so the first Rust tool
           # bazel needs (rules_rust's process_wrapper) dies with
           #   collect2: fatal error: cannot find 'ld'
-          # Dropping `--config=el9` moved the publish path to no profile at all rather
-          # than to the ci profile; this restores it.
+          # This step once carried a config that has since been deleted; removing it left the
+          # publish path on no profile at all rather than on the ci profile.
           #
           # NO --stamp. Nothing in the add-on graph consumes stamp data: the bundles are a
           # native.genrule plus an sh_binary, neither of which stamps, and no add-on binary
@@ -225,8 +225,7 @@ jobs:
           # --remote_download_outputs=all overrides --remote_download_minimal (inherited
           # from build:remote_base) because these are `bazel run` targets: the sh_binary and
           # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
-          # local disk for oras to upload them. build:el9 carried the same flag for the same
-          # reason (.bazelrc, "Native-addons / EL9 publish path").
+          # local disk for oras to upload them.
           BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner

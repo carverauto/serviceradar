@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.Dispatcher
   alias ServiceRadar.Automation.Northbound.TargetResolver
 
@@ -34,8 +35,9 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
          {:ok, target_snapshots} <-
            TargetResolver.resolve_targets(targets, actor: target_resolution_actor()),
          {:ok, invocation} <- persist_invocation(descriptor, target_snapshots, attrs, actor),
-         {:ok, _targets} <- persist_invocation_targets(invocation, target_snapshots, actor) do
-      reload_invocation(invocation, actor)
+         {:ok, persisted_targets} <-
+           persist_invocation_targets(invocation, target_snapshots, actor) do
+      {:ok, %{invocation | targets: Enum.reverse(persisted_targets)}}
     end
   end
 
@@ -54,6 +56,14 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   def create_and_dispatch(_attrs, _opts), do: {:error, :invalid_attributes}
 
   defp fetch_descriptor(id, actor) do
+    if SystemActor.system_actor?(actor) do
+      fetch_internal_descriptor(id, actor)
+    else
+      fetch_operator_launch_descriptor(id, actor)
+    end
+  end
+
+  defp fetch_internal_descriptor(id, actor) do
     ActionDescriptor
     |> Ash.Query.for_read(:by_id, %{id: id}, actor: actor)
     |> Ash.Query.load(:provider)
@@ -61,6 +71,18 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
     |> case do
       {:ok, nil} -> {:error, :descriptor_not_found}
       {:ok, descriptor} -> {:ok, descriptor}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp fetch_operator_launch_descriptor(id, actor) do
+    with {:ok, descriptor} when not is_nil(descriptor) <-
+           ActionDescriptor.get_launch_candidate_by_id(id, actor: actor),
+         {:ok, provider} when not is_nil(provider) <-
+           ActionProvider.get_launch_candidate_by_id(descriptor.provider_id, actor: actor) do
+      {:ok, %{descriptor | provider: provider}}
+    else
+      {:ok, nil} -> {:error, :descriptor_not_found}
       {:error, error} -> {:error, error}
     end
   end
@@ -133,12 +155,6 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
         {:error, error} -> {:halt, {:error, error}}
       end
     end)
-  end
-
-  defp reload_invocation(invocation, actor) do
-    ActionInvocation
-    |> Ash.Query.for_read(:by_id, %{id: invocation.id}, actor: actor)
-    |> Ash.read_one(actor: actor, domain: Northbound)
   end
 
   defp invocation_target_attrs(invocation, snapshot) do

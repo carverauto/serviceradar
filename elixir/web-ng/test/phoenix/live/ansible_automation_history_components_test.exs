@@ -41,7 +41,10 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponentsTest do
     assert text =~ "Target hold active"
     assert text =~ "Expected AWX hosts"
     assert text =~ "Observed AWX hosts"
-    assert text =~ "Secure model · not a legacy PlaybookRun"
+    assert text =~ "Controller executions"
+    refute text =~ "ServiceRadar secured"
+    refute text =~ "Legacy"
+    refute Enum.any?(LazyHTML.query(document, "a[href='/ansible/runs']"))
   end
 
   test "renders cancellation failure and missing scope proof as fail-closed evidence" do

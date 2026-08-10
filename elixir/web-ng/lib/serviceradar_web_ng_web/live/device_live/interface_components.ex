@@ -25,23 +25,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   def interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
 
-    run_task_disabled? =
+    run_action_disabled? =
       assigns.northbound_actions_loading or assigns.northbound_actions == [] or
         selected_count == 0
 
-    run_task_title =
+    run_action_title =
       cond do
         assigns.northbound_actions_loading ->
-          "Checking configured task integrations"
+          "Checking configured action integrations"
 
         assigns.northbound_actions == [] ->
-          "No launchable interface task integrations are configured"
+          "No launchable interface action integrations are configured"
 
         selected_count == 0 ->
           "Select at least one interface"
 
         true ->
-          "Run task for selected interfaces"
+          "Run action for selected interfaces"
       end
 
     all_uids =
@@ -57,8 +57,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       assigns
       |> assign(:selected_count, selected_count)
       |> assign(:all_selected, all_selected)
-      |> assign(:run_task_disabled?, run_task_disabled?)
-      |> assign(:run_task_title, run_task_title)
+      |> assign(:run_action_disabled?, run_action_disabled?)
+      |> assign(:run_action_title, run_action_title)
 
     ~H"""
     <div :if={@loading} class="rounded-xl border border-sr-line bg-sr-surface p-8 text-center">
@@ -147,14 +147,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
               <.ui_button
                 :if={@can_launch_northbound}
                 type="button"
-                phx-click="run_task_for_interface_selection"
-                disabled={@run_task_disabled?}
-                title={@run_task_title}
+                phx-click="run_action_for_interface_selection"
+                disabled={@run_action_disabled?}
+                title={@run_action_title}
                 size="xs"
                 variant="primary"
               >
                 <.icon name="hero-play" class="size-3" />
-                {if @northbound_actions_loading, do: "Checking jobs...", else: "Run Task"}
+                {if @northbound_actions_loading, do: "Checking actions...", else: "Run Action"}
               </.ui_button>
               <.ui_button
                 type="button"

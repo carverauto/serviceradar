@@ -37,12 +37,14 @@ jobs:
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      # Pull-side credentials, distinct from the Harbor push target above: MODULE.bazel
-      # fetches 7 base images from docker.io and 3 from ghcr.io. Anonymous pulls here are
-      # rate limited, and a throttled fetch fails during Bazel's loading phase as
-      # "no such package" rather than anything resembling a 429.
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      # Pull-side credential, distinct from the Harbor push target above. The base images were
+      # mirrored into Harbor: 11 of the oci pulls in //MODULE.bazel now resolve to
+      # registry.carverauto.dev and exactly one does not -- docker.io/pgduckdb/pgduckdb. There
+      # are ZERO ghcr.io pulls left, so GHCR_USERNAME/GHCR_TOKEN were removed; they
+      # authenticated a registry nothing fetches from.
+      #
+      # Anonymous Docker Hub pulls are rate limited, and a throttled fetch fails during Bazel's
+      # loading phase as "no such package" rather than anything resembling a 429.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}

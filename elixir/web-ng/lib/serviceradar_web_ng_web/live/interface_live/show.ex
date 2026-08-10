@@ -461,13 +461,17 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   defp load_northbound_interface_history(_scope, _device_uid, nil, true), do: {[], nil}
 
   defp load_northbound_interface_history(scope, device_uid, interface_uid, true) do
-    case NorthboundHistory.list_for_interface(device_uid, interface_uid, scope: scope, limit: 10) do
+    case NorthboundHistory.list_for_interface(device_uid, interface_uid,
+           scope: scope,
+           limit: 10,
+           exclude_provider_types: [:ansible]
+         ) do
       {:ok, entries} ->
         {entries, nil}
 
       {:error, reason} ->
         Logger.warning("Failed to load northbound interface action history: #{inspect(reason)}")
-        {[], "Failed to load task history."}
+        {[], "Failed to load action history."}
     end
   end
 
@@ -584,11 +588,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
           <.northbound_action_history
             :if={@can_view_northbound_history}
-            title="Task History"
+            title="Action History"
             subtitle="Recent actions for this interface"
             entries={@northbound_history}
             error={@northbound_history_error}
-            empty_message="No task invocations have been recorded for this interface yet."
+            empty_message="No action invocations have been recorded for this interface yet."
           />
 
           <%!-- Properties Grid --%>

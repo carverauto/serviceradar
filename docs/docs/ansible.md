@@ -4,16 +4,16 @@ title: Ansible Integration
 
 # Ansible Integration
 
-ServiceRadar drives Ansible playbook execution against devices in its inventory by talking to a customer-side AWX/AAP controller, and surfaces every run as a first-class resource with live status, per-host outcomes, full audit, and the same OCSF-based universal-log-viewer search as the rest of the platform. It is the supported alternative to running ARA next to a stand-alone AWX deployment.
+ServiceRadar drives Ansible playbook execution against devices in its inventory by talking to a customer-side AWX/AAP controller, and surfaces every hardened launch as a canonical operation with lifecycle status plus immutable target, authority, controller, and dispatch evidence. It is the supported alternative to running ARA next to a stand-alone AWX deployment.
 
 This guide covers:
 
 - [Architecture](#architecture)
 - [Deployment](#deployment)
-- [Operator guide](#operator-guide) — registering controllers, repositories, and schedules
-- [User guide](#user-guide) — launching playbooks and watching runs
+- [Operator guide](#operator-guide) — registering controllers and repositories
+- [User guide](#user-guide) — launching playbooks and inspecting operations
 - [Configuration reference](#configuration-reference) — env vars + per-resource overrides
-- [RBAC reference](#rbac-reference) — the eight `ansible.*` permission keys
+- [RBAC reference](#rbac-reference) — the ten `ansible.*` permission keys
 - [Troubleshooting](#troubleshooting)
 - [v1 limitations](#v1-limitations)
 
@@ -45,15 +45,13 @@ AWX usually lives in the customer's private network. ServiceRadar core cannot re
 
 | Entrypoint | Mode | Purpose |
 |---|---|---|
-| `run_check` | On-demand via `CommandRequest` | Every AWX REST verb: `awx.ping`, `awx.list_*`, `awx.fetch_template`, `awx.launch_job`, `awx.fetch_job`, `awx.cancel_job`, `awx.fetch_events_for_jobs` |
+| `run_check` | On-demand via `CommandRequest` | AWX health, catalog, launch, status, and cancellation verbs |
 | `inventory_sync` | Scheduled assignment | Walks AWX inventories and emits a `DeviceDiscovery` aggregate via the same pipeline `proxmox-inventory` uses — DIRE merges the records and flips `Device.ansible_managed = true` |
-
-**Pulse-based event ingestion.** ServiceRadar does not maintain a long-lived stream to AWX. Each registered controller has a `RunPulseWorker` Oban job that ticks every `run_pulse_interval_ms` (default 2000) and dispatches a single `awx.fetch_events_for_jobs` command covering every non-terminal `PlaybookRun`'s `(awx_job_id, last_event_id)` watermark. The plugin makes one HTTP call per active job and returns aggregated events; `EventIngestor` persists them, drives the run state machine, and projects each result into an OCSF Application Activity event for the universal log viewer.
 
 **Two playbook sources**, both surfaced as `Playbook` rows with a `source_type` discriminator:
 
-- `:git` — registered git repositories; cloned + parsed by `GitCatalogSyncWorker`. Operators bind each git-sourced playbook to an AWX job template before it becomes launchable.
-- `:awx` — AWX Job Templates auto-mirrored by `AwxCatalogSyncWorker`. Launchable by definition.
+- `:git` — registered git repositories; cloned + parsed by `GitCatalogSyncWorker` for catalog discovery and review. Git-sourced rows are not selectable in the hardened launch UI.
+- `:awx` — AWX Job Templates auto-mirrored by `AwxCatalogSyncWorker`. A parse-valid row is eligible for hardened launch only when its current template binding is approved and passes live preflight.
 
 A single playbook can appear via both sources; both source types coexist in the catalog UI.
 
@@ -83,7 +81,8 @@ SELECT table_name FROM information_schema.tables
  ORDER BY table_name;
 ```
 
-You should see 14 tables (resources + their AshPaperTrail `_versions` mirrors for the four audited resources): controllers, playbook_repositories, playbooks, playbook_runs (+ run_targets / plays / tasks / task_results / contents), and playbook_schedules.
+The result should include the Ansible controller, repository, catalog, operation,
+execution, target, approval, and version-history tables.
 
 ### Deploy the `awx` WASM plugin
 
@@ -109,12 +108,7 @@ ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `do
 
 | Env var | Default | What it does |
 |---|---|---|
-| `ANSIBLE_RETENTION_RUN_DETAIL_DAYS` | `90` | Prune `PlaybookPlay` / `PlaybookTask` / `PlaybookTaskResult` past this age. `0` disables detail pruning. |
-| `ANSIBLE_RETENTION_RUN_SUMMARY_DAYS` | _(empty)_ | When set, delete the entire `PlaybookRun` (cascades to targets / plays / tasks / results) past this age. Empty = keep forever. |
-| `ANSIBLE_RETENTION_INTERVAL_SECONDS` | `86400` | How often `RetentionWorker` scans. |
 | `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` | `30` | `ControllerHealthWorker` cadence (one `awx.ping` per registered controller). |
-| `AWX_RUN_WATCHDOG_INTERVAL_SECONDS` | `60` | `RunWatchdog` interval — flags stuck non-terminal runs (past 2× job_template timeout, or 1 h fallback). |
-| `AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS` | `60` | `ScheduleEvaluatorWorker` cron evaluation cadence. |
 | `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (helm) / `<tmp>` (compose) | Base directory for `GitCatalogSyncWorker` repo clones. Mount a PVC at this path in Kubernetes to keep the cache warm across pod restarts. |
 
 In Helm, these live under `core.ansible.*`:
@@ -122,20 +116,13 @@ In Helm, these live under `core.ansible.*`:
 ```yaml
 core:
   ansible:
-    runDetailDays: 90
-    runSummaryDays: ""           # keep forever
-    retentionIntervalSeconds: 86400
     controllerHealthIntervalSeconds: 30
-    runWatchdogIntervalSeconds: 60
-    scheduleEvaluatorIntervalSeconds: 60
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
 ```
 
-The current effective values are surfaced at runtime in `Settings → Ansible → Retention`.
-
 ## Operator guide
 
-> Permissions: this guide assumes `ansible.controllers.manage` + `ansible.repositories.manage` + `ansible.schedules.manage`. Admins have these by default; see [RBAC reference](#rbac-reference) for the full set.
+> Permissions: this guide assumes `ansible.controllers.manage` + `ansible.repositories.manage`. Admins have these by default; see [RBAC reference](#rbac-reference) for the full set.
 
 ### 1. Store purpose-scoped AWX API tokens in the credential broker
 
@@ -149,7 +136,7 @@ In the ServiceRadar web UI, go to **Settings → Credentials** and create:
 
 Save each credential. You will select the references when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
 
-> The credential broker, not a playbook, handles AWX token plaintext. SSH keys, become passwords, and vault passwords stay in AWX's credential vault. Controller tokens are encrypted at rest and are never supplied as survey values, `extra_vars`, inventory variables, or managed-host files.
+> The credential broker, not a playbook, handles AWX token plaintext. SSH keys, become passwords, and vault passwords stay in AWX's credential vault. Controller tokens are encrypted at rest and are never supplied as playbook inputs, inventory variables, or managed-host files.
 
 Each short-lived controller-token grant is also pinned to the normalized AWX origin's one host and effective port plus the exact method and endpoint(s) required by that verb. ServiceRadar has no catch-all `/api/v2/` grant. Invalid controller URLs or verb arguments fail before a grant is issued or a command is dispatched, and the edge HTTP boundary never follows a redirect while carrying an AWX bearer.
 
@@ -168,11 +155,10 @@ Navigate to **Settings → Ansible → Controllers** and click **+ Add controlle
 | Callback credential lifecycle | Required only for callback-enabled playbooks. Used only to create/fetch/delete the reviewed ephemeral custom credential. It may explicitly select the execution secret; there is no automatic fallback. |
 | Inventory sync (s) | Plugin-side cadence for `inventory_sync`. Default 300. |
 | Catalog sync (s) | `AwxCatalogSyncWorker` cadence (mirrors AWX templates as `:awx`-sourced playbooks). Default 600. |
-| Run pulse (ms) | `RunPulseWorker` cadence — lower for snappier UI, higher for lower AWX API load. Default 2000. |
 
 Save. Within `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` (default 30), `ControllerHealthWorker` dispatches `awx.ping` → plugin → AWX → `EventIngestor` writes `last_health_at` + flips status to `:ok`. Refresh the row.
 
-When upgrading a controller created before the purpose split, the migration copies its legacy secret reference into all three purpose fields. This preserves exactly the access the controller already had; it does not grant any new AWX role. Rotate the three fields to the least-privilege principals above, verify two sync cycles plus one exact canary run and callback cleanup, wait for in-flight commands and the five-minute broker-grant TTL, then revoke the legacy AWX token. During the one-release rolling-upgrade window, a row written by an old ServiceRadar pod may use the deprecated legacy field for sync only. Execution and callback never fall back to it.
+When upgrading a controller created before the purpose split, the migration copies its previous single secret reference into all three purpose fields. This preserves exactly the access the controller already had; it does not grant any new AWX role. Rotate the three fields to the least-privilege principals above, verify two sync cycles plus one exact canary run and callback cleanup, wait for in-flight commands and the five-minute broker-grant TTL, then revoke the superseded AWX token. During the one-release rolling-upgrade window, a row written by an older ServiceRadar pod may use the deprecated field for sync only. Execution and callback never fall back to it.
 
 If the status stays `:unknown` past two health intervals, see [Troubleshooting](#troubleshooting).
 
@@ -201,8 +187,9 @@ Use this procedure for a new controller, an AWX change, or a callback rollout:
    credentials. Operators must launch through ServiceRadar so its RBAC,
    preflight evidence, and audit trail cannot be bypassed.
 3. Create or renew the approved binding through the binding-review workflow with
-   a complete secret-free reviewed launch snapshot. A legacy digest-only binding
-   is intentionally non-launchable. Do not patch a reviewed binding in place.
+   a complete secret-free reviewed launch snapshot. A digest-only binding from
+   an earlier release is intentionally non-launchable. Do not patch a reviewed
+   binding in place.
 4. If ServiceRadar reports template/project, credential, execution-environment,
    survey, prompt, or target-membership drift, leave the binding blocked. Review
    the AWX change, then create a new binding version with a fresh canonical
@@ -239,7 +226,7 @@ Save. `GitCatalogSyncWorker` clones the repo to `$ANSIBLE_CATALOG_BASE_DIR/<repo
 
 Per-file YAML parse failures are surfaced inline rather than dropped — the row shows up with `parse_status: :error` and a diagnostic on the catalog page, so operators can spot broken playbooks instead of wondering why they're missing.
 
-> **Bind git-sourced playbooks to an AWX template before launching.** Git-sourced rows show up in `/ansible/catalog` with an `unbound` warning badge until an `awx_job_template_id` is set. Operators are expected to keep the AWX project + job_template configured to match; ServiceRadar does not auto-create AWX templates from git playbooks in v1.
+> Git-sourced rows are catalog metadata only in the current hardened workflow. An `awx_job_template_id` stored on an older git row does not make it launchable and does not confer execution authority. Launches use AWX-sourced rows backed by a current approved template binding.
 
 ### 4. Watch inventory flow in automatically
 
@@ -253,30 +240,15 @@ If the `inventory_sync` plugin assignment is wired up on the controller's agent,
 
 No manual "mark Ansible-managed" toggle exists — the state is fully derived.
 
-### 5. Create a scheduled run (optional)
+### 5. Scheduled execution is unavailable
 
-Navigate to **Settings → Ansible → Schedules** and click **+ Add schedule**. Fill in:
-
-| Field | Notes |
-|---|---|
-| Name | Unique. |
-| Enabled | Default on. |
-| Playbook | Dropdown filtered to launchable playbooks (anything with `awx_job_template_id`). |
-| Target device UIDs | Comma-separated OCSF UIDs (e.g. `sr:abc,sr:def`). All must share one controller. (v2: proper multi-select picker.) |
-| Cron | Standard 5-field expression — e.g. `0 3 * * *` for daily at 03:00. |
-| Timezone | `UTC` / `Etc/UTC` only in v1. (`:tzdata` is not currently a dependency.) |
-| Allow concurrent runs | Default off — when the previous run is still non-terminal, the next fire is recorded as `:skipped_overlap`. |
-| extra_vars (JSON) | Passed to AWX on each fire. |
-
-`ScheduleEvaluatorWorker` fires every minute by default (configurable via `AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS`); each due schedule produces a `PlaybookRun` exactly as if a human had launched it from the UI.
-
-### 6. Retention
-
-Navigate to **Settings → Ansible → Retention** for a read-only view of the effective retention windows + worker cadences. Changes are env-var driven; redeploy after editing `values.yaml` / `docker-compose.yml`.
+ServiceRadar currently supports interactive, authorized launches only. A future
+scheduled-execution capability must use an immutable, expiring delegation and
+record every launch as a canonical operation.
 
 ## User guide
 
-> Permissions: this section requires `ansible.runs.launch`. The Run Task button is hidden for users without it. To view runs only, `ansible.runs.view` is enough.
+> Permissions: **Launch Playbook** and the device Ansible launch flow require `ansible.runs.launch`. Canonical operation history requires `ansible.runs.view`. The separate provider-neutral **Run Action** control requires `northbound.actions.launch`, and its non-Ansible Action History requires `northbound.actions.view`; those northbound permissions never grant Ansible launch or history.
 
 ### Browse the catalog
 
@@ -286,13 +258,13 @@ Navigate to **Settings → Ansible → Retention** for a read-only view of the e
 - Binding (all / launchable / unbound)
 - Free-text on name + description
 
-Bound rows show a green badge with the AWX job template id; unbound rows show a warning badge — those aren't launchable until an `awx_job_template_id` is set on the row.
+The binding filter reflects whether a catalog row carries an AWX job-template ID; it is not an authorization decision. Only parse-valid AWX-sourced rows appear in the hardened launch picker, and selection still requires a current approved binding plus exact target-membership resolution.
 
 ### Launch against multiple devices
 
 1. Visit `/devices`.
-2. Tick the checkbox on each ansible-managed device you want to target. Non-managed devices have the checkbox available but the Run Task button validates them on submit.
-3. Click **+ Run Task** in the bulk-action toolbar (top-right of the inventory table, next to Bulk Edit / Bulk Delete).
+2. Tick the checkbox on each device you want to target. Canonical launch revalidates AWX membership and rejects ineligible targets before persistence or dispatch.
+3. Click **Launch Playbook** in the bulk-action toolbar. This control is governed only by `ansible.runs.launch`; **Run Action** is a separate non-Ansible workflow governed by `northbound.actions.launch`.
 4. ServiceRadar navigates to `/ansible/launch?devices=...` pre-filled with your selection.
 
 The Launch page validates the targets:
@@ -300,50 +272,43 @@ The Launch page validates the targets:
 - All devices must be `ansible_managed`.
 - All devices must point at the same AWX controller. Mixed-controller selections are rejected with a clear error.
 
+**Run Action** lists provider-neutral, non-Ansible actions only. All Ansible
+execution starts through **Launch Playbook** and its reviewed typed inputs.
+
 ### Launch against a single device
 
-On a device detail page, the **Run Task** action button appears in the page header (next to Edit / Delete / Console) if all of: you have `ansible.runs.launch`, the device is not soft-deleted, AND the device is `ansible_managed`.
+On a device detail page, the Ansible panel shows **Launch Playbook** when all of the following are true: you have `ansible.runs.launch`, the device is not soft-deleted, and the device is `ansible_managed`.
 
-Clicking it goes to `/ansible/launch?devices=<uid>` with the single device pre-filled.
+Clicking it opens the launch flow with that device pre-filled. With `ansible.runs.view`, the same panel also shows recent canonical operation history, with evidence links to `/ansible/operations/:id`; launch-only operators do not receive operation-history links or content.
 
 ### The launch form
 
-1. **Targets**: read-only summary of selected devices with an ansible-managed badge per row.
-2. **Playbook**: dropdown of launchable playbooks; for each pick, the variable form below re-renders with typed inputs derived from the playbook's variable schema:
-   - **AWX-sourced** playbooks use the survey_spec (`text` / `textarea` / `password` / `integer` / `float` / `multiplechoice` / `multiselect`).
-   - **git-sourced** playbooks use `vars_prompt` (`text`, plus `password` when `private: true`).
-   Defaults are pre-filled; required fields are marked.
-3. **Override extra_vars as raw JSON** (checkbox). When toggled on, a textarea appears whose contents merge over the typed inputs at submit. Use this for variables not declared in the playbook's schema.
-4. **Launch** — submits; on success, you're redirected to `/ansible/runs/:id`.
+1. **Targets**: read-only summary of selected canonical devices.
+2. **AWX playbook**: the picker contains only parse-valid AWX-sourced catalog rows. Selecting one resolves its current approved binding and the exact durable AWX memberships for every target.
+3. **Reviewed inputs**: the form renders only typed, non-secret fields declared by the approved binding. Supported fields are text, textarea, integer, float, single choice, and multiple choice. Password fields, raw JSON/YAML, undeclared names, transport variables, and callback-control fields are never accepted from the browser.
+4. **Launch**: submit re-resolves the binding, memberships, current actor authority, and live AWX preflight before persisting or dispatching. On success, you're redirected to `/ansible/operations/:id`.
 
-### Watch a run
+### Inspect an operation
 
-`/ansible/runs/:id` subscribes to a per-run PubSub topic and live-updates as `RunPulseWorker` drains events from AWX. You'll see:
+`/ansible/operations/:id` is the canonical evidence page for a launch. It shows:
 
-- **Header card**: state pill (pending / launching / running / succeeded / partial / failed / unreachable / canceled), AWX job id, scheduled-vs-ad-hoc badge, timestamps, duration.
-- **Targets table**: per-host status with ok / changed / failed / skipped / unreachable counts.
-- **Plays accordion**: per-play status + task count; click to expand and see individual tasks.
+- **Immutable operation evidence**: action, initiating principal, request source, mode, target digest, timestamps, and sanitized diagnostics.
+- **Controller executions**: current state, controller and inventory scope, job template, project revision, content digest, execution environment, literal host limit, dispatch ID, and controller-local AWX job ID.
+- **Exact target tuples**: controller, inventory, AWX host ID, durable membership, canonical device UID, membership generation, host name, address, target state, snapshot digest, and any active safety hold.
+- **Scope proof**: whether the returned AWX job, inventory, limit, revision, execution environment, credentials, dispatch markers, and host IDs matched the immutable launch snapshot.
 
-The state machine is enforced: a terminal run (`succeeded`, `partial`, `failed`, `unreachable`, `canceled`) never transitions further. Late events arriving from AWX after a terminal transition are still persisted to the task table for completeness but don't move the state.
+Use **Refresh** to reload the latest persisted operation, execution, and target
+evidence. This page is the complete operator-facing Ansible execution record.
 
-### Listing runs
+### List operations
 
-`/ansible/runs` is the cross-controller index, filterable by state (all / pending / launching / running / succeeded / partial / failed / unreachable / canceled). The "Refresh" button reloads with the current filter; PubSub also live-inserts rows that match the active filter as their state changes.
+`/ansible/operations` is the cross-controller operation index. It is filterable by state (all / planned / dispatching / running / succeeded / failed / canceled / dispatch partial / dispatch ambiguous / cancel failed), capped at the 100 most recent matching operations. Each row links to `/ansible/operations/:id`; **Refresh** reloads the active filter.
 
-### Cron-driven runs
+### Scheduled operations
 
-Schedules registered in **Settings → Ansible → Schedules** fire automatically. Each fire produces a regular `PlaybookRun` with `schedule_id` set — visible in both `/ansible/runs` (with a "scheduled" badge) and on the schedule's row in the settings tab (last fire + outcome badge).
-
-### Universal log viewer
-
-Every state transition + every task result also produces an OCSF Application Activity (class 6003) event in the universal log viewer. Each event carries an `unmapped.ansible` block with `run_id`, `playbook_id`, `controller_id`, `awx_job_id`, `task_name`, `awx_host_name`, `device_uid`, etc., so you can search:
-
-- by run id to see one run's full event stream
-- by device uid to see every ansible activity that touched a host
-- by task name across all runs ever
-- by status to filter for failures globally
-
-This is the supported replacement for ARA's UI for cross-run search — ServiceRadar's structured per-run pages are richer than ARA for one run, and the universal log viewer is richer than ARA for cross-run aggregation.
+Scheduled execution is not currently exposed. When a separately approved
+delegated-scheduling capability is implemented, its evidence will use
+`/ansible/operations`; it will not introduce another history UI.
 
 ## Configuration reference
 
@@ -355,7 +320,6 @@ Stored on each `AnsibleController` row; override the deployment-wide cadence per
 |---|---|---|
 | `inventory_sync_interval_seconds` | 300 | Plugin's `inventory_sync` assignment cadence for this controller. |
 | `catalog_sync_interval_seconds` | 600 | `AwxCatalogSyncWorker` cadence for this controller. |
-| `run_pulse_interval_ms` | 2000 | `RunPulseWorker` cadence — lower = snappier UI, higher = lower AWX API load. |
 
 Editable in the Controllers tab.
 
@@ -365,30 +329,26 @@ Editable in the Controllers tab.
 |---|---|---|
 | `sync_interval_seconds` | 600 | `GitCatalogSyncWorker` cadence for this repo. Min 60s. |
 
-### Per-schedule overrides
-
-| Column | Default | Override |
-|---|---|---|
-| `cron` | required | Standard 5-field cron expression. |
-| `timezone` | `UTC` | UTC / Etc/UTC only in v1. |
-| `allow_concurrent` | `false` | When true, fire even if the previous run is still non-terminal. |
-
 ## RBAC reference
 
-The eight ansible permission keys, with the default role assignments:
+The ten Ansible permission keys, with the default role assignments:
 
 | Key | Default roles | What it grants |
 |---|---|---|
 | `ansible.controllers.manage` | `admin` | Register / edit / delete `AnsibleController`. Required to reach the Controllers tab. |
 | `ansible.repositories.manage` | `admin` | Register / edit / delete `PlaybookRepository`. Required to reach the Repositories tab. |
 | `ansible.catalog.view` | `all` (viewer / helpdesk / operator / admin) | Browse `/ansible/catalog`. |
-| `ansible.runs.view` | `all` | View `/ansible/runs` and `/ansible/runs/:id`. |
-| `ansible.runs.launch` | `operator` / `admin` | Launch playbooks; the Run Task button is hidden without this. |
-| `ansible.runs.cancel` | `operator` / `admin` | Cancel an in-progress run. |
-| `ansible.schedules.view` | `all` | View existing schedules. |
-| `ansible.schedules.manage` | `operator` / `admin` | Register / edit / enable / disable / delete schedules. |
+| `ansible.runs.view` | `all` | View `/ansible/operations` and `/ansible/operations/:id`. The deployed permission key is retained for RBAC compatibility. |
+| `ansible.runs.launch` | `operator` / `admin` | Show **Launch Playbook** and authorize the canonical Ansible launch flow. It does not authorize provider-neutral **Run Action**. |
+| `ansible.runs.cancel` | `operator` / `admin` | Authorize cancellation services. The canonical operation pages are currently read-only. |
+| `ansible.schedules.view` | `all` | Reserved key for stored schedule records; no schedule UI is exposed. |
+| `ansible.schedules.manage` | `operator` / `admin` | Reserved key. It does not enable or authorize scheduled execution. |
+| `ansible.delegations.manage` | `admin` | Manage immutable execution delegations for schedules or operations. This does not make retained schedules executable. |
+| `ansible.targets.holds.clear` | `admin` | Reconcile and clear a device-wide Ansible mutation hold using current approval, policy, and recovery evidence. |
 
-These map to Ash resources via `ServiceRadarWebNGWeb.Authorization.Permissions`. Per-event Permit gates in each LiveView enforce the right verb on the right resource.
+These keys map to Ash resources through `ServiceRadarWebNGWeb.Authorization.Permissions`. The launch route uses create authorization on canonical operations. Ansible settings refresh the current user's authority before loading data and before every controller or repository action, then enforce the permission for that exact resource.
+
+Provider-neutral device/interface actions use separate keys: `northbound.actions.launch` for **Run Action** and `northbound.actions.view` for non-Ansible Action History. Neither key substitutes for `ansible.runs.launch` or `ansible.runs.view`, and stale Ansible northbound rows are excluded from those operator surfaces.
 
 ## Troubleshooting
 
@@ -397,7 +357,7 @@ These map to Ash resources via `ServiceRadarWebNGWeb.Authorization.Permissions`.
 Probable causes, in order of likelihood:
 
 1. **Plugin not assigned**. Confirm both `awx` plugin manifests are assigned to the controller's `agent_id` via `/settings/plugins` (or `iex` → `ServiceRadar.Plugins`). Without the `run_check` entrypoint assigned the agent can't even respond to `awx.ping`.
-2. **Agent offline**. Check the agent's connection state. The launcher (`RunLauncher.launch/2`) explicitly fails launches with a typed error when the agent isn't connected; controller health calls fail silently. Look for `[error] AWX ControllerHealthWorker: dispatch failed` in the core-elx logs.
+2. **Agent offline**. Check the agent's connection state. The hardened launch path fails closed when it cannot establish the selected edge principal and controller path; controller health calls fail silently. Look for `[error] AWX ControllerHealthWorker: dispatch failed` in the core-elx logs.
 3. **Agent can't reach AWX**. From inside the agent's network namespace, test the exact controller origin with its trusted CA: `curl --cacert /path/to/awx-ca.pem https://<base_url>/api/v2/ping/`. Do not put an AWX bearer on a shell command line or use `-k`; use a credential-safe diagnostic or the ServiceRadar controller health action for authenticated checks.
 4. **TLS verification**. The default is to verify. For an AWX certificate issued by a private CA, mount the public PEM bundle on the selected edge agent and add its absolute path to `plugin_http_trusted_ca_files` in `agent.json`. Helm deployments use `agent.pluginHTTPTrustedCAFiles` and trust the ServiceRadar runtime CA in addition to operating-system roots by default. The host-owned transport loads these roots before starting Wasm, never exposes them to the module, and disables outbound plug-in HTTP if a configured path is unreadable, oversized, or contains no certificate. Restart the agent after changing the trust bundle. Do not use `metadata.insecure_skip_verify` for credential-bearing production traffic.
 
@@ -417,17 +377,17 @@ The token is wrong, expired, or missing scope. Check `Controller.last_health_sum
 - Check `DiscoveryRecord` ingestion in DIRE — the AWX hosts may be matching but onto different devices (hostname collision). Look for `awx` in the device's `discovery_sources` set.
 - Hosts AWX has that DIRE can't match are emitted but not yet surfaced; check the agent logs for `inventory_sync` discovery records.
 
-### Run stuck in `:pending`
+### Operation stuck in `:planned` or `:dispatching`
 
-The launch command never returned a result from AWX. Likely causes:
+Open `/ansible/operations/:id`, refresh it, and inspect the operation and child-execution diagnostics. Common causes are:
 
-1. Agent disconnected after dispatch. `RunPulseWorker` doesn't auto-retry launches; the run will eventually be picked up by `RunWatchdog` (~hourly fallback) and transitioned to `:unreachable`.
-2. AWX rejected the launch payload. Check `[info] Ansible launch failed` in logs and the user's flash message at launch time.
-3. The launch's `awx.launch_job` command result was lost. Check `platform.agent_commands` for the command_id of the run's last dispatch — its `status` and `failure_reason` columns will tell you.
+1. The agent disconnected during preflight or dispatch.
+2. AWX rejected the immutable launch payload or its live resources drifted from the reviewed binding.
+3. The `awx.launch_job` command result was lost or could not be correlated. Use the execution's dispatch ID and persisted diagnostics to locate the corresponding `platform.agent_commands` row and inspect its `status` and `failure_reason`.
 
-### Run stuck in `:running` past terminal
+### Operation remains `:running` after AWX is terminal
 
-`RunWatchdog` transitions any non-terminal run past `2 × job_template.timeout` (or 1 h fallback) to `:unreachable` with a diagnostic recording the watchdog reason. If you want a tighter watchdog, set a `job_template_timeout_seconds` on the run's metadata at launch time (currently `iex`-only).
+Refresh the operation evidence and inspect each child execution's AWX job ID, scope-verification state, and diagnostics. Then inspect the correlated secure fetch/status commands in `platform.agent_commands`. Do not infer success from AWX alone: ServiceRadar keeps an execution non-terminal when it cannot prove that the returned job and hosts match the immutable scope.
 
 ### "AWX rejected the request" 401 / 403 on launch
 
@@ -437,30 +397,20 @@ The plugin surfaces these as operator-safe typed errors with `"check controller 
 - The execution principal lacks exact inventory `Use`, template `Execute`, machine-credential `Use`, or generated callback-credential `Use`. Add only the missing object role; do not replace it with an admin/superuser token.
 - Callback credential creation/deletion failed because its principal lacks Credential Admin in the dedicated empty callback organization, or because the configured organization ID names another organization. Do not solve this by granting Credential Admin in the organization that holds production credentials.
 
-### Schedule not firing
+### Operation RBAC questions
 
-- Check the row in the Schedules tab — the `last_evaluation_outcome` badge tells you what happened on the last tick (`fired`, `skipped_overlap`, `skipped_disabled`, `skipped_ineligible_targets`, `error`).
-- Confirm the schedule is enabled (toggle in the action column).
-- Confirm `next_run_at` is populated and in the past. If it's `nil`, the cron expression failed to parse — the form validates client-side via `Oban.Cron.Expression.parse/1` but legacy rows might predate validation; edit and re-save.
-- Non-UTC timezones return `:timezone_database_unavailable` and the schedule never fires. Stick to UTC / Etc/UTC until `:tzdata` is added.
+If a user has `ansible.runs.launch` but cannot use the launch workflow or its result page:
 
-### Per-run RBAC questions
-
-If a user has `ansible.runs.launch` but launches fail with a 403:
-
-- They may not have `ansible.runs.view`. The LaunchLive page itself only checks `runs.launch`, but the post-launch redirect to `/ansible/runs/:id` requires `runs.view`.
-- The Permit per-event gates enforce verbs on specific resources; check `ServiceRadarWebNGWeb.Authorization.Permissions` for the mapping if a permission seems to not be honored.
+- `ansible.runs.launch` authorizes the launch resolver's narrow reads of launchable playbooks, the current approved binding, and current target memberships; it does not grant the general catalog or operation-history pages.
+- `ansible.runs.view` is not required to prepare or submit a launch, but the post-launch redirect to `/ansible/operations/:id` requires it. Grant view authority when the launcher must inspect the resulting evidence.
+- The launch route and its events authorize creation of a canonical `AutomationOperation`; Ansible settings additionally refresh and enforce the exact controller or repository permission for every action. Check `ServiceRadarWebNGWeb.Authorization.Permissions` when a deployed key does not produce the expected resource authority.
 
 ## v1 limitations
 
 These are documented constraints, not bugs. Each is tracked for a future v2:
 
-- **AWX-sourced execution only.** Direct `ansible-playbook` execution by a ServiceRadar agent is reserved for a follow-up; v1 requires an AWX/AAP controller. Workflows that orbit AWX (its credential vault, its inventory plugins, its executor pool) are the supported path.
-- **UTC schedules only.** Non-UTC timezones need the `:tzdata` Elixir dependency, which isn't currently bundled.
+- **AWX-sourced execution only.** The hardened launch picker accepts only AWX-sourced catalog rows with a current approved binding. Git-sourced rows remain searchable catalog metadata, even when an older row carries an AWX template ID. Direct `ansible-playbook` execution by a ServiceRadar agent is reserved for a follow-up.
 - **Public HTTPS git repos.** The `GitCatalogSyncWorker` supports HTTPS deploy tokens via the credential broker but not SSH keys yet.
-- **Schedules require AWX-sourced playbooks.** Git-sourced playbooks can be launched ad-hoc once bound to an AWX template, but the schedule worker rejects them in v1 with `:git_sourced_not_supported_v1`.
+- **Scheduled execution unavailable.** The current UI supports interactive launches only. A future delegated design will use canonical operations.
 - **Multi-device UI launches require a single controller.** AWX uses `limit:` to scope to specific hosts; mixed-controller selections are rejected at submit time. Multi-controller fan-out is a v2 design question.
-- **Webhook ingestion is deferred.** An agent-side receiver that would augment pulse polling for lower-latency state-transition updates from very large AWX deployments is planned for a future release. Pulse polling is the only ingestion path in v1.
-- **OCSF class selection.** Events project as Application Activity (6003). If operator search habits favor Process Activity (1007) instead, the mapping module can be swapped without touching the data model.
-- **Run retention exclusion window.** Retention sweeps do not yet skip runs accessed within the last hour — the worker does not check `accessed_at` (the column hasn't been added). Set generous `ANSIBLE_RETENTION_RUN_DETAIL_DAYS` if you frequently revisit old runs.
 - **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a UUID from `Settings → Credentials`. A picker UX is a planned v2 improvement.
