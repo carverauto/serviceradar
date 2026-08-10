@@ -122,7 +122,7 @@ phoenix_digest = rule(
         # Only phoenix is needed -- Phoenix.Digester has no other runtime dependency.
         "deps": attr.label_list(
             providers = [ErlangAppInfo],
-            default = ["@hex_phoenix//:erlang_app"],
+            default = ["@hexpm//:phoenix"],
         ),
         "prefix": attr.string(
             default = "static",

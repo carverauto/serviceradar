@@ -29,6 +29,16 @@ verbatim from the `MODULE.bazel` comments that accompanied them.
 | `private/ex_unit_test.bzl` | stage into `TEST_TMPDIR` | `ex_unit_test` copied every `srcs`/`data` file into `TEST_UNDECLARED_OUTPUTS_DIR` and ran there. Bazel treats that directory as artifacts the test produced, so it stats and `file --mime-type`s every entry to build the manifest, then uploads them — meaning each Elixir target shipped a few thousand of its own INPUTS to the CAS per run. It also produced ~2,150 `test-setup.sh: line 331: file: command not found` lines per test on the RBE executor, which carries no `file(1)`, burying the real output in 2,197-line logs. Nothing was collected from there on purpose: the script's only write is `test.log`, which it `rm`s after the pass/fail grep. Note `rules_erlang` keeps using `TEST_UNDECLARED_OUTPUTS_DIR` and is right to — its ct logs and coverdata really are outputs. |
 | `ex_unit_test.bzl` | migrate deprecated Windows condition | `@bazel_tools//src/conditions:host_windows` is deprecated ("No longer used by Bazel and will be removed in the future. Migrate to toolchains or define your own version of this setting"), and every `ex_unit_test` target warned about it. Replaced with the `@platforms//os:windows` constraint. Also a semantic correction: the old key matched the HOST, while `is_windows` decides whether the generated runner is a batch file or a shell script -- a property of the platform the test EXECUTES on, which for a test rule is the target platform. |
 
+## Local additions
+
+New files, not modifications of upstream ones. Kept separate from the table above so the
+"is this a fix we are carrying, or something we added?" question stays answerable.
+
+| File | What | Why |
+| --- | --- | --- |
+| `mix_archive_build.bzl`, `private/mix_archive_build.bzl` | `mix archive.build` as a rule | Upstream can compile an Elixir app but cannot produce a `.ez` archive, and `mix archive.install` is the only way to give Mix something it needs *before* it can resolve a project. Moved here from `//build`, where it had accumulated as first-party code despite containing nothing project-specific; it was itself adapted from rabbitmq-server's `bazel/elixir/mix_archive_build.bzl` (MPL-2.0), the same lineage as this ruleset. |
+| `bzlmod/extensions.bzl` (`hex` extension) | builds Hex from source as a Mix archive, exported as `@hex//:archive` | Every rules_elixir consumer needs this and cannot discover it: Mix aborts with "Could not find an SCM for dependency" on any `{:dep, "~> x.y"}` entry unless Hex is installed as an archive — including a build that supplies all deps from Bazel and passes `--no-deps-check`. Hex has no dependencies of its own, so it bootstraps with an empty dep graph. Version defaults to `DEFAULT_HEX_VERSION`, overridable with the `from_github_release` tag, mirroring `internal_elixir_from_github_release`. |
+
 ## Diffing against upstream
 
 ```bash
@@ -38,7 +48,7 @@ diff -ru /tmp/rules_elixir-1.1.0 third_party/rules_elixir \
   -x VENDORING.md -x 'bazel-*' -x MODULE.bazel.lock
 ```
 
-The diff should show exactly the eight changes above and nothing else.
+The diff should show exactly the eight changes and two additions above, and nothing else.
 
 ## House rules for editing this tree
 

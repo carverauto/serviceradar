@@ -46,9 +46,9 @@ mix_app(
         "//elixir/serviceradar_srql/native/srql_nif:srql_nif": "srql_nif",
     },
     deps = [
-        "@hex_boundary//:erlang_app",
-        "@hex_jason//:erlang_app",
-        "@hex_rustler//:erlang_app",
+        "@hexpm//:boundary",
+        "@hexpm//:jason",
+        "@hexpm//:rustler",
         "@rules_elixir//elixir",
     ],
 )

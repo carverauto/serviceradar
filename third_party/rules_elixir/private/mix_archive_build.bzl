@@ -1,4 +1,10 @@
-"""Compile a Mix package inside a single hermetic Bazel action.
+"""Build a Mix archive (.ez) inside a single hermetic Bazel action.
+
+`mix archive.build` is how Mix packages a project for `mix archive.install`,
+which is the only way to supply Mix with something it needs *before* it can
+resolve a project -- Hex itself being the case that matters. Without Hex
+installed as an archive, Mix aborts with "Could not find an SCM for dependency"
+on any `{:dep, "~> x.y"}` entry, even one it would never compile.
 
 Why this exists
 ---------------
@@ -26,12 +32,6 @@ project dropped Bazel in March 2025.
 
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load(
-    "@rules_elixir//private:elixir_toolchain.bzl",
-    "elixir_dirs",
-    "erlang_dirs",
-    "maybe_install_erlang",
-)
-load(
     "@rules_erlang//:erlang_app_info.bzl",
     "ErlangAppInfo",
     "flat_deps",
@@ -41,6 +41,12 @@ load(
     "@rules_erlang//private:util.bzl",
     "additional_file_dest_relative_path",
     "erl_libs_contents",
+)
+load(
+    ":elixir_toolchain.bzl",
+    "elixir_dirs",
+    "erlang_dirs",
+    "maybe_install_erlang",
 )
 
 def _impl(ctx):
@@ -191,5 +197,5 @@ mix_archive_build = rule(
         "deps": attr.label_list(providers = [ErlangAppInfo]),
         "out": attr.output(),
     },
-    toolchains = ["@rules_elixir//:toolchain_type"],
+    toolchains = ["//:toolchain_type"],
 )

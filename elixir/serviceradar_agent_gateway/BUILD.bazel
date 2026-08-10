@@ -68,17 +68,17 @@ filegroup(
 # them -- each env must see serviceradar_core built for the SAME env, or a release ends up
 # with test-compiled configuration baked into a dependency.
 GATEWAY_DEPS = [
-        "@hex_bandit//:erlang_app",
-        "@hex_boundary//:erlang_app",
-        "@hex_grpc_server//:erlang_app",
-        "@hex_gun//:erlang_app",
-        "@hex_jason//:erlang_app",
-        "@hex_libcluster//:erlang_app",
-        "@hex_plug//:erlang_app",
-        "@hex_protobuf//:erlang_app",
-        "@hex_req//:erlang_app",
-        "@hex_telemetry_metrics//:erlang_app",
-    "@hex_telemetry_metrics_prometheus_core//:erlang_app",
+    "@hexpm//:bandit",
+    "@hexpm//:boundary",
+    "@hexpm//:grpc_server",
+    "@hexpm//:gun",
+    "@hexpm//:jason",
+    "@hexpm//:libcluster",
+    "@hexpm//:plug",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:telemetry_metrics",
+    "@hexpm//:telemetry_metrics_prometheus_core",
     "@rules_elixir//elixir",
 ]
 
@@ -91,14 +91,14 @@ GATEWAY_DEPS = [
 #
 # Kept on the :test target, which is the env that actually resolves them.
 GATEWAY_DEV_DEPS = [
-    "@hex_ash_credo//:erlang_app",
-        "@hex_credo//:erlang_app",
-        "@hex_dialyxir//:erlang_app",
-        "@hex_ex_dna//:erlang_app",
-        "@hex_ex_slop//:erlang_app",
-        "@hex_mix_audit//:erlang_app",
-        "@hex_mox//:erlang_app",
-        "@hex_styler//:erlang_app",
+    "@hexpm//:ash_credo",
+    "@hexpm//:credo",
+    "@hexpm//:dialyxir",
+    "@hexpm//:ex_dna",
+    "@hexpm//:ex_slop",
+    "@hexpm//:mix_audit",
+    "@hexpm//:mox",
+    "@hexpm//:styler",
 ]
 
 # Compiled by Mix inside a single hermetic Bazel action. mix_env is "test" because
@@ -137,8 +137,8 @@ elixir_release(
         "//elixir/serviceradar_srql:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
-    app = ":erlang_app_prod",
     out = "serviceradar-agent-gateway-release.tar.gz",
+    app = ":erlang_app_prod",
     release_name = "serviceradar_agent_gateway",
 )
 

@@ -31,6 +31,15 @@ is preserved verbatim from the `MODULE.bazel` comments that accompanied them.
 | `private/erlang_bytecode.bzl` | `include_lib` self-reference | An app that `-include_lib`s its own public header (grpcbox does) cannot resolve it, because `code:lib_dir/1` needs an `ebin` this action has not produced yet. |
 | `shell.bzl`, `eunit.bzl`, `eunit2.bzl`, `xref.bzl`, `xref2.bzl`, `dialyze.bzl`, `ct.bzl` | migrate deprecated Windows condition | Same change as `//third_party/rules_elixir/ex_unit_test.bzl`; see that tree's VENDORING.md for the rationale. Nine `select()` keys moved from the deprecated `@bazel_tools//src/conditions:host_windows` to `@platforms//os:windows`. Migrated together with the rules_elixir site so the warning cannot reappear the first time anyone uses eunit, ct, xref or dialyze. |
 
+## Local additions
+
+New files, not modifications of upstream ones. Kept separate from the table above so the
+"is this a fix we are carrying, or something we added?" question stays answerable.
+
+| File | What | Why |
+| --- | --- | --- |
+| `bzlmod/hex_packages.bzl` | `hex_packages_extension` — declares a whole Hex closure from a data list, plus a hub repository of aliases | Upstream's model is one `hex_archive` per package written into MODULE.bazel by hand. ServiceRadar's closure is ~270 packages, which put 2,167 generated lines — 52% of the file — into the root `MODULE.bazel`, and every package had to be named a second time to be visible. The extension takes the closure as data and exports one repository, `@hexpm`. Written to be upstreamable: it hardcodes nothing about ServiceRadar. |
+
 ## Diffing against upstream
 
 ```bash
@@ -40,8 +49,9 @@ diff -ru /tmp/rules_erlang-3.16.0 third_party/rules_erlang \
   -x VENDORING.md -x 'bazel-*'
 ```
 
-That diff should show exactly the seven changes above and nothing else. If it shows more,
-someone edited the vendored tree without recording it here — fix that first.
+That diff should show exactly the seven changes and one addition above, and nothing else.
+If it shows more, someone edited the vendored tree without recording it here — fix that
+first.
 
 ## House rules for editing this tree
 

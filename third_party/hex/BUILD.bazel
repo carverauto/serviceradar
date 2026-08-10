@@ -1,4 +1,42 @@
+load("//third_party/hex:hex_gen.bzl", "hex_gen", "hex_gen_test")
+
 # Build files for Hex packages fetched via hex_archive and compiled by Bazel's own Elixir
 # toolchain. This is what replaces `mix deps.get` + `mix deps.compile`: each package becomes a
 # real Bazel target producing ErlangAppInfo, so ex_unit_test and elixir_app can depend on it.
+#
+# Everything here except bundlex.BUILD is generated -- see :gen below. The closure itself is
+# declared from hex_packages.bzl by //third_party/hex:extensions.bzl, which the root
+# MODULE.bazel loads as a single module extension.
 exports_files(glob(["*.BUILD"]))
+
+# Every project's lock. All of them together, because a Bazel repository name is global:
+# the closure has to be resolved once across the whole workspace, not per project.
+MIX_LOCKS = [
+    "//elixir/datasvc:mix.lock",
+    "//elixir/palisade:mix.lock",
+    "//elixir/serviceradar_agent_gateway:mix.lock",
+    "//elixir/serviceradar_core:mix.lock",
+    "//elixir/serviceradar_core_elx:mix.lock",
+    "//elixir/serviceradar_srql:mix.lock",
+    "//elixir/web-ng:mix.lock",
+]
+
+# bazel run //third_party/hex:gen
+hex_gen(
+    name = "gen",
+    generator = "gen_hex_bazel.exs",
+    locks = MIX_LOCKS,
+    tags = ["manual"],
+)
+
+# The gate that makes the generated tree trustworthy: regenerates from the locks in a sandbox
+# and diffs against what is checked in. Without it, a mix.lock bump that nobody regenerated
+# leaves Bazel building an older closure than Mix resolves -- which is exactly how four
+# packages silently drifted before this existed.
+hex_gen_test(
+    name = "gen_test",
+    size = "short",
+    data = glob(["*.BUILD"]) + ["hex_packages.bzl"],
+    generator = "gen_hex_bazel.exs",
+    locks = MIX_LOCKS,
+)

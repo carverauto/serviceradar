@@ -2,16 +2,20 @@
 #
 # Generate Bazel repository declarations and BUILD stubs from a mix.lock.
 #
-# Usage:
-#   elixir scripts/gen_hex_bazel.exs elixir/*/mix.lock
+# Do not run this by hand -- it is the source of a Bazel target:
+#   bazel run //third_party/hex:gen        regenerate in place
+#   bazel test //third_party/hex:gen_test  fail if the checked-in tree is stale
+#
+# Usage (what those targets invoke):
+#   elixir gen_hex_bazel.exs --out-dir <dir> elixir/*/mix.lock
 #
 # Pass every project's lock. Bazel repositories are global -- @hex_ecto can only be
 # one version -- so the locks must already agree on a version for each package. This
 # script asserts that rather than silently picking one.
 #
-# Writes:
-#   third_party/hex/<pkg>.BUILD          one per Hex package
-#   third_party/hex/hex_archives.MODULE  the hex_archive() block to paste into MODULE.bazel
+# Writes, into --out-dir:
+#   <pkg>.BUILD       one per Hex package
+#   hex_packages.bzl  the closure as data, loaded by //third_party/hex:extensions.bzl
 #
 # Why generate rather than hand-write: mix.lock already carries everything Bazel
 # needs -- version, outer tarball checksum, build tools, and the resolved dep
@@ -20,7 +24,7 @@
 # term syntax, so this reads it with Code.eval_file rather than a regex.
 
 defmodule GenHexBazel do
-  @out_dir "third_party/hex"
+  @default_out_dir "third_party/hex"
 
   # Packages that are NOT compiled from source by us. Nothing here yet; entries
   # get added with a reason as we hit packages Bazel cannot build.
@@ -37,8 +41,9 @@ defmodule GenHexBazel do
   # against the Hex package rather than the main repo.
   @path_deps %{
     # Not a path dep, but the same problem: bundlex is pinned from git, so it is never a
-    # Hex lock entry and the edge to it would be dropped. It is declared by hand in
-    # MODULE.bazel; packages that name it need to resolve to that repo.
+    # Hex lock entry and the edge to it would be dropped. It is declared by hand as a
+    # git_pkg in //third_party/hex:extensions.bzl, which puts it in the same extension
+    # as the fetched packages -- that is why a sibling stub can still name it directly.
     "bundlex" => "@hex_bundlex//:erlang_app",
     "connection" => "@serviceradar//third_party/hex_vendored/connection:erlang_app",
     "elixir_uuid" => "@serviceradar//third_party/hex_vendored/elixir_uuid:erlang_app",
@@ -46,7 +51,12 @@ defmodule GenHexBazel do
     "serviceradar_srql" => "@serviceradar//elixir/serviceradar_srql:erlang_app"
   }
 
-  def run(lock_paths) when lock_paths != [] do
+  def main(argv) do
+    {opts, lock_paths} = OptionParser.parse!(argv, strict: [out_dir: :string])
+    run(Keyword.get(opts, :out_dir, @default_out_dir), lock_paths)
+  end
+
+  def run(out_dir, lock_paths) when lock_paths != [] do
     lock = merge_locks(lock_paths)
 
     entries =
@@ -64,41 +74,82 @@ defmodule GenHexBazel do
 
     in_lock = MapSet.new(entries, & &1.name)
 
-    File.mkdir_p!(@out_dir)
-    Enum.each(entries, &write_build(&1, in_lock))
-    write_module(entries)
+    File.mkdir_p!(out_dir)
+    Enum.each(entries, &write_build(out_dir, &1, in_lock))
+    write_packages_bzl(out_dir, entries)
+    prune(out_dir, entries)
 
     by_tool = Enum.frequencies_by(entries, &tool/1)
     IO.puts("\ngenerated #{length(entries)} packages: #{inspect(by_tool)}")
   end
 
-  def run(_), do: warn("usage: gen_hex_bazel.exs <path/to/mix.lock> [more locks...]")
+  def run(_out_dir, _),
+    do: warn("usage: gen_hex_bazel.exs [--out-dir DIR] <path/to/mix.lock> [more locks...]")
 
-  # Merge every project's lock into one map, failing loudly on a version disagreement.
-  # A Bazel repository name is global, so two projects wanting different versions of the
-  # same package cannot both be satisfied; unify the lockfiles instead of guessing here.
+  # Merge every project's lock into one map, resolving disagreements to the highest version.
+  #
+  # A Bazel repository name is global -- @hex_castore can only be one version -- so when the
+  # projects disagree, something has to choose. Before this was explicit the choice was made
+  # by whoever last pasted the generated block into MODULE.bazel, which is why the tree drifted
+  # to versions no lock asked for. Highest-wins is the same rule Mix itself applies when one
+  # project resolves a diamond, so the Bazel closure lands on a version at least one project
+  # has already resolved against, rather than an arbitrary older one.
+  #
+  # Every resolution is reported, because a disagreement is still a lockfile bug: the project
+  # on the losing side compiles against one version under Mix and another under Bazel.
   defp merge_locks(paths) do
-    Enum.reduce(paths, %{}, fn path, acc ->
-      {lock, _} = Code.eval_file(path)
-
-      Enum.reduce(lock, acc, fn {name, tuple}, acc ->
-        case Map.fetch(acc, name) do
-          {:ok, existing} when existing != tuple ->
-            raise """
-            #{name} is locked at two different versions across projects:
-              #{inspect(version_of(existing))} and #{inspect(version_of(tuple))} (#{path})
-            Bazel repositories are global; unify the lockfiles first.
-            """
-
-          _ ->
-            Map.put(acc, name, tuple)
-        end
+    merged =
+      paths
+      |> Enum.reduce(%{}, fn path, acc ->
+        {lock, _} = Code.eval_file(path)
+        Enum.reduce(lock, acc, fn {name, tuple}, acc -> Map.update(acc, name, [{path, tuple}], &[{path, tuple} | &1]) end)
       end)
-    end)
+      |> Map.new(fn {name, candidates} -> {name, Enum.reverse(candidates)} end)
+
+    for {name, candidates} <- Enum.sort(merged),
+        distinct = candidates |> Enum.map(&describe_version(elem(&1, 1))) |> Enum.uniq(),
+        length(distinct) > 1 do
+      warn(
+        "#{name} disagrees across locks, taking the highest:\n" <>
+          Enum.map_join(candidates, "\n", fn {p, t} -> "    #{describe_version(t)}  #{p}" end)
+      )
+    end
+
+    Map.new(merged, fn {name, candidates} -> {name, highest(candidates)} end)
+  end
+
+  # A non-hex entry (a git pin) has no comparable version; sort it below everything so a
+  # real Hex version always wins, and it only survives when it is the sole candidate.
+  @unversioned Version.parse!("0.0.0")
+
+  defp highest(candidates) do
+    candidates
+    |> Enum.map(&elem(&1, 1))
+    |> Enum.max_by(&comparable_version/1, Version)
+  end
+
+  defp comparable_version(tuple) do
+    case version_of(tuple) do
+      version when is_binary(version) ->
+        case Version.parse(version) do
+          {:ok, parsed} -> parsed
+          :error -> @unversioned
+        end
+
+      _ ->
+        @unversioned
+    end
   end
 
   defp version_of({:hex, _pkg, version, _inner, _tools, _deps, _repo, _outer}), do: version
-  defp version_of(other), do: other
+  defp version_of(_other), do: nil
+
+  defp describe_version(tuple) do
+    case version_of(tuple) do
+      nil -> "#{elem(tuple, 0)} pin"
+      version -> version
+    end
+  end
 
   # {:hex, :pkg, version, inner_checksum, build_tools, deps, "hexpm", outer_checksum}
   defp parse(name, {:hex, pkg, version, _inner, tools, deps, _repo, outer}) do
@@ -141,10 +192,10 @@ defmodule GenHexBazel do
 
   defp dep_label(dep), do: Map.get(@path_deps, dep, "@hex_#{dep}//:erlang_app")
 
-  defp write_build(entry, in_lock) do
+  defp write_build(out_dir, entry, in_lock) do
     deps = resolved_deps(entry, in_lock)
     body = if tool(entry) == :mix, do: mix_build(entry, deps), else: erlang_build(entry, deps)
-    File.write!(Path.join(@out_dir, "#{entry.name}.BUILD"), body)
+    File.write!(Path.join(out_dir, "#{entry.name}.BUILD"), body)
   end
 
   defp dep_labels(deps, indent) do
@@ -160,7 +211,7 @@ defmodule GenHexBazel do
 
     package(default_visibility = ["//visibility:public"])
 
-    # Generated by scripts/gen_hex_bazel.exs -- do not edit by hand.
+    # Generated by //third_party/hex:gen -- do not edit by hand.
     #
     # A Hex package is a Mix project. Compiling it with Mix -- rather than invoking
     # elixirc from the execroot -- is what makes mix.exs (elixirc_paths, :compilers),
@@ -202,7 +253,7 @@ defmodule GenHexBazel do
 
     package(default_visibility = ["//visibility:public"])
 
-    # Generated by scripts/gen_hex_bazel.exs -- do not edit by hand.
+    # Generated by //third_party/hex:gen -- do not edit by hand.
     # Build tools: #{inspect(entry.tools)} -- compiled as an Erlang app, not via Mix.
     erlang_app(
         app_name = "#{entry.name}",
@@ -215,24 +266,57 @@ defmodule GenHexBazel do
     """
   end
 
-  defp write_module(entries) do
-    block =
+  # The closure as data, for //third_party/hex:extensions.bzl to hand to
+  # @rules_erlang//bzlmod:hex_packages.bzl. This used to be a block of
+  # hex_archive() calls pasted into MODULE.bazel by hand -- 2,167 lines of it,
+  # and a paste step that nothing enforced. A tuple per package keeps the
+  # generated file one line per package; extensions.bzl gives the fields names.
+  defp write_packages_bzl(out_dir, entries) do
+    rows =
       Enum.map_join(entries, "\n", fn e ->
-        """
-        hex_archive(
-            name = "hex_#{e.name}",
-            build_file = "//third_party/hex:#{e.name}.BUILD",
-            package_name = "#{e.pkg}",
-            sha256 = "#{e.sha256}",
-            version = "#{e.version}",
-        )
-        """
+        ~s|    ("#{e.name}", "#{e.pkg}", "#{e.version}", "#{e.sha256}"),|
       end)
 
-    File.write!(Path.join(@out_dir, "hex_archives.MODULE"), block)
+    body = """
+    \"\"\"The resolved Hex closure, generated by //third_party/hex:gen -- do not edit by hand.
+
+    Regenerate with `bazel run //third_party/hex:gen`; `bazel test //third_party/hex:gen_test`
+    fails when this disagrees with the mix.lock files.
+
+    Each row is (app_name, hex_package_name, version, sha256). The two names differ where a
+    package ships under another name on hex.pm -- chatterbox is published as ts_chatterbox.
+    sha256 is the OUTER tarball checksum, the last field of a mix.lock entry, because that is
+    what hex_archive downloads.
+    \"\"\"
+
+    HEX_PACKAGES = [
+    #{rows}
+    ]
+    """
+
+    File.write!(Path.join(out_dir, "hex_packages.bzl"), body)
+  end
+
+  # Drop stubs for packages that have left the closure. Only files carrying the generated
+  # marker are eligible: bundlex's stub is hand-written precisely because the generator
+  # cannot emit it, and deleting it would break every package that depends on it.
+  @marker "do not edit by hand"
+
+  defp prune(out_dir, entries) do
+    keep = MapSet.new(entries, &"#{&1.name}.BUILD")
+
+    out_dir
+    |> Path.join("*.BUILD")
+    |> Path.wildcard()
+    |> Enum.reject(&MapSet.member?(keep, Path.basename(&1)))
+    |> Enum.filter(&String.contains?(File.read!(&1), @marker))
+    |> Enum.each(fn path ->
+      IO.puts("pruned #{Path.basename(path)} -- no longer in any mix.lock")
+      File.rm!(path)
+    end)
   end
 
   defp warn(msg), do: IO.puts(:stderr, "WARNING: #{msg}")
 end
 
-GenHexBazel.run(System.argv())
+GenHexBazel.main(System.argv())

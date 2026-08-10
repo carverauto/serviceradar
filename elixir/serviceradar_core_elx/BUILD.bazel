@@ -46,29 +46,28 @@ filegroup(
     ] + glob(["config/**"]),
 )
 
-
 CORE_ELX_DEPS = [
     "//third_party/hex_vendored/elixir_uuid:erlang_app",
     "//elixir/serviceradar_core:erlang_app_prod",
     "//third_party/hex_vendored/boombox:erlang_app",
-    "@hex_bandit//:erlang_app",
-    "@hex_boundary//:erlang_app",
-    "@hex_bundlex//:erlang_app",
-    "@hex_credo//:erlang_app",
-    "@hex_decimal//:erlang_app",
-    "@hex_grpc//:erlang_app",
-    "@hex_gun//:erlang_app",
-    "@hex_libcluster//:erlang_app",
-    "@hex_membrane_core//:erlang_app",
-    "@hex_membrane_mpeg_ts_plugin//:erlang_app",
-    "@hex_membrane_webrtc_plugin//:erlang_app",
-    "@hex_mpeg_ts//:erlang_app",
-    "@hex_numbers//:erlang_app",
-    "@hex_plug//:erlang_app",
-    "@hex_protobuf//:erlang_app",
-    "@hex_req//:erlang_app",
-    "@hex_swoosh//:erlang_app",
-    "@hex_telemetry_metrics_prometheus_core//:erlang_app",
+    "@hexpm//:bandit",
+    "@hexpm//:boundary",
+    "@hexpm//:bundlex",
+    "@hexpm//:credo",
+    "@hexpm//:decimal",
+    "@hexpm//:grpc",
+    "@hexpm//:gun",
+    "@hexpm//:libcluster",
+    "@hexpm//:membrane_core",
+    "@hexpm//:membrane_mpeg_ts_plugin",
+    "@hexpm//:membrane_webrtc_plugin",
+    "@hexpm//:mpeg_ts",
+    "@hexpm//:numbers",
+    "@hexpm//:plug",
+    "@hexpm//:protobuf",
+    "@hexpm//:req",
+    "@hexpm//:swoosh",
+    "@hexpm//:telemetry_metrics_prometheus_core",
     "@rules_elixir//elixir",
 ]
 
@@ -128,8 +127,8 @@ elixir_release(
         "//elixir/serviceradar_srql:mix.exs",
         "//third_party/hex_vendored/opentelemetry_oban:mix.exs",
     ],
-    app = ":erlang_app_prod",
     out = "serviceradar-core-elx-release.tar.gz",
+    app = ":erlang_app_prod",
     # Must match what :erlang_app_prod compiled with -- `mix release` refuses to assemble
     # when an Application.compile_env/2 key differs between compile and release time.
     extra_config = [
