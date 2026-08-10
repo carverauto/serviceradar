@@ -173,13 +173,13 @@ impl Publisher {
         {
             Ok(()) => {}
             Err(err) => {
-                if !rehomed.is_empty() {
-                    if let Err(restore_err) = restore_subjects_to_events(&js, &rehomed).await {
-                        error!(
-                            "Failed to restore flow subjects to events after target stream error: {}",
-                            restore_err
-                        );
-                    }
+                if !rehomed.is_empty()
+                    && let Err(restore_err) = restore_subjects_to_events(&js, &rehomed).await
+                {
+                    error!(
+                        "Failed to restore flow subjects to events after target stream error: {}",
+                        restore_err
+                    );
                 }
                 return Err(err);
             }
