@@ -52,6 +52,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "EVENTS" in stream_names
       assert "FALCO" in stream_names
       assert "TRIVY" in stream_names
+      assert "K8S_INVENTORY" in stream_names
       assert "OTEL_METRICS" in stream_names
       assert "OTEL_TRACES" in stream_names
       assert "LOGS" in stream_names
@@ -76,14 +77,24 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       for stream <- streams do
         assert stream.stream_name == "flows"
         assert String.starts_with?(stream.subject, "flows.raw.")
-        assert stream.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
-        assert stream.consumer_max_ack_pending == Config.default_flow_max_ack_pending()
+        # Pull/ack knobs are injected by load_flow/0 from env, not hard-coded here.
+        refute Map.has_key?(stream, :consumer_pull_batch_size)
+        refute Map.has_key?(stream, :consumer_max_ack_pending)
         assert stream.stream_retention == "limits"
         assert stream.stream_discard == "old"
         # Must not fall back onto events or thrash collector-owned retention.
         assert stream.allow_stream_fallback == false
         assert stream.reconcile_stream_shape == false
       end
+    end
+
+    test "default_streams still routes K8s inventory snapshots" do
+      assert Enum.any?(Config.default_streams(), &(&1.name == "K8S_INVENTORY"))
+
+      inv = Enum.find(Config.default_streams(), &(&1.name == "K8S_INVENTORY"))
+      assert inv.stream_name == "k8s_inventory"
+      assert inv.subject == "inventory.k8s.public_endpoints"
+      assert inv.processor == ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
     end
 
     test "load_flow uses long-poll and independent demand knobs" do
@@ -94,6 +105,30 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert flow.pull_expires_ns == Config.default_flow_pull_expires_ns()
       assert flow.consumer_pull_batch_size == Config.default_flow_pull_batch_size()
       assert flow.max_ack_pending == Config.default_flow_max_ack_pending()
+
+      for stream <- flow.streams do
+        assert stream.consumer_pull_batch_size == flow.consumer_pull_batch_size
+        assert stream.consumer_max_ack_pending == flow.max_ack_pending
+      end
+    end
+
+    test "load_flow injects EVENT_WRITER_FLOW_* overrides into each stream" do
+      System.put_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE", "99")
+      System.put_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING", "777")
+
+      on_exit(fn ->
+        System.delete_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE")
+        System.delete_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING")
+      end)
+
+      flow = Config.load_flow()
+      assert flow.consumer_pull_batch_size == 99
+      assert flow.max_ack_pending == 777
+
+      for stream <- flow.streams do
+        assert stream.consumer_pull_batch_size == 99
+        assert stream.consumer_max_ack_pending == 777
+      end
     end
 
     test "routes raw Falco sidekick events from the dedicated Falco stream" do

@@ -184,26 +184,43 @@ defmodule ServiceRadar.EventWriter.Config do
     config = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
     base = load()
 
+    pull_batch =
+      load_int_env(
+        "EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE",
+        Keyword.get(config, :flow_consumer_pull_batch_size, @default_flow_pull_batch_size)
+      )
+
+    max_ack =
+      load_int_env(
+        "EVENT_WRITER_FLOW_MAX_ACK_PENDING",
+        Keyword.get(config, :flow_max_ack_pending, @default_flow_max_ack_pending)
+      )
+
+    pull_expires =
+      load_int_env(
+        "EVENT_WRITER_FLOW_PULL_EXPIRES_NS",
+        Keyword.get(config, :flow_pull_expires_ns, @default_flow_pull_expires_ns)
+      )
+
+    # Push resolved flow tuning into each stream so producer/durable options
+    # honor env overrides (stream-level values win over top-level defaults).
+    streams =
+      config
+      |> load_flow_streams()
+      |> Enum.map(fn stream ->
+        stream
+        |> Map.put(:consumer_pull_batch_size, pull_batch)
+        |> Map.put(:consumer_max_ack_pending, max_ack)
+      end)
+
     %{
       base
-      | streams: load_flow_streams(config),
+      | streams: streams,
         producer_name:
           Keyword.get(config, :flow_producer_name, ServiceRadar.EventWriter.FlowProducer),
-        consumer_pull_batch_size:
-          load_int_env(
-            "EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE",
-            Keyword.get(config, :flow_consumer_pull_batch_size, @default_flow_pull_batch_size)
-          ),
-        max_ack_pending:
-          load_int_env(
-            "EVENT_WRITER_FLOW_MAX_ACK_PENDING",
-            Keyword.get(config, :flow_max_ack_pending, @default_flow_max_ack_pending)
-          ),
-        pull_expires_ns:
-          load_int_env(
-            "EVENT_WRITER_FLOW_PULL_EXPIRES_NS",
-            Keyword.get(config, :flow_pull_expires_ns, @default_flow_pull_expires_ns)
-          )
+        consumer_pull_batch_size: pull_batch,
+        max_ack_pending: max_ack,
+        pull_expires_ns: pull_expires
     }
   end
 
@@ -382,6 +399,22 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
+        name: "K8S_INVENTORY",
+        stream_name: "k8s_inventory",
+        # Must overlap stream subjects from k8s-inventory publisher
+        # (inventory.k8s.public_endpoints[+.>] — not the broader inventory.k8s.>).
+        subject: "inventory.k8s.public_endpoints",
+        processor: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints,
+        # Full-cluster snapshots; process one message at a time.
+        batch_size: 1,
+        batch_timeout: 2_000,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 1_073_741_824,
+        stream_max_age: 86_400_000_000_000
+      },
+      %{
         name: "OTEL_METRICS",
         stream_name: "events",
         subject: "otel.metrics.>",
@@ -480,8 +513,9 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec default_flow_streams() :: [stream_config()]
   def default_flow_streams do
-    # stream_max_* values apply only when creating a missing stream. Reconcile of
-    # retention is owned by flow-collector (`reconcile_stream_shape: false`).
+    # No per-stream pull/ack literals — load_flow/0 injects resolved env/config
+    # values so EVENT_WRITER_FLOW_* overrides reach each JetStream durable.
+    # Retention create-if-missing only; collector owns reconcile_stream_shape.
     base = %{
       stream_name: "flows",
       processor: Flows,
@@ -492,8 +526,6 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_discard: "old",
       stream_max_bytes: @default_flows_stream_max_bytes,
       stream_max_age: @default_flows_stream_max_age_ns,
-      consumer_pull_batch_size: @default_flow_pull_batch_size,
-      consumer_max_ack_pending: @default_flow_max_ack_pending,
       allow_stream_fallback: false,
       reconcile_stream_shape: false
     }

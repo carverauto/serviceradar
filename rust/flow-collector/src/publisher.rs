@@ -134,88 +134,54 @@ impl Publisher {
         let required_subjects = self.config.stream_subjects_resolved();
         let desired_max_age = Duration::from_secs(self.config.stream_max_age_secs);
 
-        // JetStream allows a subject on only one stream. When moving off the
-        // historical shared `events` bus onto dedicated `flows`, strip flow
-        // subjects from `events` first so STREAM.CREATE does not hit overlap.
-        if self.config.stream_name != "events"
-            && let Err(err) = rehome_subjects_from_events(&js, &required_subjects).await
-        {
-            warn!(
-                "Could not rehome flow subjects off shared events stream (continuing): {}",
-                err
-            );
-        }
-
-        match js.get_stream(&self.config.stream_name).await {
-            Ok(mut existing_stream) => {
-                let info = existing_stream.info().await?;
-                let mut updated_config = info.config.clone();
-                let mut needs_update = false;
-
-                for required in &required_subjects {
-                    if !updated_config.subjects.contains(required) {
-                        updated_config.subjects.push(required.clone());
-                        needs_update = true;
-                    }
-                }
-
-                if updated_config.num_replicas != self.config.stream_replicas {
-                    updated_config.num_replicas = self.config.stream_replicas;
-                    needs_update = true;
-                }
-
-                if updated_config.max_bytes != self.config.stream_max_bytes {
-                    info!(
-                        "Updating stream '{}' max_bytes from {} to {}",
-                        self.config.stream_name,
-                        updated_config.max_bytes,
-                        self.config.stream_max_bytes
+        // JetStream allows a subject on only one stream. Rehome flow subjects
+        // off `events` first, then attach the full removed set to the target
+        // stream (including extension subjects not in this process config).
+        let rehomed = if self.config.stream_name != "events" {
+            match rehome_subjects_from_events(&js, &required_subjects).await {
+                Ok(subjects) => subjects,
+                Err(err) => {
+                    warn!(
+                        "Could not rehome flow subjects off shared events stream (continuing): {}",
+                        err
                     );
-                    updated_config.max_bytes = self.config.stream_max_bytes;
-                    needs_update = true;
-                }
-
-                if updated_config.max_age != desired_max_age {
-                    info!(
-                        "Updating stream '{}' max_age from {:?} to {:?}",
-                        self.config.stream_name, updated_config.max_age, desired_max_age
-                    );
-                    updated_config.max_age = desired_max_age;
-                    needs_update = true;
-                }
-
-                // Keep limits + discard-old so lag cannot grow the stream forever.
-                if updated_config.retention != RetentionPolicy::Limits {
-                    updated_config.retention = RetentionPolicy::Limits;
-                    needs_update = true;
-                }
-                if updated_config.discard != DiscardPolicy::Old {
-                    updated_config.discard = DiscardPolicy::Old;
-                    needs_update = true;
-                }
-                if updated_config.storage != StorageType::File {
-                    updated_config.storage = StorageType::File;
-                    needs_update = true;
-                }
-
-                if needs_update {
-                    js.update_stream(updated_config).await?;
-                    js.get_stream(&self.config.stream_name).await?;
+                    Vec::new()
                 }
             }
-            Err(_) => {
-                let stream_config = jetstream::stream::Config {
-                    name: self.config.stream_name.clone(),
-                    subjects: required_subjects.clone(),
-                    storage: StorageType::File,
-                    retention: RetentionPolicy::Limits,
-                    discard: DiscardPolicy::Old,
-                    max_bytes: self.config.stream_max_bytes,
-                    max_age: desired_max_age,
-                    num_replicas: self.config.stream_replicas,
-                    ..Default::default()
-                };
-                js.get_or_create_stream(stream_config).await?;
+        } else {
+            Vec::new()
+        };
+
+        let mut target_subjects = required_subjects.clone();
+        for subject in &rehomed {
+            if !target_subjects.iter().any(|s| s == subject) {
+                target_subjects.push(subject.clone());
+            }
+        }
+        target_subjects.sort();
+        target_subjects.dedup();
+
+        match ensure_flows_stream(
+            &js,
+            &self.config.stream_name,
+            &target_subjects,
+            self.config.stream_max_bytes,
+            desired_max_age,
+            self.config.stream_replicas,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(err) => {
+                if !rehomed.is_empty() {
+                    if let Err(restore_err) = restore_subjects_to_events(&js, &rehomed).await {
+                        error!(
+                            "Failed to restore flow subjects to events after target stream error: {}",
+                            restore_err
+                        );
+                    }
+                }
+                return Err(err);
             }
         }
 
@@ -265,41 +231,152 @@ impl Publisher {
     }
 }
 
-/// Removes **only** raw-flow subjects from the shared `events` stream so a
-/// dedicated flows stream can own them exclusively.
-///
-/// Safety: never strip subjects by bulk equality against the collector's full
-/// required subject list. Only known flow prefixes are eligible for rehome:
-/// `flows.raw.*` and configured `flow.host-slice.*` subjects. Unrelated
-/// `events` subjects (logs, inventory signals, etc.) must never be removed.
+/// Removes rehomeable flow subjects from `events` and returns the exact set
+/// removed so the caller can union them into the target stream (including
+/// extension subjects like `flows.raw.ipfix` not listed in this process config).
 async fn rehome_subjects_from_events(
     js: &jetstream::Context,
     required_subjects: &[String],
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut events = match js.get_stream("events").await {
+        Ok(stream) => stream,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let info = events.info().await?;
+    let mut updated = info.config.clone();
+    let mut removed = Vec::new();
+    updated.subjects.retain(|s| {
+        if is_rehomeable_flow_subject(s, required_subjects) {
+            removed.push(s.clone());
+            false
+        } else {
+            true
+        }
+    });
+
+    if removed.is_empty() {
+        return Ok(removed);
+    }
+
+    info!(
+        "Removing {} flow subject(s) from shared events stream so dedicated stream can own them: {:?}",
+        removed.len(),
+        removed
+    );
+    js.update_stream(updated).await?;
+    Ok(removed)
+}
+
+async fn restore_subjects_to_events(js: &jetstream::Context, subjects: &[String]) -> Result<()> {
+    if subjects.is_empty() {
+        return Ok(());
+    }
+
     let mut events = match js.get_stream("events").await {
         Ok(stream) => stream,
         Err(_) => return Ok(()),
     };
 
     let info = events.info().await?;
-    let before = info.config.subjects.len();
     let mut updated = info.config.clone();
-    updated
-        .subjects
-        .retain(|s| !is_rehomeable_flow_subject(s, required_subjects));
-
-    if updated.subjects.len() == before {
-        return Ok(());
+    let mut changed = false;
+    for subject in subjects {
+        if !updated.subjects.iter().any(|s| s == subject) {
+            updated.subjects.push(subject.clone());
+            changed = true;
+        }
     }
 
-    let removed = before - updated.subjects.len();
-    info!(
-        "Removing {removed} flow subject(s) from shared events stream ({} → {}) so dedicated stream can own them",
-        before,
-        updated.subjects.len()
-    );
-    js.update_stream(updated).await?;
+    if changed {
+        warn!(
+            "Restoring {} flow subject(s) onto events after target stream ensure failed",
+            subjects.len()
+        );
+        js.update_stream(updated).await?;
+    }
     Ok(())
+}
+
+async fn ensure_flows_stream(
+    js: &jetstream::Context,
+    stream_name: &str,
+    target_subjects: &[String],
+    max_bytes: i64,
+    max_age: Duration,
+    replicas: usize,
+) -> Result<()> {
+    match js.get_stream(stream_name).await {
+        Ok(mut existing_stream) => {
+            let info = existing_stream.info().await?;
+            let mut updated_config = info.config.clone();
+            let mut needs_update = false;
+
+            for required in target_subjects {
+                if !updated_config.subjects.contains(required) {
+                    updated_config.subjects.push(required.clone());
+                    needs_update = true;
+                }
+            }
+
+            if updated_config.num_replicas != replicas {
+                updated_config.num_replicas = replicas;
+                needs_update = true;
+            }
+
+            if updated_config.max_bytes != max_bytes {
+                info!(
+                    "Updating stream '{}' max_bytes from {} to {}",
+                    stream_name, updated_config.max_bytes, max_bytes
+                );
+                updated_config.max_bytes = max_bytes;
+                needs_update = true;
+            }
+
+            if updated_config.max_age != max_age {
+                info!(
+                    "Updating stream '{}' max_age from {:?} to {:?}",
+                    stream_name, updated_config.max_age, max_age
+                );
+                updated_config.max_age = max_age;
+                needs_update = true;
+            }
+
+            if updated_config.retention != RetentionPolicy::Limits {
+                updated_config.retention = RetentionPolicy::Limits;
+                needs_update = true;
+            }
+            if updated_config.discard != DiscardPolicy::Old {
+                updated_config.discard = DiscardPolicy::Old;
+                needs_update = true;
+            }
+            if updated_config.storage != StorageType::File {
+                updated_config.storage = StorageType::File;
+                needs_update = true;
+            }
+
+            if needs_update {
+                js.update_stream(updated_config).await?;
+                js.get_stream(stream_name).await?;
+            }
+            Ok(())
+        }
+        Err(_) => {
+            let stream_config = jetstream::stream::Config {
+                name: stream_name.to_string(),
+                subjects: target_subjects.to_vec(),
+                storage: StorageType::File,
+                retention: RetentionPolicy::Limits,
+                discard: DiscardPolicy::Old,
+                max_bytes,
+                max_age,
+                num_replicas: replicas,
+                ..Default::default()
+            };
+            js.get_or_create_stream(stream_config).await?;
+            Ok(())
+        }
+    }
 }
 
 pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[String]) -> bool {

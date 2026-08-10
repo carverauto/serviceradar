@@ -212,9 +212,21 @@ defmodule ServiceRadar.EventWriter.Producer do
   def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to} = msg}, state) do
     cond do
       pull_status_message?(msg, state) ->
+        # Expiry/empty status: free the outstanding pull slot and repull
+        # immediately when demand remains (do not wait for the idle tick).
         state = clear_pull_inflight(state, subject)
         EventWriterTelemetry.emit_queue(state, :pull_status, subject)
-        {:noreply, [], state}
+
+        if state.connected and state.demand > 0 do
+          {messages, state} =
+            state
+            |> drain_pending_messages()
+            |> maybe_request_pull_messages()
+
+          {:noreply, messages, state}
+        else
+          {:noreply, [], state}
+        end
 
       state.pending_count >= state.max_buffered ->
         # Producer-side overflow guard: the in-process buffer is full. NAK the
