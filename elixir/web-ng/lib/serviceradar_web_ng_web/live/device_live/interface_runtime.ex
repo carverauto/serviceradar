@@ -41,16 +41,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime do
     assign(socket, :selected_interfaces, MapSet.new())
   end
 
-  def run_task_for_selection(socket) do
+  def run_action_for_selection(socket) do
     cond do
       not NorthboundInterfaceRuntime.can_launch?(socket.assigns.current_scope) ->
         put_flash(socket, :error, NorthboundInterfaceRuntime.launch_permission_error())
 
       MapSet.size(socket.assigns.selected_interfaces) == 0 ->
-        put_flash(socket, :error, "Select at least one interface before Run Task.")
+        put_flash(socket, :error, "Select at least one interface before running an action.")
 
       socket.assigns.northbound_interface_actions == [] ->
-        put_flash(socket, :error, "No launchable interface task integrations are configured.")
+        put_flash(socket, :error, "No launchable interface action integrations are configured.")
 
       true ->
         action = List.first(socket.assigns.northbound_interface_actions)

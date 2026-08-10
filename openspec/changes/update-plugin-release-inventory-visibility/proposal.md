@@ -11,8 +11,8 @@ The release and plugin administration screens are currently showing too much his
 - Clean up device-details integration metadata so source-specific data is grouped into useful cards instead of one noisy key list.
 - Ensure device details exposes important enrichment fields, including Armis device type/category/risk score and active/in-service state.
 - Make device log loading bounded and empty-state aware instead of leaving the Logs tab in a slow loading/error state when no logs exist.
-- Improve task launch/result UX so operators know where results land, task history omits meaningless `nil` fields, and interface action targets include enough interface/module context.
-- Correct task-launch authorization so operators with the right northbound permissions can launch device/interface tasks in the demo deployment, and unauthorized failures identify the missing permission.
+- Improve action launch/result UX so operators know where results land, Action History omits meaningless `nil` fields, and interface action targets include enough interface/module context.
+- Correct action-launch authorization so operators with `northbound.actions.launch` can launch device/interface actions in the demo deployment, and unauthorized failures identify that exact missing permission.
 - Treat release `command_ack_timeout` as a diagnostic state that can be superseded by later activation success instead of leaving a successful rollout looking stuck or failed.
 - Prevent stale historical rollout attempts from making agent details show an obsolete desired version when the agent is already current on a newer release.
 - Normalize Wasm plugin result statuses so plugin-reported failures become valid failed/unknown service states rather than invalid payload errors.
@@ -39,7 +39,7 @@ The release and plugin administration screens are currently showing too much his
   - `helm/serviceradar/values-demo.yaml`
   - Agent/gateway/plugin-result service status publication paths
   - `/services` UI/API data paths
-  - task launch RBAC and northbound action authorization paths
-  - device details metadata/logs/task-history UI paths
+  - action launch RBAC and northbound action authorization paths
+  - device details metadata/logs/action-history UI paths
   - device enrichment/DIRE merge paths for Armis type and risk data
   - topology and NetFlow map data paths

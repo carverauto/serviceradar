@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   @moduledoc """
-  Device-detail Ansible panel: AWX-managed detection, run-history loading,
+  Device-detail Ansible panel: AWX-managed detection, operation-history loading,
   and the in-page launch modal.
 
   The AWX inventory metadata on a device controls panel visibility and catalog
@@ -18,7 +18,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   import Phoenix.LiveView, only: [push_navigate: 2, put_flash: 3]
 
   alias ServiceRadar.Automation.Ansible.Playbook
-  alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
   alias ServiceRadar.Automation.Ansible.VariableSchema.Var
@@ -28,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
   require Logger
 
-  @runs_limit 50
+  @history_limit 50
 
   ## Defaults ------------------------------------------------------------------
 
@@ -36,10 +35,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   def assign_defaults(socket) do
     socket
     |> assign(:device_awx_managed, false)
-    |> assign(:can_view_ansible_runs, false)
+    |> assign(:can_view_ansible_operations, false)
     |> assign(:ansible_controller_id, nil)
-    |> assign(:ansible_secure_history, [])
-    |> assign(:ansible_runs, [])
+    |> assign(:ansible_operation_history, [])
     |> assign(:ansible_playbooks, [])
     |> reset_launch_modal()
   end
@@ -65,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   @doc """
   Whether the device is a member of an AWX inventory (and therefore has an
   Ansible panel). Prefers the authoritative `metadata.awx.host_id` the backend
-  uses, and falls back to the legacy `ansible_managed` flag / `awx` discovery
+  uses, and falls back to the existing `ansible_managed` flag / `awx` discovery
   source so the panel still surfaces on older rows.
   """
   def awx_managed?(device_row) when is_map(device_row) do
@@ -142,8 +140,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     managed? = awx_managed?(device_row)
     controller_id = awx_controller_id(device_row)
 
-    runs = if managed? and can_view?, do: load_runs(uid, scope), else: []
-    secure_history = if managed? and can_view?, do: load_secure_history(uid, scope), else: []
+    operation_history = if managed? and can_view?, do: load_operation_history(uid, scope), else: []
 
     playbooks =
       if managed? and RBAC.can?(scope, "ansible.runs.launch"),
@@ -153,50 +150,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
     socket =
       socket
       |> assign(:device_awx_managed, managed?)
-      |> assign(:can_view_ansible_runs, can_view?)
+      |> assign(:can_view_ansible_operations, can_view?)
       |> assign(:ansible_controller_id, controller_id)
-      |> assign(:ansible_secure_history, secure_history)
-      |> assign(:ansible_runs, runs)
+      |> assign(:ansible_operation_history, operation_history)
       |> assign(:ansible_playbooks, playbooks)
 
     if refresh?, do: socket, else: reset_launch_modal(socket)
   end
 
-  @doc "Reload just the run history (used on Ansible PubSub updates)."
-  def refresh_runs(socket) do
-    if socket.assigns[:device_awx_managed] and socket.assigns[:can_view_ansible_runs] do
-      socket
-      |> assign(
-        :ansible_secure_history,
-        load_secure_history(socket.assigns.device_uid, socket.assigns.current_scope)
-      )
-      |> assign(:ansible_runs, load_runs(socket.assigns.device_uid, socket.assigns.current_scope))
-    else
-      socket
-    end
-  end
-
-  defp load_runs(uid, scope) when is_binary(uid) do
-    case PlaybookRunTarget.list_for_device(uid, scope: scope) do
-      {:ok, targets} -> Enum.take(targets, @runs_limit)
-      _ -> []
-    end
-  end
-
-  defp load_runs(_uid, _scope), do: []
-
-  defp load_secure_history(uid, scope) when is_binary(uid) do
-    case AutomationHistory.list_device_history(uid, scope, @runs_limit) do
+  defp load_operation_history(uid, scope) when is_binary(uid) do
+    case AutomationHistory.list_device_history(uid, scope, @history_limit) do
       {:ok, records} -> records
       _ -> []
     end
   end
 
-  defp load_secure_history(_uid, _scope), do: []
+  defp load_operation_history(_uid, _scope), do: []
 
   # Launchable playbooks bound to this device's AWX controller. Reuses the
   # canonical `Playbook.list_launchable/2` read (single source of truth shared
-  # with the ad-hoc launch page and northbound sync) scoped to the controller,
+  # with the ad-hoc launch page) scoped to the controller,
   # rather than a hand-rolled query that silently returned [] when the resource
   # had no primary read action.
   defp load_playbooks(controller_id, scope) when is_binary(controller_id) do
@@ -254,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
 
     cond do
       not RBAC.can?(scope, "ansible.runs.launch") ->
-        put_flash(socket, :error, "You don't have permission to launch Ansible runs.")
+        put_flash(socket, :error, "You don't have permission to launch Ansible playbooks.")
 
       blank?(params["playbook_id"]) ->
         assign(socket, :ansible_launch_notice, "Pick a playbook before launching.")
@@ -430,10 +403,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelRuntime do
   def launch_error_message(_other), do: "Launch failed because current approval or authorization could not be verified."
 
   defp secure_launch_success(%{operation: %{id: id}}) when is_binary(id) do
-    "Secure launch dispatched as operation #{id}."
+    "Launch dispatched as operation #{id}."
   end
 
-  defp secure_launch_success(_result), do: "Secure launch dispatched."
+  defp secure_launch_success(_result), do: "Launch dispatched."
 
   defp navigate_to_operation(socket, %{operation: %{id: id}}) when is_binary(id),
     do: push_navigate(socket, to: "/ansible/operations/#{id}")

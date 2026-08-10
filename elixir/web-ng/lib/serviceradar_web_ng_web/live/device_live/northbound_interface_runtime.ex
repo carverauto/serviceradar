@@ -35,11 +35,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime do
   def can_launch?(scope), do: RBAC.can?(scope, "northbound.actions.launch")
 
   def launch_permission_error do
-    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
+    "You are not authorized to launch actions. Missing permission: northbound.actions.launch."
   end
 
   def open_modal(socket, nil) do
-    put_flash(socket, :error, "No launchable interface task integration was selected.")
+    put_flash(socket, :error, "No launchable interface action integration was selected.")
   end
 
   def open_modal(socket, action) do
@@ -61,20 +61,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime do
   end
 
   def change_action(socket, params) do
-    action =
-      params
-      |> Map.get("action_id")
-      |> find_action(socket.assigns.northbound_interface_actions)
+    if can_launch?(socket.assigns.current_scope) do
+      action =
+        params
+        |> Map.get("action_id")
+        |> find_action(socket.assigns.northbound_interface_actions)
 
-    params = NorthboundActionForm.ensure_params(params, action)
+      params = NorthboundActionForm.ensure_params(params, action)
 
-    socket
-    |> assign(:northbound_interface_launch_action, action)
-    |> assign(:northbound_interface_action_form, to_form(params, as: :action))
-    |> assign(:northbound_interface_action_error, nil)
+      socket
+      |> assign(:northbound_interface_launch_action, action)
+      |> assign(:northbound_interface_action_form, to_form(params, as: :action))
+      |> assign(:northbound_interface_action_error, nil)
+    else
+      deny_launch_event(socket)
+    end
   end
 
   def launch(socket, params) do
+    case RBAC.authorize_current(socket.assigns.current_scope, ["northbound.actions.launch"]) do
+      {:ok, current_scope} ->
+        socket
+        |> assign(:current_scope, current_scope)
+        |> do_launch(params)
+
+      {:error, :permission_revoked} ->
+        deny_launch_event(socket)
+    end
+  end
+
+  defp do_launch(socket, params) do
     with {:ok, action} <- selected_action(params, socket.assigns.northbound_interface_actions),
          {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
          {:ok, targets} <- selected_targets(socket),
@@ -88,10 +104,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime do
       |> assign(:northbound_device_history, history)
       |> assign(:northbound_device_history_error, history_error)
       |> assign(:northbound_launch_notice, %{
-        title: "Task dispatched for #{length(targets)} interface(s)",
+        title: "Action dispatched for #{length(targets)} interface(s)",
         invocation_id: invocation.id
       })
-      |> put_flash(:info, "Task dispatched. Watch Task History for results.")
+      |> put_flash(:info, "Action dispatched. Watch Action History for results.")
     else
       {:error, reason} ->
         socket
@@ -101,6 +117,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime do
           NorthboundActionForm.format_launch_error(reason, "interface")
         )
     end
+  end
+
+  defp deny_launch_event(socket) do
+    socket
+    |> close_modal()
+    |> put_flash(:error, launch_permission_error())
   end
 
   defp selected_action(params, actions) do

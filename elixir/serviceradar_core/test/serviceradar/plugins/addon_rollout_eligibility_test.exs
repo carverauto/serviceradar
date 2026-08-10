@@ -89,6 +89,58 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
     assert Eligibility.supervision_ready?(helper, %{state: "staged", active: false})
   end
 
+  # Every reason string below is one the demo fleet actually reported on
+  # 2026-08-09; see openspec/changes/fix-stuck-addon-rollouts. Rollout gating
+  # asks supervision_state_ready?/2, which is about whether the add-on came up.
+  # supervision_ready?/2 keeps the stricter meaning for convergence display.
+  describe "advisory degradation versus supervision state" do
+    test "a running add-on that reports an unenforceable host policy has still come up" do
+      service = package(supervision: :systemd_service)
+
+      status = %{
+        state: "running",
+        active: true,
+        degradation_reason:
+          "resource limits not enforced: enable parent controllers for addon cgroup root " <>
+            "/sys/fs/cgroup/serviceradar.slice/serviceradar-addons.slice: required cgroup " <>
+            "controller unavailable in /sys/fs/cgroup/serviceradar.slice: need cpu,memory,pids, " <>
+            "available memory,pids"
+      }
+
+      assert Eligibility.supervision_state_ready?(service, status),
+             "an undelegated cpu controller is a property of the host, not of the candidate"
+
+      assert Eligibility.degraded?(status)
+      refute Eligibility.supervision_ready?(service, status)
+    end
+
+    test "supervision state still requires the supervision model to be satisfied" do
+      service = package(supervision: :systemd_service)
+
+      refute Eligibility.supervision_state_ready?(service, %{
+               state: "unhealthy",
+               active: false,
+               degradation_reason: "systemd unit failed"
+             })
+
+      refute Eligibility.supervision_state_ready?(service, %{
+               state: "unhealthy",
+               active: false,
+               degradation_reason:
+                 "dial netprobe socket: dial unix /run/serviceradar/netprobe/ipc.sock: " <>
+                   "connect: connection refused"
+             })
+    end
+
+    test "supervision_ready? remains the stricter question for convergence display" do
+      service = package(supervision: :systemd_service)
+      clean = %{state: "running", active: true, degradation_reason: nil}
+
+      assert Eligibility.supervision_ready?(service, clean)
+      refute Eligibility.degraded?(clean)
+    end
+  end
+
   defp source do
     %{
       release_channel: "stable",

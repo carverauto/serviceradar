@@ -1010,21 +1010,15 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
 
-      # Ansible settings (Controllers tab v1; Repositories / Schedules /
-      # Retention land in follow-up commits)
+      # Ansible settings (controllers, repositories, and retention)
       live("/settings/ansible", Settings.AnsibleLive, :index)
 
-      # Ansible runs (read-only browsing of playbook execution history)
+      # Ansible operations (read-only browsing of playbook execution history)
       live("/ansible/operations", AnsibleLive.OperationsIndex, :index)
       live("/ansible/operations/:id", AnsibleLive.OperationsShow, :show)
 
-      # Legacy PlaybookRun history remains available during migration, but is
-      # intentionally separate from hardened AutomationOperation evidence.
-      live("/ansible/runs", AnsibleLive.RunsIndex, :index)
-      live("/ansible/runs/:id", AnsibleLive.RunsShow, :show)
-
-      # Ansible launch (ad-hoc playbook run dispatch, takes ?devices=uid1,uid2)
-      live("/ansible/launch", AnsibleLive.LaunchLive, :index)
+      # Ansible launch (ad-hoc operation dispatch, takes ?devices=uid1,uid2)
+      live("/ansible/launch", AnsibleLive.LaunchLive, :new)
 
       # Ansible playbook catalog browser (read-only)
       live("/ansible/catalog", AnsibleLive.CatalogIndex, :index)

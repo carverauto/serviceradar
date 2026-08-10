@@ -90,8 +90,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp can_ansible_tab?(current_scope) do
     RBAC.can?(current_scope, "ansible.controllers.manage") or
-      RBAC.can?(current_scope, "ansible.repositories.manage") or
-      RBAC.can?(current_scope, "ansible.schedules.manage")
+      RBAC.can?(current_scope, "ansible.repositories.manage")
   end
 
   defp cluster_tab(path, current_scope) do

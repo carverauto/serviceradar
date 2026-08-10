@@ -82,28 +82,67 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibility do
   end
 
   @spec supervision_ready?(AddonPackage.t(), map()) :: boolean()
-  def supervision_ready?(%AddonPackage{supervision: supervision}, status) do
+  def supervision_ready?(%AddonPackage{} = package, status) do
+    supervision_state_ready?(package, status) and not degraded?(status)
+  end
+
+  @doc """
+  Whether the reported lifecycle state satisfies the package's supervision model,
+  ignoring any advisory degradation the add-on also reported.
+
+  Split out from `supervision_ready?/2` because the two questions have different
+  answers and different audiences. Rollout gating asks only whether the candidate
+  came up under its supervision model -- a running add-on that also reports, say,
+  an unenforceable host cgroup policy has still come up, and treating that note as
+  "not ready" let a host misconfiguration hold a rollout open until it timed out.
+  Convergence display still wants the stricter question, so `supervision_ready?/2`
+  keeps its meaning and is defined in terms of this.
+  """
+  @spec supervision_state_ready?(AddonPackage.t(), map()) :: boolean()
+  def supervision_state_ready?(%AddonPackage{supervision: supervision}, status) do
     state = status |> value(:state, "") |> to_string() |> String.downcase()
     active? = value(status, :active, false) == true
-    degraded? = present?(value(status, :degradation_reason))
 
-    not degraded? and
-      case supervision do
-        model when model in [:agent_sidecar, :systemd_service] ->
-          active? and state in ["active", "healthy", "running"]
+    case supervision do
+      model when model in [:agent_sidecar, :systemd_service] ->
+        active? and state in ["active", "healthy", "running"]
 
-        :systemd_timer ->
-          state in ["active", "enabled", "healthy", "ready", "running", "waiting"]
+      :systemd_timer ->
+        state in ["active", "enabled", "healthy", "ready", "running", "waiting"]
 
-        :ephemeral_helper ->
-          state in ["healthy", "ready", "registered", "staged", "verified"]
+      :ephemeral_helper ->
+        state in ["healthy", "ready", "registered", "staged", "verified"]
 
-        :config_toggle ->
-          state in ["active", "applied", "healthy", "ready", "running"]
+      :config_toggle ->
+        state in ["active", "applied", "healthy", "ready", "running"]
 
-        _ ->
-          false
-      end
+      _ ->
+        false
+    end
+  end
+
+  @doc "Whether the add-on reported an advisory degradation alongside its state."
+  @spec degraded?(map()) :: boolean()
+  def degraded?(status), do: present?(value(status, :degradation_reason))
+
+  @doc """
+  Whether `observed` is at least `target`, by semantic version.
+
+  Deliberately NOT a string comparison: `"0.2.7" >= "0.2.26"` is true
+  lexically and false in fact, and the fleet routinely runs versions where that
+  distinction decides whether a rollout is finished.
+
+  Returns false when either side is unparseable, so an add-on that cannot report
+  a usable version is never mistaken for one that has reached the target.
+  """
+  @spec version_at_least?(String.t() | nil, String.t() | nil) :: boolean()
+  def version_at_least?(observed, target) do
+    with {:ok, observed_version} <- parse_version(observed),
+         {:ok, target_version} <- parse_version(target) do
+      Version.compare(observed_version, target_version) in [:gt, :eq]
+    else
+      _ -> false
+    end
   end
 
   defp same_addon?(%AddonPackage{addon_id: addon_id}, %AddonPackage{addon_id: addon_id}), do: true

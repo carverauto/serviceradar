@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "northbound.actions.view"}
+  @launch_check {ActorHasPermission, permission: "northbound.actions.launch"}
   @manage_check {ActorHasPermission, permission: "northbound.actions.manage"}
 
   @fields [
@@ -32,6 +33,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     :credential_requirements,
     :metadata
   ]
+
+  @launch_read_fields [:id, :name, :provider_type, :status]
 
   postgres do
     table "northbound_action_providers"
@@ -74,6 +77,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     define :get_by_source, action: :by_source, args: [:provider_type, :source_ref]
     define :get_by_plugin_package, action: :by_plugin_package, args: [:plugin_package_id]
     define :list_active, action: :active
+    define :get_launch_candidate_by_id, action: :launch_candidate_by_id, args: [:id]
+    define :list_launch_candidates_by_ids, action: :launch_candidates_by_ids, args: [:ids]
     define :create_provider, action: :create
     define :update_provider, action: :update
     define :activate, action: :activate
@@ -117,6 +122,21 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
       get? true
       filter expr(plugin_package_id == ^arg(:plugin_package_id))
       prepare build(select: [:id, :inserted_at, :updated_at | @fields])
+    end
+
+    read :launch_candidate_by_id do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+
+      filter expr(id == ^arg(:id) and provider_type != :ansible)
+      prepare build(select: @launch_read_fields)
+    end
+
+    read :launch_candidates_by_ids do
+      argument :ids, {:array, :uuid}, allow_nil?: false
+
+      filter expr(id in ^arg(:ids) and status == :active and provider_type != :ansible)
+      prepare build(select: @launch_read_fields)
     end
 
     create :create do
@@ -169,6 +189,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     system_bypass()
     action_with_permission([:read, :by_id, :active], @view_check)
     action_with_permission([:by_source, :by_plugin_package], @view_check)
+    action_with_permission([:launch_candidate_by_id, :launch_candidates_by_ids], @launch_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
 
     action_with_permission(

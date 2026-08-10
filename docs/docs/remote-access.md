@@ -433,7 +433,7 @@ ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
 5. Let AWX inventory sync mark the matching inventory devices as `ansible_managed`.
-6. Select one or more devices in ServiceRadar inventory and launch the enrollment job with **Run Task** or `/ansible/launch?devices=<device-uids>`.
+6. Select one or more devices in ServiceRadar inventory and choose **Launch Playbook**, or open `/ansible/launch?devices=<device-uids>` directly. Do not use the separate provider-neutral **Run Action** workflow for Ansible enrollment.
 
 The required AWX 24.6.1 survey fragment is:
 
