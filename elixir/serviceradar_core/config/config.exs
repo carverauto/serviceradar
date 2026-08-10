@@ -134,6 +134,10 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     oauth_client_credentials: [limit: 20, window_seconds: 60],
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     automation_callback_grant: [limit: 30, window_seconds: 60],
+    # Notification action links. Unauthenticated by design, so this limit is the
+    # only cost of guessing at one. Generous enough that a shared office egress
+    # IP acknowledging a page storm is never throttled.
+    notification_action: [limit: 60, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
 

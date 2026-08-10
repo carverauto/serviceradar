@@ -19,6 +19,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.ReferenceData.ServicePorts
+  alias ServiceRadarWebNG.AlertActions
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.MetricSeries
@@ -75,6 +77,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:metrics, [])
      |> assign(:events, [])
      |> assign(:alerts, [])
+     |> assign(:alert_selection, MapSet.new())
+     |> assign(:alert_bulk_result, nil)
+     |> assign(:alert_bulk_duration, AlertActions.default_snooze_value())
+     |> assign(:can_manage_alerts?, RBAC.can?(socket.assigns[:current_scope], AlertActions.permission()))
      |> assign(:netflows, [])
      |> assign(:selected_netflow, nil)
      |> assign(:netflow_context, nil)
@@ -276,6 +282,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           max_limit: max_limit
         )
       end
+
+    # A filter change invalidates the selection: the ids that were selected are
+    # no longer provably the ids this viewer can currently see.
+    socket =
+      socket
+      |> assign(:alert_selection, MapSet.new())
+      |> assign(:alert_bulk_result, nil)
 
     socket =
       if connected?(socket) do
@@ -743,6 +756,155 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_event("srql_builder_remove_filter", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: current_entity(socket))}
+  end
+
+  # -- alert bulk acknowledgement --------------------------------------------
+  #
+  # Selection lives on the server. The ids a client submits are never treated
+  # as evidence of visibility: `AlertActions.bulk/4` is handed the ids this
+  # server rendered for the viewer's active filter and refuses anything else,
+  # and it re-derives the caller's authority from persistence before it moves
+  # a single alert.
+
+  def handle_event("alert_select_toggle", %{"id" => id}, socket) when is_binary(id) do
+    {:noreply, toggle_alert_selection(socket, id)}
+  end
+
+  def handle_event("alert_select_toggle", _params, socket), do: {:noreply, socket}
+
+  def handle_event("alert_select_all", _params, socket) do
+    visible = visible_alert_ids(socket)
+
+    selection =
+      if MapSet.size(socket.assigns.alert_selection) >= length(visible) and visible != [] do
+        MapSet.new()
+      else
+        MapSet.new(Enum.take(visible, AlertActions.bulk_limit()))
+      end
+
+    {:noreply, assign(socket, :alert_selection, selection)}
+  end
+
+  def handle_event("alert_select_clear", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:alert_selection, MapSet.new())
+     |> assign(:alert_bulk_result, nil)}
+  end
+
+  def handle_event("alert_bulk_duration", %{"duration" => duration}, socket) when is_binary(duration) do
+    {:noreply, assign(socket, :alert_bulk_duration, whitelisted_bulk_duration(duration))}
+  end
+
+  def handle_event("alert_bulk_duration", _params, socket), do: {:noreply, socket}
+
+  def handle_event("alert_bulk_acknowledge", _params, socket) do
+    run_alert_bulk(socket, :acknowledge, [])
+  end
+
+  def handle_event("alert_bulk_snooze", params, socket) do
+    params = if is_map(params), do: params, else: %{}
+    duration = whitelisted_bulk_duration(Map.get(params, "duration") || socket.assigns.alert_bulk_duration)
+    socket = assign(socket, :alert_bulk_duration, duration)
+
+    case AlertActions.snooze_seconds(%{"duration" => duration}) do
+      {:ok, seconds} -> run_alert_bulk(socket, :snooze, seconds: seconds)
+      :error -> {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
+    end
+  end
+
+  defp run_alert_bulk(socket, action, opts) do
+    if RBAC.can?(socket.assigns[:current_scope], AlertActions.permission()) do
+      visible = visible_alert_ids(socket)
+      ids = socket.assigns.alert_selection |> MapSet.to_list() |> Enum.sort()
+
+      case AlertActions.bulk(
+             socket.assigns.current_scope,
+             action,
+             ids,
+             Keyword.put(opts, :visible_ids, visible)
+           ) do
+        {:ok, result} ->
+          {:noreply,
+           socket
+           |> assign(:alert_bulk_result, Map.put(result, :action, action))
+           |> assign(:alert_selection, MapSet.new())
+           |> put_flash(bulk_flash_kind(result), bulk_flash_message(action, result))
+           |> reload_alerts_tab()}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, AlertActions.describe_error(reason))}
+      end
+    else
+      {:noreply, put_flash(socket, :error, AlertActions.describe_error(:not_authorized))}
+    end
+  end
+
+  # A partial failure is never reported as success.
+  defp bulk_flash_kind(%{failed: []}), do: :info
+  defp bulk_flash_kind(_result), do: :error
+
+  defp bulk_flash_message(action, %{succeeded: succeeded, failed: failed}) do
+    verb = if action == :snooze, do: "snoozed", else: "acknowledged"
+    base = "#{length(succeeded)} #{verb}, #{length(failed)} failed"
+
+    case failed do
+      [] -> base
+      _ -> base <> ". " <> failure_detail(failed)
+    end
+  end
+
+  defp failure_detail(failed) do
+    failed
+    |> Enum.take(5)
+    |> Enum.map_join("; ", fn {id, reason} -> String.slice(id, 0, 8) <> ": " <> reason end)
+  end
+
+  defp toggle_alert_selection(socket, id) do
+    selection = socket.assigns.alert_selection
+
+    cond do
+      MapSet.member?(selection, id) ->
+        assign(socket, :alert_selection, MapSet.delete(selection, id))
+
+      id not in visible_alert_ids(socket) ->
+        socket
+
+      MapSet.size(selection) >= AlertActions.bulk_limit() ->
+        put_flash(socket, :error, AlertActions.describe_error({:selection_too_large, AlertActions.bulk_limit()}))
+
+      true ->
+        assign(socket, :alert_selection, MapSet.put(selection, id))
+    end
+  end
+
+  defp visible_alert_ids(socket) do
+    socket.assigns
+    |> Map.get(:alerts, [])
+    |> Enum.map(&alert_id/1)
+    |> Enum.filter(&(is_binary(&1) and &1 != "" and &1 != "unknown"))
+  end
+
+  defp whitelisted_bulk_duration(value) when is_binary(value) do
+    if Enum.any?(AlertActions.snooze_options(), &(&1.value == value)) do
+      value
+    else
+      AlertActions.default_snooze_value()
+    end
+  end
+
+  defp whitelisted_bulk_duration(_value), do: AlertActions.default_snooze_value()
+
+  # Re-reads the list from the server so the table shows the state the engine
+  # returned rather than an optimistic local edit. The current page path is
+  # passed as the uri so the SRQL bar keeps its `page_path`.
+  defp reload_alerts_tab(socket) do
+    if connected?(socket) and socket.assigns.active_tab == "alerts" do
+      uri = Map.get(socket.assigns[:srql] || %{}, :page_path) || "/observability/alerts"
+      dispatch_tab_load(socket, "alerts", socket.assigns.current_params, uri)
+    else
+      socket
+    end
   end
 
   defp normalize_netflow_compare_param(mode) when mode in ["previous", "yesterday"], do: mode
@@ -1246,7 +1408,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               events={@streams.events}
               count={length(@events)}
             />
-            <.alerts_table :if={@active_tab == "alerts"} id="alerts" alerts={@alerts} />
+            <.alert_bulk_bar
+              :if={@active_tab == "alerts" and @can_manage_alerts?}
+              selection={@alert_selection}
+              duration={@alert_bulk_duration}
+              result={@alert_bulk_result}
+              visible_count={length(@alerts)}
+            />
+            <.alerts_table
+              :if={@active_tab == "alerts"}
+              id="alerts"
+              alerts={@alerts}
+              selectable?={@can_manage_alerts?}
+              selection={@alert_selection}
+            />
             <.netflows_table
               :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
               flows={@netflows}
@@ -4412,15 +4587,119 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  attr(:selection, :any, required: true)
+  attr(:duration, :string, required: true)
+  attr(:result, :map, default: nil)
+  attr(:visible_count, :integer, default: 0)
+
+  defp alert_bulk_bar(assigns) do
+    assigns =
+      assigns
+      |> assign(:selected_count, MapSet.size(assigns.selection))
+      |> assign(:snooze_options, AlertActions.snooze_options())
+      |> assign(:bulk_limit, AlertActions.bulk_limit())
+
+    ~H"""
+    <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sr-surface border border-sr-line bg-sr-subtle/30 px-3 py-2">
+      <span class="text-xs text-sr-muted">
+        {@selected_count} of {@visible_count} selected (limit {@bulk_limit})
+      </span>
+
+      <div
+        class="flex flex-wrap items-center gap-1.5"
+        role="group"
+        aria-label="Bulk alert actions"
+      >
+        <.ui_button
+          type="button"
+          size="xs"
+          variant="primary"
+          phx-click="alert_bulk_acknowledge"
+          disabled={@selected_count == 0}
+          data-confirm="Acknowledge the selected alerts?"
+        >
+          Acknowledge selected
+        </.ui_button>
+
+        <form
+          id="alert-bulk-snooze-form"
+          phx-submit="alert_bulk_snooze"
+          phx-change="alert_bulk_duration"
+          class="flex items-center gap-1.5"
+        >
+          <label for="alert-bulk-duration" class="sr-only">Bulk snooze duration</label>
+          <select
+            id="alert-bulk-duration"
+            name="duration"
+            class={ui_field_class(size: "xs", class: "w-auto")}
+          >
+            <option
+              :for={option <- @snooze_options}
+              value={option.value}
+              selected={option.value == @duration}
+            >
+              {option.label}
+            </option>
+          </select>
+          <.ui_button type="submit" size="xs" variant="outline" disabled={@selected_count == 0}>
+            Snooze selected
+          </.ui_button>
+        </form>
+
+        <.ui_button
+          type="button"
+          size="xs"
+          variant="ghost"
+          phx-click="alert_select_clear"
+          disabled={@selected_count == 0}
+        >
+          Clear selection
+        </.ui_button>
+      </div>
+
+      <div :if={is_map(@result)} class="w-full text-xs">
+        <p class={[
+          "font-medium",
+          if(@result.failed == [],
+            do: "text-emerald-700 dark:text-emerald-300",
+            else: "text-amber-700 dark:text-amber-300"
+          )
+        ]}>
+          {length(@result.succeeded)} succeeded, {length(@result.failed)} failed
+        </p>
+        <ul :if={@result.failed != []} class="mt-1 space-y-0.5 text-sr-muted">
+          <li :for={{id, reason} <- Enum.take(@result.failed, 10)} class="font-mono">
+            {String.slice(id, 0, 8)}: <span class="font-sans">{reason}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+    """
+  end
+
   attr(:id, :string, required: true)
   attr(:alerts, :list, default: [])
+  attr(:selectable?, :boolean, default: false)
+  attr(:selection, :any, default: nil)
 
   defp alerts_table(assigns) do
+    assigns = assign(assigns, :colspan, if(assigns.selectable?, do: 5, else: 4))
+
     ~H"""
     <div class="sr-ui-table-shell">
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
+            <th :if={@selectable?} class="w-10 bg-sr-subtle/60">
+              <input
+                type="checkbox"
+                id={"#{@id}-select-all"}
+                checked={@alerts != [] and MapSet.size(@selection) >= length(@alerts)}
+                phx-click="alert_select_all"
+                aria-label="Select every alert on this page"
+                class="size-4 cursor-pointer accent-sr-brand"
+              />
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-sr-muted bg-sr-subtle/60 w-40">
               Time
             </th>
@@ -4437,7 +4716,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </thead>
         <tbody>
           <tr :if={@alerts == []}>
-            <td colspan="4" class="text-sm text-sr-muted py-8 text-center">
+            <td colspan={@colspan} class="text-sm text-sr-muted py-8 text-center">
               No alerts found.
             </td>
           </tr>
@@ -4445,17 +4724,36 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <%= for {alert, idx} <- Enum.with_index(@alerts) do %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
+              class="hover:bg-sr-subtle/40 transition-colors"
             >
-              <td class="whitespace-nowrap text-xs font-mono">{format_alert_timestamp(alert)}</td>
+              <td :if={@selectable?} class="w-10">
+                <input
+                  type="checkbox"
+                  id={"#{@id}-select-#{idx}"}
+                  checked={alert_selected?(@selection, alert_id(alert))}
+                  phx-click="alert_select_toggle"
+                  phx-value-id={alert_id(alert)}
+                  aria-label={"Select alert " <> String.slice(to_string(alert_id(alert)), 0, 8)}
+                  class="size-4 cursor-pointer accent-sr-brand"
+                />
+              </td>
+              <td
+                class="whitespace-nowrap text-xs font-mono cursor-pointer"
+                phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
+              >
+                {format_alert_timestamp(alert)}
+              </td>
               <td class="whitespace-nowrap text-xs">
                 <.alert_severity_badge value={Map.get(alert, "severity")} />
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.alert_status_badge value={Map.get(alert, "status")} />
               </td>
-              <td class="text-xs truncate max-w-[36rem]" title={alert_title(alert)}>
+              <td
+                class="text-xs truncate max-w-[36rem] cursor-pointer"
+                title={alert_title(alert)}
+                phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
+              >
                 {alert_title(alert)}
               </td>
             </tr>
@@ -4465,6 +4763,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     </div>
     """
   end
+
+  defp alert_selected?(%MapSet{} = selection, id) when is_binary(id), do: MapSet.member?(selection, id)
+  defp alert_selected?(_selection, _id), do: false
 
   attr(:value, :any, default: nil)
 

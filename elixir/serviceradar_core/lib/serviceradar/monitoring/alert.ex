@@ -39,6 +39,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   alias ServiceRadar.Monitoring.Changes.EnqueueRoutingRequest
   alias ServiceRadar.Monitoring.Changes.RecordNotificationSent
   alias ServiceRadar.Oban.AshObanQueueResolver
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @alert_trigger_fields [
     :title,
@@ -61,11 +62,22 @@ defmodule ServiceRadar.Monitoring.Alert do
   @alert_metadata_fields [:metadata, :tags]
   @alert_operator_actions [
     :trigger,
-    :acknowledge,
-    :resolve,
     :record_notification,
     :update_metadata
   ]
+
+  # The operator-facing lifecycle actions, gated below on the role OR on the
+  # existing RBAC key `observability.alerts.manage`, catalogued verbatim as
+  # "Acknowledge and resolve alerts".
+  #
+  # Two reasons this is its own list. `:snooze` and `:unsnooze` previously
+  # appeared in NO policy at all, and Ash forbids a request that no policy
+  # applies to, so snooze was reachable only by a system actor - the emailed
+  # action-link path - and no operator interface could ever have used it.
+  # `:helpdesk` holds `observability.alerts.manage` by default but is not
+  # `is_operator()`, so acknowledgement authority granted in the RBAC catalog
+  # has to be honoured here or the catalog entry is a lie.
+  @alert_acknowledgement_actions [:acknowledge, :snooze, :unsnooze, :resolve]
   @alert_admin_actions [:escalate, :suppress, :reopen]
 
   postgres do
@@ -423,6 +435,11 @@ defmodule ServiceRadar.Monitoring.Alert do
     read_viewer_plus()
     operator_action(@alert_operator_actions)
     admin_action(@alert_admin_actions)
+
+    policy action(@alert_acknowledgement_actions) do
+      authorize_if is_operator()
+      authorize_if {ActorHasPermission, permission: "observability.alerts.manage"}
+    end
 
     # Send notification: Operators/admins, or AshOban (no actor)
     policy action(:send_notification) do

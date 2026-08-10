@@ -467,11 +467,17 @@ Conventions that apply to every phase:
       envelopes carry alert and delivery identifiers that a subscriber resolves
       through the authenticated API, never an action link. State the exemption
       wherever action links are required, including the docs in 1.11.1 and 4.4.5.
-- [ ] 1.6.3 Add `ServiceRadarWebNGWeb.API.NotificationActionController` plus
+- [x] 1.6.3 Add `ServiceRadarWebNGWeb.API.NotificationActionController` plus
       routes under `/api/notifications/actions/` in
       `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex`, with a confirmation
-      interstitial so link prefetchers cannot fire an action.
-- [ ] 1.6.4 Register the notification callback route prefix with
+      interstitial so link prefetchers cannot fire an action. `GET` renders the
+      interstitial and calls only `ActionToken.verify/2` (a read); `POST` is the
+      one action that reaches `ActionRedemption.redeem/2`. The route sits on its
+      own `:notification_action` pipeline, outside every auth plug and outside
+      `protect_from_forgery` - the capability IS the authorisation. Failures
+      render one page per `ActionToken.public_reason/1` answer, so the endpoint
+      cannot enumerate deliveries.
+- [x] 1.6.4 Register the notification callback route prefix with
       `ServiceRadarWebNGWeb.Api.RawBodyReader`. It buffers raw bodies ONLY for
       registered path prefixes, and today the only registered prefix is
       `@callback_prefix "/api/northbound/action-callbacks/"`
@@ -480,17 +486,24 @@ Conventions that apply to every phase:
       `/api/notifications/callbacks/`. Skipping this does not fail loudly: the
       verifier falls back to a re-encoded body and breaks signatures for exactly
       the providers that sign bytes.
-- [ ] 1.6.4a Add a test that asserts the notification callback prefix is
+- [x] 1.6.4a Add a test that asserts the notification callback prefix is
       registered with `RawBodyReader` and that the raw body reaching the
       controller is byte-identical to what was posted. A prose-only registration
-      is the failure mode this task exists to prevent.
+      is the failure mode this task exists to prevent. Covered in
+      `elixir/web-ng/test/phoenix/controllers/api/raw_body_reader_test.exs`:
+      both prefixes buffer byte-identically (including a chunked read), an
+      unrelated path does not, and `/api/notifications/actions/` - a capability
+      link rather than a signed callback - is proven NOT buffered.
 - [x] 1.6.5 Compare tokens with `Plug.Crypto.secure_compare`; rate-limit and
       audit failed attempts. CORE HALF DONE in `ActionToken.verify/2`: constant-time
       digest comparison, a decoy comparison for an unknown selector so timing does
       not enumerate live capabilities, and `public_reason/1` collapsing every
       failure but expiry to one answer so the response body does not either.
-      REMAINING: per-IP rate limiting and an audit record of failed attempts,
-      both of which belong to the web-ng controller in 1.6.3.
+      WEB-NG HALF DONE in 1.6.3: the `:rate_limit_notification_action` pipeline
+      applies the `:notification_action` bucket per IP, and every failed
+      presentation writes a `:policy_denied` security event carrying the client
+      IP and the public reason - never the token or its selector, which would
+      put a live credential in the audit log.
 - [x] 1.6.6 Write a `NotificationAcknowledgement` row for every accepted action
       with the correct `actor_kind` and `source`, and halt escalation on
       acknowledge. `ActionRedemption.redeem/2` writes
@@ -509,36 +522,43 @@ Conventions that apply to every phase:
 
 ### 1.7 web-ng configuration and operations UI
 
-- [ ] 1.7.1 Add the `/settings/notifications` entry to
+- [x] 1.7.1 Add the `/settings/notifications` entry to
       `elixir/web-ng/lib/serviceradar_web_ng_web/settings/catalog.ex` with
       `parent_group: :sys_alerts` (group declared at `catalog.ex:143`).
-- [ ] 1.7.2 Create
+- [x] 1.7.2 Create
       `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/notifications_live/`
       with tabs: Channels, Routes and Escalation, Silences, Providers, Delivery Log.
-- [ ] 1.7.3 Channel editor: provider selection, schema-driven config form via the
+- [x] 1.7.3 Channel editor: provider selection, schema-driven config form via the
       existing `ServiceRadarWebNGWeb.PluginConfigForm` renderer
       (`elixir/web-ng/lib/serviceradar_web_ng_web/components/plugin_config_form.ex:1`),
       secret fields that never echo stored values, `execution_route`,
       `fallback_channel_id`, `fail_closed`, `max_attempts`,
       `rate_limit_per_minute`, and health display.
-- [ ] 1.7.4 Test-send from a channel before saving, surfacing the redacted
+- [x] 1.7.4 Test-send from a channel before saving, surfacing the redacted
       transport result. The resulting delivery row carries `is_test: true` and is
       visually distinguished in the Delivery Log from a real alert delivery.
-- [ ] 1.7.5 Route editor with predicate builder, priority ordering, `continue`
+- [x] 1.7.5 Route editor with predicate builder, priority ordering, `continue`
       toggle, schedule binding, and escalation policy binding.
-- [ ] 1.7.6 Escalation policy editor with ordered steps and a multi-channel
+- [x] 1.7.6 Escalation policy editor with ordered steps and a multi-channel
       fan-out picker per step.
-- [ ] 1.7.7 Silence authoring, cancellation, and a "currently suppressed" view.
-- [ ] 1.7.8 Delivery Log answering "why was I not paged?" - filterable by alert,
+- [x] 1.7.7 Silence authoring, cancellation, and a "currently suppressed" view.
+- [x] 1.7.8 Delivery Log answering "why was I not paged?" - filterable by alert,
       channel, state, and `suppression_reason`, with redacted payload digests.
       Suppressed rows are DISPLAYED with their `suppression_reason` and
       occurrence count, never omitted; that includes `:no_matching_route` rows for
       alerts that matched no route at all. Show the failover chain by following
       `originating_delivery_id`, and mark `is_test` rows distinctly.
-- [ ] 1.7.9 Add Acknowledge / Snooze / Resolve controls to
+- [x] 1.7.9 Add Acknowledge / Snooze / Resolve controls to
       `elixir/web-ng/lib/serviceradar_web_ng_web/live/alert_live/show.ex` (today
       read-only) and bulk acknowledge/snooze to `live/alert_live/index.ex`.
-- [ ] 1.7.10 Observe the Iron Laws in every new LiveView: no database queries in
+      Bulk landed on `ServiceRadarWebNGWeb.LogLive.Index` instead:
+      `live/alert_live/index.ex` is a dead route that only `push_navigate`s to
+      `/observability/alerts`, which `LogLive.Index` serves. Alert lifecycle
+      calls go through `ServiceRadarWebNG.AlertActions`, which authorizes on
+      `observability.alerts.manage` and writes the `NotificationAcknowledgement`
+      in the same transaction as the transition. The alert page also renders the
+      alert's `NotificationDelivery` history, suppressed rows included.
+- [x] 1.7.10 Observe the Iron Laws in every new LiveView: no database queries in
       disconnected mount, `connected?/1` before PubSub subscribe, streams for
       lists larger than 100 rows, and authorization in every `handle_event`.
 
@@ -577,7 +597,7 @@ Conventions that apply to every phase:
       acknowledge / snooze / resolve; its description ("Acknowledge and resolve
       alerts") finally becomes true. Do not add a notifications-section duplicate
       of it.
-- [ ] 1.8.3 Satisfy the Settings.Catalog gate at
+- [x] 1.8.3 Satisfy the Settings.Catalog gate at
       `elixir/web-ng/test/phoenix/settings/catalog_test.exs` - NOT the core RBAC
       `test/serviceradar/identity/rbac/catalog_test.exs`, which is a different
       test. That gate asserts every catalog view's `permission` is in

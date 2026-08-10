@@ -165,6 +165,20 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(SecurityHeaders)
   end
 
+  # Notification action links (design D7 Phase 1, task 1.6.3). Deliberately
+  # excludes fetch_session, every auth plug, and `protect_from_forgery`: the
+  # per-delivery capability token in the URL IS the authorisation, and a CSRF
+  # token would add a cookie dependency to a page routinely opened straight from
+  # a mail client while buying nothing (an attacker who could forge the
+  # submission would need the token to address it, and holding it could POST
+  # directly). HTML rather than JSON, because a human clicked a link.
+  pipeline :notification_action do
+    plug(:accepts, ["html"])
+    plug(:put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root})
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(SecurityHeaders)
+  end
+
   # Token-scope gate for the CLI dashboard-publish endpoints. Layered on top of
   # `:api_key_auth` so the bearer token is validated first, then this plug
   # rejects any request whose `scopes` claim does not include
@@ -283,6 +297,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
   end
 
+  # The action-link endpoint is unauthenticated, so a per-IP limit is the only
+  # thing that makes guessing a 43-character secret cost anything (task 1.6.5).
+  # `:json` rather than `:auto`: the HTML denial path redirects to the login
+  # page, which for a link clicked out of an email would read as "your
+  # acknowledgement needs an account" - the opposite of what happened.
+  pipeline :rate_limit_notification_action do
+    plug(RateLimit,
+      bucket: :notification_action,
+      subject: :ip,
+      response_mode: :json
+    )
+  end
+
   # CSP violation reports are sent by the browser as
   # `application/csp-report` (or `application/reports+json`). The standard
   # `:api` pipeline calls `:accepts ["json"]`, which would reject those
@@ -310,6 +337,22 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:api, :rate_limit_api_default])
 
     post("/action-callbacks/:job_id", NorthboundActionCallbackController, :create)
+  end
+
+  # Acknowledge / Snooze / Resolve from inside a notification (design D7 Phase 1,
+  # task 1.6.3). `ServiceRadar.Notifications.ActionLinks` builds these URLs; the
+  # path names neither the alert nor the action, both of which are bound into the
+  # token and read back off the persisted row.
+  #
+  # The GET renders a confirmation interstitial and changes NOTHING. Mail
+  # scanners and link previewers fetch every URL in a message before a human sees
+  # it, so an acting GET would let a spam filter acknowledge the fleet. Only the
+  # POST redeems.
+  scope "/api/notifications", ServiceRadarWebNGWeb.Api do
+    pipe_through([:notification_action, :rate_limit_notification_action])
+
+    get("/actions/:token", NotificationActionController, :show)
+    post("/actions/:token", NotificationActionController, :create)
   end
 
   scope "/api/v1/automation", ServiceRadarWebNGWeb.Api do
@@ -905,6 +948,12 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
       live("/settings/anomaly-detection", Settings.AnomalyDetectionLive, :index)
+
+      # Notification platform. The tab is a nested path segment so it is
+      # deep-linkable and shareable; both paths resolve to the same LiveView,
+      # and `/settings/notifications` patches to the first permitted tab.
+      live("/settings/notifications", Settings.NotificationsLive.Index, :index)
+      live("/settings/notifications/:tab", Settings.NotificationsLive.Index, :tab)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)

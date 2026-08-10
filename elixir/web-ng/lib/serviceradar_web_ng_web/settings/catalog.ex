@@ -581,6 +581,44 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       badge: nil,
       hidden_from_nav: false
     },
+    # ONE entry for the whole notification surface. Channels, Routes and
+    # Escalation, Silences, Providers, and Delivery Log are nested paths under
+    # `/settings/notifications`, not separate views: `view_for_path/1` resolves
+    # them here by longest-prefix match, so the shell highlights one view and no
+    # second view can claim the prefix.
+    %{
+      id: :notifications,
+      category: :system,
+      parent_group: :sys_alerts,
+      subgroup: nil,
+      title: "Notifications",
+      description:
+        "Configure notification channels, routing and escalation, silences, providers, and the delivery audit.",
+      icon: "hero-megaphone",
+      route: "/settings/notifications",
+      live_view: ServiceRadarWebNGWeb.Settings.NotificationsLive.Index,
+      permission: "notifications.channels.view",
+      order: 340,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: [
+        "notifications",
+        "channels",
+        "slack",
+        "discord",
+        "webhook",
+        "pagerduty",
+        "escalation",
+        "silence",
+        "delivery log",
+        "suppressed",
+        "why was I not paged"
+      ],
+      badge: nil,
+      hidden_from_nav: false
+    },
 
     # === Network Services · Discovery · Profiles =============================
     %{
