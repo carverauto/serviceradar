@@ -239,6 +239,91 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
                     }}
   end
 
+  test "dispatches collected write notifications once after the transaction commits" do
+    parent = self()
+    existing = [membership(200, 8, 9, old_fingerprint())]
+
+    assert :ok =
+             AwxMembershipReconciler.reconcile(payload([host(100, 7, "node-1")]),
+               actor: :system,
+               transaction: fn fun ->
+                 case fun.() do
+                   {:ok, notifications} = result ->
+                     send(
+                       parent,
+                       {:notification_lifecycle, :transaction_committed, notifications}
+                     )
+
+                     result
+
+                   other ->
+                     other
+                 end
+               end,
+               load_existing: fn @controller_id, :system -> {:ok, existing} end,
+               resolve_links: fn _aggregate, :system -> {:ok, %{}} end,
+               upsert: fn attrs, :system ->
+                 {:ok, attrs, [{:upserted, attrs.awx_host_id}]}
+               end,
+               expire: fn membership, _attrs, :system ->
+                 {:ok, membership, [{:expired, membership.awx_host_id}]}
+               end,
+               notify: fn notifications ->
+                 send(parent, {:notification_lifecycle, :notifications_dispatched, notifications})
+                 []
+               end
+             )
+
+    expected = [{:upserted, 100}, {:expired, 200}]
+    assert_receive {:notification_lifecycle, first_event, ^expected}
+    assert first_event == :transaction_committed
+    assert_receive {:notification_lifecycle, second_event, ^expected}
+    assert second_event == :notifications_dispatched
+    refute_receive {:notification_lifecycle, :notifications_dispatched, _notifications}
+  end
+
+  test "discards collected notifications when a later write aborts the transaction" do
+    parent = self()
+
+    assert {:error, {:awx_membership_upsert_failed, {@controller_id, 7, 101}, :write_failed}} =
+             AwxMembershipReconciler.reconcile(
+               payload([host(100, 7, "node-1"), host(101, 7, "node-2")]),
+               actor: :system,
+               transaction: & &1.(),
+               load_existing: fn @controller_id, :system -> {:ok, []} end,
+               resolve_links: fn _aggregate, :system -> {:ok, %{}} end,
+               upsert: fn
+                 %{awx_host_id: 100} = attrs, :system ->
+                   {:ok, attrs, [{:upserted, 100}]}
+
+                 %{awx_host_id: 101}, :system ->
+                   {:error, :write_failed}
+               end,
+               expire: fn _membership, _attrs, :system -> :ok end,
+               notify: fn notifications ->
+                 send(parent, {:notifications_dispatched, notifications})
+                 []
+               end
+             )
+
+    refute_receive {:notifications_dispatched, _notifications}
+  end
+
+  test "reports notifications that remain unsent after post-commit dispatch" do
+    assert {:error, {:awx_membership_notifications_not_dispatched, 1}} =
+             AwxMembershipReconciler.reconcile(payload([host(100, 7, "node-1")]),
+               actor: :system,
+               transaction: & &1.(),
+               load_existing: fn @controller_id, :system -> {:ok, []} end,
+               resolve_links: fn _aggregate, :system -> {:ok, %{}} end,
+               upsert: fn attrs, :system ->
+                 {:ok, attrs, [{:upserted, attrs.awx_host_id}]}
+               end,
+               expire: fn _membership, _attrs, :system -> :ok end,
+               notify: & &1
+             )
+  end
+
   defp reconcile_with_spies(payload, existing, parent, opts) do
     evidence = Keyword.fetch!(opts, :evidence)
 
