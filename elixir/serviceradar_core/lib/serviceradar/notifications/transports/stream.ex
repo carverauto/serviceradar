@@ -109,6 +109,12 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
     ack_token
   )
 
+  # Keys that mark a provider's interactive control. Both string and atom forms,
+  # because a payload can reach here from a renderer (atoms) or from a decoded
+  # fixture (strings), and a check that only covered one would be exactly the
+  # kind of half-guard this exists to avoid.
+  @interactive_control_keys ["action_id", :action_id, "custom_id", :custom_id]
+
   @type broadcast :: (String.t(), map() -> :ok | {:ok, term()} | {:error, term()})
 
   @impl true
@@ -383,10 +389,31 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
   defp action_link_entry?(entry) when is_map(entry) and not is_struct(entry) do
     action = Map.get(entry, "action") || Map.get(entry, :action)
 
-    is_binary(action) and action in @action_names
+    (is_binary(action) and action in @action_names) or interactive_control?(entry)
   end
 
   defp action_link_entry?(_entry), do: false
+
+  # An interactive control is as actionable as a signed link and must not reach a
+  # broadcast topic either, but it looks nothing like one: a Slack Block Kit
+  # button carries `action_id` (NOT `action`) inside
+  # `blocks[].elements[]`, and a Discord component carries `custom_id` inside
+  # `components[].components[]`. Neither key appears in `@action_link_keys` and
+  # neither value is a URL, so a denylist written for Phase 1 links passes both
+  # straight through.
+  #
+  # This is deliberately structural rather than another key-name list. The names
+  # that matter are the provider's, not ours, and the failure mode is silent: the
+  # envelope looks clean, carries no token, and still hands every subscriber a
+  # control that acts on someone else's incident.
+  defp interactive_control?(entry) do
+    Enum.any?(@interactive_control_keys, &Map.has_key?(entry, &1)) or
+      block_of_type?(entry, "actions")
+  end
+
+  defp block_of_type?(entry, type) do
+    (Map.get(entry, "type") || Map.get(entry, :type)) == type
+  end
 
   # Scrubbing replaces every sensitive value long enough to be replaced safely -
   # `HTTP.scrub/2` skips anything under its minimum length, because blanket

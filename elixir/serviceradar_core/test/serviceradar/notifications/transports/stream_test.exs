@@ -348,6 +348,81 @@ defmodule ServiceRadar.Notifications.Transports.StreamTest do
     end
   end
 
+  describe "strip_action_links/1 - interactive controls (task 4.4.2b)" do
+    test "drops a Slack Block Kit actions block" do
+      # A Block Kit button carries `action_id`, not `action`, and lives inside
+      # blocks[].elements[]. The Phase 1 denylist was written for url-shaped keys
+      # and matched none of that, so a live control rode the firehose while the
+      # envelope looked clean and carried no token.
+      payload = %{
+        "text" => "Disk pressure",
+        "blocks" => [
+          %{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => "node-3 at 94%"}},
+          %{
+            "type" => "actions",
+            "elements" => [
+              %{
+                "type" => "button",
+                "action_id" => "notification_acknowledge",
+                "value" => "alert-1:delivery-1",
+                "text" => %{"type" => "plain_text", "text" => "Acknowledge"}
+              }
+            ]
+          }
+        ]
+      }
+
+      stripped = Stream.strip_action_links(payload)
+      encoded = Jason.encode!(stripped)
+
+      refute encoded =~ "action_id"
+      refute encoded =~ "notification_acknowledge"
+      refute encoded =~ "alert-1:delivery-1"
+      # The narrative content a subscriber legitimately wants is untouched.
+      assert encoded =~ "node-3 at 94%"
+    end
+
+    test "drops a Discord message component row" do
+      payload = %{
+        "content" => "Disk pressure",
+        "components" => [
+          %{
+            "type" => 1,
+            "components" => [
+              %{
+                "type" => 2,
+                "style" => 1,
+                "custom_id" => "ack:alert-1:delivery-1",
+                "label" => "Acknowledge"
+              }
+            ]
+          }
+        ]
+      }
+
+      encoded = payload |> Stream.strip_action_links() |> Jason.encode!()
+
+      refute encoded =~ "custom_id"
+      refute encoded =~ "ack:alert-1:delivery-1"
+      assert encoded =~ "Disk pressure"
+    end
+
+    test "drops an interactive control however deeply it is nested" do
+      payload = %{"a" => %{"b" => %{"c" => [%{"custom_id" => "ack:alert-1"}]}}}
+
+      refute payload |> Stream.strip_action_links() |> Jason.encode!() =~ "custom_id"
+    end
+
+    test "drops a control keyed with atoms as well as strings" do
+      # A payload can arrive from a renderer (atoms) or a decoded fixture
+      # (strings). A guard covering only one is the half-guard this exists to
+      # avoid.
+      payload = %{content: "x", components: [%{custom_id: "ack:alert-1", type: 2}]}
+
+      refute payload |> Stream.strip_action_links() |> inspect() =~ "custom_id"
+    end
+  end
+
   describe "strip_action_links/1" do
     test "leaves a payload with no action links untouched" do
       assert Stream.strip_action_links(@payload) == @payload
