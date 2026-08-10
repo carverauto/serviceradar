@@ -95,6 +95,31 @@ py_test(
 )
 
 ###############################################################################
+# Agent release trust anchor consistency test
+###############################################################################
+# The release-signing PUBLIC key is committed in three places -- the file embedded in the agent
+# binary and the two chart values the control plane reads. Nothing else compares them:
+# scripts/verify-agent-release-key-stamp.sh checks the agent's copy against the signing SECRET,
+# which says nothing about the charts. A drift there publishes releases that agents refuse to
+# install while every gate stays green.
+#
+# `data` must list every file the test reads; a missing entry fails under the sandbox only, which
+# is exactly the environment CI uses.
+py_test(
+    name = "agent_release_key_consistency_test",
+    size = "small",
+    srcs = ["agent_release_key_consistency_test.py"],
+    # Proper labels, not paths: both directories are their own packages, so
+    # "go/pkg/agent/release_signing_key.txt" is rejected as a label in THIS package. The
+    # cache-proxy test above can use bare paths only because k8s/buildbuddy has no BUILD file.
+    data = [
+        "//go/pkg/agent:release_signing_key.txt",
+        "//helm/serviceradar:values-demo.yaml",
+        "//helm/serviceradar:values.yaml",
+    ],
+)
+
+###############################################################################
 # RUST RELEASE MODE OPTIMIZATION
 ###############################################################################
 config_setting(

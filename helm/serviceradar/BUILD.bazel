@@ -1,5 +1,18 @@
 package(default_visibility = ["//visibility:public"])
 
+# Read by //:agent_release_key_consistency_test, which asserts the agentReleasePublicKey in both
+# files matches the key embedded in the agent binary.
+#
+# BOTH are listed even though values.yaml already resolves today -- it does so only incidentally,
+# because it appears in the `values` filegroup's srcs below, which makes it a target as a side
+# effect. Relying on that would make this test break the moment someone reorganises a filegroup
+# that has nothing to do with it. values-demo.yaml appears in no rule and does not resolve at all
+# without this.
+exports_files([
+    "values.yaml",
+    "values-demo.yaml",
+])
+
 # The chart files an Elixir test reads directly.
 #
 # elixir/serviceradar_core/test/serviceradar/observability/anomaly_config_seeder_test.exs

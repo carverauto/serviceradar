@@ -121,6 +121,13 @@ jobs:
       # publishing the plugins on `v*` tags.)
       ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      # This job now shares its configuration with every CI build, so it reuses that cache
+      # instead of re-analyzing the world in a private one.
+      #
+      # --remote_download_outputs=all overrides --remote_download_minimal (inherited from
+      # build:remote_base): these are `bazel run` targets and scripts/sign-oci-publish.sh reads
+      # the image layer tars back out of `bazel info bazel-bin`, so they must be on local disk.
+      BAZEL_BUILD_FLAGS: -c opt --config=ci --remote_download_outputs=all
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
@@ -172,9 +179,14 @@ jobs:
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
-          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          # Keyed on .bazelversion ONLY, matching native-addons.yml. This cache holds
+          # BAZELISK_HOME -- just the downloaded bazel binaries. Nothing in it depends on
+          # .bazelrc, MODULE.bazel or the lockfile, so hashing those only busted the key and
+          # re-uploaded an identical ~200MB entry on every unrelated build-config edit. Bazel's
+          # own action cache lives remotely on BuildBuddy, not here.
+          key: ${{ runner.os }}-bazelisk-${{ hashFiles('.bazelversion') }}
           restore-keys: |
-            ${{ runner.os }}-bazel-
+            ${{ runner.os }}-bazelisk-
 
       - name: Ensure rpmbuild available for rules_pkg toolchain
         run: |
@@ -185,33 +197,61 @@ jobs:
           fi
           rpmbuild --version
 
-      - name: Refresh Bazel externals after rpm install
+      # No "Refresh Bazel externals after rpm install" step.
+      #
+      # It ran `bazel clean --expunge` to make the rules_pkg toolchain re-detect rpmbuild, and it
+      # was already a no-op: bazelisk is not installed until two steps below, so `command -v
+      # bazel` failed and it printed "skipping clean" on every run. On a warm runner it would
+      # have been worse than useless -- --expunge discards the whole output base, forcing a
+      # re-fetch of every external repo and re-analysis of the graph, to re-detect a binary the
+      # step above had already installed BEFORE any bazel invocation.
+      #
+      # The ordering is the actual guarantee: rpmbuild is installed above, the first bazel call
+      # is below, so no repo rule can have cached its absence.
+
+      # MUST run before the first bazel invocation. `--config=ci` points the executor, cache and
+      # BES at carverauto.buildbuddy.io, and the API key reaches Bazel ONLY through
+      # .bazelrc.remote -- gitignored, so absent in a fresh checkout. Without it every remote
+      # call dies with `PERMISSION_DENIED: Anonymous access disabled`, which reads nothing like
+      # the missing credential it is.
+      #
+      # THIS FILE IS IMPORTED LAST, so an unconditional `build --…` line here beats every
+      # checked-in profile. It used to carry eleven of them -- a hand-copy of build:remote_base
+      # (jobs, timeout, download_minimal, upload_local_results, bes_backend, bes_results_url,
+      # remote_executor, remote_cache). Two consequences, both silent:
+      #
+      #   * `build --remote_cache=grpcs://carverauto.buildbuddy.io` overrode
+      #     build:remote_base's cache-proxy endpoint, so THIS was the one workflow still
+      #     bypassing the proxy after the migration -- paying full WAN latency on every
+      #     ActionCache/CAS round trip while every other job took the fast path.
+      #   * `build --remote_timeout=10m` overrode build:ci's 15m, shortening the release path's
+      #     tolerance rather than lengthening it.
+      #
+      # Only the credential and the three strategy overrides belong here now. Everything else is
+      # inherited, so it cannot drift from //.bazelrc.
+      - name: Configure BuildBuddy remote cache
         run: |
-          # Force the rules_pkg rpmbuild toolchain to re-detect the system rpmbuild binary.
-          if command -v bazel >/dev/null 2>&1; then
-            bazel clean --expunge
-          else
-            echo "bazel not yet installed; skipping clean (Bazelisk step will follow)" >&2
+          set -euo pipefail
+
+          if [ -z "${BUILDBUDDY_ORG_API_KEY:-}" ]; then
+            echo "BUILDBUDDY_ORG_API_KEY is unavailable; --config=ci cannot authenticate." >&2
+            exit 1
           fi
 
-      - name: Configure BuildBuddy remote cache
-        if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
-        run: |
           umask 077
-          cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
-            build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
-            build --bes_backend=grpcs://carverauto.buildbuddy.io
-            build --remote_cache=grpcs://carverauto.buildbuddy.io
-            build --remote_executor=grpcs://carverauto.buildbuddy.io
-            build --remote_timeout=10m
-            build --remote_download_minimal
-            build --remote_upload_local_results
-            build --jobs=100
-            build --strategy=ExpandTemplate=local
-            build --strategy=NpmPackageExtract=local
-            build --strategy=CopyDirectory=local
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" > .bazelrc.remote
+
+          # RETAINED BUT UNVERIFIED. These three pin trivial actions to the runner instead of
+          # shipping them to an executor. //.forgejo/workflows/main.yml states these are the only
+          # local actions anyway, which would make them no-ops -- but that is an assertion in a
+          # comment, not something measured, and a release is the wrong place to find out. They
+          # are kept because they are additive (they override no profile) and cost nothing.
+          # Removing them belongs in the same change that moves packaging to RBE.
+          cat >> .bazelrc.remote <<'EOF'
+          build --strategy=ExpandTemplate=local
+          build --strategy=NpmPackageExtract=local
+          build --strategy=CopyDirectory=local
           EOF
-          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "${BUILDBUDDY_ORG_API_KEY}" >> .bazelrc.remote
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
@@ -226,15 +266,6 @@ jobs:
 
       - name: Install ORAS
         run: ./scripts/install-oras.sh
-
-      - name: Verify Bazel version
-        run: |
-          set -euo pipefail
-          expected="$(tr -d '\r\n' < .bazelversion)"
-          actual="$(bazel --version | awk '{print $NF}')"
-          echo "Expected Bazel: ${expected}"
-          echo "Resolved Bazel: ${actual}"
-          test "${actual}" = "${expected}"
 
       - name: Resolve release metadata
         id: release
@@ -370,8 +401,13 @@ jobs:
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
 
+      # Was `--config=remote -c opt`. That is a different profile from the --config=ci used by
+      # every other bazel call here, so this step analyzed and built the agent in its own
+      # configuration and shared nothing with the push graph that rebuilds the same binary
+      # moments later. The script appends --stamp and --remote_download_outputs=all itself; the
+      # duplicates are harmless (same values) and keeping one flag source is worth more.
       - name: Verify managed agent release key stamp
-        run: ./scripts/verify-agent-release-key-stamp.sh --config=remote -c opt
+        run: ./scripts/verify-agent-release-key-stamp.sh ${BAZEL_BUILD_FLAGS}
 
       - name: Publish container images
         env:
@@ -415,14 +451,10 @@ jobs:
           fi
 
           if [[ "${skip_push}" != "true" ]]; then
-            # --config=ci, matching buildbuddy.yaml, plus the one flag the deleted
-            # `remote_push` config carried that `ci` does not: --remote_download_outputs=all.
-            # ci inherits --remote_download_minimal from remote_base, which leaves the image
-            # layer tars in the CAS -- and sign-oci-publish.sh below reads them back out of
-            # `bazel info bazel-bin`. A later flag beats the one the config sets, which is why
-            # this belongs on the command line rather than in a publish-only config.
+            # BAZEL_BUILD_FLAGS is defined once at job level -- see the comment there for why
+            # --stamp and --remote_download_outputs=all are both load-bearing.
             run_remote_publish() {
-              bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push "${extra_args[@]}"
+              bazel run ${BAZEL_BUILD_FLAGS} //:push "${extra_args[@]}"
             }
 
             if ! run_remote_publish; then
@@ -434,6 +466,10 @@ jobs:
                 echo "Remote bazel publish retry succeeded."
               elif [[ "${ALLOW_LOCAL_FALLBACK:-false}" == "true" ]]; then
                 echo "Remote bazel retry failed; retrying locally without remote executor/cache" >&2
+                # No --stamp here either: it is not a remote/local distinction. Nothing in the
+                # graph consumes stamp data since the agent's signing key moved to a committed
+                # source file, so passing it would only fork this fallback into yet another
+                # configuration.
                 bazel run \
                   -c opt \
                   --remote_executor= \
@@ -441,7 +477,6 @@ jobs:
                   --noremote_accept_cached \
                   --noremote_upload_local_results \
                   --jobs=8 \
-                  --stamp \
                   //:push \
                   "${extra_args[@]}"
               else
@@ -563,24 +598,25 @@ jobs:
             args+=("--overwrite_assets=${OVERWRITE_ASSETS}")
           fi
 
+          # Same BAZEL_BUILD_FLAGS as every other bazel call in this job, plus the one thing that
+          # is genuinely specific to packaging: --platforms=//build/platforms:linux_pkg_local,
+          # which satisfies rules_pkg's rpm compatibility gate and is why rpmbuild is installed
+          # on this runner at all.
           run_remote() {
             bazel run \
-              -c opt \
-              --config=ci \
-              --remote_download_outputs=all \
+              ${BAZEL_BUILD_FLAGS} \
               --platforms=//build/platforms:linux_pkg_local \
-              --stamp \
               //build/release:publish_packages \
               -- "${args[@]}"
           }
 
+          # No --stamp, matching run_remote: nothing consumes stamp data any more.
           run_local() {
             bazel run \
               -c opt \
               --config=no_remote \
               --host_platform=@local_config_platform//:host \
               --platforms=//build/platforms:linux_pkg_local \
-              --stamp \
               //build/release:publish_packages \
               -- "${args[@]}"
           }

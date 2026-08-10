@@ -17,7 +17,7 @@ Before using release management in production:
 - Ensure the agent runtime host has write access to `/var/lib/serviceradar/agent/releases` or the override set by `SERVICERADAR_AGENT_RUNTIME_ROOT`.
 - For Helm-managed in-cluster agents, keep `agent.runtimeStorage.enabled=true` so `/var/lib/serviceradar/agent` is backed by a PVC instead of pod ephemeral storage.
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
-- Ensure every managed agent package embeds the trusted Ed25519 public key through build-time `ReleaseSigningPublicKey` injection.
+- Ensure every managed agent package embeds the trusted Ed25519 public key. It is compiled in from the committed `go/pkg/agent/release_signing_key.txt`, so every build carries it; the release workflow asserts that the committed value matches the key derived from the signing secret.
 - Publish artifacts over HTTPS.
 - Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format`, `entrypoint`, `capabilities`, `helper_protocol_version`, `compatible_agent_versions`, `checksums`, `signatures`, `sbom`, `license_review`, and `deployment_requirements`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
