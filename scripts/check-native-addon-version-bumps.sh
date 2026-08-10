@@ -181,15 +181,14 @@ path_belongs_to_addon() {
       esac
       ;;
     netprobe)
-      # The last two determine the bytes of the netprobe_ebpf.o the bundle ships:
-      # rules_aya_ebpf pins the nightly toolchain and bpf-linker, and the vendor tree
-      # is what -Z build-std compiles against. A nightly bump changes the object while
-      # touching neither addons/netprobe nor rust/netprobe, so without these the gate
-      # would let a changed artifact ship under an unchanged version -- the false
-      # negative it exists to prevent.
+      # The vendor tree is what -Z build-std compiles netprobe_ebpf.o against, so it
+      # determines the shipped object's bytes just as much as rust/netprobe does. A
+      # nightly bump touches neither addons/netprobe nor rust/netprobe, and without
+      # it here the gate would let a changed artifact ship under an unchanged
+      # version -- the false negative it exists to prevent.
       case "${path}" in
         addons/netprobe/*|rust/netprobe/*) return 0 ;;
-        third_party/rules_aya_ebpf/*|third_party/netprobe_ebpf_vendor/*) return 0 ;;
+        third_party/netprobe_ebpf_vendor/*) return 0 ;;
       esac
       ;;
     powerdns)

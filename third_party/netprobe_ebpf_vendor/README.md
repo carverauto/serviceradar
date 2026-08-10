@@ -10,7 +10,7 @@ crates `-Z build-std=core` needs to compile `core` from source
 ## Why it is committed
 
 The eBPF object is built hermetically from a pinned nightly Rust toolchain and a
-pinned static `bpf-linker`, both supplied by `//third_party/rules_aya_ebpf`
+pinned static `bpf-linker`, both supplied by `@rules_aya_ebpf`
 through toolchain resolution, plus this tree. `cargo` runs with
 `--offline --locked`, so the build touches no system
 toolchain and no network. That is what makes it correct under Bazel remote
@@ -19,7 +19,7 @@ execution, where neither exists. Pins and rationale:
 
 ## Regenerating
 
-Re-vendoring is coupled to the nightly pin in `//third_party/rules_aya_ebpf`:
+Re-vendoring is coupled to the nightly pin in `@rules_aya_ebpf`:
 `-Z build-std` resolves the whole sysroot, so the std workspace's own crates.io
 dependencies are vendored here too and move whenever the nightly moves. Bump the
 pin and regenerate in the same commit.

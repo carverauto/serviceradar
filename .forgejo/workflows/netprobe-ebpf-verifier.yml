@@ -7,10 +7,9 @@ on:
     paths:
       - 'rust/netprobe/**'
       # The toolchain pins and the vendored crates decide the object's bytes just as
-      # much as its source does. They used to live in MODULE.bazel; when they moved
-      # into the ruleset this filter had to follow, or a nightly bump would change the
-      # object without ever running the kernel matrix that validates it.
-      - 'third_party/rules_aya_ebpf/**'
+      # much as its source does. The pins are in MODULE.bazel (already listed below)
+      # and the crates are here; between them a nightly bump, or an upgrade of the
+      # external @rules_aya_ebpf module, always reaches this lane.
       - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'
@@ -26,10 +25,9 @@ on:
     paths:
       - 'rust/netprobe/**'
       # The toolchain pins and the vendored crates decide the object's bytes just as
-      # much as its source does. They used to live in MODULE.bazel; when they moved
-      # into the ruleset this filter had to follow, or a nightly bump would change the
-      # object without ever running the kernel matrix that validates it.
-      - 'third_party/rules_aya_ebpf/**'
+      # much as its source does. The pins are in MODULE.bazel (already listed below)
+      # and the crates are here; between them a nightly bump, or an upgrade of the
+      # external @rules_aya_ebpf module, always reaches this lane.
       - 'third_party/netprobe_ebpf_vendor/**'
       - 'build/platforms/**'
       - 'build/rust/**'

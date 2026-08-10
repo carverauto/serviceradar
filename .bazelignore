@@ -20,7 +20,6 @@ target
 third_party/vendor/tools_opam
 third_party/rules_erlang
 third_party/rules_elixir
-third_party/rules_aya_ebpf
 vendor
 _bazel_root
 _bazel_output
