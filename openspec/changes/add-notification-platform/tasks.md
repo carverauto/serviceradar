@@ -2017,7 +2017,7 @@ directories are still on that branch at their original commits.
       row that the Delivery Log renders with its reason.
 - [x] 4.4.2b Stream action-link exemption test: no envelope published on the
       firehose contains an action link or capability token.
-- [ ] 4.4.2c Seeded `:stream` provider test: the row exists after install as a
+- [x] 4.4.2c Seeded `:stream` provider test: the row exists after install as a
       first-party `managed` provider, and an operator disable survives upgrade
       reconciliation.
 - [x] 4.4.3 JetStream replay test asserting a reconnecting consumer resumes from

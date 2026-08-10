@@ -210,6 +210,44 @@ defmodule ServiceRadar.Notifications.SeederReconciliationTest do
       assert slack.template_version == "1"
     end
 
+    test "installs :stream as a first-party managed provider (task 4.4.2c)", %{actor: actor} do
+      assert :ok = ProviderSeeder.seed_all()
+
+      stream = provider!("stream", actor)
+
+      assert stream.provider_type == :stream
+      assert stream.source == :first_party
+      assert stream.managed
+      assert stream.status == :active
+      # The firehose is seeded, never operator-authored: `:stream` is a
+      # provider_type, not a fourth extensibility tier.
+      assert is_nil(stream.implementation_module)
+    end
+
+    test "does not re-enable a :stream provider an operator disabled (task 4.4.2c)", %{
+      actor: actor
+    } do
+      # The mechanism is provider-agnostic and the slack case above already
+      # exercises it. This pins it for `:stream` specifically because `:stream`
+      # is a distinct provider_type and the seeder already branches on type
+      # elsewhere (`managed_fields/1`); a future type-specific branch would slip
+      # past a test that only ever disabled a `:native` row.
+      assert :ok = ProviderSeeder.seed_all()
+
+      disabled = update!(provider!("stream", actor), :disable, %{}, actor)
+      assert disabled.status == :disabled
+
+      assert :ok = ProviderSeeder.seed_all()
+      assert provider!("stream", actor).status == :disabled
+
+      wind_back_provider!("stream", actor)
+      assert :ok = ProviderSeeder.seed_all()
+
+      stream = provider!("stream", actor)
+      assert stream.status == :disabled
+      assert stream.template_version == "1"
+    end
+
     test "activates a managed provider left in :draft", %{actor: actor} do
       # Self-healing. A boot where the create succeeded and the activation failed
       # would otherwise leave the provider permanently mute, and `:draft` can only
