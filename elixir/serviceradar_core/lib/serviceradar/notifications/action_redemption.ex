@@ -140,6 +140,91 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
     end
   end
 
+  @doc """
+  Applies an already-authorised action that arrived without a capability token.
+
+  This is the ingress for a native interactive component - a Slack button, a
+  Discord component, a PagerDuty acknowledgement webhook (task 4.3.7). Those
+  carry no capability token: the provider's signature over the request is what
+  authorises them, and the caller is responsible for having verified it *before*
+  calling this. Nothing here re-checks authorisation.
+
+  It deliberately shares `apply_to_alert/2` with `redeem/2` rather than
+  reimplementing the effect. Interactive components are a second **ingress** to
+  one acknowledgement mechanism, not a second acknowledgement mechanism - so a
+  native acknowledgement halts escalation, writes its audit row, and emits its
+  telemetry on exactly the code path an action link does. A parallel
+  implementation would drift, and the way it would drift is that one of the two
+  stops halting escalation.
+
+  What differs is provenance, not effect: the acknowledgement row and the
+  telemetry record `source: :callback`, and `:external_principal` names the
+  provider identity (`"slack:U123"`).
+
+  There is no single-use token to consume, so idempotency comes from
+  `disposition/3`, which returns `:already_applied` against an alert that is
+  already in the target state. That is the same guard that absorbs a
+  double-clicked action link, and it is what makes a provider's retry safe.
+
+  ## Options
+
+  As `redeem/2`, plus `:source` (defaults to `:callback` here).
+  """
+  @spec apply_native(map(), keyword()) :: {:ok, Outcome.t()} | {:error, failure()}
+  def apply_native(capability, opts \\ [])
+
+  def apply_native(%{action: action, alert_id: alert_id} = capability, opts)
+      when action in [:acknowledge, :snooze, :resolve] and is_binary(alert_id) do
+    actor = actor(opts)
+
+    opts =
+      opts
+      |> Keyword.put(:actor, actor)
+      |> Keyword.put_new(:source, :callback)
+
+    with {:ok, snooze_seconds} <- native_snooze_seconds(capability, action) do
+      record = %{
+        action: action,
+        alert_id: alert_id,
+        delivery_id: Map.get(capability, :delivery_id),
+        snooze_seconds: snooze_seconds,
+        consumed_at: nil
+      }
+
+      apply_native_record(record, opts)
+    end
+  end
+
+  def apply_native(_capability, _opts), do: {:error, :invalid_native_capability}
+
+  # A snooze with no duration is rejected rather than given a house default, the
+  # same way `ActionToken` rejects one. A default here would mean two ingresses
+  # to one mechanism disagreeing about how long "snooze" is.
+  defp native_snooze_seconds(capability, :snooze) do
+    case Map.get(capability, :snooze_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> {:ok, seconds}
+      _other -> {:error, :missing_snooze_seconds}
+    end
+  end
+
+  defp native_snooze_seconds(_capability, _action), do: {:ok, nil}
+
+  defp apply_native_record(record, opts) do
+    case Repo.transaction(fn ->
+           case apply_to_alert(record, opts) do
+             {:ok, outcome, notifications, triggered_at} -> {outcome, notifications, triggered_at}
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {outcome, notifications, triggered_at}} ->
+        _ = Ash.Notifier.notify(notifications)
+        {:ok, emit_acknowledged(outcome, triggered_at, opts)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # --- application ----------------------------------------------------------
 
   defp apply_capability(record, opts) do
@@ -283,7 +368,7 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
         external_principal: principal(opts, record),
         note: Keyword.get(opts, :note),
         snooze_until: disposition.snooze_until,
-        source: :action_link,
+        source: source(opts),
         received_at: now(opts)
       },
       actor: actor
@@ -317,9 +402,10 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
       alert_id: outcome.alert_id,
       delivery_id: outcome.delivery_id,
       action: outcome.action,
-      # Phase 1 redemption is always a signed action link presented by an
-      # external principal; the UI and API paths write their own audit rows.
-      source: :action_link,
+      # Either ingress of the one acknowledgement mechanism: a signed action link
+      # presented by an external principal, or a provider's verified interactive
+      # component (`:callback`). The UI and API paths write their own audit rows.
+      source: source(opts),
       actor_kind: :external_principal,
       status: outcome.status,
       ack_latency_ms: ack_latency_ms(outcome, received_at, opts),
@@ -377,6 +463,16 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
     do: "action_link:" <> delivery_id
 
   defp default_principal(_record), do: "action_link"
+
+  # A native ingress should always name its provider identity explicitly, so a
+  # missing `:external_principal` there is a caller bug rather than something to
+  # paper over with a plausible-looking default.
+  defp source(opts) do
+    case Keyword.get(opts, :source) do
+      :callback -> :callback
+      _other -> :action_link
+    end
+  end
 
   defp now(opts) do
     case Keyword.get(opts, :now) do

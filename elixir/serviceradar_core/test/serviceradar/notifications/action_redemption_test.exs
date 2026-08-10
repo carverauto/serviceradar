@@ -390,6 +390,149 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
     end
   end
 
+  describe "apply_native/2 - the interactive-component ingress (task 4.3.7)" do
+    test "acknowledges the alert on the same code path an action link uses", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      assert {:ok, outcome} =
+               ActionRedemption.apply_native(
+                 %{action: :acknowledge, alert_id: alert.id, delivery_id: delivery.id},
+                 actor: actor,
+                 external_principal: "slack:U123",
+                 now: @now
+               )
+
+      assert outcome.status == :applied
+      assert outcome.action == :acknowledge
+
+      # The acknowledged state is what halts escalation, and it is reached
+      # through the same Alert action a redeemed link uses. A native ingress that
+      # left the alert pending would keep paging.
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :acknowledged
+      assert reloaded.acknowledged_by == "slack:U123"
+    end
+
+    test "records the acknowledgement as a callback by an external principal", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      assert {:ok, _outcome} =
+               ActionRedemption.apply_native(
+                 %{action: :acknowledge, alert_id: alert.id, delivery_id: delivery.id},
+                 actor: actor,
+                 external_principal: "slack:U123",
+                 now: @now
+               )
+
+      assert [row] = acknowledgements(alert.id, actor)
+      assert row.source == :callback
+      assert row.actor_kind == :external_principal
+      assert row.external_principal == "slack:U123"
+      assert row.delivery_id == delivery.id
+    end
+
+    test "absorbs a provider retry without transitioning the alert twice", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      capability = %{action: :acknowledge, alert_id: alert.id, delivery_id: delivery.id}
+      opts = [actor: actor, external_principal: "slack:U123", now: @now]
+
+      assert {:ok, first} = ActionRedemption.apply_native(capability, opts)
+      assert {:ok, second} = ActionRedemption.apply_native(capability, opts)
+
+      assert first.status == :applied
+      # Slack retries a delivery it did not see acked. There is no single-use
+      # token here to absorb it, so the guard is the disposition check against
+      # the alert's current state - the same one that absorbs a double-clicked
+      # action link.
+      assert second.status == :already_applied
+
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :acknowledged
+
+      # Both receipts are still audited: the second is evidence that a person
+      # clicked again, which is worth keeping even though it changed nothing.
+      assert length(acknowledgements(alert.id, actor)) == 2
+    end
+
+    test "resolves through the same path", %{actor: actor, alert: alert, delivery: delivery} do
+      assert {:ok, outcome} =
+               ActionRedemption.apply_native(
+                 %{action: :resolve, alert_id: alert.id, delivery_id: delivery.id},
+                 actor: actor,
+                 external_principal: "pagerduty:PABC",
+                 now: @now
+               )
+
+      assert outcome.status == :applied
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status in [:resolved, :closed]
+    end
+
+    test "refuses a snooze that carries no duration", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      # `ActionToken` requires an explicit duration, so this ingress does too.
+      # A house default here would mean the two ingresses to one mechanism
+      # disagreed about how long "snooze" is.
+      assert {:error, :missing_snooze_seconds} =
+               ActionRedemption.apply_native(
+                 %{action: :snooze, alert_id: alert.id, delivery_id: delivery.id},
+                 actor: actor,
+                 now: @now
+               )
+
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :pending
+    end
+
+    test "snoozes when given a duration", %{actor: actor, alert: alert, delivery: delivery} do
+      # Real time rather than the suite's fixed @now: the Alert `:snooze` action
+      # validates that `snooze_until` is in the future against the wall clock, so
+      # a duration measured from a pinned past instant is rejected on its merits.
+      now = DateTime.utc_now()
+
+      assert {:ok, outcome} =
+               ActionRedemption.apply_native(
+                 %{
+                   action: :snooze,
+                   alert_id: alert.id,
+                   delivery_id: delivery.id,
+                   snooze_seconds: 900
+                 },
+                 actor: actor,
+                 external_principal: "discord:1234",
+                 now: now
+               )
+
+      assert outcome.status == :applied
+      assert DateTime.compare(outcome.snooze_until, DateTime.add(now, 900, :second)) == :eq
+
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :pending
+      assert reloaded.snooze_until
+    end
+
+    test "refuses a capability that names no alert or an unknown action", %{actor: actor} do
+      assert {:error, :invalid_native_capability} =
+               ActionRedemption.apply_native(%{action: :acknowledge}, actor: actor)
+
+      assert {:error, :invalid_native_capability} =
+               ActionRedemption.apply_native(
+                 %{action: :delete_everything, alert_id: Ash.UUID.generate()},
+                 actor: actor
+               )
+    end
+  end
+
   # --- fixtures -------------------------------------------------------------
 
   defp issue!(delivery, actor, opts \\ []) do
