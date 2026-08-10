@@ -61,7 +61,7 @@ JetStream sizing values
   - `logCollector.streamReplicas`
   - `logCollector.streamMaxBytes`
   - `trapd.streamReplicas`
-  - `flowCollector.streamReplicas`
+  - `flowCollector.config.stream_replicas`
   - `flowCollector.config.stream_max_bytes`
 - Datasvc owns the KV/object streams and now reconciles both replica count and reserved capacity:
   - `datasvc.jetstreamReplicas`

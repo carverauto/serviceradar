@@ -1516,8 +1516,9 @@ flowCollector:
   readyPath: "/var/lib/serviceradar/flow-collector.ready"
   terminationGracePeriodSeconds: 45
   # flow-collector publishes raw flow subjects into the dedicated "flows" stream
-  # (isolated from the shared multi-signal "events" bus).
-  streamReplicas: 3
+  # (isolated from the shared multi-signal "events" bus). Stream HA is only
+  # config.stream_replicas (serialized into flow-collector.json); there is no
+  # top-level flowCollector.streamReplicas key.
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"

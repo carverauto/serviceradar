@@ -772,8 +772,8 @@ flowCollector:
   # or shared template state is implemented.
   replicaCount: 1
   # Dedicated flows stream at R=3 (same HA topology as production). Size is
-  # smaller than prod 10 GiB default but isolated from logs/OTEL on the events stream.
-  streamReplicas: 3
+  # smaller than prod 10 GiB default but isolated from logs/OTEL on the events
+  # stream. HA is only config.stream_replicas (serialized into the ConfigMap).
   config:
     stream_name: "flows"
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"

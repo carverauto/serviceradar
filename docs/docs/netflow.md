@@ -371,7 +371,7 @@ nats stream info flows
 #    rehome/ensure succeeds). Rehome marker lives on the data PVC at
 #    rehome_state_path (/var/lib/serviceradar/flow-collector-rehome.json).
 # 3. New collector detaches subjects from events, attaches them on flows, then
-#    publishes with Nats-Msg-Id retries (dedup window up to 600s, capped by stream max_age).
+#    publishes with Nats-Msg-Id retries (preferred dedup window 120s, capped by stream max_age and the NATS server limit).
 # 4. When events drain consumers report num_pending=0, set
 #    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```

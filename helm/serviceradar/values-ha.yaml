@@ -89,7 +89,7 @@ trapd:
 # in the HA overlay until exporter sharding or shared template state lands.
 flowCollector:
   replicaCount: 1
-  streamReplicas: 3
+  # HA is config.stream_replicas only (serialized into flow-collector.json).
   config:
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"

@@ -176,19 +176,63 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       a = Config.flow_subject_stream_name("flows.raw.ipfix-v10")
       b = Config.flow_subject_stream_name("flows.raw.ipfix_v10")
       assert a != b
-      assert String.starts_with?(a, "FLOW_RAW_IPFIX_V10_")
-      assert String.starts_with?(b, "FLOW_RAW_IPFIX_V10_")
+      assert String.starts_with?(a, "FLOW_IPFIX_V10_")
+      assert String.starts_with?(b, "FLOW_IPFIX_V10_")
     end
 
-    test "extra_flow_subjects rejects wildcards" do
+    test "flow_subject_stream_name stays short for long subjects" do
+      long = "flows.raw." <> String.duplicate("vendor-segment-", 20) <> "leaf"
+      name = Config.flow_subject_stream_name(long)
+      assert byte_size(name) < 48
+      assert String.starts_with?(name, "FLOW_")
+      # trailing 8-char hash retained
+      assert Regex.match?(~r/_[a-f0-9]{8}$/, name)
+    end
+
+    test "durable_name stays within NATS 255-byte consumer limit and keeps hash" do
+      long_key = "FLOW_" <> String.duplicate("X", 300) <> "_abcd1234"
+      name = Config.durable_name("serviceradar-event-writer", long_key)
+      assert byte_size(name) <= 255
+      assert String.ends_with?(name, "abcd1234")
+    end
+
+    test "exact_nats_subject? allows embedded star but rejects whole-token wildcards" do
+      assert Config.exact_nats_subject?("flows.raw.vendor*name")
+      assert Config.exact_raw_flow_subject?("flows.raw.vendor*name")
+      refute Config.exact_nats_subject?("flows.raw.>")
+      refute Config.exact_nats_subject?("flows.raw.*")
+      refute Config.exact_nats_subject?("flows.raw.*.leaf")
+    end
+
+    test "extra_flow_subjects accepts embedded star literals" do
+      System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.vendor*name")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
+
+      assert Config.extra_flow_subjects() == ["flows.raw.vendor*name"]
+    end
+
+    test "extra_flow_subjects raises on whole-token wildcards" do
       System.put_env(
         "EVENT_WRITER_FLOW_EXTRA_SUBJECTS",
-        "flows.raw.>,flows.raw.*,flows.raw.ipfix"
+        "flows.raw.>,flows.raw.ipfix"
       )
 
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
-      assert Config.extra_flow_subjects() == ["flows.raw.ipfix"]
+      assert_raise ArgumentError, ~r/whole-token NATS wildcards/, fn ->
+        Config.extra_flow_subjects()
+      end
+    end
+
+    test "assert_no_canonical_consumer_collisions! catches case/punct durable collapse" do
+      streams = [
+        %{name: "FLOW_RAW_IPFIX_84c80497", stream_name: "flows", subject: "flows.raw.a"},
+        %{name: "flow-raw-ipfix-84c80497", stream_name: "flows", subject: "flows.raw.b"}
+      ]
+
+      assert_raise ArgumentError, ~r/colliding JetStream durable names/, fn ->
+        Config.assert_no_canonical_consumer_collisions!(streams, "serviceradar-event-writer")
+      end
     end
 
     test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do

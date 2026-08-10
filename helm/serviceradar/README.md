@@ -236,7 +236,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `1` |
 | `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `1` |
-| `flowCollector.streamReplicas` | Replica count for flow writers on `events` | `1` |
+| `flowCollector.config.stream_replicas` | JetStream replica count for the dedicated `flows` stream | `3` |
 | `flowCollector.config.stream_max_bytes` | Max bytes for flow subjects on `events` | `10737418240` |
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
 | `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | `10737418240` |

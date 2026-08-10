@@ -220,6 +220,10 @@ defmodule ServiceRadar.EventWriter.Config do
         |> put_flow_tuning(:consumer_max_ack_pending, max_ack, max_ack_override?)
       end)
 
+    # Fail closed if two stream configs collapse to one durable/inbox after
+    # durable_name/2 / pull-subject canonicalization.
+    assert_no_canonical_consumer_collisions!(streams, base.consumer_name)
+
     %{
       base
       | streams: streams,
@@ -281,6 +285,9 @@ defmodule ServiceRadar.EventWriter.Config do
   Builds the durable consumer name used for a configured EventWriter stream.
   """
   @spec durable_name(String.t(), String.t()) :: String.t()
+  # NATS JetStream consumer names are limited to 255 bytes (err 10102).
+  @nats_max_consumer_name_bytes 255
+
   def durable_name(base, stream_name) when is_binary(base) and is_binary(stream_name) do
     suffix =
       stream_name
@@ -288,7 +295,34 @@ defmodule ServiceRadar.EventWriter.Config do
       |> String.replace(~r/[^a-z0-9]+/, "-")
       |> String.trim("-")
 
-    "#{base}-#{suffix}"
+    # Budget for suffix after "base-" (and configured consumer-name prefix length).
+    budget = max(@nats_max_consumer_name_bytes - byte_size(base) - 1, 8)
+    suffix = truncate_durable_suffix(suffix, budget)
+    name = "#{base}-#{suffix}"
+
+    # Absolute cap even if base alone is oversized.
+    if byte_size(name) > @nats_max_consumer_name_bytes do
+      binary_part(name, 0, @nats_max_consumer_name_bytes)
+    else
+      name
+    end
+  end
+
+  # Prefer retaining a trailing 8-char hex hash when truncating long suffixes so
+  # disambiguation survives the NATS 255-byte consumer-name limit.
+  defp truncate_durable_suffix(suffix, budget) when byte_size(suffix) <= budget, do: suffix
+
+  defp truncate_durable_suffix(suffix, budget) do
+    case Regex.run(~r/^(.*-)([a-f0-9]{8})$/, suffix) do
+      [_, readable, hash] ->
+        # "readable-" + hash
+        readable_budget = max(budget - byte_size(hash) - 1, 1)
+        readable = binary_part(readable, 0, min(byte_size(readable), readable_budget))
+        "#{readable}-#{hash}"
+
+      _ ->
+        binary_part(suffix, 0, budget)
+    end
   end
 
   @doc """
@@ -560,41 +594,81 @@ defmodule ServiceRadar.EventWriter.Config do
         System.get_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS") ||
         ""
 
-    primary
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    # Exact subjects only — wildcards overlap NETFLOW/SFLOW filters and double-ACK.
-    |> Enum.filter(
-      &(String.starts_with?(&1, "flows.raw.") and not String.contains?(&1, "*") and
-          not String.contains?(&1, ">"))
-    )
+    subjects =
+      primary
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    # Whole-token NATS wildcards (`*` / `>`) are stream-ownership filters only —
+    # EventWriter requires concrete leaves so consumers do not double-ACK or
+    # silently miss live coverage. Fail closed rather than drop them quietly.
+    wildcards =
+      Enum.filter(subjects, fn s ->
+        String.starts_with?(s, "flows.raw.") and not exact_nats_subject?(s)
+      end)
+
+    if wildcards != [] do
+      raise ArgumentError,
+            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS rejects whole-token NATS wildcards " <>
+              "(ownership-only on the flows stream): #{inspect(wildcards)}. " <>
+              "Use concrete subjects (embedded */> in a token are literals)."
+    end
+
+    subjects
+    |> Enum.filter(&exact_raw_flow_subject?/1)
     |> Enum.uniq()
+  end
+
+  @doc """
+  True when subject is a concrete NATS subject under flows.raw (no whole-token
+  wildcards). Embedded `*`/`>` in a token (e.g. `vendor*name`) are literals.
+  """
+  @spec exact_raw_flow_subject?(String.t()) :: boolean()
+  def exact_raw_flow_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, "flows.raw.") and exact_nats_subject?(subject)
+  end
+
+  @doc false
+  def exact_nats_subject?(subject) when is_binary(subject) do
+    subject
+    |> String.split(".")
+    |> Enum.all?(fn token -> token != "" and token != "*" and token != ">" end)
   end
 
   @doc false
   def flow_subject_stream_name(subject) when is_binary(subject) do
-    suffix =
-      subject
-      |> String.replace_prefix("flows.raw.", "")
-      |> String.upcase()
-      |> String.replace(~r/[^A-Z0-9]+/, "_")
-      |> String.trim("_")
-
-    # Stable short hash keeps names unique when punctuation normalizes away
-    # (e.g. ipfix-v10 vs ipfix_v10).
+    # Keep names short: final durable is "#{consumer}-#{downcase name}" and NATS
+    # caps consumer names at 255 bytes. Hash disambiguates; readable prefix is budgeted.
     hash =
       :sha256
       |> :crypto.hash(subject)
       |> Base.encode16(case: :lower)
       |> binary_part(0, 8)
 
-    "FLOW_RAW_#{suffix}_#{hash}"
+    readable =
+      subject
+      |> String.replace_prefix("flows.raw.", "")
+      |> String.upcase()
+      |> String.replace(~r/[^A-Z0-9]+/, "_")
+      |> String.trim("_")
+
+    # "FLOW_" + readable + "_" + 8-char hash; total stream-name budget ~48 so
+    # even with long consumer base + "_EVENTS_DRAIN" we stay under 255.
+    max_readable = 24
+
+    readable =
+      if byte_size(readable) > max_readable do
+        binary_part(readable, 0, max_readable)
+      else
+        readable
+      end
+
+    "FLOW_#{readable}_#{hash}"
   end
 
   defp extra_live_flow_streams(existing) do
     existing_subjects = MapSet.new(existing, & &1.subject)
-    existing_names = MapSet.new(existing, & &1.name)
 
     extras =
       extra_flow_subjects()
@@ -619,16 +693,47 @@ defmodule ServiceRadar.EventWriter.Config do
         }
       end)
 
-    # Fail closed on name collisions (should be impossible with subject hash).
-    names = Enum.map(extras, & &1.name)
+    extras
+  end
 
-    if length(names) != length(Enum.uniq(names)) or
-         Enum.any?(names, &MapSet.member?(existing_names, &1)) do
+  @doc false
+  def assert_no_canonical_consumer_collisions!(streams, consumer_base)
+      when is_list(streams) and is_binary(consumer_base) do
+    # Durables are per JetStream stream: live (flows) and drain (events) may
+    # intentionally share durable_source_name so the legacy ACK cursor resumes.
+    streams
+    |> Enum.group_by(fn s -> Map.get(s, :stream_name) || s.name end)
+    |> Enum.each(fn {js_stream, group} ->
+      durables =
+        Enum.map(group, fn stream ->
+          key = Map.get(stream, :durable_source_name) || stream.name
+          durable_name(consumer_base, key)
+        end)
+
+      if length(durables) != length(Enum.uniq(durables)) do
+        raise ArgumentError,
+              "colliding JetStream durable names on stream #{inspect(js_stream)} after canonicalization: #{inspect(durables)}"
+      end
+    end)
+
+    # Pull inboxes are connection-global (one Gnat per producer).
+    pull_keys =
+      Enum.map(streams, fn stream ->
+        suffix =
+          stream.name
+          |> String.downcase()
+          |> String.replace(~r/[^a-z0-9]+/, "_")
+          |> String.trim("_")
+
+        "#{consumer_base}.#{suffix}"
+      end)
+
+    if length(pull_keys) != length(Enum.uniq(pull_keys)) do
       raise ArgumentError,
-            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS produced colliding stream names: #{inspect(names)}"
+            "colliding pull inbox keys after canonicalization: #{inspect(pull_keys)}"
     end
 
-    extras
+    :ok
   end
 
   defp maybe_append_events_drain_streams(streams) do

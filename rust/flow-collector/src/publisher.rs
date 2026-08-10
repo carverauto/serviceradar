@@ -21,13 +21,12 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::JoinSet;
 use tokio::time::{sleep, timeout};
 
-/// JetStream de-duplication window applied to the flows stream and used as
-/// the upper bound for publish retries (must exceed one concurrent ACK pass).
-pub(crate) const DUPLICATE_WINDOW_SECS: u64 = 600;
+/// Preferred JetStream de-duplication window for the dedicated flows stream.
+/// Capped by max_age and the common NATS server limit (jetstream.limits.duplicate_window,
+/// default 2m). Raising above the server limit fails stream create with 10052.
+pub(crate) const PREFERRED_DUPLICATE_WINDOW_SECS: u64 = 120;
 /// Max concurrent JetStream publish+ACK futures (bounds worst-case pass time).
 const PUBLISH_CONCURRENCY: usize = 32;
-/// Drop retries older than this (upper bound; actual age uses stream INFO).
-const MAX_RETRY_AGE_SECS: u64 = 480;
 
 /// NATS requires 0 < duplicate_window <= max_age when max_age is finite.
 fn clamp_duplicate_window(desired: Duration, max_age: Duration) -> Duration {
@@ -71,7 +70,10 @@ impl Publisher {
     pub async fn run(mut self) -> Result<()> {
         // Never inherit a previous pod/process readiness or half-written marker.
         clear_publisher_ready(&self.config)?;
-        let (_, js) = self.connect_with_retry().await?;
+        // verified_dup_window comes from stream ensure INFO — never invent a fallback
+        // that could exceed the real window (unsafe for retry age).
+        let (client, js, verified_dup_window) = self.connect_with_retry().await?;
+        let max_retry_age = max_retry_age_from_window(verified_dup_window);
         mark_publisher_ready(&self.config)?;
 
         let timeout_duration = Duration::from_millis(self.config.publish_timeout_ms);
@@ -82,17 +84,16 @@ impl Publisher {
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
-        // Bound retry age from the live stream's duplicate_window (events may be 120s).
-        let max_retry_age = resolve_max_retry_age(&js, &self.config.stream_name).await;
         info!(
-            "Publisher started (max_retry_age={:?}, concurrency={})",
-            max_retry_age, PUBLISH_CONCURRENCY
+            "Publisher started (dup_window={:?}, max_retry_age={:?}, concurrency={})",
+            verified_dup_window, max_retry_age, PUBLISH_CONCURRENCY
         );
 
         loop {
             if !retry_q.is_empty() {
                 expire_old_retries(&mut retry_q, max_retry_age);
-                self.publish_pending(&js, &mut retry_q, timeout_duration, max_retry_age)
+                wait_until_connected(&client).await;
+                self.publish_pending(&client, &js, &mut retry_q, timeout_duration, max_retry_age)
                     .await;
                 if !retry_q.is_empty() {
                     sleep(backoff).await;
@@ -107,6 +108,7 @@ impl Publisher {
                 None => {
                     return self
                         .drain_retries_until_empty(
+                            &client,
                             &js,
                             &mut retry_q,
                             timeout_duration,
@@ -132,7 +134,8 @@ impl Publisher {
             }
 
             let mut pending: VecDeque<PendingPublish> = batch.into();
-            self.publish_pending(&js, &mut pending, timeout_duration, max_retry_age)
+            wait_until_connected(&client).await;
+            self.publish_pending(&client, &js, &mut pending, timeout_duration, max_retry_age)
                 .await;
             while let Some(item) = pending.pop_front() {
                 if retry_q.len() >= max_retry_queue {
@@ -147,7 +150,13 @@ impl Publisher {
 
             if closed {
                 return self
-                    .drain_retries_until_empty(&js, &mut retry_q, timeout_duration, max_retry_age)
+                    .drain_retries_until_empty(
+                        &client,
+                        &js,
+                        &mut retry_q,
+                        timeout_duration,
+                        max_retry_age,
+                    )
                     .await;
             }
         }
@@ -155,6 +164,7 @@ impl Publisher {
 
     async fn drain_retries_until_empty(
         &self,
+        client: &Client,
         js: &jetstream::Context,
         retry_q: &mut VecDeque<PendingPublish>,
         timeout_duration: Duration,
@@ -169,7 +179,8 @@ impl Publisher {
                 break;
             }
             attempts += 1;
-            self.publish_pending(js, retry_q, timeout_duration, max_retry_age)
+            wait_until_connected(client).await;
+            self.publish_pending(client, js, retry_q, timeout_duration, max_retry_age)
                 .await;
             if retry_q.is_empty() {
                 break;
@@ -189,11 +200,24 @@ impl Publisher {
 
     async fn publish_pending(
         &self,
+        client: &Client,
         js: &jetstream::Context,
         pending: &mut VecDeque<PendingPublish>,
         timeout_duration: Duration,
         max_retry_age: Duration,
     ) {
+        // Never enqueue publishes while disconnected — async-nats buffers
+        // Command::Request across reconnect and cannot cancel timed-out futures.
+        if !matches!(
+            client.connection_state(),
+            async_nats::connection::State::Connected
+        ) {
+            warn!(
+                "NATS not connected; deferring {} publish(es)",
+                pending.len()
+            );
+            return;
+        }
         let limit = pending.len().min(self.config.batch_size.max(1));
         if limit == 0 {
             return;
@@ -211,6 +235,7 @@ impl Publisher {
 
         for item in batch {
             let js = js.clone();
+            let client = client.clone();
             let sem = semaphore.clone();
             let metrics = self.host_slice_metrics.clone();
             set.spawn(async move {
@@ -245,6 +270,18 @@ impl Publisher {
                     .payload(item.payload.clone().into())
                     .message_id(item.msg_id.clone());
 
+                // Refuse to buffer publishes while disconnected.
+                if !matches!(
+                    client.connection_state(),
+                    async_nats::connection::State::Connected
+                ) {
+                    warn!(
+                        "NATS disconnected before publish of subject {} id={}; will retry",
+                        item.subject, item.msg_id
+                    );
+                    return Err(item);
+                }
+
                 match js.send_publish(item.subject.clone(), publish).await {
                     Ok(ack) => match timeout(timeout_duration, ack).await {
                         Ok(Ok(_seq)) => {
@@ -259,11 +296,14 @@ impl Publisher {
                             Err(item)
                         }
                         Err(_) => {
+                            // Do NOT requeue on timeout: async-nats may still hold the
+                            // original Command::Request across reconnect; a second publish
+                            // after duplicate_window expires would create a duplicate row.
                             warn!(
-                                "NATS ack timed out after {:?} for subject {} id={} (will retry)",
+                                "NATS ack timed out after {:?} for subject {} id={}; not retrying (reconnect-buffer safety)",
                                 timeout_duration, item.subject, item.msg_id
                             );
-                            Err(item)
+                            Ok(())
                         }
                     },
                     Err(e) => {
@@ -291,7 +331,7 @@ impl Publisher {
         *pending = failed;
     }
 
-    async fn connect_once(&mut self) -> Result<(Client, jetstream::Context)> {
+    async fn connect_once(&mut self) -> Result<(Client, jetstream::Context, Duration)> {
         let mut options = ConnectOptions::new();
 
         if let Some(sec) = &self.config.security {
@@ -363,11 +403,19 @@ impl Publisher {
             warn!(
                 "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
             );
-            ensure_legacy_events_subjects_only(&js, &restore).await?;
+            let dup_window = ensure_legacy_events_subjects_only(&js, &restore).await?;
             // Verify ownership then clear marker.
             self.pending_rehome.clear();
             clear_rehome_marker(&rehome_path);
-        } else {
+            info!(
+                "Connected to NATS at {} (legacy events stream, dup_window={:?})",
+                self.config.nats_url, dup_window
+            );
+            return Ok((client, js, dup_window));
+        }
+
+        // Dedicated flows stream path
+        {
             // Rehome flow subjects off events onto the dedicated stream.
             match rehome_subjects_from_events(
                 &js,
@@ -401,7 +449,7 @@ impl Publisher {
             }
             target_subjects = normalize_stream_subjects(target_subjects);
 
-            match ensure_flows_stream(
+            let dup_window = match ensure_flows_stream(
                 &js,
                 &self.config.stream_name,
                 &target_subjects,
@@ -411,9 +459,10 @@ impl Publisher {
             )
             .await
             {
-                Ok(()) => {
+                Ok(window) => {
                     self.pending_rehome.clear();
                     clear_rehome_marker(&rehome_path);
+                    window
                 }
                 Err(err) => {
                     if !self.pending_rehome.is_empty() {
@@ -435,22 +484,23 @@ impl Publisher {
                     }
                     return Err(err);
                 }
-            }
+            };
+
+            info!(
+                "Connected to NATS at {} and ensured stream '{}' exists (max_bytes={}, max_age={:?}, replicas={}, dup_window={:?})",
+                self.config.nats_url,
+                self.config.stream_name,
+                self.config.stream_max_bytes,
+                desired_max_age,
+                self.config.stream_replicas,
+                dup_window
+            );
+
+            Ok((client, js, dup_window))
         }
-
-        info!(
-            "Connected to NATS at {} and ensured stream '{}' exists (max_bytes={}, max_age={:?}, replicas={})",
-            self.config.nats_url,
-            self.config.stream_name,
-            self.config.stream_max_bytes,
-            desired_max_age,
-            self.config.stream_replicas
-        );
-
-        Ok((client, js))
     }
 
-    async fn connect_with_retry(&mut self) -> Result<(Client, jetstream::Context)> {
+    async fn connect_with_retry(&mut self) -> Result<(Client, jetstream::Context, Duration)> {
         let mut attempt: u32 = 0;
         let initial_backoff = Duration::from_millis(500);
         let max_backoff = Duration::from_secs(30);
@@ -555,7 +605,7 @@ async fn rehome_subjects_from_events(
 async fn ensure_legacy_events_subjects_only(
     js: &jetstream::Context,
     required_subjects: &[String],
-) -> Result<()> {
+) -> Result<Duration> {
     let mut events = match js.get_stream("events").await {
         Ok(stream) => stream,
         Err(err) if is_stream_not_found(&err) => {
@@ -588,26 +638,19 @@ async fn ensure_legacy_events_subjects_only(
         updated.subjects = normalized;
         needs_update = true;
     }
-    // Raise de-dup window for publish retries, but never above stream max_age
-    // (NATS 10052 when duplicate_window > max_age).
-    let desired_dup =
-        clamp_duplicate_window(Duration::from_secs(DUPLICATE_WINDOW_SECS), existing_max_age);
-    if updated.duplicate_window < desired_dup {
-        info!(
-            "Raising events stream duplicate_window from {:?} to {:?} for publish dedup (capped by max_age={:?})",
-            updated.duplicate_window, desired_dup, existing_max_age
-        );
-        updated.duplicate_window = desired_dup;
-        needs_update = true;
-    }
+    // Do NOT raise events.duplicate_window: shared-stream ownership + server
+    // jetstream.limits.duplicate_window (often 2m) make aggressive raises fail with 10052.
+    // Retry age is derived from the verified INFO window after this merge.
     if needs_update {
-        // Keep prior retention shape — only subject list / dup window may change.
         updated.max_bytes = existing_max_bytes;
         updated.max_age = existing_max_age;
         js.update_stream(updated).await?;
         info!("Merged flow subjects into legacy events stream without reshaping retention");
     }
-    Ok(())
+    // Re-INFO for verified window (post-update config). Never invent a larger value.
+    let mut events = js.get_stream("events").await?;
+    let info = events.info().await?;
+    Ok(info.config.duplicate_window)
 }
 
 #[derive(Debug, Clone)]
@@ -696,31 +739,39 @@ fn ready_marker_path(config: &Config) -> PathBuf {
     PathBuf::from("/var/lib/serviceradar/flow-collector.ready")
 }
 
-async fn resolve_max_retry_age(js: &jetstream::Context, stream_name: &str) -> Duration {
-    let window = match js.get_stream(stream_name).await {
-        Ok(mut stream) => match stream.info().await {
-            Ok(info) => {
-                let w = info.config.duplicate_window;
-                if w.is_zero() {
-                    Duration::from_secs(120)
-                } else {
-                    w
-                }
-            }
-            Err(_) => Duration::from_secs(120),
-        },
-        Err(_) => Duration::from_secs(120),
-    };
-    // Keep a margin under the stream dedup window for in-flight concurrent passes.
-    let margin = Duration::from_secs(30).min(window / 4);
+/// Derive retry horizon strictly from a **verified** stream duplicate_window.
+/// Never invent a larger fallback — that would allow double-accept after reconnect.
+/// A zero window means no server-side dedup: expire retries immediately.
+fn max_retry_age_from_window(window: Duration) -> Duration {
+    if window.is_zero() {
+        return Duration::ZERO;
+    }
+    // Keep margin under the dedup window for concurrent pass latency.
+    let margin = Duration::from_secs(15).min(window / 4);
     let derived = window.saturating_sub(margin);
-    let capped = Duration::from_secs(MAX_RETRY_AGE_SECS);
-    let age = if derived.is_zero() {
+    if derived.is_zero() {
         window / 2
     } else {
         derived
-    };
-    if age > capped { capped } else { age }
+    }
+}
+
+async fn wait_until_connected(client: &Client) {
+    use async_nats::connection::State;
+    if matches!(client.connection_state(), State::Connected) {
+        return;
+    }
+    // Poll briefly; expire_old_retries still applies once Connected returns.
+    for _ in 0..100 {
+        if matches!(client.connection_state(), State::Connected) {
+            return;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    warn!(
+        "NATS still not Connected after wait (state={})",
+        client.connection_state()
+    );
 }
 
 fn clear_publisher_ready(config: &Config) -> Result<()> {
@@ -852,7 +903,7 @@ async fn ensure_flows_stream(
     max_bytes: i64,
     max_age: Duration,
     replicas: usize,
-) -> Result<()> {
+) -> Result<Duration> {
     match js.get_stream(stream_name).await {
         Ok(mut existing_stream) => {
             let info = existing_stream.info().await?;
@@ -915,7 +966,7 @@ async fn ensure_flows_stream(
             // Use the post-update max_age (may have just been changed above).
             let effective_max_age = updated_config.max_age;
             let desired_dup = clamp_duplicate_window(
-                Duration::from_secs(DUPLICATE_WINDOW_SECS),
+                Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
                 effective_max_age,
             );
             if updated_config.duplicate_window != desired_dup
@@ -932,23 +983,34 @@ async fn ensure_flows_stream(
             }
 
             if needs_update {
-                js.update_stream(updated_config).await?;
-                let mut verified = js.get_stream(stream_name).await?;
-                let verified_info = verified.info().await?;
-                for required in target_subjects {
-                    if !verified_info
-                        .config
-                        .subjects
-                        .iter()
-                        .any(|s| subject_covers(s, required) || s == required)
-                    {
-                        return Err(anyhow::anyhow!(
-                            "stream '{stream_name}' missing required subject '{required}' after update"
-                        ));
-                    }
+                // If server rejects duplicate_window (server limit), retry without raising it.
+                if let Err(err) = js.update_stream(updated_config.clone()).await {
+                    warn!(
+                        "stream '{}' update failed ({err}); retrying without duplicate_window change",
+                        stream_name
+                    );
+                    let mut fallback = updated_config.clone();
+                    // Restore prior window from INFO we started with
+                    fallback.duplicate_window = info.config.duplicate_window;
+                    js.update_stream(fallback).await?;
                 }
             }
-            Ok(())
+            let mut verified = js.get_stream(stream_name).await?;
+            let verified_info = verified.info().await?;
+            for required in target_subjects {
+                if !verified_info
+                    .config
+                    .subjects
+                    .iter()
+                    .any(|s| subject_covers(s, required) || s == required)
+                {
+                    return Err(anyhow::anyhow!(
+                        "stream '{stream_name}' missing required subject '{required}' after update"
+                    ));
+                }
+            }
+            // Return verified INFO window only — never invent a larger fallback.
+            Ok(verified_info.config.duplicate_window)
         }
         Err(err) if is_stream_not_found(&err) => {
             let stream_config = jetstream::stream::Config {
@@ -960,16 +1022,26 @@ async fn ensure_flows_stream(
                 max_bytes,
                 max_age,
                 num_replicas: replicas,
-                // Cover publish retries; clamp to max_age (NATS rejects window > max_age).
+                // Preferred window (≤ max_age). Server jetstream.limits.duplicate_window
+                // (often 2m) may reject larger values with 10052 — fall back below.
                 duplicate_window: clamp_duplicate_window(
-                    Duration::from_secs(DUPLICATE_WINDOW_SECS),
+                    Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
                     max_age,
                 ),
                 ..Default::default()
             };
             // Prefer create_stream over get_or_create: get_or_create can return an
             // existing handle without applying our config when races occur.
-            js.create_stream(stream_config).await?;
+            // If preferred window exceeds server limit, fall back to omit (server default).
+            if let Err(err) = js.create_stream(stream_config.clone()).await {
+                warn!(
+                    "create stream '{}' with preferred duplicate_window failed ({err}); using server default",
+                    stream_name
+                );
+                let mut fallback = stream_config;
+                fallback.duplicate_window = Duration::ZERO; // server default
+                js.create_stream(fallback).await?;
+            }
             let mut verified = js.get_stream(stream_name).await?;
             let verified_info = verified.info().await?;
             for required in target_subjects {
@@ -984,7 +1056,8 @@ async fn ensure_flows_stream(
                     ));
                 }
             }
-            Ok(())
+            // Verified INFO only — retry horizon must not exceed actual window.
+            Ok(verified_info.config.duplicate_window)
         }
         Err(err) => Err(anyhow::anyhow!(
             "failed to INFO stream '{stream_name}': {err}"
@@ -1108,17 +1181,28 @@ mod tests {
     #[test]
     fn clamp_duplicate_window_respects_max_age() {
         assert_eq!(
-            clamp_duplicate_window(Duration::from_secs(600), Duration::from_secs(60)),
+            clamp_duplicate_window(Duration::from_secs(120), Duration::from_secs(60)),
             Duration::from_secs(60)
         );
         assert_eq!(
-            clamp_duplicate_window(Duration::from_secs(600), Duration::ZERO),
-            Duration::from_secs(600)
+            clamp_duplicate_window(Duration::from_secs(120), Duration::ZERO),
+            Duration::from_secs(120)
         );
         assert_eq!(
-            clamp_duplicate_window(Duration::from_secs(300), Duration::from_secs(600)),
-            Duration::from_secs(300)
+            clamp_duplicate_window(Duration::from_secs(60), Duration::from_secs(120)),
+            Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn max_retry_age_never_exceeds_verified_window() {
+        assert_eq!(max_retry_age_from_window(Duration::ZERO), Duration::ZERO);
+        let age_60 = max_retry_age_from_window(Duration::from_secs(60));
+        assert!(age_60 < Duration::from_secs(60));
+        assert!(age_60 > Duration::ZERO);
+        let age_120 = max_retry_age_from_window(Duration::from_secs(120));
+        assert!(age_120 <= Duration::from_secs(105)); // 120 - 15
+        assert!(age_120 >= Duration::from_secs(90));
     }
 
     #[test]

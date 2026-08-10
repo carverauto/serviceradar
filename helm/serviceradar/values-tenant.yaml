@@ -226,7 +226,7 @@ trapd:
 flowCollector:
   enabled: true
   replicaCount: 1
-  streamReplicas: 3
+  # stream_replicas is the value the collector ConfigMap serializes (R=1 under 2G file store).
   config:
     # Dedicated flows stream; size under tenant nats.jetstream.maxFileStore (2G).
     stream_name: "flows"
