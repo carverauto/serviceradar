@@ -323,6 +323,8 @@ defmodule ServiceRadar.Plugins.AddonRolloutDbTest do
                trigger: :manual
              )
 
+    assert :ok = AddonRolloutCoordinator.pause(rollout.id, actor: actor)
+
     # workload-identity's shape: candidate 0.1.5, agents already on 0.1.7.
     later = DateTime.add(fixture.started_at, 60)
     report_status(fixture, "1.2.0", "running", true, later, actor)
