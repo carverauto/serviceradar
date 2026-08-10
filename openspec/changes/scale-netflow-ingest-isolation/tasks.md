@@ -13,7 +13,7 @@
 
 ## 3. Helm and NATS storage defaults
 - [x] 3.1 Set production chart defaults for `flowCollector.config.stream_name=flows`, `stream_max_bytes` (10 GiB class within 30Gi PVC), `stream_max_age`, replicas=3.
-- [x] 3.2 Replace demo shared 1 GiB flow pin with a **dedicated** flows budget (10 GiB / 2h) and comment why.
+- [x] 3.2 Replace demo shared 1 GiB flow pin with a **dedicated** flows budget (8 GiB / 2h under the 30Gi PVC) and comment why.
 - [x] 3.3 Size NATS `jetstream.maxFileStore` (30G) and datasvc KV/object reservations so R=3 flows@10GiB fits the existing 30Gi PVC without Helm PVC mutation.
 - [x] 3.4 Log-collector/OTEL remain on `events` only (do not ensure `flows`).
 

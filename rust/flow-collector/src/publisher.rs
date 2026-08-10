@@ -26,8 +26,24 @@ use tokio::time::{sleep, timeout};
 pub(crate) const DUPLICATE_WINDOW_SECS: u64 = 600;
 /// Max concurrent JetStream publish+ACK futures (bounds worst-case pass time).
 const PUBLISH_CONCURRENCY: usize = 32;
-/// Drop retries older than this (must be < DUPLICATE_WINDOW_SECS).
+/// Drop retries older than this (upper bound; actual age uses stream INFO).
 const MAX_RETRY_AGE_SECS: u64 = 480;
+
+/// NATS requires 0 < duplicate_window <= max_age when max_age is finite.
+fn clamp_duplicate_window(desired: Duration, max_age: Duration) -> Duration {
+    if max_age.is_zero() {
+        // Unlimited retention — desired window is fine.
+        desired
+    } else if desired > max_age {
+        max_age
+    } else if desired.is_zero() {
+        // Never set a zero window when we intend de-dup; use min(max_age, desired)
+        // but desired is non-zero from DUPLICATE_WINDOW_SECS.
+        max_age.min(Duration::from_secs(1))
+    } else {
+        desired
+    }
+}
 
 pub struct Publisher {
     config: Arc<Config>,
@@ -572,13 +588,14 @@ async fn ensure_legacy_events_subjects_only(
         updated.subjects = normalized;
         needs_update = true;
     }
-    // Raise de-dup window so publish retries with Nats-Msg-Id stay safe in
-    // legacy stream_name=events mode (server default is often 120s).
-    let desired_dup = Duration::from_secs(DUPLICATE_WINDOW_SECS);
+    // Raise de-dup window for publish retries, but never above stream max_age
+    // (NATS 10052 when duplicate_window > max_age).
+    let desired_dup =
+        clamp_duplicate_window(Duration::from_secs(DUPLICATE_WINDOW_SECS), existing_max_age);
     if updated.duplicate_window < desired_dup {
         info!(
-            "Raising events stream duplicate_window from {:?} to {:?} for publish dedup",
-            updated.duplicate_window, desired_dup
+            "Raising events stream duplicate_window from {:?} to {:?} for publish dedup (capped by max_age={:?})",
+            updated.duplicate_window, desired_dup, existing_max_age
         );
         updated.duplicate_window = desired_dup;
         needs_update = true;
@@ -789,16 +806,39 @@ async fn restore_subjects_to_events(js: &jetstream::Context, subjects: &[String]
     let mut updated = info.config.clone();
     let mut changed = false;
     for subject in subjects {
-        if !updated.subjects.iter().any(|s| s == subject) {
+        let covered = updated
+            .subjects
+            .iter()
+            .any(|s| s == subject || subject_covers(s, subject));
+        if !covered {
             updated.subjects.push(subject.clone());
             changed = true;
         }
     }
 
+    let normalized = normalize_stream_subjects(updated.subjects.clone());
+    if normalized != updated.subjects {
+        updated.subjects = normalized;
+        changed = true;
+    }
+
     if changed {
+        // Verify every requested subject is covered after normalize.
+        for required in subjects {
+            if !updated
+                .subjects
+                .iter()
+                .any(|s| s == required || subject_covers(s, required))
+            {
+                return Err(anyhow::anyhow!(
+                    "events stream missing required subject '{required}' after restore normalize"
+                ));
+            }
+        }
         warn!(
-            "Restoring {} flow subject(s) onto events after target stream ensure failed",
-            subjects.len()
+            "Restoring {} flow subject(s) onto events after target stream ensure failed (normalized={:?})",
+            subjects.len(),
+            updated.subjects
         );
         js.update_stream(updated).await?;
     }
@@ -872,11 +912,20 @@ async fn ensure_flows_stream(
                 needs_update = true;
             }
 
-            let desired_dup = Duration::from_secs(DUPLICATE_WINDOW_SECS);
-            if updated_config.duplicate_window < desired_dup {
+            // Use the post-update max_age (may have just been changed above).
+            let effective_max_age = updated_config.max_age;
+            let desired_dup = clamp_duplicate_window(
+                Duration::from_secs(DUPLICATE_WINDOW_SECS),
+                effective_max_age,
+            );
+            if updated_config.duplicate_window != desired_dup
+                && (updated_config.duplicate_window < desired_dup
+                    || updated_config.duplicate_window > effective_max_age
+                        && !effective_max_age.is_zero())
+            {
                 info!(
-                    "Updating stream '{}' duplicate_window from {:?} to {:?}",
-                    stream_name, updated_config.duplicate_window, desired_dup
+                    "Updating stream '{}' duplicate_window from {:?} to {:?} (max_age={:?})",
+                    stream_name, updated_config.duplicate_window, desired_dup, effective_max_age
                 );
                 updated_config.duplicate_window = desired_dup;
                 needs_update = true;
@@ -911,8 +960,11 @@ async fn ensure_flows_stream(
                 max_bytes,
                 max_age,
                 num_replicas: replicas,
-                // Cover publish ack-timeout retries that reuse Nats-Msg-Id.
-                duplicate_window: Duration::from_secs(DUPLICATE_WINDOW_SECS),
+                // Cover publish retries; clamp to max_age (NATS rejects window > max_age).
+                duplicate_window: clamp_duplicate_window(
+                    Duration::from_secs(DUPLICATE_WINDOW_SECS),
+                    max_age,
+                ),
                 ..Default::default()
             };
             // Prefer create_stream over get_or_create: get_or_create can return an
@@ -1051,6 +1103,32 @@ mod tests {
         assert_eq!(loaded.subjects, marker.subjects);
         clear_rehome_marker(&path);
         assert!(load_rehome_marker(&path).unwrap().is_none());
+    }
+
+    #[test]
+    fn clamp_duplicate_window_respects_max_age() {
+        assert_eq!(
+            clamp_duplicate_window(Duration::from_secs(600), Duration::from_secs(60)),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            clamp_duplicate_window(Duration::from_secs(600), Duration::ZERO),
+            Duration::from_secs(600)
+        );
+        assert_eq!(
+            clamp_duplicate_window(Duration::from_secs(300), Duration::from_secs(600)),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn restore_normalize_drops_exacts_under_wildcard() {
+        let normalized = normalize_stream_subjects(vec![
+            "flows.raw.>".to_string(),
+            "flows.raw.netflow".to_string(),
+            "flows.raw.sflow".to_string(),
+        ]);
+        assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
     }
 
     #[test]

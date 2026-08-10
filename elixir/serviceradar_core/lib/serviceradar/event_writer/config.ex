@@ -564,7 +564,11 @@ defmodule ServiceRadar.EventWriter.Config do
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
-    |> Enum.filter(&String.starts_with?(&1, "flows.raw."))
+    # Exact subjects only — wildcards overlap NETFLOW/SFLOW filters and double-ACK.
+    |> Enum.filter(
+      &(String.starts_with?(&1, "flows.raw.") and not String.contains?(&1, "*") and
+          not String.contains?(&1, ">"))
+    )
     |> Enum.uniq()
   end
 
@@ -575,34 +579,56 @@ defmodule ServiceRadar.EventWriter.Config do
       |> String.replace_prefix("flows.raw.", "")
       |> String.upcase()
       |> String.replace(~r/[^A-Z0-9]+/, "_")
+      |> String.trim("_")
 
-    "FLOW_RAW_#{suffix}"
+    # Stable short hash keeps names unique when punctuation normalizes away
+    # (e.g. ipfix-v10 vs ipfix_v10).
+    hash =
+      :sha256
+      |> :crypto.hash(subject)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 8)
+
+    "FLOW_RAW_#{suffix}_#{hash}"
   end
 
   defp extra_live_flow_streams(existing) do
     existing_subjects = MapSet.new(existing, & &1.subject)
+    existing_names = MapSet.new(existing, & &1.name)
 
-    extra_flow_subjects()
-    |> Enum.reject(&MapSet.member?(existing_subjects, &1))
-    |> Enum.map(fn subject ->
-      name = flow_subject_stream_name(subject)
+    extras =
+      extra_flow_subjects()
+      |> Enum.reject(&MapSet.member?(existing_subjects, &1))
+      |> Enum.map(fn subject ->
+        name = flow_subject_stream_name(subject)
 
-      %{
-        name: name,
-        stream_name: "flows",
-        subject: subject,
-        processor: Flows,
-        batch_size: 100,
-        batch_timeout: 500,
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: @default_flows_stream_max_bytes,
-        stream_max_age: @default_flows_stream_max_age_ns,
-        allow_stream_fallback: false,
-        reconcile_stream_shape: false
-      }
-    end)
+        %{
+          name: name,
+          stream_name: "flows",
+          subject: subject,
+          processor: Flows,
+          batch_size: 100,
+          batch_timeout: 500,
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: @default_flows_stream_max_bytes,
+          stream_max_age: @default_flows_stream_max_age_ns,
+          allow_stream_fallback: false,
+          reconcile_stream_shape: false
+        }
+      end)
+
+    # Fail closed on name collisions (should be impossible with subject hash).
+    names = Enum.map(extras, & &1.name)
+
+    if length(names) != length(Enum.uniq(names)) or
+         Enum.any?(names, &MapSet.member?(existing_names, &1)) do
+      raise ArgumentError,
+            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS produced colliding stream names: #{inspect(names)}"
+    end
+
+    extras
   end
 
   defp maybe_append_events_drain_streams(streams) do

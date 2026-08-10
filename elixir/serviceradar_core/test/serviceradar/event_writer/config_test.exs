@@ -172,6 +172,25 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert netflow_drain.consumer_deliver_policy_if_absent == :new
     end
 
+    test "flow_subject_stream_name is collision-free for similar subjects" do
+      a = Config.flow_subject_stream_name("flows.raw.ipfix-v10")
+      b = Config.flow_subject_stream_name("flows.raw.ipfix_v10")
+      assert a != b
+      assert String.starts_with?(a, "FLOW_RAW_IPFIX_V10_")
+      assert String.starts_with?(b, "FLOW_RAW_IPFIX_V10_")
+    end
+
+    test "extra_flow_subjects rejects wildcards" do
+      System.put_env(
+        "EVENT_WRITER_FLOW_EXTRA_SUBJECTS",
+        "flows.raw.>,flows.raw.*,flows.raw.ipfix"
+      )
+
+      on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
+
+      assert Config.extra_flow_subjects() == ["flows.raw.ipfix"]
+    end
+
     test "EVENT_WRITER_FLOW_EXTRA_SUBJECTS creates live flows + events drain pair" do
       System.put_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS", "flows.raw.ipfix")
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
@@ -192,8 +211,9 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert length(live) == 1
       assert length(drain) == 1
-      assert hd(live).name == "FLOW_RAW_IPFIX"
-      assert hd(drain).durable_source_name == "FLOW_RAW_IPFIX"
+      expected = Config.flow_subject_stream_name("flows.raw.ipfix")
+      assert hd(live).name == expected
+      assert hd(drain).durable_source_name == expected
       assert hd(drain).consumer_deliver_policy_if_absent == :all
     end
 
