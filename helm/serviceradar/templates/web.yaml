@@ -199,7 +199,7 @@ spec:
       {{- end }}
       {{- if $migrationsEnabled }}
       - name: wait-migrations
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
@@ -264,7 +264,7 @@ spec:
       {{- end }}
       containers:
       - name: web-ng
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-web-ng" "service" "webNg") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-web-ng" "service" "webNg") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

@@ -128,7 +128,7 @@ metadata:
   annotations:
     "helm.sh/resource-policy": "keep"
 spec:
-  imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" $cnpg) }}
+  imageName: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
   instances: {{ default 3 $cnpg.instances }}
   {{- with $cnpg.env }}
   env:

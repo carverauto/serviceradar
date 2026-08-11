@@ -6,17 +6,21 @@ title: Helm Deployment and Configuration
 This guide shows how to deploy ServiceRadar via the bundled Helm chart. For sweep behavior, tuning, and concepts, see [Network Sweeps](./network-sweeps.md) and [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
 
 :::note Chart version
-The examples below pin `<chart-version>` and image tags to `1.2.73`, the
-current chart release. Always check the [latest published chart
-version](https://registry.carverauto.dev/serviceradar/charts/serviceradar) and
-substitute it before deploying.
+`<chart-version>` below is a placeholder. Look up the current release before
+deploying:
+
+```bash
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar | grep '^version'
+```
+
+This page deliberately does not name a specific version: a hardcoded example
+goes stale silently, and readers reasonably copy it as fact.
 :::
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
 - Deploy from the official OCI chart (recommended):
   - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml`
-  - Example with the current release: `--version 1.2.73`.
 - Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
@@ -25,11 +29,16 @@ OCI chart quick start
 - Inspect chart metadata and defaults:
   - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
   - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > values.yaml`
-- Pin images to a release tag (recommended):
-  - `--set global.imageTag="v1.2.73"` (use the release that matches your chart version).
+- Image tags follow the chart by default:
+  - If you leave `global.imageTag` empty (the default), every first-party
+    ServiceRadar image uses the chart's `appVersion`. The chart and the
+    application it deploys are released together, so this is normally what you
+    want and needs no configuration.
+- Pin images explicitly (immutable rollouts):
+  - `--set global.imageTag="sha-<gitsha>"`, or pin per-service digests with
+    `image.digests.*`.
 - Track mutable images (staging/dev):
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
-  - If you omit `global.imageTag`, the chart defaults to `latest`.
 
 HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.

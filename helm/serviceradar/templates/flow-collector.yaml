@@ -71,7 +71,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: flow-collector
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-flow-collector" "service" "flowCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-flow-collector" "service" "flowCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

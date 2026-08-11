@@ -17,10 +17,11 @@ podDisruptionBudgets:
 
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. Defaults to the chart
-  # appVersion tag; use a sha-* tag or image.digests.* for production
-  # rollouts that require immutable image references.
-  imageTag: "v1.2.54"
+  # Override all ServiceRadar image tags at once. Leave empty to track the
+  # chart appVersion, which is almost always what you want -- the chart and the
+  # application it deploys are released together. Set a sha-* tag or use
+  # image.digests.* for production rollouts needing immutable references.
+  imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
   # add-on assets from the Forgejo release with this name, and shows it in the
@@ -52,8 +53,10 @@ image:
   registry: registry.carverauto.dev/serviceradar
   registryPullSecret: registry-carverauto-dev-cred
   tags:
-    # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    appTag: &appTag "v1.2.54"
+    # Default tag for first-party ServiceRadar images. Empty means "use the
+    # chart appVersion" (see serviceradar.imageTag). Do not hardcode a version
+    # here: it silently decouples the images from the chart that ships them.
+    appTag: &appTag ""
     core: *appTag
     webNg: *appTag
     nats: "2.14.0-alpine"

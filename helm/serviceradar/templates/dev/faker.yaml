@@ -69,7 +69,7 @@ spec:
       {{- end }}
       containers:
       - name: faker
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-faker" "service" "faker") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-faker" "service" "faker") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         ports:

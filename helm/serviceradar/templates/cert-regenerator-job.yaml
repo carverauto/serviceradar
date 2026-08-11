@@ -2,7 +2,7 @@
 {{- $regenerator := default dict (get $certs "regenerator") -}}
 {{- $hostedRuntime := eq "true" (include "serviceradar.hostedRuntimeEnabled" .) -}}
 {{- if and (default false (get $regenerator "enabled")) (not $hostedRuntime) }}
-{{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "cnpg" .Values.cnpg) -}}
+{{- $certJobImage := include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" .Values.cnpg) -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
