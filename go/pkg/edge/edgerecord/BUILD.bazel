@@ -35,6 +35,7 @@ go_test(
     srcs = [
         "assignment_test.go",
         "bounds_precedence_test.go",
+        "count_corpus_test.go",
         "range_string_corpus_test.go",
         "capability_test.go",
         "asn_corpus_test.go",
