@@ -199,7 +199,7 @@ spec:
       {{- end }}
       containers:
       - name: log-collector
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-log-collector" "service" "logCollector") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-log-collector" "service" "logCollector") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.bindServiceContainerSecurityContext" . | nindent 8 }}
         ports:

@@ -1,6 +1,6 @@
 {{- $auto := default true .Values.natsCreds.autoGenerate -}}
 {{- if and $auto (not (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.operator)) }}
-{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") -}}
+{{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "tools") -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -84,7 +84,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       containers:
       - name: nats-creds-generator
-        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
         {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-c"]
