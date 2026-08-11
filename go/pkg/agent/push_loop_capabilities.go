@@ -560,6 +560,15 @@ func systemdAddonUnitStatusWithReader(
 			return status
 		case agentaddon.StateStarting, agentaddon.StateRestarting:
 			best = status
+		case agentaddon.StateDegraded:
+			// Not produced here: these states come from parsing `systemctl show`,
+			// and degraded is an add-on HEALTH concept the unit view never sees.
+			// Handled explicitly anyway, because a degraded add-on is running --
+			// so if it ever does reach this path it must outrank every
+			// not-running state rather than falling through as unknown.
+			if best.state != agentaddon.StateRunning {
+				best = status
+			}
 		case agentaddon.StateUnhealthy:
 			if best.state == agentaddon.StateStopped {
 				best = status
@@ -586,6 +595,13 @@ func systemdTimerUnitStatusWithReader(
 			return status
 		case agentaddon.StateRunning:
 			best = status
+		case agentaddon.StateDegraded:
+			// See the note in the service variant: unreachable from systemd
+			// parsing, but degraded means running, so it outranks anything that
+			// is not running.
+			if best.state != agentaddon.StateRunning {
+				best = status
+			}
 		case agentaddon.StateStarting, agentaddon.StateRestarting:
 			if best.state != agentaddon.StateRunning {
 				best = status

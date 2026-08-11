@@ -132,6 +132,27 @@ defmodule ServiceRadar.Plugins.AddonRolloutEligibilityTest do
              })
     end
 
+    test "the agent's degraded state counts as having come up" do
+      service = package(supervision: :systemd_service)
+      timer = package(supervision: :systemd_timer)
+
+      # powerdns's shape: the add-on returns HealthStatus::Degraded, and since
+      # the agent now reports that distinctly instead of collapsing it into
+      # "unhealthy", the rollout gate can see it came up.
+      degraded = %{
+        state: "degraded",
+        active: true,
+        degradation_reason: "no PowerDNS Recursor protobuf producer connected to 127.0.0.1:6000"
+      }
+
+      assert Eligibility.supervision_state_ready?(service, degraded)
+      assert Eligibility.supervision_state_ready?(timer, degraded)
+
+      # ...and it is still degraded, so convergence display still says so.
+      refute Eligibility.supervision_ready?(service, degraded)
+      assert Eligibility.degraded?(degraded)
+    end
+
     test "supervision_ready? remains the stricter question for convergence display" do
       service = package(supervision: :systemd_service)
       clean = %{state: "running", active: true, degradation_reason: nil}
