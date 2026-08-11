@@ -105,7 +105,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     update :run_now do
       description "Trigger an on-demand sweep run"
-      require_atomic? false
       accept []
       change ServiceRadar.SweepJobs.Changes.DispatchSweepRun
     end
