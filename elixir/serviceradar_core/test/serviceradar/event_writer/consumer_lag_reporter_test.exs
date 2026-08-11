@@ -81,4 +81,15 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
              }
            ]
   end
+
+  test "retention stream INFO polling is limited to unique flow streams" do
+    consumers = [
+      %{stream: "flows", durable: "netflow", subject_class: "flows"},
+      %{stream: "flows", durable: "sflow", subject_class: "flows"},
+      %{stream: "events", durable: "netflow-drain", subject_class: "flows"},
+      %{stream: "events", durable: "otel", subject_class: "otel_metrics"}
+    ]
+
+    assert ConsumerLagReporter.retention_stream_names(consumers) == ["flows", "events"]
+  end
 end

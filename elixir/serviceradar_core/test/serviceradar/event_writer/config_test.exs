@@ -234,8 +234,29 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       on_exit(fn -> System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS") end)
 
-      assert_raise ArgumentError, ~r/whole-token NATS wildcards/, fn ->
+      assert_raise ArgumentError, ~r/wildcard filters that intersect/, fn ->
         Config.extra_flow_subjects()
+      end
+    end
+
+    test "extra_flow_subjects fails closed on symbolic namespace overlap" do
+      on_exit(fn ->
+        System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS")
+        System.delete_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS")
+      end)
+
+      for env_name <- [
+            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS",
+            "EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS"
+          ],
+          subject <- ["flows.*.vendor", "*.raw.vendor", "flow.*.vendor"] do
+        System.delete_env("EVENT_WRITER_FLOW_EXTRA_SUBJECTS")
+        System.delete_env("EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS")
+        System.put_env(env_name, subject)
+
+        assert_raise ArgumentError, ~r/wildcard filters that intersect/, fn ->
+          Config.extra_flow_subjects()
+        end
       end
     end
 

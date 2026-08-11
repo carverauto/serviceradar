@@ -35,6 +35,9 @@ const MAX_OPERATIONAL_RETRY_AGE_SECS: u64 = 90;
 const NEVER_ATTEMPTED_QUEUE_TTL_SECS: u64 = 900;
 /// Max concurrent JetStream publish+ACK futures (bounds worst-case pass time).
 const PUBLISH_CONCURRENCY: usize = 32;
+/// Subject retained on a detached stream when NATS refuses an empty subject list.
+/// This is stream plumbing, never durable flow ownership.
+const DETACHED_SENTINEL_SUBJECT: &str = "_empty.detached";
 
 /// Flow publish channel item: subject, payload, and **ingress** time (UDP accept).
 /// Ingress Instant is set at the listener so never-attempted TTL bounds total hold
@@ -67,10 +70,16 @@ pub struct Publisher {
 }
 
 /// Outcome of one publish pass over a pending queue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 enum PublishPassResult {
     /// Finished a chunk. `succeeded` = ACKed; `retryable` = requeued failures.
     Completed { succeeded: usize, retryable: usize },
+    /// A forced reconnect completed. The caller must re-verify stream ownership
+    /// before reasserting readiness or retrying on the new generation.
+    Reconnected { succeeded: usize, retryable: usize },
+    /// Ambiguous publishes whose connection-generation barrier did not complete.
+    /// These items must never enter the ordinary retry queue until the generation changes.
+    Quarantined(PublishQuarantine),
     /// Owned stream missing/unusable — readiness must clear and ensure re-run.
     StreamMissing,
     /// Client not Connected — caller must clear readiness.
@@ -108,6 +117,8 @@ impl Publisher {
             .channel_size
             .max(self.config.batch_size.saturating_mul(4));
         let mut retry_q: VecDeque<PendingPublish> = VecDeque::new();
+        let mut quarantine: Option<PublishQuarantine> = None;
+        let mut input_closed = false;
         // Independent of fresh-traffic success — only no-progress retry passes
         // advance exponential backoff.
         let mut next_retry_at = Instant::now();
@@ -122,6 +133,64 @@ impl Publisher {
         );
 
         loop {
+            if let Some(held) = quarantine.as_mut() {
+                expire_old_retries(&mut held.items, max_retry_age);
+            }
+
+            if let Some(held) = quarantine.as_mut() {
+                if held.observes_new_generation(&client) {
+                    self.recover_owned_stream(
+                        &client,
+                        &admin_js,
+                        &mut max_retry_age,
+                        "ambiguous publish generation changed",
+                    )
+                    .await?;
+                    publisher_ready = true;
+                    let released = quarantine.take().expect("quarantine present");
+                    append_retry_bounded(&mut retry_q, released.items, max_retry_queue);
+                    next_retry_at = Instant::now();
+                    retry_backoff = Duration::from_millis(100);
+                    continue;
+                }
+
+                if publisher_ready {
+                    clear_publisher_ready(&self.config)?;
+                    publisher_ready = false;
+                }
+                expire_old_retries(&mut retry_q, max_retry_age);
+
+                // Continue accepting already-arrived channel work, but do not publish
+                // anything until the quarantined generation changes. On shutdown,
+                // keep waiting safely; main's absolute drain deadline bounds this loop.
+                if input_closed {
+                    sleep(Duration::from_millis(100)).await;
+                } else {
+                    tokio::select! {
+                        msg = self.rx.recv() => {
+                            match msg {
+                                Some(m) => {
+                                    let mut fresh = VecDeque::from([
+                                        PendingPublish::from_outbound(m),
+                                    ]);
+                                    let (more, closed) = self.drain_fresh_batch();
+                                    fresh.extend(more);
+                                    input_closed |= closed;
+                                    append_retry_bounded(
+                                        &mut retry_q,
+                                        fresh,
+                                        max_retry_queue,
+                                    );
+                                }
+                                None => input_closed = true,
+                            }
+                        }
+                        _ = sleep(Duration::from_millis(100)) => {}
+                    }
+                }
+                continue;
+            }
+
             // Clear readiness while disconnected so kube endpoints stop sending
             // UDP to a collector that cannot publish; re-ensure after reconnect.
             let connected = matches!(
@@ -172,6 +241,7 @@ impl Publisher {
                                         max_retry_queue,
                                         &mut max_retry_age,
                                         &mut publisher_ready,
+                                        &mut quarantine,
                                         &mut next_retry_at,
                                         &mut retry_backoff,
                                         max_backoff,
@@ -186,6 +256,7 @@ impl Publisher {
                                             &mut retry_q,
                                             &mut max_retry_age,
                                             &mut publisher_ready,
+                                            &mut quarantine,
                                         )
                                         .await;
                                 }
@@ -199,6 +270,7 @@ impl Publisher {
                                         &mut retry_q,
                                         &mut max_retry_age,
                                         &mut publisher_ready,
+                                        &mut quarantine,
                                     )
                                     .await;
                             }
@@ -220,6 +292,7 @@ impl Publisher {
                     max_retry_queue,
                     &mut max_retry_age,
                     &mut publisher_ready,
+                    &mut quarantine,
                     &mut next_retry_at,
                     &mut retry_backoff,
                     max_backoff,
@@ -238,6 +311,7 @@ impl Publisher {
                     max_retry_queue,
                     &mut max_retry_age,
                     &mut publisher_ready,
+                    &mut quarantine,
                     &mut next_retry_at,
                     &mut retry_backoff,
                     max_backoff,
@@ -255,6 +329,7 @@ impl Publisher {
                         &mut retry_q,
                         &mut max_retry_age,
                         &mut publisher_ready,
+                        &mut quarantine,
                     )
                     .await;
             }
@@ -274,6 +349,7 @@ impl Publisher {
         max_retry_queue: usize,
         max_retry_age: &mut Duration,
         publisher_ready: &mut bool,
+        quarantine: &mut Option<PublishQuarantine>,
         next_retry_at: &mut Instant,
         retry_backoff: &mut Duration,
         max_backoff: Duration,
@@ -289,11 +365,11 @@ impl Publisher {
                 max_retry_queue,
                 *max_retry_age,
             )
-            .await
+            .await?
         } else {
             wait_until_connected(client).await;
             self.publish_pending(client, publish_js, retry_q, *max_retry_age)
-                .await
+                .await?
         };
 
         match result {
@@ -315,6 +391,41 @@ impl Publisher {
                     *next_retry_at = Instant::now() + *retry_backoff;
                 }
             }
+            PublishPassResult::Quarantined(held) => {
+                if *publisher_ready {
+                    // publish_pending cleared the marker before forcing reconnect;
+                    // keep the in-memory readiness state consistent.
+                    *publisher_ready = false;
+                }
+                *quarantine = Some(held);
+                if drive_retry_schedule {
+                    *retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
+                    *next_retry_at = Instant::now() + *retry_backoff;
+                }
+            }
+            PublishPassResult::Reconnected {
+                succeeded,
+                retryable,
+            } => {
+                self.recover_owned_stream(
+                    client,
+                    admin_js,
+                    max_retry_age,
+                    "forced reconnect after ambiguous publish",
+                )
+                .await?;
+                *publisher_ready = true;
+                if drive_retry_schedule {
+                    update_retry_schedule(
+                        retry_q,
+                        succeeded,
+                        retryable,
+                        next_retry_at,
+                        retry_backoff,
+                        max_backoff,
+                    );
+                }
+            }
             PublishPassResult::Completed {
                 succeeded,
                 retryable,
@@ -322,20 +433,14 @@ impl Publisher {
                 if !drive_retry_schedule {
                     return Ok(());
                 }
-                // Progress: at least one ACK → process next chunk immediately.
-                // No progress with retryable failures → exponential backoff.
-                if succeeded > 0 {
-                    *next_retry_at = Instant::now();
-                    if retry_q.is_empty() {
-                        *retry_backoff = Duration::from_millis(100);
-                    }
-                } else if retryable > 0 || !retry_q.is_empty() {
-                    *retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
-                    *next_retry_at = Instant::now() + *retry_backoff;
-                } else {
-                    *retry_backoff = Duration::from_millis(100);
-                    *next_retry_at = Instant::now();
-                }
+                update_retry_schedule(
+                    retry_q,
+                    succeeded,
+                    retryable,
+                    next_retry_at,
+                    retry_backoff,
+                    max_backoff,
+                );
             }
         }
         Ok(())
@@ -365,31 +470,23 @@ impl Publisher {
         retry_q: &mut VecDeque<PendingPublish>,
         max_retry_queue: usize,
         max_retry_age: Duration,
-    ) -> PublishPassResult {
+    ) -> Result<PublishPassResult> {
         if batch.is_empty() {
-            return PublishPassResult::Completed {
+            return Ok(PublishPassResult::Completed {
                 succeeded: 0,
                 retryable: 0,
-            };
+            });
         }
         let mut pending: VecDeque<PendingPublish> = std::mem::take(batch).into();
         wait_until_connected(client).await;
         let result = self
             .publish_pending(client, publish_js, &mut pending, max_retry_age)
-            .await;
-        while let Some(item) = pending.pop_front() {
-            if retry_q.len() >= max_retry_queue {
-                warn!(
-                    "Publish retry queue full ({}); dropping oldest failed publish",
-                    max_retry_queue
-                );
-                retry_q.pop_front();
-            }
-            retry_q.push_back(item);
-        }
-        result
+            .await?;
+        append_retry_bounded(retry_q, pending, max_retry_queue);
+        Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn drain_retries_until_empty(
         &self,
         client: &Client,
@@ -398,11 +495,48 @@ impl Publisher {
         retry_q: &mut VecDeque<PendingPublish>,
         max_retry_age: &mut Duration,
         publisher_ready: &mut bool,
+        quarantine: &mut Option<PublishQuarantine>,
     ) -> Result<()> {
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(5);
         let mut attempts = 0u32;
-        while !retry_q.is_empty() {
+        while !retry_q.is_empty() || quarantine.is_some() {
+            if let Some(held) = quarantine.as_mut() {
+                expire_old_retries(&mut held.items, *max_retry_age);
+                if held.items.is_empty() {
+                    *quarantine = None;
+                    continue;
+                }
+                if held.observes_new_generation(client) {
+                    self.recover_owned_stream(
+                        client,
+                        admin_js,
+                        max_retry_age,
+                        "shutdown quarantine generation changed",
+                    )
+                    .await?;
+                    *publisher_ready = true;
+                    let released = quarantine.take().expect("quarantine present");
+                    retry_q.extend(released.items);
+                    backoff = Duration::from_millis(100);
+                    continue;
+                }
+                if *publisher_ready {
+                    clear_publisher_ready(&self.config)?;
+                    *publisher_ready = false;
+                }
+                attempts += 1;
+                if attempts >= 500 {
+                    return Err(anyhow::anyhow!(
+                        "publisher shutting down with {} quarantined flow message(s) awaiting a new NATS generation",
+                        held.items.len()
+                    ));
+                }
+                sleep(backoff).await;
+                backoff = min(backoff.saturating_mul(2), max_backoff);
+                continue;
+            }
+
             expire_old_retries(retry_q, *max_retry_age);
             if retry_q.is_empty() {
                 break;
@@ -411,7 +545,7 @@ impl Publisher {
             wait_until_connected(client).await;
             match self
                 .publish_pending(client, publish_js, retry_q, *max_retry_age)
-                .await
+                .await?
             {
                 PublishPassResult::StreamMissing => {
                     self.recover_owned_stream(client, admin_js, max_retry_age, "shutdown drain")
@@ -427,6 +561,34 @@ impl Publisher {
                     }
                     sleep(backoff).await;
                     backoff = min(backoff.saturating_mul(2), max_backoff);
+                }
+                PublishPassResult::Quarantined(held) => {
+                    *publisher_ready = false;
+                    *quarantine = Some(held);
+                }
+                PublishPassResult::Reconnected {
+                    succeeded,
+                    retryable,
+                } => {
+                    self.recover_owned_stream(
+                        client,
+                        admin_js,
+                        max_retry_age,
+                        "shutdown forced reconnect",
+                    )
+                    .await?;
+                    *publisher_ready = true;
+                    if retry_q.is_empty() {
+                        break;
+                    }
+                    if succeeded > 0 {
+                        backoff = Duration::from_millis(100);
+                        continue;
+                    }
+                    if retryable > 0 {
+                        sleep(backoff).await;
+                        backoff = min(backoff.saturating_mul(2), max_backoff);
+                    }
                 }
                 PublishPassResult::Completed {
                     succeeded,
@@ -534,7 +696,7 @@ impl Publisher {
         publish_js: &jetstream::Context,
         pending: &mut VecDeque<PendingPublish>,
         max_retry_age: Duration,
-    ) -> PublishPassResult {
+    ) -> Result<PublishPassResult> {
         // Never enqueue publishes while disconnected — async-nats buffers
         // Command::Request across reconnect and cannot cancel timed-out futures.
         if !matches!(
@@ -545,14 +707,14 @@ impl Publisher {
                 "NATS not connected; deferring {} publish(es)",
                 pending.len()
             );
-            return PublishPassResult::Disconnected;
+            return Ok(PublishPassResult::Disconnected);
         }
         let limit = pending.len().min(self.config.batch_size.max(1));
         if limit == 0 {
-            return PublishPassResult::Completed {
+            return Ok(PublishPassResult::Completed {
                 succeeded: 0,
                 retryable: 0,
-            };
+            });
         }
 
         let mut batch = Vec::with_capacity(limit);
@@ -716,13 +878,19 @@ impl Publisher {
         // Wait for a new connection generation before requeueing ambiguous
         // items. force_reconnect alone is not a cancellation barrier — the
         // old connection may still flush queued commands first.
+        let mut reconnected = false;
         if !ambiguous.is_empty() {
             warn!(
                 "Force-reconnecting NATS after {} ambiguous in-flight publish(es); waiting for generation change",
                 ambiguous.len()
             );
+            // Fail readiness closed before requesting a reconnect. It may remain
+            // on the old socket for a while, so never reassert until a distinct
+            // generation is observed and stream ownership is re-verified.
+            clear_publisher_ready(&self.config)?;
             match force_reconnect_and_await_generation(client).await {
                 Ok(()) => {
+                    reconnected = true;
                     while let Some(item) = ambiguous.pop_front() {
                         if past_retry_horizon(&item, max_retry_age) {
                             error!(
@@ -737,19 +905,27 @@ impl Publisher {
                     }
                 }
                 Err(e) => {
-                    // Hard precondition failed: quarantine ambiguous items and
-                    // clear readiness. Do not enqueue a second attempt on the
-                    // same connection generation.
+                    if !e.can_quarantine() {
+                        return Err(anyhow::anyhow!(
+                            "cannot establish an ambiguous-publish reconnect barrier: {e}"
+                        ));
+                    }
+                    // Do not enqueue a second attempt on the same connection
+                    // generation. Ordinary negative/pre-send failures remain in
+                    // `pending`; only ambiguous items enter the generation-keyed
+                    // quarantine.
                     error!(
                         "Ambiguous publish generation barrier failed ({e}); quarantining {} item(s)",
                         ambiguous.len()
                     );
-                    while let Some(item) = ambiguous.pop_front() {
-                        failed.push_back(item);
-                    }
+                    let held = PublishQuarantine {
+                        generation: e.before,
+                        saw_not_connected: e.saw_not_connected,
+                        items: ambiguous,
+                    };
                     failed.append(pending);
                     *pending = failed;
-                    return PublishPassResult::Disconnected;
+                    return Ok(PublishPassResult::Quarantined(held));
                 }
             }
         }
@@ -759,12 +935,17 @@ impl Publisher {
         failed.append(pending);
         *pending = failed;
         if stream_missing {
-            PublishPassResult::StreamMissing
-        } else {
-            PublishPassResult::Completed {
+            Ok(PublishPassResult::StreamMissing)
+        } else if reconnected {
+            Ok(PublishPassResult::Reconnected {
                 succeeded,
                 retryable,
-            }
+            })
+        } else {
+            Ok(PublishPassResult::Completed {
+                succeeded,
+                retryable,
+            })
         }
     }
 
@@ -811,7 +992,10 @@ impl Publisher {
 
         // Recover durable rehome marker — always union subjects, even on target mismatch
         // (e.g. crash after detach then Helm rollback to stream_name=events).
-        if let Some(marker) = load_rehome_marker(&rehome_path)? {
+        // Retain the target: on rollback it may be the only durable evidence of
+        // which newly-created stream must be detached after a late forward crash.
+        let rehome_marker = load_rehome_marker(&rehome_path)?;
+        if let Some(marker) = rehome_marker.as_ref() {
             for subject in &marker.subjects {
                 if !self.pending_rehome.iter().any(|s| s == subject) {
                     self.pending_rehome.push(subject.clone());
@@ -844,36 +1028,51 @@ impl Publisher {
                  stream_name=flows (see docs/docs/netflow.md)."
             );
             let ownership_path = ownership_state_path(&self.config);
-            let mut restore = required_subjects.clone();
-            for s in &self.pending_rehome {
-                if !restore.iter().any(|r| r == s) {
-                    restore.push(s.clone());
-                }
-            }
-            if let Some(inv) = load_ownership_inventory(&ownership_path)? {
-                for s in &inv.subjects {
-                    if !restore.iter().any(|r| r == s) {
-                        restore.push(s.clone());
-                    }
-                }
-                if inv.stream != "events" && !inv.subjects.is_empty() {
-                    // Durable reverse marker before remote detach.
-                    write_rehome_marker(
-                        &rehome_path,
-                        &RehomeMarker {
-                            target_stream: "events".to_string(),
-                            subjects: restore.clone(),
-                        },
-                    )?;
+            let ownership = load_ownership_inventory(&ownership_path)?;
+            let restore = rollback_restore_subjects(
+                &required_subjects,
+                &self.pending_rehome,
+                ownership.as_ref(),
+            );
+            let detach_sources =
+                rollback_detach_sources(rehome_marker.as_ref(), ownership.as_ref());
+            if !detach_sources.is_empty() {
+                // Preserve a source target until every remote detach completes.
+                // If the process crashes mid-detach, the next rollback can still
+                // identify at least the marker-named source; ownership inventory
+                // retains any additional source.
+                let source_target = rehome_marker
+                    .as_ref()
+                    .filter(|marker| marker.target_stream != "events")
+                    .map(|marker| marker.target_stream.clone())
+                    .unwrap_or_else(|| detach_sources[0].0.clone());
+                write_rehome_marker(
+                    &rehome_path,
+                    &RehomeMarker {
+                        target_stream: source_target,
+                        subjects: restore.clone(),
+                    },
+                )?;
+
+                for (stream, subjects) in &detach_sources {
                     info!(
                         "Rollback: detaching {} subject(s) from '{}' before attaching to events",
-                        inv.subjects.len(),
-                        inv.stream
+                        subjects.len(),
+                        stream
                     );
-                    detach_subjects_from_stream(&admin_js, &inv.stream, &inv.subjects).await?;
+                    detach_subjects_from_stream(&admin_js, stream, subjects).await?;
                 }
+
+                // Detaches are complete. Flip the durable target before attaching
+                // to events so a crash during the final ensure restores there.
+                write_rehome_marker(
+                    &rehome_path,
+                    &RehomeMarker {
+                        target_stream: "events".to_string(),
+                        subjects: restore.clone(),
+                    },
+                )?;
             }
-            restore = normalize_stream_subjects(restore);
             let dup_window = ensure_legacy_events_subjects_only(&admin_js, &restore).await?;
             // Inventory now reflects events ownership (or clear if empty).
             write_ownership_inventory(
@@ -1220,6 +1419,37 @@ impl PendingPublish {
     }
 }
 
+/// Ambiguous requests held away from the ordinary retry queue until the
+/// async-nats client has demonstrably moved off the connection that accepted
+/// the original command. This prevents a failed reconnect barrier from
+/// immediately sending a duplicate on the same generation.
+#[derive(Debug)]
+struct PublishQuarantine {
+    generation: Option<ConnGeneration>,
+    saw_not_connected: bool,
+    items: VecDeque<PendingPublish>,
+}
+
+impl PublishQuarantine {
+    fn observes_new_generation(&mut self, client: &Client) -> bool {
+        let connected = matches!(
+            client.connection_state(),
+            async_nats::connection::State::Connected
+        );
+        let now = if connected {
+            conn_generation(client)
+        } else {
+            None
+        };
+        observes_generation_change(
+            &self.generation,
+            &mut self.saw_not_connected,
+            connected,
+            now.as_ref(),
+        )
+    }
+}
+
 /// Per-task publish outcome (joined after concurrent pass).
 enum TaskOutcome {
     Done,
@@ -1340,6 +1570,51 @@ fn expire_old_retries(retry_q: &mut VecDeque<PendingPublish>, max_attempt_age: D
     }
 }
 
+fn append_retry_bounded(
+    retry_q: &mut VecDeque<PendingPublish>,
+    incoming: impl IntoIterator<Item = PendingPublish>,
+    max_retry_queue: usize,
+) {
+    for item in incoming {
+        if max_retry_queue == 0 {
+            warn!("Publish retry queue disabled; dropping failed publish");
+            continue;
+        }
+        if retry_q.len() >= max_retry_queue {
+            warn!(
+                "Publish retry queue full ({}); dropping oldest failed publish",
+                max_retry_queue
+            );
+            retry_q.pop_front();
+        }
+        retry_q.push_back(item);
+    }
+}
+
+fn update_retry_schedule(
+    retry_q: &VecDeque<PendingPublish>,
+    succeeded: usize,
+    retryable: usize,
+    next_retry_at: &mut Instant,
+    retry_backoff: &mut Duration,
+    max_backoff: Duration,
+) {
+    // Progress: at least one ACK -> process next chunk immediately. No progress
+    // with retryable failures -> exponential backoff.
+    if succeeded > 0 {
+        *next_retry_at = Instant::now();
+        if retry_q.is_empty() {
+            *retry_backoff = Duration::from_millis(100);
+        }
+    } else if retryable > 0 || !retry_q.is_empty() {
+        *retry_backoff = min(retry_backoff.saturating_mul(2), max_backoff);
+        *next_retry_at = Instant::now() + *retry_backoff;
+    } else {
+        *retry_backoff = Duration::from_millis(100);
+        *next_retry_at = Instant::now();
+    }
+}
+
 static MSG_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
 fn next_msg_id() -> String {
@@ -1381,6 +1656,62 @@ struct OwnershipInventory {
     subjects: Vec<String>,
 }
 
+fn durable_owned_subjects(subjects: Vec<String>) -> Vec<String> {
+    normalize_stream_subjects(
+        subjects
+            .into_iter()
+            .filter(|subject| subject != DETACHED_SENTINEL_SUBJECT)
+            .collect(),
+    )
+}
+
+fn rollback_restore_subjects(
+    required: &[String],
+    pending_rehome: &[String],
+    ownership: Option<&OwnershipInventory>,
+) -> Vec<String> {
+    let mut restore = required.to_vec();
+    restore.extend(pending_rehome.iter().cloned());
+    if let Some(inv) = ownership {
+        restore.extend(inv.subjects.iter().cloned());
+    }
+    durable_owned_subjects(restore)
+}
+
+fn add_rollback_detach_source(
+    sources: &mut Vec<(String, Vec<String>)>,
+    stream: &str,
+    subjects: &[String],
+) {
+    if stream.is_empty() || stream == "events" {
+        return;
+    }
+    let subjects = durable_owned_subjects(subjects.to_vec());
+    if subjects.is_empty() {
+        return;
+    }
+    if let Some((_, existing)) = sources.iter_mut().find(|(name, _)| name == stream) {
+        existing.extend(subjects);
+        *existing = durable_owned_subjects(std::mem::take(existing));
+    } else {
+        sources.push((stream.to_string(), subjects));
+    }
+}
+
+fn rollback_detach_sources(
+    marker: Option<&RehomeMarker>,
+    ownership: Option<&OwnershipInventory>,
+) -> Vec<(String, Vec<String>)> {
+    let mut sources = Vec::new();
+    if let Some(marker) = marker {
+        add_rollback_detach_source(&mut sources, &marker.target_stream, &marker.subjects);
+    }
+    if let Some(inv) = ownership {
+        add_rollback_detach_source(&mut sources, &inv.stream, &inv.subjects);
+    }
+    sources
+}
+
 fn ownership_state_path(config: &Config) -> PathBuf {
     if let Ok(path) = std::env::var("FLOW_COLLECTOR_OWNERSHIP_PATH") {
         return PathBuf::from(path);
@@ -1402,7 +1733,12 @@ fn write_ownership_inventory(path: &Path, inv: &OwnershipInventory) -> Result<()
             )
         })?;
     }
-    let json = serde_json::to_vec_pretty(inv).context("failed to serialize ownership inventory")?;
+    let persisted = OwnershipInventory {
+        stream: inv.stream.clone(),
+        subjects: durable_owned_subjects(inv.subjects.clone()),
+    };
+    let json =
+        serde_json::to_vec_pretty(&persisted).context("failed to serialize ownership inventory")?;
     // Atomic replace: write temp + fsync + rename so a crash cannot leave a
     // truncated inventory after the rehome marker was cleared.
     let tmp = path.with_extension("json.tmp");
@@ -1428,8 +1764,8 @@ fn write_ownership_inventory(path: &Path, inv: &OwnershipInventory) -> Result<()
     }
     info!(
         "Wrote ownership inventory for stream '{}' ({} subject(s)) to {}",
-        inv.stream,
-        inv.subjects.len(),
+        persisted.stream,
+        persisted.subjects.len(),
         path.display()
     );
     Ok(())
@@ -1441,8 +1777,9 @@ fn load_ownership_inventory(path: &Path) -> Result<Option<OwnershipInventory>> {
     }
     let data = fs::read(path)
         .with_context(|| format!("failed to read ownership inventory {}", path.display()))?;
-    let inv: OwnershipInventory = serde_json::from_slice(&data)
+    let mut inv: OwnershipInventory = serde_json::from_slice(&data)
         .with_context(|| format!("failed to parse ownership inventory {}", path.display()))?;
+    inv.subjects = durable_owned_subjects(inv.subjects);
     Ok(Some(inv))
 }
 
@@ -1503,6 +1840,33 @@ struct ConnGeneration {
     client_id: u64,
 }
 
+#[derive(Debug)]
+struct GenerationBarrierFailure {
+    before: Option<ConnGeneration>,
+    saw_not_connected: bool,
+    /// False only when async-nats rejected the Reconnect command because its
+    /// internal command receiver is already closed. That client can never
+    /// produce a new generation, so waiting in quarantine would wedge forever.
+    reconnect_enqueued: bool,
+    reason: String,
+}
+
+impl std::fmt::Display for GenerationBarrierFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} (before={:?}, saw_not_connected={}, reconnect_enqueued={})",
+            self.reason, self.before, self.saw_not_connected, self.reconnect_enqueued
+        )
+    }
+}
+
+impl GenerationBarrierFailure {
+    fn can_quarantine(&self) -> bool {
+        self.reconnect_enqueued
+    }
+}
+
 fn conn_generation(client: &Client) -> Option<ConnGeneration> {
     client.try_server_info().map(|i| ConnGeneration {
         server_id: i.server_id.clone(),
@@ -1510,63 +1874,83 @@ fn conn_generation(client: &Client) -> Option<ConnGeneration> {
     })
 }
 
+fn observes_generation_change(
+    before: &Option<ConnGeneration>,
+    saw_not_connected: &mut bool,
+    connected: bool,
+    now: Option<&ConnGeneration>,
+) -> bool {
+    if !connected {
+        *saw_not_connected = true;
+        return false;
+    }
+
+    match (before.as_ref(), now) {
+        (Some(old), Some(current)) => current != old,
+        // Without a baseline, only a complete non-Connected -> Connected
+        // transition proves that this is not the generation that accepted the
+        // ambiguous command.
+        (None, Some(_)) => *saw_not_connected,
+        _ => false,
+    }
+}
+
 /// force_reconnect only enqueues Reconnect and may still flush the old socket.
 /// Hard-fail unless a different (server_id, client_id) is observed while Connected.
-async fn force_reconnect_and_await_generation(client: &Client) -> Result<()> {
+async fn force_reconnect_and_await_generation(
+    client: &Client,
+) -> std::result::Result<(), GenerationBarrierFailure> {
     use async_nats::connection::State;
     let before = conn_generation(client);
-    client
-        .force_reconnect()
-        .await
-        .map_err(|e| anyhow::anyhow!("force_reconnect: {e}"))?;
-
     // Prefer observing a non-Connected state so we do not mistake the old
     // generation for success when client_id has not changed yet.
     let mut saw_not_connected = !matches!(client.connection_state(), State::Connected);
+    if let Err(e) = client.force_reconnect().await {
+        return Err(GenerationBarrierFailure {
+            before,
+            saw_not_connected,
+            reconnect_enqueued: false,
+            reason: format!("force_reconnect failed: {e}"),
+        });
+    }
+
     for _ in 0..200 {
-        match client.connection_state() {
-            State::Connected => {
-                let now = conn_generation(client);
-                if let (Some(b), Some(n)) = (&before, &now) {
-                    if n != b {
-                        info!("NATS reconnected with new generation (before={b:?}, after={n:?})");
-                        return Ok(());
-                    }
-                } else if before.is_none() && now.is_some() && saw_not_connected {
-                    info!("NATS reconnected after missing baseline (after={now:?})");
-                    return Ok(());
-                }
-            }
-            State::Disconnected | State::Pending => {
-                saw_not_connected = true;
-            }
+        let connected = matches!(client.connection_state(), State::Connected);
+        let now = if connected {
+            conn_generation(client)
+        } else {
+            None
+        };
+        if observes_generation_change(&before, &mut saw_not_connected, connected, now.as_ref()) {
+            info!("NATS reconnected with new generation (before={before:?}, after={now:?})");
+            return Ok(());
         }
         sleep(Duration::from_millis(25)).await;
     }
 
     for _ in 0..200 {
-        if matches!(client.connection_state(), State::Connected) {
-            let now = conn_generation(client);
-            if let (Some(b), Some(n)) = (&before, &now) {
-                if n != b {
-                    info!("NATS reconnected with new generation (before={b:?}, after={n:?})");
-                    return Ok(());
-                }
-            } else if before.is_none() && now.is_some() && saw_not_connected {
-                info!("NATS reconnected after missing baseline (after={now:?})");
-                return Ok(());
-            }
+        let connected = matches!(client.connection_state(), State::Connected);
+        let now = if connected {
+            conn_generation(client)
         } else {
-            saw_not_connected = true;
+            None
+        };
+        if observes_generation_change(&before, &mut saw_not_connected, connected, now.as_ref()) {
+            info!("NATS reconnected with new generation (before={before:?}, after={now:?})");
+            return Ok(());
         }
         sleep(Duration::from_millis(50)).await;
     }
 
-    Err(anyhow::anyhow!(
-        "no observed NATS connection generation change after force_reconnect \
-         (before={before:?}, state={}, saw_not_connected={saw_not_connected})",
-        client.connection_state()
-    ))
+    Err(GenerationBarrierFailure {
+        before,
+        saw_not_connected,
+        reconnect_enqueued: true,
+        reason: format!(
+            "no observed NATS connection generation change after force_reconnect (state={})",
+            client.connection_state()
+        ),
+    })
 }
 
 fn clear_publisher_ready(config: &Config) -> Result<()> {
@@ -1604,8 +1988,9 @@ fn load_rehome_marker(path: &Path) -> Result<Option<RehomeMarker>> {
     }
     let raw = fs::read_to_string(path)
         .with_context(|| format!("read rehome marker {}", path.display()))?;
-    let marker: RehomeMarker = serde_json::from_str(&raw)
+    let mut marker: RehomeMarker = serde_json::from_str(&raw)
         .with_context(|| format!("parse rehome marker {}", path.display()))?;
+    marker.subjects = durable_owned_subjects(marker.subjects);
     Ok(Some(marker))
 }
 
@@ -1614,7 +1999,11 @@ fn write_rehome_marker(path: &Path, marker: &RehomeMarker) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("create rehome marker dir {}", parent.display()))?;
     }
-    let raw = serde_json::to_string_pretty(marker)?;
+    let persisted = RehomeMarker {
+        target_stream: marker.target_stream.clone(),
+        subjects: durable_owned_subjects(marker.subjects.clone()),
+    };
+    let raw = serde_json::to_string_pretty(&persisted)?;
     let tmp = path.with_extension("json.tmp");
     {
         use std::io::Write;
@@ -1665,9 +2054,9 @@ async fn detach_subjects_from_stream(
     // Keep at least one subject if stream would become empty — NATS may reject.
     if updated.subjects.is_empty() {
         warn!(
-            "detach would empty stream '{stream_name}'; leaving a placeholder subject _empty.detached"
+            "detach would empty stream '{stream_name}'; leaving placeholder subject {DETACHED_SENTINEL_SUBJECT}"
         );
-        updated.subjects.push("_empty.detached".to_string());
+        updated.subjects.push(DETACHED_SENTINEL_SUBJECT.to_string());
     }
     let removed = before.saturating_sub(updated.subjects.len());
     js.update_stream(updated).await?;
@@ -2080,8 +2469,7 @@ fn filter_tokens_intersect(a: &[&str], b: &[&str]) -> bool {
     }
 }
 
-/// Protocol-safe NATS subject: no empty tokens, no leading/trailing `.`, no `..`,
-/// no whitespace (matches async_nats `is_valid_subject`), and no whole-token wildcards.
+/// Protocol-safe concrete NATS subject with no wildcard tokens.
 pub(crate) fn exact_nats_subject(subject: &str) -> bool {
     is_protocol_valid_nats_subject(subject)
         && subject
@@ -2089,18 +2477,29 @@ pub(crate) fn exact_nats_subject(subject: &str) -> bool {
             .all(|t| !t.is_empty() && t != "*" && t != ">")
 }
 
-/// Protocol framing rules shared with async-nats (may still contain * / > tokens).
+/// Protocol framing plus NATS filter grammar. Wildcards are recognized only
+/// when `*` or `>` occupies a whole token; embedded characters remain literal.
+/// A whole-token `>` must be terminal.
 pub(crate) fn is_protocol_valid_nats_subject(subject: &str) -> bool {
     let bytes = subject.as_bytes();
     if bytes.is_empty() {
         return false;
     }
-    bytes[0] != b'.'
-        && bytes[bytes.len() - 1] != b'.'
-        && !subject.contains("..")
-        && !bytes
+    if bytes[0] == b'.'
+        || bytes[bytes.len() - 1] == b'.'
+        || subject.contains("..")
+        || bytes
             .iter()
             .any(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+    {
+        return false;
+    }
+
+    let tokens: Vec<&str> = subject.split('.').collect();
+    tokens
+        .iter()
+        .enumerate()
+        .all(|(index, token)| *token != ">" || index == tokens.len() - 1)
 }
 
 /// Listener publish subjects must be concrete and protocol-valid.
@@ -2123,6 +2522,7 @@ mod tests {
         let marker = RehomeMarker {
             target_stream: "flows".to_string(),
             subjects: vec![
+                DETACHED_SENTINEL_SUBJECT.to_string(),
                 "flows.raw.ipfix".to_string(),
                 "flows.raw.netflow".to_string(),
             ],
@@ -2130,7 +2530,13 @@ mod tests {
         write_rehome_marker(&path, &marker).unwrap();
         let loaded = load_rehome_marker(&path).unwrap().expect("marker present");
         assert_eq!(loaded.target_stream, "flows");
-        assert_eq!(loaded.subjects, marker.subjects);
+        assert_eq!(
+            loaded.subjects,
+            vec![
+                "flows.raw.ipfix".to_string(),
+                "flows.raw.netflow".to_string()
+            ]
+        );
         clear_rehome_marker(&path);
         assert!(load_rehome_marker(&path).unwrap().is_none());
     }
@@ -2259,6 +2665,106 @@ mod tests {
     }
 
     #[test]
+    fn nats_filter_grammar_treats_only_whole_tokens_as_wildcards() {
+        for valid in [
+            "logs.*.vendor",
+            "logs.vendor.>",
+            "logs.vendor>.tail",
+            "logs.vend*or",
+            "*",
+            ">",
+        ] {
+            assert!(is_protocol_valid_nats_subject(valid), "{valid}");
+        }
+        for invalid in ["logs.>.vendor", "logs.>.>"] {
+            assert!(!is_protocol_valid_nats_subject(invalid), "{invalid}");
+        }
+        assert!(exact_nats_subject("flows.raw.vendor*name"));
+        assert!(exact_nats_subject("flows.raw.vendor>name"));
+        assert!(!exact_nats_subject("flows.raw.*"));
+        assert!(!exact_nats_subject("flows.raw.>"));
+    }
+
+    #[test]
+    fn generation_barrier_never_releases_on_same_connected_generation() {
+        let old = ConnGeneration {
+            server_id: "server-a".to_string(),
+            client_id: 41,
+        };
+        let same = old.clone();
+        let next = ConnGeneration {
+            server_id: "server-a".to_string(),
+            client_id: 42,
+        };
+        let before = Some(old);
+        let mut saw_not_connected = false;
+        assert!(!observes_generation_change(
+            &before,
+            &mut saw_not_connected,
+            true,
+            Some(&same)
+        ));
+        assert!(!observes_generation_change(
+            &before,
+            &mut saw_not_connected,
+            false,
+            None
+        ));
+        assert!(saw_not_connected);
+        assert!(!observes_generation_change(
+            &before,
+            &mut saw_not_connected,
+            true,
+            Some(&same)
+        ));
+        assert!(observes_generation_change(
+            &before,
+            &mut saw_not_connected,
+            true,
+            Some(&next)
+        ));
+
+        let mut no_baseline_transition = false;
+        assert!(!observes_generation_change(
+            &None,
+            &mut no_baseline_transition,
+            true,
+            Some(&next)
+        ));
+        assert!(!observes_generation_change(
+            &None,
+            &mut no_baseline_transition,
+            false,
+            None
+        ));
+        assert!(observes_generation_change(
+            &None,
+            &mut no_baseline_transition,
+            true,
+            Some(&next)
+        ));
+    }
+
+    #[test]
+    fn reconnect_command_failure_is_fatal_not_quarantinable() {
+        let terminal = GenerationBarrierFailure {
+            before: None,
+            saw_not_connected: false,
+            reconnect_enqueued: false,
+            reason: "client command channel closed".to_string(),
+        };
+        let timed_out = GenerationBarrierFailure {
+            before: None,
+            saw_not_connected: true,
+            reconnect_enqueued: true,
+            reason: "generation transition timed out".to_string(),
+        };
+
+        assert!(!terminal.can_quarantine());
+        assert!(timed_out.can_quarantine());
+    }
+
+    #[test]
     fn ownership_inventory_round_trip() {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2268,6 +2774,7 @@ mod tests {
         let inv = OwnershipInventory {
             stream: "flows".to_string(),
             subjects: vec![
+                DETACHED_SENTINEL_SUBJECT.to_string(),
                 "flows.raw.netflow".to_string(),
                 "flows.raw.ipfix".to_string(),
             ],
@@ -2276,7 +2783,59 @@ mod tests {
         let loaded = load_ownership_inventory(&path).unwrap().expect("present");
         assert_eq!(loaded.stream, "flows");
         assert!(loaded.subjects.iter().any(|s| s == "flows.raw.ipfix"));
+        assert!(
+            !loaded
+                .subjects
+                .iter()
+                .any(|s| s == DETACHED_SENTINEL_SUBJECT)
+        );
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn rollback_forward_rollback_never_restores_detached_sentinel() {
+        let required = vec!["flows.raw.netflow".to_string()];
+        let first_inventory = OwnershipInventory {
+            stream: "flows".to_string(),
+            subjects: required.clone(),
+        };
+        let first_restore = rollback_restore_subjects(&required, &[], Some(&first_inventory));
+        assert_eq!(first_restore, required);
+
+        // First rollback leaves the plumbing sentinel on the empty `flows`
+        // stream. A subsequent forward ensure reports sentinel + real subject.
+        let verified_after_forward = vec![
+            DETACHED_SENTINEL_SUBJECT.to_string(),
+            "flows.raw.netflow".to_string(),
+        ];
+        let second_inventory = OwnershipInventory {
+            stream: "flows".to_string(),
+            subjects: durable_owned_subjects(verified_after_forward),
+        };
+
+        let second_restore = rollback_restore_subjects(&required, &[], Some(&second_inventory));
+        assert_eq!(second_restore, vec!["flows.raw.netflow".to_string()]);
+        let sources = rollback_detach_sources(None, Some(&second_inventory));
+        assert_eq!(
+            sources,
+            vec![("flows".to_string(), vec!["flows.raw.netflow".to_string()])]
+        );
+    }
+
+    #[test]
+    fn rollback_uses_forward_marker_target_when_inventory_is_stale() {
+        let marker = RehomeMarker {
+            target_stream: "flows".to_string(),
+            subjects: vec!["flows.raw.ipfix".to_string()],
+        };
+        let stale_inventory = OwnershipInventory {
+            stream: "events".to_string(),
+            subjects: vec!["flows.raw.netflow".to_string()],
+        };
+        assert_eq!(
+            rollback_detach_sources(Some(&marker), Some(&stale_inventory)),
+            vec![("flows".to_string(), vec!["flows.raw.ipfix".to_string()])]
+        );
     }
 
     #[test]

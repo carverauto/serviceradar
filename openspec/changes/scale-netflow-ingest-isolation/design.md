@@ -20,7 +20,7 @@ Evidence from demo incident (2026-08-09):
 | Consumer `serviceradar-event-writer-netflow-raw` | ~8k `num_pending`, not draining |
 | DB | `max(time)` ~30 min behind wall clock; last 15m count = 0 |
 | Helm demo | `flowCollector.config.stream_max_bytes: 1Gi`, logCollector same, “fit account budget” |
-| NATS | `max_file_store` default **10G** cluster-wide; PVC 30Gi |
+| NATS | `max_file_store` default **10G per server**; PVC 30Gi per server |
 | OTEL ensure | Updates shared `events` `max_bytes` and **`max_age_secs=1800`** |
 | EventWriter | Demand-coupled pull (good) but **one producer**, fair-share across all durables, `no_wait` + 100ms fetch |
 
@@ -33,7 +33,7 @@ Evidence from demo incident (2026-08-09):
 - Isolate raw flow telemetry on its own JetStream stream with flow-owned retention.
 - Make GenStage/Broadway demand for flows independent of other EventWriter subjects.
 - Size pull batches and long-polls so demand translates into real throughput, not RT churn.
-- Size defaults (and demo overrides) for multi-hour lag headroom, not thrift against a 10G global file store.
+- Size defaults (and demo overrides) for multi-hour lag headroom, not thrift against a 10G per-server file store.
 - Keep discard-old as the last-resort overload valve; prefer lag metrics and alerting before silent drop.
 - Migrate without dual-writing to CNPG and without a long dual-publish window if avoidable.
 
@@ -181,6 +181,17 @@ Discard policy remains `old` (limits retention). Prefer alerting when lag > 25% 
 
 **CNPG:** no dual-write. Only one EventWriter path inserts `ocsf_network_activity` for a given message (ack after insert). Dual-consumer window must use mutually exclusive stream sources (old stream drain + new stream only after cutover publish), not two consumers on the same messages.
 
+**Downgrade boundary:** a plain Helm rollback to a pre-migration revision is not
+safe. Helm restores the old image and `stream_name: events` ConfigMap together;
+that image has no reverse-transfer logic and cannot attach a subject that the
+`flows` stream still owns. Before restoring the old chart, operators MUST run the
+current migration-capable image with `stream_name: events`, wait for its
+ready-file gate and reverse-transfer confirmation, and only then start the old
+image. `scripts/prepare-flow-collector-rollback.sh` performs and verifies this
+sequence; `--prepare-only --target-config` validates the target revision's
+rendered collector config without requiring Helm release history and supports a
+paused GitOps downgrade.
+
 ### Decision 7: Telemetry and operator visibility
 
 Emit / surface for the flow pipeline:
@@ -190,6 +201,14 @@ Emit / surface for the flow pipeline:
 - lag seconds (approx: now − oldest pending message timestamp if available, else stream first_ts age)
 - retention risk when pending > 0 and stream utilization (bytes/age) high
 - DB freshness gauge: `now() - max(ocsf_network_activity.time)` (existing reporters if present; extend)
+
+The EventWriter lag reporter polls consumer INFO as before and, for flow
+consumers, polls stream INFO once per unique stream each interval. It exposes
+current bytes / MaxBytes and oldest retained-message age / MaxAge. Retention risk
+is backlog-gated: warning at 75% byte utilization or 25% age utilization, and
+critical at 90% byte utilization or 75% age utilization. Stream-INFO
+availability is emitted separately so a polling failure cannot masquerade as a
+healthy zero-utilization stream.
 
 Dashboard “observed flows” tiles that use cumulative collector metrics SHOULD NOT be labeled as if they imply last-15-min map health (optional UI follow-up; not required for this change).
 
@@ -225,6 +244,7 @@ events stream (unchanged ownership)
 |------|------------|
 | JetStream cannot place R=3 large stream (storage budget) | Raise `max_file_store` + PVC first; temporarily R=1 for demo if needed |
 | Migration gap loses flows | Dual-consume during cutover; cut publish only after consumers ready |
+| Old-image rollback cannot reclaim subjects from `flows` | Run the guarded pre-downgrade reverse transfer with the current image before Helm/GitOps restores the old image; never claim plain rollback is safe across this boundary |
 | Two Broadway pipelines double coordinator load | Flow pipeline only on coordinator; size CPU/memory; share NATS conn if safe |
 | Long-poll holds server resources | Bound expires; cap concurrent pull inflight per durable |
 | Large max_ack_pending increases memory | Keep producer buffer cap; demand still limits in-process queue |
@@ -235,7 +255,7 @@ events stream (unchanged ownership)
 1. **Host-slice subjects** — resolved via existing collector subject merge (`flows.raw.*` / host-slice subjects stay on the dedicated `stream_name`).
 2. **Attributed flows** — remain on `flow.attributed.>` / shared pipeline (not `flows.raw.*`); raw NetFlow/sFlow only on the flow demand domain.
 3. **Demo R=3 vs R=1** — **keep R=3**. Size demo to `flows` 8 GiB / 2h MaxAge and `maxFileStore` 30G within the existing 30Gi PVC with reduced demo datasvc object/KV reservations (never mutate volumeClaimTemplates via Helm).
-4. **Review fixes** — rehome only `flows.raw.*` / configured `flow.host-slice.*`; no stream-fallback for flow durables; collector owns retention reconcile; long-poll per-subject inflight accounting; lag reporter covers flow streams; docs never say `nats stream rm flows`.
+4. **Review fixes** — rehome only concrete `flows.raw.*` subjects; no stream-fallback for flow durables; collector owns retention reconcile; long-poll per-subject inflight accounting; lag reporter covers flow streams; docs never say `nats stream rm flows`; pre-migration Helm downgrade runs the current-image reverse transfer before restoring the old image.
 
 ## References
 

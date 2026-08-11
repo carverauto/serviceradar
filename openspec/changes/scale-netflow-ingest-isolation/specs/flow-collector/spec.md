@@ -58,3 +58,21 @@ Helm defaults SHALL size the dedicated flows stream for multi-hour recovery lag 
 - **WHEN** demo values enable the flow-collector
 - **THEN** flow retention SHALL be configured on the dedicated flows stream
 - **AND** the values comments SHALL describe the JetStream file-store budget implication of stream size × replicas
+
+### Requirement: Downgrade restores subject ownership before an old image starts
+Deployment tooling and operator documentation SHALL NOT claim that a plain Helm
+rollback to a pre-migration flow-collector image is safe. Before an image without
+reverse-transfer support starts with `stream_name: events`, the currently running
+migration-capable image SHALL first transfer the configured concrete flow subjects
+from `flows` back to `events` and pass its post-transfer readiness gate.
+
+#### Scenario: Helm rollback targets a legacy events publisher
+- **WHEN** an operator selects a Helm revision whose flow collector targets `events`
+- **THEN** guarded pre-downgrade tooling SHALL run the current image in legacy events mode before invoking `helm rollback`
+- **AND** it SHALL wait for ready-file success and reverse-transfer confirmation before allowing the old image to start
+- **AND** it SHALL fail closed when the current Deployment still uses process-only readiness or a non-Recreate rollout strategy
+
+#### Scenario: GitOps restores a legacy revision
+- **WHEN** a GitOps controller will replace the current chart with a legacy revision
+- **THEN** operators SHALL pause reconciliation and run the same pre-downgrade transfer in prepare-only mode using the target revision's rendered flow-collector config rather than Helm release history
+- **AND** the runbook SHALL require the legacy revision to be applied immediately after preparation succeeds

@@ -416,7 +416,7 @@ impl Config {
                 if !crate::publisher::is_protocol_valid_nats_subject(subject) {
                     anyhow::bail!(
                         "stream_subjects[{i}]: {subject:?} is not a protocol-valid NATS subject \
-                         (no whitespace, empty tokens, leading/trailing dots, or '..')"
+                         (no whitespace/empty tokens; a whole-token '>' wildcard must be terminal)"
                     );
                 }
                 if crate::publisher::pattern_overlaps_flow_namespace(subject) {
@@ -674,6 +674,50 @@ mod tests {
                 err.contains("covers") || err.contains("wildcard") || err.contains("flows.raw"),
                 "subject={subject} err={err}"
             );
+        }
+    }
+
+    #[test]
+    fn validate_rejects_nonterminal_tail_wildcards() {
+        for subject in ["logs.>.vendor", "logs.>.>"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            let err = config.validate().unwrap_err().to_string();
+            assert!(
+                err.contains("protocol-valid"),
+                "subject={subject} err={err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_preserves_embedded_literal_wildcard_characters() {
+        for subject in ["logs.vend*or", "logs.vendor>.tail"] {
+            let json = format!(
+                r#"{{
+                "nats_url": "nats://localhost:4222",
+                "stream_name": "flows",
+                "stream_subjects": ["{subject}"],
+                "listeners": [{{
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }}]
+            }}"#
+            );
+            let config: Config = serde_json::from_str(&json).unwrap();
+            config.validate().unwrap();
         }
     }
 

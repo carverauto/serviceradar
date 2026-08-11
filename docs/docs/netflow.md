@@ -6,12 +6,12 @@ title: NetFlow Ingest Guide
 
 ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The flow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX and sFlow exports from network devices and processes them through the ServiceRadar pipeline.
 
-For host process attribution on top of NetFlow, enable the
-[Host Network Visibility](./netprobe.md) add-on on the relevant agent hosts. For pod,
-namespace, container, and image enrichment, enable the separate
-[Workload Identity](./workload-identity.md) add-on. The central pipeline joins these
-streams and exposes the result through `in:attributed_flows`, flow details, and the
-dashboard NetFlow map.
+Host process and workload attribution is not currently joined into this NetFlow
+pipeline. The [Host Network Visibility](./netprobe.md) and
+[Workload Identity](./workload-identity.md) add-ons can collect the two input data
+sets, but the former central `HostSliceSubscriber` / `AttributedFlowJoiner` runtime
+is not shipped in this release. Do not expect `in:attributed_flows` or attributed
+map output until the follow-up joiner work lands.
 
 ## Architecture Overview
 
@@ -74,6 +74,14 @@ spec:
 Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTOR_ADDRESS>:6343/UDP`. Keep the actual collector address in private operations material. Syslog can use a shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 **Docker Compose:**
+
+The shipped Compose stack enables the flow, trap, and BMP collectors together
+with `docker compose --profile network-ingest up -d`. Its bounded JetStream
+reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
+128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
+8 GiB platform-account quota, which itself stays below the NATS server's 10G
+decimal per-server file-store limit.
+
 ```yaml
 services:
   flow-collector:
@@ -261,7 +269,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `nats_creds_file`: Optional path to NATS credentials file
 - `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** so they fit `max_file_store: 10G`. Tenant overlays use ≤256 MiB under 2G file stores. Helm production default is **10 GiB / R=3** with datasvc KV/object budgets sized to fit a **30Gi PVC / 30G maxFileStore**. **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band before raising retention further.
+- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** as part of the bounded 7.125 GiB aggregate described above. Tenant overlays use ≤256 MiB under 2G file stores. Helm production default is **10 GiB / R=3** with datasvc KV/object budgets sized to fit a **30Gi PVC / 30G maxFileStore**. **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band before raising retention further.
 - `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream; EventWriter must not shrink those limits on reconcile.
 - `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. Size `nats.jetstream.maxFileStore` within the **existing** PVC capacity.
 - `partition`: Partition tag applied to ingested flows (default: `default`)
@@ -375,6 +383,48 @@ nats stream info flows
 # 4. When events drain consumers report num_pending=0, set
 #    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```
+
+#### Downgrading across the stream-ownership cutover
+
+Do not run a plain `helm rollback` to a revision whose flow collector still uses
+`stream_name: events`. Helm restores that old image and old ConfigMap together,
+but the old image cannot detach `flows.raw.*` from the dedicated `flows` stream.
+NATS then rejects its attempt to attach the same subjects to `events`. The old
+chart's process-only readiness probe can still report Ready while publishing is
+stuck.
+
+Use the migration-capable current image to transfer ownership back first, then
+restore the old revision:
+
+```bash
+scripts/prepare-flow-collector-rollback.sh \
+  --release serviceradar \
+  --namespace demo \
+  --revision <legacy-helm-revision>
+```
+
+The helper fails closed unless the target revision contains the legacy `events`
+configuration and the current Deployment uses `Recreate` plus the ready-file
+probe. It patches only the current flow ConfigMap to `events`, restarts the
+current image, waits until its reverse-transfer path is ready, checks the
+`legacy events stream` confirmation log, and only then invokes `helm rollback`.
+
+For ArgoCD or another GitOps controller, pause automatic reconciliation and
+export the target revision's rendered `flow-collector.json` ConfigMap value to a
+standalone file. ArgoCD does not create Helm release history, so validate that
+artifact directly:
+
+```bash
+scripts/prepare-flow-collector-rollback.sh \
+  --namespace demo \
+  --prepare-only \
+  --target-config /path/to/legacy-flow-collector.json
+```
+
+After it reports success, immediately point GitOps at the revision that produced
+that file. If you abandon the downgrade, re-apply the current chart/values so the
+current image rehomes the subjects forward to `flows`; do not leave the live
+ConfigMap different from the desired release.
 
 ### 5. Query Database
 

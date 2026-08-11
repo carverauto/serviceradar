@@ -329,19 +329,17 @@ defmodule ServiceRadar.EventWriter.Config do
       body_budget = @nats_max_consumer_name_bytes - 8 - 2
 
       {base_part, suffix_part} =
-        cond do
-          byte_size(suffix) + 1 <= body_budget ->
-            base_budget = max(body_budget - byte_size(suffix) - 1, 1)
-            {binary_part(base_token, 0, min(byte_size(base_token), base_budget)), suffix}
+        if byte_size(suffix) + 1 <= body_budget do
+          base_budget = max(body_budget - byte_size(suffix) - 1, 1)
+          {binary_part(base_token, 0, min(byte_size(base_token), base_budget)), suffix}
+        else
+          base_budget = max(div(body_budget, 3), 1)
+          suffix_budget = max(body_budget - base_budget - 1, 1)
 
-          true ->
-            base_budget = max(div(body_budget, 3), 1)
-            suffix_budget = max(body_budget - base_budget - 1, 1)
-
-            {
-              binary_part(base_token, 0, min(byte_size(base_token), base_budget)),
-              binary_part(suffix, 0, min(byte_size(suffix), suffix_budget))
-            }
+          {
+            binary_part(base_token, 0, min(byte_size(base_token), base_budget)),
+            binary_part(suffix, 0, min(byte_size(suffix), suffix_budget))
+          }
         end
 
       name = "#{base_part}-#{suffix_part}-#{hash}"
@@ -640,15 +638,13 @@ defmodule ServiceRadar.EventWriter.Config do
     # Whole-token NATS wildcards (`*` / `>`) are stream-ownership filters only —
     # EventWriter requires concrete leaves so consumers do not double-ACK or
     # silently miss live coverage. Fail closed rather than drop them quietly.
-    wildcards =
-      Enum.filter(subjects, fn s ->
-        String.starts_with?(s, "flows.raw.") and not exact_nats_subject?(s)
-      end)
+    wildcards = Enum.filter(subjects, &nats_filter_overlaps_flow_namespace?/1)
 
     if wildcards != [] do
       raise ArgumentError,
-            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS rejects whole-token NATS wildcards " <>
-              "(ownership-only on the flows stream): #{inspect(wildcards)}. " <>
+            "EVENT_WRITER_FLOW_EXTRA_SUBJECTS / EVENT_WRITER_FLOW_DRAIN_EXTRA_SUBJECTS " <>
+              "reject NATS wildcard filters that intersect " <>
+              "flows.raw.> / flow.host-slice.>: #{inspect(wildcards)}. " <>
               "Use concrete subjects (embedded */> in a token are literals)."
     end
 
@@ -1126,8 +1122,7 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc false
-  def nats_filter_covers?(broader, narrower)
-      when is_binary(broader) and is_binary(narrower) do
+  def nats_filter_covers?(broader, narrower) when is_binary(broader) and is_binary(narrower) do
     if broader == narrower do
       true
     else

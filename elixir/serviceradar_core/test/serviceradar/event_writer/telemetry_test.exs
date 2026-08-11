@@ -42,7 +42,7 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
   end
 
   describe "consumer_state_measurements/1" do
-    test "normalizes JetStream consumer info into backlog and risk gauges" do
+    test "combines consumer backlog with authoritative stream retention gauges" do
       info = %{
         num_pending: 10,
         num_ack_pending: 3,
@@ -52,7 +52,14 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
         ack_floor: %{consumer_seq: 39, stream_seq: 97}
       }
 
-      assert Telemetry.consumer_state_measurements(info) == %{
+      now = ~U[2026-08-10 12:00:00Z]
+
+      stream_info = %{
+        config: %{max_bytes: 1_000, max_age: 120_000_000_000},
+        state: %{bytes: 800, messages: 20, first_ts: ~U[2026-08-10 11:59:30Z]}
+      }
+
+      assert Telemetry.consumer_state_measurements(info, stream_info, now) == %{
                pending_messages: 10,
                ack_pending_messages: 3,
                redelivered_messages: 1,
@@ -62,8 +69,38 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
                ack_floor_consumer_sequence: 39,
                delivered_stream_sequence: 100,
                ack_floor_stream_sequence: 97,
-               retention_risk_level: 2
+               stream_info_available: 1,
+               stream_bytes: 800,
+               stream_max_bytes: 1_000,
+               stream_byte_utilization_ratio: 0.8,
+               stream_first_message_age_seconds: 30.0,
+               stream_max_age_seconds: 120.0,
+               stream_age_utilization_ratio: 0.25,
+               retention_risk_level: 1
              }
+    end
+
+    test "elevates risk only when backlog coexists with critical stream utilization" do
+      now = ~U[2026-08-10 12:00:00Z]
+
+      stream_info = %{
+        config: %{max_bytes: 1_000, max_age: 100_000_000_000},
+        state: %{bytes: 950, messages: 20, first_ts: ~U[2026-08-10 11:58:40Z]}
+      }
+
+      assert %{retention_risk_level: 2} =
+               Telemetry.consumer_state_measurements(
+                 %{num_pending: 1},
+                 stream_info,
+                 now
+               )
+
+      assert %{retention_risk_level: 0} =
+               Telemetry.consumer_state_measurements(
+                 %{num_pending: 0, num_ack_pending: 0},
+                 stream_info,
+                 now
+               )
     end
 
     test "accepts string-keyed info and clamps missing values" do
@@ -77,6 +114,13 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
                ack_floor_consumer_sequence: 0,
                delivered_stream_sequence: 0,
                ack_floor_stream_sequence: 0,
+               stream_info_available: 0,
+               stream_bytes: 0,
+               stream_max_bytes: 0,
+               stream_byte_utilization_ratio: 0.0,
+               stream_first_message_age_seconds: 0.0,
+               stream_max_age_seconds: 0.0,
+               stream_age_utilization_ratio: 0.0,
                retention_risk_level: 0
              }
     end
@@ -90,6 +134,10 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
         Telemetry.emit_consumer_state(
           %{num_pending: 7, num_ack_pending: 2, num_redelivered: 0, num_waiting: 1},
           %{
+            config: %{max_bytes: 1_000, max_age: 60_000_000_000},
+            state: %{bytes: 900, messages: 1, first_ts: DateTime.utc_now()}
+          },
+          %{
             stream: "metrics",
             durable: "serviceradar-event-writer-metrics",
             subject_class: "metrics"
@@ -97,7 +145,15 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
         )
 
       assert_receive {:telemetry, [:serviceradar, :event_writer, :consumer, :state],
-                      %{pending_messages: 7, ack_pending_messages: 2, lag_messages: 9},
+                      %{
+                        pending_messages: 7,
+                        ack_pending_messages: 2,
+                        lag_messages: 9,
+                        stream_info_available: 1,
+                        stream_bytes: 900,
+                        stream_max_bytes: 1_000,
+                        stream_byte_utilization_ratio: 0.9
+                      },
                       %{
                         stream: "metrics",
                         durable: "serviceradar-event-writer-metrics",

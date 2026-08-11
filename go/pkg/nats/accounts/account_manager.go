@@ -34,8 +34,9 @@ const (
 	defaultJetStreamConsumerLimit  int64 = 1024
 	defaultJetStreamMaxAckPending  int64 = 1_000_000
 	defaultJetStreamMemoryMaxBytes int64 = 512 * 1024 * 1024
-	// Compose datasvc provisions a 5 GiB KV bucket, so disk-backed streams must
-	// allow at least that much while remaining under the account disk quota.
+	// Preserve room for deployments that explicitly provision a larger stream.
+	// The shipped Compose profile caps each individual stream at 2 GiB and its
+	// aggregate budget is regression-tested in account_manager_test.go.
 	defaultJetStreamDiskMaxBytes int64 = 5 * 1024 * 1024 * 1024
 )
 

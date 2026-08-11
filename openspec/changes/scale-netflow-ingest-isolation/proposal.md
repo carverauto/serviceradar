@@ -23,6 +23,7 @@ Related completed work: `fix-eventwriter-backpressure-hotpath` introduced demand
 - Raise production and demo defaults for flow stream size and NATS `max_file_store` / PVC guidance so R=3 retention can hold peak lag; keep discard-old as the overload safety valve.
 - Add lag / retention-risk telemetry and runbook checks so operators can see when flow consumer lag approaches MaxAge before the UI goes empty.
 - Document migration: dual-read/create `flows` stream, cut over publishers, drain old `events` filter consumers, remove `flows.raw.*` from the shared `events` subject list.
+- Guard downgrades across the ownership cutover: run the current image's reverse-transfer path to move concrete flow subjects back to `events` before Helm or GitOps restores an older image.
 
 ## Impact
 

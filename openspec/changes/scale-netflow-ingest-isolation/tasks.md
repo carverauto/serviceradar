@@ -35,11 +35,13 @@
 - [x] 6.2 Single publish target `flows` after cutover (no dual CNPG writers for the same message).
 - [ ] 6.3 Drain and delete obsolete netflow durables on `events` after demo roll (ops).
 - [x] 6.4 Update `openspec/notes/sr-data-flow.md` and netflow docs.
+- [x] 6.5 Add a guarded pre-downgrade helper/runbook that runs the current-image reverse transfer before restoring a legacy Helm revision; plain old-image rollback is explicitly unsupported.
 
 ## 7. Observability and SLO checks
 - [x] 7.1 Existing EventWriter pull/queue telemetry applies per producer (flow pipeline included).
-- [x] 7.2 Document operator checks in netflow docs / design.
-- [ ] 7.3 Optional dashboard copy clarification (deferred).
+- [x] 7.2 Flow lag reporter combines consumer INFO with one stream INFO poll per unique flow stream, exposing MaxBytes/current-byte and MaxAge/oldest-message-age utilization plus backlog-gated retention risk.
+- [x] 7.3 Document operator checks in netflow docs / design.
+- [ ] 7.4 Optional dashboard copy clarification (deferred).
 
 ## 8. Tests and verification
 - [x] 8.1 Elixir config + producer flow-control tests (`mix test ... --no-start`).
@@ -48,6 +50,8 @@
 - [ ] 8.4 Full `elixir_quality.sh` (needs local CNPG/test DB).
 - [ ] 8.5 Demo verification after image roll.
 - [x] 8.6 Shared pipeline no longer registers NETFLOW_RAW/SFLOW_RAW (config tests).
+- [x] 8.7 Compose `network-ingest` reservations fit the generated platform-account and NATS server budgets with regression coverage.
+- [x] 8.8 Pre-downgrade helper contract test proves target validation and reverse-transfer preparation happen before `helm rollback`.
 
 ## 9. Delivery
 - [ ] 9.1 Roll demo with sized NATS storage + `flows` stream; confirm nats cluster healthy (R=3).
