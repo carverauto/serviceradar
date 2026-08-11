@@ -1929,15 +1929,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "direct-cargo-bazel-deps"
-version = "0.0.1"
-dependencies = [
- "prost-types",
- "protoc-gen-prost",
- "protoc-gen-tonic",
-]
-
-[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4633,38 +4624,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e36c2f31e0a47f9280fb347ef5e461ffcd2c52dd520d8e216b52f93b0b0d7d6"
 dependencies = [
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "protoc-gen-prost"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4018e7b5e3a213d241d79a0ef43a442a17dc23dcdd5b81b0c42b2549197897fd"
-dependencies = [
- "once_cell",
- "prost",
- "prost-build",
- "prost-types",
- "regex",
-]
-
-[[package]]
-name = "protoc-gen-tonic"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa40faad46fb55e5c4a3257461c43f6ed0f87b320d11d98b4ea397f6f45896be"
-dependencies = [
- "heck",
- "prettyplease",
- "proc-macro2",
- "prost",
- "prost-build",
- "prost-types",
- "protoc-gen-prost",
- "quote",
- "regex",
- "syn 2.0.119",
- "tonic-build",
 ]
 
 [[package]]
