@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -81,7 +80,7 @@ func buildNotificationPluginConfig(baseConfig []byte, invocationPayload json.Raw
 		return nil, fmt.Errorf("decode notification payload: %w", err)
 	}
 	if delivery == nil {
-		return nil, errors.New("decode notification payload: expected a JSON object")
+		return nil, fmt.Errorf("%w: expected a JSON object", errNotificationDeliveryInvalid)
 	}
 
 	delete(delivery, "credential_broker")

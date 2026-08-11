@@ -1275,8 +1275,8 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	executionAssignment := notificationActionAssignment(assignment, invocationPayload)
-	result, err := m.executeActionWithWasm(runCtx, executionAssignment, wasm, configJSON, credentialGrants, nil, nil)
+	entrypoint := notificationActionEntrypoint(assignment, invocationPayload)
+	result, err := m.executeActionWithWasm(runCtx, assignment, entrypoint, wasm, configJSON, credentialGrants, nil, nil)
 	if err == nil && assignment.ingestsActionResults() {
 		result, err = m.enqueueActionResult(runCtx, assignment, result)
 	}
@@ -1395,6 +1395,7 @@ func (m *PluginManager) runPluginVerb(
 	result, err := m.executeActionWithWasm(
 		runCtx,
 		assignment,
+		assignment.Entrypoint,
 		wasm,
 		configJSON,
 		credentialGrants,

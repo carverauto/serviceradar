@@ -679,6 +679,15 @@ func TestNotificationGuestConfigMatchesNotifierSDKABI(t *testing.T) {
 	}
 }
 
+func TestBuildNotificationPluginConfigRejectsNullPayload(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildNotificationPluginConfig(nil, json.RawMessage(`null`))
+	if !errors.Is(err, errNotificationDeliveryInvalid) {
+		t.Fatalf("buildNotificationPluginConfig() error = %v, want %v", err, errNotificationDeliveryInvalid)
+	}
+}
+
 func TestNotificationEntrypointOverridesOnlyTheInvocation(t *testing.T) {
 	t.Parallel()
 
@@ -691,17 +700,17 @@ func TestNotificationEntrypointOverridesOnlyTheInvocation(t *testing.T) {
 		"entrypoint": "send_opsgenie",
 	})
 
-	execution := notificationActionAssignment(assignment, payload)
-	if execution.Entrypoint != "send_opsgenie" {
-		t.Fatalf("invocation entrypoint = %q, want send_opsgenie", execution.Entrypoint)
+	entrypoint := notificationActionEntrypoint(assignment, payload)
+	if entrypoint != "send_opsgenie" {
+		t.Fatalf("invocation entrypoint = %q, want send_opsgenie", entrypoint)
 	}
 	if assignment.Entrypoint != "run_check" {
 		t.Fatalf("registered assignment was mutated to %q", assignment.Entrypoint)
 	}
 
-	northbound := notificationActionAssignment(assignment, json.RawMessage(`{"action":"test"}`))
-	if northbound != assignment {
-		t.Fatal("ordinary action should use the registered assignment unchanged")
+	northboundEntrypoint := notificationActionEntrypoint(assignment, json.RawMessage(`{"action":"test"}`))
+	if northboundEntrypoint != assignment.Entrypoint {
+		t.Fatalf("ordinary action entrypoint = %q, want %q", northboundEntrypoint, assignment.Entrypoint)
 	}
 }
 

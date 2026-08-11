@@ -264,26 +264,23 @@ func decodeNotificationDelivery(
 	return envelope, true
 }
 
-// notificationActionAssignment returns an invocation-local assignment whose
-// entrypoint is the notifier export named by core. It never mutates the
-// registered assignment, so subsequent checks and actions keep their package
-// entrypoint.
-func notificationActionAssignment(
+// notificationActionEntrypoint returns the notifier export named by core for
+// this invocation. It never mutates or copies the registered assignment, whose
+// mutexes protect runtime state that can be refreshed while an action runs.
+func notificationActionEntrypoint(
 	assignment *pluginAssignment,
 	invocationPayload json.RawMessage,
-) *pluginAssignment {
+) string {
 	if assignment == nil {
-		return nil
+		return ""
 	}
 
 	envelope, isNotification := decodeNotificationDelivery(invocationPayload)
 	if !isNotification || envelope.Entrypoint == "" {
-		return assignment
+		return assignment.Entrypoint
 	}
 
-	invocationAssignment := *assignment
-	invocationAssignment.Entrypoint = envelope.Entrypoint
-	return &invocationAssignment
+	return envelope.Entrypoint
 }
 
 // pluginActionNotificationEnvelope reports whether an action invocation payload
