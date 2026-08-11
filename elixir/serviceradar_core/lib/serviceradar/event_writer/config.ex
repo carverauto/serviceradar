@@ -244,9 +244,9 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc """
   Returns true when a stream config is raw NetFlow/sFlow persistence (`flows.raw.*`).
 
-  `flow.host-slice.*` is an intermediate attribution fan-out (joiner path) and
-  must **not** become EventWriter flow consumers — that dilutes Broadway pull
-  budget without reclaiming LimitsPolicy stream storage.
+  `flow.host-slice.*` must **not** become EventWriter flow consumers (attribution
+  joining is currently unsupported/out of scope and would dilute Broadway pull
+  budget).
   """
   @spec flow_stream?(stream_config() | map()) :: boolean()
   def flow_stream?(%{subject: subject}) when is_binary(subject),
@@ -658,8 +658,8 @@ defmodule ServiceRadar.EventWriter.Config do
     if host_slices != [] do
       raise ArgumentError,
             "EVENT_WRITER_FLOW_EXTRA_SUBJECTS rejects flow.host-slice.* subjects " <>
-              "(attribution intermediate; not the ocsf persistence pipeline): #{inspect(host_slices)}. " <>
-              "Host-slice traffic stays on the joiner path, not EventWriter flow consumers."
+              "(host-slice attribution joining is currently unsupported/out of scope; " <>
+              "subjects would be stored without a ServiceRadar consumer): #{inspect(host_slices)}"
     end
 
     subjects
@@ -680,9 +680,22 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @doc false
   def exact_nats_subject?(subject) when is_binary(subject) do
-    subject
-    |> String.split(".")
-    |> Enum.all?(fn token -> token != "" and token != "*" and token != ">" end)
+    protocol_valid_nats_subject?(subject) and
+      subject
+      |> String.split(".")
+      |> Enum.all?(fn token -> token != "" and token != "*" and token != ">" end)
+  end
+
+  @doc false
+  def protocol_valid_nats_subject?(subject) when is_binary(subject) do
+    subject != "" and
+      not String.starts_with?(subject, ".") and
+      not String.ends_with?(subject, ".") and
+      not String.contains?(subject, "..") and
+      not String.contains?(subject, " ") and
+      not String.contains?(subject, "\t") and
+      not String.contains?(subject, "\r") and
+      not String.contains?(subject, "\n")
   end
 
   @doc false
@@ -1065,14 +1078,14 @@ defmodule ServiceRadar.EventWriter.Config do
       String.starts_with?(subject, "flow.host-slice.") ->
         raise ArgumentError,
               "EventWriter stream config rejects flow.host-slice.* subjects " <>
-                "(attribution intermediate, not ocsf persistence): #{inspect(subject)}"
+                "(host-slice attribution joining is currently unsupported/out of scope): #{inspect(subject)}"
 
-      # Reject any NATS filter that covers the raw-flow or host-slice namespace
-      # (flows.>, *.raw.>, *.>, flow.>, >) — not only a flows.raw. prefix.
+      # Reject any NATS filter that intersects flows.raw.> or flow.host-slice.>
+      # (symbolic intersection, not finite probe leaves).
       nats_filter_overlaps_flow_namespace?(subject) ->
         raise ArgumentError,
-              "EventWriter stream config rejects filter #{inspect(subject)} that overlaps " <>
-                "flows.raw.* / flow.host-slice.* (would double-consume with NETFLOW/SFLOW leaves)"
+              "EventWriter stream config rejects filter #{inspect(subject)} that intersects " <>
+                "flows.raw.> / flow.host-slice.> (would double-consume with NETFLOW/SFLOW leaves)"
 
       true ->
         :ok
@@ -1093,19 +1106,23 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
-  True when a NATS subject filter covers any probe under flows.raw.* or
-  flow.host-slice.* (token language: `*` one token, `>` rest).
+  True when a NATS **wildcard** filter intersects `flows.raw.>` or
+  `flow.host-slice.>` (token language: `*` one token, `>` rest).
+  Concrete leaves return false.
   """
   @spec nats_filter_overlaps_flow_namespace?(String.t()) :: boolean()
   def nats_filter_overlaps_flow_namespace?(filter) when is_binary(filter) do
-    probes = [
-      "flows.raw.netflow",
-      "flows.raw.sflow",
-      "flows.raw.ipfix",
-      "flow.host-slice.agent-probe"
-    ]
+    if exact_nats_subject?(filter) do
+      false
+    else
+      nats_filters_intersect?(filter, "flows.raw.>") or
+        nats_filters_intersect?(filter, "flow.host-slice.>")
+    end
+  end
 
-    Enum.any?(probes, &nats_filter_covers?(filter, &1))
+  @doc false
+  def nats_filters_intersect?(a, b) when is_binary(a) and is_binary(b) do
+    filter_tokens_intersect?(String.split(a, "."), String.split(b, "."))
   end
 
   @doc false
@@ -1117,6 +1134,23 @@ defmodule ServiceRadar.EventWriter.Config do
       pattern_covers_tokens?(String.split(broader, "."), String.split(narrower, "."))
     end
   end
+
+  defp filter_tokens_intersect?([], []), do: true
+  defp filter_tokens_intersect?([], _), do: false
+  defp filter_tokens_intersect?(_, []), do: false
+
+  defp filter_tokens_intersect?([">"], b) when b != [], do: true
+  defp filter_tokens_intersect?(a, [">"]) when a != [], do: true
+  defp filter_tokens_intersect?([">" | _], _), do: false
+  defp filter_tokens_intersect?(_, [">" | _]), do: false
+
+  defp filter_tokens_intersect?(["*" | at], [_ | bt]), do: filter_tokens_intersect?(at, bt)
+  defp filter_tokens_intersect?([_ | at], ["*" | bt]), do: filter_tokens_intersect?(at, bt)
+
+  defp filter_tokens_intersect?([la | at], [lb | bt]) when la == lb,
+    do: filter_tokens_intersect?(at, bt)
+
+  defp filter_tokens_intersect?(_, _), do: false
 
   defp pattern_covers_tokens?(broader, narrower) do
     do_pattern_covers(broader, narrower)

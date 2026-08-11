@@ -718,22 +718,38 @@ impl Publisher {
         // old connection may still flush queued commands first.
         if !ambiguous.is_empty() {
             warn!(
-                "Force-reconnecting NATS after {} ambiguous in-flight publish(es); waiting for new client_id",
+                "Force-reconnecting NATS after {} ambiguous in-flight publish(es); waiting for generation change",
                 ambiguous.len()
             );
-            if let Err(e) = force_reconnect_and_await_generation(client).await {
-                error!("force reconnect with generation wait failed: {e}");
-            }
-            while let Some(item) = ambiguous.pop_front() {
-                if past_retry_horizon(&item, max_retry_age) {
+            match force_reconnect_and_await_generation(client).await {
+                Ok(()) => {
+                    while let Some(item) = ambiguous.pop_front() {
+                        if past_retry_horizon(&item, max_retry_age) {
+                            error!(
+                                "Dropping ambiguous publish for subject {} id={} after reconnect ({})",
+                                item.subject,
+                                item.msg_id,
+                                horizon_reason(&item, max_retry_age)
+                            );
+                        } else {
+                            failed.push_back(item);
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Hard precondition failed: quarantine ambiguous items and
+                    // clear readiness. Do not enqueue a second attempt on the
+                    // same connection generation.
                     error!(
-                        "Dropping ambiguous publish for subject {} id={} after reconnect ({})",
-                        item.subject,
-                        item.msg_id,
-                        horizon_reason(&item, max_retry_age)
+                        "Ambiguous publish generation barrier failed ({e}); quarantining {} item(s)",
+                        ambiguous.len()
                     );
-                } else {
-                    failed.push_back(item);
+                    while let Some(item) = ambiguous.pop_front() {
+                        failed.push_back(item);
+                    }
+                    failed.append(pending);
+                    *pending = failed;
+                    return PublishPassResult::Disconnected;
                 }
             }
         }
@@ -818,22 +834,55 @@ impl Publisher {
         }
 
         if self.config.stream_name == "events" {
-            // Legacy / rollback: restore every unresolved marker subject onto events
-            // (required_subjects alone would drop extension subjects).
+            // Legacy / rollback: after a completed cutover the rehome marker is
+            // gone but ownership inventory still records subjects on `flows`.
+            // Reverse-transfer those filters before attaching to events or
+            // JetStream returns cross-stream subject-overlap (10065).
+            warn!(
+                "flow-collector stream_name is 'events' (legacy). Refusing to apply \
+                 stream_max_bytes/max_age to the shared events bus. Migrate config to \
+                 stream_name=flows (see docs/docs/netflow.md)."
+            );
+            let ownership_path = ownership_state_path(&self.config);
             let mut restore = required_subjects.clone();
             for s in &self.pending_rehome {
                 if !restore.iter().any(|r| r == s) {
                     restore.push(s.clone());
                 }
             }
-            // Wildcard + exact subjects from a prior rehome marker must not form a
-            // self-overlapping list (NATS 10052).
+            if let Some(inv) = load_ownership_inventory(&ownership_path)? {
+                for s in &inv.subjects {
+                    if !restore.iter().any(|r| r == s) {
+                        restore.push(s.clone());
+                    }
+                }
+                if inv.stream != "events" && !inv.subjects.is_empty() {
+                    // Durable reverse marker before remote detach.
+                    write_rehome_marker(
+                        &rehome_path,
+                        &RehomeMarker {
+                            target_stream: "events".to_string(),
+                            subjects: restore.clone(),
+                        },
+                    )?;
+                    info!(
+                        "Rollback: detaching {} subject(s) from '{}' before attaching to events",
+                        inv.subjects.len(),
+                        inv.stream
+                    );
+                    detach_subjects_from_stream(&admin_js, &inv.stream, &inv.subjects).await?;
+                }
+            }
             restore = normalize_stream_subjects(restore);
-            warn!(
-                "flow-collector stream_name is 'events' (legacy). Refusing to apply                  stream_max_bytes/max_age to the shared events bus. Migrate config to                  stream_name=flows (see docs/docs/netflow.md)."
-            );
             let dup_window = ensure_legacy_events_subjects_only(&admin_js, &restore).await?;
-            // Verify ownership then clear marker.
+            // Inventory now reflects events ownership (or clear if empty).
+            write_ownership_inventory(
+                &ownership_path,
+                &OwnershipInventory {
+                    stream: "events".to_string(),
+                    subjects: restore.clone(),
+                },
+            )?;
             self.pending_rehome.clear();
             clear_rehome_marker(&rehome_path);
             info!(
@@ -1373,6 +1422,10 @@ fn write_ownership_inventory(path: &Path, inv: &OwnershipInventory) -> Result<()
             path.display()
         )
     })?;
+    // Directory entry durability before any subsequent marker clear / NATS mutation.
+    if let Some(parent) = path.parent() {
+        fsync_dir(parent)?;
+    }
     info!(
         "Wrote ownership inventory for stream '{}' ({} subject(s)) to {}",
         inv.stream,
@@ -1443,60 +1496,77 @@ async fn wait_until_connected(client: &Client) {
     );
 }
 
+/// Connection generation: client_id is server-local, so pair with server_id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConnGeneration {
+    server_id: String,
+    client_id: u64,
+}
+
+fn conn_generation(client: &Client) -> Option<ConnGeneration> {
+    client.try_server_info().map(|i| ConnGeneration {
+        server_id: i.server_id.clone(),
+        client_id: i.client_id,
+    })
+}
+
 /// force_reconnect only enqueues Reconnect and may still flush the old socket.
-/// Wait until we observe a connection-generation change (client_id) before
-/// requeueing ambiguous publishes onto the new path.
+/// Hard-fail unless a different (server_id, client_id) is observed while Connected.
 async fn force_reconnect_and_await_generation(client: &Client) -> Result<()> {
     use async_nats::connection::State;
-    let before_id = client.try_server_info().map(|i| i.client_id);
+    let before = conn_generation(client);
     client
         .force_reconnect()
         .await
         .map_err(|e| anyhow::anyhow!("force_reconnect: {e}"))?;
 
-    // First wait until we leave the old Connected generation (or see a new id).
+    // Prefer observing a non-Connected state so we do not mistake the old
+    // generation for success when client_id has not changed yet.
+    let mut saw_not_connected = !matches!(client.connection_state(), State::Connected);
     for _ in 0..200 {
         match client.connection_state() {
             State::Connected => {
-                let now_id = client.try_server_info().map(|i| i.client_id);
-                if before_id.is_none() || now_id != before_id {
-                    info!(
-                        "NATS reconnected with new client_id (before={:?}, after={:?})",
-                        before_id, now_id
-                    );
+                let now = conn_generation(client);
+                if let (Some(b), Some(n)) = (&before, &now) {
+                    if n != b {
+                        info!("NATS reconnected with new generation (before={b:?}, after={n:?})");
+                        return Ok(());
+                    }
+                } else if before.is_none() && now.is_some() && saw_not_connected {
+                    info!("NATS reconnected after missing baseline (after={now:?})");
                     return Ok(());
                 }
             }
             State::Disconnected | State::Pending => {
-                // Fall through to wait for Connected with new generation.
-                break;
+                saw_not_connected = true;
             }
         }
         sleep(Duration::from_millis(25)).await;
     }
 
-    // Wait for Connected on a new generation.
     for _ in 0..200 {
         if matches!(client.connection_state(), State::Connected) {
-            let now_id = client.try_server_info().map(|i| i.client_id);
-            if before_id.is_none() || now_id != before_id {
-                info!(
-                    "NATS reconnected with new client_id (before={:?}, after={:?})",
-                    before_id, now_id
-                );
+            let now = conn_generation(client);
+            if let (Some(b), Some(n)) = (&before, &now) {
+                if n != b {
+                    info!("NATS reconnected with new generation (before={b:?}, after={n:?})");
+                    return Ok(());
+                }
+            } else if before.is_none() && now.is_some() && saw_not_connected {
+                info!("NATS reconnected after missing baseline (after={now:?})");
                 return Ok(());
             }
+        } else {
+            saw_not_connected = true;
         }
         sleep(Duration::from_millis(50)).await;
     }
-    warn!(
-        "Did not observe client_id change after force_reconnect (before={:?}, state={})",
-        before_id,
+
+    Err(anyhow::anyhow!(
+        "no observed NATS connection generation change after force_reconnect \
+         (before={before:?}, state={}, saw_not_connected={saw_not_connected})",
         client.connection_state()
-    );
-    // Still wait until Connected so callers can proceed.
-    wait_until_connected(client).await;
-    Ok(())
+    ))
 }
 
 fn clear_publisher_ready(config: &Config) -> Result<()> {
@@ -1546,8 +1616,69 @@ fn write_rehome_marker(path: &Path, marker: &RehomeMarker) -> Result<()> {
     }
     let raw = serde_json::to_string_pretty(marker)?;
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, raw).with_context(|| format!("write rehome marker {}", tmp.display()))?;
+    {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp)
+            .with_context(|| format!("write rehome marker temp {}", tmp.display()))?;
+        f.write_all(raw.as_bytes())?;
+        f.sync_all()
+            .with_context(|| format!("fsync rehome marker temp {}", tmp.display()))?;
+    }
     fs::rename(&tmp, path).with_context(|| format!("persist rehome marker {}", path.display()))?;
+    // Directory entry must survive power loss before remote NATS detach.
+    if let Some(parent) = path.parent() {
+        fsync_dir(parent)?;
+    }
+    Ok(())
+}
+
+/// Detach subjects from a JetStream stream (inverse of rehome attach).
+async fn detach_subjects_from_stream(
+    js: &jetstream::Context,
+    stream_name: &str,
+    subjects: &[String],
+) -> Result<()> {
+    if subjects.is_empty() {
+        return Ok(());
+    }
+    let mut stream = match js.get_stream(stream_name).await {
+        Ok(s) => s,
+        Err(err) if is_stream_not_found(&err) => {
+            info!("stream '{stream_name}' already absent during detach");
+            return Ok(());
+        }
+        Err(err) => {
+            return Err(anyhow::anyhow!(
+                "failed to INFO stream '{stream_name}' during detach: {err}"
+            ));
+        }
+    };
+    let info = stream.info().await?;
+    let mut updated = info.config.clone();
+    let before = updated.subjects.len();
+    updated
+        .subjects
+        .retain(|s| !subjects.iter().any(|d| d == s));
+    if updated.subjects.len() == before {
+        return Ok(());
+    }
+    // Keep at least one subject if stream would become empty — NATS may reject.
+    if updated.subjects.is_empty() {
+        warn!(
+            "detach would empty stream '{stream_name}'; leaving a placeholder subject _empty.detached"
+        );
+        updated.subjects.push("_empty.detached".to_string());
+    }
+    let removed = before.saturating_sub(updated.subjects.len());
+    js.update_stream(updated).await?;
+    info!("Detached {removed} subject(s) from stream '{stream_name}'");
+    Ok(())
+}
+
+fn fsync_dir(dir: &Path) -> Result<()> {
+    let f = fs::File::open(dir).with_context(|| format!("open dir for fsync {}", dir.display()))?;
+    f.sync_all()
+        .with_context(|| format!("fsync dir {}", dir.display()))?;
     Ok(())
 }
 
@@ -1905,38 +2036,74 @@ pub(crate) fn is_rehomeable_flow_subject(subject: &str, required_subjects: &[Str
     subject.starts_with("flow.host-slice.") && required_subjects.iter().any(|req| req == subject)
 }
 
-/// True when a NATS filter/subject overlaps the raw-flow or host-slice namespace
-/// in a way that would double-consume with exact EventWriter leaves or block rehome.
+/// True when a NATS **wildcard** filter intersects the protected namespaces
+/// `flows.raw.>` or `flow.host-slice.>` (symbolic intersection, not finite probes).
+/// Concrete leaves are not "overlap filters" and return false.
 pub(crate) fn pattern_overlaps_flow_namespace(filter: &str) -> bool {
     if filter.is_empty() {
         return false;
     }
-    // Exact concrete leaves under flows.raw are the EventWriter consumer form.
-    if exact_nats_subject(filter) && filter.starts_with("flows.raw.") {
+    // Concrete subjects (no whole-token wildcards) are exact ownership claims.
+    if exact_nats_subject(filter) {
         return false;
     }
-    if filter.starts_with("flow.host-slice.") {
-        return true;
-    }
-    // Probes that must not share a durable with NETFLOW/SFLOW consumers.
-    const PROBES: &[&str] = &[
-        "flows.raw.netflow",
-        "flows.raw.sflow",
-        "flows.raw.ipfix",
-        "flow.host-slice.agent-probe",
-    ];
-    PROBES.iter().any(|p| subject_covers(filter, p))
+    nats_filters_intersect(filter, "flows.raw.>")
+        || nats_filters_intersect(filter, "flow.host-slice.>")
 }
 
-/// True when every token is a non-empty literal (no whole-token * or >).
+/// True when there exists at least one concrete subject matched by both filters.
+pub(crate) fn nats_filters_intersect(a: &str, b: &str) -> bool {
+    let a: Vec<&str> = a.split('.').collect();
+    let b: Vec<&str> = b.split('.').collect();
+    filter_tokens_intersect(&a, &b)
+}
+
+fn filter_tokens_intersect(a: &[&str], b: &[&str]) -> bool {
+    if a.is_empty() && b.is_empty() {
+        return true;
+    }
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let (ha, ta) = (a[0], &a[1..]);
+    let (hb, tb) = (b[0], &b[1..]);
+    match (ha, hb) {
+        // Final `>` matches one or more remaining tokens on the other side.
+        (">", _) if a.len() == 1 => !b.is_empty(),
+        (_, ">") if b.len() == 1 => !a.is_empty(),
+        // `>` not terminal is not valid NATS — treat as non-intersecting.
+        (">", _) | (_, ">") => false,
+        // `*` matches exactly one token (literal, `*`, but not multi-token `>`).
+        ("*", _) | (_, "*") => filter_tokens_intersect(ta, tb),
+        (la, lb) if la == lb => filter_tokens_intersect(ta, tb),
+        _ => false,
+    }
+}
+
+/// Protocol-safe NATS subject: no empty tokens, no leading/trailing `.`, no `..`,
+/// no whitespace (matches async_nats `is_valid_subject`), and no whole-token wildcards.
 pub(crate) fn exact_nats_subject(subject: &str) -> bool {
-    !subject.is_empty()
+    is_protocol_valid_nats_subject(subject)
         && subject
             .split('.')
             .all(|t| !t.is_empty() && t != "*" && t != ">")
 }
 
-/// Listener publish subjects must be concrete (NATS rejects wildcards on publish).
+/// Protocol framing rules shared with async-nats (may still contain * / > tokens).
+pub(crate) fn is_protocol_valid_nats_subject(subject: &str) -> bool {
+    let bytes = subject.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    bytes[0] != b'.'
+        && bytes[bytes.len() - 1] != b'.'
+        && !subject.contains("..")
+        && !bytes
+            .iter()
+            .any(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+}
+
+/// Listener publish subjects must be concrete and protocol-valid.
 pub(crate) fn is_valid_listener_publish_subject(subject: &str) -> bool {
     exact_nats_subject(subject)
 }
@@ -2052,7 +2219,7 @@ mod tests {
     }
 
     #[test]
-    fn pattern_overlaps_flow_namespace_probes() {
+    fn pattern_overlaps_flow_namespace_symbolic() {
         assert!(pattern_overlaps_flow_namespace("flows.>"));
         assert!(pattern_overlaps_flow_namespace("flows.raw.>"));
         assert!(pattern_overlaps_flow_namespace("*.>"));
@@ -2060,10 +2227,35 @@ mod tests {
         assert!(pattern_overlaps_flow_namespace("*.*.>"));
         assert!(pattern_overlaps_flow_namespace("flow.>"));
         assert!(pattern_overlaps_flow_namespace(">"));
-        assert!(pattern_overlaps_flow_namespace("flow.host-slice.agent-1"));
+        // Non-probe extensions / mid-token patterns must still intersect.
+        assert!(pattern_overlaps_flow_namespace("flows.*.vendor"));
+        assert!(pattern_overlaps_flow_namespace("flows.raw.custom.>"));
+        assert!(pattern_overlaps_flow_namespace("flow.*.vendor"));
         assert!(!pattern_overlaps_flow_namespace("logs.>"));
         assert!(!pattern_overlaps_flow_namespace("events.>"));
+        // Concrete leaves are not wildcard overlap filters.
         assert!(!pattern_overlaps_flow_namespace("flows.raw.netflow"));
+        assert!(!pattern_overlaps_flow_namespace("flow.host-slice.agent-1"));
+    }
+
+    #[test]
+    fn nats_filters_intersect_extension_patterns() {
+        assert!(nats_filters_intersect("flows.*.vendor", "flows.raw.>"));
+        assert!(nats_filters_intersect("flows.raw.custom.>", "flows.raw.>"));
+        assert!(nats_filters_intersect("flow.*.vendor", "flow.host-slice.>"));
+        assert!(!nats_filters_intersect("logs.>", "flows.raw.>"));
+        assert!(!nats_filters_intersect("events.>", "flows.raw.>"));
+    }
+
+    #[test]
+    fn exact_nats_subject_rejects_whitespace() {
+        assert!(exact_nats_subject("flows.raw.netflow"));
+        assert!(!exact_nats_subject("flows.raw.bad subject"));
+        assert!(!exact_nats_subject("flows.raw.\tnetflow"));
+        assert!(!exact_nats_subject(""));
+        assert!(!exact_nats_subject(".flows.raw"));
+        assert!(!exact_nats_subject("flows.raw."));
+        assert!(!exact_nats_subject("flows..raw"));
     }
 
     #[test]

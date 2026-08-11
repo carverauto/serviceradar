@@ -140,7 +140,15 @@ Retention must cover **peak export rate × desired recovery lag**, not demo thri
 ```
 required_bytes ≈ peak_publish_bytes_per_sec × max_recover_lag_sec × safety_factor
 required_age   ≥ max_recover_lag_sec  (and ≥ UI investigation window if ops want reprocess)
-nats_file_store ≥ sum(stream_max_bytes × stream_replicas) + headroom for other streams
+
+# nats.jetstream.maxFileStore is a PER-SERVER limit (not cluster-wide).
+# For R=3 JetStream streams the per-server file store must cover each stream's
+# full max_bytes once (replicas place one copy per server in the typical case),
+# not sum(max_bytes × replicas) against one server's max_file_store.
+#
+# Per-server check (R3 HA chart defaults):
+#   maxFileStore ≥ KV 4 GiB + objects 10 GiB + events 2 GiB + flows 10 GiB
+#                = 26 GiB  (chart uses 30G headroom on a 30Gi PVC)
 ```
 
 **Starting product defaults (chart `values.yaml`):**
@@ -151,7 +159,7 @@ nats_file_store ≥ sum(stream_max_bytes × stream_replicas) + headroom for othe
 | `flows` stream `max_age` | **6 hours** |
 | `flows` stream replicas | 3 (HA) or 1 for single-node |
 | NATS PVC via Helm | **Do not change** live StatefulSet volumeClaimTemplates (immutable) |
-| NATS `max_file_store` | **30G** on default **30Gi** PVC; KV 4 + objects 10 + events 2 + flows 10 GiB (R=3) fits |
+| NATS `max_file_store` | **30G** **per NATS server** on default **30Gi** PVC; budget is KV 4 + objects 10 + events 2 + flows 10 GiB (not cluster-sum × R) |
 
 **Demo (`values-demo.yaml`):**
 

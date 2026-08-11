@@ -413,12 +413,16 @@ impl Config {
                 if subject.is_empty() {
                     anyhow::bail!("stream_subjects[{i}]: subject cannot be empty");
                 }
-                if crate::publisher::pattern_overlaps_flow_namespace(subject)
-                    && !crate::publisher::exact_nats_subject(subject)
-                {
+                if !crate::publisher::is_protocol_valid_nats_subject(subject) {
                     anyhow::bail!(
-                        "stream_subjects[{i}]: {subject:?} uses a NATS filter that covers \
-                         flows.raw.* or flow.host-slice.*; use concrete leaves (EventWriter \
+                        "stream_subjects[{i}]: {subject:?} is not a protocol-valid NATS subject \
+                         (no whitespace, empty tokens, leading/trailing dots, or '..')"
+                    );
+                }
+                if crate::publisher::pattern_overlaps_flow_namespace(subject) {
+                    anyhow::bail!(
+                        "stream_subjects[{i}]: {subject:?} uses a NATS filter that intersects \
+                         flows.raw.> or flow.host-slice.>; use concrete leaves (EventWriter \
                          requires exact subjects; wildcards block rehome and leave extensions unconsumed)"
                     );
                 }

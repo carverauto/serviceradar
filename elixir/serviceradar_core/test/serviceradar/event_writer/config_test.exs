@@ -272,13 +272,21 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         end
       end)
 
-      assert_raise ArgumentError, ~r/overlaps|concrete flows\.raw/, fn ->
+      assert_raise ArgumentError, ~r/intersects|concrete flows\.raw/, fn ->
         Config.load_flow()
       end
     end
 
     test "load rejects broader filters that cover flows.raw namespace" do
       previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
 
       for subject <- ["flows.>", "*.>", "*.raw.>", "flow.>", ">"] do
         Application.put_env(
@@ -289,18 +297,17 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
           ])
         )
 
-        assert_raise ArgumentError, ~r/overlaps flows\.raw/, fn ->
+        assert_raise ArgumentError, ~r/intersects/, fn ->
           Config.load()
         end
-      end
 
-      on_exit(fn ->
+        # Restore immediately so parallel/async tests do not observe poisoned app config.
         if previous == [] do
           Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
         else
           Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
         end
-      end)
+      end
     end
 
     test "nats_filter_covers? token language" do
@@ -310,6 +317,46 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert Config.nats_filter_covers?(">", "flows.raw.netflow")
       refute Config.nats_filter_covers?("logs.>", "flows.raw.netflow")
       refute Config.nats_filter_covers?("events.>", "flows.raw.netflow")
+    end
+
+    test "nats_filters_intersect? catches non-probe extension wildcards" do
+      assert Config.nats_filters_intersect?("flows.*.vendor", "flows.raw.>")
+      assert Config.nats_filters_intersect?("flows.raw.custom.>", "flows.raw.>")
+      assert Config.nats_filters_intersect?("flow.*.vendor", "flow.host-slice.>")
+      assert Config.nats_filter_overlaps_flow_namespace?("flows.*.vendor")
+      assert Config.nats_filter_overlaps_flow_namespace?("flows.raw.custom.>")
+      refute Config.nats_filter_overlaps_flow_namespace?("flows.raw.vendor")
+      refute Config.nats_filter_overlaps_flow_namespace?("logs.>")
+    end
+
+    test "load rejects shared FLOWS_RAW with mid-token wildcard filter" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      on_exit(fn ->
+        if previous == [] do
+          Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+        else
+          Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+        end
+      end)
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.put(previous, :streams, [
+          %{name: "FLOWS_RAW", subject: "flows.*.vendor", processor: Flows}
+        ])
+      )
+
+      assert_raise ArgumentError, ~r/intersects/, fn ->
+        Config.load()
+      end
+
+      if previous == [] do
+        Application.delete_env(:serviceradar_core, ServiceRadar.EventWriter)
+      else
+        Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+      end
     end
 
     test "load rejects host-slice in main streams list" do

@@ -217,8 +217,8 @@ The published chart defaults stay conservative and mostly single-replica so firs
 - `logCollector.replicaCount=3`
 - `logCollector.tcpCollector.replicaCount=3`
 - `trapd.replicaCount=3`
-- `flowCollector.replicaCount=3`
-- `bmpCollector.replicaCount=3`
+- `flowCollector.replicaCount=1` (single pod + Recreate + RWO marker PVC; JetStream HA is `config.stream_replicas=3`)
+- `bmpCollector` is not scaled by the demo HA bullet list unless an overlay enables it
 
 The control-plane and ingest workers above rely on shared JetStream durable consumers or shared streams. The important knobs are:
 
