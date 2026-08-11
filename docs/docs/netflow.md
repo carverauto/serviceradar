@@ -6,52 +6,32 @@ title: NetFlow Ingest Guide
 
 ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The flow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX and sFlow exports from network devices and processes them through the ServiceRadar pipeline.
 
-For host process attribution on top of NetFlow, enable the
-[Host Network Visibility](./netprobe.md) add-on on the relevant agent hosts. For pod,
-namespace, container, and image enrichment, enable the separate
-[Workload Identity](./workload-identity.md) add-on. The central pipeline joins these
-streams and exposes the result through `in:attributed_flows`, flow details, and the
-dashboard NetFlow map.
-
-When investigating **public VIP or cloud LB destinations** (for example
-`dst_ip` is a MetalLB or cloud load balancer address), the central correlator
-joins [Kubernetes Public Endpoint Inventory](./k8s-public-endpoint-inventory.md)
-with netprobe so **Attributed Flows** carry process *and* Service/Gateway owner
-fields (`attribution.public_endpoint`). Inventory remains queryable via
-`in:public_endpoints` and does not require host agents to hold Kubernetes API
-credentials.
-
-**SRQL tips for investigation:**
-
-```srql
-in:flows time:last_24h port:22 sort:time:desc limit:50
-in:flows time:last_24h ip:<vip> sort:time:desc limit:50
-in:attributed_flows time:last_24h ip:<vip> sort:time:desc limit:50
-in:attributed_flows time:last_24h service_name:<owner> sort:time:desc limit:50
-in:public_endpoints port:22 limit:50
-```
-
-`port:` and `ip:` match **either** side of the 5-tuple (there is no
-`(dst_port:X OR src_port:X)` syntax). Raw `in:flows` can show SSH while
-`in:attributed_flows port:22` is empty if process join has not fired yet. More
-recipes: [SRQL Cookbook](./srql-cookbook.md#attributed-flows-and-public-endpoints).
+Host process and workload attribution is not currently joined into this NetFlow
+pipeline. The [Host Network Visibility](./netprobe.md) and
+[Workload Identity](./workload-identity.md) add-ons can collect the two input data
+sets, but the former central `HostSliceSubscriber` / `AttributedFlowJoiner` runtime
+is not shipped in this release. Do not expect `in:attributed_flows` or attributed
+map output until the follow-up joiner work lands.
 
 ## Architecture Overview
 
 ServiceRadar uses a single canonical NetFlow ingest path:
 
 ```
-Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_activity
-   (v5/v9/IPFIX)    (Rust, UDP:2055)          (protobuf decode)   (canonical flow store)
-                                                └──────────────→ bgp_routing_info
-                                                                   (derived BGP analytics)
+Network Devices → NetFlow Collector → NATS JetStream stream `flows` → EventWriter (flow pipeline)
+   (v5/v9/IPFIX)    (Rust, UDP:2055)   subject flows.raw.netflow        (dedicated Broadway demand)
+                                              │
+                                              ▼
+                                    ocsf_network_activity  (+ bgp_routing_info)
 ```
+
+Raw flows use a **dedicated JetStream stream** (`flows` by default), not the shared multi-signal `events` bus used for logs/OTEL/Falco. EventWriter consumes flows on a **separate Broadway pipeline** so GenStage demand is not fair-shared with other telemetry.
 
 **Key Components:**
 - **Flow Collector**: Rust daemon listening on UDP port 2055 for NetFlow (configurable) and UDP port 6343 for sFlow when enabled
 - **AutoScopedParser**: RFC-compliant per-source template isolation
-- **NATS JetStream**: Reliable message transport carrying protobuf `FlowMessage` bytes on `flows.raw.netflow`
-- **EventWriter**: Elixir/Broadway processor that decodes protobuf, persists OCSF flow rows, and derives BGP observations
+- **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
+- **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
 - **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`
 - **Web UI**: NetFlow dashboard with BGP topology visualization
@@ -94,6 +74,14 @@ spec:
 Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTOR_ADDRESS>:6343/UDP`. Keep the actual collector address in private operations material. Syslog can use a shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 **Docker Compose:**
+
+The shipped Compose stack enables the flow, trap, and BMP collectors together
+with `docker compose --profile network-ingest up -d`. Its bounded JetStream
+reservations are KV 2 GiB + objects 2 GiB + events 2 GiB + flows 1 GiB + BMP
+128 MiB = 7.125 GiB. That leaves 896 MiB of account headroom under the generated
+8 GiB platform-account quota, which itself stays below the NATS server's 10G
+decimal per-server file-store limit.
+
 ```yaml
 services:
   flow-collector:
@@ -232,10 +220,11 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 {
   "nats_url": "nats://nats:4222",
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
-  "stream_name": "events",
+  "stream_name": "flows",
   "stream_subjects": ["flows.raw.netflow", "flows.raw.sflow"],
   "stream_max_bytes": 10737418240,
-  "stream_replicas": 1,
+  "stream_max_age_secs": 21600,
+  "stream_replicas": 3,
   "partition": "default",
   "listeners": [
     {
@@ -278,10 +267,11 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 **Top-level parameters:**
 - `nats_url`: NATS endpoint for JetStream publishing
 - `nats_creds_file`: Optional path to NATS credentials file
-- `stream_name`: JetStream stream for flow subjects (default: events)
+- `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes (default: 10 GiB)
-- `stream_replicas`: JetStream replica count (default: 1, must be > 0)
+- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** as part of the bounded 7.125 GiB aggregate described above. Tenant overlays use ≤256 MiB under 2G file stores. Helm production default is **10 GiB / R=3** with datasvc KV/object budgets sized to fit a **30Gi PVC / 30G maxFileStore**. **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band before raising retention further.
+- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream; EventWriter must not shrink those limits on reconcile.
+- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. Size `nats.jetstream.maxFileStore` within the **existing** PVC capacity.
 - `partition`: Partition tag applied to ingested flows (default: `default`)
 - `listeners`: One entry per UDP socket (`netflow` or `sflow`)
 - `channel_size`: Bounded channel depth (default: 10,000)
@@ -371,15 +361,70 @@ grep -i "error\|warn" /var/log/flow-collector.log
 ### 4. Query NATS Stream
 
 ```bash
-# Check stream has messages
-nats stream info events
+# Raw NetFlow lives on the dedicated `flows` stream (not shared `events`).
+nats stream info flows
 
-# Should show flows.raw.netflow in the subjects list.
+# Should list flows.raw.netflow / flows.raw.sflow in the subjects list and show
+# recent last_seq growth while exporters are active.
 #
-# Note: If an old `flows` stream already owns flows.raw.netflow, delete it so the
-# `events` stream can claim the subject:
-# nats stream rm flows
+# Do NOT delete the `flows` stream — it is the canonical raw-flow bus.
+#
+# Cutover (coordinated):
+# 1. Deploy core EventWriter with flow pipeline dual-consume enabled
+#    (EVENT_WRITER_FLOW_DRAIN_EVENTS=true, default). Drain durables reuse the
+#    pre-cutover durable names so ACK cursors continue (no full-history replay).
+# 2. Helm uses Deployment strategy Recreate for flow-collector so the legacy
+#    publisher is terminated before the new pod starts. Readiness requires
+#    /var/lib/serviceradar/flow-collector.ready (written only after JetStream
+#    rehome/ensure succeeds). Rehome marker lives on the data PVC at
+#    rehome_state_path (/var/lib/serviceradar/flow-collector-rehome.json).
+# 3. New collector detaches subjects from events, attaches them on flows, then
+#    publishes with Nats-Msg-Id retries (preferred dedup window 120s, capped by stream max_age and the NATS server limit).
+# 4. When events drain consumers report num_pending=0, set
+#    EVENT_WRITER_FLOW_DRAIN_EVENTS=false and restart core.
 ```
+
+#### Downgrading across the stream-ownership cutover
+
+Do not run a plain `helm rollback` to a revision whose flow collector still uses
+`stream_name: events`. Helm restores that old image and old ConfigMap together,
+but the old image cannot detach `flows.raw.*` from the dedicated `flows` stream.
+NATS then rejects its attempt to attach the same subjects to `events`. The old
+chart's process-only readiness probe can still report Ready while publishing is
+stuck.
+
+Use the migration-capable current image to transfer ownership back first, then
+restore the old revision:
+
+```bash
+scripts/prepare-flow-collector-rollback.sh \
+  --release serviceradar \
+  --namespace demo \
+  --revision <legacy-helm-revision>
+```
+
+The helper fails closed unless the target revision contains the legacy `events`
+configuration and the current Deployment uses `Recreate` plus the ready-file
+probe. It patches only the current flow ConfigMap to `events`, restarts the
+current image, waits until its reverse-transfer path is ready, checks the
+`legacy events stream` confirmation log, and only then invokes `helm rollback`.
+
+For ArgoCD or another GitOps controller, pause automatic reconciliation and
+export the target revision's rendered `flow-collector.json` ConfigMap value to a
+standalone file. ArgoCD does not create Helm release history, so validate that
+artifact directly:
+
+```bash
+scripts/prepare-flow-collector-rollback.sh \
+  --namespace demo \
+  --prepare-only \
+  --target-config /path/to/legacy-flow-collector.json
+```
+
+After it reports success, immediately point GitOps at the revision that produced
+that file. If you abandon the downgrade, re-apply the current chart/values so the
+current image rehomes the subjects forward to `flows`; do not leave the live
+ConfigMap different from the desired release.
 
 ### 5. Query Database
 

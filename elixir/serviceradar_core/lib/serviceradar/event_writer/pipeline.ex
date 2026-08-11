@@ -42,10 +42,16 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   @doc """
   Starts the Broadway pipeline.
+
+  Options:
+  - `:name` — Broadway process name (default `__MODULE__`). Use a distinct name
+    for the dedicated flow pipeline so GenStage demand is not shared.
   """
-  def start_link(%Config{} = config) do
+  def start_link(%Config{} = config, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
     Broadway.start_link(__MODULE__,
-      name: __MODULE__,
+      name: name,
       producer: [
         module: {ServiceRadar.EventWriter.Producer, config},
         transformer: {__MODULE__, :transform, []},
@@ -56,6 +62,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       ],
       batchers: build_batchers(config)
     )
+  end
+
+  def child_spec({%Config{} = config, opts}) when is_list(opts) do
+    name = Keyword.get(opts, :name, __MODULE__)
+
+    %{
+      id: name,
+      start: {__MODULE__, :start_link, [config, opts]},
+      type: :supervisor,
+      restart: :permanent,
+      shutdown: 10_000
+    }
+  end
+
+  def child_spec(%Config{} = config) do
+    child_spec({config, []})
   end
 
   # Processor concurrency was 4 in the Go->Elixir migration, which under-utilized
@@ -351,15 +373,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp reason_class(_reason), do: "error"
 
   defp build_batchers(config) do
+    # Collapse all raw-flow streams (live + drain + extras) onto :flows_raw so
+    # the batcher set matches batcher_rules/0 routing (flows.raw.* → :flows_raw).
     stream_batchers =
-      Keyword.new(config.streams, fn stream ->
-        batcher_name = stream_to_batcher_name(stream.name)
+      Enum.reduce(config.streams, [], fn stream, acc ->
+        batcher_name =
+          if Config.flow_stream?(stream) do
+            :flows_raw
+          else
+            stream_to_batcher_name(stream.name)
+          end
 
-        {batcher_name,
-         [
-           batch_size: stream[:batch_size] || config.batch_size,
-           batch_timeout: stream[:batch_timeout] || config.batch_timeout
-         ]}
+        if Keyword.has_key?(acc, batcher_name) do
+          acc
+        else
+          Keyword.put(acc, batcher_name,
+            batch_size: stream[:batch_size] || config.batch_size,
+            batch_timeout: stream[:batch_timeout] || config.batch_timeout
+          )
+        end
       end)
 
     if Keyword.has_key?(stream_batchers, :default) do
@@ -460,8 +492,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:logs, &String.starts_with?(&1, "logs.")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
-      {:sflow_raw, &String.starts_with?(&1, "flows.raw.sflow")},
-      {:netflow_raw, &String.starts_with?(&1, "flows.raw.netflow")}
+      # Catch-all before specific prefixes are unnecessary: every raw-flow
+      # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
+      # flow.host-slice.* is intentionally excluded (attribution joining is
+      # currently unsupported / out of scope for this pipeline).
+      {:flows_raw, &String.starts_with?(&1, "flows.raw.")}
     ]
   end
 
@@ -519,7 +554,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
   defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
-
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals
@@ -528,6 +562,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:flows_raw), do: Flows
   defp get_processor(:sflow_raw), do: Flows
   defp get_processor(:netflow_raw), do: Flows
   defp get_processor(_), do: ServiceRadar.EventWriter.Processors.Default

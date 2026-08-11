@@ -226,9 +226,14 @@ trapd:
 flowCollector:
   enabled: true
   replicaCount: 1
-  streamReplicas: 3
+  # stream_replicas is the value the collector ConfigMap serializes (R=1 under 2G file store).
   config:
-    stream_replicas: 3
+    # Dedicated flows stream; size under tenant nats.jetstream.maxFileStore (2G).
+    stream_name: "flows"
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    stream_max_bytes: 268435456
+    stream_max_age_secs: 3600
+    stream_replicas: 1
   service:
     type: LoadBalancer
     ports:

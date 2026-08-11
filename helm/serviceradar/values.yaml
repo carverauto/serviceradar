@@ -202,8 +202,15 @@ nats:
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
-    maxFileStore: 10G
+    # Decimal G (10^9). 30G ≈ 27.9 GiB usable for JetStream file store on the
+    # default 30Gi PVC (binary). volumeClaimTemplates are immutable — do not
+    # raise persistence.size via Helm on a live StatefulSet; expand PVCs
+    # out-of-band first if you need larger stream reservations.
+    # Capacity-safe R=3 budget (binary GiB): KV 4 + objects 10 + events 2 + flows 10
+    # = 26 GiB < 30G maxFileStore. Raising flows above 10 GiB requires PVC expand.
+    maxFileStore: 30G
   persistence:
+    # Immutable after first install for this StatefulSet. Keep stable defaults.
     size: 30Gi
     storageClassName: ""
 certs:
@@ -1259,14 +1266,15 @@ datasvc:
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).
   jetstreamReplicas: 3
   # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
-  bucketMaxBytes: "5368709120"
+  # 4 GiB — capacity-safe with R=3 flows@10GiB under 30G maxFileStore.
+  bucketMaxBytes: "4294967296"
   # Maximum size for one uploaded object payload.
   objectMaxBytes: "536870912"
   # Reserved capacity for the object stream (OBJ_serviceradar-objects).
-  # Sizing target: retained agent release tarballs + all native add-on tarballs
-  # across supported OS/arch pairs + plugin blobs, then roughly 2x import and
-  # rollback headroom. Keep this comfortably above the active working set.
-  objectStoreBytes: "17179869184"
+  # 10 GiB (down from 16 GiB) so KV+objects+events+flows fit the default
+  # 30Gi PVC / 30G maxFileStore. Expand PVC out-of-band before raising this
+  # back for large multi-arch agent release retention.
+  objectStoreBytes: "10737418240"
   data:
     enabled: false
     accessModes:
@@ -1504,15 +1512,25 @@ trapd:
 flowCollector:
   enabled: false
   replicaCount: 1
-  # flow-collector publishes raw flow subjects into the shared "events" stream.
-  streamReplicas: 3
+  # Must match FLOW_COLLECTOR_READY_PATH / readinessProbe (default path).
+  readyPath: "/var/lib/serviceradar/flow-collector.ready"
+  terminationGracePeriodSeconds: 45
+  # flow-collector publishes raw flow subjects into the dedicated "flows" stream
+  # (isolated from the shared multi-signal "events" bus). Stream HA is only
+  # config.stream_replicas (serialized into flow-collector.json); there is no
+  # top-level flowCollector.streamReplicas key.
   config:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
-    stream_name: "events"
-    # Reserved capacity for the shared "events" stream when flow collectors reconcile it.
+    stream_name: "flows"
+    # 10 GiB / 6h / R=3 — order-of-magnitude above the historical 1 GiB shared
+    # pin. Fits default 30G maxFileStore with KV 4 + objects 10 + events 2.
+    # Raise further only after out-of-band PVC expand + maxFileStore bump.
     stream_max_bytes: 10737418240
+    stream_max_age_secs: 21600
     stream_replicas: 3
+    rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
+    ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
