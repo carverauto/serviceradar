@@ -133,12 +133,77 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
-- Bazel images: `bazel run //docker/images:<target>_push`.
+- Bazel images: see [Publishing container images](#publishing-container-images). The bare
+  `bazel run //docker/images:<target>_push` only works on linux/amd64 — read that section
+  before pushing from a workstation.
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
 - Rust dep bump (cargo + Bazel in one go): `make update-rust-deps REPIN=workspace`, or `scripts/update-rust-bazel-deps.sh [update-mode] [verify-target]` — runs `cargo update` → `cargo check` → `scripts/vendor.sh` → `bazel build`. To only regenerate the vendored tree after hand-editing the root `Cargo.toml`: `scripts/vendor.sh`. See [Rust Dependency Management](#rust-dependency-management).
 - Elixir workspace quality contract: `./scripts/elixir_quality.sh --project elixir/<project>` and add `--phoenix` for Phoenix apps such as `elixir/web-ng`.
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
+
+### Publishing container images
+
+Bazel owns image publishing. Every rule below was learned by breaking it.
+
+- **Canonical command — exactly what CI runs** (`publish-oci.yml`):
+
+  ```bash
+  bazel run -c opt --config=ci --remote_download_outputs=all --stamp //:push
+  ```
+
+  `//:push` publishes every image; `//docker/images:<img>_push` publishes one.
+
+- **`--remote_download_outputs=all` is mandatory for any push or sign run.** `--config=ci`
+  inherits `--remote_download_minimal` from `remote_base`, so the image-index metadata
+  cosign reads back is never materialized locally. This is the documented reason the old
+  auto-publish trigger on `publish-oci.yml` "always failed at signing".
+
+- **`--stamp` is what produces the `sha-*` tag.** `docker/images/push_targets.bzl` templates
+  `sha-{{STABLE_COMMIT_SHA}}`; without `--stamp` it degrades to the literal `sha-dev`. The
+  published tag carries the **full 40-char** SHA (`sha-ff49c188e6b0…`), not the short form.
+  `--stamp` does invalidate cached actions — that is the expected cost, not a bug to route
+  around.
+
+- **A `_push` target cannot run on macOS.** `--config=ci` → `remote_base` pins `--platforms`,
+  `--host_platform` *and* `--extra_execution_platforms` to `//build/rbe:rbe_platform`
+  (linux/amd64). `_push` is therefore a **linux executable** whose runfiles (`jq`, `crane`)
+  are linux binaries, and `bazel run` executes it on the host:
+
+  ```
+  .../aspect_bazel_lib++toolchains+jq_linux_amd64/jq: cannot execute binary file: Exec format error
+  ```
+
+  This is correct behaviour, not a misconfiguration: the image content must be linux/amd64.
+  The bare `bazel run //docker/images:<img>_push` in README-Docker.md assumes a linux
+  workstation.
+
+- **Do not try to make it run locally.** Two dead ends, both verified:
+  - Adding `@platforms//host` to `--extra_execution_platforms` drops the BuildBuddy
+    crosstool; abseil then fails on the remote executor with
+    `#error "This package requires GCC 7 or higher."` (~8 min to discover).
+  - Overriding `--host_platform` alone changes nothing — execution platforms win toolchain
+    resolution, and you still get `jq_linux_amd64`.
+
+- **Do not reach for `crane`, `skopeo`, `docker push`, or hand-swapped runfiles binaries.**
+  If bazel cannot push it, fix the platform or use CI — do not sidestep the build system.
+
+- **From a non-linux workstation, publish through CI:** dispatch
+  `.forgejo/workflows/publish-oci.yml` (`workflow_dispatch` only — the `push:` trigger was
+  deliberately removed), or `release.yml` for a semver release. Both run on
+  `serviceradar-signing` linux runners and handle Harbor auth + cosign.
+
+- **Pre-flight the graph without building anything:**
+
+  ```bash
+  bazel build -c opt --config=ci --remote_download_outputs=all --nobuild \
+    //:push //build/release:publish_packages
+  bazel run -c opt --config=ci --remote_download_outputs=all \
+    //build/release:publish_packages -- --tag vX --commit "$(git rev-parse HEAD)" --dry_run
+  ```
+
+- `--config=remote` exists on `main` but **not on `staging`**, so it is not portable between
+  branches. Use `--config=ci`.
 
 ### Adding or changing a native add-on
 
