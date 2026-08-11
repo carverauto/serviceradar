@@ -4265,6 +4265,28 @@
         },
         "type": "object"
       },
+      "alert-filter-snooze_until": {
+        "additionalProperties": false,
+        "description": "Suppress notification dispatch for this alert until this time.\n\nDeliberately NOT a state-machine state: `state_attribute` is `:status`\nand no declared state could be a `:snooze` target. \"Snoozed\" is a derived\ncondition - `status in [:pending, :escalated] and snooze_until > now()` -\nwhich keeps snooze-expiry resumption a pure timestamp comparison and\navoids auditing every existing `status` filter for a new value.\n",
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
       "interface_classification_rule-filter-model_pattern": {
         "additionalProperties": false,
         "description": "Regex pattern for device model match",
@@ -4873,6 +4895,19 @@
                 ],
                 "description": "User who acknowledged. Field included by default."
               },
+              "acknowledged_by_user_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Platform user who acknowledged, when one can be identified.\n\nThe free-text `acknowledged_by` is retained alongside this for external\nprincipals (a chat or paging identity with no platform user).\n. Field included by default."
+              },
               "agent_uid": {
                 "anyOf": [
                   {
@@ -5107,6 +5142,15 @@
                   "emergency"
                 ],
                 "type": "string"
+              },
+              "snooze_until": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Suppress notification dispatch for this alert until this time.\n\nDeliberately NOT a state-machine state: `state_attribute` is `:status`\nand no declared state could be a `:snooze` target. \"Snoozed\" is a derived\ncondition - `status in [:pending, :escalated] and snooze_until > now()` -\nwhich keeps snooze-expiry resumption a pure timestamp comparison and\navoids auditing every existing `status` filter for a new value.\n. Field included by default."
               },
               "source_id": {
                 "anyOf": [
@@ -7457,6 +7501,55 @@
         },
         "type": "object"
       },
+      "alert-filter-acknowledged_by_user_id": {
+        "additionalProperties": false,
+        "description": "Platform user who acknowledged, when one can be identified.\n\nThe free-text `acknowledged_by` is retained alongside this for external\nprincipals (a chat or paging identity with no platform user).\n",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-if_speed": {
         "additionalProperties": false,
         "description": "Interface speed in bits per second (legacy)",
@@ -9096,6 +9189,9 @@
             "type": "array",
             "uniqueItems": true
           },
+          "acknowledged_by_user_id": {
+            "$ref": "#/components/schemas/alert-filter-acknowledged_by_user_id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/alert-filter-source_type"
           },
@@ -9179,6 +9275,9 @@
           },
           "agent": {
             "$ref": "#/components/schemas/agent-filter"
+          },
+          "snooze_until": {
+            "$ref": "#/components/schemas/alert-filter-snooze_until"
           },
           "metadata": {
             "$ref": "#/components/schemas/alert-filter-metadata"
@@ -15920,12 +16019,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -16491,7 +16590,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata))*$",
               "type": "string"
             },
             "style": "form"
@@ -16549,12 +16648,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -16629,12 +16728,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -16953,12 +17052,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -17960,7 +18059,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata))*$",
               "type": "string"
             },
             "style": "form"
@@ -18014,12 +18113,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -22252,7 +22351,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|metadata|-metadata|\\+\\+metadata|--metadata))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|title|-title|\\+\\+title|--title|description|-description|\\+\\+description|--description|severity|-severity|\\+\\+severity|--severity|status|-status|\\+\\+status|--status|source_type|-source_type|\\+\\+source_type|--source_type|source_id|-source_id|\\+\\+source_id|--source_id|service_check_id|-service_check_id|\\+\\+service_check_id|--service_check_id|device_uid|-device_uid|\\+\\+device_uid|--device_uid|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|event_id|-event_id|\\+\\+event_id|--event_id|event_time|-event_time|\\+\\+event_time|--event_time|metric_name|-metric_name|\\+\\+metric_name|--metric_name|metric_value|-metric_value|\\+\\+metric_value|--metric_value|threshold_value|-threshold_value|\\+\\+threshold_value|--threshold_value|comparison|-comparison|\\+\\+comparison|--comparison|triggered_at|-triggered_at|\\+\\+triggered_at|--triggered_at|acknowledged_at|-acknowledged_at|\\+\\+acknowledged_at|--acknowledged_at|acknowledged_by|-acknowledged_by|\\+\\+acknowledged_by|--acknowledged_by|resolved_at|-resolved_at|\\+\\+resolved_at|--resolved_at|resolved_by|-resolved_by|\\+\\+resolved_by|--resolved_by|resolution_note|-resolution_note|\\+\\+resolution_note|--resolution_note|escalated_at|-escalated_at|\\+\\+escalated_at|--escalated_at|escalation_level|-escalation_level|\\+\\+escalation_level|--escalation_level|escalation_reason|-escalation_reason|\\+\\+escalation_reason|--escalation_reason|notification_count|-notification_count|\\+\\+notification_count|--notification_count|last_notification_at|-last_notification_at|\\+\\+last_notification_at|--last_notification_at|suppressed_until|-suppressed_until|\\+\\+suppressed_until|--suppressed_until|snooze_until|-snooze_until|\\+\\+snooze_until|--snooze_until|acknowledged_by_user_id|-acknowledged_by_user_id|\\+\\+acknowledged_by_user_id|--acknowledged_by_user_id|metadata|-metadata|\\+\\+metadata|--metadata))*$",
               "type": "string"
             },
             "style": "form"
@@ -22277,12 +22376,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -23481,12 +23580,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags"
+                "alert": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags"
               },
               "properties": {
                 "alert": {
                   "description": "Comma separated field names for alert",
-                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,metadata,tags",
+                  "example": "id,title,description,severity,status,source_type,source_id,service_check_id,device_uid,agent_uid,event_id,event_time,metric_name,metric_value,threshold_value,comparison,triggered_at,acknowledged_at,acknowledged_by,resolved_at,resolved_by,resolution_note,escalated_at,escalation_level,escalation_reason,notification_count,last_notification_at,suppressed_until,snooze_until,acknowledged_by_user_id,metadata,tags",
                   "type": "string"
                 }
               },
@@ -23509,6 +23608,18 @@
                         "properties": {
                           "acknowledged_by": {
                             "type": "string"
+                          },
+                          "acknowledged_by_user_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Platform user who acknowledged, when one can be identified.\n\nThe free-text `acknowledged_by` is retained alongside this for external\nprincipals (a chat or paging identity with no platform user).\n"
                           },
                           "note": {
                             "anyOf": [
