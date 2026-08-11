@@ -16,10 +16,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </p>
 
       <!-- Error Display -->
-      <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
+      <div
+        :if={@csv_errors != []}
+        class={ui_alert_class(variant: if(@csv_preview, do: "warning", else: "error"), class: "my-4")}
+      >
         <.icon name="hero-exclamation-circle" class="size-5" />
         <div>
-          <div class="font-semibold">Import Error</div>
+          <%!-- A preview alongside messages means rows were skipped, not that the import failed. --%>
+          <div class="font-semibold">
+            {if @csv_preview, do: "Skipped Rows", else: "Import Error"}
+          </div>
           <ul class="text-sm list-disc list-inside">
             <%= for error <- @csv_errors do %>
               <li>{error}</li>
@@ -47,14 +53,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
               <tr>
                 <td class="font-mono">hostname</td>
                 <td>
-                  <.ui_badge size="xs" variant="success">Yes</.ui_badge>
+                  <.ui_badge size="xs" variant="warning">Either</.ui_badge>
                 </td>
-                <td>Device hostname</td>
+                <td>Device hostname (resolved to an IP when the ip column is empty)</td>
               </tr>
               <tr>
                 <td class="font-mono">ip</td>
                 <td>
-                  <.ui_badge size="xs" variant="success">Yes</.ui_badge>
+                  <.ui_badge size="xs" variant="warning">Either</.ui_badge>
                 </td>
                 <td>IP address</td>
               </tr>

@@ -8,6 +8,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  # How many skipped rows to name individually before collapsing the rest into
+  # a count. Naming every row in a mostly-bad 10k-row file would bury the UI.
+  @max_reported_skips 10
+
+  @doc """
+  Parses an uploaded CSV into device maps.
+
+  Returns `{:ok, devices, warnings}` on success. `warnings` names the rows that
+  were skipped and why; they used to be dropped silently, which turned a
+  malformed row into an import that was quietly short.
+
+  A row needs a hostname or an IP, not both — `ManualDeviceCreator` resolves a
+  hostname-only device via DNS and accepts an IP-only device as-is.
+  """
   @sobelow_skip ["Traversal.FileModule"]
   def parse_csv_file(path) do
     content = File.read!(path)
@@ -18,25 +32,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
 
       {:ok, [header | data_rows]} ->
         headers = Enum.map(header, &String.trim/1)
-        required = ["hostname", "ip"]
-        missing = required -- Enum.map(headers, &String.downcase/1)
+        downcased = Enum.map(headers, &String.downcase/1)
 
-        if missing == [] do
+        if "hostname" in downcased or "ip" in downcased do
           header_map = headers |> Enum.with_index() |> Map.new()
-          devices = Enum.map(data_rows, &parse_device_row(&1, header_map))
-          valid_devices = Enum.filter(devices, &(&1 != nil))
 
-          case valid_devices do
-            [] -> {:error, ["No valid device rows found in CSV"]}
-            _ -> {:ok, valid_devices}
+          # Row 1 is the header, so data rows start at line 2.
+          {devices, skipped} =
+            data_rows
+            |> Enum.with_index(2)
+            |> Enum.map(fn {values, line} -> parse_device_row(values, header_map, line) end)
+            |> Enum.split_with(&match?({:ok, _}, &1))
+
+          devices = Enum.map(devices, fn {:ok, device} -> device end)
+          warnings = skip_warnings(skipped)
+
+          case devices do
+            [] -> {:error, ["No valid device rows found in CSV" | warnings]}
+            _ -> {:ok, devices, warnings}
           end
         else
-          {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
+          {:error, ["CSV must include a hostname or ip column"]}
         end
     end
   rescue
     e ->
       {:error, ["Failed to parse CSV: #{inspect(e)}"]}
+  end
+
+  defp skip_warnings([]), do: []
+
+  defp skip_warnings(skipped) do
+    reported =
+      skipped
+      |> Enum.take(@max_reported_skips)
+      |> Enum.map(fn {:skip, line, reason} -> "Row #{line} skipped: #{reason}" end)
+
+    case length(skipped) - length(reported) do
+      0 -> reported
+      remaining -> reported ++ ["... and #{remaining} more row(s) skipped"]
+    end
   end
 
   defp parse_csv_rows(content) when is_binary(content) do
@@ -113,18 +148,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   defp finalize_csv_rows([[""] | rest]), do: Enum.reverse(rest)
   defp finalize_csv_rows(rows), do: Enum.reverse(rows)
 
-  defp parse_device_row(values, header_map) do
-    hostname = get_csv_value(values, header_map, "hostname")
-    ip = get_csv_value(values, header_map, "ip")
+  defp parse_device_row(values, header_map, line) do
+    hostname = trimmed_csv_value(values, header_map, "hostname")
+    ip = trimmed_csv_value(values, header_map, "ip")
 
-    if hostname && hostname != "" && ip && ip != "" do
-      %{
-        hostname: hostname,
-        ip: ip,
-        type: get_csv_value(values, header_map, "type") || "",
-        tags: parse_tags(get_csv_value(values, header_map, "tags"))
-      }
+    if hostname == "" and ip == "" do
+      {:skip, line, "needs a hostname or an ip"}
+    else
+      {:ok,
+       %{
+         hostname: hostname,
+         ip: ip,
+         type: get_csv_value(values, header_map, "type") || "",
+         tags: parse_tags(get_csv_value(values, header_map, "tags"))
+       }}
     end
+  end
+
+  defp trimmed_csv_value(values, header_map, column) do
+    values
+    |> get_csv_value(header_map, column)
+    |> Kernel.||("")
+    |> String.trim()
   end
 
   defp get_csv_value(values, header_map, column) do

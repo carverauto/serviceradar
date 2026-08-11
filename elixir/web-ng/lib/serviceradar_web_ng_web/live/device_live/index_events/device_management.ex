@@ -129,8 +129,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
           end)
 
         case result do
-          {:ok, devices} ->
-            {:noreply, socket |> assign(:csv_preview, devices) |> assign(:csv_errors, [])}
+          # Warnings name rows that were skipped; the preview still shows the
+          # rows that parsed, so a partly-bad file is visibly partial.
+          {:ok, devices, warnings} ->
+            {:noreply, socket |> assign(:csv_preview, devices) |> assign(:csv_errors, warnings)}
 
           {:error, errors} ->
             {:noreply, socket |> assign(:csv_preview, nil) |> assign(:csv_errors, errors)}
