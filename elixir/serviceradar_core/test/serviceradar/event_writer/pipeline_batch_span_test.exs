@@ -31,6 +31,11 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
     old_injector = :opentelemetry.get_text_map_injector()
     old_extractor = :opentelemetry.get_text_map_extractor()
 
+    old_otel_env =
+      Map.new([:traces_exporter, :processors, :sampler], fn key ->
+        {key, Application.fetch_env(:opentelemetry, key)}
+      end)
+
     :opentelemetry.set_text_map_propagator(:otel_propagator_trace_context)
 
     # Ensure the application-scoped tracer cache contains the pre-restart
@@ -43,9 +48,11 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
 
     on_exit(fn ->
       Application.stop(:opentelemetry)
-      Application.delete_env(:opentelemetry, :traces_exporter)
-      Application.delete_env(:opentelemetry, :processors)
-      Application.delete_env(:opentelemetry, :sampler)
+
+      Enum.each(old_otel_env, fn {key, value} ->
+        restore_application_env(key, value)
+      end)
+
       {:ok, _} = Application.ensure_all_started(:opentelemetry)
 
       :opentelemetry.set_text_map_injector(old_injector)
@@ -54,6 +61,11 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
 
     :ok
   end
+
+  defp restore_application_env(key, {:ok, value}),
+    do: Application.put_env(:opentelemetry, key, value)
+
+  defp restore_application_env(key, :error), do: Application.delete_env(:opentelemetry, key)
 
   defp message(headers) do
     %{metadata: %{subject: "events.poller.status", headers: headers}}

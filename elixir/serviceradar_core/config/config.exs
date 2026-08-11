@@ -24,6 +24,11 @@ config :ash_oban,
   oban_name: Oban,
   oban_module: ServiceRadar.Oban.Router
 
+# Export is opt-in at the host boundary. Core can be started standalone by
+# tests and tooling that do not evaluate a host application's runtime.exs; in
+# those contexts the SDK's default localhost HTTP exporter is unintended.
+config :opentelemetry, traces_exporter: :none
+
 # Default Oban configuration (can be overridden by host app)
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
