@@ -81,7 +81,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   **The only permitted exception is a hard corner case that genuinely cannot be a Bazel
   action**, and it must be justified in a comment at the top of the file. Today that means
   credential handling that must not become an action input: Docker/registry authentication
-  and cosign/OpenBao signing setup. "It was easier" is not a corner case.
+  and cosign/OpenBao signing setup, plus materializing rotating SRQL fixture credentials in
+  the Bazel client's environment before database test actions start. "It was easier" is not
+  a corner case.
 
   Corollaries:
   - Work an existing script does belongs in a target. `//rust/integration-db` already
@@ -660,9 +662,9 @@ Restart the checker using the persisted config:
    - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
 3. Build and push Bazel release artifacts:
    - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
-   - Run `bazel build --config=remote $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
+   - Run `bazel build -c opt --config=ci $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
    - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing, run `bazel run --config=remote //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`).
+   - If a single image needs republishing on Linux/CI, use `bazel run -c opt --config=ci --stamp //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`). On macOS use `make push_all`; direct `cache_only` image targets preserve the Darwin platform and cannot produce a valid Linux image.
    - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
    - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
 4. Roll the demo namespace:
@@ -806,51 +808,30 @@ SHOW search_path;
 
 ## SRQL Fixture Integration Tests
 
-Use this when `elixir/serviceradar_core` integration tests need the shared CNPG/AGE fixture in the `srql-fixtures` namespace.
+Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
+the shared CNPG/AGE fixture. There is deliberately no orchestration script: invoke the guarded
+Bazel lifecycle in order as the caller:
 
-### 1. Start a local port-forward to the primary
-
-```bash
-kubectl port-forward -n srql-fixtures pod/srql-fixture-1 5455:5432
+```text
+sweep -> prepare template -> migrate if pending -> provision -> test -> teardown
 ```
 
-If the pod name changes, get the current primary with:
+For one shard, pair `//rust/integration-db:provision_db_sN` with
+`//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and
+the eight-shard suite. Every test/lifecycle invocation needs
+`--//build:enable_integration_tests --strategy=TestRunner=local --test_tag_filters=`; prepare is
+`bazel run` and needs `--build_tag_filters=`. Always pass `--nocache_test_results` to the mutable
+database tests, and always invoke `teardown_db` after a red shard. Bazel has no cross-invocation
+finalizer; the stale sweep is the backstop for a killed host.
 
-```bash
-kubectl get cluster -n srql-fixtures
-kubectl get pods -n srql-fixtures -o wide
-```
+Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, set one unique
+numeric `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` pair for the whole sequence, and leave
+`SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
+a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
+certificate's DNS name so the Rust and Elixir clients verify the same certificate.
 
-### 2. Export fixture credentials and CA material
-
-```bash
-kubectl get secret srql-fixture-ca -n srql-fixtures \
-  -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
-
-DB_USER="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
-DB_PASS="$(kubectl get secret srql-test-db-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
-ADMIN_USER="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.username}' | base64 -d)"
-ADMIN_PASS="$(kubectl get secret srql-test-admin-credentials -n srql-fixtures -o jsonpath='{.data.password}' | base64 -d)"
-
-export SERVICERADAR_TEST_DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@127.0.0.1:5455/serviceradar_web_ng_test?sslmode=require"
-export SERVICERADAR_TEST_ADMIN_URL="postgres://${ADMIN_USER}:${ADMIN_PASS}@127.0.0.1:5455/postgres?sslmode=require"
-export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
-export CNPG_CA_FILE=/tmp/srql-fixture-ca.crt
-export SERVICERADAR_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
-export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
-```
-
-### 3. Reset, migrate, and run `serviceradar_core` integration tests
-
-```bash
-./scripts/reset-test-db.sh "$SERVICERADAR_TEST_ADMIN_URL" "$SERVICERADAR_TEST_DATABASE_URL"
-
-cd elixir/serviceradar_core
-MIX_ENV=test mix ash.migrate
-MIX_ENV=test mix test --include integration --no-start
-```
-
-Notes:
-- The shared fixture is already AGE-enabled; use it when graph-backed tests fail in CI.
-- Prefer the local port-forward over the public load balancer when working interactively; it is more predictable from a workstation.
-- `make test-integration` already wires the same reset + migrate flow if the env vars above are exported first.
+With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
+`--config=cache_only`: compilation artifacts use the public authenticated cache while
+`TestRunner` remains native. Do not use `--config=ci` for a local database test; it selects the
+Linux RBE platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this
+flow. The skill contains the exact command sequence and cleanup check.

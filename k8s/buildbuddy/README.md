@@ -12,8 +12,8 @@ provide Remote Build Execution (RBE) for the Bazel builds.
 (34.98.106.0 vs 34.98.126.170). The executor's `app_target` and the Bazel client's
 `--remote_executor` must name the *same* instance: the fleet registers with that instance's
 scheduler, so if they diverge the executors sit idle and the build silently runs somewhere
-else. The client side lives in `//.bazelrc` under `build:remote_base`, which every remote
-profile (`ci`, `remote`) inherits.
+else. The client side lives in `//.bazelrc`: `build:cache_only` owns cache/BES transport and
+`build:remote_base` (therefore `ci`) inherits it.
 
 ## Configuration
 
@@ -219,8 +219,8 @@ confused:
 | `buildbuddy-workflows` | `values-workflows.yaml` | `workflows` | 1, unscaled | 56Gi | `/mnt/buildbuddy/cache-workflows` | the CI runner |
 
 The workflow runner wants ~32GB — a Bazel server over ~2,000 targets, `--jobs=100` of input
-uploads over the WAN, and every `no-remote-exec` target executing locally. Putting that on the
-build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
+uploads over the WAN, and database-facing TestRunner processes executing locally. Putting that on
+the build fleet means either it cannot be placed (16Gi advertised) or, if you size the build fleet
 up, one runner reserves 56Gi on all three pods and squeezes out the very fan-out it is driving.
 
 Deploy the workflow fleet with the same API key the build fleet uses:
@@ -280,13 +280,13 @@ integration tier: `set -a; . "$FIXTURE_ENV"; set +a` must run in the *same shell
 bazel calls that consume it, so those belong in one multi-line `- run: |` step. Separate
 steps do not share an environment.
 
-### RBE is not on by default
+### RBE is selected by the repository profile
 
-BuildBuddy supplies `--bes_backend`, `--bes_results_url` and the API key header to every
-invocation, but *not* remote cache or remote execution — "the configuration steps are the
-same as when running Bazel locally." `--config=remote` is what enables them. Note that
-`.bazelrc.remote` (which carries `--remote_header=x-buildbuddy-api-key=...`) is gitignored
-and absent in CI; BuildBuddy injects the key itself, so this is fine.
+BuildBuddy supplies the API key header to workflow invocations, but repository profiles still
+own service and platform selection. `--config=ci` inherits `build:remote_base`, which adds the
+Linux executor/platform and inherits cache/BES transport from `build:cache_only`. The ignored
+`.bazelrc.remote` is absent in BuildBuddy workflows because the workflow runtime injects the key;
+developer workstations use that file for the same credential header.
 
 ### `self_hosted: true` requires a matching `pool`
 
@@ -366,20 +366,19 @@ To see what the executors actually register as:
 kubectl exec -n buildbuddy <executor-pod> -- printenv | grep -i pool
 ```
 
-The runner also competes with build actions for these same 3 executors and asks for
-3 CPU / 8 GB by default. Add `resource_requests` to the action if it starves the fan-out.
+The workflow action uses the dedicated `workflows` fleet described above, not these three build
+executors. Its current `resource_requests` live in `buildbuddy.yaml` (50GB memory / 40GB disk);
+change those together with `values-workflows.yaml` when adjusting placement capacity.
 
 ### Where the runner runs decides what it can reach
 
-This is not about fan-out — that works either way, because `--config=remote` names a public
-endpoint a BuildBuddy-hosted runner can dispatch through (a cloud-runner build reached 29
-concurrent actions).
-
-It matters because **`no-remote-exec` targets execute on the runner, not on an executor**.
-The DB lifecycle targets in the integration tier are `no-remote-exec`, and only an
-in-cluster runner resolves `srql-fixture-rw.srql-fixtures.svc.cluster.local`. With
-`self_hosted: false` those four fail while the 8 remote shards succeed, and the shards then
-connect to databases that were never provisioned.
+This is not about fan-out. Compile actions can still use RBE/cache. It matters because every
+database-facing **`TestRunner` action must execute on the runner that can resolve and reach
+`srql-fixture-rw.srql-fixtures.svc.cluster.local`**. The integration workflow therefore uses
+`--strategy=TestRunner=local` for the lifecycle tests and all eight shards. The prepare binary is
+`bazel run`, so Bazel builds it under the selected profile and launches it on the runner. With a
+cloud runner, lifecycle and shard actions all fail to reach the fixture rather than only the setup
+steps failing.
 
 Full reachability matrix and the fixture-credential design: `openspec/notes/bazel-bb-ci.md`.
 
@@ -428,27 +427,37 @@ kubectl logs -n buildbuddy -l app.kubernetes.io/name=buildbuddy-executor --tail=
 
 ### 2. Bazel clients through the public TLS edge (the default)
 
-`build:remote_base` in `//.bazelrc` moves only `--remote_cache` to
+`build:cache_only` in `//.bazelrc` moves only `--remote_cache` to
 `grpcs://cache-proxy.carverauto.dev:443`. That hostname terminates TLS on the shared Envoy
 gateway and forwards HTTP/2 gRPC to the proxy's ClusterIP Service on port 1985. This is what
-solves the topology mismatch that a ClusterIP could not: BuildBuddy workflow action namespaces
-and developer laptops both have ordinary internet egress and neither can route to the cluster
-service CIDR (see **Where the runner runs decides what it can reach**).
+provides one authenticated route for developer laptops, Forgejo, cloud action namespaces, and
+self-hosted workflows. The active self-hosted runner can reach the fixture ClusterIP, but it uses
+the public cache endpoint for profile consistency; other clients cannot rely on service-CIDR
+routing (see **Where the runner runs decides what it can reach**).
 
-**There is nothing to opt into.** `--config=ci` and `--config=remote` both inherit
-`remote_base`, so every remote build takes the proxy path — CI, the workflow runner, and a
-laptop running `make test` alike. The ordinary commands are the proxied commands:
+**There is nothing to opt into.** `--config=ci` inherits `remote_base`, so CI and
+`make test` take the proxy path. A host-native integration run selects `build:cache_only`
+directly, retaining the same cache/BES transport without selecting Linux RBE:
 
 ```bash
-make build-workspace          # bazel build --config=remote //...
+make build-workspace-cache    # bazel build -c opt --config=ci //...
 make test                     # bazel test -c opt --config=ci //... (unit tiers)
+bazel test -c opt --config=cache_only --config=database_env --strategy=TestRunner=local \
+  --//build:enable_integration_tests --test_tag_filters= --nocache_test_results \
+  //elixir/serviceradar_core:integration_tests_s0
 ```
+
+The shard command assumes the matching disposable database was provisioned first. Follow the
+explicit sweep/prepare/migrate/provision/test/teardown sequence in `AGENTS.md` or the
+`srql-fixtures-db-tests` skill. There is no shell wrapper: Bazel does not order lifecycle targets
+or guarantee a finalizer across invocations.
 
 `make build-workspace-cache` and `make test-cache` still exist, but only as aliases that swap in
 the CI flags — `BAZEL_CACHE_PROXY_CONFIG` in `//Makefile` is deliberately **empty**.
 
-> **Do not write `--config=cache_proxy`.** That profile was folded into `build:remote_base` and
-> no longer exists. Bazel treats an undefined config as a hard error, not a warning:
+> **Do not write `--config=cache_proxy`.** Its transport settings now live in
+> `build:cache_only`, inherited by `build:remote_base`; the old profile no longer exists. Bazel
+> treats an undefined config as a hard error, not a warning:
 >
 > ```
 > ERROR: Config value 'cache_proxy' is not defined in any .rc file   (exit 2)
@@ -464,7 +473,7 @@ The routes are intentionally different:
 | hop | endpoint | purpose |
 |---|---|---|
 | executor `cache_target` | `grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985` | bulk CAS/ActionCache traffic stays inside the cluster |
-| Bazel `build:remote_base` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
+| Bazel `build:cache_only` `--remote_cache` | `grpcs://cache-proxy.carverauto.dev:443` | authenticated clients use public DNS and TLS |
 | Bazel executor and BES | `grpcs://carverauto.buildbuddy.io` | scheduling and build-event services remain upstream |
 
 The executors keep the in-cluster FQDN rather than the public edge, and that asymmetry is
@@ -480,8 +489,8 @@ artifacts through the upstream BuildBuddy hostname. Get it wrong and builds stil
 timing profile quietly fails to load.
 
 Keep the `try-import` entries at the bottom of `//.bazelrc`. An rc file can only override
-configs defined before it, so an override in `.bazelrc.remote` placed above `build:remote_base`
-is silently overwritten by it.
+configs defined before it, so an override in `.bazelrc.remote` placed above `build:cache_only`
+or `build:remote_base` is silently overwritten by them.
 
 Measured on a full `//...` from a workstation: **~11 min direct, ~3-4 min through the proxy.**
 The win is round-trip latency, not bandwidth — a `//...` build issues thousands of
@@ -522,12 +531,12 @@ both now route through the proxy by default.
    ```
 
 3. With a local ignored `.bazelrc.remote` holding the credential header, run
-   `make build-workspace`, then `make test`. Confirm the BuildBuddy invocation and the
+   `make build-workspace-cache`, then `make test`. Confirm the BuildBuddy invocation and the
    cache-proxy hit/read/write metrics.
 4. Run `bazel test //:buildbuddy_cache_proxy_config_test` to catch endpoint, bytestream-prefix,
    dangling-`--config`, or Make-alias drift.
 
-**Rollback** is a one-line revert of `build:remote_base --remote_cache` in `//.bazelrc` back to
+**Rollback** is a one-line change of `build:cache_only --remote_cache` in `//.bazelrc` back to
 `grpcs://carverauto.buildbuddy.io`. Because the proxy is now the default rather than an opt-in,
 there is no per-job switch to flip: an edge outage affects every remote build until that line
 changes, which is the trade accepted in exchange for nobody having to remember a flag.

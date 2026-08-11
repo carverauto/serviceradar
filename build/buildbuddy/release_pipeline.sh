@@ -72,7 +72,7 @@ fi
 
 BAZEL_FLAGS=()
 if [[ "${USE_REMOTE:-1}" != "0" ]]; then
-    BAZEL_FLAGS+=("--config=remote")
+    BAZEL_FLAGS+=("--config=ci")
 fi
 if [[ "${USE_STAMP:-1}" != "0" ]]; then
     BAZEL_FLAGS+=("--stamp")

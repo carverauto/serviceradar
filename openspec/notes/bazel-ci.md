@@ -1,6 +1,10 @@
 # Master CI Workflow: Audit and Consolidation Plan
 
-Status: plan only. Nothing here has been implemented.
+Status: historical consolidation audit. Some findings have since been implemented, but the
+proposed single-master-workflow migration has not. Do not copy lifecycle commands from an older
+section without checking the current `.forgejo/workflows/elixir-integration-sr-core.yml`,
+`buildbuddy.yaml`, and `srql-fixtures-db-tests` skill; the current database contract is summarized
+in the integration section below.
 
 Date: 2026-08-04
 
@@ -210,7 +214,7 @@ existing sweep query.
 | `golang-tests.yml` | Plain run absorbed. The race and count=10 pass becomes its own job. |
 | `rust-tests.yml` | Fully absorbed. |
 | `elixir-unit-tests.yml` | Fully absorbed. **DELETED 2026-08-04** — the Bazel CI covers it, and its `paths:` triggers watched `third_party/patches/rules_{erlang,elixir}/**`, which no longer exist now that both rulesets are vendored. |
-| `elixir-integration-sr-core.yml` | Becomes the integration job, chain unchanged. |
+| `elixir-integration-sr-core.yml` | Owns the guarded lifecycle with runner-local DB TestRunner actions. |
 | `precommit-web-ng.yml` | Absorbed only if the master stops excluding `//elixir/web-ng:precommit`. |
 | `rust-musl.yml` | Absorbed once the linkage assertion is an `sh_test`. |
 | `publish-oci.yml` | Broken and redundant. Delete, see audit item 5. |
@@ -303,8 +307,12 @@ it. Running it concurrently costs executor slots, not wall clock. That is the ri
 
 ### Job: integration
 
-Needs build_test. SRQL fixture configuration runs here. Every step takes
-`--//build:enable_integration_tests` and `--test_tag_filters=`:
+Needs build_test. SRQL fixture configuration runs here and fails closed unless both fixture DSNs
+and the CA are available. Database-facing `bazel test` calls select `--config=database_env`,
+`--strategy=TestRunner=local`, `--nocache_test_results`,
+`--remote_upload_local_results=false`, `--flaky_test_attempts=1`, and
+`--//build:enable_integration_tests`. Compile actions remain remote/cache-eligible. Named manual
+tests also clear `--test_tag_filters=`:
 
 1. `bazel test //rust/integration-db:sweep_stale_dbs`
 2. `bazel run //rust/integration-db:prepare_template --build_tag_filters=`
@@ -312,7 +320,8 @@ Needs build_test. SRQL fixture configuration runs here. Every step takes
 3. `bazel test //elixir/serviceradar_core:migrate_template`, only if step 2 reported
    `needs_migration`
 4. `bazel test //rust/integration-db:provision_db`
-5. `bazel test //... --test_tag_filters=integration_test,-acceptance_test`
+5. `bazel test //elixir/serviceradar_core:integration_tests`, followed by the two guarded named
+   `//integration_tests/srql` suites
 6. `bazel test //rust/integration-db:teardown_db` with `if: always()`
 
 Three things that are easy to get wrong:
@@ -331,11 +340,9 @@ Staging pushes only, never pull requests. `bazel build //:images` then
 
 ### Concurrency
 
-The 8 integration shards share one CNPG fixture. The concurrency group in `main.yml` is
-scoped per workflow per branch, so two open pull requests already run the chain
-simultaneously, and a master with no path filters makes that worse. The integration job
-needs a concurrency group keyed to the fixture, not the branch, so the chain serializes
-across branches. Decide this before the first run.
+The 8 integration shards share one CNPG server but use a unique numeric run identity and one
+disposable database per shard. Concurrent pull requests therefore do not share a database name;
+runner concurrency remains a capacity decision rather than a correctness lock.
 
 ## Part 4: Live bugs found during the audit
 
@@ -383,58 +390,22 @@ which removes one more reason for the runner to carry a Go toolchain. Separately
 candidate; Gazelle currently generates `//tools/go:go` for it, which is a poor target name
 that would disappear along with the file.
 
-## Part 5: Removing `test.env-secrets`
+## Part 5: Database credential and execution boundary
 
-### Scope
+The old `test.env-secrets` executor property is gone. Database and NATS credentials are also no
+longer global `.bazelrc` test environment values: ordinary remote unit-test actions must not carry
+them in REAPI command metadata. The guarded database callers explicitly select
+`test:database_env`, and NATS-backed callers select `test:nats_env`.
 
-Small. One `exec_properties` block at `elixir/serviceradar_core/BUILD.bazel:376-378`,
-covering 3 variables. It sits in a comprehension over `integration_shard_names()`, and
-`INTEGRATION_SHARD_COUNT = 8`, so 8 targets: `integration_tests_s0` through `s7`. A repo-wide
-grep finds one live use; every other hit is a comment explaining why some other target
-deliberately does not set it.
+Database-facing TestRunner actions run on the fixture-reachable workflow runner and are neither
+cached nor uploaded. This does not drag compilation local: `--strategy=TestRunner=local` selects
+only the test action, while eligible compile/dependency actions continue through RBE/cache. The
+same policy covers all eight core shards and the two named SRQL fixture suites.
 
-### Why the replacement already works
-
-Three things are in place. `.bazelrc:114-116` already declares all three as `--test_env`.
-`main.yml` already passes those exact three explicitly on its sweep, so the mechanism is
-proven in this repo on this backend. And the runner already holds the values, from
-`configure-srql-fixture.sh`.
-
-The gap: `main.yml` excludes `integration_test` targets, so the fallback has never run on
-these 8 shards. That is what the rehearsal is for.
-
-### Costs
-
-The DSN including password enters the action cache key for those 8 targets, so a password
-rotation invalidates their cached results. The value becomes visible in action details.
-Changing `exec_properties` changes the platform, so the 8 targets rebuild once.
-
-If either of the first two is unacceptable, pass the credential as a file path and let the
-test open it. The Rust side already works that way.
-
-### Verdict — DONE
-
-Removed. The `exec_properties` block is gone from all 8 shards, confirmed by querying each
-one. Nothing else in the repo sets `env-secrets`.
-
-Two cross-referencing comments were rewritten rather than left to rot, since both explained
-why some OTHER target deliberately did not set the property: the `migrate_template` note in
-`elixir/serviceradar_core/BUILD.bazel` and the lifecycle-target note in
-`rust/integration-db/BUILD.bazel`. Both now describe the single mechanism that remains, the
-`test --test_env=` list in `.bazelrc` lines 112-114.
-
-Nothing about execution changed. The shards still run remotely: they carry no
-`no-remote-exec`, and the PEM-content form of the fixture CA is what made that possible.
-
-**Verified:** the three `--test_env` entries are present, no shard carries `exec_properties`,
-and `//elixir/serviceradar_core:integration_tests_s0` builds under
-`--//build:enable_integration_tests` (267 actions).
-
-**Not verified, and it needs to be:** the shards have not been RUN since the change. That
-takes the shared CNPG fixture and the full lifecycle chain, which is destructive against a
-resource concurrent PRs share, so it is not something to do unilaterally from a workstation.
-The first CI run of the integration chain is the real proof that the credentials arrive by
-`--test_env`. Watch that run before treating this as settled.
+The current proof is outcome-level, not a build-only rehearsal: the TLS-verified Bazel lifecycle
+has provisioned and run a focused core shard, run both named SRQL suites, and torn down its unique
+database. Static configuration tests additionally reject global fixture forwarding or a workflow
+that omits the local/non-cached/non-uploaded policy.
 
 ## Part 6: Execution order
 
@@ -467,7 +438,7 @@ Validated against BuildBuddy:
 - Command sequence and ordering
 - `--//build:enable_integration_tests` correctness
 - `prepare_template`, conditional migrate, `always()` teardown
-- The `--test_env` credential fallback on all 8 shards
+- Explicit `database_env` credential forwarding on local, non-uploaded database TestRunner actions
 - Docker auth, `//:images`, `//:push`
 - Tag filter target selection
 

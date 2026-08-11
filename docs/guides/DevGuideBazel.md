@@ -21,16 +21,16 @@ It is generally recommended to build and test only the source tree one is workin
 For example, working on the Golang source tree leads to:
 
 ```Bash
-bazel build -c opt --config=ci//go/...
+bazel build -c opt --config=ci //go/...
 
-bazel test -c opt --config=ci//go/...
+bazel test -c opt --config=ci //go/...
 ```
 
 
 For even more specific targets, use the file path. For example:
 
 ```Bash
-bazel build -c opt --config=ci//elixir/serviceradar_srql/...
+bazel build -c opt --config=ci //elixir/serviceradar_srql/...
 ```
 
 Note that the trailing three dots simply mean "anything" below this path. Also note that Bazel 
@@ -48,10 +48,12 @@ make check
 ```
 
 This script:
-* Pulls the latest changes from origin
 * Builds the entire repo
 * Runs all unit tests
 * Runs the Golang race condition tests
+
+Synchronize and rebase the feature branch against `origin/staging` separately before this gate;
+`make check` never mutates Git history.
 
 Depending on the scope of local changes, this may take a few minutes. The configuration used
 by the check script is identical to the BB CI config, and it runs on the same BB cluster as the BB CI workflow. 
@@ -65,5 +67,6 @@ When ready, open a PR from a feature branch and follow the CI checks.
 
 ## Outer Dev Loop
 
-Currently, all CI jobs are run as GH Actions on Forgejo. Once the migration back to GH has been completed,
-the actual CI will run fully on BB, with only lints and semantic checks executed as GH Actions. 
+CI is split between Forgejo Actions and the self-hosted BuildBuddy workflow. Both use the shared
+cache proxy; database-facing TestRunner actions stay on fixture-reachable workflow runners while
+eligible compile actions remain remote and cached.

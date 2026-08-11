@@ -473,10 +473,10 @@ bazel test //go/pkg/k8sinventory:k8sinventory_test
 bazel build //go/cmd/k8s-inventory:k8s-inventory
 
 # OCI image (linux/amd64 — use remote from macOS)
-bazel build //docker/images:k8s_inventory_image_amd64 --config=remote
+bazel build -c opt --config=ci //docker/images:k8s_inventory_image_amd64
 
 # Push (on macOS use scripts/push_all_images.sh or the crane/jq patch path
-# documented in that script; plain `bazel run //docker/images:k8s_inventory_image_amd64_push --config=remote` fails on Darwin)
+# documented in that script; plain `bazel run -c opt --config=ci //docker/images:k8s_inventory_image_amd64_push` fails on Darwin)
 ```
 
 `MODULE.bazel` exposes `io_k8s_api` for typed core/discovery APIs. The image is

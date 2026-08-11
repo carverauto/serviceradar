@@ -5,12 +5,12 @@
 #
 # Same carve-out as buildbuddy_setup_docker_auth.sh, for the same reason: this is credential
 # handling that MUST NOT become an action input. A Bazel test action cannot obtain these
-# values itself -- it runs on a remote executor with no kubeconfig, inside a sandbox, and a
-# `kubectl get secret` from inside a test would be an undeclared network dependency. The
-# values have to be in the BAZEL CLIENT's environment before `bazel test` starts, because
-# .bazelrc carries them the rest of the way with `--test_env=NAME` pass-through:
+# values itself -- it is sandboxed and has no kubeconfig, and a `kubectl get secret` from inside
+# a test would be an undeclared network dependency. The
+# values have to be in the BAZEL CLIENT's environment before `bazel test` starts, because the
+# explicit `.bazelrc` `database_env` profile carries them the rest of the way:
 #
-#   K8s secret / BB secret -> env on the workflow runner -> --test_env -> test action
+#   K8s secret / BB secret -> env on runner -> --config=database_env -> local test action
 #
 # WHY IT WRITES A FILE INSTEAD OF PRINTING exports
 #
@@ -24,37 +24,42 @@
 # That script is the Forgejo-era equivalent and is NOT superseded by accident. It CONSUMES
 # the same three secrets rather than sourcing them, and writes to $GITHUB_ENV / $RUNNER_TEMP,
 # neither of which exists in a BuildBuddy workflow. It also materialises the CA to a file and
-# exports four *_CA_CERT_FILE paths, which is exactly what forces `no-remote-exec` onto the
-# //rust/integration-db targets. It dies with the .forgejo tier.
+# exports four *_CA_CERT_FILE paths. The database TestRunner now executes locally by caller
+# strategy, while eligible compilation remains remote. It dies with the .forgejo tier.
 #
 # This target differs in two ways: it can SOURCE the credentials from the srql-fixtures K8s
 # secrets rather than requiring them pre-set, and it emits PEM content rather than a path, so
-# a remotely executed test can use it.
+# the credential contract is independent of a runner-local filesystem path.
 #
-# USAGE (BuildBuddy workflow, in ONE step so the env survives):
+# USAGE
 #
-#   bazel run -c opt //:buildbuddy_setup_fixture_env
-#   set -a; . "${SERVICERADAR_FIXTURE_ENV_FILE:-${TMPDIR:-/tmp}/serviceradar-fixture-env}"; set +a
-#   bazel test -c opt //elixir/serviceradar_core:migrate_template --config=remote --test_tag_filters=
-#   ...
+# This helper only materializes credentials. Run it from the canonical, single-shell Bazel
+# lifecycle documented in .agents/skills/srql-fixtures-db-tests/SKILL.md. That recipe owns
+# the per-run file path, local TestRunner strategy, fixture guard, cache policy, and cleanup.
 set -o errexit
 set -o nounset
 set -o pipefail
 
-env_file="${SERVICERADAR_FIXTURE_ENV_FILE:-${TMPDIR:-/tmp}/serviceradar-fixture-env}"
+: "${SERVICERADAR_FIXTURE_ENV_FILE:?SERVICERADAR_FIXTURE_ENV_FILE must name a caller-owned temporary file}"
+env_file="${SERVICERADAR_FIXTURE_ENV_FILE}"
 
 namespace="${SRQL_FIXTURE_NAMESPACE:-srql-fixtures}"
 # Non-secret, so they are defaults here rather than secrets. The in-cluster service name is
-# the one endpoint both the workflow runner and the executors can reach -- they are the same
-# machines. A workstation is the odd one out: it reaches the LAN NodePort but not this, which
-# is why a developer needs SRQL_TEST_DATABASE_URL set by hand. See openspec/notes/bazel-bb-ci.md.
+# the one endpoint the in-cluster workflow runner can reach. A workstation is the odd one out:
+# it reaches the LAN NodePort but not this, which is why a developer needs
+# SRQL_TEST_DATABASE_URL set by hand. See openspec/notes/bazel-bb-ci.md.
 host="${SRQL_FIXTURE_HOST:-srql-fixture-rw.srql-fixtures.svc.cluster.local}"
 port="${SRQL_FIXTURE_PORT:-5432}"
 database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # verify-full is safe against this hostname: the server cert (secret srql-fixture-server)
 # carries DNS SANs for srql-fixture-{r,ro,rw} at every suffix plus srql-fixture.serviceradar.cloud.
-# It has NO IP SANs, so anything addressing the fixture by IP must drop to sslmode=require.
+# It has no IP SANs, so a NodePort caller must also set PGSSLSERVERNAME and
+# SRQL_TEST_DATABASE_SERVER_NAME to the certificate's DNS name.
 sslmode="${SRQL_FIXTURE_SSLMODE:-verify-full}"
+if [[ "${sslmode}" != "verify-full" ]]; then
+  echo "SRQL_FIXTURE_SSLMODE must be verify-full; refusing to weaken fixture TLS verification" >&2
+  exit 1
+fi
 
 # RFC 3986 userinfo encoding. CNPG generates passwords that can contain characters which
 # silently truncate or corrupt a DSN if interpolated raw (`@` splits userinfo from host,
@@ -73,6 +78,63 @@ urlencode() {
 
 secret_value() {
   kubectl get secret "$1" -n "${namespace}" -o "jsonpath={.data.$2}" 2>/dev/null | base64 -d
+}
+
+with_sslmode() {
+  local url="$1" mode="$2" base query parameter out="" found=0
+
+  # PostgreSQL connection URLs have no useful fragment semantics. Keeping one
+  # would also make an appended sslmode part of the fragment rather than the
+  # query, silently defeating the verified-TLS contract.
+  if [[ "${url}" == *#* ]]; then
+    printf 'PostgreSQL fixture URLs must not contain fragments.\n' >&2
+    return 1
+  fi
+
+  if [[ "${url}" == *\?* ]]; then
+    base="${url%%\?*}"
+    query="${url#*\?}"
+  else
+    base="${url}"
+    query=""
+  fi
+
+  local old_ifs="${IFS}"
+  IFS='&'
+  for parameter in ${query}; do
+    if [[ "${parameter}" == sslmode=* ]]; then
+      parameter="sslmode=${mode}"
+      found=1
+    fi
+    if [[ -n "${out}" ]]; then
+      out+="&"
+    fi
+    out+="${parameter}"
+  done
+  IFS="${old_ifs}"
+
+  if [[ "${found}" -eq 0 ]]; then
+    if [[ -n "${out}" ]]; then
+      out+="&"
+    fi
+    out+="sslmode=${mode}"
+  fi
+
+  printf '%s?%s' "${base}" "${out}"
+}
+
+database_host() {
+  local url="$1" rest authority
+  rest="${url#*://}"
+  authority="${rest%%/*}"
+  authority="${authority##*@}"
+
+  if [[ "${authority}" == \[*\]* ]]; then
+    authority="${authority#\[}"
+    printf '%s' "${authority%%\]*}"
+  else
+    printf '%s' "${authority%%:*}"
+  fi
 }
 
 source_used=""
@@ -120,13 +182,31 @@ Provide ONE of:
         SRQL_TEST_DATABASE_URL
         SRQL_TEST_ADMIN_URL
         SRQL_TEST_DATABASE_CA_CERT
-    SRQL_TEST_DATABASE_CA_CERT must be PEM CONTENT, not a path -- a path names a file on
-    the machine that launched the build and a remote executor has no such file.
+    SRQL_TEST_DATABASE_CA_CERT must be PEM CONTENT, not a path. Bazel TestRunner sandboxes
+    must not depend on a caller-owned host path, and the fixture CA rotates independently.
 
 Overrides: SRQL_FIXTURE_{NAMESPACE,HOST,PORT,DATABASE,SSLMODE}.
 On a workstation the in-cluster hostname is unreachable; use the LAN NodePort with
-SRQL_FIXTURE_SSLMODE=require (the server cert has no IP SANs).
+SRQL_FIXTURE_SSLMODE=verify-full plus PGSSLSERVERNAME and SRQL_TEST_DATABASE_SERVER_NAME set
+to srql-fixture-rw.srql-fixtures.svc.cluster.local (the server cert has no IP SANs).
 EOF_ERR
+  exit 1
+fi
+
+# One shared TLS contract for both credential paths. Pre-set workflow secrets used to carry no
+# sslmode: tokio-postgres then defaulted to Prefer (permitting plaintext fallback) while Ecto used
+# verify_none even though a CA was present. Keep verify-full in the shared DSNs. The Rust lifecycle
+# maps that value to Require only at its tokio-postgres parser boundary and still verifies through
+# rustls; Ecto consumes verify-full directly.
+SRQL_TEST_DATABASE_URL="$(with_sslmode "${SRQL_TEST_DATABASE_URL}" "${sslmode}")"
+SRQL_TEST_ADMIN_URL="$(with_sslmode "${SRQL_TEST_ADMIN_URL}" "${sslmode}")"
+
+tls_server_name="${SRQL_TEST_DATABASE_SERVER_NAME:-${PGSSLSERVERNAME:-}}"
+if [[ -z "${tls_server_name}" ]]; then
+  tls_server_name="$(database_host "${SRQL_TEST_DATABASE_URL}")"
+fi
+if [[ -z "${tls_server_name}" ]]; then
+  echo "could not derive the SRQL fixture TLS server name" >&2
   exit 1
 fi
 
@@ -144,26 +224,15 @@ umask 077
   emit SRQL_TEST_DATABASE_URL "${SRQL_TEST_DATABASE_URL}"
   emit SRQL_TEST_ADMIN_URL "${SRQL_TEST_ADMIN_URL}"
   emit SRQL_TEST_DATABASE_CA_CERT "${SRQL_TEST_DATABASE_CA_CERT}"
+  emit SRQL_TEST_DATABASE_SERVER_NAME "${tls_server_name}"
+  emit PGSSLSERVERNAME "${tls_server_name}"
 } >"${env_file}"
 chmod 600 "${env_file}"
 
-# Source and shape only -- never a value. The DSN carries a password, and this runs where
-# stdout becomes a build log.
-#
-# The endpoint is read back OUT of the assembled DSN rather than reprinted from the defaults
-# above. On the fallback path those defaults are not what is in use -- the DSN came from the
-# environment and can point anywhere -- and a summary that describes an endpoint the run is
-# not using is worse than no summary at all.
-endpoint_of() {
-  local dsn="$1"
-  dsn="${dsn#*://}"  # strip scheme
-  dsn="${dsn#*@}"    # strip userinfo, password included
-  printf '%s' "${dsn}"
-}
-
+# Source and shape only -- never parse or print any portion of a credential-bearing DSN.
+# Malformed userinfo and query delimiters can make otherwise reasonable endpoint redaction
+# leak a password into build logs, so the private env file is the only DSN output.
 printf 'Fixture credentials from %s -> %s\n' "${source_used}" "${env_file}" >&2
-printf '  database : %s\n' "$(endpoint_of "${SRQL_TEST_DATABASE_URL}")" >&2
-printf '  admin    : %s\n' "$(endpoint_of "${SRQL_TEST_ADMIN_URL}")" >&2
 printf '  CA       : %s bytes of PEM\n' "${#SRQL_TEST_DATABASE_CA_CERT}" >&2
 
 # The fixture CA is on a 90-day rotation. Where it arrives as a stored BuildBuddy secret
@@ -175,7 +244,7 @@ printf '  CA       : %s bytes of PEM\n' "${#SRQL_TEST_DATABASE_CA_CERT}" >&2
 # and turning credential setup into a second place that can hard-fail on a clock is worse
 # than the confusion it prevents.
 if command -v openssl >/dev/null 2>&1; then
-  not_after="$(printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)"
+  not_after="$(printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2 || true)"
   if [[ -n "${not_after}" ]]; then
     if printf '%s' "${SRQL_TEST_DATABASE_CA_CERT}" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then
       # 21 days: longer than a sprint, short enough to still be urgent.

@@ -115,14 +115,20 @@ Re-mint the Vault token if signing starts returning `403 permission denied`.
 
 ## Build And Push Changed Images
 
-Use Bazel remote push targets for the changed images only. Typical examples:
+On Linux or a BuildBuddy runner, use the CI platform so the OCI graph contains Linux/amd64
+artifacts. Typical single-image examples are:
 
 ```bash
-bazel run --config=remote --stamp //docker/images:agent_image_amd64_push
-bazel run --config=remote --stamp //docker/images:agent_gateway_image_amd64_push
-bazel run --config=remote --stamp //docker/images:core_elx_image_amd64_push
-bazel run --config=remote --stamp //docker/images:web_ng_image_amd64_push
+bazel run -c opt --config=ci --stamp //docker/images:agent_image_amd64_push
+bazel run -c opt --config=ci --stamp //docker/images:agent_gateway_image_amd64_push
+bazel run -c opt --config=ci --stamp //docker/images:core_elx_image_amd64_push
+bazel run -c opt --config=ci --stamp //docker/images:web_ng_image_amd64_push
 ```
+
+Do not replace `ci` with `cache_only` on macOS. `cache_only` deliberately preserves the host
+platform, so a direct image target would package Darwin binaries into a Linux image. On macOS use
+`make push_all`; its existing publisher builds the image graph for Linux and patches only the
+generated crane/jq launcher to run natively.
 
 These commands print the pushed digest. Capture it for signing and for the final report.
 

@@ -143,10 +143,11 @@ docker compose ps
 
 ## Bazel Alternative
 
-If you want to publish the official OCI images the same way CI does, use Bazel:
+If you want to publish the official OCI images through the supported cross-platform entry point:
 
 ```bash
-bazel run --config=remote //docker/images:push_all
+make push_all
 ```
 
-That publishes the Harbor-hosted images used by the default Compose stack.
+That publishes the Harbor-hosted images used by the default Compose stack. On macOS it uses the
+Darwin-safe launcher path; the raw aggregate CI target is Linux-only.

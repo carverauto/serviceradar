@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_CONFIG="${BAZEL_CONFIG:-remote}"
+BAZEL_CONFIG="${BAZEL_CONFIG:-ci}"
 BAZEL_QUERY='attr(name, ".*_push$", //docker/images:*)'
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
@@ -55,7 +55,7 @@ Options:
 
 Environment:
   BAZEL_BIN     Bazel executable to use (default: bazel)
-  BAZEL_CONFIG  Bazel config to use for runs (default: remote)
+  BAZEL_CONFIG  Bazel config to use for runs (default: ci)
 EOF
 }
 

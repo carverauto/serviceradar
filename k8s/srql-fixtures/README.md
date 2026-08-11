@@ -1,13 +1,17 @@
 # SRQL Fixture CNPG Cluster
 
-This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture that the SRQL API tests use. The cluster runs in its own namespace so BuildBuddy executors and the GitHub custom runners can reuse a single seeded database when executing `cargo test` / `bazel test //rust/srql:srql_api_test`.
+This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture used by the guarded
+core integration shards and `//integration_tests/srql:{srql_api_test,srql_comprehensive_test}`.
+The cluster runs in its own namespace so Forgejo and the self-hosted BuildBuddy workflow runners
+can reuse one fixture while database-facing Bazel TestRunner actions execute locally on those
+fixture-reachable runners.
 
 ## Contents
 
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9` (matches `docker-compose.yml`).
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910` fixture image.
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -44,7 +48,9 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 
 ### Access from CI
 
-- The fixture enforces TLS (`hostnossl` connections are rejected). Use `sslmode=require` (encryption only) or `sslmode=verify-full` with the CA certificate.
+- The fixture enforces TLS (`hostnossl` connections are rejected). Use `sslmode=verify-full`
+  with the CA certificate and the certificate's DNS server name; do not downgrade the shared
+  fixture to encryption-only verification.
 - Set `SRQL_TEST_DATABASE_URL` (or `SRQL_TEST_DATABASE_URL_FILE`) to the app DSN, e.g., `postgres://srql:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture?sslmode=verify-full`.
 - Set `SRQL_TEST_ADMIN_URL` (or `SRQL_TEST_ADMIN_URL_FILE`) to the admin DSN, e.g., `postgres://srql_hydra:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/postgres?sslmode=verify-full`. The test harness uses the admin connection to drop/re-create `srql_fixture` before every run.
 - Export the CA cert for strict verification (used by Rust + Elixir tests):
@@ -53,10 +59,13 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 kubectl -n srql-fixtures get secret srql-fixture-ca \
   -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
 export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
-export SRQL_TEST_DATABASE_CA_CERT=/tmp/srql-fixture-ca.crt
+export SRQL_TEST_DATABASE_CA_CERT="$(cat /tmp/srql-fixture-ca.crt)"
+export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
 ```
-- **BuildBuddy**: Mount both DSNs into the executor pods (for example under `/var/run/secrets/srql-fixture`) and export them with `--action_env=SRQL_TEST_DATABASE_URL_FILE=/var/run/secrets/.../database_url` and `--action_env=SRQL_TEST_ADMIN_URL_FILE=...`.
-- **GitHub custom runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Add the DSNs + CA cert path as runner secrets (or files).
+- **BuildBuddy**: `//:buildbuddy_setup_fixture_env` materializes both DSNs and the CA into a private
+  per-run file on the self-hosted workflow runner. The workflow sources it before Bazel starts and
+  uses `--strategy=TestRunner=local`; do not mount fixture credentials into remote executors.
+- **Forgejo runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Store the DSNs and CA PEM content as runner secrets; the workflow materializes the PEM into a private temporary file when a path is required.
 
 ### Maintenance
 
