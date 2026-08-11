@@ -61,6 +61,11 @@ jobs:
           ./scripts/run-helm.sh template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --debug > /dev/null
+          ./scripts/run-helm.sh template serviceradar helm/serviceradar \
+            --set global.imageTag="v1.0.0" \
+            --set flowCollector.enabled=true \
+            --show-only templates/flow-collector-strategy-migration-job.yaml \
+            --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values
         run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-web-ng-extra-env-value-from.sh
