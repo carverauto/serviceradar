@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -35,6 +36,10 @@ import (
 const maxCredentialBrokerMutations = 16
 
 func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessage) ([]byte, error) {
+	if _, isNotification := decodeNotificationDelivery(invocationPayload); isNotification {
+		return buildNotificationPluginConfig(baseConfig, invocationPayload)
+	}
+
 	var actionPayload any = map[string]any{}
 	if len(bytes.TrimSpace(invocationPayload)) > 0 {
 		if err := json.Unmarshal(invocationPayload, &actionPayload); err != nil {
@@ -55,6 +60,60 @@ func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessag
 		for key, value := range base {
 			if key == "action_invocation" {
 				config["plugin_config"] = map[string]any{"action_invocation": value}
+				continue
+			}
+			config[key] = value
+		}
+		return json.Marshal(config)
+	}
+
+	config["plugin_config_base64"] = base64.StdEncoding.EncodeToString(baseConfig)
+	return json.Marshal(config)
+}
+
+// buildNotificationPluginConfig adapts the control-plane command envelope to
+// the notifier SDK host ABI. Credential grants and command-addressing fields
+// remain host-only; the guest sees the typed delivery request plus its ordinary
+// assignment configuration.
+func buildNotificationPluginConfig(baseConfig []byte, invocationPayload json.RawMessage) ([]byte, error) {
+	var delivery map[string]any
+	if err := json.Unmarshal(invocationPayload, &delivery); err != nil {
+		return nil, fmt.Errorf("decode notification payload: %w", err)
+	}
+	if delivery == nil {
+		return nil, errors.New("decode notification payload: expected a JSON object")
+	}
+
+	delete(delivery, "credential_broker")
+	delete(delivery, "credential_brokers")
+	delete(delivery, "plugin_assignment_id")
+	delete(delivery, "plugin_package_id")
+	delete(delivery, "action_key")
+	delete(delivery, "entrypoint")
+	delivery["schema"] = notificationDeliveryRequestSchema
+
+	// Accept commands from the first implementation while core and agent roll
+	// independently. The request ABI calls this field rendered_payload.
+	if _, ok := delivery["rendered_payload"]; !ok {
+		if payload, exists := delivery["payload"]; exists {
+			delivery["rendered_payload"] = payload
+		}
+	}
+	delete(delivery, "payload")
+
+	config := map[string]any{
+		notificationDeliveryConfigKey: delivery,
+	}
+
+	if len(bytes.TrimSpace(baseConfig)) == 0 {
+		return json.Marshal(config)
+	}
+
+	var base map[string]any
+	if err := json.Unmarshal(baseConfig, &base); err == nil {
+		for key, value := range base {
+			if key == notificationDeliveryConfigKey {
+				config["plugin_config"] = map[string]any{notificationDeliveryConfigKey: value}
 				continue
 			}
 			config[key] = value
@@ -135,6 +194,98 @@ func pluginActionGrantForHTTPRequest(
 	}
 
 	return nil, lastErr
+}
+
+// pluginActionGrantForHTTPRequestIntent selects the one authority a guest
+// explicitly requested. Notification grants are never ambient: without an
+// intent they are ignored, and an ambiguous intent is denied instead of
+// injecting whichever secret happens to be first in the command payload.
+// Non-notification grants retain the legacy host-match behavior for existing
+// action integrations whose ABI predates credential_injection.
+func pluginActionGrantForHTTPRequestIntent(
+	grants []credentialBrokerGrant,
+	method string,
+	reqURL *url.URL,
+	now time.Time,
+	intent *credentialInjectionIntent,
+) (*credentialBrokerGrant, error) {
+	if intent == nil {
+		legacy := make([]credentialBrokerGrant, 0, len(grants))
+		for i := range grants {
+			if !strings.EqualFold(strings.TrimSpace(grants[i].GrantType), "notification_credential") {
+				legacy = append(legacy, grants[i])
+			}
+		}
+		return pluginActionGrantForHTTPRequest(legacy, method, reqURL, now)
+	}
+
+	if !validCredentialInjectionIntent(intent) {
+		return nil, errCredentialBrokerGrantDenied
+	}
+
+	matches := make([]*credentialBrokerGrant, 0, 1)
+	lastErr := errCredentialBrokerGrantDenied
+	for i := range grants {
+		grant := &grants[i]
+		if !credentialInjectionIntentMatchesGrant(intent, grant) {
+			continue
+		}
+		if err := validatePluginActionCredentialGrantEnvelope(*grant, now); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := validatePluginActionGrantAllow(*grant, method, reqURL); err != nil {
+			lastErr = err
+			continue
+		}
+		matches = append(matches, grant)
+	}
+
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return nil, errCredentialBrokerGrantDenied
+	}
+	return nil, lastErr
+}
+
+func validCredentialInjectionIntent(intent *credentialInjectionIntent) bool {
+	if intent == nil {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(intent.Mode))
+	_, ok := notificationCredentialInjectionModes[mode]
+	return ok
+}
+
+func credentialInjectionIntentMatchesGrant(
+	intent *credentialInjectionIntent,
+	grant *credentialBrokerGrant,
+) bool {
+	if intent == nil || grant == nil {
+		return false
+	}
+	if selected := strings.TrimSpace(intent.GrantID); selected != "" &&
+		selected != strings.TrimSpace(grant.GrantID) {
+		return false
+	}
+	if selected := strings.TrimSpace(intent.CredentialSecretRef); selected != "" &&
+		selected != strings.TrimSpace(grant.CredentialSecretRef) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(intent.Mode), strings.TrimSpace(grant.Inject["type"])) {
+		return false
+	}
+	if selected := strings.TrimSpace(intent.Name); selected != "" &&
+		!strings.EqualFold(selected, strings.TrimSpace(grant.Inject["name"])) {
+		return false
+	}
+	if selected := strings.TrimSpace(intent.Scheme); selected != "" &&
+		!strings.EqualFold(selected, strings.TrimSpace(grant.Inject["scheme"])) {
+		return false
+	}
+	return true
 }
 
 func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, now time.Time) error {

@@ -213,7 +213,7 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
     identity_index_names unique_provider_key: "notification_providers_provider_key_uidx"
 
     references do
-      reference :plugin_package, on_delete: :nilify
+      reference :plugin_package, on_delete: :restrict
     end
   end
 

@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNG.AlertActions do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.NotificationAcknowledgement
   alias ServiceRadar.Notifications.NotificationDelivery
+  alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -383,7 +384,8 @@ defmodule ServiceRadarWebNG.AlertActions do
                |> Ash.Changeset.for_update(action, alert_params(action, scope, note, snooze_until), scope: scope)
                |> Ash.update(scope: scope),
              {:ok, _acknowledgement} <-
-               record_acknowledgement(scope, action, updated, note, snooze_until, now) do
+               record_acknowledgement(scope, action, updated, note, snooze_until, now),
+             :ok <- ensure_resolution_routed(action, updated, opts) do
           updated
         end
       end)
@@ -400,6 +402,22 @@ defmodule ServiceRadarWebNG.AlertActions do
   end
 
   defp snooze_until(_action, _now, _opts), do: nil
+
+  # Oban persists through the same Repo transaction Ash opened above. Keeping
+  # the enqueue inside it makes the resolve transition, audit row, and durable
+  # close-out request one atomic unit.
+  defp ensure_resolution_routed(:resolve, %{id: alert_id}, opts) when is_binary(alert_id) do
+    enqueue = Keyword.get(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+    case enqueue.(alert_id, :resolve) do
+      :ok -> :ok
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, {:routing_enqueue_failed, reason}}
+      other -> {:error, {:routing_enqueue_failed, other}}
+    end
+  end
+
+  defp ensure_resolution_routed(_action, _alert, _opts), do: :ok
 
   defp alert_params(:acknowledge, scope, note, _snooze_until) do
     %{

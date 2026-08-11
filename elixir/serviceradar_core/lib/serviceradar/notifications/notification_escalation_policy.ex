@@ -27,7 +27,7 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
 
   A policy is not bound to one rule, so the governing rule is unknown at save
   time. `ServiceRadar.Notifications.Validations.RepeatIntervalFloor` therefore
-  checks the strictest floor the deployment presents - the minimum
+  checks the strictest floor the deployment presents - the maximum
   `renotify_seconds` across all ENABLED stateful alert rules - and the
   dispatcher re-checks per alert against the rule that actually fired. The
   save-time check catches the configuration error while the operator is looking

@@ -99,11 +99,6 @@ defmodule ServiceRadar.Notifications.Transports.HTTP do
 
   @redacted "[REDACTED]"
 
-  # Below this length a "sensitive value" is more likely to be a substring of
-  # ordinary text than a credential, and blanket-replacing it would corrupt the
-  # very message it is meant to protect. Matches `Notifications.Renderer`.
-  @min_sensitive_value_bytes 8
-
   @type response :: %{status: integer(), headers: map(), body: term()}
 
   @type error_class ::
@@ -253,15 +248,15 @@ defmodule ServiceRadar.Notifications.Transports.HTTP do
   Replaces every sensitive value inside `term` with `#{@redacted}`.
 
   Walks maps, lists, and tuples so a scrubbed value cannot survive by being
-  nested. Values shorter than #{@min_sensitive_value_bytes} bytes are ignored;
-  see `@min_sensitive_value_bytes`.
+  nested. Every non-empty value explicitly supplied as sensitive is replaced,
+  including short passwords and API keys.
   """
   @spec scrub(term(), [String.t()]) :: term()
   def scrub(term, sensitive_values), do: do_scrub(term, normalize_sensitive(sensitive_values))
 
   @doc """
   The `:sensitive_values` option, normalised: binaries only, deduplicated, and
-  short values dropped.
+  empty values dropped.
   """
   @spec sensitive_values(keyword()) :: [String.t()]
   def sensitive_values(opts) when is_list(opts) do
@@ -275,7 +270,7 @@ defmodule ServiceRadar.Notifications.Transports.HTTP do
   defp normalize_sensitive(values) do
     values
     |> List.wrap()
-    |> Enum.filter(&(is_binary(&1) and byte_size(&1) >= @min_sensitive_value_bytes))
+    |> Enum.filter(&(is_binary(&1) and byte_size(&1) > 0))
     |> Enum.uniq()
   end
 

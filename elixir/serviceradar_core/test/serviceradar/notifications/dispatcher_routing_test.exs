@@ -30,6 +30,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
   alias ServiceRadar.Notifications.NotificationEscalationStepChannel
   alias ServiceRadar.Notifications.NotificationProvider
   alias ServiceRadar.Notifications.NotificationRoute
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -81,15 +82,132 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
       assert Dispatcher.event_action(delivery.lifecycle_reason) == :trigger
     end
 
-    test "a resolve routes as a resolve, not a trigger", %{actor: actor} do
+    test "a resolve closes only destinations that received the incident", %{
+      actor: actor,
+      route: route,
+      policy: policy,
+      step: step,
+      channel: sent_channel
+    } do
+      route = update_route!(actor, route, %{continue: true, priority: 10})
+      never_sent_channel = create_channel!(actor)
+      attach!(actor, step, never_sent_channel)
+
+      no_close_policy = create_policy!(actor, %{resolve_notifies: false})
+      no_close_step = create_step!(actor, no_close_policy, 1, 0)
+      no_close_channel = create_channel!(actor)
+      attach!(actor, no_close_step, no_close_channel)
+      no_close_route = create_route!(actor, no_close_policy, %{priority: 20})
+
       {alert, now} = fired_alert!(actor)
 
-      assert {:ok, %{planned: [_id]}} =
+      assert {:ok, %{planned: fire_ids}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      assert length(fire_ids) == 3
+
+      fire_deliveries = deliveries_for(alert, actor)
+      sent = Enum.find(fire_deliveries, &(&1.channel_id == sent_channel.id))
+      never_sent = Enum.find(fire_deliveries, &(&1.channel_id == never_sent_channel.id))
+      no_close = Enum.find(fire_deliveries, &(&1.channel_id == no_close_channel.id))
+
+      sent = mark_sent!(sent, actor, "incident-123")
+      _no_close = mark_sent!(no_close, actor, "incident-no-close")
+
+      _resolved =
+        alert
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "routing-test"}, actor: actor)
+        |> Ash.update!(actor: actor)
+
+      assert {:ok, %{planned: [resolution_id], cancelled: [cancelled_id]}} =
                Dispatcher.route(alert.id, :resolve, actor: actor, now: now)
 
-      assert [delivery] = deliveries_for(alert, actor)
-      assert delivery.lifecycle_reason == :resolve
-      assert Dispatcher.event_action(delivery.lifecycle_reason) == :resolve
+      assert cancelled_id == never_sent.id
+
+      resolution = reload_delivery!(resolution_id, actor)
+      assert resolution.lifecycle_reason == :resolve
+      assert Dispatcher.event_action(resolution.lifecycle_reason) == :resolve
+      assert resolution.route_id == route.id
+      assert resolution.policy_id == policy.id
+      assert resolution.channel_id == sent_channel.id
+      assert resolution.step_number == sent.step_number
+      assert resolution.dedupe_key == sent.dedupe_key
+      assert resolution.external_correlation_id == "incident-123"
+
+      assert reload_delivery!(never_sent.id, actor).state == :cancelled
+
+      resolution_rows =
+        alert
+        |> deliveries_for(actor)
+        |> Enum.filter(&(&1.lifecycle_reason == :resolve))
+
+      assert Enum.map(resolution_rows, & &1.channel_id) == [sent_channel.id]
+      refute Enum.any?(resolution_rows, &(&1.route_id == no_close_route.id))
+
+      assert {:ok, %{planned: [], cancelled: []}} =
+               Dispatcher.route(alert.id, :resolve, actor: actor, now: now)
+
+      assert length(Enum.filter(deliveries_for(alert, actor), &(&1.lifecycle_reason == :resolve))) ==
+               1
+    end
+
+    test "continued routes sharing one destination persist independently", %{
+      actor: actor,
+      route: first_route,
+      channel: channel
+    } do
+      first_route = update_route!(actor, first_route, %{continue: true, priority: 10})
+      second_policy = create_policy!(actor)
+      second_step = create_step!(actor, second_policy, 1, 0)
+      attach!(actor, second_step, channel)
+      second_route = create_route!(actor, second_policy, %{priority: 20})
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{planned: planned}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      assert length(planned) == 2
+      deliveries = deliveries_for(alert, actor)
+
+      assert MapSet.new(deliveries, & &1.route_id) ==
+               MapSet.new([first_route.id, second_route.id])
+
+      assert deliveries
+             |> Enum.uniq_by(&{&1.channel_id, &1.step_number, &1.dedupe_key})
+             |> length() == 1
+    end
+
+    test "a delivery create failure rolls back the whole route plan", %{
+      actor: actor,
+      step: step
+    } do
+      attach!(actor, step, create_channel!(actor))
+      {alert, now} = fired_alert!(actor)
+      counter_key = {__MODULE__, :create_count, make_ref()}
+
+      create_delivery = fn action, attrs, create_actor ->
+        count = Process.get(counter_key, 0) + 1
+        Process.put(counter_key, count)
+
+        if count == 2 do
+          {:error, :injected_create_failure}
+        else
+          NotificationDelivery
+          |> Ash.Changeset.for_create(action, attrs, actor: create_actor)
+          |> Ash.create(actor: create_actor, return_notifications?: true)
+        end
+      end
+
+      on_exit(fn -> Process.delete(counter_key) end)
+
+      assert {:error, {:delivery_plan_persistence_failed, :injected_create_failure}} =
+               Dispatcher.route(alert.id, :fire,
+                 actor: actor,
+                 now: now,
+                 create_delivery: create_delivery
+               )
+
+      assert deliveries_for(alert, actor) == []
     end
 
     test "a second identical request creates nothing", %{actor: actor} do
@@ -184,6 +302,59 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
                  actor: actor,
                  now: DateTime.utc_now()
                )
+    end
+
+    test "an acknowledged alert remains due for an :always rung", %{
+      actor: actor,
+      policy: policy,
+      channel: channel
+    } do
+      step_two = create_step!(actor, policy, 2, 300, :always)
+      attach!(actor, step_two, channel)
+      {alert, now} = fired_alert!(actor)
+
+      assert {:ok, %{planned: [_step_one]}} =
+               Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      _acknowledged =
+        alert
+        |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "review-test"}, actor: actor)
+        |> Ash.update!(actor: actor)
+
+      due_at = DateTime.add(now, 300, :second)
+      assert %{escalation: escalation} = Dispatcher.due(due_at, actor: actor, limit: 50)
+      assert alert.id in escalation
+
+      assert {:ok, %{planned: [step_two_id]}} =
+               Dispatcher.route(alert.id, :escalate, actor: actor, now: due_at)
+
+      assert reload_delivery!(step_two_id, actor).step_number == 2
+    end
+
+    test "renotify cadence appears in continuation work", %{actor: actor} do
+      rule = create_rule!(actor, 60)
+
+      alert =
+        create_alert!(actor, %{
+          "alert_class" => "device_down",
+          "incident_rule_id" => rule.id
+        })
+
+      now = DateTime.add(alert.triggered_at, 1, :second)
+      assert {:ok, %{planned: [_id]}} = Dispatcher.route(alert.id, :fire, actor: actor, now: now)
+
+      notified =
+        alert
+        |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
+        |> Ash.update!(actor: actor)
+
+      before_due = DateTime.add(notified.last_notification_at, 59, :second)
+      assert %{renotify: renotify} = Dispatcher.due(before_due, actor: actor, limit: 50)
+      refute alert.id in renotify
+
+      due_at = DateTime.add(notified.last_notification_at, 60, :second)
+      assert %{renotify: renotify} = Dispatcher.due(due_at, actor: actor, limit: 50)
+      assert alert.id in renotify
     end
   end
 
@@ -308,6 +479,25 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
 
       refute alert.id in escalation
     end
+
+    test "an old unrouted alert cannot consume the bounded escalation page", %{actor: actor} do
+      {unrouted, old_now} = fired_alert!(actor)
+      assert {:ok, _result} = Dispatcher.route(unrouted.id, :fire, actor: actor, now: old_now)
+
+      channel = create_channel!(actor)
+      policy = create_policy!(actor)
+      step = create_step!(actor, policy, 1, 0)
+      attach!(actor, step, channel)
+      create_route!(actor, policy)
+
+      {notified, now} = fired_alert!(actor)
+
+      assert {:ok, %{planned: [_id]}} =
+               Dispatcher.route(notified.id, :fire, actor: actor, now: now)
+
+      assert %{escalation: [only]} = Dispatcher.due(now, actor: actor, limit: 1)
+      assert only == notified.id
+    end
   end
 
   # --- fixtures -------------------------------------------------------------
@@ -328,7 +518,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
     {alert, DateTime.add(alert.triggered_at, 1, :second)}
   end
 
-  defp create_alert!(actor) do
+  defp create_alert!(actor, metadata \\ %{"alert_class" => "device_down"}) do
     Alert
     |> Ash.Changeset.for_create(
       :trigger,
@@ -337,7 +527,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
         description: "ICMP failed three times",
         severity: :critical,
         source_type: :device,
-        metadata: %{"alert_class" => "device_down"}
+        metadata: metadata
       },
       actor: actor
     )
@@ -414,17 +604,17 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp create_policy!(actor) do
+  defp create_policy!(actor, attrs \\ %{}) do
     NotificationEscalationPolicy
     |> Ash.Changeset.for_create(
       :create,
-      %{name: "policy-#{System.unique_integer([:positive])}"},
+      Map.merge(%{name: "policy-#{System.unique_integer([:positive])}"}, attrs),
       actor: actor
     )
     |> Ash.create!(actor: actor)
   end
 
-  defp create_step!(actor, policy, step_number, delay_seconds) do
+  defp create_step!(actor, policy, step_number, delay_seconds, condition \\ :always) do
     NotificationEscalationStep
     |> Ash.Changeset.for_create(
       :create,
@@ -432,7 +622,7 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
         policy_id: policy.id,
         step_number: step_number,
         delay_seconds: delay_seconds,
-        condition: :always
+        condition: condition
       },
       actor: actor
     )
@@ -447,17 +637,58 @@ defmodule ServiceRadar.Notifications.DispatcherRoutingTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp create_route!(actor, policy) do
+  defp create_route!(actor, policy, attrs \\ %{}) do
+    attrs =
+      Map.merge(
+        %{
+          name: "route-#{System.unique_integer([:positive])}",
+          escalation_policy_id: policy.id,
+          # An empty document is the catch-all, which is what makes this fixture
+          # about routing persistence rather than about predicate evaluation - the
+          # Router suite already owns that.
+          match_expression: %{}
+        },
+        attrs
+      )
+
     NotificationRoute
     |> Ash.Changeset.for_create(
       :create,
+      attrs,
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+  end
+
+  defp update_route!(actor, route, attrs) do
+    route
+    |> Ash.Changeset.for_update(:update, attrs, actor: actor)
+    |> Ash.update!(actor: actor)
+  end
+
+  defp mark_sent!(delivery, actor, external_correlation_id) do
+    delivery
+    |> Ash.Changeset.for_update(
+      :record_sent,
+      %{external_correlation_id: external_correlation_id},
+      actor: actor
+    )
+    |> Ash.update!(actor: actor)
+  end
+
+  defp reload_delivery!(id, actor) do
+    NotificationDelivery
+    |> Ash.Query.for_read(:by_id, %{id: id})
+    |> Ash.read_one!(actor: actor)
+  end
+
+  defp create_rule!(actor, renotify_seconds) do
+    StatefulAlertRule
+    |> Ash.Changeset.for_create(
+      :create,
       %{
-        name: "route-#{System.unique_integer([:positive])}",
-        escalation_policy_id: policy.id,
-        # An empty document is the catch-all, which is what makes this fixture
-        # about routing persistence rather than about predicate evaluation - the
-        # Router suite already owns that.
-        match_expression: %{}
+        name: "rule-#{System.unique_integer([:positive])}",
+        renotify_seconds: renotify_seconds
       },
       actor: actor
     )

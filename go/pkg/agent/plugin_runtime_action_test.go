@@ -289,6 +289,130 @@ func TestValidatePluginActionHTTPGrantAllowsScopedRequest(t *testing.T) {
 	}
 }
 
+func TestNotificationHTTPGrantRequiresAndHonorsExplicitIntent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	reqURL := mustParseURL(t, "https://api.example.com/v1/incidents")
+	grant := func(id, secretRef, mode string) credentialBrokerGrant {
+		return credentialBrokerGrant{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             id,
+			GrantType:           "notification_credential",
+			CredentialSecretRef: secretRef,
+			Allow: credentialBrokerACL{
+				Methods: []string{"POST"},
+				Paths:   []string{"/v1/"},
+				Hosts:   []string{"api.example.com"},
+				Ports:   []int{443},
+			},
+			Inject:    map[string]string{"type": mode},
+			ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+		}
+	}
+
+	grants := []credentialBrokerGrant{
+		grant("grant-a", "credentialref:network-credential-secret:secret-a", "bearer_token"),
+		grant("grant-b", "credentialref:network-credential-secret:secret-b", "http_header"),
+	}
+
+	selected, err := pluginActionGrantForHTTPRequestIntent(
+		grants,
+		"POST",
+		reqURL,
+		now,
+		&credentialInjectionIntent{
+			Mode:                "http_header",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-b",
+		},
+	)
+	if err != nil {
+		t.Fatalf("selecting grant B returned error: %v", err)
+	}
+	if selected == nil || selected.GrantID != "grant-b" {
+		t.Fatalf("selected grant = %#v, want grant-b", selected)
+	}
+
+	selected, err = pluginActionGrantForHTTPRequestIntent(grants, "POST", reqURL, now, nil)
+	if err != nil || selected != nil {
+		t.Fatalf("ambient notification selection = (%#v, %v), want (nil, nil)", selected, err)
+	}
+
+	_, err = pluginActionGrantForHTTPRequestIntent(
+		grants,
+		"POST",
+		reqURL,
+		now,
+		&credentialInjectionIntent{
+			Mode:                "bearer_token",
+			CredentialSecretRef: "credentialref:network-credential-secret:unknown",
+		},
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("unknown credential ref error = %v, want denied", err)
+	}
+
+	_, err = pluginActionGrantForHTTPRequestIntent(
+		grants,
+		"POST",
+		mustParseURL(t, "https://other.example.com/v1/incidents"),
+		now,
+		&credentialInjectionIntent{Mode: "bearer_token", GrantID: "grant-a"},
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("mismatched host error = %v, want denied", err)
+	}
+}
+
+func TestNotificationHTTPGrantDeniesAmbiguousModeOnlyIntent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	reqURL := mustParseURL(t, "https://api.example.com/v1/incidents")
+	grants := make([]credentialBrokerGrant, 0, 2)
+	for _, id := range []string{"a", "b"} {
+		grants = append(grants, credentialBrokerGrant{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-" + id,
+			GrantType:           "notification_credential",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-" + id,
+			Allow: credentialBrokerACL{
+				Methods: []string{"POST"},
+				Paths:   []string{"/v1/"},
+				Hosts:   []string{"api.example.com"},
+				Ports:   []int{443},
+			},
+			Inject:    map[string]string{"type": "bearer_token"},
+			ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+		})
+	}
+
+	_, err := pluginActionGrantForHTTPRequestIntent(
+		grants,
+		"POST",
+		reqURL,
+		now,
+		&credentialInjectionIntent{Mode: "bearer_token"},
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("ambiguous selector error = %v, want denied", err)
+	}
+}
+
+func TestNotificationHTTPIntentWithoutGrantIsDenied(t *testing.T) {
+	t.Parallel()
+
+	execution := &pluginExecution{mode: pluginExecutionModeAction}
+	grant, err := execution.credentialBrokerGrantForHTTP(
+		"POST",
+		mustParseURL(t, "https://api.example.com/v1/incidents"),
+		&credentialInjectionIntent{Mode: "bearer_token"},
+	)
+	if grant != nil || !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("selection = (%#v, %v), want (nil, denied)", grant, err)
+	}
+}
+
 func TestValidatePluginActionHTTPGrantDeniesMismatchedRequest(t *testing.T) {
 	t.Parallel()
 

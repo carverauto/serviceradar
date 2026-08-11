@@ -83,6 +83,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
   @qualified_table "#{@schema}.#{@table}"
 
   @window_seconds 60
+  @empty_result_retries 1
 
   # One atomic statement, not a read-then-write. Two dispatchers evaluating the
   # same channel in the same millisecond must not both see "3 of 5 used" and
@@ -175,6 +176,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
 
     * `:repo` - the Ecto repo to consume against. Defaults to
       `ServiceRadar.Repo`; supplied by tests that want a second repo.
+    * `:query` - a `fun.(sql, params)` query seam used by focused tests.
 
   A database failure returns `:ok` (see the moduledoc: never suppress on
   ignorance).
@@ -185,7 +187,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
   def check_and_consume(channel_id, limit, %DateTime{} = now, opts)
       when is_binary(channel_id) and is_integer(limit) and limit > 0 and is_list(opts) do
     case Ecto.UUID.dump(channel_id) do
-      {:ok, channel_uuid} -> consume(channel_uuid, limit, now, opts)
+      {:ok, channel_uuid} -> consume(channel_uuid, limit, now, opts, @empty_result_retries)
       :error -> :ok
     end
   end
@@ -206,7 +208,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
   def usage(channel_id, opts) when is_binary(channel_id) and is_list(opts) do
     with {:ok, channel_uuid} <- Ecto.UUID.dump(channel_id),
          {:ok, %{rows: [[consumed, window_started_at] | _]}} <-
-           query(repo(opts), @usage_sql, [channel_uuid]) do
+           query(opts, @usage_sql, [channel_uuid]) do
       %{consumed: consumed, window_started_at: to_datetime(window_started_at)}
     else
       _other -> nil
@@ -227,7 +229,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
   def reset(channel_id, opts) when is_binary(channel_id) and is_list(opts) do
     case Ecto.UUID.dump(channel_id) do
       {:ok, channel_uuid} ->
-        _ = query(repo(opts), @reset_sql, [channel_uuid])
+        _ = query(opts, @reset_sql, [channel_uuid])
         :ok
 
       :error ->
@@ -239,7 +241,7 @@ defmodule ServiceRadar.Notifications.RateLimiter do
 
   # --- Consume --------------------------------------------------------------
 
-  defp consume(channel_uuid, limit, now, opts) do
+  defp consume(channel_uuid, limit, now, opts, empty_result_retries) do
     window = window_start(now)
 
     params = [
@@ -250,16 +252,22 @@ defmodule ServiceRadar.Notifications.RateLimiter do
       naive(now)
     ]
 
-    case query(repo(opts), @consume_sql, params) do
+    case query(opts, @consume_sql, params) do
       {:ok, %{rows: [[_consumed, _window, true] | _]}} ->
         :ok
 
       {:ok, %{rows: [[_consumed, window_started_at, false] | _]}} ->
         {:wait, window_started_at |> to_datetime() |> DateTime.add(@window_seconds, :second)}
 
-      # No granted row and no blocking row: the conflicting row was deleted
-      # between the two halves of the statement. There is no evidence of a spent
-      # budget, so the send proceeds.
+      # A concurrent first insert can produce no rows even though the budget is
+      # spent: the INSERT waits on the other transaction, while the fallback
+      # SELECT still uses the statement snapshot taken before that transaction
+      # committed. Retry in a fresh statement so it sees the committed row.
+      {:ok, %{rows: []}} when empty_result_retries > 0 ->
+        consume(channel_uuid, limit, now, opts, empty_result_retries - 1)
+
+      # A row that is repeatedly created/deleted underneath both statements is
+      # database uncertainty, so retain the documented fail-open policy.
       {:ok, _result} ->
         :ok
 
@@ -273,11 +281,14 @@ defmodule ServiceRadar.Notifications.RateLimiter do
     end
   end
 
-  defp query(repo, sql, params) do
-    Ecto.Adapters.SQL.query(repo, sql, params)
+  defp query(opts, sql, params) do
+    case Keyword.get(opts, :query) do
+      query when is_function(query, 2) -> query.(sql, params)
+      _other -> Ecto.Adapters.SQL.query(repo(opts), sql, params)
+    end
   rescue
     # A counter that cannot be read must not become a deployment-wide page
-    # outage. `consume/4` turns this into `:ok`.
+    # outage. `consume/5` turns this into `:ok`.
     error in [DBConnection.ConnectionError, Postgrex.Error] ->
       {:error, error}
   end

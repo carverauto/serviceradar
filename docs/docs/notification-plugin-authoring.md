@@ -68,30 +68,36 @@ entrypoint: run_action
 runtime: wasi-preview1
 outputs: serviceradar.plugin_result.v1
 capabilities: [get_config, log, http_request, "notify:v1"]
+permissions:
+  allowed_domains: [api.acme.example]
+  allowed_ports: [443]
 resources:
   requested_memory_mb: 32
   requested_cpu_ms: 5000
 notifications:
-  - key: pagerduty_events_v2
-    display_name: PagerDuty Events v2
-    description: Routes alerts to a PagerDuty Events v2 integration key
-    entrypoint: notify_pagerduty
+  - key: acme_incidents
+    display_name: Acme Incidents
+    description: Routes alerts to the Acme incident API
+    entrypoint: notify_acme
     config_schema:
       type: object
       additionalProperties: false
-      required: [routing_key]
+      required: [base_url, api_token]
       properties:
-        routing_key:
+        base_url:
           type: string
-          title: Integration key
+          title: API base URL
+        api_token:
+          type: string
+          title: API token
           secretRef: true
           credentialKind: api_token
     capabilities: [send, test, resolve_update]
-    payload_formats: [pagerduty_v2, json]
+    payload_formats: [json]
     routes: [control_plane, edge_agent]
     credential_requirements:
-      routing_key:
-        injection_mode: http_header
+      api_token:
+        injection_mode: bearer_token
     inbound:
       enabled: false
 ```
@@ -172,10 +178,38 @@ is ordinary configuration everywhere in the system.
 
 ### credential_requirements
 
-A map of credential name to a requirement object. The only key the platform
-interprets today is `injection_mode`, which must be one of the six canonical
-names in [Credentials](#credentials-the-guest-never-sees-one). At most 16
-requirements per notifier.
+A map of credential name to a closed, typed requirement object, with at most 16
+requirements per notifier. The requirement name normally matches the
+`secretRef` field in `config_schema`; set `config_key` when it does not.
+
+| Common field | Required | Type and meaning |
+| --- | --- | --- |
+| `injection_mode` | yes | One of the six canonical names in [Credentials](#credentials-the-guest-never-sees-one) |
+| `required` | no | Boolean; defaults to `false`. A missing required channel credential stops delivery before a grant is issued |
+| `config_key` | no | String naming the channel config field that holds the opaque network-credential reference |
+| `ttl_seconds` | no | Positive integer lifetime for the one-delivery credential grant; defaults to 300 |
+| `allow` | no | A further narrowing map. Its closed keys are `hosts`, `schemes`, `methods`, `paths`, and `ports`; ports are integers and every other member is a string |
+
+Mode-specific fields are listed under [The six canonical injection
+modes](#the-six-canonical-injection-modes). Unknown fields are rejected during
+package import. In particular, do not supply a nested `inject` map or the
+northbound-only `allowed_hosts`, `allowed_ports`, `allowed_methods`,
+`allowed_paths`, or `allowed_schemes` aliases. The platform constructs the host
+wire map only from the validated typed fields. Arbitrary `fixed_*` literals are
+also rejected; a plugin can put non-secret fixed values in its own request body,
+while the one host-generated fixed value required by OAuth is declared exactly
+as `fixed_grant_type: password`.
+
+The credential grant inherits the assignment's effective `allowed_domains` and
+`allowed_ports` after package approval and assignment overrides have narrowed
+them. If the channel config contains a concrete URL, the grant narrows again to
+that endpoint. The form and OAuth modes instead narrow to their declared exact
+targets. A notifier therefore needs an explicit manifest `permissions` scope;
+credential injection never creates egress authority on its own. For OAuth, both
+the upstream request host/port and the token-exchange host/port must remain
+inside the assignment's effective permissions. A package can import with a
+broad enough permission but later fail closed at delivery if an assignment
+override removes either endpoint.
 
 ### inbound
 
@@ -284,16 +318,26 @@ and action-link URLs.
 
 ### The six canonical injection modes
 
-`injection_mode` must be one of exactly these six:
+`injection_mode` must be one of exactly these six. Every field shown as required
+is checked during package import, not deferred until a delivery reaches an
+agent.
 
-| Mode | What the host does |
-| --- | --- |
-| `http_header` | Sets the named header to the resolved material |
-| `bearer_token` | Sets `Authorization: Bearer ...` |
-| `basic_auth` | Sets HTTP Basic credentials |
-| `query` | Adds a query parameter |
-| `form_urlencoded` | Adds a form field |
-| `oauth2_password_bearer` | Exchanges credentials for a bearer token |
+| Mode | Required typed fields | What the host does |
+| --- | --- | --- |
+| `http_header` | `name`; optional `scheme` | Sets the named header to the resolved material, prefixed by `scheme` and one space when supplied |
+| `bearer_token` | None beyond `injection_mode`; optional `name`, `scheme` | Sets the named header. The normalized defaults are `name: Authorization` and `scheme: Bearer` |
+| `basic_auth` | None beyond `injection_mode` | Sets HTTP Basic credentials. The selected credential must expose `username` (or `user`) and `password` material fields |
+| `query` | `name` | Adds the resolved material as the named query parameter |
+| `form_urlencoded` | `method`, `host`, integer `port`, `path`, and at least one `field_<material-field>: <form-field>` mapping | Adds mapped credential material only when the plugin's HTTPS request exactly matches the method, host, port grant, and path |
+| `oauth2_password_bearer` | The upstream `method`, `host`, integer `port`, and `path`; `token_method: POST`, `token_host`, integer `token_port`, and `token_path`; mappings to both `username` and `password`; `fixed_grant_type: password` | Performs the exact HTTPS password-token exchange, then sets the upstream request's `Authorization: Bearer ...` header |
+
+For example, `field_account_name: username` reads the `account_name` field from
+the resolved credential and writes it to the `username` form field. Mapping
+keys and values are identifiers, not credential literals. Target paths start
+with `/` and do not include a query or fragment. Target ports are integers in
+`plugin.yaml`; the platform emits only string-valued entries to the host grant,
+serializing `token_port` as a decimal string and keeping the upstream `port` in
+the grant's egress scope.
 
 Shorthand spellings some other surfaces accept - `header`, `http_basic_auth`,
 `query_param`, `http_query` - are **not** accepted here, deliberately, so that a

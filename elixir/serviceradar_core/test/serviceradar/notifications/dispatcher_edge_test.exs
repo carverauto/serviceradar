@@ -20,7 +20,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       `agent_commands` row core itself wrote - no dependency on
       `:status_handler_enabled`. A result that is lost for good still reaches a
       TERMINAL state (tasks 3.9.4), by the receipt sweep when the command row
-      can be read and by the stalled-row sweep in `due/2` when it cannot.
+      can be read and by the receipt timeout when it cannot.
     * a configuration failure (unapproved package, missing assignment,
       unconfigured platform agent) is PERMANENT, so it burns no budget waiting
       for a retry that cannot help.
@@ -64,7 +64,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
           Process.get(:bus_calls, [])
       )
 
-      Process.get(:bus_result) || {:ok, Ash.UUID.generate()}
+      Process.get(:bus_result) || {:ok, Keyword.fetch!(opts, :command_id)}
     end
 
     def calls, do: Enum.reverse(Process.get(:bus_calls, []))
@@ -82,6 +82,9 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
            partition_id: nil,
            plugin_assignment_id: "33333333-3333-3333-3333-333333333333",
            plugin_package_id: "11111111-1111-1111-1111-111111111111",
+           notification_entrypoint: "notify_pagerduty",
+           notification_capabilities: ["send", "test", "resolve_update"],
+           credential_requirements: %{},
            execution_route: channel.execution_route
          }}
     end
@@ -121,7 +124,7 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
     test "dispatches plugin.run_action to the platform-resident agent", %{actor: actor} do
       %{id: id, now: now} = planned!(actor, execution_route: :control_plane)
 
-      assert {:ok, :sent} = deliver(id, actor, now)
+      assert {:ok, :dispatching} = deliver(id, actor, now)
 
       assert [call] = StubBus.calls()
       assert call.agent_uid == "k8s-agent"
@@ -129,12 +132,16 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       assert call.command_type == "plugin.run_action"
       assert call.payload["execution_route"] == "control_plane"
       assert call.payload["schema"] == Dispatcher.edge_command_schema()
+      assert call.payload["entrypoint"] == "notify_pagerduty"
+      assert call.payload["intent"] == "send"
+      assert call.payload["command_id"] == call.opts[:command_id]
+      assert call.opts[:notification_delivery_attempt]
     end
 
     test "names the assignment the agent will run under", %{actor: actor} do
       %{id: id, now: now} = planned!(actor, execution_route: :control_plane)
 
-      assert {:ok, :sent} = deliver(id, actor, now)
+      assert {:ok, :dispatching} = deliver(id, actor, now)
 
       assert [call] = StubBus.calls()
       # go/pkg/agent refuses a plugin.run_action payload with no assignment id
@@ -248,24 +255,23 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
   describe "the delivery row is the system of record (tasks 3.4.3)" do
     test "records the command id and the agent it went to", %{actor: actor} do
       %{id: id, now: now} = planned!(actor, execution_route: :edge_agent, agent_uid: "site-1")
-      command_id = Ash.UUID.generate()
-      StubBus.answer_with({:ok, command_id})
 
-      assert {:ok, :sent} = deliver(id, actor, now)
+      assert {:ok, :dispatching} = deliver(id, actor, now)
 
+      assert [call] = StubBus.calls()
       delivery = reload!(id, actor)
-      assert delivery.state == :sent
-      assert delivery.command_id == command_id
-      assert delivery.external_correlation_id == command_id
+      assert delivery.state == :dispatching
+      assert delivery.command_id == call.opts[:command_id]
+      assert is_nil(delivery.external_correlation_id)
       assert delivery.execution_route == :edge_agent
       assert delivery.agent_uid == "site-1"
-      assert delivery.result_summary["execution_route"] == "edge_agent"
+      assert delivery.attempt_count == 0
     end
 
     test "no secret material crosses into the command payload", %{actor: actor} do
       %{id: id, now: now} = planned!(actor, execution_route: :edge_agent, agent_uid: "site-1")
 
-      assert {:ok, :sent} = deliver(id, actor, now)
+      assert {:ok, :dispatching} = deliver(id, actor, now)
 
       assert [call] = StubBus.calls()
       keys = Map.keys(call.payload)
@@ -274,6 +280,10 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       refute "secrets" in keys
       refute "secret_refs" in keys
       refute "config" in keys
+      assert call.payload["channel_config"] == %{}
+      assert call.payload["rendered_payload"] != %{}
+      assert call.payload["alert_snapshot"]["id"]
+      assert call.payload["attempt_count"] == 1
     end
   end
 
@@ -284,14 +294,14 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       %{id: id, now: now} = planned!(actor, execution_route: :edge_agent, agent_uid: "site-1")
       command = create_command!(actor, "site-1")
       dispatching!(id, command.id, actor)
-      complete!(command, actor)
+      complete!(command, id, actor)
 
       assert %{settled: settled} = Dispatcher.reconcile(now, actor: actor)
       assert id in settled
 
       delivery = reload!(id, actor)
       assert delivery.state == :sent
-      assert delivery.result_summary["receipt"] == "command_completed"
+      assert delivery.result_summary["receipt"] == "delivered"
       # The point of reading the command row: the stall sweep would have
       # re-dispatched this and sent a second notification.
       assert StubBus.calls() == []
@@ -303,14 +313,33 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
 
       command = create_command!(actor, "site-1")
       dispatching!(id, command.id, actor)
-      fail!(command, actor)
+      retryable!(command, id, actor)
 
       assert %{settled: settled} = Dispatcher.reconcile(now, actor: actor)
       assert id in settled
 
       delivery = reload!(id, actor)
       assert delivery.state == :pending
-      assert delivery.error_class == "command_failed"
+      assert delivery.error_class == "provider_busy"
+      assert delivery.attempt_count == 1
+    end
+
+    test "a guest-declared permanent failure terminates without spending the retry budget", %{
+      actor: actor
+    } do
+      %{id: id, now: now} =
+        planned!(actor, execution_route: :edge_agent, agent_uid: "site-1", max_attempts: 5)
+
+      command = create_command!(actor, "site-1")
+      dispatching!(id, command.id, actor)
+      permanent!(command, id, actor)
+
+      assert %{settled: settled} = Dispatcher.reconcile(now, actor: actor)
+      assert id in settled
+
+      delivery = reload!(id, actor)
+      assert delivery.state == :failed
+      assert delivery.error_class == "invalid_destination"
       assert delivery.attempt_count == 1
     end
 
@@ -414,27 +443,26 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
       assert successors(id, actor) == [successor]
     end
 
-    test "a delivery whose command row is unreadable is handed back by the stall sweep", %{
+    test "a delivery whose command row is unreadable is settled by the receipt timeout", %{
       actor: actor
     } do
       %{id: id, now: now} =
         planned!(actor, execution_route: :edge_agent, agent_uid: "site-1", max_attempts: 3)
 
       # The other way a result is lost: not "no answer yet" but "nothing left to
-      # ask". `reconcile/2` deliberately will not invent an outcome for a
-      # command row it cannot read, since the command may well have delivered.
+      # ask". The row still has to converge within the ordinary attempt budget;
+      # redispatching it directly from due/2 would duplicate an in-flight page.
       dispatching!(id, Ash.UUID.generate(), actor)
 
       later = DateTime.add(now, 3_600, :second)
 
-      assert %{settled: []} = Dispatcher.reconcile(later, actor: actor)
-      assert reload!(id, actor).state == :dispatching
+      assert %{settled: settled} = Dispatcher.reconcile(later, actor: actor)
+      assert id in settled
+      assert reload!(id, actor).state == :pending
+      assert reload!(id, actor).error_class == "command_receipt_unavailable"
 
-      # So the backstop has to be the other scan. Without the stalled-row sweep
-      # in `due/2` this delivery is invisible to every selection in the system
-      # and never reaches a terminal state at all.
       assert %{retry: retry} = Dispatcher.due(later, actor: actor)
-      assert id in retry
+      refute id in retry
     end
   end
 
@@ -490,17 +518,61 @@ defmodule ServiceRadar.Notifications.DispatcherEdgeTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp complete!(command, actor) do
+  defp complete!(command, delivery_id, actor) do
     command
     |> Ash.Changeset.for_update(:mark_sent, %{}, actor: actor)
     |> Ash.update!(actor: actor)
-    |> Ash.Changeset.for_update(:complete, %{}, actor: actor)
+    |> Ash.Changeset.for_update(
+      :complete,
+      %{
+        result_payload: %{
+          "schema" => "serviceradar.notification_delivery_result.v1",
+          "delivery_id" => delivery_id,
+          "status" => "delivered",
+          "external_correlation_id" => "provider-message-1"
+        }
+      },
+      actor: actor
+    )
     |> Ash.update!(actor: actor)
   end
 
-  defp fail!(command, actor) do
+  defp retryable!(command, delivery_id, actor) do
     command
-    |> Ash.Changeset.for_update(:fail, %{failure_reason: "notifier returned 500"}, actor: actor)
+    |> Ash.Changeset.for_update(
+      :fail,
+      %{
+        failure_reason: "notifier returned 500",
+        result_payload: %{
+          "schema" => "serviceradar.notification_delivery_result.v1",
+          "delivery_id" => delivery_id,
+          "status" => "retryable",
+          "error_class" => "provider_busy",
+          "error_message" => "provider returned 500",
+          "retry_after_seconds" => 30
+        }
+      },
+      actor: actor
+    )
+    |> Ash.update!(actor: actor)
+  end
+
+  defp permanent!(command, delivery_id, actor) do
+    command
+    |> Ash.Changeset.for_update(
+      :fail,
+      %{
+        failure_reason: "notifier rejected destination",
+        result_payload: %{
+          "schema" => "serviceradar.notification_delivery_result.v1",
+          "delivery_id" => delivery_id,
+          "status" => "failed",
+          "error_class" => "invalid_destination",
+          "error_message" => "the configured destination does not exist"
+        }
+      },
+      actor: actor
+    )
     |> Ash.update!(actor: actor)
   end
 

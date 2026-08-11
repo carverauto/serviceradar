@@ -85,13 +85,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if Access.any_access?(scope) do
-      {:ok, initial_assigns(socket, scope)}
+    case mount_scope(socket, scope) do
+      {:ok, current_scope} ->
+        {:ok, initial_assigns(socket, current_scope)}
+
+      {:error, :permission_revoked} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Not authorized to view notification settings")
+         |> push_navigate(to: ~p"/settings/profile")}
+    end
+  end
+
+  # The disconnected render must stay query-free. The connected mount may and
+  # must refresh authority before it subscribes to delivery PubSub.
+  defp mount_scope(socket, scope) do
+    if connected?(socket) do
+      Access.authorize_current_access(scope)
     else
-      {:ok,
-       socket
-       |> put_flash(:error, "Not authorized to view notification settings")
-       |> push_navigate(to: ~p"/settings/profile")}
+      if Access.any_access?(scope),
+        do: {:ok, scope},
+        else: {:error, :permission_revoked}
     end
   end
 
@@ -104,13 +118,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     |> assign(:page_title, "Notifications")
     |> assign(:current_path, "/settings/notifications")
     |> assign(:tab, nil)
-    |> assign(:visible_tabs, Access.visible_tabs(scope))
     |> assign(:loading, true)
-    |> assign(:can_manage_channels, RBAC.can?(scope, Access.channels_manage()))
-    |> assign(:can_test_send, RBAC.can?(scope, Access.test_send()))
-    |> assign(:can_manage_routes, RBAC.can?(scope, Access.routes_manage()))
-    |> assign(:can_manage_silences, RBAC.can?(scope, Access.silences_manage()))
-    |> assign(:can_manage_providers, RBAC.can?(scope, Access.providers_manage()))
+    |> assign_authority(scope)
     |> assign(:channel_index, %{})
     |> assign(:providers, [])
     |> assign(:policies, [])
@@ -140,6 +149,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
 
   @impl true
   def handle_params(params, _uri, socket) do
+    case refresh_scope_for_params(socket) do
+      {:ok, socket} ->
+        handle_authorized_params(params, socket)
+
+      {:error, :permission_revoked} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Not authorized to view notification settings")
+         |> push_navigate(to: ~p"/settings/profile")}
+    end
+  end
+
+  defp handle_authorized_params(params, socket) do
     scope = socket.assigns.current_scope
 
     case resolve_tab(scope, params["tab"]) do
@@ -165,6 +187,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
          |> put_flash(:error, "Not authorized to view notification settings")
          |> push_navigate(to: ~p"/settings/profile")}
     end
+  end
+
+  # The disconnected mount deliberately performs no database work. Once the
+  # socket is connected, refresh authority before any tab query is issued.
+  defp refresh_scope_for_params(socket) do
+    if connected?(socket) do
+      case Access.authorize_current_access(socket.assigns.current_scope) do
+        {:ok, current_scope} -> {:ok, assign_authority(socket, current_scope)}
+        _denied -> {:error, :permission_revoked}
+      end
+    else
+      {:ok, socket}
+    end
+  end
+
+  defp assign_authority(socket, scope) do
+    socket
+    |> assign(:current_scope, scope)
+    |> assign(:visible_tabs, Access.visible_tabs(scope))
+    |> assign(:can_manage_channels, RBAC.can?(scope, Access.channels_manage()))
+    |> assign(:can_test_send, RBAC.can?(scope, Access.test_send()))
+    |> assign(:can_manage_routes, RBAC.can?(scope, Access.routes_manage()))
+    |> assign(:can_manage_silences, RBAC.can?(scope, Access.silences_manage()))
+    |> assign(:can_manage_providers, RBAC.can?(scope, Access.providers_manage()))
   end
 
   defp assign_tab(socket, tab, params) do
@@ -343,8 +389,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   @impl true
   def handle_event(event, params, socket) do
     case Access.authorize_event(socket.assigns.current_scope, event) do
-      :ok ->
-        handle_authorized(event, params, socket)
+      {:ok, current_scope} ->
+        socket
+        |> assign_authority(current_scope)
+        |> then(&handle_authorized(event, params, &1))
 
       {:error, :forbidden} ->
         {:noreply, put_flash(socket, :error, "You are not authorized to perform that action.")}
@@ -834,13 +882,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
     # Re-checked here, not only at subscribe: a permission revoked mid-session
     # must stop the feed for this socket, and an envelope for a record the viewer
     # may not read is never rendered.
-    permitted? = RBAC.can?(socket.assigns.current_scope, Access.deliveries_view())
-    on_log? = match?(%{id: "deliveries"}, socket.assigns.tab)
+    case Access.authorize_current(socket.assigns.current_scope, Access.deliveries_view()) do
+      {:ok, current_scope} ->
+        socket = assign_authority(socket, current_scope)
+        on_log? = match?(%{id: "deliveries"}, socket.assigns.tab)
 
-    if permitted? and on_log? do
-      {:noreply, stream_insert(socket, :deliveries, delivery, at: 0)}
-    else
-      {:noreply, socket}
+        if on_log? do
+          {:noreply, stream_insert(socket, :deliveries, delivery, at: 0)}
+        else
+          {:noreply, socket}
+        end
+
+      _revoked ->
+        {:noreply, socket}
     end
   end
 

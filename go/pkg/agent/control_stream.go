@@ -50,6 +50,7 @@ const (
 const (
 	commandStatusFailed    = "failed"
 	commandStatusSucceeded = "succeeded"
+	notifierContractMajor  = "1"
 )
 
 // northboundActionResultSchema is the default result schema for a
@@ -722,24 +723,69 @@ func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.Command
 	resultPayload := map[string]interface{}{}
 	if len(resultBytes) > 0 {
 		if err := json.Unmarshal(resultBytes, &resultPayload); err != nil {
+			status := commandStatusSucceeded
+			if isNotification {
+				status = commandStatusFailed
+			}
 			resultPayload = map[string]interface{}{
 				"schema":            envelope.schema(),
-				"status":            commandStatusSucceeded,
+				"status":            status,
 				"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
 			}
 		}
 	}
+	if isNotification {
+		enforceNotifierContractVersion(resultPayload)
+	}
 	envelope.stamp(resultPayload)
 
-	commandSucceeded := true
+	commandSucceeded := pluginActionCommandSucceeded(envelope, resultPayload)
 	message := envelope.completedMessage()
-	if resultPayload["status"] == commandStatusFailed &&
-		(resultPayload["schema"] == actionResultAckSchema ||
-			resultPayload["schema"] == notificationDeliveryResultSchema) {
-		commandSucceeded = false
+	if !commandSucceeded {
 		message = envelope.failedMessage()
 	}
 	_ = sender.Send(commandResult(cmd, commandSucceeded, message, resultPayload))
+}
+
+// enforceNotifierContractVersion prevents a successful-looking result from a
+// contract major this host does not understand from settling a delivery. An
+// absent version remains accepted during the pre-release rolling bridge; once
+// a guest declares a version, malformed and unsupported majors fail closed.
+func enforceNotifierContractVersion(resultPayload map[string]interface{}) {
+	rawVersion, exists := resultPayload["sdk_contract_version"]
+	if !exists || rawVersion == nil {
+		return
+	}
+
+	version, ok := rawVersion.(string)
+	version = strings.TrimSpace(version)
+	major := version
+	if before, _, found := strings.Cut(version, "."); found {
+		major = before
+	}
+
+	if !ok || version == "" || major != notifierContractMajor {
+		resultPayload["schema"] = notificationDeliveryResultSchema
+		resultPayload["status"] = commandStatusFailed
+		resultPayload["error_class"] = "sdk_contract_mismatch"
+		resultPayload["error_message"] = "notifier SDK contract major is unsupported"
+	}
+}
+
+func pluginActionCommandSucceeded(
+	envelope pluginActionResultEnvelope,
+	resultPayload map[string]interface{},
+) bool {
+	if envelope.isNotification {
+		// The outer command state is transport, not notifier semantics. Only a
+		// notifier's explicit delivered result is successful; retryable and
+		// permanent failures stay distinguishable in payload_json for core.
+		return resultPayload["schema"] == notificationDeliveryResultSchema &&
+			resultPayload["status"] == "delivered"
+	}
+
+	return resultPayload["status"] != commandStatusFailed ||
+		resultPayload["schema"] != actionResultAckSchema
 }
 
 // pluginActionResultEnvelope is the correlation identity the agent stamps on a
@@ -782,7 +828,12 @@ func (e pluginActionResultEnvelope) failure(errorCode string) map[string]interfa
 
 func (e pluginActionResultEnvelope) stamp(result map[string]interface{}) {
 	result["schema"] = firstNonEmptyString(result["schema"], e.schema())
-	result["status"] = firstNonEmptyString(result["status"], commandStatusSucceeded)
+	defaultStatus := commandStatusSucceeded
+	if e.isNotification {
+		// A notifier that omitted its three-state result did not prove delivery.
+		defaultStatus = commandStatusFailed
+	}
+	result["status"] = firstNonEmptyString(result["status"], defaultStatus)
 	e.stampIdentity(result)
 }
 

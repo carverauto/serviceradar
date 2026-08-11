@@ -1223,7 +1223,11 @@ Conventions that apply to every phase:
       body through and stamps only `schema` / `status` /
       `delivery_id` / `channel_id` / `action_key`, exactly as the northbound path
       stamps `invocation_id` / `action_id`. Synthesising a notification result
-      body here would fork the notifier guest ABI the SDKs own (3.8).
+      body here would fork the notifier guest ABI the SDKs own (3.8). The host
+      does adapt the command envelope into that existing ABI before execution:
+      notifier guests receive top-level `notification_delivery` with schema
+      `serviceradar.notification_delivery_request.v1`, never the northbound
+      `action_invocation` wrapper.
 - [x] 3.2.2 Add notification command payload fields to `proto/monitoring.proto`
       only where the edge route requires them; regenerate the Go and Elixir stubs
       through the single-source codegen path.
@@ -1235,17 +1239,11 @@ Conventions that apply to every phase:
       grants already ride it as `credential_broker` / `credential_brokers`; and
       trusted-host-only material already has `PluginAssignmentConfig` field 23,
       `host_params_json`. No other language binding needs regenerating.
-      FINDING (not 3.2's to fix, needs its own task): the `notifications:`
-      manifest block lets each entry declare its own `entrypoint`, and nothing
-      carries that to the host - `edge/agent_config_generator.ex:1206` sets an
-      assignment's entrypoint from `package.entrypoint`, and
-      `plugin_runtime_wazero.go` calls `assignment.Entrypoint`. A per-notifier
-      entrypoint is therefore DECLARED IN ELIXIR AND UNENFORCED AT RUNTIME - the
-      same defect class as `advisory-feed:v1`. Today a multi-notifier package
-      must dispatch on `action_key` inside one export. Closing it needs the
-      config generator to emit the binding BEFORE the host can honour it; adding
-      a proto field no producer fills would be a permanent wire commitment that
-      changes nothing.
+      The notifier entrypoint also rides the opaque command payload. Core
+      resolves it from the matching validated `notifications:` manifest entry;
+      the agent applies it to an invocation-local copy of the assignment. This
+      honours multi-notifier packages without mutating the assignment's
+      package-level entrypoint and without adding a proto field.
 - [x] 3.2.3 Keep secrets out of guest memory and out of `params_json`. Use
       `CredentialBrokerGrant` host-side injection
       (`go/pkg/agent/plugin_runtime_actions.go:308-356`) or the trusted-host-only
@@ -1382,10 +1380,12 @@ Conventions that apply to every phase:
       `NotificationDelivery` row is always the system of record, mirroring the
       pattern documented at
       `automation/ansible/callback_command_result_coordinator.ex:1-10`.
-      HOLDS. Nothing in the dispatch path waits on a command result: bus hand-off
-      settles the row, and `command_id` / `agent_uid` / `execution_route` record
-      how it went out. Proven by test, together with the payload carrying no
-      secret material.
+      HOLDS. Nothing in the dispatch path waits synchronously on a command
+      result: bus hand-off records `command_id` / `agent_uid` /
+      `execution_route` and leaves the row `:dispatching`. The receipt sweep
+      later validates the persisted notifier SDK result and settles the delivery
+      row; bus acceptance alone is never reported as `:sent`. Proven by tests,
+      together with the payload carrying no secret material.
 - [x] 3.4.4 Before the edge route ships, either enable
       `:status_handler_enabled` (default `false`,
       `cluster/coordinator_children.ex:96-113`) so
@@ -1414,29 +1414,23 @@ Conventions that apply to every phase:
          flag. `reconcile/2` reads only what CORE writes - the command row the
          bus itself creates, its status, and the `expires_at` it computes from
          the TTL - so it reaches the same answer with the handler on or off.
-      Shape: a bounded scan over `:dispatching` rows carrying a `command_id`
-      (the `:poll_due` shape this task points at, expressed as an Ash filter
-      rather than a new read action, because the selection is two columns and
-      does not warrant one). A completed command settles `:sent`; a failed,
-      expired, canceled, or offline one goes through the ordinary retry/failover
-      machinery; an in-flight command inside its TTL is left alone; past its TTL
-      it is a `command_receipt_timeout` and is owed another attempt.
-      NOT done: reconciling a row already `:sent`. Hand-off is what `:sent`
-      records for an agent route, and `:sent` is terminal with no outbound
-      transition. Making `:sent` conditional on a receipt instead would make
-      every edge delivery depend on the status handler and would re-page on every
-      lost ack - the exact dependency this option exists to avoid.
+      Shape: a bounded scan over every `:dispatching` row carrying a
+      `command_id` (the `:poll_due` shape this task points at, expressed as an
+      Ash filter rather than a new read action). A completed/failed outer command
+      is not itself the answer: the reconciler parses the embedded notifier SDK
+      result and preserves `delivered | retryable | failed`. An in-flight command
+      inside its TTL is left alone; past its TTL it is a
+      `command_receipt_timeout` and is owed another attempt. A missing result is
+      never guessed delivered.
 - [x] 3.4.5 Add a bounded periodic scan that recovers deliveries whose wake-up
       signal was lost, and a reconnect drain for commands queued while an agent
       was offline.
-      The bounded periodic scan for a LOST job already existed: `due/2`'s
-      `stalled_ids` hands back rows stuck in `:dispatching` past
-      `@dispatching_stall_seconds`, and `ContinuationWorker` re-drives them. What
-      it does blindly is re-dispatch, which sends a SECOND notification for a
-      command the agent may already have run; `reconcile/2` (3.4.4) settles those
-      rows from the command row first, on a one-minute cron, long before the
-      five-minute stall threshold. The two are complementary and the ordering is
-      what makes the duplicate rare.
+      `due/2` now selects only `:pending` rows. It never hands a `:dispatching`
+      command back for blind re-dispatch, because that can send a second
+      notification after the first command already ran. `reconcile/2` (3.4.4)
+      exclusively owns those rows and settles them from the durable command
+      receipt on a one-minute cron; an unreadable receipt gets a bounded grace
+      period and then enters the ordinary retry/failover budget.
       Reconnect drain: there are no commands queued at the agent to drain - the
       bus is at-most-once and marks the command `offline` rather than spooling
       it - so what is drained is the delivery row waiting out a backoff in core.

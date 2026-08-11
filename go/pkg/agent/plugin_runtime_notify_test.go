@@ -58,14 +58,19 @@ func notificationDeliveryPayloadWith(t *testing.T, extra map[string]any) json.Ra
 	envelope := map[string]any{
 		"schema":            notificationDeliveryEnvelopeSchema,
 		"action_key":        notifyActionKey,
+		"entrypoint":        "notify_pagerduty",
 		"provider_key":      "acme-pagerduty",
 		"channel_id":        notifyChannelID,
 		"delivery_id":       notifyDeliveryID,
 		"plugin_package_id": notifyPackageID,
+		"intent":            "send",
 		"payload_format":    "json",
-		"payload":           map[string]any{"title": "disk full"},
-		"dedupe_key":        "rule-42|device_id=abc",
-		"is_test":           false,
+		"rendered_payload":  map[string]any{"title": "disk full"},
+		"channel_config": map[string]any{
+			"api_token_secret_ref": "credentialref:notification-secret:channel-1",
+		},
+		"dedupe_key": "rule-42|device_id=abc",
+		"is_test":    false,
 	}
 	for key, value := range extra {
 		if value == nil {
@@ -572,7 +577,7 @@ func TestNotificationGuestConfigNeverCarriesCredentialMaterial(t *testing.T) {
 	cfg := notifierAssignmentConfig(notifyAssignmentID, []string{
 		"get_config", "http_request", "submit_result", pluginCapabilityNotify,
 	})
-	cfg.ParamsJson = []byte(`{"routing_key":"credentialref:notification-secret:channel-1"}`)
+	cfg.ParamsJson = []byte(`{"endpoint_timeout_ms":5000}`)
 	// host_params_json is the trusted-host-only proto field. An older agent
 	// ignores unknown field 23 entirely; a current one must not surface it
 	// through get_config either.
@@ -594,15 +599,18 @@ func TestNotificationGuestConfigNeverCarriesCredentialMaterial(t *testing.T) {
 		notifierHostOnlyURL,
 		"hooks.slack.com",
 		"URL-PATH-SECRET",
+		"grant_type",
+		"credential_broker",
 	} {
 		if strings.Contains(string(guestConfig), forbidden) {
 			t.Fatalf("guest config exposes %q:\n%s", forbidden, guestConfig)
 		}
 	}
 
-	// The grant itself may travel: it names a secret, it does not carry one.
+	// The opaque reference the guest attaches to an outbound request travels in
+	// channel_config. The broker grant carrying its authority remains host-only.
 	if !strings.Contains(string(guestConfig), "credentialref:notification-secret:channel-1") {
-		t.Fatalf("expected the secret REFERENCE to travel with the invocation:\n%s", guestConfig)
+		t.Fatalf("expected the channel secret reference to travel with the invocation:\n%s", guestConfig)
 	}
 
 	// And the grant is also extracted host-side, which is what makes injection
@@ -632,6 +640,68 @@ func TestNotificationGuestConfigNeverCarriesCredentialMaterial(t *testing.T) {
 	}
 	if strings.Contains(string(guestConfig), notifierSecretMaterial) {
 		t.Fatal("resolving material must not retroactively appear in the guest config")
+	}
+}
+
+func TestNotificationGuestConfigMatchesNotifierSDKABI(t *testing.T) {
+	t.Parallel()
+
+	payload := notificationDeliveryPayloadWith(t, map[string]any{
+		"credential_broker": notifierCredentialGrant(),
+	})
+	guestConfig, err := buildActionPluginConfig([]byte(`{"region":"us"}`), payload)
+	if err != nil {
+		t.Fatalf("buildActionPluginConfig() error = %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(guestConfig, &config); err != nil {
+		t.Fatalf("decode guest config: %v", err)
+	}
+	if _, exists := config["action_invocation"]; exists {
+		t.Fatal("notifier config must not use the northbound action_invocation discriminator")
+	}
+	delivery, ok := config[notificationDeliveryConfigKey].(map[string]any)
+	if !ok {
+		t.Fatalf("notification_delivery = %#v, want object", config[notificationDeliveryConfigKey])
+	}
+	if got := delivery["schema"]; got != notificationDeliveryRequestSchema {
+		t.Fatalf("request schema = %v, want %s", got, notificationDeliveryRequestSchema)
+	}
+	if _, exists := delivery["credential_broker"]; exists {
+		t.Fatal("credential grant must remain host-only")
+	}
+	if _, exists := delivery["plugin_package_id"]; exists {
+		t.Fatal("command addressing must not enter the typed notifier request")
+	}
+	if got := config["region"]; got != "us" {
+		t.Fatalf("plugin config region = %v, want us", got)
+	}
+}
+
+func TestNotificationEntrypointOverridesOnlyTheInvocation(t *testing.T) {
+	t.Parallel()
+
+	assignment := newPluginAssignment(
+		notifierAssignmentConfig(notifyAssignmentID, []string{pluginCapabilityNotify}),
+		logger.NewTestLogger(),
+	)
+	assignment.Entrypoint = "run_check"
+	payload := notificationDeliveryPayloadWith(t, map[string]any{
+		"entrypoint": "send_opsgenie",
+	})
+
+	execution := notificationActionAssignment(assignment, payload)
+	if execution.Entrypoint != "send_opsgenie" {
+		t.Fatalf("invocation entrypoint = %q, want send_opsgenie", execution.Entrypoint)
+	}
+	if assignment.Entrypoint != "run_check" {
+		t.Fatalf("registered assignment was mutated to %q", assignment.Entrypoint)
+	}
+
+	northbound := notificationActionAssignment(assignment, json.RawMessage(`{"action":"test"}`))
+	if northbound != assignment {
+		t.Fatal("ordinary action should use the registered assignment unchanged")
 	}
 }
 
@@ -881,6 +951,76 @@ func runNotifyCommand(
 	}, sender)
 
 	return waitForCommandResult(t, stream, commandID)
+}
+
+func TestNotificationResultStatusControlsOuterCommandSuccess(t *testing.T) {
+	t.Parallel()
+
+	envelope := pluginActionResultEnvelope{isNotification: true}
+	tests := []struct {
+		status string
+		want   bool
+	}{
+		{status: "delivered", want: true},
+		{status: "retryable", want: false},
+		{status: "failed", want: false},
+		{status: "succeeded", want: false},
+		{status: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			t.Parallel()
+			payload := map[string]interface{}{
+				"schema": notificationDeliveryResultSchema,
+				"status": tt.status,
+			}
+			if got := pluginActionCommandSucceeded(envelope, payload); got != tt.want {
+				t.Fatalf("command success for %q = %t, want %t", tt.status, got, tt.want)
+			}
+		})
+	}
+
+	wrongSchema := map[string]interface{}{
+		"schema": actionResultAckSchema,
+		"status": "delivered",
+	}
+	if pluginActionCommandSucceeded(envelope, wrongSchema) {
+		t.Fatal("a delivered status under the wrong schema must fail closed")
+	}
+}
+
+func TestNotificationResultRejectsUnsupportedContractMajor(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		version any
+		failed  bool
+	}{
+		{name: "supported", version: "1.7.3", failed: false},
+		{name: "unsupported", version: "2.0.0", failed: true},
+		{name: "malformed", version: "future", failed: true},
+		{name: "wrong type", version: 2, failed: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			payload := map[string]interface{}{
+				"schema":               notificationDeliveryResultSchema,
+				"status":               "delivered",
+				"sdk_contract_version": tt.version,
+			}
+
+			enforceNotifierContractVersion(payload)
+			if tt.failed {
+				if payload["status"] != commandStatusFailed || payload["error_class"] != "sdk_contract_mismatch" {
+					t.Fatalf("mismatch payload = %#v", payload)
+				}
+			} else if payload["status"] != "delivered" {
+				t.Fatalf("supported payload was changed: %#v", payload)
+			}
+		})
+	}
 }
 
 // Notification delivery rides plugin.run_action. There is no second command

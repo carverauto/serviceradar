@@ -35,6 +35,7 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
     max_attempts: 3
 
   alias ServiceRadar.Notifications.ActionRedemption
+  alias ServiceRadar.Notifications.CallbackBinding
 
   require Logger
 
@@ -66,7 +67,9 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
         "snooze_seconds" => Map.get(capability, :snooze_seconds),
         "external_principal" => Map.get(capability, :external_principal),
         "provider_key" => to_string(Map.get(capability, :provider_key, "unknown")),
-        "event_id" => Map.get(capability, :event_id)
+        "event_id" => Map.get(capability, :event_id),
+        "app_id" => Map.get(capability, :app_id),
+        "action_id" => Map.get(capability, :action_id)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -99,7 +102,14 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
          {:ok, alert_id} <- required(args, "alert_id") do
       capability =
         maybe_put(
-          %{action: action, alert_id: alert_id, delivery_id: Map.get(args, "delivery_id")},
+          %{
+            action: action,
+            alert_id: alert_id,
+            delivery_id: Map.get(args, "delivery_id"),
+            provider_key: Map.get(args, "provider_key"),
+            app_id: Map.get(args, "app_id"),
+            action_id: Map.get(args, "action_id")
+          },
           :snooze_seconds,
           Map.get(args, "snooze_seconds")
         )
@@ -117,6 +127,25 @@ defmodule ServiceRadar.Notifications.CallbackWorker do
   defp apply_capability(capability, args) do
     opts = [source: :callback, external_principal: Map.get(args, "external_principal")]
 
+    case CallbackBinding.bind(capability) do
+      {:ok, bound_capability} ->
+        apply_bound_capability(bound_capability, args, opts)
+
+      {:error, reason} ->
+        if CallbackBinding.rejection?(reason) do
+          Logger.warning(
+            "notification callback binding refused provider=#{Map.get(args, "provider_key")} " <>
+              "action=#{Map.get(args, "action")} reason=#{inspect(reason)}"
+          )
+
+          {:discard, reason}
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp apply_bound_capability(capability, args, opts) do
     case ActionRedemption.apply_native(capability, opts) do
       {:ok, outcome} ->
         Logger.info(

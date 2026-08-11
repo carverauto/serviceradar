@@ -25,6 +25,33 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
   @package_id "11111111-1111-1111-1111-111111111111"
   @assignment_id "22222222-2222-2222-2222-222222222222"
 
+  defp notifier_entry(overrides \\ %{}) do
+    Map.merge(
+      %{
+        "key" => "pagerduty",
+        "display_name" => "PagerDuty",
+        "entrypoint" => "notify_pagerduty",
+        "config_schema" => %{"type" => "object", "properties" => %{}},
+        "capabilities" => ["send", "test"],
+        "payload_formats" => ["json"],
+        "routes" => ["control_plane", "edge_agent"],
+        "credential_requirements" => %{
+          "api_token" => %{"injection_mode" => "bearer_token", "required" => true}
+        },
+        "inbound" => %{"enabled" => false}
+      },
+      overrides
+    )
+  end
+
+  defp manifest(capabilities, permissions \\ %{}) do
+    %{
+      "capabilities" => capabilities,
+      "notifications" => [notifier_entry()],
+      "permissions" => permissions
+    }
+  end
+
   defp package(overrides \\ %{}) do
     Map.merge(
       %{
@@ -33,7 +60,12 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
         version: "1.0.0",
         status: :approved,
         approved_capabilities: ["get_config", "log", "http_request", "notify:v1"],
-        manifest: %{"capabilities" => ["get_config", "log", "http_request", "notify:v1"]}
+        approved_permissions: %{},
+        manifest:
+          manifest(["get_config", "log", "http_request", "notify:v1"], %{
+            "allowed_domains" => ["events.pagerduty.com"],
+            "allowed_ports" => [443]
+          })
       },
       overrides
     )
@@ -63,7 +95,9 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
       [
         platform_agent: {"k8s-agent", "default"},
         load_package: fn _id -> {:ok, package()} end,
-        load_assignment: fn _uid, _partition, _package -> {:ok, %{id: @assignment_id}} end
+        load_assignment: fn _uid, _partition, _package ->
+          {:ok, %{id: @assignment_id, permissions_override: %{}}}
+        end
       ],
       overrides
     )
@@ -82,6 +116,11 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
       assert target.execution_route == :control_plane
       assert target.plugin_assignment_id == @assignment_id
       assert target.plugin_package_id == @package_id
+      assert target.notification_entrypoint == "notify_pagerduty"
+      assert target.notification_capabilities == ["send", "test"]
+      assert target.credential_requirements["api_token"]["injection_mode"] == "bearer_token"
+      assert target.effective_permissions.allowed_domains == ["events.pagerduty.com"]
+      assert target.effective_permissions.allowed_ports == [443]
     end
 
     test "an :edge_agent channel goes to the agent it names, not the platform one" do
@@ -105,7 +144,7 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
                resolve(channel, provider(),
                  load_assignment: fn uid, partition, package ->
                    send(test_pid, {:assignment_lookup, uid, partition, package})
-                   {:ok, %{id: @assignment_id}}
+                   {:ok, %{id: @assignment_id, permissions_override: %{}}}
                  end
                )
 
@@ -155,7 +194,7 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
       narrowed =
         package(%{
           approved_capabilities: ["get_config", "log"],
-          manifest: %{"capabilities" => ["get_config", "log", "notify:v1"]}
+          manifest: manifest(["get_config", "log", "notify:v1"])
         })
 
       assert {:error, {"notify_capability_denied", message}} =
@@ -168,7 +207,7 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
       unnarrowed =
         package(%{
           approved_capabilities: [],
-          manifest: %{"capabilities" => ["get_config", "notify:v1"]}
+          manifest: manifest(["get_config", "notify:v1"])
         })
 
       assert {:ok, _target} =
@@ -177,14 +216,101 @@ defmodule ServiceRadar.Notifications.PluginTargetTest do
 
     test "a package that declares notify:v1 nowhere is denied" do
       plain =
-        package(%{approved_capabilities: [], manifest: %{"capabilities" => ["get_config"]}})
+        package(%{approved_capabilities: [], manifest: manifest(["get_config"])})
 
       assert {:error, {"notify_capability_denied", _message}} =
                resolve(channel(), provider(), load_package: fn _id -> {:ok, plain} end)
     end
   end
 
+  describe "the notifier manifest binding" do
+    test "a provider action key must name a declared notifier" do
+      assert {:error, {"notification_action_missing", message}} =
+               resolve(channel(), provider(%{action_key: "opsgenie"}))
+
+      assert message =~ "opsgenie"
+    end
+
+    test "an invalid stored notifications block fails closed" do
+      invalid =
+        package(%{
+          manifest: %{
+            "capabilities" => ["notify:v1"],
+            "notifications" => [notifier_entry(%{"entrypoint" => ""})]
+          }
+        })
+
+      assert {:error, {"notification_manifest_invalid", message}} =
+               resolve(channel(), provider(), load_package: fn _id -> {:ok, invalid} end)
+
+      assert message =~ "entrypoint"
+    end
+  end
+
   describe "the assignment" do
+    test "credential scope uses the package and assignment narrowed permissions" do
+      manifest =
+        manifest(["get_config", "http_request", "notify:v1"], %{
+          "allowed_domains" => ["events.pagerduty.com", "api.example.test"],
+          "allowed_ports" => [443, 8443]
+        })
+
+      narrowed =
+        package(%{
+          manifest: manifest,
+          approved_permissions: %{
+            allowed_domains: ["events.pagerduty.com"],
+            allowed_ports: [443]
+          }
+        })
+
+      assert {:ok, target} =
+               resolve(channel(), provider(),
+                 load_package: fn _id -> {:ok, narrowed} end,
+                 load_assignment: fn _uid, _partition, _package ->
+                   {:ok,
+                    %{
+                      id: @assignment_id,
+                      permissions_override: %{
+                        allowed_domains: ["events.pagerduty.com", "evil.example.test"],
+                        allowed_ports: [443, 9443]
+                      }
+                    }}
+                 end
+               )
+
+      assert target.effective_permissions == %{
+               allowed_domains: ["events.pagerduty.com"],
+               allowed_networks: [],
+               allowed_ports: [443]
+             }
+    end
+
+    test "approval and assignment cannot add a port the manifest did not declare" do
+      no_ports =
+        package(%{
+          manifest:
+            manifest(["get_config", "http_request", "notify:v1"], %{
+              "allowed_domains" => ["events.pagerduty.com"]
+            }),
+          approved_permissions: %{allowed_ports: [443]}
+        })
+
+      assert {:ok, target} =
+               resolve(channel(), provider(),
+                 load_package: fn _id -> {:ok, no_ports} end,
+                 load_assignment: fn _uid, _partition, _package ->
+                   {:ok,
+                    %{
+                      id: @assignment_id,
+                      permissions_override: %{allowed_ports: [443]}
+                    }}
+                 end
+               )
+
+      assert target.effective_permissions.allowed_ports == []
+    end
+
     test "an unassigned package is refused with the agent named" do
       assert {:error, {"plugin_assignment_missing", message}} =
                resolve(channel(), provider(),

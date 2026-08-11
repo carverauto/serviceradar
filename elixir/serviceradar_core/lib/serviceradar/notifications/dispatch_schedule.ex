@@ -156,9 +156,8 @@ defmodule ServiceRadar.Notifications.DispatchSchedule do
   # The receipt sweep is what makes an agent-routed delivery reach a terminal
   # state without depending on `:status_handler_enabled` (tasks 3.4.4). Turning
   # it off is supported for the same reason the continuation tick can be turned
-  # off - a staged bring-up - but it means a delivery whose dispatching process
-  # died is only recovered by `due/2`'s blind stall sweep, which re-sends rather
-  # than settling from the command row.
+  # off - a staged bring-up - but it means an accepted agent command remains
+  # `:dispatching`; `due/2` intentionally refuses to re-send it blind.
   defp receipt_entries(fetch) do
     if truthy?(fetch, "SERVICERADAR_NOTIFICATION_RECEIPT_SWEEP_ENABLED", "true") do
       [

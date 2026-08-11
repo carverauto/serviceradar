@@ -344,27 +344,44 @@ defmodule ServiceRadar.Notifications.SuppressionTest do
     end
   end
 
+  describe "IANA schedule wall time" do
+    test "the dispatcher-resolved local wall clock evaluates a non-UTC zone" do
+      new_york = schedule(%{timezone: "America/New_York"})
+
+      assert Suppression.schedule_active?(new_york, @now,
+               local_datetime: ~N[2026-08-11 10:00:00.000000]
+             ) == {:ok, true}
+
+      assert Suppression.schedule_active?(new_york, ~U[2026-08-11 02:00:00.000000Z],
+               local_datetime: ~N[2026-08-10 22:00:00.000000]
+             ) == {:ok, false}
+    end
+
+    test "evaluate uses the resolved wall clock instead of failing open" do
+      new_york = schedule(%{timezone: "America/New_York", mode: :active_within})
+      overnight = %{base() | now: ~U[2026-08-11 02:00:00.000000Z]}
+
+      context =
+        overnight
+        |> Map.put(:schedule, new_york)
+        |> Map.put(:schedule_local_datetime, ~N[2026-08-10 22:00:00.000000])
+
+      assert {:suppress, :schedule, %{timezone: "America/New_York"}} =
+               Suppression.evaluate(context)
+    end
+  end
+
   describe ":schedule that cannot be evaluated" do
     # A schedule this evaluator cannot resolve must never be the thing that
     # silences a deployment: schedule_active?/2 reports the defect loudly and
-    # evaluate/1 fails open. Suppression never happens on ignorance.
+    # evaluate/1 fails open. Save-time validation prevents this path for new
+    # configuration; it remains defensive for legacy rows and database errors.
 
-    test "a non-UTC zone is an explicit typed error, because there is no tzdata dependency" do
+    test "an unresolved non-UTC zone remains an explicit typed error" do
       new_york = schedule(%{timezone: "America/New_York"})
 
       assert Suppression.schedule_active?(new_york, @now) ==
                {:error, {:unsupported_timezone, "America/New_York"}}
-    end
-
-    test "a non-UTC zone allows the dispatch rather than silently suppressing it" do
-      new_york = schedule(%{timezone: "America/New_York", mode: :active_within})
-
-      # 02:00 UTC is outside the window under any reading, so a naive
-      # implementation that fell through to "outside the window" would suppress.
-      overnight = %{base() | now: ~U[2026-08-11 02:00:00.000000Z]}
-
-      assert Suppression.evaluate(Map.put(overnight, :schedule, new_york)) == :allow
-      assert Suppression.evaluate(Map.put(base(), :schedule, new_york)) == :allow
     end
 
     test "a schedule with no windows is an error and allows" do

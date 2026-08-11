@@ -178,13 +178,12 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   disconnect an escalation ladder is supposed to survive.
 
   The delivery row is the system of record throughout; the command result is a
-  wake-up signal only. `ServiceRadar.AgentCommands.StatusHandler` - the only
-  thing that durably persists command acks and results - is a coordinator
-  singleton whose supervision default is `false`, and even when it runs nothing
-  maps its command rows onto deliveries. So a delivery's terminal state never
-  depends on it: hand-off to the bus is what `:sent` records, and `reconcile/2`
-  is the bounded pass that closes out the rows that never got that far, using
-  only what core itself wrote (tasks 3.4.4).
+  wake-up signal only. Bus acceptance records the durable command id and leaves
+  the delivery `:dispatching`. `reconcile/2` reads the persisted command result,
+  validates the notifier SDK's `delivered | retryable | failed` payload, and is
+  the only path that settles an accepted agent command. A missing or unreadable
+  receipt is bounded by the same retry/failover budget rather than being guessed
+  successful (tasks 3.4.4).
 
   This path was implemented in Phase 1, before anything could reach it, so that
   Phase 3 would inherit a working outbox rather than discover it needed one.
@@ -216,6 +215,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   D8, R2).
   """
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -223,19 +223,25 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   alias ServiceRadar.Notifications.ActionLinks
   alias ServiceRadar.Notifications.Dedupe
   alias ServiceRadar.Notifications.Escalation
+  alias ServiceRadar.Notifications.Grouping
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Notifications.NotificationDelivery
+  alias ServiceRadar.Notifications.NotificationDeliveryMember
   alias ServiceRadar.Notifications.NotificationEscalationPolicy
   alias ServiceRadar.Notifications.NotificationEscalationStep
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.NotificationSilence
   alias ServiceRadar.Notifications.NotificationTemplate
+  alias ServiceRadar.Notifications.PluginCredentialGrants
+  alias ServiceRadar.Notifications.PluginDeliveryResult
   alias ServiceRadar.Notifications.PluginTarget
   alias ServiceRadar.Notifications.RateLimiter
   alias ServiceRadar.Notifications.Renderer
   alias ServiceRadar.Notifications.Router
+  alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Notifications.Suppression
   alias ServiceRadar.Notifications.Telemetry
+  alias ServiceRadar.Notifications.TimeZone
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
   alias ServiceRadar.Notifications.Transports
@@ -274,13 +280,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   @max_backoff_ms 3_600_000
   @jitter_fraction 0.2
 
-  # How long a row may sit in `:dispatching` before `due/2` treats it as stalled
-  # and hands it back. `read :retry_due` selects only `:pending` rows -
-  # correctly, since a scan that picked up `:failed` would retry forever - which
-  # leaves a process that died between the dispatching transition and the
-  # terminal write holding a row no other scan can see. This is the sweep for
-  # that, and it lives with the dispatcher rather than in a worker because the
-  # dispatcher is what put the row in `:dispatching`.
+  # How long receipt reconciliation leaves a `:dispatching` row alone when its
+  # durable AgentCommand cannot be read. `due/2` deliberately selects only
+  # `:pending`: redispatching an in-flight command would duplicate a page. Once
+  # this grace period passes, `reconcile/2` settles the unreadable handoff as a
+  # retryable failure through the ordinary attempt budget.
   @dispatching_stall_seconds 300
 
   # 2^32 base backoff already exceeds the ceiling by orders of magnitude, so the
@@ -303,13 +307,15 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   }
 
   @terminal_states [:sent, :failed, :expired, :cancelled, :suppressed, :skipped]
-  @attemptable_states [:pending, :dispatching]
+  @attemptable_states [:pending]
 
   @type route_result :: %{planned: [binary()], suppressed: [binary()]}
-  @type due_result :: %{retry: [binary()], escalation: [binary()]}
+  @type due_result :: %{retry: [binary()], escalation: [binary()], renotify: [binary()]}
 
   @type deliver_result ::
-          {:ok, :sent} | {:ok, :suppressed} | {:retry, DateTime.t()} | {:error, term()}
+          {:ok, :sent | :suppressed | :dispatching}
+          | {:retry, DateTime.t()}
+          | {:error, term()}
 
   # --- route ----------------------------------------------------------------
 
@@ -336,6 +342,9 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       holds one; do not use it to invent a second identity scheme.
     * `:lock?` - default `true`. Take the advisory lock that serialises
       concurrent requests for the same routing request key.
+    * `:load_alert`, `:load_enabled_routes`, `:load_rule`, and
+      `:load_active_silences` - read seams used to prove that decision-critical
+      database failures abort before a suppression or delivery row is written.
   """
   @spec route(binary(), atom(), keyword()) :: {:ok, route_result()} | {:error, term()}
   def route(alert_id, lifecycle_reason, opts \\ [])
@@ -346,22 +355,31 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     now = fetch_now(opts)
     actor = fetch_actor(opts)
 
-    with {:ok, alert} <- load_alert(alert_id, actor) do
-      scope = routing_scope(alert, now, actor, opts)
-      decision = Router.match(alert, load_enabled_routes(actor), now)
+    with {:ok, alert} <- load_alert(alert_id, actor, opts) do
+      if lifecycle_reason == :resolve do
+        scope = resolution_scope(alert, now, opts)
+        result = route_resolution(scope, actor, opts)
+        emit_routed(alert_id, lifecycle_reason, %{matched: []}, result)
+        result
+      else
+        with {:ok, routes} <- load_enabled_routes(actor, opts),
+             {:ok, scope} <- routing_scope(alert, now, actor, opts) do
+          decision = Router.match(alert, routes, now)
 
-      log_route_errors(alert_id, decision)
+          log_route_errors(alert_id, decision)
 
-      result =
-        if Router.unrouted?(decision) do
-          route_unrouted(scope, decision, lifecycle_reason, actor, opts)
-        else
-          route_matched(scope, decision, lifecycle_reason, actor, opts)
+          result =
+            if Router.unrouted?(decision) do
+              route_unrouted(scope, decision, lifecycle_reason, actor, opts)
+            else
+              route_matched(scope, decision, lifecycle_reason, actor, opts)
+            end
+
+          emit_routed(alert_id, lifecycle_reason, decision, result)
+
+          result
         end
-
-      emit_routed(alert_id, lifecycle_reason, decision, result)
-
-      result
+      end
     end
   end
 
@@ -396,10 +414,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     * `:command_bus` - a module replacing `Edge.AgentCommandBus`.
     * `:rand` - a zero-arity float source for backoff jitter, so a backoff test
       is deterministic.
+    * `:create_failover_delivery` - a three-argument persistence seam used to
+      prove the failed origin and its failover successor commit atomically.
     * `:links` - `%{acknowledge:, snooze:, resolve:, alert:}` for the renderer.
       Minted by the acknowledgement surface, never here.
     * `:render_context` - extra renderer namespaces merged over the ones built
       from the loaded rows.
+    * `:load_delivery`, `:load_route`, `:load_step`, `:load_delivery_alert`,
+      `:load_rule`, `:load_active_silences`, and `:load_last_dispatch_at` - read
+      seams for the suppression preflight. A read error aborts before rate-limit
+      reservation, delivery mutation, or transport egress.
   """
   @spec deliver(binary(), keyword()) :: deliver_result()
   def deliver(delivery_id, opts \\ [])
@@ -408,40 +432,67 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     now = fetch_now(opts)
     actor = fetch_actor(opts)
 
-    with {:ok, delivery} <- load_delivery(delivery_id, actor),
-         :continue <- attemptable(delivery),
-         {:ok, channel} <- fetch_channel(delivery),
-         {:ok, provider} <- fetch_provider(channel) do
-      attempt(delivery, channel, provider, now, actor, opts)
+    with {:ok, delivery} <- load_delivery(delivery_id, actor, opts),
+         :continue <- attemptable(delivery, now) do
+      deliver_attemptable(delivery, now, actor, opts)
     else
-      {:settled, result} -> result
-      {:error, reason} -> {:error, reason}
+      {:settled, {:ok, :sent}, delivery} ->
+        case ensure_late_resolution_routed(delivery, actor, opts) do
+          :ok -> {:ok, :sent}
+          {:error, reason} -> {:error, {:sent_but_resolution_unrouted, reason}}
+        end
+
+      {:settled, result} ->
+        result
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   def deliver(_delivery_id, _opts), do: {:error, :invalid_delivery_id}
+
+  defp deliver_attemptable(delivery, now, actor, opts) do
+    with {:ok, channel} <- fetch_channel(delivery),
+         {:ok, provider} <- fetch_provider(channel) do
+      attempt(delivery, channel, provider, now, actor, opts)
+    else
+      {:error, :channel_not_found} ->
+        result =
+          Result.permanent_failure("channel_not_found",
+            error_message: "notification channel was deleted before delivery"
+          )
+
+        record_failed(delivery, nil, result, now, actor, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   # --- due ------------------------------------------------------------------
 
   @doc """
   The notification work owed at `now`.
 
-    * `:retry` - delivery ids for `deliver/2`. Retry-due `:pending` rows, plus
-      rows stalled in `:dispatching` past the stall threshold, which the
-      `:retry_due` read cannot see by design.
+    * `:retry` - delivery ids for `deliver/2`. Only retry-due `:pending` rows.
+      An agent command already in `:dispatching` is never re-dispatched blind;
+      `reconcile/2` owns its bounded receipt timeout.
     * `:escalation` - **alert** ids for `route/3` with an escalation
       `lifecycle_reason`. Only alerts that already have a non-test delivery that
       was actually dispatched to a destination appear - a suppression record is
       not one, so an unrouted alert never shows up here. Design D8 forbids the
       scheduler from originating a first notification; that is `AlertLifecycle`'s
       alone.
+    * `:renotify` - **alert** ids whose governing stateful rule cadence has
+      elapsed. These already have a dispatched delivery and are handed back to
+      `AlertLifecycle.send_renotify/4`, which owns cadence bookkeeping.
 
   Returns a bare map with no error channel, because a scheduler tick that cannot
   read one half must still drive the other. A failed read is logged and yields
   an empty list.
 
-  Options: `:actor`, `:limit` (per list, default #{@default_due_limit}), and
-  `:stall_seconds` (default #{@dispatching_stall_seconds}).
+  Options: `:actor` and `:limit` (per list, default #{@default_due_limit}).
   """
   @spec due(DateTime.t(), keyword()) :: due_result()
   def due(now, opts \\ [])
@@ -452,7 +503,8 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
     %{
       retry: due_retry(now, limit, actor, opts),
-      escalation: due_escalation(limit, actor)
+      escalation: due_escalation(limit, actor),
+      renotify: due_renotify(now, limit, actor)
     }
   end
 
@@ -472,27 +524,17 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   ## Why this exists (design D3, tasks 3.4.4)
 
-  `ServiceRadar.AgentCommands.StatusHandler` is the only thing that durably
-  persists command acks, progress, and results, and it is a coordinator
-  singleton gated on `:status_handler_enabled`. Both deployed releases default
-  that env var to `true`, but the supervision default behind it is `false` - so
-  a notification whose terminal state depended on the command result would have
-  a delivery guarantee that varies with another subsystem's supervision flag.
-  It does not: hand-off to the bus is what `:sent` records, and this pass is
-  what recovers the rows that never got that far.
+  `ServiceRadar.AgentCommands.StatusHandler` durably persists command acks,
+  progress, and results; deployed releases enable it. This pass then maps that
+  durable command row onto the delivery instead of treating the handler's
+  wake-up as the record. With the handler unavailable, the command's core-owned
+  `expires_at` still bounds the wait and moves the delivery through its ordinary
+  retry/failover budget, but success is never inferred without a persisted SDK
+  result.
 
-  It reads only what CORE writes, so it works with the status handler off:
-  `AgentCommandBus.dispatch/4` itself writes the command row and moves it
-  `queued -> sent`/`offline`/`failed`, and `expires_at` is computed from the TTL
-  at dispatch. A command whose deadline has passed with no result is therefore
-  decidable from the row alone.
-
-  Only rows stuck in `:dispatching` are reconciled. A `:dispatching` row is one
-  where the bus answered but the process died before the outcome was written -
-  the exact rows `due/2`'s stall sweep would otherwise re-dispatch blind, which
-  would send a second notification for a command the agent may have already
-  run. Settling them from the command row turns that duplicate into a correct
-  terminal state.
+  Every accepted agent command remains `:dispatching` until this pass reads its
+  receipt. `due/2` never re-dispatches such a row blind, which would send a
+  second notification for a command the agent may already have run.
 
   Options: `:actor`, `:limit`, `:load_command`, and `:agent_online?`.
   """
@@ -511,7 +553,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   defp settle_receipts(now, limit, actor, opts) do
     NotificationDelivery
-    |> Ash.Query.filter(state == :dispatching and not is_nil(command_id))
+    |> Ash.Query.filter(state == :dispatching)
     |> Ash.Query.load(channel: [:provider])
     |> Ash.Query.sort(started_at: :asc)
     |> Ash.Query.limit(limit)
@@ -529,12 +571,18 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   defp settle_receipt(delivery, now, actor, opts) do
     loader = Keyword.get(opts, :load_command, &load_command/2)
 
-    case delivery.command_id |> loader.(actor) |> command_outcome(now) do
+    command =
+      case delivery.command_id do
+        nil -> nil
+        command_id -> loader.(command_id, actor)
+      end
+
+    case command_outcome(command, delivery, now, opts) do
       nil ->
         []
 
       %Result{} = result ->
-        _ = settle(delivery, delivery.channel, result, nil, now, actor)
+        _ = settle(delivery, delivery.channel, result, nil, now, actor, opts)
         [delivery.id]
     end
   end
@@ -542,27 +590,31 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # A command row that cannot be read is left alone rather than guessed at: the
   # stall sweep in `due/2` is the backstop, and inventing a failure here would
   # fail a delivery whose command may have succeeded.
-  defp command_outcome(nil, _now), do: nil
-
-  defp command_outcome({:error, _reason}, _now), do: nil
-
-  defp command_outcome({:ok, nil}, _now), do: nil
-
-  defp command_outcome({:ok, command}, now), do: command_outcome(command, now)
-
-  defp command_outcome(%{status: :completed} = command, _now) do
-    Result.delivered(
-      external_correlation_id: to_string(Map.get(command, :id)),
-      result_summary: %{
-        "receipt" => "command_completed",
-        "command_id" => to_string(Map.get(command, :id)),
-        "completed_at" => iso8601(Map.get(command, :completed_at))
-      }
-    )
+  defp command_outcome(nil, delivery, now, opts) do
+    if dispatch_stalled?(delivery, now, opts) do
+      Result.retryable_failure("command_handoff_incomplete",
+        error_message: "the agent handoff never recorded a durable command id",
+        result_summary: %{"receipt" => "command_handoff_incomplete"}
+      )
+    end
   end
 
-  defp command_outcome(%{status: status} = command, _now)
-       when status in [:failed, :expired, :canceled, :offline] do
+  defp command_outcome({:error, reason}, delivery, now, opts),
+    do: unavailable_command_outcome(delivery, now, opts, reason)
+
+  defp command_outcome({:ok, nil}, delivery, now, opts),
+    do: unavailable_command_outcome(delivery, now, opts, :not_found)
+
+  defp command_outcome({:ok, command}, delivery, now, opts),
+    do: command_outcome(command, delivery, now, opts)
+
+  defp command_outcome(%{status: status} = command, delivery, _now, _opts)
+       when status in [:completed, :failed] do
+    PluginDeliveryResult.from_command(command, delivery.id)
+  end
+
+  defp command_outcome(%{status: status} = command, _delivery, _now, _opts)
+       when status in [:expired, :canceled, :offline] do
     Result.retryable_failure("command_#{status}",
       error_message:
         Map.get(command, :failure_reason) || Map.get(command, :message) ||
@@ -578,7 +630,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # is left where it is. Past the TTL with no result, the command is dead
   # whether or not anything was listening for its ack, and the delivery is owed
   # another attempt within its ordinary budget.
-  defp command_outcome(%{} = command, now) do
+  defp command_outcome(%{} = command, _delivery, now, _opts) do
     if expired?(Map.get(command, :expires_at), now) do
       Result.retryable_failure("command_receipt_timeout",
         error_message: "the agent command passed its TTL with no result",
@@ -586,6 +638,32 @@ defmodule ServiceRadar.Notifications.Dispatcher do
           "receipt" => "timeout",
           "command_id" => to_string(Map.get(command, :id)),
           "expires_at" => iso8601(Map.get(command, :expires_at))
+        }
+      )
+    end
+  end
+
+  defp dispatch_stalled?(delivery, now, opts) do
+    cutoff =
+      DateTime.add(
+        now,
+        -Keyword.get(opts, :stall_seconds, @dispatching_stall_seconds),
+        :second
+      )
+
+    case Map.get(delivery, :started_at) do
+      %DateTime{} = started_at -> not DateTime.after?(started_at, cutoff)
+      _missing -> true
+    end
+  end
+
+  defp unavailable_command_outcome(delivery, now, opts, reason) do
+    if dispatch_stalled?(delivery, now, opts) do
+      Result.retryable_failure("command_receipt_unavailable",
+        error_message: "the durable agent command receipt could not be read",
+        result_summary: %{
+          "receipt" => "command_receipt_unavailable",
+          "reason" => inspect(reason)
         }
       )
     end
@@ -672,12 +750,315 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   # --- routing --------------------------------------------------------------
 
+  # A resolution is historical fan-out, not a fresh route match. Only
+  # destinations that successfully received this incident are eligible, and
+  # each policy decides independently whether it closes the loop.
+  defp route_resolution(scope, actor, opts) do
+    lock_dedupe = "resolution:" <> to_string(field(scope.alert, :id))
+
+    with_request_lock(scope.alert, :resolve, lock_dedupe, opts, fn ->
+      with {:ok, sent} <- resolution_sources(scope.alert, actor),
+           :ok <- lock_resolution_sources(sent),
+           {:ok, existing} <- existing_resolutions(scope.alert, actor),
+           {:ok, cancelled, cancelled_notifications} <-
+             cancel_pending_for_resolution(scope.alert, scope.now, actor),
+           {:ok, planned, planned_notifications} <-
+             persist_resolutions(scope, sent, existing, actor, opts) do
+        {:ok,
+         %{
+           planned: planned,
+           suppressed: [],
+           cancelled: cancelled,
+           notifications: cancelled_notifications ++ planned_notifications
+         }}
+      end
+    end)
+  end
+
+  defp resolution_sources(alert, actor) do
+    alert_id = field(alert, :id)
+
+    direct_query =
+      NotificationDelivery
+      |> Ash.Query.filter(
+        alert_id == ^alert_id and state == :sent and is_test == false and
+          (is_nil(lifecycle_reason) or lifecycle_reason != :resolve)
+      )
+      |> Ash.Query.load([:policy, channel: [:provider]])
+      |> Ash.Query.sort(finished_at: :desc)
+
+    with {:ok, direct} <- Ash.read(direct_query, actor: actor),
+         {:ok, memberships} <-
+           delivery_memberships_for_alert(alert_id, actor, [:policy, channel: [:provider]]) do
+      sources =
+        memberships
+        |> Enum.map(& &1.delivery)
+        |> Enum.filter(fn delivery ->
+          field(delivery, :state) == :sent and field(delivery, :is_test) == false and
+            field(delivery, :lifecycle_reason) != :resolve
+        end)
+        |> Kernel.++(direct)
+        |> Enum.uniq_by(& &1.id)
+        |> Enum.sort_by(& &1.finished_at, {:desc, DateTime})
+        |> Enum.filter(fn delivery ->
+          delivery |> field(:policy) |> field(:resolve_notifies) == true and
+            not is_nil(field(delivery, :channel))
+        end)
+        |> Enum.uniq_by(&resolution_source_identity/1)
+
+      {:ok, sources}
+    else
+      {:error, reason} ->
+        {:error, {:resolution_history_unreadable, reason}}
+    end
+  end
+
+  defp existing_resolutions(alert, actor) do
+    alert_id = field(alert, :id)
+
+    direct_query =
+      Ash.Query.filter(
+        NotificationDelivery,
+        alert_id == ^alert_id and lifecycle_reason == :resolve and is_test == false
+      )
+
+    with {:ok, direct} <- Ash.read(direct_query, actor: actor),
+         {:ok, memberships} <- delivery_memberships_for_alert(alert_id, actor) do
+      resolutions =
+        memberships
+        |> Enum.map(& &1.delivery)
+        |> Enum.filter(fn delivery ->
+          field(delivery, :lifecycle_reason) == :resolve and field(delivery, :is_test) == false
+        end)
+        |> Kernel.++(direct)
+        |> Enum.uniq_by(& &1.id)
+
+      {:ok, MapSet.new(resolutions, &resolution_identity/1)}
+    else
+      {:error, reason} -> {:error, {:resolution_deliveries_unreadable, reason}}
+    end
+  end
+
+  defp lock_resolution_sources(sources) do
+    sources
+    |> Enum.map(& &1.id)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> Enum.each(fn delivery_id ->
+      key = "notification-resolution-source:" <> to_string(delivery_id)
+      _ = SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [lock_key(key)])
+    end)
+
+    :ok
+  end
+
+  defp persist_resolutions(scope, sent, existing, actor, opts) do
+    sent
+    |> Enum.reject(&MapSet.member?(existing, resolution_identity_from_source(&1)))
+    |> collect(fn source -> create_resolution(scope, source, actor, opts) end)
+  end
+
+  defp create_resolution(scope, source, actor, opts) do
+    channel = field(source, :channel)
+    provider = field(channel, :provider)
+
+    attrs = %{
+      alert_id: field(scope.alert, :id),
+      alert_snapshot: scope.snapshot,
+      route_id: source.route_id,
+      policy_id: source.policy_id,
+      step_number: source.step_number,
+      channel_id: source.channel_id,
+      dedupe_key: source.dedupe_key,
+      external_correlation_id: source.external_correlation_id,
+      max_attempts: max_attempts(channel),
+      execution_route: execution_route(channel),
+      agent_uid: field(channel, :agent_uid),
+      payload_format: negotiated_format(nil, provider),
+      provider_version: field(provider, :definition_version),
+      queued_at: scope.now,
+      next_attempt_at: scope.now,
+      lifecycle_reason: :resolve
+    }
+
+    with {:ok, delivery, delivery_notifications} <- create_planned(attrs, actor, opts),
+         {:ok, source_members} <- delivery_members(source.id, actor),
+         {:ok, _member_ids, member_notifications} <-
+           copy_delivery_members(source_members, delivery.id, actor, opts) do
+      {:ok, delivery.id, delivery_notifications ++ member_notifications}
+    else
+      {:error, reason} -> {:error, {:resolution_persistence_failed, reason}}
+    end
+  end
+
+  defp copy_delivery_members(members, delivery_id, actor, opts) do
+    collect(members, fn member ->
+      case attach_delivery_member(
+             delivery_id,
+             member.alert_id,
+             member.source_due_at,
+             member.alert_snapshot,
+             actor,
+             opts
+           ) do
+        {:ok, attached, notifications} -> {:ok, attached.id, notifications}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  defp cancel_pending_for_resolution(alert, now, actor) do
+    alert_id = field(alert, :id)
+
+    direct_query =
+      Ash.Query.filter(
+        NotificationDelivery,
+        alert_id == ^alert_id and state == :pending and is_test == false and
+          (is_nil(lifecycle_reason) or lifecycle_reason != :resolve)
+      )
+
+    with {:ok, direct} <- Ash.read(direct_query, actor: actor),
+         {:ok, memberships} <- delivery_memberships_for_alert(alert_id, actor) do
+      pending =
+        memberships
+        |> Enum.map(& &1.delivery)
+        |> Enum.filter(fn delivery ->
+          field(delivery, :state) == :pending and field(delivery, :is_test) == false and
+            field(delivery, :lifecycle_reason) != :resolve
+        end)
+        |> Kernel.++(direct)
+        |> Enum.uniq_by(& &1.id)
+        |> Enum.sort_by(& &1.id)
+
+      collect(pending, fn delivery ->
+        cancel_or_remove_pending_member(delivery, alert_id, now, actor)
+      end)
+    else
+      {:error, reason} ->
+        {:error, {:pending_resolution_deliveries_unreadable, reason}}
+    end
+  end
+
+  defp cancel_or_remove_pending_member(delivery, alert_id, now, actor) do
+    key =
+      group_advisory_key(
+        delivery.route_id,
+        delivery.policy_id,
+        delivery.step_number,
+        delivery.channel_id,
+        delivery.dedupe_key,
+        delivery.lifecycle_reason
+      )
+
+    _ = SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [lock_key(key)])
+
+    case delivery_members(delivery.id, actor) do
+      {:ok, members} ->
+        {removed, remaining} = Enum.split_with(members, &(&1.alert_id == alert_id))
+
+        cond do
+          removed != [] ->
+            remove_pending_members(delivery, removed, remaining, now, actor)
+
+          members != [] ->
+            # Repair a stale legacy anchor without cancelling active siblings.
+            case update_pending_group(delivery, members, actor) do
+              {:ok, _updated, notifications} -> {:ok, nil, notifications}
+              {:error, reason} -> {:error, {:resolution_cancellation_failed, reason}}
+            end
+
+          true ->
+            cancel_pending_delivery(delivery, now, actor, [])
+        end
+
+      {:error, reason} ->
+        {:error, {:resolution_cancellation_failed, reason}}
+    end
+  end
+
+  defp remove_pending_members(delivery, removed, remaining, now, actor) do
+    with {:ok, member_notifications} <- destroy_delivery_members(removed, actor) do
+      if remaining == [] do
+        cancel_pending_delivery(delivery, now, actor, member_notifications)
+      else
+        case update_pending_group(delivery, remaining, actor) do
+          {:ok, _updated, delivery_notifications} ->
+            {:ok, nil, member_notifications ++ delivery_notifications}
+
+          {:error, reason} ->
+            {:error, {:resolution_cancellation_failed, reason}}
+        end
+      end
+    end
+  end
+
+  defp destroy_delivery_members(members, actor) do
+    Enum.reduce_while(members, {:ok, []}, fn member, {:ok, notifications} ->
+      case Ash.destroy(member, actor: actor, return_notifications?: true) do
+        {:ok, new_notifications} -> {:cont, {:ok, notifications ++ new_notifications}}
+        {:error, reason} -> {:halt, {:error, {:resolution_cancellation_failed, reason}}}
+      end
+    end)
+  end
+
+  defp cancel_pending_delivery(delivery, now, actor, member_notifications) do
+    attrs = %{
+      error_class: "alert_resolved",
+      error_message: "the alert resolved before this delivery became due",
+      result_summary: %{
+        "cancelled_at" => DateTime.to_iso8601(now),
+        "reason" => "alert_resolved"
+      }
+    }
+
+    delivery
+    |> Ash.Changeset.for_update(:record_cancelled, attrs, actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
+    |> case do
+      {:ok, cancelled, notifications} ->
+        {:ok, cancelled.id, member_notifications ++ notifications}
+
+      {:error, reason} ->
+        {:error, {:resolution_cancellation_failed, reason}}
+    end
+  end
+
+  defp resolution_source_identity(delivery) do
+    {delivery.route_id, delivery.policy_id, delivery.channel_id, delivery.dedupe_key,
+     delivery.external_correlation_id}
+  end
+
+  defp resolution_identity_from_source(delivery) do
+    {delivery.route_id, delivery.policy_id, delivery.channel_id, delivery.dedupe_key,
+     delivery.external_correlation_id}
+  end
+
+  defp resolution_identity(delivery) do
+    {delivery.route_id, delivery.policy_id, delivery.channel_id, delivery.dedupe_key,
+     delivery.external_correlation_id}
+  end
+
   defp routing_scope(alert, now, actor, opts) do
+    with {:ok, rule} <- load_rule(alert, actor, opts),
+         {:ok, silences} <- load_active_silences(now, actor, opts) do
+      {:ok,
+       %{
+         alert: alert,
+         device: alert_device(alert),
+         rule: rule,
+         silences: silences,
+         snapshot: alert_snapshot(alert, opts),
+         now: now
+       }}
+    end
+  end
+
+  # Resolution fans out from persisted delivery history, not current routing or
+  # suppression configuration. Keep its scope free of route/rule/silence reads:
+  # an outage on a table resolution does not consult must not prevent close-out.
+  defp resolution_scope(alert, now, opts) do
     %{
       alert: alert,
-      device: alert_device(alert),
-      rule: load_rule(alert, actor),
-      silences: load_active_silences(now, actor),
       snapshot: alert_snapshot(alert, opts),
       now: now
     }
@@ -704,13 +1085,15 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       end
 
     with_request_lock(scope.alert, lifecycle_reason, dedupe_key, opts, fn ->
-      case record_suppression(outcome, context, actor) do
-        {:ok, id, notifications} ->
-          {:ok, %{planned: [], suppressed: [id], notifications: notifications}}
+      with_unresolved_alert(scope.alert, actor, fn ->
+        case record_suppression(outcome, context, actor) do
+          {:ok, id, notifications} ->
+            {:ok, %{planned: [], suppressed: [id], notifications: notifications}}
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+          {:error, reason} ->
+            {:error, reason}
+        end
+      end)
     end)
   end
 
@@ -718,18 +1101,34 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     dedupe_key = dedupe_key(scope.alert, first_route(decision), opts)
 
     with_request_lock(scope.alert, lifecycle_reason, dedupe_key, opts, fn ->
-      Enum.reduce(decision.matched, {:ok, empty_result()}, fn match, acc ->
-        merge_result(acc, route_match(scope, match, lifecycle_reason, actor, opts))
+      with_unresolved_alert(scope.alert, actor, fn ->
+        Enum.reduce_while(decision.matched, {:ok, empty_result()}, fn match, acc ->
+          case merge_result(acc, route_match(scope, match, lifecycle_reason, actor, opts)) do
+            {:ok, _result} = result -> {:cont, result}
+            {:error, _reason} = error -> {:halt, error}
+          end
+        end)
       end)
     end)
+  end
+
+  # Alert loading happens before routing acquires its advisory lock. Re-read
+  # after the lifecycle-wide lock so a stale fire callback that waited behind a
+  # resolve cannot create a page for an alert that is already closed.
+  defp with_unresolved_alert(alert, actor, fun) do
+    case load_alert(field(alert, :id), actor) do
+      {:ok, current} when current.status == :resolved -> {:ok, empty_result()}
+      {:ok, _current} -> fun.()
+      {:error, reason} -> {:error, {:alert_state_unreadable, reason}}
+    end
   end
 
   defp route_match(scope, match, lifecycle_reason, actor, opts) do
     route = match.route
     dedupe_key = dedupe_key(scope.alert, route, opts)
-    policy = load_policy(match.escalation_policy_id, actor)
 
-    with {:ok, dispatched} <- existing_dispatches(scope.alert, dedupe_key, actor) do
+    with {:ok, policy} <- load_policy(match.escalation_policy_id, actor, opts),
+         {:ok, dispatched} <- existing_dispatches(scope.alert, route, dedupe_key, actor) do
       plan =
         Escalation.plan(%{
           now: scope.now,
@@ -742,11 +1141,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
       log_plan_diagnostics(scope.alert, route, plan)
 
-      persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor)
+      persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor, opts)
     end
   end
 
-  defp persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor) do
+  defp persist_plan(scope, route, policy, dedupe_key, plan, lifecycle_reason, actor, opts) do
     channels = policy_channels(policy)
     steps = policy_steps_by_number(policy)
 
@@ -762,30 +1161,71 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       lifecycle_reason: lifecycle_reason
     }
 
-    {planned, planned_notifications} =
-      collect(plan.dispatches, &record_planned(scope, placement, &1, actor))
-
-    {suppressed, withheld_notifications} =
-      collect(plan.withheld, fn {:acknowledged, dispatch} ->
-        record_withheld(scope, placement, dispatch, actor)
-      end)
-
-    {:ok,
-     %{
-       planned: planned,
-       suppressed: suppressed,
-       notifications: planned_notifications ++ withheld_notifications
-     }}
+    with {:ok, planned, planned_notifications} <-
+           collect(plan.dispatches, &record_planned(scope, placement, &1, actor, opts)),
+         {:ok, suppressed, withheld_notifications} <-
+           collect(plan.withheld, fn {:acknowledged, dispatch} ->
+             record_withheld(scope, placement, dispatch, actor)
+           end) do
+      {:ok,
+       %{
+         planned: planned,
+         suppressed: suppressed,
+         notifications: planned_notifications ++ withheld_notifications
+       }}
+    end
   end
 
   defp collect(items, fun) do
-    Enum.reduce(items, {[], []}, fn item, {ids, notifications} ->
-      {new_ids, new_notifications} = fun.(item)
-      {ids ++ new_ids, notifications ++ new_notifications}
+    Enum.reduce_while(items, {:ok, [], []}, fn item, {:ok, ids, notifications} ->
+      case fun.(item) do
+        {:ok, id, new_notifications} ->
+          {:cont, {:ok, ids ++ List.wrap(id), notifications ++ new_notifications}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
     end)
   end
 
-  defp record_planned(scope, placement, {step_number, channel_id, due_at}, actor) do
+  defp record_planned(scope, placement, {step_number, channel_id, due_at}, actor, opts) do
+    case grouped_not_before(
+           scope,
+           placement,
+           step_number,
+           channel_id,
+           due_at,
+           actor,
+           opts
+         ) do
+      {:ok, next_attempt_at} ->
+        record_planned_at(
+          scope,
+          placement,
+          step_number,
+          channel_id,
+          due_at,
+          next_attempt_at,
+          actor,
+          opts
+        )
+
+      {:error, reason} ->
+        log_read_failure("the previous grouped delivery", reason)
+        {:error, {:group_history_unreadable, reason}}
+    end
+  end
+
+  defp record_planned_at(
+         scope,
+         placement,
+         step_number,
+         channel_id,
+         due_at,
+         next_attempt_at,
+         actor,
+         opts
+       ) do
     channel = Map.get(placement.channels, channel_id)
     provider = field(channel, :provider)
 
@@ -806,20 +1246,223 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       # `now` is what lets the Delivery Log show a late page as late, and it is
       # the value `Escalation.plan/1` reads back as `:dispatched`.
       queued_at: due_at,
-      next_attempt_at: due_at,
+      next_attempt_at: next_attempt_at,
       lifecycle_reason: Map.get(placement, :lifecycle_reason)
     }
 
-    case create_delivery(:record_dispatch, attrs, actor) do
+    result =
+      if Grouping.enabled?(placement.route) and placement.lifecycle_reason != :resolve do
+        record_grouped(scope, placement, attrs, step_number, channel_id, actor, opts)
+      else
+        create_planned(attrs, actor, opts)
+      end
+
+    case result do
       {:ok, delivery, notifications} ->
         emit_escalated(delivery, channel)
-        {[delivery.id], notifications}
+        {:ok, delivery.id, notifications}
 
       {:error, reason} ->
         log_write_failure("plan a delivery", field(scope.alert, :id), step_number, reason)
-        {[], []}
+        {:error, {:delivery_plan_persistence_failed, reason}}
     end
   end
+
+  defp create_planned(attrs, actor, opts) do
+    create = Keyword.get(opts, :create_delivery, &create_delivery/3)
+    create.(:record_dispatch, attrs, actor)
+  end
+
+  defp record_grouped(scope, placement, attrs, step_number, channel_id, actor, opts) do
+    key =
+      group_advisory_key(
+        field(placement.route, :id),
+        field(placement.policy, :id),
+        step_number,
+        channel_id,
+        placement.dedupe_key,
+        placement.lifecycle_reason
+      )
+
+    _ = SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [lock_key(key)])
+
+    case pending_group_delivery(placement, step_number, channel_id, actor) do
+      {:ok, nil} ->
+        with {:ok, delivery, delivery_notifications} <- create_planned(attrs, actor, opts),
+             {:ok, _member, member_notifications} <-
+               attach_delivery_member(
+                 delivery.id,
+                 field(scope.alert, :id),
+                 attrs.queued_at,
+                 scope.snapshot,
+                 actor,
+                 opts
+               ) do
+          {:ok, delivery, delivery_notifications ++ member_notifications}
+        else
+          {:error, reason} -> {:error, {:group_member_persistence_failed, reason}}
+        end
+
+      {:ok, pending} ->
+        with {:ok, _member, member_notifications} <-
+               attach_delivery_member(
+                 pending.id,
+                 field(scope.alert, :id),
+                 attrs.queued_at,
+                 scope.snapshot,
+                 actor,
+                 opts
+               ),
+             {:ok, members} <- delivery_members(pending.id, actor),
+             {:ok, grouped, delivery_notifications} <-
+               update_pending_group(pending, members, actor) do
+          {:ok, grouped, member_notifications ++ delivery_notifications}
+        else
+          {:error, reason} -> {:error, {:group_member_persistence_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:pending_group_unreadable, reason}}
+    end
+  end
+
+  defp attach_delivery_member(
+         delivery_id,
+         alert_id,
+         %DateTime{} = source_due_at,
+         snapshot,
+         actor,
+         opts
+       ) do
+    create = Keyword.get(opts, :create_delivery_member, &create_delivery_member/2)
+
+    create.(
+      %{
+        delivery_id: delivery_id,
+        alert_id: alert_id,
+        source_due_at: source_due_at,
+        alert_snapshot: snapshot
+      },
+      actor
+    )
+  end
+
+  defp create_delivery_member(attrs, actor) do
+    NotificationDeliveryMember
+    |> Ash.Changeset.for_create(:attach, attrs, actor: actor)
+    |> Ash.create(actor: actor, return_notifications?: true)
+  end
+
+  defp delivery_members(delivery_id, actor) do
+    NotificationDeliveryMember
+    |> Ash.Query.for_read(:for_delivery, %{delivery_id: delivery_id})
+    |> Ash.read(actor: actor)
+  end
+
+  defp update_pending_group(pending, members, actor) do
+    snapshot = members |> Enum.map(& &1.alert_snapshot) |> Grouping.aggregate_snapshots()
+    anchor_alert_id = members |> List.first() |> field(:alert_id)
+
+    pending
+    |> Ash.Changeset.for_update(
+      :record_group_member,
+      %{
+        alert_id: anchor_alert_id,
+        alert_snapshot: snapshot,
+        next_attempt_at: pending.next_attempt_at
+      },
+      actor: actor
+    )
+    |> Ash.update(actor: actor, return_notifications?: true)
+  end
+
+  defp group_advisory_key(
+         route_id,
+         policy_id,
+         step_number,
+         channel_id,
+         dedupe_key,
+         lifecycle_reason
+       ) do
+    Enum.join(
+      [
+        "notification-group",
+        route_id,
+        policy_id,
+        step_number,
+        channel_id,
+        dedupe_key,
+        lifecycle_reason
+      ],
+      ":"
+    )
+  end
+
+  defp pending_group_delivery(placement, step_number, channel_id, actor) do
+    route_id = field(placement.route, :id)
+    policy_id = field(placement.policy, :id)
+    dedupe_key = placement.dedupe_key
+    lifecycle_reason = placement.lifecycle_reason
+
+    NotificationDelivery
+    |> Ash.Query.filter(
+      route_id == ^route_id and policy_id == ^policy_id and step_number == ^step_number and
+        channel_id == ^channel_id and dedupe_key == ^dedupe_key and
+        lifecycle_reason == ^lifecycle_reason and state == :pending and is_test == false
+    )
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp grouped_not_before(_scope, placement, step_number, channel_id, due_at, actor, opts) do
+    if Grouping.enabled?(placement.route) and placement.lifecycle_reason != :resolve do
+      with {:ok, last_sent_at} <-
+             last_group_sent_at(placement, step_number, channel_id, actor, opts) do
+        {:ok,
+         Grouping.not_before(%{
+           route: placement.route,
+           due_at: due_at,
+           last_sent_at: last_sent_at,
+           step_number: step_number,
+           first_step_number: first_step_number(placement.steps)
+         })}
+      end
+    else
+      {:ok, due_at}
+    end
+  end
+
+  defp last_group_sent_at(placement, step_number, channel_id, actor, opts) do
+    loader = Keyword.get(opts, :load_last_group_sent_at, &read_last_group_sent_at/4)
+
+    case loader.(placement, step_number, channel_id, actor) do
+      {:ok, %{finished_at: %DateTime{} = at}} -> {:ok, at}
+      {:ok, _none_or_unfinished} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_group_history_result, other}}
+    end
+  end
+
+  defp read_last_group_sent_at(placement, step_number, channel_id, actor) do
+    route_id = field(placement.route, :id)
+    policy_id = field(placement.policy, :id)
+    dedupe_key = placement.dedupe_key
+
+    NotificationDelivery
+    |> Ash.Query.filter(
+      route_id == ^route_id and policy_id == ^policy_id and step_number == ^step_number and
+        channel_id == ^channel_id and dedupe_key == ^dedupe_key and state == :sent and
+        is_test == false
+    )
+    |> Ash.Query.sort(finished_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp first_step_number(steps) when map_size(steps) > 0, do: steps |> Map.keys() |> Enum.min()
+
+  defp first_step_number(_steps), do: nil
 
   defp record_withheld(scope, placement, {step_number, channel_id, due_at}, actor) do
     context =
@@ -837,11 +1480,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
     case record_suppression(outcome, context, actor) do
       {:ok, id, notifications} ->
-        {[id], notifications}
+        {:ok, id, notifications}
 
       {:error, reason} ->
         log_write_failure("record a withheld rung", field(scope.alert, :id), step_number, reason)
-        {[], []}
+        {:error, {:withheld_plan_persistence_failed, reason}}
     end
   end
 
@@ -886,14 +1529,14 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # --- delivery -------------------------------------------------------------
 
   defp attempt(delivery, channel, provider, now, actor, opts) do
-    scope = delivery_scope(delivery, channel, provider, now, actor, opts)
+    with {:ok, scope} <- delivery_scope(delivery, channel, provider, now, actor, opts) do
+      case Suppression.evaluate(scope.suppression) do
+        {:suppress, reason, detail} ->
+          suppress_delivery(delivery, channel, reason, detail, now, actor)
 
-    case Suppression.evaluate(scope.suppression) do
-      {:suppress, reason, detail} ->
-        suppress_delivery(delivery, channel, reason, detail, now, actor)
-
-      :allow ->
-        consume_budget(delivery, channel, provider, scope, now, actor, opts)
+        :allow ->
+          consume_budget(delivery, channel, provider, scope, now, actor, opts)
+      end
     end
   end
 
@@ -952,24 +1595,50 @@ defmodule ServiceRadar.Notifications.Dispatcher do
         send_request(delivery, channel, provider, request, rendered, now, actor, opts)
 
       {:failed, result} ->
-        settle(delivery, channel, result, nil, now, actor)
+        settle(delivery, channel, result, nil, now, actor, opts)
     end
   end
 
   defp send_request(delivery, channel, provider, request, rendered, now, actor, opts) do
-    {result, command_id} = invoke_transport(delivery, channel, provider, request, opts)
+    # Claim the row before any external side effect. This is both the concurrent
+    # worker fence and the crash boundary: a second job now observes
+    # `:dispatching` and cannot contact the provider while this attempt owns it.
+    # Agent commands additionally preallocate their durable command id, so a
+    # crash after bytes leave core can still be reconciled to the exact command.
+    command_id = if agent_routed?(channel, provider), do: Ash.UUID.generate()
+    request = %{request | command_id: command_id}
 
-    delivery = mark_dispatching(delivery, channel, command_id, actor)
+    case mark_dispatching(delivery, channel, command_id, actor) do
+      {:ok, dispatching} ->
+        case invoke_transport(dispatching, channel, provider, request, opts) do
+          {:accepted, ^command_id, _summary} ->
+            {:ok, :dispatching}
 
-    settle(delivery, channel, result, rendered, now, actor)
+          {:accepted, unexpected_command_id, _summary} ->
+            result =
+              Result.retryable_failure("agent_command_correlation_mismatch",
+                error_message:
+                  "the command bus returned a different command id than was reserved",
+                result_summary: %{
+                  "reserved_command_id" => command_id,
+                  "returned_command_id" => unexpected_command_id
+                }
+              )
+
+            settle(dispatching, channel, result, rendered, now, actor, opts)
+
+          {%Result{} = result, _command_id} ->
+            settle(dispatching, channel, result, rendered, now, actor, opts)
+        end
+
+      {:error, reason} ->
+        {:error, {:dispatch_state_not_persisted, reason}}
+    end
   end
 
-  # The transition to `:dispatching` happens AFTER the call rather than before
-  # it, so a process that dies mid-attempt leaves a `:pending` row the
-  # `:retry_due` scan can still see. It also carries the AgentCommandBus command
-  # id, which does not exist until the bus has answered - `plugin.run_action` is
-  # not a preallocated command type, so the id cannot be minted here and handed
-  # down.
+  # This transition is the durable claim and therefore MUST precede the
+  # transport call. For plugin.run_action the id is preallocated and persisted
+  # on both rows before the command bus can transmit bytes.
   defp mark_dispatching(delivery, channel, command_id, actor) do
     attrs = %{
       execution_route: execution_route(channel),
@@ -977,34 +1646,47 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       command_id: command_id
     }
 
-    case update_delivery(delivery, :record_dispatching, attrs, actor) do
-      {:ok, updated} -> updated
-      {:error, _reason} -> delivery
-    end
+    update_delivery(delivery, :record_dispatching, attrs, actor)
   end
 
-  defp settle(delivery, channel, %Result{} = result, rendered, now, actor) do
+  defp settle(delivery, channel, %Result{} = result, rendered, now, actor, opts) do
     attempts_remaining? = delivery.attempt_count + 1 < delivery.max_attempts
 
     case Result.outcome(result, attempts_remaining?) do
-      :sent -> record_sent(delivery, channel, result, rendered, now, actor)
+      :sent -> record_sent(delivery, channel, result, rendered, now, actor, opts)
       :retry -> record_retry(delivery, channel, result, now, actor)
-      :failed -> record_failed(delivery, channel, result, now, actor)
+      :failed -> record_failed(delivery, channel, result, now, actor, opts)
     end
   end
 
-  defp record_sent(delivery, channel, result, rendered, now, actor) do
+  defp record_sent(delivery, channel, result, rendered, now, actor, opts) do
     attrs =
       put_rendered(
         %{
-          external_correlation_id: result.external_correlation_id,
+          # Retries and resolution updates already carry the provider's
+          # correlation id. A successful transport that omits the optional
+          # field must not erase it (or replace it with an agent command id).
+          external_correlation_id:
+            result.external_correlation_id || field(delivery, :external_correlation_id),
           result_summary: jsonable(result.result_summary)
         },
         rendered
       )
 
-    case update_delivery(delivery, :record_sent, attrs, actor) do
-      {:ok, _delivery} ->
+    persisted =
+      Repo.transaction(fn ->
+        case update_delivery_with_notifications(delivery, :record_sent, attrs, actor) do
+          {:ok, sent, notifications} ->
+            {sent, notifications}
+
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+      end)
+
+    case persisted do
+      {:ok, {sent, notifications}} ->
+        Ash.Notifier.notify(notifications)
         _ = record_channel_success(channel, actor)
 
         delivery
@@ -1012,10 +1694,55 @@ defmodule ServiceRadar.Notifications.Dispatcher do
         |> Map.put(:dispatch_latency_ms, dispatch_latency_ms(delivery, now))
         |> Telemetry.sent()
 
-        {:ok, :sent}
+        # The provider side effect has already succeeded, so a close-out queue
+        # outage must never roll the row back to `:dispatching` and invite a
+        # duplicate send. Report the repair failure while keeping `:sent` true.
+        case ensure_late_resolution_routed(sent, actor, opts) do
+          :ok -> {:ok, :sent}
+          {:error, reason} -> {:error, {:sent_but_resolution_unrouted, reason}}
+        end
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp ensure_late_resolution_routed(
+         %{lifecycle_reason: reason, is_test: false, alert_id: alert_id},
+         actor,
+         opts
+       )
+       when reason != :resolve and is_binary(alert_id) do
+    case load_alert(alert_id, actor) do
+      {:ok, %{status: :resolved}} ->
+        enqueue = Keyword.get(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+        case enqueue.(alert_id, :resolve) do
+          :ok -> :ok
+          {:ok, _job} -> :ok
+          {:error, reason} -> recover_late_resolution(alert_id, actor, opts, reason)
+          other -> recover_late_resolution(alert_id, actor, opts, other)
+        end
+
+      _not_resolved_or_gone ->
+        :ok
+    end
+  end
+
+  defp ensure_late_resolution_routed(_delivery, _actor, _opts), do: :ok
+
+  defp recover_late_resolution(alert_id, actor, opts, enqueue_reason) do
+    route_opts = [actor: actor, now: fetch_now(opts)]
+    router = Keyword.get(opts, :route_resolution, &route/3)
+
+    case router.(alert_id, :resolve, route_opts) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, route_reason} ->
+        {:error,
+         {:resolution_enqueue_failed, enqueue_reason,
+          {:synchronous_resolution_failed, route_reason}}}
     end
   end
 
@@ -1044,7 +1771,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
-  defp record_failed(delivery, channel, result, now, actor) do
+  defp record_failed(delivery, channel, result, now, actor, opts) do
     attrs = %{
       error_class: result.error_class,
       error_message: result.error_message,
@@ -1052,8 +1779,8 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       external_correlation_id: result.external_correlation_id
     }
 
-    case update_delivery(delivery, :record_failed, attrs, actor) do
-      {:ok, failed} ->
+    case persist_failure_and_failover(delivery, channel, attrs, now, actor, opts) do
+      {:ok, failed, failover} ->
         _ = record_channel_failure(channel, result, actor)
 
         delivery
@@ -1061,7 +1788,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
         |> Map.put(:error_class, result.error_class)
         |> Telemetry.failed()
 
-        _ = maybe_failover(failed, channel, now, actor)
+        notify_failover(failed, channel, failover)
         {:error, {:delivery_failed, result.error_class}}
 
       {:error, reason} ->
@@ -1073,18 +1800,58 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # `originating_delivery_id` is itself the hop, so it never takes another - the
   # bound has to live here, because the successor is an ordinary delivery in
   # every other respect and nothing downstream could tell the difference.
-  defp maybe_failover(delivery, channel, now, actor) do
-    cond do
-      delivery.is_test -> :skip
-      is_nil(channel) -> :skip
-      channel.fail_closed -> :skip
-      is_nil(channel.fallback_channel_id) -> :skip
-      not is_nil(delivery.originating_delivery_id) -> :skip
-      true -> do_failover(delivery, channel, now, actor)
+  defp persist_failure_and_failover(delivery, channel, attrs, now, actor, opts) do
+    if failover_eligible?(delivery, channel) do
+      case Repo.transaction(fn ->
+             case update_delivery_with_notifications(
+                    delivery,
+                    :record_failed,
+                    attrs,
+                    actor
+                  ) do
+               {:ok, failed, failed_notifications} ->
+                 case do_failover(failed, channel, now, actor, opts) do
+                   {:ok, failover} ->
+                     {failed, failover,
+                      failed_notifications ++ Map.fetch!(failover, :notifications)}
+
+                   :skip ->
+                     {failed, nil, failed_notifications}
+
+                   {:error, reason} ->
+                     Repo.rollback({:failover_persistence_failed, reason})
+                 end
+
+               {:error, reason} ->
+                 Repo.rollback(reason)
+             end
+           end) do
+        {:ok, {failed, failover, notifications}} ->
+          Ash.Notifier.notify(notifications)
+          {:ok, failed, drop_notifications(failover)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      case update_delivery_with_notifications(delivery, :record_failed, attrs, actor) do
+        {:ok, failed, notifications} ->
+          Ash.Notifier.notify(notifications)
+          {:ok, failed, nil}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
-  defp do_failover(delivery, channel, now, actor) do
+  defp failover_eligible?(delivery, channel) do
+    not delivery.is_test and not is_nil(channel) and not channel.fail_closed and
+      not is_nil(channel.fallback_channel_id) and
+      is_nil(delivery.originating_delivery_id)
+  end
+
+  defp do_failover(delivery, channel, now, actor, opts) do
     case load_channel(channel.fallback_channel_id, actor) do
       {:ok, fallback} ->
         attrs = %{
@@ -1108,27 +1875,11 @@ defmodule ServiceRadar.Notifications.Dispatcher do
           lifecycle_reason: delivery.lifecycle_reason
         }
 
-        case create_delivery(:record_dispatch, attrs, actor) do
+        create = Keyword.get(opts, :create_failover_delivery, &create_delivery/3)
+
+        case create.(:record_dispatch, attrs, actor) do
           {:ok, successor, notifications} ->
-            # Failover runs outside the routing transaction, so the notifications
-            # are sent here rather than handed back up.
-            Ash.Notifier.notify(notifications)
-
-            Logger.info("notification delivery failed over",
-              delivery_id: delivery.id,
-              failover_delivery_id: successor.id
-            )
-
-            Telemetry.failed_over(%{
-              alert_id: delivery.alert_id,
-              delivery_id: delivery.id,
-              successor_delivery_id: successor.id,
-              channel_id: delivery.channel_id,
-              fallback_channel_id: fallback.id,
-              step_number: delivery.step_number
-            })
-
-            {:ok, successor.id}
+            {:ok, %{successor: successor, fallback: fallback, notifications: notifications}}
 
           {:error, reason} ->
             log_write_failure(
@@ -1138,12 +1889,33 @@ defmodule ServiceRadar.Notifications.Dispatcher do
               reason
             )
 
-            :error
+            {:error, reason}
         end
 
-      {:error, _reason} ->
+      {:error, :channel_not_found} ->
         :skip
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp notify_failover(_delivery, _channel, nil), do: :ok
+
+  defp notify_failover(delivery, channel, %{successor: successor, fallback: fallback}) do
+    Logger.info("notification delivery failed over",
+      delivery_id: delivery.id,
+      failover_delivery_id: successor.id
+    )
+
+    Telemetry.failed_over(%{
+      alert_id: delivery.alert_id,
+      delivery_id: delivery.id,
+      successor_delivery_id: successor.id,
+      channel_id: channel.id,
+      fallback_channel_id: fallback.id,
+      step_number: delivery.step_number
+    })
   end
 
   defp update_delivery(delivery, action, attrs, actor) do
@@ -1151,6 +1923,15 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     |> Ash.Changeset.for_update(action, attrs, actor: actor)
     |> Ash.update(actor: actor)
   end
+
+  defp update_delivery_with_notifications(delivery, action, attrs, actor) do
+    delivery
+    |> Ash.Changeset.for_update(action, attrs, actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
+  end
+
+  defp drop_notifications(nil), do: nil
+  defp drop_notifications(failover), do: Map.delete(failover, :notifications)
 
   defp record_channel_success(nil, _actor), do: :ok
 
@@ -1266,15 +2047,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # fail over to a channel that can actually page. See
   # `ServiceRadar.Notifications.PluginTarget`.
   #
-  # No secrets and no rendered credentials cross this boundary: the agent is
-  # handed the redacted payload only. Secret material reaches an agent through
-  # `CredentialBrokerGrant` host-side injection, never `params_json`.
+  # No resolved secret material crosses this boundary. The rendered payload and
+  # signed action links must reach the notifier so it can send them, while
+  # channel credentials remain opaque refs resolved by host-side
+  # `CredentialBrokerGrant` injection and never enter guest memory.
   defp edge_dispatch(request, channel, provider, opts) do
-    case resolve_plugin_target(channel, provider, opts) do
-      {:ok, target} ->
-        dispatch_command(request, provider, target, opts)
-
-      {:error, {error_class, message}} ->
+    with {:ok, target} <- resolve_plugin_target(channel, provider, opts),
+         {:ok, prepared} <- prepare_plugin_credentials(channel, target, request, opts) do
+      dispatch_command(request, provider, target, prepared, opts)
+    else
+      {:error, {error_class, message}} when is_binary(error_class) and is_binary(message) ->
         {Result.permanent_failure(error_class,
            error_message: message,
            result_summary: %{
@@ -1282,62 +2064,123 @@ defmodule ServiceRadar.Notifications.Dispatcher do
              "reason" => error_class
            }
          ), nil}
+
+      {:error, reason} ->
+        {credential_failure(reason, channel), nil}
     end
+  end
+
+  defp prepare_plugin_credentials(channel, target, request, opts) do
+    preparer = Keyword.get(opts, :plugin_credential_grants, PluginCredentialGrants)
+
+    preparer.prepare(
+      channel,
+      target,
+      [delivery_id: request.delivery_id] ++
+        Keyword.take(opts, [:actor, :grant_issuer, :grant_revoker])
+    )
+  end
+
+  defp credential_failure({:notification_grant_issue_failed, _name, reason}, channel) do
+    Result.retryable_failure("notification_credential_grant_unavailable",
+      error_message: "could not issue a host credential grant: #{inspect(reason)}",
+      result_summary: %{
+        "execution_route" => to_string(execution_route(channel)),
+        "reason" => "notification_credential_grant_unavailable"
+      }
+    )
+  end
+
+  defp credential_failure(reason, channel) do
+    Result.permanent_failure("notification_credential_invalid",
+      error_message: "the plugin notification credential contract is invalid: #{inspect(reason)}",
+      result_summary: %{
+        "execution_route" => to_string(execution_route(channel)),
+        "reason" => "notification_credential_invalid"
+      }
+    )
   end
 
   defp resolve_plugin_target(channel, provider, opts) do
     resolver = Keyword.get(opts, :plugin_target, PluginTarget)
 
-    resolver.resolve(channel, provider, Keyword.take(opts, [:platform_agent]))
+    resolver.resolve(
+      channel,
+      provider,
+      Keyword.take(opts, [:platform_agent, :load_package, :load_assignment])
+    )
   end
 
-  defp dispatch_command(request, provider, target, opts) do
+  defp dispatch_command(request, provider, target, prepared, opts) do
     bus = Keyword.get(opts, :command_bus, AgentCommandBus)
     route = to_string(target.execution_route)
 
-    payload = %{
-      "schema" => @edge_command_schema,
-      # Both addressing fields are sent, and the agent prefers the exact one.
-      # `plugin_assignment_id` is the address that matters: the assignment, not
-      # the package, carries the narrowed capability set, the config, and the
-      # resource limits the module runs under. `plugin_package_id` is the
-      # fallback the agent resolves when no assignment id is supplied, and it
-      # fails CLOSED when one package has several assignments on that agent -
-      # two assignments of one package are two channel configurations, so
-      # picking either would deliver to the wrong destination and record it as
-      # sent (`go/pkg/agent/plugin_runtime_notify.go`,
-      # `resolveNotificationAssignmentID`).
-      "plugin_assignment_id" => target.plugin_assignment_id,
-      "plugin_package_id" => target.plugin_package_id,
-      "action_key" => field(provider, :action_key),
-      "provider_key" => field(provider, :provider_key),
-      "execution_route" => route,
-      "channel_id" => request.channel_id,
-      "delivery_id" => request.delivery_id,
-      "payload_format" => to_string(request.payload_format),
-      "payload" => request.metadata["redacted_payload"] || %{},
-      "dedupe_key" => request.dedupe_key,
-      "is_test" => request.is_test
-    }
+    payload =
+      %{
+        "schema" => @edge_command_schema,
+        # Both addressing fields are sent, and the agent prefers the exact one.
+        # `plugin_assignment_id` is the address that matters: the assignment, not
+        # the package, carries the narrowed capability set, the config, and the
+        # resource limits the module runs under. `plugin_package_id` is the
+        # fallback the agent resolves when no assignment id is supplied, and it
+        # fails CLOSED when one package has several assignments on that agent -
+        # two assignments of one package are two channel configurations, so
+        # picking either would deliver to the wrong destination and record it as
+        # sent (`go/pkg/agent/plugin_runtime_notify.go`,
+        # `resolveNotificationAssignmentID`).
+        "plugin_assignment_id" => target.plugin_assignment_id,
+        "plugin_package_id" => target.plugin_package_id,
+        "action_key" => field(provider, :action_key),
+        "entrypoint" => target.notification_entrypoint,
+        "provider_key" => field(provider, :provider_key),
+        "intent" => plugin_intent(request, target),
+        "execution_route" => route,
+        "channel_id" => request.channel_id,
+        "delivery_id" => request.delivery_id,
+        "alert_id" => request.alert_id,
+        "route_id" => request.route_id,
+        "policy_id" => request.policy_id,
+        "step_number" => request.step_number,
+        "payload_format" => to_string(request.payload_format),
+        "rendered_payload" => request.payload,
+        "alert_snapshot" => request.alert_snapshot,
+        "channel_config" => prepared.channel_config,
+        "attempt_count" => request.attempt,
+        "max_attempts" => request.max_attempts,
+        "queued_at" => iso8601(request.queued_at),
+        "started_at" => iso8601(request.started_at),
+        "next_attempt_at" => iso8601(request.next_attempt_at),
+        "agent_uid" => target.agent_uid,
+        "command_id" => request.command_id,
+        "external_correlation_id" => request.external_correlation_id,
+        "action_links" => request.action_links,
+        "dedupe_key" => request.dedupe_key,
+        "is_test" => request.is_test
+      }
+      |> Map.merge(prepared.payload_fields)
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
 
     case bus.dispatch(target.agent_uid, @edge_command_type, payload,
            required_partition: target.partition_id,
            source: :automation,
+           command_id: request.command_id,
+           notification_delivery_attempt: true,
            context: %{
              notification_delivery_id: request.delivery_id,
              notification_channel_id: request.channel_id,
-             plugin_assignment_id: target.plugin_assignment_id
+             plugin_assignment_id: target.plugin_assignment_id,
+             credential_broker_grant_ids:
+               Map.get(prepared.context, :credential_broker_grant_ids, [])
            }
          ) do
       {:ok, command_id} ->
-        {Result.delivered(
-           external_correlation_id: to_string(command_id),
-           result_summary: %{
-             "execution_route" => route,
-             "agent_uid" => target.agent_uid,
-             "command_id" => command_id
-           }
-         ), command_id}
+        {:accepted, command_id,
+         %{
+           "execution_route" => route,
+           "agent_uid" => target.agent_uid,
+           "command_id" => command_id
+         }}
 
       {:error, {:agent_offline, _agent} = reason} ->
         {Result.retryable_failure("agent_offline",
@@ -1361,25 +2204,40 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
+  defp plugin_intent(%Request{is_test: true}, _target), do: "test"
+
+  defp plugin_intent(%Request{lifecycle_reason: :resolve}, target) do
+    if "resolve_update" in Map.get(target, :notification_capabilities, []),
+      do: "resolve_update",
+      else: "send"
+  end
+
+  defp plugin_intent(_request, _target), do: "send"
+
   defp transport_opts(opts), do: Keyword.get(opts, :transport_opts, [])
 
   # --- request construction -------------------------------------------------
 
   defp build_request(delivery, channel, provider, scope, opts) do
-    with {:ok, secrets} <- resolve_secrets(channel, provider),
+    with {:ok, secrets} <- resolve_request_secrets(channel, provider),
          {:ok, format} <- negotiate(delivery, provider),
          {:ok, rendered, context} <- render(delivery, provider, scope, format, opts) do
-      {:ok, request(delivery, channel, provider, rendered, secrets, context), rendered}
+      {:ok, request(delivery, channel, provider, rendered, secrets, scope, context), rendered}
     end
   end
 
-  defp request(delivery, channel, provider, rendered, secrets, context) do
+  defp request(delivery, channel, provider, rendered, secrets, scope, context) do
     %Request{
       delivery_id: delivery.id,
       alert_id: delivery.alert_id,
+      route_id: delivery.route_id,
+      policy_id: delivery.policy_id,
+      step_number: delivery.step_number,
       channel_id: channel.id,
       provider_key: provider.provider_key,
       provider_version: provider.definition_version,
+      lifecycle_reason: delivery.lifecycle_reason,
+      alert_snapshot: delivery.alert_snapshot || %{},
       payload_format: rendered.payload_format,
       payload: rendered.payload,
       subject: rendered.subject,
@@ -1388,8 +2246,13 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       external_correlation_id: delivery.external_correlation_id,
       agent_uid: channel.agent_uid,
       partition_id: channel.partition_id,
+      queued_at: delivery.queued_at,
+      started_at: delivery.started_at || scope.now,
+      next_attempt_at: delivery.next_attempt_at,
+      command_id: delivery.command_id,
       config: channel.config || %{},
       secrets: secrets,
+      action_links: Map.get(context, "action_links", %{}),
       execution_route: execution_route(channel),
       attempt: delivery.attempt_count + 1,
       max_attempts: delivery.max_attempts,
@@ -1408,6 +2271,10 @@ defmodule ServiceRadar.Notifications.Dispatcher do
         "template_context" => context
       }
     }
+  end
+
+  defp resolve_request_secrets(channel, provider) do
+    if agent_routed?(channel, provider), do: {:ok, %{}}, else: resolve_secrets(channel, provider)
   end
 
   # A credential store that is briefly unreachable is the common case, and losing
@@ -1505,7 +2372,29 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     |> Map.put("alert", snapshot)
     |> Map.put("snapshot", snapshot)
     |> Map.put("links", links.links)
+    |> Map.put("action_links", sdk_action_links(links))
   end
+
+  defp sdk_action_links(%ActionLinks{} = links) do
+    Map.new(links.links, fn {action, url} ->
+      minted = Enum.find(links.minted, &(to_string(&1.action) == action))
+
+      {action,
+       %{
+         "url" => url,
+         "label" => action_link_label(action),
+         "expires_at" => minted && iso8601(minted.expires_at)
+       }
+       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+       |> Map.new()}
+    end)
+  end
+
+  defp action_link_label("acknowledge"), do: "Acknowledge"
+  defp action_link_label("snooze"), do: "Snooze 1h"
+  defp action_link_label("resolve"), do: "Resolve"
+  defp action_link_label("alert"), do: "View alert"
+  defp action_link_label(action), do: action
 
   # Mints the acknowledge/snooze/resolve capabilities for this delivery and
   # persists them (sha256 only). `ActionLinks` decides eligibility from an
@@ -1644,13 +2533,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   # --- due scans ------------------------------------------------------------
 
-  defp due_retry(now, limit, actor, opts) do
-    stall_seconds = Keyword.get(opts, :stall_seconds, @dispatching_stall_seconds)
-
-    (retry_due_ids(now, limit, actor) ++ stalled_ids(now, stall_seconds, limit, actor))
-    |> Enum.uniq()
-    |> Enum.take(limit)
-  end
+  defp due_retry(now, limit, actor, _opts), do: retry_due_ids(now, limit, actor)
 
   defp retry_due_ids(now, limit, actor) do
     NotificationDelivery
@@ -1660,64 +2543,55 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     |> ids("retry-due deliveries")
   end
 
-  defp stalled_ids(now, stall_seconds, limit, actor) do
-    cutoff = DateTime.add(now, -stall_seconds, :second)
-
-    NotificationDelivery
+  # D8: continuation only. The relationship predicate is intentionally inside
+  # the database query and therefore runs before LIMIT. Filtering a page of the
+  # oldest alerts in Elixir lets old, never-routed alerts permanently hide real
+  # continuation work behind them.
+  defp due_escalation(limit, actor) do
+    Alert
     |> Ash.Query.filter(
-      state == :dispatching and attempt_count < max_attempts and
-        (is_nil(started_at) or started_at <= ^cutoff)
+      status in [:pending, :escalated, :acknowledged] and
+        exists(notification_deliveries, is_test == false and not is_nil(queued_at))
     )
-    |> Ash.Query.sort(started_at: :asc)
+    |> Ash.Query.sort(triggered_at: :asc)
     |> Ash.Query.limit(limit)
     |> Ash.read(actor: actor)
-    |> ids("stalled dispatching deliveries")
+    |> ids("escalation candidate alerts")
   end
 
-  # D8: continuation only. An alert with no delivery record has never been
-  # routed, and originating its first notification belongs to `AlertLifecycle`
-  # alone - a scheduler that could do it would race the lifecycle and double-page.
-  defp due_escalation(limit, actor) do
-    candidates =
-      Alert
-      |> Ash.Query.filter(status in [:pending, :escalated])
-      |> Ash.Query.sort(triggered_at: :asc)
-      |> Ash.Query.limit(limit)
-      |> Ash.read(actor: actor)
-      |> ids("escalation candidate alerts")
+  # Renotify cadence is owned by the stateful rule, not copied into a second
+  # notification setting. The output is bounded after cadence evaluation so a
+  # page of not-yet-due incidents cannot starve due ones behind it.
+  defp due_renotify(now, limit, actor) do
+    Alert
+    |> Ash.Query.filter(
+      status in [:pending, :escalated] and not is_nil(last_notification_at) and
+        (is_nil(suppressed_until) or suppressed_until < ^now) and
+        (is_nil(snooze_until) or snooze_until < ^now) and
+        exists(notification_deliveries, is_test == false and not is_nil(queued_at))
+    )
+    |> Ash.Query.sort(last_notification_at: :asc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, alerts} ->
+        alerts
+        |> Enum.filter(&renotify_due?(&1, now, actor))
+        |> Enum.take(limit)
+        |> Enum.map(& &1.id)
 
-    case candidates do
-      [] ->
+      {:error, reason} ->
+        log_read_failure("renotify candidate alerts", reason)
         []
-
-      candidates ->
-        notified = already_notified(candidates, actor)
-        Enum.filter(candidates, &MapSet.member?(notified, &1))
     end
   end
 
-  # "Has a delivery record" means "was routed to a destination", which is NOT the
-  # same as "has a row". An unrouted alert has a row too - that is the whole
-  # point of `:no_matching_route` - and counting it here would let the scheduler
-  # keep re-routing an alert nobody configured a route for, which is precisely
-  # the origination D8 reserves for `AlertLifecycle`.
-  #
-  # `queued_at` is the discriminator: it is set only by `:record_dispatch`, so a
-  # pure suppression record has none, while a dispatch that was planned and then
-  # withheld at dispatch time keeps its `queued_at` and correctly still counts -
-  # that ladder can legitimately advance once the silence lifts.
-  defp already_notified(alert_ids, actor) do
-    NotificationDelivery
-    |> Ash.Query.filter(alert_id in ^alert_ids and is_test == false and not is_nil(queued_at))
-    |> Ash.Query.select([:alert_id])
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, deliveries} ->
-        MapSet.new(deliveries, & &1.alert_id)
+  defp renotify_due?(alert, now, actor) do
+    case load_rule(alert, actor) do
+      {:ok, %{renotify_seconds: seconds}} when is_integer(seconds) and seconds > 0 ->
+        Dedupe.renotify_due?(alert.last_notification_at, seconds, now)
 
-      {:error, reason} ->
-        log_read_failure("already-notified alerts", reason)
-        MapSet.new()
+      _no_rule_or_disabled_cadence ->
+        false
     end
   end
 
@@ -1735,86 +2609,151 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   # --- loading --------------------------------------------------------------
 
-  defp load_alert(alert_id, actor) do
+  defp load_alert(alert_id, actor), do: load_alert(alert_id, actor, [])
+
+  defp load_alert(alert_id, actor, opts) do
+    loader = Keyword.get(opts, :load_alert, &read_alert/2)
+
+    case loader.(alert_id, actor) do
+      {:ok, nil} -> {:error, :alert_not_found}
+      {:ok, alert} when is_map(alert) -> {:ok, alert}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_alert_loader_result, other}}
+    end
+  end
+
+  defp read_alert(alert_id, actor) do
     Alert
     |> Ash.Query.for_read(:by_id, %{id: alert_id})
     |> Ash.Query.load([:device])
     |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, nil} -> {:error, :alert_not_found}
-      {:ok, alert} -> {:ok, alert}
-      {:error, reason} -> {:error, reason}
+  end
+
+  defp load_enabled_routes(actor, opts) do
+    loader = Keyword.get(opts, :load_enabled_routes, &read_enabled_routes/1)
+
+    case loader.(actor) do
+      {:ok, routes} when is_list(routes) ->
+        {:ok, routes}
+
+      {:error, reason} ->
+        log_read_failure("enabled routes", reason)
+        {:error, {:enabled_routes_unreadable, reason}}
+
+      other ->
+        {:error, {:enabled_routes_unreadable, {:invalid_loader_result, other}}}
     end
   end
 
-  defp load_enabled_routes(actor) do
+  defp read_enabled_routes(actor) do
     NotificationRoute
     |> Ash.Query.for_read(:enabled)
     |> Ash.Query.load([:schedule])
     |> Ash.read(actor: actor)
-    |> case do
-      {:ok, routes} -> routes
-      {:error, reason} -> log_read_list_failure("enabled routes", reason)
-    end
   end
 
-  defp load_policy(nil, _actor), do: nil
+  defp load_policy(nil, _actor, _opts), do: {:error, :escalation_policy_not_configured}
 
-  defp load_policy(policy_id, actor) do
+  defp load_policy(policy_id, actor, opts) do
+    loader = Keyword.get(opts, :load_policy, &load_policy_record/2)
+    loader.(policy_id, actor)
+  end
+
+  defp load_policy_record(policy_id, actor) do
     NotificationEscalationPolicy
     |> Ash.Query.for_read(:by_id, %{id: policy_id})
     |> Ash.Query.load(steps: [channels: [:provider]])
     |> Ash.read_one(actor: actor)
     |> case do
+      {:ok, nil} ->
+        {:error, {:escalation_policy_not_found, policy_id}}
+
       {:ok, policy} ->
-        policy
+        {:ok, policy}
 
       {:error, reason} ->
         log_read_failure("escalation policy #{policy_id}", reason)
-        nil
+        {:error, {:escalation_policy_unreadable, policy_id, reason}}
     end
   end
 
-  defp load_active_silences(now, actor) do
+  defp load_active_silences(now, actor, opts) do
+    loader = Keyword.get(opts, :load_active_silences, &read_active_silences/2)
+
+    case loader.(now, actor) do
+      {:ok, silences} when is_list(silences) ->
+        {:ok, silences}
+
+      {:error, reason} ->
+        log_read_failure("active silences", reason)
+        {:error, {:active_silences_unreadable, reason}}
+
+      other ->
+        {:error, {:active_silences_unreadable, {:invalid_loader_result, other}}}
+    end
+  end
+
+  defp read_active_silences(now, actor) do
     NotificationSilence
     |> Ash.Query.for_read(:active_at, %{at: now})
     |> Ash.read(actor: actor)
-    |> case do
-      {:ok, silences} -> silences
-      {:error, reason} -> log_read_list_failure("active silences", reason)
-    end
   end
 
   # The rule is optional context: it supplies the cadence floor and the `rule.*`
   # render namespace. An alert created by a path that bypasses the stateful
   # engine has none, and that is a valid state rather than an error.
-  defp load_rule(alert, actor) do
+  defp load_rule(alert, actor), do: load_rule(alert, actor, [])
+
+  defp load_rule(alert, actor, opts) do
+    loader = Keyword.get(opts, :load_rule, &read_rule/2)
+
+    case loader.(alert, actor) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, rule} when is_map(rule) ->
+        {:ok, rule}
+
+      {:error, reason} ->
+        rule_id = incident_rule_id(alert)
+        log_read_failure("stateful alert rule #{inspect(rule_id)}", reason)
+        {:error, {:alert_rule_unreadable, rule_id, reason}}
+
+      other ->
+        {:error,
+         {:alert_rule_unreadable, incident_rule_id(alert), {:invalid_loader_result, other}}}
+    end
+  end
+
+  defp read_rule(alert, actor) do
     case incident_rule_id(alert) do
       nil ->
-        nil
+        {:ok, nil}
 
       rule_id ->
         StatefulAlertRule
         |> Ash.Query.filter(id == ^rule_id)
         |> Ash.Query.limit(1)
         |> Ash.read_one(actor: actor)
-        |> case do
-          {:ok, rule} -> rule
-          {:error, _reason} -> nil
-        end
     end
   end
 
-  defp load_delivery(delivery_id, actor) do
+  defp load_delivery(delivery_id, actor, opts) do
+    loader = Keyword.get(opts, :load_delivery, &read_delivery/2)
+
+    case loader.(delivery_id, actor) do
+      {:ok, nil} -> {:error, :delivery_not_found}
+      {:ok, delivery} when is_map(delivery) -> {:ok, delivery}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_delivery_loader_result, other}}
+    end
+  end
+
+  defp read_delivery(delivery_id, actor) do
     NotificationDelivery
     |> Ash.Query.for_read(:by_id, %{id: delivery_id})
     |> Ash.Query.load(channel: [:provider])
     |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, nil} -> {:error, :delivery_not_found}
-      {:ok, delivery} -> {:ok, delivery}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp load_channel(nil, _actor), do: {:error, :channel_not_found}
@@ -1831,30 +2770,61 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     end
   end
 
-  defp load_route(nil, _actor), do: nil
+  defp load_route(nil, _actor, _opts), do: {:ok, nil}
 
-  defp load_route(route_id, actor) do
+  defp load_route(route_id, actor, opts) do
+    loader = Keyword.get(opts, :load_route, &read_route/2)
+
+    case loader.(route_id, actor) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, route} when is_map(route) ->
+        {:ok, route}
+
+      {:error, reason} ->
+        log_read_failure("notification route #{route_id}", reason)
+        {:error, {:notification_route_unreadable, route_id, reason}}
+
+      other ->
+        {:error, {:notification_route_unreadable, route_id, {:invalid_loader_result, other}}}
+    end
+  end
+
+  defp read_route(route_id, actor) do
     NotificationRoute
     |> Ash.Query.for_read(:by_id, %{id: route_id})
     |> Ash.Query.load([:schedule])
     |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, route} -> route
-      {:error, _reason} -> nil
+  end
+
+  defp load_step(nil, _step_number, _actor, _opts), do: {:ok, nil}
+  defp load_step(_policy_id, nil, _actor, _opts), do: {:ok, nil}
+
+  defp load_step(policy_id, step_number, actor, opts) do
+    loader = Keyword.get(opts, :load_step, &read_step/3)
+
+    case loader.(policy_id, step_number, actor) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, step} when is_map(step) ->
+        {:ok, step}
+
+      {:error, reason} ->
+        log_read_failure("escalation step #{policy_id}/#{step_number}", reason)
+        {:error, {:escalation_step_unreadable, policy_id, step_number, reason}}
+
+      other ->
+        {:error,
+         {:escalation_step_unreadable, policy_id, step_number, {:invalid_loader_result, other}}}
     end
   end
 
-  defp load_step(nil, _step_number, _actor), do: nil
-  defp load_step(_policy_id, nil, _actor), do: nil
-
-  defp load_step(policy_id, step_number, actor) do
+  defp read_step(policy_id, step_number, actor) do
     NotificationEscalationStep
     |> Ash.Query.for_read(:by_policy_step, %{policy_id: policy_id, step_number: step_number})
     |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, step} -> step
-      {:error, _reason} -> nil
-    end
   end
 
   # The dispatches this dedupe key has already produced, as the
@@ -1868,24 +2838,53 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # made - the exact duplicate-page failure the exclusion exists to prevent.
   # Nothing has been written yet at this point, so returning an error is free
   # and the caller simply comes back.
-  defp existing_dispatches(alert, key, actor) do
+  defp existing_dispatches(alert, route, key, actor) do
     id = field(alert, :id)
+    route_id = field(route, :id)
 
-    NotificationDelivery
-    |> Ash.Query.filter(
-      alert_id == ^id and dedupe_key == ^key and is_test == false and
-        not is_nil(step_number) and not is_nil(channel_id) and not is_nil(queued_at)
-    )
-    |> Ash.Query.select([:step_number, :channel_id, :queued_at])
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, deliveries} ->
-        {:ok, Enum.map(deliveries, &{&1.step_number, &1.channel_id, &1.queued_at})}
+    direct_query =
+      NotificationDelivery
+      |> Ash.Query.filter(
+        alert_id == ^id and route_id == ^route_id and dedupe_key == ^key and
+          is_test == false and not is_nil(step_number) and not is_nil(channel_id) and
+          not is_nil(queued_at)
+      )
+      |> Ash.Query.select([:id, :step_number, :channel_id, :queued_at])
 
+    with {:ok, direct} <- Ash.read(direct_query, actor: actor),
+         {:ok, memberships} <- delivery_memberships_for_alert(id, actor) do
+      member_dispatches =
+        Enum.filter(memberships, fn member ->
+          delivery = member.delivery
+
+          field(delivery, :route_id) == route_id and field(delivery, :dedupe_key) == key and
+            field(delivery, :is_test) == false and not is_nil(field(delivery, :step_number)) and
+            not is_nil(field(delivery, :channel_id))
+        end)
+
+      member_delivery_ids = MapSet.new(member_dispatches, & &1.delivery_id)
+
+      dispatches =
+        Enum.map(member_dispatches, fn member ->
+          {member.delivery.step_number, member.delivery.channel_id, member.source_due_at}
+        end) ++
+          (direct
+           |> Enum.reject(&MapSet.member?(member_delivery_ids, &1.id))
+           |> Enum.map(&{&1.step_number, &1.channel_id, &1.queued_at}))
+
+      {:ok, Enum.uniq(dispatches)}
+    else
       {:error, reason} ->
         log_read_failure("existing dispatches", reason)
         {:error, {:existing_dispatches_unreadable, reason}}
     end
+  end
+
+  defp delivery_memberships_for_alert(alert_id, actor, delivery_load \\ []) do
+    NotificationDeliveryMember
+    |> Ash.Query.for_read(:for_alert, %{alert_id: alert_id})
+    |> Ash.Query.load(delivery: delivery_load)
+    |> Ash.read(actor: actor)
   end
 
   # The last time THIS rung reached THIS destination for THIS incident. Scoping
@@ -1894,7 +2893,26 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   # a later rung of the same ladder is a different rung. What it does catch is a
   # policy REPEAT re-dispatching the same rung, which is exactly what
   # `renotify_seconds` and `throttle_seconds` govern (design D6).
-  defp last_dispatch_at(delivery, actor) do
+  defp last_dispatch_at(delivery, actor, opts) do
+    loader = Keyword.get(opts, :load_last_dispatch_at, &read_last_dispatch_at/2)
+
+    case loader.(delivery, actor) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, %DateTime{} = at} ->
+        {:ok, at}
+
+      {:error, reason} ->
+        log_read_failure("last dispatch for delivery #{delivery.id}", reason)
+        {:error, {:last_dispatch_unreadable, delivery.id, reason}}
+
+      other ->
+        {:error, {:last_dispatch_unreadable, delivery.id, {:invalid_loader_result, other}}}
+    end
+  end
+
+  defp read_last_dispatch_at(delivery, actor) do
     with key when is_binary(key) <- delivery.dedupe_key,
          channel_id when not is_nil(channel_id) <- delivery.channel_id do
       NotificationDelivery
@@ -1907,68 +2925,114 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       |> Ash.Query.limit(1)
       |> Ash.read_one(actor: actor)
       |> case do
-        {:ok, %{finished_at: finished_at}} -> finished_at
-        _other -> nil
+        {:ok, %{finished_at: %DateTime{} = finished_at}} -> {:ok, finished_at}
+        {:ok, _none_or_unfinished} -> {:ok, nil}
+        {:error, reason} -> {:error, reason}
       end
     else
-      _missing -> nil
+      _missing -> {:ok, nil}
     end
   end
 
   # --- context assembly -----------------------------------------------------
 
-  defp delivery_scope(delivery, channel, provider, now, actor, _opts) do
-    route = load_route(delivery.route_id, actor)
-    step = load_step(delivery.policy_id, delivery.step_number, actor)
-    alert = load_delivery_alert(delivery, actor)
-    device = alert_device(alert)
-    rule = load_rule(alert, actor)
+  defp delivery_scope(delivery, channel, provider, now, actor, opts) do
+    with {:ok, route} <- load_route(delivery.route_id, actor, opts),
+         {:ok, step} <- load_step(delivery.policy_id, delivery.step_number, actor, opts),
+         {:ok, alert} <- load_delivery_alert(delivery, actor, opts),
+         {:ok, rule} <- load_rule(alert, actor, opts),
+         {:ok, silences} <- load_active_silences(now, actor, opts),
+         {:ok, last_dispatch_at} <- last_dispatch_at(delivery, actor, opts) do
+      device = alert_device(alert)
 
-    scope = %{
-      now: now,
-      actor: actor,
-      alert: alert,
-      device: device,
-      rule: rule,
-      route: route,
-      policy: nil,
-      step: step,
-      channel: channel,
-      provider: provider
-    }
+      scope = %{
+        now: now,
+        actor: actor,
+        alert: alert,
+        device: device,
+        rule: rule,
+        route: route,
+        policy: nil,
+        step: step,
+        channel: channel,
+        provider: provider
+      }
 
-    Map.put(scope, :suppression, %{
-      now: now,
-      alert: alert,
-      device: device,
-      # A delivery that exists was routed. Handing `nil` here would make the
-      # `:no_matching_route` residual fire on a legitimately planned dispatch
-      # whose route row has since been edited away, so an identity stand-in is
-      # supplied when the route cannot be loaded.
-      route: route || %{id: delivery.route_id},
-      schedule: route && route.schedule,
-      silences: load_active_silences(now, actor),
-      match_subject: %{"alert" => alert || delivery.alert_snapshot || %{}},
-      channel: channel,
-      provider: provider,
-      step: step,
-      policy: %{id: delivery.policy_id},
-      rule: rule,
-      last_dispatch_at: last_dispatch_at(delivery, actor),
-      dedupe_key: delivery.dedupe_key,
-      alert_snapshot: delivery.alert_snapshot || %{}
-    })
+      suppression =
+        put_schedule_local_datetime(
+          %{
+            now: now,
+            alert: alert,
+            device: device,
+            # A delivery that exists was routed. A missing row is legitimate
+            # retention/config churn, so keep the identity stand-in that avoids
+            # misclassifying it as an unrouted alert.
+            route: route || %{id: delivery.route_id},
+            schedule: route && route.schedule,
+            silences: silences,
+            match_subject: %{"alert" => alert || delivery.alert_snapshot || %{}},
+            channel: channel,
+            provider: provider,
+            step: step,
+            policy: %{id: delivery.policy_id},
+            rule: rule,
+            last_dispatch_at: last_dispatch_at,
+            dedupe_key: delivery.dedupe_key,
+            alert_snapshot: delivery.alert_snapshot || %{}
+          },
+          opts
+        )
+
+      {:ok, Map.put(scope, :suppression, suppression)}
+    end
+  end
+
+  defp put_schedule_local_datetime(%{schedule: nil} = context, _opts), do: context
+
+  defp put_schedule_local_datetime(%{schedule: schedule, now: now} = context, opts) do
+    resolver = Keyword.get(opts, :time_zone, TimeZone)
+
+    resolver_opts =
+      case Keyword.get(opts, :time_zone_query) do
+        query when is_function(query, 2) -> [query: query]
+        _none -> []
+      end
+
+    case resolver.local_datetime(now, field(schedule, :timezone), resolver_opts) do
+      {:ok, %NaiveDateTime{} = local} -> Map.put(context, :schedule_local_datetime, local)
+      _unresolved -> context
+    end
   end
 
   # The alert may be gone: AlertsRetentionWorker hard deletes after three days
   # and the FK is nilify. That is not an error - it is the case
   # `alert_snapshot` exists for.
-  defp load_delivery_alert(%{alert_id: nil}, _actor), do: nil
+  defp load_delivery_alert(%{alert_id: nil}, _actor, _opts), do: {:ok, nil}
 
-  defp load_delivery_alert(delivery, actor) do
-    case load_alert(delivery.alert_id, actor) do
-      {:ok, alert} -> alert
-      {:error, _reason} -> nil
+  defp load_delivery_alert(delivery, actor, opts) do
+    loader = Keyword.get(opts, :load_delivery_alert, &read_delivery_alert/2)
+
+    case loader.(delivery, actor) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, alert} when is_map(alert) ->
+        {:ok, alert}
+
+      {:error, reason} ->
+        log_read_failure("alert #{delivery.alert_id} for delivery #{delivery.id}", reason)
+        {:error, {:delivery_alert_unreadable, delivery.alert_id, reason}}
+
+      other ->
+        {:error, {:delivery_alert_unreadable, delivery.alert_id, {:invalid_loader_result, other}}}
+    end
+  end
+
+  defp read_delivery_alert(delivery, actor) do
+    case read_alert(delivery.alert_id, actor) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, alert} -> {:ok, alert}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -2086,9 +3150,17 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       dedupe_key: dedupe_key
     }
 
+    lifecycle_key = "notification-alert-lifecycle:" <> to_string(field(alert, :id))
+
     case {Keyword.get(opts, :lock?, true), Dedupe.routing_request_key(request)} do
-      {true, {:ok, key}} -> emit_notifications(locked(key, fun))
-      _unlockable -> emit_notifications(fun.())
+      {true, {:ok, request_key}} ->
+        emit_notifications(locked([lifecycle_key, request_key], fun))
+
+      {true, _unlockable} ->
+        emit_notifications(locked([lifecycle_key], fun))
+
+      {false, _request_key} ->
+        emit_notifications(transactional(fun))
     end
   end
 
@@ -2106,22 +3178,35 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   defp empty_result, do: %{planned: [], suppressed: [], notifications: []}
 
-  defp locked(key, fun) do
+  defp locked(keys, fun) do
     case Repo.transaction(fn ->
-           _ = Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [lock_key(key)])
-           fun.()
+           Enum.each(List.wrap(keys), fn key ->
+             _ = SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [lock_key(key)])
+           end)
+
+           rollback_on_error(fun.())
          end) do
       {:ok, result} -> result
       {:error, reason} -> {:error, reason}
     end
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->
-      Logger.warning("notification routing lock unavailable; routing unserialised",
+      Logger.error("notification routing lock unavailable",
         reason: inspect(error)
       )
 
-      fun.()
+      {:error, {:routing_lock_unavailable, Exception.message(error)}}
   end
+
+  defp transactional(fun) do
+    case Repo.transaction(fn -> rollback_on_error(fun.()) end) do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp rollback_on_error({:error, reason}), do: Repo.rollback(reason)
+  defp rollback_on_error(result), do: result
 
   defp lock_key(key) do
     <<value::signed-integer-size(64), _rest::binary>> = :crypto.hash(:sha256, key)
@@ -2251,15 +3336,21 @@ defmodule ServiceRadar.Notifications.Dispatcher do
 
   # --- small helpers --------------------------------------------------------
 
-  defp attemptable(%{state: state}) when state in @attemptable_states, do: :continue
-  defp attemptable(%{state: :sent}), do: {:settled, {:ok, :sent}}
-  defp attemptable(%{state: :suppressed}), do: {:settled, {:ok, :suppressed}}
+  defp attemptable(%{state: :pending, next_attempt_at: %DateTime{} = at}, now) do
+    if DateTime.after?(at, now), do: {:settled, {:retry, at}}, else: :continue
+  end
 
-  defp attemptable(%{state: state}) when state in @terminal_states do
+  defp attemptable(%{state: state}, _now) when state in @attemptable_states, do: :continue
+  defp attemptable(%{state: :dispatching}, _now), do: {:settled, {:ok, :dispatching}}
+  defp attemptable(%{state: :sent} = delivery, _now), do: {:settled, {:ok, :sent}, delivery}
+  defp attemptable(%{state: :suppressed}, _now), do: {:settled, {:ok, :suppressed}}
+
+  defp attemptable(%{state: state}, _now) when state in @terminal_states do
     {:settled, {:error, {:not_deliverable, state}}}
   end
 
-  defp attemptable(%{state: state}), do: {:settled, {:error, {:unknown_delivery_state, state}}}
+  defp attemptable(%{state: state}, _now),
+    do: {:settled, {:error, {:unknown_delivery_state, state}}}
 
   defp fetch_channel(%{channel: %Ash.NotLoaded{}}), do: {:error, :channel_not_loaded}
   defp fetch_channel(%{channel: nil}), do: {:error, :channel_not_found}
@@ -2430,10 +3521,5 @@ defmodule ServiceRadar.Notifications.Dispatcher do
       step_number: step_number,
       reason: inspect(reason)
     )
-  end
-
-  defp log_read_list_failure(what, reason) do
-    Logger.error("notification dispatcher could not read #{what}", reason: inspect(reason))
-    []
   end
 end

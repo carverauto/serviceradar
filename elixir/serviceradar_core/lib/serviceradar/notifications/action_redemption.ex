@@ -67,6 +67,7 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
   alias ServiceRadar.Notifications.ActionToken
   alias ServiceRadar.Notifications.NotificationAcknowledgement
   alias ServiceRadar.Notifications.NotificationDelivery
+  alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Notifications.Telemetry
   alias ServiceRadar.Repo
 
@@ -127,6 +128,8 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
       `"action_link:<delivery_id>"`.
     * `:actor` - defaults to a system actor. The capability is the
       authorisation; the actor is what lets the write pass policy.
+    * `:enqueue_routing` - a two-argument routing enqueue function. Intended
+      for tests; production uses `RoutingWorker.enqueue/2`.
   """
   @spec redeem(term(), keyword()) :: {:ok, Outcome.t()} | {:error, failure()}
   def redeem(token, opts \\ []) do
@@ -212,8 +215,14 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
   defp apply_native_record(record, opts) do
     case Repo.transaction(fn ->
            case apply_to_alert(record, opts) do
-             {:ok, outcome, notifications, triggered_at} -> {outcome, notifications, triggered_at}
-             {:error, reason} -> Repo.rollback(reason)
+             {:ok, outcome, notifications, triggered_at} ->
+               case ensure_resolution_routed(outcome, opts) do
+                 :ok -> {outcome, notifications, triggered_at}
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+
+             {:error, reason} ->
+               Repo.rollback(reason)
            end
          end) do
       {:ok, {outcome, notifications, triggered_at}} ->
@@ -258,11 +267,36 @@ defmodule ServiceRadar.Notifications.ActionRedemption do
 
       {:ok, consumed, notifications} ->
         case apply_to_alert(consumed, opts) do
-          {:ok, outcome, more, triggered_at} -> {outcome, notifications ++ more, triggered_at}
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, outcome, more, triggered_at} ->
+            case ensure_resolution_routed(outcome, opts) do
+              :ok -> {outcome, notifications ++ more, triggered_at}
+              {:error, reason} -> Repo.rollback(reason)
+            end
+
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
     end
   end
+
+  # Keep the durable routing request in the same database transaction as the
+  # alert transition and acknowledgement. A provider retry that observes an
+  # already-resolved alert deliberately does not enqueue again.
+  defp ensure_resolution_routed(
+         %Outcome{action: :resolve, status: :applied, alert_id: alert_id},
+         opts
+       ) do
+    enqueue = Keyword.get(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+    case enqueue.(alert_id, :resolve) do
+      :ok -> :ok
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, {:routing_enqueue_failed, reason}}
+      other -> {:error, {:routing_enqueue_failed, other}}
+    end
+  end
+
+  defp ensure_resolution_routed(_outcome, _opts), do: :ok
 
   defp apply_to_alert(record, opts) do
     with {:ok, alert} <- load_alert(record, opts),

@@ -56,6 +56,11 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
   `create :record_suppression` for why that is an upsert against a partial,
   NULLS-NOT-DISTINCT identity and not a read-then-write.
 
+  The three nullable foreign-key values in that identity are copied into
+  immutable `suppression_*_id` columns when the decision is inserted. Parent
+  deletion nilifies the relationship columns but not those identity snapshots,
+  so retaining two distinct audit rows can never create a uniqueness collision.
+
   `suppression_reason` is present if and only if `state == :suppressed`, mirroring
   the `notification_deliveries_suppression_reason` database check.
 
@@ -92,6 +97,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Notifications.Validations.NonEmptyAlertSnapshot
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
 
@@ -117,6 +123,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
   @pipeline_writes [
     :record_dispatch,
     :record_suppression,
+    :record_group_member,
     :record_dispatching,
     :record_retry_scheduled,
     :record_sent,
@@ -136,6 +143,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     :channel_id,
     :originating_delivery_id,
     :dedupe_key,
+    :external_correlation_id,
     :max_attempts,
     :next_attempt_at,
     :payload_format,
@@ -225,6 +233,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     define :record_dispatch, action: :record_dispatch
     define :record_test_dispatch, action: :record_test_dispatch
     define :record_suppression, action: :record_suppression
+    define :record_group_member, action: :record_group_member
     define :record_dispatching, action: :record_dispatching
     define :record_retry_scheduled, action: :record_retry_scheduled
     define :record_sent, action: :record_sent
@@ -327,7 +336,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
       primary? true
       accept @dispatch_fields
 
-      validate fn changeset, _context -> validate_alert_snapshot(changeset) end
+      validate NonEmptyAlertSnapshot
     end
 
     create :record_test_dispatch do
@@ -340,7 +349,7 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
 
       change set_attribute(:is_test, true)
 
-      validate fn changeset, _context -> validate_alert_snapshot(changeset) end
+      validate NonEmptyAlertSnapshot
     end
 
     create :record_suppression do
@@ -389,12 +398,23 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
 
       change set_attribute(:state, :suppressed)
       change set_attribute(:last_evaluated_at, &DateTime.utc_now/0)
+      change fn changeset, _context -> copy_suppression_identity(changeset) end
       change atomic_update(:occurrence_count, expr(occurrence_count + 1))
 
       # Mirrors notification_deliveries_suppression_reason: a suppressed row
       # always names its reason.
       validate present(:suppression_reason)
-      validate fn changeset, _context -> validate_alert_snapshot(changeset) end
+      validate NonEmptyAlertSnapshot
+    end
+
+    update :record_group_member do
+      description "Merge another alert into a grouped delivery that has not dispatched yet."
+      accept [:alert_id, :alert_snapshot, :next_attempt_at]
+
+      validate attribute_equals(:state, :pending),
+        message: "must still be pending to accept a group member"
+
+      validate NonEmptyAlertSnapshot
     end
 
     update :record_dispatching do
@@ -494,24 +514,6 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     end
   end
 
-  # `alert_snapshot` carries a database default of %{}, so "required" cannot be
-  # expressed as allow_nil? false. An empty snapshot is rejected here instead,
-  # because the row becomes unreadable the moment AlertsRetentionWorker prunes
-  # the alert it points at.
-  defp validate_alert_snapshot(changeset) do
-    case Ash.Changeset.get_attribute(changeset, :alert_snapshot) do
-      snapshot when is_map(snapshot) and map_size(snapshot) > 0 ->
-        :ok
-
-      _ ->
-        {:error,
-         field: :alert_snapshot,
-         message:
-           "must denormalise the alert: AlertsRetentionWorker hard deletes alerts after 3 days " <>
-             "and a delivery outlives its alert"}
-    end
-  end
-
   policies do
     import ServiceRadar.Policies
 
@@ -565,6 +567,14 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     attribute :policy_id, :uuid, allow_nil?: true, public?: true
     attribute :step_number, :integer, allow_nil?: true, public?: true
     attribute :channel_id, :uuid, allow_nil?: true, public?: true
+
+    # Immutable identity snapshots for suppressed rows. The relationship FKs
+    # above are intentionally nilified when their parents are retained for less
+    # time than the delivery audit log; using them directly in a NULLS NOT
+    # DISTINCT index makes that nilification collide.
+    attribute :suppression_alert_id, :uuid, allow_nil?: true
+    attribute :suppression_policy_id, :uuid, allow_nil?: true
+    attribute :suppression_channel_id, :uuid, allow_nil?: true
 
     attribute :originating_delivery_id, :uuid do
       allow_nil? true
@@ -785,6 +795,10 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     has_many :acknowledgements, ServiceRadar.Notifications.NotificationAcknowledgement do
       destination_attribute :delivery_id
     end
+
+    has_many :members, ServiceRadar.Notifications.NotificationDeliveryMember do
+      destination_attribute :delivery_id
+    end
   end
 
   identities do
@@ -802,10 +816,33 @@ defmodule ServiceRadar.Notifications.NotificationDelivery do
     # channel_id} on dispatched rows - retries and failover hops are separate
     # records by design.
     identity :suppression_decision,
-             [:alert_id, :policy_id, :step_number, :channel_id, :dedupe_key, :suppression_reason] do
+             [
+               :suppression_alert_id,
+               :suppression_policy_id,
+               :step_number,
+               :suppression_channel_id,
+               :dedupe_key,
+               :suppression_reason
+             ] do
       where expr(state == :suppressed)
       nils_distinct? false
       message "an identical suppression decision is already recorded"
     end
+  end
+
+  defp copy_suppression_identity(changeset) do
+    changeset
+    |> Ash.Changeset.change_attribute(
+      :suppression_alert_id,
+      Ash.Changeset.get_attribute(changeset, :alert_id)
+    )
+    |> Ash.Changeset.change_attribute(
+      :suppression_policy_id,
+      Ash.Changeset.get_attribute(changeset, :policy_id)
+    )
+    |> Ash.Changeset.change_attribute(
+      :suppression_channel_id,
+      Ash.Changeset.get_attribute(changeset, :channel_id)
+    )
   end
 end

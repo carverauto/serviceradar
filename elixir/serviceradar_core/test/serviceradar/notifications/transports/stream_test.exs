@@ -234,10 +234,11 @@ defmodule ServiceRadar.Notifications.Transports.StreamTest do
     end
 
     test "refuses to publish when a value the caller marked sensitive survived" do
-      # Deliberately shorter than the scrubber's minimum replaceable length, so
-      # this exercises the fail-closed check rather than the scrubber.
+      # HTTP.scrub/2 replaces sensitive map values but preserves keys so it
+      # cannot alter payload structure. Put the declared secret in a key to
+      # exercise the fail-closed verifier against a genuine survivor.
       short = "pw12"
-      request = request(Map.put(@payload, "note", "credential #{short} rotated"))
+      request = request(Map.put(@payload, short, "caller-controlled field"))
 
       log =
         capture_log(fn ->

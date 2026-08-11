@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Access do
   ]
 
   @tab_index Map.new(@tabs, &{&1.id, &1})
+  @access_permissions @tabs |> Enum.map(& &1.permission) |> Enum.uniq()
 
   # Every event the LiveView answers, with the key it requires. Read-only events
   # still appear: an event with no entry is refused, so omitting one disables it
@@ -196,12 +197,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Access do
   `{:error, :forbidden}` for the caller's logging, but both refuse: an event
   this module does not declare is not permitted by default.
   """
-  @spec authorize_event(term(), term()) :: :ok | {:error, :forbidden | :unknown_event}
-  def authorize_event(scope, event) do
+  @spec authorize_event(term(), term(), module()) ::
+          {:ok, term()} | {:error, :forbidden | :unknown_event}
+  def authorize_event(scope, event, authorization_module \\ RBAC) do
     case permission_for_event(event) do
-      nil -> {:error, :unknown_event}
-      permission -> if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+      nil ->
+        {:error, :unknown_event}
+
+      permission ->
+        case authorization_module.authorize_current(scope, [permission]) do
+          {:ok, refreshed_scope} -> {:ok, refreshed_scope}
+          _denied -> {:error, :forbidden}
+        end
     end
+  end
+
+  @doc "Refreshes the scope and requires permission to view at least one settings tab."
+  @spec authorize_current_access(term(), module()) ::
+          {:ok, term()} | {:error, :permission_revoked}
+  def authorize_current_access(scope, authorization_module \\ RBAC) do
+    authorization_module.authorize_current_any(scope, @access_permissions)
+  end
+
+  @doc "Refreshes the scope and requires one current permission."
+  @spec authorize_current(term(), String.t(), module()) ::
+          {:ok, term()} | {:error, :permission_revoked}
+  def authorize_current(scope, permission, authorization_module \\ RBAC) do
+    authorization_module.authorize_current(scope, [permission])
   end
 
   @doc "Permission keys, exposed so a caller does not inline the strings."

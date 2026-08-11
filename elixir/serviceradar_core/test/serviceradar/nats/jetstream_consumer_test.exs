@@ -306,6 +306,20 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload.config[:deliver_policy] == :new or payload.config["deliver_policy"] == :new
   end
 
+  test "consumer payload preserves an explicit by-start-sequence cursor" do
+    payload =
+      JetstreamConsumer.consumer_payload(
+        "NOTIFICATIONS",
+        "sr-firehose-v2-client",
+        "notifications.stream",
+        deliver_policy: :by_start_sequence,
+        opt_start_seq: 42
+      )
+
+    assert payload.config.deliver_policy == :by_start_sequence
+    assert payload.config.opt_start_seq == 42
+  end
+
   test "deliver_policy_immutable_error? matches NATS 10012" do
     assert JetstreamConsumer.deliver_policy_immutable_error?(%{"err_code" => 10_012})
     assert JetstreamConsumer.deliver_policy_immutable_error?("deliver policy can not be updated")

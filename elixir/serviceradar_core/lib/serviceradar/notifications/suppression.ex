@@ -157,6 +157,10 @@ defmodule ServiceRadar.Notifications.Suppression do
     * `:route` - the matched route, or `nil` to mean *no enabled route matched*,
       which is what produces `:no_matching_route`.
     * `:schedule` - the route's schedule, or `nil`.
+    * `:schedule_local_datetime` - optional wall-clock time already resolved in
+      the schedule's IANA zone by the impure dispatcher. Supplying it keeps this
+      decision core pure while allowing production to use PostgreSQL's IANA
+      database.
     * `:silences` - list of candidate silences (`:id`, `:state`, `:starts_at`,
       `:ends_at`, `:matchers`).
     * `:match_subject` - the subject silence matchers are evaluated against.
@@ -321,17 +325,22 @@ defmodule ServiceRadar.Notifications.Suppression do
   deployment.
 
   A `nil` or disabled schedule is active - a route with no schedule is not gated
-  by one.
+  by one. The impure dispatcher supplies `local_datetime: value` after resolving
+  an IANA zone through PostgreSQL; database-free callers may omit it and use the
+  configured `Calendar.TimeZoneDatabase` instead.
   """
-  @spec schedule_active?(map() | nil, DateTime.t()) ::
+  @spec schedule_active?(map() | nil, DateTime.t(), keyword()) ::
           {:ok, boolean()} | {:error, schedule_error()}
-  def schedule_active?(nil, %DateTime{}), do: {:ok, true}
+  def schedule_active?(schedule, now, opts \\ [])
 
-  def schedule_active?(schedule, %DateTime{} = now) when is_map(schedule) do
+  def schedule_active?(nil, %DateTime{}, _opts), do: {:ok, true}
+
+  def schedule_active?(schedule, %DateTime{} = now, opts)
+      when is_map(schedule) and is_list(opts) do
     if field(schedule, :enabled) == false do
       {:ok, true}
     else
-      evaluate_schedule(schedule, now)
+      evaluate_schedule(schedule, now, opts)
     end
   end
 
@@ -418,7 +427,14 @@ defmodule ServiceRadar.Notifications.Suppression do
   defp check(:schedule, context) do
     schedule = Map.get(context, :schedule)
 
-    case schedule_active?(schedule, fetch_now!(context)) do
+    opts =
+      case Map.get(context, :schedule_local_datetime) do
+        %NaiveDateTime{} = local -> [local_datetime: local]
+        %DateTime{} = local -> [local_datetime: local]
+        _other -> []
+      end
+
+    case schedule_active?(schedule, fetch_now!(context), opts) do
       {:ok, true} ->
         :allow
 
@@ -602,8 +618,8 @@ defmodule ServiceRadar.Notifications.Suppression do
 
   # --- Schedules ------------------------------------------------------------
 
-  defp evaluate_schedule(schedule, now) do
-    with {:ok, local} <- local_datetime(now, field(schedule, :timezone)),
+  defp evaluate_schedule(schedule, now, opts) do
+    with {:ok, local} <- local_datetime(now, field(schedule, :timezone), opts),
          {:ok, windows} <- parse_windows(field(schedule, :windows)) do
       apply_mode(field(schedule, :mode), Enum.any?(windows, &window_contains?(&1, local)))
     end
@@ -613,7 +629,13 @@ defmodule ServiceRadar.Notifications.Suppression do
   defp apply_mode(:active_outside, inside?), do: {:ok, not inside?}
   defp apply_mode(mode, _inside?), do: {:error, {:invalid_mode, mode}}
 
-  defp local_datetime(%DateTime{} = now, timezone) when is_binary(timezone) do
+  defp local_datetime(%DateTime{}, _timezone, local_datetime: %NaiveDateTime{} = local),
+    do: {:ok, local}
+
+  defp local_datetime(%DateTime{}, _timezone, local_datetime: %DateTime{} = local),
+    do: {:ok, local}
+
+  defp local_datetime(%DateTime{} = now, timezone, _opts) when is_binary(timezone) do
     zone = if utc_zone?(timezone), do: "Etc/UTC", else: timezone
 
     case DateTime.shift_zone(now, zone) do
@@ -622,8 +644,10 @@ defmodule ServiceRadar.Notifications.Suppression do
     end
   end
 
-  defp local_datetime(%DateTime{} = now, nil), do: local_datetime(now, "Etc/UTC")
-  defp local_datetime(%DateTime{}, timezone), do: {:error, {:unsupported_timezone, timezone}}
+  defp local_datetime(%DateTime{} = now, nil, opts), do: local_datetime(now, "Etc/UTC", opts)
+
+  defp local_datetime(%DateTime{}, timezone, _opts),
+    do: {:error, {:unsupported_timezone, timezone}}
 
   defp utc_zone?(timezone), do: String.upcase(timezone) in @utc_zones
 
@@ -715,9 +739,16 @@ defmodule ServiceRadar.Notifications.Suppression do
   # resource validator, so no window wraps midnight and containment stays a
   # plain comparison; exclusive ends also keep two adjacent windows from both
   # claiming their shared boundary instant.
-  defp window_contains?(window, local) do
-    time = DateTime.to_time(local)
-    day = elem(@days, Date.day_of_week(DateTime.to_date(local)) - 1)
+  defp window_contains?(window, %DateTime{} = local) do
+    window_contains?(window, DateTime.to_date(local), DateTime.to_time(local))
+  end
+
+  defp window_contains?(window, %NaiveDateTime{} = local) do
+    window_contains?(window, NaiveDateTime.to_date(local), NaiveDateTime.to_time(local))
+  end
+
+  defp window_contains?(window, date, time) do
+    day = elem(@days, Date.day_of_week(date) - 1)
 
     MapSet.member?(window.days, day) and
       Time.compare(time, window.start_time) != :lt and

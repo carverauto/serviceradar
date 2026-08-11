@@ -78,6 +78,28 @@ defmodule ServiceRadar.Notifications.RateLimiterTest do
     end
   end
 
+  describe "a concurrent first-row conflict" do
+    test "an empty statement result is retried against a fresh snapshot" do
+      now = at("2026-08-09T12:34:56Z")
+      window = now |> RateLimiter.window_start() |> DateTime.to_naive()
+      counter = :counters.new(1, [])
+
+      query = fn _sql, _params ->
+        :counters.add(counter, 1, 1)
+
+        case :counters.get(counter, 1) do
+          1 -> {:ok, %{rows: []}}
+          _later -> {:ok, %{rows: [[1, window, false]]}}
+        end
+      end
+
+      assert RateLimiter.check_and_consume(@channel_id, 1, now, query: query) ==
+               {:wait, at("2026-08-09T12:35:00Z")}
+
+      assert :counters.get(counter, 1) == 2
+    end
+  end
+
   describe "the limiter holds no process state" do
     test "there is no registered rate limiter process" do
       # This is the whole point of the module. `WebhookNotifier` kept its budget

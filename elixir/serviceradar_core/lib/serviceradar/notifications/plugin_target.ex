@@ -81,6 +81,7 @@ defmodule ServiceRadar.Notifications.PluginTarget do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -92,6 +93,14 @@ defmodule ServiceRadar.Notifications.PluginTarget do
           partition_id: String.t() | nil,
           plugin_assignment_id: String.t(),
           plugin_package_id: String.t(),
+          notification_entrypoint: String.t(),
+          notification_capabilities: [String.t()],
+          credential_requirements: map(),
+          effective_permissions: %{
+            allowed_domains: [String.t()],
+            allowed_networks: [String.t()],
+            allowed_ports: [integer()]
+          },
           execution_route: :control_plane | :edge_agent
         }
 
@@ -132,13 +141,24 @@ defmodule ServiceRadar.Notifications.PluginTarget do
          {:ok, package} <- fetch_package(package_id, opts),
          :ok <- ensure_approved(package),
          :ok <- ensure_notify_capability(package),
-         {:ok, assignment_id} <- fetch_assignment(agent, package_id, opts) do
+         {:ok, notifier} <- resolve_notifier(package, provider),
+         {:ok, assignment} <- fetch_assignment(agent, package_id, opts) do
       {:ok,
        %{
          agent_uid: agent.agent_uid,
          partition_id: agent.partition_id,
-         plugin_assignment_id: assignment_id,
+         plugin_assignment_id: assignment |> Map.fetch!(:id) |> to_string(),
          plugin_package_id: to_string(package_id),
+         notification_entrypoint: Map.fetch!(notifier, "entrypoint"),
+         notification_capabilities:
+           notifier |> Map.get("capabilities", []) |> List.wrap() |> Enum.map(&to_string/1),
+         credential_requirements: Map.get(notifier, "credential_requirements", %{}),
+         effective_permissions:
+           AgentConfigGenerator.effective_permissions(
+             assignment,
+             package,
+             Map.get(package, :manifest) || %{}
+           ),
          execution_route: agent.execution_route
        }}
     end
@@ -246,6 +266,30 @@ defmodule ServiceRadar.Notifications.PluginTarget do
     end
   end
 
+  defp resolve_notifier(package, provider) do
+    action_key =
+      case provider && presence(Map.get(provider, :action_key)) do
+        nil -> nil
+        value -> to_string(value)
+      end
+
+    with key when is_binary(key) <- action_key,
+         {:ok, entries} <- Manifest.notification_entries(Map.get(package, :manifest) || %{}),
+         %{} = notifier <- Enum.find(entries, &(Map.get(&1, "key") == key)) do
+      {:ok, notifier}
+    else
+      nil ->
+        {:error,
+         {"notification_action_missing",
+          "the approved package does not declare notification action #{inspect(action_key)}"}}
+
+      {:error, errors} ->
+        {:error,
+         {"notification_manifest_invalid",
+          "the approved package notification manifest is invalid: #{Enum.join(errors, "; ")}"}}
+    end
+  end
+
   defp effective_capabilities(package) do
     case Map.get(package, :approved_capabilities) do
       [_ | _] = approved -> Enum.map(approved, &to_string/1)
@@ -268,8 +312,8 @@ defmodule ServiceRadar.Notifications.PluginTarget do
     loader = Keyword.get(opts, :load_assignment, &load_assignment/3)
 
     case loader.(agent.agent_uid, agent.partition_id, package_id) do
-      {:ok, assignment} when is_map(assignment) ->
-        {:ok, to_string(Map.get(assignment, :id))}
+      {:ok, %{id: id} = assignment} when not is_nil(id) ->
+        {:ok, assignment}
 
       _missing ->
         {:error,

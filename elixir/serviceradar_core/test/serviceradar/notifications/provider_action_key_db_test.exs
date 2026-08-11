@@ -15,6 +15,7 @@ defmodule ServiceRadar.Notifications.ProviderActionKeyDbTest do
   alias ServiceRadar.Notifications.NotificationProvider
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   @moduletag :integration
 
@@ -136,6 +137,32 @@ defmodule ServiceRadar.Notifications.ProviderActionKeyDbTest do
       assert provider.action_key == "opsgenie"
       assert provider.plugin_package_id == package.id
       assert provider.status == :draft
+    end
+
+    test "the package foreign key restricts deletion while a provider uses it", %{actor: actor} do
+      package = create_package!(notifier_manifest("acme-notifier-retained", ["pagerduty"]), actor)
+
+      provider =
+        %{plugin_package_id: package.id, action_key: "pagerduty"}
+        |> provider_attrs()
+        |> create_provider(actor)
+        |> then(fn {:ok, provider} -> provider end)
+
+      assert {:ok, %{rows: [["r"]]}} =
+               Ecto.Adapters.SQL.query(
+                 Repo,
+                 """
+                 SELECT confdeltype::text
+                   FROM pg_constraint
+                  WHERE conname = 'notification_providers_plugin_package_id_fkey'
+                 """,
+                 []
+               )
+
+      assert {:error, _error} = Ash.destroy(package, actor: actor)
+
+      assert Ash.get!(NotificationProvider, provider.id, actor: actor).plugin_package_id ==
+               package.id
     end
   end
 

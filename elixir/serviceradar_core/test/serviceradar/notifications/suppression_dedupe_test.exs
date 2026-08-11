@@ -24,12 +24,14 @@ defmodule ServiceRadar.Notifications.SuppressionDedupeTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Notifications.NotificationDelivery
   alias ServiceRadar.Notifications.NotificationEscalationPolicy
   alias ServiceRadar.Notifications.NotificationProvider
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -159,6 +161,44 @@ defmodule ServiceRadar.Notifications.SuppressionDedupeTest do
 
       assert alert |> rows_for(actor) |> length() == 1
       assert other |> rows_for(actor) |> length() == 1
+    end
+  end
+
+  describe "retaining decisions after parent deletion" do
+    test "deleting alerts cannot collide decisions that differed by alert id", context do
+      %{actor: actor, alert: alert, baseline: baseline} = context
+      other = create_alert!(actor)
+      attrs = Map.merge(baseline, tuple(context))
+
+      first = suppress!(attrs, actor)
+
+      second =
+        suppress!(%{attrs | alert_id: other.id, alert_snapshot: snapshot(other)}, actor)
+
+      for parent <- [alert, other] do
+        {:ok, parent_id} = Ecto.UUID.dump(parent.id)
+
+        assert {:ok, %{num_rows: 1}} =
+                 SQL.query(
+                   Repo,
+                   "DELETE FROM platform.alerts WHERE id = $1",
+                   [parent_id]
+                 )
+      end
+
+      {:ok, %{rows: retained}} =
+        SQL.query(
+          Repo,
+          """
+          SELECT alert_id, suppression_alert_id::text
+            FROM platform.notification_deliveries
+           WHERE id::text = ANY($1::text[])
+           ORDER BY suppression_alert_id::text
+          """,
+          [[first.id, second.id]]
+        )
+
+      assert retained == Enum.sort([[nil, alert.id], [nil, other.id]])
     end
   end
 

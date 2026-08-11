@@ -56,9 +56,8 @@ defmodule ServiceRadar.Notifications.ReceiptWorker do
   ## Queue
 
   `:notifications`. The scan is two indexed selects plus one `agent_commands`
-  read per stuck row, and stuck rows are rare by construction - a row is only
-  `:dispatching` if a process died between the bus answering and the outcome
-  being written.
+  read per accepted agent-routed delivery. Rows remain `:dispatching` by design
+  until the durable SDK result settles them.
   """
 
   use Oban.Worker,

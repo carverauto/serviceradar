@@ -201,13 +201,230 @@ defmodule ServiceRadar.Plugins.ManifestNotificationsTest do
   end
 
   describe "credential requirements" do
-    test "a canonical injection mode is accepted" do
-      for mode <- Manifest.allowed_credential_injection_modes() do
-        entry =
-          notifier(%{"credential_requirements" => %{"token" => %{"injection_mode" => mode}}})
+    @valid_requirements %{
+      "http_header" => %{
+        "injection_mode" => "http_header",
+        "name" => "X-API-Key"
+      },
+      "bearer_token" => %{"injection_mode" => "bearer_token"},
+      "basic_auth" => %{"injection_mode" => "basic_auth"},
+      "query" => %{"injection_mode" => "query", "name" => "api_key"},
+      "form_urlencoded" => %{
+        "injection_mode" => "form_urlencoded",
+        "method" => "POST",
+        "host" => "identity.example.test",
+        "port" => 443,
+        "path" => "/oauth/token",
+        "field_username" => "username"
+      },
+      "oauth2_password_bearer" => %{
+        "injection_mode" => "oauth2_password_bearer",
+        "method" => "POST",
+        "host" => "api.example.test",
+        "port" => 443,
+        "path" => "/incidents",
+        "token_method" => "POST",
+        "token_host" => "identity.example.test",
+        "token_port" => 443,
+        "token_path" => "/oauth/token",
+        "field_username" => "username",
+        "field_password" => "password",
+        "fixed_grant_type" => "password"
+      }
+    }
 
-        assert {:ok, _parsed} = Manifest.from_map(manifest(entry))
+    test "each canonical injection mode is accepted only with its complete typed contract" do
+      assert Enum.sort(Map.keys(@valid_requirements)) ==
+               Enum.sort(Manifest.allowed_credential_injection_modes())
+
+      for {mode, requirement} <- @valid_requirements do
+        entry = notifier(%{"credential_requirements" => %{"token" => requirement}})
+
+        assert {:ok, parsed} = Manifest.from_map(manifest(entry)), mode
+        assert [normalized] = parsed.notifications
+        assert normalized["credential_requirements"]["token"]["injection_mode"] == mode
       end
+    end
+
+    test "bearer injection normalizes the host defaults explicitly" do
+      entry =
+        notifier(%{
+          "credential_requirements" => %{
+            "token" => @valid_requirements["bearer_token"]
+          }
+        })
+
+      assert {:ok, parsed} = Manifest.from_map(manifest(entry))
+      assert [normalized] = parsed.notifications
+      requirement = normalized["credential_requirements"]["token"]
+      assert requirement["name"] == "Authorization"
+      assert requirement["scheme"] == "Bearer"
+    end
+
+    test "http_header and query require the injection name at import" do
+      for mode <- ~w(http_header query) do
+        entry =
+          notifier(%{
+            "credential_requirements" => %{
+              "token" => %{"injection_mode" => mode}
+            }
+          })
+
+        assert Enum.any?(
+                 errors(manifest(entry)),
+                 &String.contains?(&1, "credential_requirements.token.name is required")
+               ),
+               mode
+      end
+    end
+
+    test "form injection requires an exact target and at least one material-field mapping" do
+      entry =
+        notifier(%{
+          "credential_requirements" => %{
+            "token" => %{"injection_mode" => "form_urlencoded"}
+          }
+        })
+
+      reported = errors(manifest(entry))
+
+      for field <- ~w(method host port path) do
+        assert Enum.any?(
+                 reported,
+                 &String.contains?(&1, "credential_requirements.token.#{field}")
+               )
+      end
+
+      assert Enum.any?(reported, &String.contains?(&1, "at least one field_ mapping"))
+    end
+
+    test "oauth password injection requires complete token and upstream targets" do
+      entry =
+        notifier(%{
+          "credential_requirements" => %{
+            "token" => %{"injection_mode" => "oauth2_password_bearer"}
+          }
+        })
+
+      reported = errors(manifest(entry))
+
+      for field <- ~w(method host port path token_method token_host token_port token_path) do
+        assert Enum.any?(
+                 reported,
+                 &String.contains?(&1, "credential_requirements.token.#{field}")
+               )
+      end
+
+      assert Enum.any?(reported, &String.contains?(&1, "field mapping to username"))
+      assert Enum.any?(reported, &String.contains?(&1, "field mapping to password"))
+      assert Enum.any?(reported, &String.contains?(&1, "fixed_grant_type must equal password"))
+    end
+
+    test "ports and mapping values stay typed instead of being stringified implicitly" do
+      requirement =
+        @valid_requirements["oauth2_password_bearer"]
+        |> Map.put("port", "443")
+        |> Map.put("token_port", "443")
+        |> Map.put("field_username", true)
+
+      entry = notifier(%{"credential_requirements" => %{"token" => requirement}})
+      reported = errors(manifest(entry))
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, "credential_requirements.token.port must be an integer")
+             )
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(
+                 &1,
+                 "credential_requirements.token.token_port must be an integer"
+               )
+             )
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(
+                 &1,
+                 "credential_requirements.token.field_username must be a string"
+               )
+             )
+    end
+
+    test "unknown or nested raw inject fields are rejected at import" do
+      entry =
+        notifier(%{
+          "credential_requirements" => %{
+            "token" => %{
+              "injection_mode" => "bearer_token",
+              "inject" => %{"type" => "query", "name" => true},
+              "allowed_hosts" => ["chat.example.test"],
+              "surprise" => "value"
+            }
+          }
+        })
+
+      reported = errors(manifest(entry))
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, "credential_requirements.token.inject is not allowed")
+             )
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, "credential_requirements.token.surprise is not allowed")
+             )
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, "credential_requirements.token.allowed_hosts is not allowed")
+             )
+    end
+
+    test "the optional allow scope is closed and typed" do
+      requirement = %{
+        "injection_mode" => "bearer_token",
+        "allow" => %{
+          "hosts" => [true],
+          "ports" => ["443"],
+          "surprise" => ["value"]
+        }
+      }
+
+      entry = notifier(%{"credential_requirements" => %{"token" => requirement}})
+      reported = errors(manifest(entry))
+
+      assert Enum.any?(reported, &String.contains?(&1, ".allow.hosts must contain only strings"))
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, ".allow.ports must contain only integer ports")
+             )
+
+      assert Enum.any?(reported, &String.contains?(&1, ".allow.surprise is not allowed"))
+    end
+
+    test "manifest literals cannot masquerade as fixed credential fields" do
+      requirement =
+        Map.put(@valid_requirements["form_urlencoded"], "fixed_api_key", "manifest-secret")
+
+      entry = notifier(%{"credential_requirements" => %{"token" => requirement}})
+
+      assert Enum.any?(
+               errors(manifest(entry)),
+               &String.contains?(&1, "credential_requirements.token.fixed_api_key is not allowed")
+             )
+    end
+
+    test "a requirement without an injection mode is rejected at import" do
+      entry = notifier(%{"credential_requirements" => %{"token" => %{"required" => true}}})
+
+      assert Enum.any?(
+               errors(manifest(entry)),
+               &String.contains?(&1, "credential_requirements.token.injection_mode is required")
+             )
     end
 
     test "a shorthand injection mode is rejected rather than silently accepted" do
@@ -415,12 +632,15 @@ defmodule ServiceRadar.Plugins.ManifestNotificationsTest do
           credential_requirements:
             routing_key:
               injection_mode: http_header
+              name: Authorization
+              scheme: Bearer
       """
 
       assert {:ok, parsed} = Manifest.from_yaml(yaml)
       assert [entry] = parsed.notifications
       assert entry["key"] == "pagerduty"
       assert entry["credential_requirements"]["routing_key"]["injection_mode"] == "http_header"
+      assert entry["credential_requirements"]["routing_key"]["name"] == "Authorization"
     end
   end
 end

@@ -15,6 +15,32 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.AccessTest do
 
   @moduletag :db_free
 
+  defmodule CurrentAuthorization do
+    @moduledoc false
+    def authorize_current(%Scope{} = scope, required_permissions) do
+      current_permissions =
+        case scope.user do
+          %{current_permissions: %MapSet{} = permissions} -> permissions
+          _user -> scope.permissions || MapSet.new()
+        end
+
+      if Enum.all?(required_permissions, &MapSet.member?(current_permissions, &1)) do
+        {:ok, %{scope | permissions: current_permissions}}
+      else
+        {:error, :permission_revoked}
+      end
+    end
+
+    def authorize_current_any(%Scope{} = scope, permissions) do
+      Enum.reduce_while(permissions, {:error, :permission_revoked}, fn permission, _denied ->
+        case authorize_current(scope, [permission]) do
+          {:ok, refreshed_scope} -> {:halt, {:ok, refreshed_scope}}
+          _denied -> {:cont, {:error, :permission_revoked}}
+        end
+      end)
+    end
+  end
+
   # Mirrors the shipped default role sets: an operator reads channels and the
   # delivery log, and manages silences, but channel mutation and test-send are
   # admin-only.
@@ -114,11 +140,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.AccessTest do
       scope = operator_scope()
 
       for event <- ~w(new_channel edit_channel validate_channel save_channel disable_channel enable_channel) do
-        assert {:error, :forbidden} = Access.authorize_event(scope, event),
+        assert {:error, :forbidden} = authorize(scope, event),
                "#{event} must be refused without notifications.channels.manage"
       end
 
-      assert :ok = Access.authorize_event(admin_scope(), "save_channel")
+      assert {:ok, _refreshed_scope} = authorize(admin_scope(), "save_channel")
     end
 
     test "test send is gated separately from channel edit" do
@@ -127,35 +153,69 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.AccessTest do
       manage_only = %Scope{permissions: MapSet.new(["notifications.channels.manage"])}
       test_only = %Scope{permissions: MapSet.new(["notifications.test.send"])}
 
-      assert {:error, :forbidden} = Access.authorize_event(manage_only, "test_channel")
-      assert :ok = Access.authorize_event(test_only, "test_channel")
-      assert {:error, :forbidden} = Access.authorize_event(test_only, "save_channel")
+      assert {:error, :forbidden} = authorize(manage_only, "test_channel")
+      assert {:ok, _refreshed_scope} = authorize(test_only, "test_channel")
+      assert {:error, :forbidden} = authorize(test_only, "save_channel")
     end
 
     test "silences are gated by their own key, not by routes.manage" do
       routes_only = %Scope{permissions: MapSet.new(["notifications.routes.manage"])}
 
-      assert {:error, :forbidden} = Access.authorize_event(routes_only, "save_silence")
-      assert {:error, :forbidden} = Access.authorize_event(routes_only, "cancel_silence")
-      assert :ok = Access.authorize_event(operator_scope(), "save_silence")
+      assert {:error, :forbidden} = authorize(routes_only, "save_silence")
+      assert {:error, :forbidden} = authorize(routes_only, "cancel_silence")
+      assert {:ok, _refreshed_scope} = authorize(operator_scope(), "save_silence")
     end
 
     test "provider mutation is admin-only" do
-      assert {:error, :forbidden} = Access.authorize_event(operator_scope(), "disable_provider")
-      assert :ok = Access.authorize_event(admin_scope(), "disable_provider")
+      assert {:error, :forbidden} = authorize(operator_scope(), "disable_provider")
+      assert {:ok, _refreshed_scope} = authorize(admin_scope(), "disable_provider")
     end
 
     test "an undeclared event is refused rather than permitted by default" do
-      assert {:error, :unknown_event} = Access.authorize_event(admin_scope(), "drop_everything")
-      assert {:error, :unknown_event} = Access.authorize_event(admin_scope(), :save_channel)
+      assert {:error, :unknown_event} = authorize(admin_scope(), "drop_everything")
+      assert {:error, :unknown_event} = authorize(admin_scope(), :save_channel)
     end
 
     test "an empty scope is refused every declared event" do
       scope = empty_scope()
 
       for event <- ~w(save_channel save_route save_silence disable_provider filter_deliveries test_channel) do
-        assert {:error, :forbidden} = Access.authorize_event(scope, event)
+        assert {:error, :forbidden} = authorize(scope, event)
       end
     end
+
+    test "a cached permission cannot authorize an event after revocation" do
+      stale_scope = %Scope{
+        user: %{id: Ash.UUID.generate(), current_permissions: MapSet.new()},
+        permissions: MapSet.new(["notifications.channels.manage"])
+      }
+
+      assert {:error, :forbidden} = authorize(stale_scope, "save_channel")
+    end
+
+    test "returns the refreshed authority used by the event handler" do
+      current_permissions =
+        MapSet.new(["notifications.channels.manage", "notifications.channels.view"])
+
+      stale_scope = %Scope{
+        user: %{id: Ash.UUID.generate(), current_permissions: current_permissions},
+        permissions: MapSet.new(["notifications.channels.manage"])
+      }
+
+      assert {:ok, %Scope{permissions: ^current_permissions}} =
+               authorize(stale_scope, "save_channel")
+    end
+
+    test "current tab access ignores a revoked cached view permission" do
+      stale_scope = %Scope{
+        user: %{id: Ash.UUID.generate(), current_permissions: MapSet.new()},
+        permissions: MapSet.new(["notifications.channels.view"])
+      }
+
+      assert {:error, :permission_revoked} =
+               Access.authorize_current_access(stale_scope, CurrentAuthorization)
+    end
   end
+
+  defp authorize(scope, event), do: Access.authorize_event(scope, event, CurrentAuthorization)
 end

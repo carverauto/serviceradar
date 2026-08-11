@@ -177,6 +177,7 @@ defmodule ServiceRadar.Notifications.Callbacks.PagerDutyTest do
         # the alert id - read back rather than looked up over the API.
         assert capability.alert_id == "0198f0aa-1111-7000-8000-000000000001"
         assert capability.external_principal == "pagerduty:PLH1HKV"
+        assert capability.app_id == @subscription
       end
     end
 

@@ -100,7 +100,9 @@ defmodule ServiceRadar.Notifications.Callbacks.Slack do
              alert_id: alert_id,
              delivery_id: delivery_id,
              snooze_seconds: snooze_seconds(rest),
-             external_principal: principal(interaction)
+             external_principal: principal(interaction),
+             app_id: Map.get(interaction, :app_id),
+             action_id: Map.get(interaction, :action_id)
            }}
         end
 

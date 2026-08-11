@@ -8,11 +8,12 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackAppController do
   way to put one there - which is the difference between a feature that ships and
   a feature that works.
 
-  Authorisation is the resource's own policy
-  (`notifications.providers.manage`), reached by passing the request scope to
-  every Ash call rather than by a check restated here. The same key gates
-  uploading a provider definition, which is the right neighbour: both put
-  something executable-adjacent into the notification path.
+  Authorisation is the resource's own policy, reached by passing the request
+  scope to every Ash call rather than by a check restated here. Reading the
+  registry or editing a label requires `notifications.providers.manage`.
+  Registering, rotating, or deleting key material additionally requires
+  `observability.alerts.manage`, because the secret authorises an alert
+  transition.
 
   ## The secret is write-only
 

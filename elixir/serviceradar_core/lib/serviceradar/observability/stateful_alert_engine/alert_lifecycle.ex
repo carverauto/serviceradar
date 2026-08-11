@@ -19,16 +19,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   suppression, rendering, and the retry rule are
   `ServiceRadar.Notifications.Dispatcher`'s, and through it the pure cores'.
 
-  Two properties are load bearing here, because this module runs inside a
-  Horde-sharded, latency-sensitive engine.
-
-  1. **The enqueue happens after the write returns, never inside it.** Each Ash
-     call opens and closes its own transaction, so calling `enqueue_routing/2`
-     on the result keeps the job insert off the incident-recording transaction.
-  2. **A notification failure never breaks incident recording.** The enqueue is
-     logged and swallowed. An incident that is recorded but not routed is
-     recoverable - `Alert.:needs_notification` still finds an alert that has
-     never notified. An incident that was never recorded is not.
+  Firing remains fail-open because `Alert.:needs_notification` can recover an
+  alert that was recorded before its first routing job was accepted. Resolution
+  is different: once an alert is terminal there is no later scan that can infer
+  that its previously notified channels are owed a close-out. The resolve
+  transition and its durable `:resolve` job therefore commit in one database
+  transaction. If the job insert fails, the alert transition rolls back so the
+  incident is not falsely terminal without its close-out work.
   """
 
   import ServiceRadar.Observability.StatefulAlertEngine.Bucketing
@@ -44,6 +41,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -87,66 +85,105 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     |> Ash.create()
   end
 
-  def resolve_alert(alert_id, rule, snapshot, now) when is_binary(alert_id) do
+  def resolve_alert(alert_id, rule, snapshot, now, opts \\ [])
+
+  def resolve_alert(alert_id, rule, snapshot, now, opts)
+      when is_binary(alert_id) and is_list(opts) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
+    synthetic_liveness? = synthetic_liveness_snapshot?(snapshot)
 
-    case Alert.get_by_id(alert_id, actor: actor) do
+    case Repo.transaction(fn ->
+           resolve_in_transaction(alert_id, actor, synthetic_liveness?, opts)
+         end) do
+      {:ok, {:already_terminal, []}} ->
+        :ok
+
+      {:ok, {:not_found, []}} ->
+        :ok
+
+      {:ok, {:resolved, notifications}} ->
+        _ = Ash.Notifier.notify(notifications)
+
+        if !synthetic_liveness? do
+          record_history(rule, snapshot, :recovered, now, alert_id, %{})
+        end
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  def resolve_alert(_alert_id, _rule, _snapshot, _now, _opts), do: :ok
+
+  defp resolve_in_transaction(alert_id, actor, synthetic_liveness?, opts) do
+    loader = Keyword.get(opts, :load_alert, &Alert.get_by_id/2)
+
+    case loader.(alert_id, actor: actor) do
       {:ok, %Alert{status: status}} when status in [:resolved, :suppressed] ->
         # Already terminal (resolved out-of-band via REST/sweep/duplicate clear).
         # Idempotent no-op; do not re-fire :resolve (NoMatchingTransition) or
         # re-record :recovered history (duplicate-row spam on every retry).
-        :ok
+        {:already_terminal, []}
 
       {:ok, alert} ->
-        alert
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
-        |> Ash.update()
-        |> case do
-          {:ok, _} ->
-            if !synthetic_liveness_snapshot?(snapshot) do
-              record_history(rule, snapshot, :recovered, now, alert_id, %{})
-
-              # The resolution is routed, not broadcast: design D5 sends it to
-              # the channels that received the firing notification, correlated
-              # through `external_correlation_id`, unless the policy disables
-              # resolution notices. That decision is `Dispatcher.route/3`'s.
-              enqueue_routing(alert_id, :resolve)
-            end
-
-            :ok
-
-          {:error, reason} ->
-            Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
-            :error
+        with {:ok, _resolved, notifications} <-
+               alert
+               |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
+               |> Ash.update(return_notifications?: true),
+             :ok <- maybe_enqueue_resolution(alert_id, synthetic_liveness?, opts) do
+          {:resolved, notifications}
+        else
+          {:error, reason} -> Repo.rollback(reason)
         end
 
-      {:error, _} ->
-        :ok
+      {:error, reason} ->
+        if ash_not_found?(reason) do
+          {:not_found, []}
+        else
+          Repo.rollback({:alert_load_failed, reason})
+        end
     end
   end
 
-  def resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
+  defp ash_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp ash_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &ash_not_found?/1)
+  end
+
+  defp ash_not_found?(_reason), do: false
+
+  defp maybe_enqueue_resolution(_alert_id, true, _opts), do: :ok
+
+  defp maybe_enqueue_resolution(alert_id, false, opts) do
+    enqueue = Keyword.get(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+    case enqueue.(alert_id, :resolve) do
+      :ok -> :ok
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, {:routing_enqueue_failed, reason}}
+      other -> {:error, {:routing_enqueue_failed, other}}
+    end
+  end
 
   def send_renotify(alert_id, _rule, _snapshot, _now) when is_binary(alert_id) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
-    case Alert.get_by_id(alert_id, actor: actor) do
-      {:ok, alert} ->
-        enqueue_routing(alert.id, :renotify)
-
-        # `:record_notification` is bookkeeping only and deliberately does not
-        # enqueue: the routing request above is this repeat's one emission, and
-        # the counter it bumps is what the renotify cadence reads.
-        alert
-        |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
-        |> Ash.update()
-
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, alert} <- Alert.get_by_id(alert_id, actor: actor),
+         :ok <- enqueue_routing_result(alert.id, :renotify),
+         {:ok, _alert} <-
+           alert
+           |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
+           |> Ash.update() do
+      # Bookkeeping advances only after the routing request is durable. If the
+      # enqueue fails, the cadence remains due and the continuation scan tries
+      # again on its next tick.
+      :ok
     end
   end
 
@@ -157,8 +194,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   # notification failure, not a reason to abandon the incident record that the
   # caller has already written.
   defp enqueue_routing(alert_id, lifecycle_reason) do
-    case RoutingWorker.enqueue(alert_id, lifecycle_reason) do
-      {:ok, _job} ->
+    case enqueue_routing_result(alert_id, lifecycle_reason) do
+      :ok ->
         :ok
 
       {:error, reason} ->
@@ -168,6 +205,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
         )
 
         :ok
+    end
+  end
+
+  defp enqueue_routing_result(alert_id, lifecycle_reason) do
+    case RoutingWorker.enqueue(alert_id, lifecycle_reason) do
+      {:ok, _job} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

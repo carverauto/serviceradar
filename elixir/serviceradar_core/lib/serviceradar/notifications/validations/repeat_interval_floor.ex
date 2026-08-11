@@ -12,7 +12,7 @@ defmodule ServiceRadar.Notifications.Validations.RepeatIntervalFloor do
 
   A policy is not bound to one rule, so the rule that will govern any given
   alert is unknown at save time. The floor checked here is the STRICTEST floor
-  the deployment can present: the minimum `renotify_seconds` across all enabled
+  the deployment can present: the maximum `renotify_seconds` across all enabled
   stateful alert rules. A policy that clears that bar cannot violate the
   precedence for any rule currently enabled.
 
@@ -66,9 +66,8 @@ defmodule ServiceRadar.Notifications.Validations.RepeatIntervalFloor do
         {:error,
          field: :repeat_interval_seconds,
          message:
-           "must be at least %{floor} seconds; the stateful alert rule renotify_seconds is " <>
-             "the floor and a policy may only make repeats less frequent",
-         vars: [floor: floor]}
+           "must be at least #{floor} seconds; the stateful alert rule renotify_seconds is " <>
+             "the floor and a policy may only make repeats less frequent"}
     end
   end
 
@@ -80,18 +79,18 @@ defmodule ServiceRadar.Notifications.Validations.RepeatIntervalFloor do
     |> Ash.Query.select([:renotify_seconds])
     |> Ash.read(actor: actor)
     |> case do
-      {:ok, rules} -> minimum_renotify(rules)
+      {:ok, rules} -> strictest_renotify(rules)
       {:error, _reason} -> nil
     end
   end
 
-  defp minimum_renotify(rules) do
+  defp strictest_renotify(rules) do
     rules
     |> Enum.map(& &1.renotify_seconds)
     |> Enum.filter(&(is_integer(&1) and &1 > 0))
     |> case do
       [] -> nil
-      values -> Enum.min(values)
+      values -> Enum.max(values)
     end
   end
 end

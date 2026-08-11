@@ -11,6 +11,7 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadar.Notifications.NotificationProvider
@@ -27,12 +28,56 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
     actor = SystemActor.system(:notification_rate_limiter_test)
     channel = create_channel!(actor, 3)
 
-    on_exit(fn -> RateLimiter.reset(channel.id) end)
+    on_exit(fn ->
+      RateLimiter.reset(channel.id)
+      delete_fixture("notification_channels", channel.id)
+      delete_fixture("notification_providers", channel.provider_id)
+    end)
 
     {:ok, actor: actor, channel: channel, now: ~U[2026-08-09 12:34:56.000000Z]}
   end
 
   describe "budget enforcement" do
+    @tag sandbox: :unboxed
+    test "a concurrent first insert cannot let the losing caller bypass a one-slot budget", %{
+      channel: channel,
+      now: now
+    } do
+      parent = self()
+
+      winner =
+        Task.async(fn ->
+          Repo.transaction(fn ->
+            decision = RateLimiter.check_and_consume(channel.id, 1, now)
+            send(parent, :winner_reserved)
+
+            receive do
+              :commit_winner -> decision
+            end
+          end)
+        end)
+
+      assert_receive :winner_reserved, 5_000
+
+      loser =
+        Task.async(fn ->
+          send(parent, :loser_started)
+          RateLimiter.check_and_consume(channel.id, 1, now)
+        end)
+
+      assert_receive :loser_started, 5_000
+
+      # The losing INSERT must take its statement snapshot while the winner's
+      # row is still uncommitted, then block on that row's unique-key lock.
+      Process.sleep(100)
+      send(winner.pid, :commit_winner)
+
+      assert {:ok, :ok} = Task.await(winner, 5_000)
+      assert {:wait, retry_at} = Task.await(loser, 5_000)
+      assert DateTime.compare(retry_at, ~U[2026-08-09 12:35:00Z]) == :eq
+      assert %{consumed: 1} = RateLimiter.usage(channel.id)
+    end
+
     test "allows exactly the configured number of sends per window", %{
       channel: channel,
       now: now
@@ -103,7 +148,7 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
       {:ok, uuid} = Ecto.UUID.dump(channel.id)
 
       {:ok, %{rows: rows}} =
-        Ecto.Adapters.SQL.query(
+        SQL.query(
           Repo,
           "SELECT consumed FROM platform.notification_channel_rate_limits WHERE channel_id = $1",
           [uuid]
@@ -194,5 +239,16 @@ defmodule ServiceRadar.Notifications.RateLimiterDurabilityTest do
       |> Ash.create(actor: actor)
 
     provider
+  end
+
+  defp delete_fixture(table, id) do
+    case Ecto.UUID.dump(id) do
+      {:ok, dumped_id} ->
+        _ = SQL.query(Repo, "DELETE FROM platform.#{table} WHERE id = $1", [dumped_id])
+        :ok
+
+      :error ->
+        :ok
+    end
   end
 end

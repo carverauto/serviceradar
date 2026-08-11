@@ -29,9 +29,9 @@ defmodule ServiceRadar.Notifications.DeliveryRetentionWorker do
   a while longer.
 
   Rows do not get stuck outside the pruner's reach as a result. The dispatcher
-  terminalises them: exhausting `max_attempts` writes `:failed`, and a row
-  stranded in `:dispatching` is handed back by `Dispatcher.due/2`'s stall sweep
-  and settled by the next attempt. A delivery becomes prunable by moving through
+  terminalises them: exhausting `max_attempts` writes `:failed`, and
+  `Dispatcher.reconcile/2` turns a stale, unreadable agent-command receipt into
+  an ordinary retryable failure. A delivery becomes prunable by moving through
   its own state machine, never by the pruner guessing that it is abandoned.
 
   A suppression row that is still collapsing repeats onto itself is also spared:

@@ -46,20 +46,22 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
   and it must not be read as though placing an envelope on a topic were an
   authorisation decision.
 
-  ## Seams, and what is deliberately not here yet
+  ## Live and durable delivery seams
 
   Delivery goes through `opts[:broadcast]`, a `fun(topic, envelope)` defaulting
-  to `default_broadcast/2` (Phoenix.PubSub on `ServiceRadar.PubSub`). Tests inject
-  it, so every test here is `async: true` with no PubSub process and no broker.
+  to `default_publish/2`. The default persists the envelope to JetStream first
+  and then broadcasts it over Phoenix.PubSub. Tests inject the seam, so every
+  test here is `async: true` with no PubSub process and no broker.
 
-  The durable half is a **later task** and is deliberately absent: the JetStream
-  subject namespace, its stream with a durable cursor, and the per-CN publish and
-  subscribe allowlists in `helm/serviceradar/templates/nats.yaml` (tasks 4.1.1 -
-  4.1.4; new subject namespaces are DENIED at the broker by default). When it
-  lands it composes into the same seam - `default_broadcast/2` publishes to both,
-  or the dispatcher supplies a seam that does - and `deliver/2` does not change
-  shape. Inventing NATS wiring here now would have to be rewritten against the
-  allowlist anyway.
+  This module owns publication, not subscriber cursors. Web-ng derives a durable
+  consumer name from trusted tenant and user identity plus the topic and a
+  client identifier. A signed, identity-bound cursor can make a reconnect's next
+  stream sequence authoritative; without one, web-ng resumes the durable ACK
+  position. It acknowledges each JetStream record only after a fresh
+  authorization check, an authorized channel push, a separate cursor-control
+  push, and the client's exact-cursor acknowledgement. Keeping cursor creation
+  on the subscriber side prevents transport delivery from mistaking publication
+  for authorization.
 
   ## Purity
 
@@ -260,11 +262,11 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
   def strip_action_links(value), do: value
 
   @doc """
-  The default publish seam: `Phoenix.PubSub` on `ServiceRadar.PubSub`.
+  The live-only publish seam: `Phoenix.PubSub` on `ServiceRadar.PubSub`.
 
   Subscribers receive `{#{inspect(@broadcast_event)}, envelope}`. Override with
-  `opts[:broadcast]` in a test, and with a composed seam once the durable
-  JetStream subject lands (tasks 4.1.x).
+  `opts[:broadcast]` in a test. Production delivery uses `default_publish/3`,
+  which composes this live fanout after durable JetStream persistence.
 
   The third argument names the PubSub server and exists so the not-running
   branch below is testable deterministically. Without it a test can only assert
@@ -415,14 +417,11 @@ defmodule ServiceRadar.Notifications.Transports.Stream do
     (Map.get(entry, "type") || Map.get(entry, :type)) == type
   end
 
-  # Scrubbing replaces every sensitive value long enough to be replaced safely -
-  # `HTTP.scrub/2` skips anything under its minimum length, because blanket
-  # replacement of a short string corrupts ordinary text. That skip is right for
-  # a message and wrong for a broadcast, so the envelope is checked once more
-  # against the values as the caller declared them, unfiltered, and a hit fails
-  # the delivery closed instead of handing the credential to every subscriber at
-  # once. This is the case the check exists for; a long value is already gone by
-  # the time it runs.
+  # `HTTP.scrub/2` replaces declared sensitive strings in map values, lists, and
+  # tuples, but deliberately preserves map keys so redaction cannot change the
+  # payload's structure. A caller-controlled key can therefore still carry a
+  # declared secret. Check the encoded envelope once more against the caller's
+  # unfiltered declarations and fail closed if anything survived.
   defp declared_sensitive_values(opts) do
     opts
     |> Keyword.get(:sensitive_values, [])

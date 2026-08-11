@@ -51,19 +51,10 @@ import (
 //
 // # Which guest function runs
 //
-// The host calls `assignment.Entrypoint` - the one exported function the
-// control plane put on the assignment - and passes `action_key` through in the
-// `action_invocation` envelope. A package that ships several notifiers
-// dispatches on `action_key` inside that one export.
-//
-// This matters because the `notifications:` manifest block lets an entry
-// declare its OWN `entrypoint`, and nothing carries that to the host:
-// `edge/agent_config_generator.ex` sets an assignment's entrypoint from
-// `package.entrypoint`. A per-notifier entrypoint is therefore declared in the
-// manifest and unenforced at runtime today. Closing that needs the config
-// generator to emit the binding before the host can honour it; adding a proto
-// field no producer fills would be a permanent wire commitment that changes
-// nothing.
+// The notification envelope carries the exported symbol resolved from the
+// package manifest's matching `notifications:` entry. The host uses that
+// symbol for this invocation only; the assignment's package-level entrypoint
+// remains the default for checks and ordinary actions.
 
 // notificationDeliveryEnvelopeSchema is the discriminator core stamps on a
 // plugin.run_action payload that is a notification dispatch. Its Elixir
@@ -76,6 +67,14 @@ import (
 // runs unchanged on the platform-resident agent (design D3). The schema field
 // is what tells the two apart.
 const notificationDeliveryEnvelopeSchema = "serviceradar.notification_delivery.v1"
+
+// notificationDeliveryRequestSchema is the schema under the guest-visible
+// notification_delivery host-config key. It is pinned by both notifier SDKs.
+const notificationDeliveryRequestSchema = "serviceradar.notification_delivery_request.v1"
+
+// notificationDeliveryConfigKey discriminates notifier host configuration
+// from the existing action_invocation ABI.
+const notificationDeliveryConfigKey = "notification_delivery"
 
 // notificationDeliveryResultSchema is the schema stamped on the command result
 // of a notification dispatch, exactly as the northbound action path stamps
@@ -170,9 +169,9 @@ var (
 )
 
 // notificationDeliveryEnvelope is the identity and addressing half of the
-// delivery request. The rendered payload itself is not decoded here: it travels
-// to the guest inside the ordinary `action_invocation` envelope that
-// buildActionPluginConfig already builds, so the host never has to understand a
+// delivery request. The rendered payload itself is not decoded here:
+// buildNotificationPluginConfig carries it under the notifier SDK's typed
+// `notification_delivery` config key, so the host never has to understand a
 // notification body to deliver one.
 //
 // It is deliberately NOT a strict decode of the whole payload: an unknown field
@@ -189,6 +188,7 @@ type notificationDeliveryEnvelope struct {
 	DeliveryID    string `json:"delivery_id"`
 	PayloadFormat string `json:"payload_format"`
 	DedupeKey     string `json:"dedupe_key"`
+	Entrypoint    string `json:"entrypoint"`
 	IsTest        bool   `json:"is_test"`
 
 	// PluginPackageID is the addressing a notification can always carry: a
@@ -258,9 +258,32 @@ func decodeNotificationDelivery(
 	envelope.DeliveryID = strings.TrimSpace(envelope.DeliveryID)
 	envelope.PayloadFormat = strings.TrimSpace(envelope.PayloadFormat)
 	envelope.DedupeKey = strings.TrimSpace(envelope.DedupeKey)
+	envelope.Entrypoint = strings.TrimSpace(envelope.Entrypoint)
 	envelope.PluginPackageID = strings.TrimSpace(envelope.PluginPackageID)
 
 	return envelope, true
+}
+
+// notificationActionAssignment returns an invocation-local assignment whose
+// entrypoint is the notifier export named by core. It never mutates the
+// registered assignment, so subsequent checks and actions keep their package
+// entrypoint.
+func notificationActionAssignment(
+	assignment *pluginAssignment,
+	invocationPayload json.RawMessage,
+) *pluginAssignment {
+	if assignment == nil {
+		return nil
+	}
+
+	envelope, isNotification := decodeNotificationDelivery(invocationPayload)
+	if !isNotification || envelope.Entrypoint == "" {
+		return assignment
+	}
+
+	invocationAssignment := *assignment
+	invocationAssignment.Entrypoint = envelope.Entrypoint
+	return &invocationAssignment
 }
 
 // pluginActionNotificationEnvelope reports whether an action invocation payload

@@ -38,6 +38,11 @@ defmodule ServiceRadar.Notifications.DispatchWorkerTest do
     def deliver(_id, _opts), do: {:ok, :suppressed}
   end
 
+  defmodule DispatchingDispatcher do
+    @moduledoc false
+    def deliver(_id, _opts), do: {:ok, :dispatching}
+  end
+
   defmodule RetryDispatcher do
     @moduledoc false
     def deliver(_id, opts), do: {:retry, Keyword.fetch!(opts, :retry_at)}
@@ -100,6 +105,13 @@ defmodule ServiceRadar.Notifications.DispatchWorkerTest do
       assert :ok =
                DispatchWorker.dispatch(job(%{"delivery_id" => @delivery_id}),
                  dispatcher: SuppressedDispatcher
+               )
+    end
+
+    test "an accepted agent command completes the job while its receipt remains pending" do
+      assert :ok =
+               DispatchWorker.dispatch(job(%{"delivery_id" => @delivery_id}),
+                 dispatcher: DispatchingDispatcher
                )
     end
 

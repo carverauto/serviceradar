@@ -295,6 +295,8 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
       assert capability.delivery_id == "delivery-1"
       assert capability.snooze_seconds == 900
       assert capability.external_principal == "slack:UA8RXUSPL"
+      assert capability.app_id == "A0123456789"
+      assert capability.action_id == "x"
     end
 
     test "omits a snooze duration the value did not carry" do

@@ -4,12 +4,14 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
   `ServiceRadar.Notifications.Dispatcher.due/2` what notification work is owed
   and queues it.
 
-  Two lists come back and they go to different places, because they are
+  Three lists come back and they go to different places, because they are
   different kinds of work:
 
-    * `:retry` holds **delivery** ids - `:pending` rows whose `next_attempt_at`
-      has elapsed, plus rows stranded in `:dispatching` past the stall
-      threshold. Each becomes a `ServiceRadar.Notifications.DispatchWorker`.
+    * `:retry` holds **delivery** ids - only `:pending` rows whose
+      `next_attempt_at` has elapsed. Each becomes a
+      `ServiceRadar.Notifications.DispatchWorker`. Agent commands already in
+      `:dispatching` belong exclusively to `ReceiptWorker`, so this scan cannot
+      duplicate an in-flight page.
     * `:escalation` holds **alert** ids whose ladder may owe another rung. An
       escalation rung is a *plan* decision, not a transport one, so these go to
       `ServiceRadar.Notifications.RoutingWorker` with `lifecycle_reason:
@@ -17,6 +19,9 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
       already have rows, and emits the dispatch workers itself. Enqueueing a
       `DispatchWorker` here would mean inventing a delivery row outside the one
       code path allowed to create one.
+    * `:renotify` holds **alert** ids whose stateful-rule cadence has elapsed.
+      These go through `AlertLifecycle.send_renotify/4`, preserving the rule
+      engine's notification-count and last-notified bookkeeping.
 
   ## Why this is not redundant with the `Alert.:send_notifications` trigger
 
@@ -73,6 +78,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
   alias ServiceRadar.Notifications.Dispatcher
   alias ServiceRadar.Notifications.DispatchWorker
   alias ServiceRadar.Notifications.RoutingWorker
+  alias ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
@@ -120,6 +126,8 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
     * `:enqueue_dispatch` - a one-argument function taking a delivery id.
     * `:enqueue_routing` - a two-argument function taking an alert id and a
       lifecycle reason.
+    * `:send_renotify` - a two-argument function taking an alert id and the
+      captured scan instant.
     * `:now` - the scan instant, captured once and passed to `due/2`.
 
   Everything else is forwarded to `due/2` (`:actor`, `:limit`,
@@ -130,16 +138,26 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
     {dispatcher, opts} = Keyword.pop(opts, :dispatcher, Dispatcher)
     {dispatch, opts} = Keyword.pop(opts, :enqueue_dispatch, &DispatchWorker.enqueue/1)
     {route, opts} = Keyword.pop(opts, :enqueue_routing, &RoutingWorker.enqueue/2)
+
+    {renotify_alert, opts} =
+      Keyword.pop(opts, :send_renotify, fn alert_id, now ->
+        AlertLifecycle.send_renotify(alert_id, nil, nil, now)
+      end)
+
     {now, due_opts} = Keyword.pop_lazy(opts, :now, &DateTime.utc_now/0)
 
-    %{retry: retry, escalation: escalation} = dispatcher.due(now, due_options(due_opts))
+    %{retry: retry, escalation: escalation, renotify: renotify} =
+      dispatcher.due(now, due_options(due_opts))
 
     queued_retry = Enum.count(retry, &queued?(dispatch.(&1), "delivery", &1))
 
     queued_escalation =
       Enum.count(escalation, &queued?(route.(&1, :escalate), "escalation", &1))
 
-    log_tick(retry, queued_retry, escalation, queued_escalation)
+    queued_renotify =
+      Enum.count(renotify, &queued?(renotify_alert.(&1, now), "renotify", &1))
+
+    log_tick(retry, queued_retry, escalation, queued_escalation, renotify, queued_renotify)
 
     :ok
   end
@@ -159,6 +177,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
   # failure is counted as missed, and it is logged rather than raised so one bad
   # row cannot stop the tick from driving the rest.
   defp queued?({:ok, _job}, _kind, _id), do: true
+  defp queued?(:ok, _kind, _id), do: true
 
   defp queued?({:error, reason}, kind, id) do
     Logger.error("notification continuation could not queue #{kind}",
@@ -169,14 +188,16 @@ defmodule ServiceRadar.Notifications.ContinuationWorker do
     false
   end
 
-  defp log_tick([], _queued_retry, [], _queued_escalation), do: :ok
+  defp log_tick([], _queued_retry, [], _queued_escalation, [], _queued_renotify), do: :ok
 
-  defp log_tick(retry, queued_retry, escalation, queued_escalation) do
+  defp log_tick(retry, queued_retry, escalation, queued_escalation, renotify, queued_renotify) do
     Logger.info("notification continuation tick queued due work",
       retry_due: length(retry),
       retry_queued: queued_retry,
       escalation_due: length(escalation),
-      escalation_queued: queued_escalation
+      escalation_queued: queued_escalation,
+      renotify_due: length(renotify),
+      renotify_queued: queued_renotify
     )
   end
 end

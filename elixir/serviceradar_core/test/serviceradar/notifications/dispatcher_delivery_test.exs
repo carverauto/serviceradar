@@ -54,6 +54,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
 
     @impl true
     def deliver(request, _opts) do
+      if before_deliver = Process.get(:stub_before_deliver), do: before_deliver.(request)
       Process.put(:stub_requests, [request | Process.get(:stub_requests, [])])
       Process.get(:stub_result) || Result.delivered(external_correlation_id: "ts-1")
     end
@@ -73,6 +74,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   setup do
     Process.delete(:stub_requests)
     Process.delete(:stub_result)
+    Process.delete(:stub_before_deliver)
 
     {:ok, actor: SystemActor.system(:notification_delivery_test)}
   end
@@ -110,6 +112,21 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
       assert request.secrets == %{}
     end
 
+    test "claims the delivery before the transport can make an external side effect", %{
+      actor: actor
+    } do
+      %{id: id, now: now} = planned!(actor)
+
+      Process.put(:stub_before_deliver, fn request ->
+        claimed = reload!(request.delivery_id, actor)
+        assert claimed.state == :dispatching
+        assert claimed.started_at
+      end)
+
+      assert {:ok, :sent} =
+               Dispatcher.deliver(id, actor: actor, now: now, transport: StubTransport)
+    end
+
     test "a second call does not send again", %{actor: actor} do
       %{id: id, now: now} = planned!(actor)
 
@@ -122,6 +139,64 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
       # The Oban Iron Law: a worker must be safe to re-run against the same row.
       assert length(StubTransport.requests()) == 1
       assert reload!(id, actor).attempt_count == 1
+    end
+
+    test "a late close-out enqueue failure never rolls back an externally successful send", %{
+      actor: actor
+    } do
+      %{id: id, now: now, alert: alert} = planned!(actor)
+
+      alert
+      |> Ash.Changeset.for_update(:resolve, %{}, actor: actor)
+      |> Ash.update!(actor: actor)
+
+      failing_opts = [
+        actor: actor,
+        now: now,
+        transport: StubTransport,
+        enqueue_routing: fn _alert_id, :resolve -> {:error, :queue_down} end,
+        route_resolution: fn _alert_id, :resolve, _opts -> {:error, :database_down} end
+      ]
+
+      assert {:error,
+              {:sent_but_resolution_unrouted,
+               {:resolution_enqueue_failed, :queue_down,
+                {:synchronous_resolution_failed, :database_down}}}} =
+               Dispatcher.deliver(id, failing_opts)
+
+      assert reload!(id, actor).state == :sent
+      assert length(StubTransport.requests()) == 1
+
+      # A duplicate job retries only the close-out repair. It never contacts
+      # the destination again after the provider already accepted the page.
+      assert {:error, {:sent_but_resolution_unrouted, _reason}} =
+               Dispatcher.deliver(id, failing_opts)
+
+      assert length(StubTransport.requests()) == 1
+      assert reload!(id, actor).attempt_count == 1
+    end
+  end
+
+  describe "not-before scheduling" do
+    test "a pending delivery is not contacted before next_attempt_at", %{actor: actor} do
+      %{id: id, now: now} = planned!(actor)
+      future = DateTime.add(now, 30, :second)
+      delivery = reload!(id, actor)
+
+      delivery
+      |> Ash.Changeset.for_update(
+        :record_group_member,
+        %{alert_snapshot: delivery.alert_snapshot, next_attempt_at: future},
+        actor: actor
+      )
+      |> Ash.update!(actor: actor)
+
+      assert {:retry, retry_at} =
+               Dispatcher.deliver(id, actor: actor, now: now, transport: StubTransport)
+
+      assert DateTime.compare(retry_at, future) == :eq
+      assert StubTransport.requests() == []
+      assert reload!(id, actor).attempt_count == 0
     end
   end
 
@@ -308,12 +383,68 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
              |> Ash.Query.filter(originating_delivery_id == ^id)
              |> Ash.read!(actor: actor) == []
     end
+
+    test "the failed origin and successor are one atomic write", %{actor: actor} do
+      fallback = create_channel!(actor, [])
+      %{id: id, now: now} = planned!(actor, fallback_channel_id: fallback.id)
+
+      StubTransport.answer_with(Result.permanent_failure("http_400"))
+
+      fail_create = fn :record_dispatch, _attrs, _actor -> {:error, :write_failed} end
+
+      assert {:error, {:failover_persistence_failed, :write_failed}} =
+               Dispatcher.deliver(id,
+                 actor: actor,
+                 now: now,
+                 transport: StubTransport,
+                 create_failover_delivery: fail_create
+               )
+
+      # The pre-fix order committed :failed and then discarded the successor
+      # write error, making the notification permanently unreachable. Rolling
+      # both writes back leaves this transport attempt recoverable by the
+      # dispatching-stall scan.
+      assert reload!(id, actor).state == :dispatching
+
+      assert %{settled: settled_ids} =
+               Dispatcher.reconcile(DateTime.add(now, 301, :second),
+                 actor: actor,
+                 limit: 50,
+                 stall_seconds: 300
+               )
+
+      assert id in settled_ids
+      assert reload!(id, actor).state == :pending
+
+      assert NotificationDelivery
+             |> Ash.Query.filter(originating_delivery_id == ^id)
+             |> Ash.read!(actor: actor) == []
+    end
   end
 
   describe "unprocessable deliveries" do
     test "an unknown delivery id is an error", %{actor: actor} do
       assert {:error, :delivery_not_found} =
                Dispatcher.deliver(Ash.UUIDv7.generate(), actor: actor)
+    end
+
+    test "a deleted channel terminalizes its pending delivery", %{actor: actor} do
+      %{id: id, now: now, channel: channel} = planned!(actor)
+
+      Ash.destroy!(channel, actor: actor)
+
+      assert {:error, {:delivery_failed, "channel_not_found"}} =
+               Dispatcher.deliver(id, actor: actor, now: now, transport: StubTransport)
+
+      delivery = reload!(id, actor)
+      assert delivery.state == :failed
+      assert delivery.error_class == "channel_not_found"
+      assert StubTransport.requests() == []
+
+      assert %{retry: retry_ids} =
+               Dispatcher.due(DateTime.add(now, 1, :day), actor: actor, limit: 50)
+
+      refute id in retry_ids
     end
   end
 

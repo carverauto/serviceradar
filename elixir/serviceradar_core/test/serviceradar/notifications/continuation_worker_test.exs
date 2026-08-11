@@ -27,7 +27,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     @moduledoc false
     def due(now, opts) do
       send(self(), {:due, now, opts})
-      Process.get(:due_result, %{retry: [], escalation: []})
+      Process.get(:due_result, %{retry: [], escalation: [], renotify: []})
     end
   end
 
@@ -48,13 +48,17 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
         send(test, {:routing, alert_id, reason})
         {:ok, %Oban.Job{id: 2}}
       end,
+      send_renotify: fn alert_id, now ->
+        send(test, {:renotify, alert_id, now})
+        :ok
+      end,
       now: @now
     ]
   end
 
   describe "queueing due work" do
     test "retry-due delivery ids become dispatch jobs" do
-      due(%{retry: ["delivery-1", "delivery-2"], escalation: []})
+      due(%{retry: ["delivery-1", "delivery-2"], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -66,7 +70,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     test "escalation-due alert ids become routing jobs, not dispatch jobs" do
       # An alert id handed to the dispatch worker would try to deliver a row that
       # does not exist. The rung has to be planned first.
-      due(%{retry: [], escalation: ["alert-1"]})
+      due(%{retry: [], escalation: ["alert-1"], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -75,7 +79,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     end
 
     test "both lists are drained in one tick" do
-      due(%{retry: ["delivery-1"], escalation: ["alert-1"]})
+      due(%{retry: ["delivery-1"], escalation: ["alert-1"], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -84,11 +88,21 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     end
 
     test "an empty scan is a silent no-op" do
-      due(%{retry: [], escalation: []})
+      due(%{retry: [], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
       refute_received {:dispatch, _id}
+      refute_received {:routing, _alert_id, _reason}
+    end
+
+    test "renotify-due alerts run through the lifecycle callback" do
+      due(%{retry: [], escalation: [], renotify: ["alert-1"]})
+
+      assert :ok = ContinuationWorker.sweep(job(), seams())
+
+      assert_received {:renotify, "alert-1", @now}
+      refute_received {:dispatch, _delivery_id}
       refute_received {:routing, _alert_id, _reason}
     end
   end
@@ -98,7 +112,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
       # The pure cores never read the clock; the impure layer captures `now` and
       # threads it down. A tick that let due/2 call DateTime.utc_now/0 itself
       # would make its two reads disagree about what is due.
-      due(%{retry: [], escalation: []})
+      due(%{retry: [], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -106,7 +120,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     end
 
     test "the collaborator seams are not leaked into due/2's options" do
-      due(%{retry: [], escalation: []})
+      due(%{retry: [], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -114,11 +128,12 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
       refute Keyword.has_key?(opts, :dispatcher)
       refute Keyword.has_key?(opts, :enqueue_dispatch)
       refute Keyword.has_key?(opts, :enqueue_routing)
+      refute Keyword.has_key?(opts, :send_renotify)
       refute Keyword.has_key?(opts, :now)
     end
 
     test "a per-tick limit is always passed, so one incident cannot enqueue unbounded work" do
-      due(%{retry: [], escalation: []})
+      due(%{retry: [], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), seams())
 
@@ -127,7 +142,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     end
 
     test "an explicit limit wins over the configured default" do
-      due(%{retry: [], escalation: []})
+      due(%{retry: [], escalation: [], renotify: []})
 
       assert :ok = ContinuationWorker.sweep(job(), Keyword.put(seams(), :limit, 7))
 
@@ -139,7 +154,12 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
   describe "failure isolation" do
     test "one failed enqueue does not stop the rest of the tick" do
       test = self()
-      due(%{retry: ["delivery-bad", "delivery-good"], escalation: ["alert-1"]})
+
+      due(%{
+        retry: ["delivery-bad", "delivery-good"],
+        escalation: ["alert-1"],
+        renotify: []
+      })
 
       opts =
         Keyword.put(seams(), :enqueue_dispatch, fn
@@ -158,7 +178,7 @@ defmodule ServiceRadar.Notifications.ContinuationWorkerTest do
     end
 
     test "the tick always completes, because a failed scan is superseded a minute later" do
-      due(%{retry: ["delivery-1"], escalation: []})
+      due(%{retry: ["delivery-1"], escalation: [], renotify: []})
 
       opts = Keyword.put(seams(), :enqueue_dispatch, fn _id -> {:error, :boom} end)
 

@@ -648,6 +648,11 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   relationships do
+    has_many :notification_deliveries,
+             ServiceRadar.Notifications.NotificationDelivery do
+      destination_attribute :alert_id
+    end
+
     belongs_to :acknowledged_by_user, ServiceRadar.Identity.User do
       source_attribute :acknowledged_by_user_id
       destination_attribute :id

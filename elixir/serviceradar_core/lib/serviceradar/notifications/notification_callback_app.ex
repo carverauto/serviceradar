@@ -37,9 +37,11 @@ defmodule ServiceRadar.Notifications.NotificationCallbackApp do
 
   Reading is deliberately NOT granted to the roles that can read the channel
   registry. A signing secret is a credential, and the only thing an operator
-  needs from this table is to register and rotate one - both of which are
-  `notifications.providers.manage`, the same key that gates uploading an
-  executable-adjacent provider definition. Verification runs as the system actor.
+  needs from this table is to register and rotate one. Reading the registry and
+  editing its labels require `notifications.providers.manage`. Registering,
+  rotating, or deleting key material additionally requires
+  `observability.alerts.manage`, because possession of a provider callback secret
+  authorises an alert transition. Verification runs as the system actor.
   """
 
   use Ash.Resource,
@@ -50,6 +52,7 @@ defmodule ServiceRadar.Notifications.NotificationCallbackApp do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "notifications.providers.manage"}
+  @alerts_manage_check {ActorHasPermission, permission: "observability.alerts.manage"}
 
   # The providers whose inbound callbacks are verified against a registered app.
   # A closed list rather than free text: an unknown provider_key here would be a
@@ -124,8 +127,13 @@ defmodule ServiceRadar.Notifications.NotificationCallbackApp do
 
     system_bypass()
 
-    action_type_with_permission([:read, :create, :update, :destroy], @manage_check)
-    action_with_permission([:rotate_secret], @manage_check)
+    action_with_permission([:read, :by_external_app_id, :update], @manage_check)
+
+    policy action([:register, :rotate_secret, :destroy]) do
+      forbid_unless @manage_check
+      forbid_unless @alerts_manage_check
+      authorize_if @manage_check
+    end
   end
 
   attributes do

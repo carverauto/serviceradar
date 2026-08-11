@@ -127,9 +127,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          {:ok, wasm} <- fetch_bundle_wasm(bundle),
          content_hash = Storage.sha256(wasm),
          :ok <- verify_upload_signature(signature, manifest_map, content_hash),
+         {:ok, display_contracts} <- bundle_display_contracts(bundle),
          :ok <- verify_entry_identity(entry, manifest_struct) do
       now = DateTime.truncate(DateTime.utc_now(), :second)
-      {display_contracts, display_contract_errors} = bundle_display_contracts(bundle)
 
       {:ok,
        %{
@@ -149,10 +149,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          source_oci_ref: entry_value(entry, "oci_ref"),
          source_oci_digest: fetched.oci_digest || entry_value(entry, "oci_digest"),
          source_bundle_digest: normalize_digest(Storage.sha256(fetched.bundle)),
-         source_metadata:
-           repo
-           |> source_metadata(release, entry, fetched, now)
-           |> put_display_contract_errors(display_contract_errors),
+         source_metadata: source_metadata(repo, release, entry, fetched, now),
          imported_at: now,
          verification_status: "verified"
        }}
@@ -472,26 +469,22 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   # packages table has already been proven to be data, so the renderer never has
   # to decide whether to trust a stored document.
   #
-  # A contract this release refuses is DROPPED rather than fatal (see
-  # `DisplayContract.partition/1`). A `display/` entry is a UI file and cannot
-  # change what the plugin does, so rejecting a signed, otherwise valid artifact
-  # over one would be a disproportionate failure - and bundles already published
-  # with a placeholder there would stop installing. The reasons ride along in
-  # `source_metadata` so a refused contract is visible on the package rather than
-  # only conspicuous by the panel it never renders.
+  # Any malformed contract rejects the package/version. Import success is the
+  # trust boundary the renderer relies on: silently dropping one would make the
+  # signed artifact installed in storage differ from the contract operators and
+  # reviewers inspected in the bundle.
   defp bundle_display_contracts(bundle) do
-    bundle
-    |> Enum.filter(fn {name, payload} ->
-      is_binary(payload) and String.starts_with?(name, "display/") and Path.extname(name) == ".json"
-    end)
-    |> Map.new()
-    |> DisplayContract.partition()
-  end
+    contracts =
+      bundle
+      |> Enum.filter(fn {name, payload} ->
+        is_binary(payload) and String.starts_with?(name, "display/") and Path.extname(name) == ".json"
+      end)
+      |> Map.new()
 
-  defp put_display_contract_errors(metadata, []), do: metadata
-
-  defp put_display_contract_errors(metadata, errors) do
-    Map.put(metadata, "display_contract_errors", errors)
+    case DisplayContract.validate_all(contracts) do
+      {:ok, validated} -> {:ok, validated}
+      {:error, errors} -> {:error, {:invalid_display_contracts, errors}}
+    end
   end
 
   defp optional_bundle_json(bundle, name) do

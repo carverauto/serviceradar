@@ -27,6 +27,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           credential_requirements:
             routing_key:
               injection_mode: http_header
+              name: Authorization
+              scheme: Bearer
           inbound:
             enabled: false
 
@@ -48,6 +50,7 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationDescriptor
+  alias ServiceRadar.Plugins.NotificationCredentialRequirement
   alias ServiceRadar.Plugins.ValueUtils
 
   @enforce_keys [:id, :name, :version, :entrypoint, :capabilities, :outputs, :resources]
@@ -249,14 +252,7 @@ defmodule ServiceRadar.Plugins.Manifest do
   # credential injection on the edge route at all; it uses the bot-token API or
   # `host_params_json`. A `url_path` mode is out of scope for v1 and must not be
   # added here without adding it to the host first.
-  @allowed_credential_injection_modes ~w(
-    http_header
-    bearer_token
-    basic_auth
-    query
-    form_urlencoded
-    oauth2_password_bearer
-  )
+  @allowed_credential_injection_modes NotificationCredentialRequirement.modes()
 
   @max_yaml_bytes 262_144
   @max_signal_ref_length 160
@@ -773,29 +769,17 @@ defmodule ServiceRadar.Plugins.Manifest do
            ]}
 
         true ->
-          requirement = normalize_map(requirement) || %{}
+          path = "notifications[#{index}].credential_requirements.#{name}"
 
-          case validate_credential_injection_mode(requirement, name, index) do
-            :ok -> {Map.put(acc, name, requirement), errors}
-            {:error, error} -> {acc, [error | errors]}
+          case NotificationCredentialRequirement.normalize(requirement, path) do
+            {:ok, normalized} ->
+              {Map.put(acc, name, normalized), errors}
+
+            {:error, requirement_errors} ->
+              {acc, Enum.reverse(requirement_errors, errors)}
           end
       end
     end)
-  end
-
-  defp validate_credential_injection_mode(requirement, name, index) do
-    case normalize_string(fetch(requirement, :injection_mode)) do
-      nil ->
-        :ok
-
-      mode when mode in @allowed_credential_injection_modes ->
-        :ok
-
-      _other ->
-        {:error,
-         "notifications[#{index}].credential_requirements.#{name}.injection_mode must be one of: " <>
-           Enum.join(@allowed_credential_injection_modes, ", ")}
-    end
   end
 
   defp validate_notification_inbound(notification, index, errors) do

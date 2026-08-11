@@ -1855,16 +1855,25 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  defp effective_permissions(
-         %PluginAssignment{} = assignment,
-         %PluginPackage{} = package,
-         manifest
-       ) do
+  @doc """
+  Computes the permission scope that is actually delivered to an agent.
+
+  Security-sensitive callers that mint a second, narrower authority (for
+  example a notification credential grant) must use this function rather than
+  reimplementing the package/assignment narrowing rules.
+  """
+  @spec effective_permissions(map(), map(), map()) :: %{
+          allowed_domains: [String.t()],
+          allowed_networks: [String.t()],
+          allowed_ports: [integer()]
+        }
+  def effective_permissions(assignment, package, manifest)
+      when is_map(assignment) and is_map(package) and is_map(manifest) do
     manifest
     |> fetch_map_value(:permissions, %{})
     |> normalize_permissions()
-    |> narrow_permissions(package.approved_permissions)
-    |> narrow_permissions(assignment.permissions_override)
+    |> narrow_permissions(Map.get(package, :approved_permissions, %{}))
+    |> narrow_permissions(Map.get(assignment, :permissions_override, %{}))
   end
 
   defp effective_resources(%PluginAssignment{} = assignment, %PluginPackage{} = package, manifest) do
@@ -1970,7 +1979,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     cond do
       base == [] ->
-        override
+        []
 
       override == [] ->
         base

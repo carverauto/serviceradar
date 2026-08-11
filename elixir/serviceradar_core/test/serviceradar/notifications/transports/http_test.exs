@@ -308,15 +308,15 @@ defmodule ServiceRadar.Notifications.Transports.HTTPTest do
       refute log =~ "Transports.HTTP"
     end
 
-    test "scrub/2 reaches nested values and leaves short values alone" do
+    test "scrub/2 reaches nested values and redacts short explicit secrets" do
       term = %{"a" => [@secret, %{"b" => {:tag, @secret}}]}
 
       assert HTTP.scrub(term, [@secret]) == %{
                "a" => ["[REDACTED]", %{"b" => {:tag, "[REDACTED]"}}]
              }
 
-      # Too short to replace safely; substituting it would corrupt ordinary text.
-      assert HTTP.scrub("a short one", ["short"]) == "a short one"
+      assert HTTP.scrub("bad token: xy", ["xy"]) == "bad token: [REDACTED]"
+      assert HTTP.sensitive_values(sensitive_values: ["xy", "", nil]) == ["xy"]
     end
   end
 

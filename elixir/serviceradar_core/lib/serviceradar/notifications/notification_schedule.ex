@@ -34,10 +34,10 @@ defmodule ServiceRadar.Notifications.NotificationSchedule do
   `:active_outside` is active everywhere else.
 
   Window evaluation is performed in `timezone`, including across daylight-saving
-  transitions. This resource stores the zone name but does not resolve it - the
-  evaluator owns that, and it needs a real IANA time zone database configured
-  (`serviceradar_core` currently ships none), so a schedule with a non-UTC
-  `timezone` is only meaningful once that dependency is present.
+  transitions. The evaluator resolves wall time through PostgreSQL's installed
+  IANA database, and save-time validation rejects names that database does not
+  know. This keeps the accepted configuration and the dispatch-time resolver on
+  one source of truth without adding a second time-zone data dependency.
 
   See `openspec/changes/add-notification-platform/design.md` (Data Model,
   `NotificationSchedule`) and the "Notification schedules" requirement in
@@ -51,6 +51,7 @@ defmodule ServiceRadar.Notifications.NotificationSchedule do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Validations.ScheduleWindows
+  alias ServiceRadar.Notifications.Validations.SupportedScheduleTimezone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "notifications.routes.view"}
@@ -143,6 +144,7 @@ defmodule ServiceRadar.Notifications.NotificationSchedule do
 
   validations do
     validate {ScheduleWindows, []}
+    validate {SupportedScheduleTimezone, []}
   end
 
   attributes do

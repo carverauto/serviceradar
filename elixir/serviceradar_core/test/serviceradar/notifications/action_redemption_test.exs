@@ -275,13 +275,56 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
 
     test "resolving moves the alert", %{actor: actor, alert: alert, delivery: delivery} do
       links = issue!(delivery, actor)
+      token = token_for(links, :resolve)
+      test_pid = self()
+      alert_id = alert.id
+
+      enqueue = fn alert_id, reason ->
+        send(test_pid, {:routing_enqueued, alert_id, reason})
+        {:ok, :job}
+      end
 
       assert {:ok, %{status: :applied}} =
-               ActionRedemption.redeem(token_for(links, :resolve), actor: actor, now: @now)
+               ActionRedemption.redeem(token,
+                 actor: actor,
+                 now: @now,
+                 enqueue_routing: enqueue
+               )
 
       assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
       assert reloaded.status == :resolved
       assert reloaded.resolved_by == "action_link:" <> delivery.id
+      assert_received {:routing_enqueued, ^alert_id, :resolve}
+
+      assert {:ok, %{status: :replayed}} =
+               ActionRedemption.redeem(token,
+                 actor: actor,
+                 now: @now,
+                 enqueue_routing: enqueue
+               )
+
+      refute_received {:routing_enqueued, _, _}
+    end
+
+    test "an enqueue failure leaves a signed resolve link unspent", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      links = issue!(delivery, actor)
+      minted = Enum.find(links.minted, &(&1.action == :resolve))
+
+      assert {:error, {:routing_enqueue_failed, :queue_down}} =
+               ActionRedemption.redeem(minted.token,
+                 actor: actor,
+                 now: @now,
+                 enqueue_routing: fn _alert_id, _reason -> {:error, :queue_down} end
+               )
+
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :pending
+      assert acknowledgements(alert.id, actor) == []
+      assert fetch_row!(minted.selector)["consumed_at"] == nil
     end
 
     test "an escalated alert can still be acknowledged", %{
@@ -462,17 +505,69 @@ defmodule ServiceRadar.Notifications.ActionRedemptionTest do
     end
 
     test "resolves through the same path", %{actor: actor, alert: alert, delivery: delivery} do
+      test_pid = self()
+      alert_id = alert.id
+
       assert {:ok, outcome} =
                ActionRedemption.apply_native(
                  %{action: :resolve, alert_id: alert.id, delivery_id: delivery.id},
                  actor: actor,
                  external_principal: "pagerduty:PABC",
-                 now: @now
+                 now: @now,
+                 enqueue_routing: fn alert_id, reason ->
+                   send(test_pid, {:routing_enqueued, alert_id, reason})
+                   {:ok, :job}
+                 end
                )
 
       assert outcome.status == :applied
       assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
       assert reloaded.status in [:resolved, :closed]
+      assert_received {:routing_enqueued, ^alert_id, :resolve}
+    end
+
+    test "a provider retry does not enqueue a second close-out", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      test_pid = self()
+      alert_id = alert.id
+      capability = %{action: :resolve, alert_id: alert.id, delivery_id: delivery.id}
+
+      opts = [
+        actor: actor,
+        external_principal: "pagerduty:PABC",
+        now: @now,
+        enqueue_routing: fn alert_id, reason ->
+          send(test_pid, {:routing_enqueued, alert_id, reason})
+          {:ok, :job}
+        end
+      ]
+
+      assert {:ok, %{status: :applied}} = ActionRedemption.apply_native(capability, opts)
+      assert {:ok, %{status: :already_applied}} = ActionRedemption.apply_native(capability, opts)
+      assert_received {:routing_enqueued, ^alert_id, :resolve}
+      refute_received {:routing_enqueued, _, _}
+    end
+
+    test "an enqueue failure rolls back a native resolution", %{
+      actor: actor,
+      alert: alert,
+      delivery: delivery
+    } do
+      assert {:error, {:routing_enqueue_failed, :queue_down}} =
+               ActionRedemption.apply_native(
+                 %{action: :resolve, alert_id: alert.id, delivery_id: delivery.id},
+                 actor: actor,
+                 external_principal: "pagerduty:PABC",
+                 now: @now,
+                 enqueue_routing: fn _alert_id, _reason -> {:error, :queue_down} end
+               )
+
+      assert {:ok, reloaded} = Alert.get_by_id(alert.id, actor: actor)
+      assert reloaded.status == :pending
+      assert acknowledgements(alert.id, actor) == []
     end
 
     test "refuses a snooze that carries no duration", %{

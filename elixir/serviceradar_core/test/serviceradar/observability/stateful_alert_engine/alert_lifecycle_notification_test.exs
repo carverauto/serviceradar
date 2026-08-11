@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Repo
@@ -87,6 +88,48 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
     assert length(routing_jobs(alert_id)) == before
   end
 
+  test "a failed :resolve enqueue rolls back the alert transition", %{actor: actor} do
+    now = DateTime.utc_now()
+    rule = create_rule!(actor)
+
+    assert {:ok, alert_id} =
+             AlertLifecycle.create_event_and_alert(rule, snapshot(rule), record(now), now)
+
+    assert {:error, {:routing_enqueue_failed, :queue_down}} =
+             AlertLifecycle.resolve_alert(alert_id, rule, snapshot(rule), now,
+               enqueue_routing: fn ^alert_id, :resolve -> {:error, :queue_down} end
+             )
+
+    assert {:ok, alert} = Alert.get_by_id(alert_id, actor: actor)
+    assert alert.status == :pending
+
+    assert [fire] = routing_jobs(alert_id)
+    assert fire["args"]["lifecycle_reason"] == "fire"
+  end
+
+  test "an alert read failure is not mistaken for an already-deleted incident" do
+    now = DateTime.utc_now()
+    rule = %{id: Ash.UUID.generate(), name: "read-failure"}
+    alert_id = Ash.UUID.generate()
+
+    assert {:error, {:alert_load_failed, :database_unavailable}} =
+             AlertLifecycle.resolve_alert(alert_id, rule, snapshot(rule), now,
+               load_alert: fn ^alert_id, _opts -> {:error, :database_unavailable} end
+             )
+  end
+
+  test "a mixed read error is not swallowed merely because it contains not-found" do
+    now = DateTime.utc_now()
+    rule = %{id: Ash.UUID.generate(), name: "mixed-read-failure"}
+    alert_id = Ash.UUID.generate()
+    reason = %{errors: [%Ash.Error.Query.NotFound{}, :database_unavailable]}
+
+    assert {:error, {:alert_load_failed, ^reason}} =
+             AlertLifecycle.resolve_alert(alert_id, rule, snapshot(rule), now,
+               load_alert: fn ^alert_id, _opts -> {:error, reason} end
+             )
+  end
+
   test "a synthetic liveness probe is recorded but never routed", %{actor: actor} do
     now = DateTime.utc_now()
     rule = create_rule!(actor)
@@ -94,11 +137,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
     assert {:ok, alert_id} =
              AlertLifecycle.create_event_and_alert(
                rule,
-               snapshot(rule),
+               synthetic_snapshot(rule),
                synthetic_record(now),
                now
              )
 
+    assert routing_jobs(alert_id) == []
+
+    assert :ok =
+             AlertLifecycle.resolve_alert(alert_id, rule, synthetic_snapshot(rule), now)
+
+    assert {:ok, alert} = Alert.get_by_id(alert_id, actor: actor)
+    assert alert.status == :resolved
     assert routing_jobs(alert_id) == []
   end
 
@@ -155,6 +205,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleNotificat
       log_provider: "test",
       metadata: %{}
     }
+  end
+
+  defp synthetic_snapshot(rule) do
+    rule
+    |> snapshot()
+    |> Map.put(:diagnostics, %{
+      "latest_source" => %{"source_synthetic_liveness_check" => true}
+    })
   end
 
   defp synthetic_record(now) do

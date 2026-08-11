@@ -37,6 +37,7 @@ defmodule ServiceRadar.Notifications do
     resource ServiceRadar.Notifications.NotificationSilence
     resource ServiceRadar.Notifications.NotificationTemplate
     resource ServiceRadar.Notifications.NotificationDelivery
+    resource ServiceRadar.Notifications.NotificationDeliveryMember
     resource ServiceRadar.Notifications.NotificationAcknowledgement
     resource ServiceRadar.Notifications.NotificationActionToken
     resource ServiceRadar.Notifications.NotificationCallbackApp

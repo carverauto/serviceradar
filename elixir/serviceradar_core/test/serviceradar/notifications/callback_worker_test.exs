@@ -19,6 +19,8 @@ defmodule ServiceRadar.Notifications.CallbackWorkerTest do
         alert_id: "0198f0aa-1111-7000-8000-000000000001",
         delivery_id: "0198f0aa-2222-7000-8000-000000000002",
         external_principal: "slack:U123",
+        app_id: "A0123456789",
+        action_id: "notification_acknowledge",
         provider_key: :slack
       },
       overrides
@@ -32,6 +34,8 @@ defmodule ServiceRadar.Notifications.CallbackWorkerTest do
     assert Enum.all?(Map.keys(args), &is_binary/1)
     assert args["action"] == "acknowledge"
     assert args["provider_key"] == "slack"
+    assert args["app_id"] == "A0123456789"
+    assert args["action_id"] == "notification_acknowledge"
     refute Enum.any?(Map.values(args), &is_struct/1)
   end
 

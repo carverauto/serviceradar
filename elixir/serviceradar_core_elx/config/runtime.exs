@@ -4,6 +4,7 @@ alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
+alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
@@ -957,18 +958,6 @@ if config_env() == :prod do
          NotificationContinuationWorker,
          DispatchSchedule.continuation_worker_config()
 
-  config :serviceradar_core,
-         NotificationRetentionWorker,
-         DispatchSchedule.delivery_retention_worker_config()
-
-  config :serviceradar_core,
-         NotificationReceiptWorker,
-         DispatchSchedule.receipt_worker_config()
-
-  config :serviceradar_core,
-         NotificationSilenceExpiryWorker,
-         DispatchSchedule.silence_expiry_worker_config()
-
   # The platform-resident serviceradar-agent that runs :control_plane wasm
   # notification plugins (design D3, tasks 3.3.1). There is deliberately no
   # default: guessing an agent id would dispatch notifications to whichever
@@ -977,8 +966,19 @@ if config_env() == :prod do
   config :serviceradar_core,
          NotificationPluginTarget,
          platform_agent_uid: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_ID"),
-         platform_agent_partition_id:
-           System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+         platform_agent_partition_id: System.get_env("SERVICERADAR_NOTIFICATION_PLATFORM_AGENT_PARTITION")
+
+  config :serviceradar_core,
+         NotificationReceiptWorker,
+         DispatchSchedule.receipt_worker_config()
+
+  config :serviceradar_core,
+         NotificationRetentionWorker,
+         DispatchSchedule.delivery_retention_worker_config()
+
+  config :serviceradar_core,
+         NotificationSilenceExpiryWorker,
+         DispatchSchedule.silence_expiry_worker_config()
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
   config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
@@ -1225,7 +1225,7 @@ if config_env() == :prod do
         # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
-        ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
+        Config.analytics_predictions_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",
@@ -1238,22 +1238,19 @@ if config_env() == :prod do
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so
       # per-stream custom values are not clobbered by release defaults.
-      flow_streams: ServiceRadar.EventWriter.Config.default_flow_streams()
+      flow_streams: Config.default_flow_streams()
 
     # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
     if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_consumer_pull_batch_size: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_consumer_pull_batch_size: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_max_ack_pending: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_max_ack_pending: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_pull_expires_ns: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_pull_expires_ns: String.to_integer(v)
     end
 
     config :serviceradar_core, :event_writer_enabled, true

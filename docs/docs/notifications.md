@@ -79,7 +79,7 @@ providers plus one built-in:
 | `discord` | native | Incoming webhook |
 | `webhook` | native | Generic HTTPS POST/PUT/PATCH, see [Migrating from the old `webhooks:` block](#migrating-from-the-removed-webhooks-config-block) |
 | `email` | native | Goes through the single outbound mail path, see [Email and SMTP](#email-and-smtp) |
-| `stream` | built-in | Publishes the notification envelope to an RBAC-scoped topic. Seeded and dispatchable now; the durable subscribable firehose (its own JetStream subject, and the topic join gated on `notifications.stream.subscribe`) lands in a later phase |
+| `stream` | built-in | Publishes the notification envelope to an RBAC-scoped live topic and durable JetStream subject. Topic joins require `notifications.stream.subscribe` |
 
 First-party providers are **managed** records: they are seeded on start and
 reconciled on upgrade. An upgrade refreshes a managed provider (or a managed
@@ -236,21 +236,22 @@ is never blocked - that is the correct response to a revocation.
 
 ### Receipts for agent-routed deliveries
 
-A delivery handed to an agent is recorded `sent` when the command reaches the
-agent's control session, with the command id on the row. If the dispatching
-process dies between the command going out and the outcome being written, the row
-is left mid-flight - and blindly retrying it would send a second page for a
-notification the agent may already have delivered.
+A delivery handed to an agent is recorded `dispatching`, with the durable command
+id on the row. Reaching the control session is not delivery: only a persisted
+notifier SDK result with status `delivered` may move the row to `sent`.
 
 A bounded sweep runs every minute and settles those rows from the durable
-`agent_commands` record instead: a completed command settles the delivery as
-sent, a failed or expired one hands it back to its retry budget, and a command
-still inside its own TTL is left alone. The same pass re-drives a delivery that is
-waiting out a backoff for an agent that has since reconnected, so a site coming
-back does not have to wait out the rest of the backoff.
+`agent_commands` record. It preserves the SDK's three outcomes: `delivered`
+settles the delivery as sent, `retryable` returns it to its retry budget, and
+`failed` is terminal and evaluates failover. An expired or unreadable receipt is
+also bounded by the ordinary retry/failover budget; a command still inside its
+TTL is left alone. The same pass re-drives a delivery waiting out a backoff for
+an agent that has since reconnected, so a site coming back does not wait out the
+rest of that backoff.
 
-This reads only what core itself writes, so it does not depend on
-`STATUS_HANDLER_ENABLED`.
+Production enables `STATUS_HANDLER_ENABLED` so agent results are persisted. The
+sweep treats that result as input, while the `NotificationDelivery` row remains
+the system of record and no missing result is guessed successful.
 
 | Setting | Helm value | Environment variable |
 | --- | --- | --- |
@@ -603,7 +604,35 @@ and an operator cannot author one.
 ### Subscribing
 
 Subscription is gated on the `notifications.stream.subscribe` permission. A user
-without it cannot join the topic at all.
+without it cannot join the topic at all. The channel join payload must include a
+stable `client_id` (letters, numbers, `.`, `_`, `:`, or `-`, at most 128
+characters). Keep that identifier for the lifetime of the consuming browser
+profile or application instance and send the same value after reconnecting.
+
+The join payload may also carry the opaque `cursor` last received in a
+`notification_cursor` channel event:
+
+```json
+{"client_id":"browser-profile-1","cursor":"<signed cursor>"}
+```
+
+A successful join reply includes a signed baseline before replay can ACK its
+first record:
+
+```json
+{"client_id":"browser-profile-1","cursor":"<signed baseline cursor>","durable":true}
+```
+
+Persist that baseline immediately. It is the safe rewind point if the socket
+closes before the first per-record cursor arrives.
+
+The server derives the JetStream durable name from the trusted tenant and user
+identity, topic, and `client_id`. A subscriber cannot supply a broker consumer or
+cursor name, so choosing a `client_id` cannot attach it to another user's cursor.
+The cursor is signed and bound to that same tenant, user, topic, and client id;
+moving it to any other subscription is rejected. It is also bound to the
+JetStream stream generation, so a cursor from a deleted and recreated stream is
+rejected rather than skipping records in the replacement stream.
 
 What a subscriber receives is also filtered by what they may see. The rendered
 payload additionally requires `notifications.deliveries.view`, the same
@@ -618,6 +647,50 @@ losing it. Retention is time and size bounded rather than interest based, which
 is deliberate: an interest stream discards a message once every *known* consumer
 has acknowledged it, and the whole point of the firehose is that a consumer
 which was absent can come back and catch up.
+
+With no cursor, an existing durable resumes its broker ACK position. A new
+durable begins at the current stream tail, so its first join does not replay
+notifications published before that client existed. Supplying a cursor makes
+its next stream sequence authoritative, even if that means replaying an envelope
+the broker durable had already acknowledged. If retention has already removed
+that sequence, the sequence is beyond the current tail, or the stream was
+recreated, the join is refused with
+`{"reason":"cursor_gap","earliest_cursor":"<signed cursor>"}`; retry with the
+returned earliest cursor only after recording that the intervening history is
+incomplete.
+
+An inactive client durable expires after 48 hours, which is longer than the
+default 24-hour notification retention window. Closing a socket does not delete
+an active durable; reconnecting within that inactivity window resumes it.
+
+Authorization is refreshed for every replayed envelope. The durable path emits
+one record at a time. After processing the `notification` and durably storing
+its `notification_cursor`, the client must send that exact cursor back on the
+`notification_ack` channel event:
+
+```json
+{"cursor":"<signed next cursor>"}
+```
+
+Only that client acknowledgement advances JetStream. A missing or mismatched
+acknowledgement leaves the record pending. On timeout the channel emits
+`notification_overflow` with the pending `delivery_id`, cursor, and reason
+`ack_timeout`, leaves the record unacknowledged, and closes so reconnect can
+replay it. JetStream is the channel's sole data path; the transport's live
+PubSub copy is not subscribed as channel data, preventing an ephemeral burst
+from bypassing the one-record backpressure boundary before pending state exists.
+If subscription permission was revoked, the record likewise remains pending for
+a later authorized reconnect. Repeated durable envelopes are deduplicated in a
+bounded per-connection window.
+
+The canonical envelope is always pushed as the `notification` event and is not
+modified to carry transport state. After every JetStream record, including a
+repeated envelope whose notification was deduplicated, the channel pushes a
+separate `notification_cursor` event with
+`{"delivery_id":"<canonical delivery id>","cursor":"<signed next cursor>"}`.
+Use `delivery_id` to pair the control event with its notification. Replace the
+persisted baseline or prior cursor only after successfully processing that
+notification, then send `notification_ack` with the exact paired cursor.
 
 ### The envelope
 
@@ -958,7 +1031,7 @@ least-privilege role from this table rather than reading the catalog module.
 | `notifications.deliveries.view` | The Delivery Log, including suppressed rows and their reasons; the delivery history on an alert page | Helpdesk |
 | `notifications.test.send` | Test-send from a channel. **Separate from channel edit on purpose**: a test send performs real egress with real credentials | Admin |
 | `notifications.silences.manage` | Silence authoring and cancellation. Separate from routes because writing a silence *stops a page* - and an empty matcher set mutes the deployment | Operator |
-| `notifications.stream.subscribe` | Subscribing to the `stream` provider firehose topic. **Not yet enforced**: the topic join is Phase 4 work; the key ships now so the vocabulary does not change under existing roles | Operator |
+| `notifications.stream.subscribe` | Subscribing to the `stream` provider live topic and its durable replay cursor | Operator |
 
 Two deliberate design notes:
 

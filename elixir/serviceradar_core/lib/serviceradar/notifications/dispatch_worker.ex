@@ -25,6 +25,9 @@ defmodule ServiceRadar.Notifications.DispatchWorker do
   So Oban gets exactly one execution and never decides anything about retry:
 
     * `{:ok, :sent}` / `{:ok, :suppressed}` -> `:ok`. Terminal, recorded.
+    * `{:ok, :dispatching}` -> `:ok`. The agent accepted the command and the
+      durable receipt reconciler now owns completion; acceptance is not
+      delivery.
     * `{:retry, at}` -> `{:snooze, seconds}`. Oban's snooze reschedules **and
       increments `max_attempts`** (`Oban.Engines.Basic.snooze_job/3`), so waiting
       never consumes the single execution. The job comes back at `at`, which is
@@ -162,6 +165,7 @@ defmodule ServiceRadar.Notifications.DispatchWorker do
 
   defp handle({:ok, :sent}, _delivery_id, _opts), do: :ok
   defp handle({:ok, :suppressed}, _delivery_id, _opts), do: :ok
+  defp handle({:ok, :dispatching}, _delivery_id, _opts), do: :ok
 
   defp handle({:retry, %DateTime{} = at}, _delivery_id, opts) do
     {:snooze, snooze_seconds(at, opts)}
