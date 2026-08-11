@@ -53,7 +53,7 @@ pub(in crate::query::devices) fn build_grouped_stats_query(
         .group_fields
         .iter()
         .map(DeviceGroupField::column)
-        .collect::<Vec<_>>();
+        .collect::<Vec<String>>();
     let group_by_sql = group_columns.join(", ");
 
     let mut sql = format!(
@@ -103,9 +103,9 @@ fn build_grouped_stats_order_clause(
             "COUNT(*)".to_string()
         } else if let Some(group_field) = group_fields
             .iter()
-            .find(|field| clause.field.eq_ignore_ascii_case(field.response_key()))
+            .find(|field| clause.field.eq_ignore_ascii_case(&field.response_key()))
         {
-            group_field.column().to_string()
+            group_field.column()
         } else {
             continue;
         };

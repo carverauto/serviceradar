@@ -48,6 +48,7 @@ pub(super) fn build_grouped_stats_filter_clause(
         "deleted" => build_deleted_clause(filter)?,
         "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,
+        "tags" => clauses::build_grouped_tags_clause(filter, &mut binds)?,
         field if field.starts_with("metadata.") => {
             let key = field.strip_prefix("metadata.").unwrap();
             if !super::super::filters::is_valid_jsonb_key(key) {
@@ -56,6 +57,15 @@ pub(super) fn build_grouped_stats_filter_clause(
                 )));
             }
             clauses::build_grouped_jsonb_text_clause("metadata", key, filter, &mut binds)?
+        }
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap();
+            if !super::super::filters::is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tags key '{key}'"
+                )));
+            }
+            clauses::build_grouped_jsonb_text_clause("tags", key, filter, &mut binds)?
         }
         other => {
             return Err(ServiceError::InvalidRequest(format!(

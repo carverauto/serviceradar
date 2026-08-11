@@ -716,3 +716,127 @@ fn devices_rejects_unsafe_metadata_key() {
         "error should flag the invalid metadata key, got: {err}"
     );
 }
+
+#[test]
+fn devices_stats_groups_by_tag_subkey() {
+    let query = "in:devices stats:count() as total by tags.gate limit:100";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("coalesce(tags->>'gate', 'unknown')"),
+        "expected group expression over the tags sub-key, got: {sql}"
+    );
+    assert!(
+        lower.contains("group by coalesce(tags->>'gate'"),
+        "tag sub-key should appear in GROUP BY, got: {sql}"
+    );
+    assert!(
+        sql.contains("'tags.gate'"),
+        "response key should name the full tag path, got: {sql}"
+    );
+}
+
+// The dashboard case: narrow to one airport, then count devices per gate.
+#[test]
+fn devices_stats_filters_and_groups_by_different_tags() {
+    let query = "in:devices tags.site:ZZA stats:count() as total by tags.gate limit:100";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("tags->>'site' = $"),
+        "expected the tags.site filter in the stats path, got: {sql}"
+    );
+    assert!(
+        lower.contains("coalesce(tags->>'gate', 'unknown')"),
+        "expected the tags.gate group expression, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "ZZA")),
+        "tag value must be bound, not interpolated, got: {params:?}"
+    );
+}
+
+// `?` is both a bind placeholder in the grouped-stats SQL builder and the
+// Postgres JSONB existence operator. If the key-existence check is spelled with
+// the operator, `rewrite_placeholders` turns it into a `$n` and the query no
+// longer parses -- so this path must use jsonb_exists.
+#[test]
+fn devices_stats_tag_existence_does_not_collide_with_placeholders() {
+    let query = "in:devices tags:gate stats:count() as total by type limit:10";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+    assert!(
+        sql.contains("jsonb_exists(coalesce(tags, '{}'::jsonb), $"),
+        "expected jsonb_exists rather than the ? operator, got: {sql}"
+    );
+    assert_eq!(
+        sql.matches('?').count(),
+        0,
+        "no raw ? may survive placeholder rewriting, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::Text(value) if value == "gate")),
+        "expected the tag key bound as a parameter, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_tag_subkey_supports_list_form() {
+    let query = "in:devices tags.gate:(B40,B41)";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    assert!(
+        sql.to_lowercase().contains("tags->>'gate' = any("),
+        "expected an ANY(...) membership test, got: {sql}"
+    );
+    assert!(
+        params
+            .iter()
+            .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["B40".to_string(), "B41".to_string()])),
+        "expected the gate list bound as a text array, got: {params:?}"
+    );
+}
+
+#[test]
+fn devices_negated_tag_subkey_list_keeps_devices_missing_the_tag() {
+    let query = "in:devices !tags.gate:(B40,B41)";
+    let plan = plan_for(query);
+
+    let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("tags->>'gate' is null or not"),
+        "a device with no gate tag is 'not in' the list, got: {sql}"
+    );
+}
+
+// Same whitelist reasoning as the metadata key test above: the tag key is
+// interpolated, so an unsafe one must never reach SQL -- via a filter or a
+// GROUP BY.
+#[test]
+fn devices_rejects_unsafe_tag_key() {
+    let plan = plan_for(r#"in:devices tags.node'or'1:x"#);
+    let result = devices::to_sql_and_params(&plan);
+    assert!(result.is_err(), "unsafe tag key must be rejected");
+    assert!(
+        result.unwrap_err().to_string().contains("invalid tags key"),
+        "error should flag the invalid tag key"
+    );
+
+    let plan = plan_for(r#"in:devices stats:count() as total by tags.a'b"#);
+    let result = devices::to_sql_and_params(&plan);
+    assert!(
+        result.is_err(),
+        "unsafe tag key must be rejected in a group-by too"
+    );
+}
