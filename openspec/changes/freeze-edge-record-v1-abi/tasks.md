@@ -1245,9 +1245,14 @@ here.
         runtimes' decoded validators and the N+1-bounded traversal at every bounded-count
         site, each with its own stage-sensitive evidence. Go's raw entrypoints
         (`ValidatePlanFromRaw`, `ValidateManifestChainFromRaw`) are CORRECT AS THEY STAND and
-        are excluded. Verdict-only evidence cannot serve here: a conforming and a violating
-        implementation refuse the same inputs, so every row asserts PRECEDENCE or bounded
-        traversal. `design.md` holds the site-by-site findings and the mutation results.
+        are excluded. THE TWO KINDS OF EVIDENCE PROVE DIFFERENT THINGS AND NEITHER SUBSTITUTES
+        FOR THE OTHER. An accepted-N/refused-N+1 verdict pair proves the ceiling's INCLUSIVITY
+        -- where the boundary sits and that N is admitted -- and nothing about stage. ORDERING
+        and BOUNDED TRAVERSAL need their own witnesses, because a conforming and a violating
+        implementation return the same verdict on the same inputs: the gate behind the one
+        under test refuses for the same reason. Every bounded-count site therefore carries a
+        verdict pair AND, where a stage claim is made, a separate witness for it.
+        `design.md` holds the site-by-site findings and the mutation results.
         PARITY IS CLAIMED ONLY WHERE BOTH RUNTIMES HAVE PRODUCTION VALIDATORS. ONE CLOSURE
         POLICY, APPLIED UNIFORMLY: a single-runtime row may close this subtask if and only if
         the missing side has a NAMED OWNING SUBTASK. Not "an owner is recorded somewhere" --

@@ -270,6 +270,14 @@ jobs:
       - name: Edge plan range-string corpus (Elixir)
         working-directory: elixir/serviceradar_core
         run: mix test --no-start test/serviceradar/edge/range_string_corpus_test.exs
+      # THE SHARED STRUCTURAL-COUNT CORPUS: three bound-vector pairs across four typed
+      # carriers and eight sites. Gated because a plain N+1 verdict does not prove the RAW
+      # sites -- remove a raw count gate and the decoded gate behind it returns the same
+      # bounds error. In THIS runtime both raw sites are separated by CALL TRACING, so the
+      # module runs async: false; trace patterns are node-global.
+      - name: Edge structural-count corpus (Elixir)
+        working-directory: elixir/serviceradar_core
+        run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
       # The STAGE, observed by call tracing rather than by verdict: everything the preflight
       # refuses is also refused downstream here, so only a trace can show the parser was not
       # entered. Runs async: false -- trace patterns are node-global.
