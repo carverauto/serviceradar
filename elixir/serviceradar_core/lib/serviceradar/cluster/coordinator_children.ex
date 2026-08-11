@@ -405,13 +405,39 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   defp event_writer_child do
     if enabled?("EVENT_WRITER_ENABLED", :event_writer_enabled, false) do
-      # restart: :permanent, NOT :temporary. Any transient fault -- a NATS restart
-      # during an upgrade or node drain, a broker disconnect -- must not permanently
-      # disable ingestion. With :temporary the supervisor is never restarted:
-      # collectors keep publishing, JetStream keeps growing, nothing consumes, and
-      # every pod still reports healthy. Observed after a routine
-      # `kubectl rollout restart statefulset/serviceradar-nats`.
-      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)
+      # EventWriter runs under its OWN supervisor, for two failure modes that pull
+      # in opposite directions:
+      #
+      #   * A transient fault -- a NATS restart during an upgrade or node drain, a
+      #     broker disconnect -- must not permanently disable ingestion. Registering
+      #     it directly as :temporary meant it was never restarted: collectors kept
+      #     publishing, JetStream kept growing, nothing consumed, and every pod still
+      #     reported healthy. Observed after a routine
+      #     `kubectl rollout restart statefulset/serviceradar-nats`.
+      #
+      #   * A PERSISTENT fault must not take the whole coordinator down. Registering
+      #     it directly as :permanent does exactly that: EventWriter restarts, fails
+      #     again, and blows the coordinator tree's restart budget, so status
+      #     handling, health checks and every seeder die with it. Measured on farm01:
+      #     the tree cycled every ~15s, four EventWriter starts per cycle, and the
+      #     coordinator lock bounced between all three replicas indefinitely.
+      #
+      # The inner supervisor absorbs restarts (10 per 60s, generous enough for a
+      # broker rolling restart); :temporary on the outer spec means that if it does
+      # exhaust that budget, the coordinator survives. Ingestion stays down in that
+      # case, which is why it must also be surfaced -- see ServiceRadar.EventWriter
+      # health reporting rather than relying on pods looking Ready.
+      %{
+        id: :event_writer_supervisor,
+        type: :supervisor,
+        restart: :temporary,
+        start:
+          {Supervisor, :start_link,
+           [
+             [Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)],
+             [strategy: :one_for_one, max_restarts: 10, max_seconds: 60]
+           ]}
+      }
     end
   end
 
