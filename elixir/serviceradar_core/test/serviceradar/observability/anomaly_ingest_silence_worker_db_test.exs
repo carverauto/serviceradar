@@ -47,7 +47,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # A 2004 row WITHOUT the anomaly-detection source_type does not count.
-    insert_finding!(series_key, DateTime.add(@now, -300, :second), %{
+    insert_finding!(DateTime.add(@now, -300, :second), %{
       "service_radar" => %{"series_key" => series_key}
     })
 
@@ -75,7 +75,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     assert_received {:health, "anomaly-ingest-silence", false, _metadata}
 
     # A real anomaly-detection finding inside the window -> healthy.
-    insert_finding!(series_key, DateTime.add(@now, -300, :second), %{
+    insert_finding!(DateTime.add(@now, -300, :second), %{
       "service_radar" => %{
         "series_key" => series_key,
         "source_type" => "anomaly_detection"
@@ -97,7 +97,7 @@ defmodule ServiceRadar.Observability.AnomalyIngestSilenceWorkerDBTest do
     )
   end
 
-  defp insert_finding!(series_key, time, metadata) do
+  defp insert_finding!(time, metadata) do
     Repo.query!(
       """
       INSERT INTO platform.ocsf_events (
