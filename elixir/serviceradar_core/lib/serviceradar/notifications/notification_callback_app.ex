@@ -54,7 +54,7 @@ defmodule ServiceRadar.Notifications.NotificationCallbackApp do
   # The providers whose inbound callbacks are verified against a registered app.
   # A closed list rather than free text: an unknown provider_key here would be a
   # row nothing can ever resolve, written by a typo.
-  @provider_keys [:slack]
+  @provider_keys [:slack, :pagerduty]
 
   postgres do
     table "notification_callback_apps"

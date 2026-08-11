@@ -188,7 +188,7 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
     end
   end
 
-  describe "decode_interaction/2 and capability/1" do
+  describe "decode_interaction/1 and capability/1" do
     defp interaction_json(overrides \\ %{}) do
       %{
         "type" => "block_actions",
@@ -210,7 +210,11 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
 
     test "reads the app id and the clicked action from a form-encoded payload" do
       assert {:ok, interaction} =
-               Slack.decode_interaction(%{"payload" => interaction_json()}, "")
+               Slack.decode_interaction(%{
+                 params: %{"payload" => interaction_json()},
+                 headers: %{},
+                 raw_body: ""
+               })
 
       assert interaction.app_id == "A0123456789"
       assert interaction.user_id == "UA8RXUSPL"
@@ -219,7 +223,11 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
 
     test "falls back to the raw body when the form parser has not run" do
       assert {:ok, interaction} =
-               Slack.decode_interaction(%{}, form_body(interaction_json()))
+               Slack.decode_interaction(%{
+                 params: %{},
+                 headers: %{},
+                 raw_body: form_body(interaction_json())
+               })
 
       assert interaction.app_id == "A0123456789"
     end
@@ -230,18 +238,34 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
       json = interaction_json(%{"type" => "view_submission"})
 
       assert {:error, :unsupported_interaction_type} =
-               Slack.decode_interaction(%{"payload" => json}, "")
+               Slack.decode_interaction(%{
+                 params: %{"payload" => json},
+                 headers: %{},
+                 raw_body: ""
+               })
     end
 
     test "refuses a payload with no app id, since nothing could select a secret" do
       json = interaction_json(%{"api_app_id" => ""})
 
-      assert {:error, :missing_app_id} = Slack.decode_interaction(%{"payload" => json}, "")
+      assert {:error, :missing_app_id} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => json},
+                 headers: %{},
+                 raw_body: ""
+               })
     end
 
     test "refuses a missing or unparseable payload" do
-      assert {:error, :missing_payload} = Slack.decode_interaction(%{}, "")
-      assert {:error, :invalid_payload} = Slack.decode_interaction(%{"payload" => "{"}, "")
+      assert {:error, :missing_payload} =
+               Slack.decode_interaction(%{params: %{}, headers: %{}, raw_body: ""})
+
+      assert {:error, :invalid_payload} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => "{"},
+                 headers: %{},
+                 raw_body: ""
+               })
     end
 
     test "parses the control value SlackBlocks wrote" do
@@ -257,7 +281,13 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
         })
 
       json = interaction_json(%{"actions" => [%{"action_id" => "x", "value" => value}]})
-      assert {:ok, interaction} = Slack.decode_interaction(%{"payload" => json}, "")
+
+      assert {:ok, interaction} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => json},
+                 headers: %{},
+                 raw_body: ""
+               })
 
       assert {:ok, capability} = Slack.capability(interaction)
       assert capability.action == :snooze
@@ -268,7 +298,13 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
     end
 
     test "omits a snooze duration the value did not carry" do
-      assert {:ok, interaction} = Slack.decode_interaction(%{"payload" => interaction_json()}, "")
+      assert {:ok, interaction} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => interaction_json()},
+                 headers: %{},
+                 raw_body: ""
+               })
+
       assert {:ok, capability} = Slack.capability(interaction)
 
       assert capability.action == :acknowledge
@@ -281,14 +317,26 @@ defmodule ServiceRadar.Notifications.Callbacks.SlackTest do
           "actions" => [%{"action_id" => "x", "value" => "delete_everything:alert-1:delivery-1"}]
         })
 
-      assert {:ok, interaction} = Slack.decode_interaction(%{"payload" => json}, "")
+      assert {:ok, interaction} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => json},
+                 headers: %{},
+                 raw_body: ""
+               })
+
       assert {:error, :unknown_action} = Slack.capability(interaction)
     end
 
     test "refuses a control value it cannot parse" do
       json = interaction_json(%{"actions" => [%{"action_id" => "x", "value" => "garbage"}]})
 
-      assert {:ok, interaction} = Slack.decode_interaction(%{"payload" => json}, "")
+      assert {:ok, interaction} =
+               Slack.decode_interaction(%{
+                 params: %{"payload" => json},
+                 headers: %{},
+                 raw_body: ""
+               })
+
       assert {:error, :unparseable_control_value} = Slack.capability(interaction)
     end
   end

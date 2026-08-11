@@ -37,6 +37,21 @@ defmodule ServiceRadar.Notifications.Callbacks.Signature do
       prefix is `:unsupported_signature_version`, not "strip it and hope".
   """
 
+  @typedoc """
+  Everything a verifier may need to identify the request before trusting it.
+
+  A single map rather than `(params, raw_body)` because the identifier that
+  selects the key is not in the same place for every provider: Slack puts its
+  `api_app_id` in the body, PagerDuty names its subscription in a header. A
+  verifier that could only see params would have to be handed a doctored map to
+  work, which is how a header ends up being read from the wrong place.
+  """
+  @type request :: %{
+          required(:params) => map(),
+          required(:headers) => headers(),
+          required(:raw_body) => binary()
+        }
+
   @typedoc "Lower-cased request headers, as `Plug.Conn.req_headers/0` yields them."
   @type headers :: [{String.t(), String.t()}] | %{String.t() => String.t()}
 
@@ -74,8 +89,7 @@ defmodule ServiceRadar.Notifications.Callbacks.Signature do
   reads identifiers and nothing else. The raw bytes, not this result, are what
   the signature is checked against.
   """
-  @callback decode_interaction(params :: map(), raw_body :: binary()) ::
-              {:ok, map()} | {:error, atom()}
+  @callback decode_interaction(request()) :: {:ok, map()} | {:error, atom()}
 
   @doc """
   Turns a decoded interaction into the capability `apply_native/2` accepts.

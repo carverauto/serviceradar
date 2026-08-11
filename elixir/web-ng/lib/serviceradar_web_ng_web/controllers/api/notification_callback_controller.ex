@@ -47,9 +47,9 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackController do
 
   require Logger
 
-  # Closed dispatch. Discord and PagerDuty are deliberately absent: see
-  # design.md D7 for why neither is feasible on the current integration.
-  @providers %{"slack" => Callbacks.Slack}
+  # Closed dispatch. Discord is deliberately absent: see design.md D7 for why it
+  # is not feasible on the current credential model.
+  @providers %{"slack" => Callbacks.Slack, "pagerduty" => Callbacks.PagerDuty}
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"provider" => provider} = params) do
@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackController do
   defp handle(conn, verifier, params) do
     raw_body = RawBodyReader.raw_body(conn)
 
-    with {:ok, interaction} <- decode(verifier, params, raw_body),
+    with {:ok, interaction} <- decode(verifier, conn, params, raw_body),
          {:ok, secret} <- key_material(verifier, interaction),
          :ok <- verify(conn, verifier, raw_body, secret),
          {:ok, capability} <- capability(verifier, interaction) do
@@ -74,8 +74,12 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackController do
     end
   end
 
-  defp decode(verifier, params, raw_body) do
-    verifier.decode_interaction(params, raw_body)
+  defp decode(verifier, conn, params, raw_body) do
+    verifier.decode_interaction(%{
+      params: params,
+      headers: conn.req_headers,
+      raw_body: raw_body
+    })
   end
 
   defp key_material(verifier, interaction) do

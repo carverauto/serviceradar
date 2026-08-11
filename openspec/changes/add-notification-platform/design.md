@@ -429,13 +429,40 @@ HMAC proves PagerDuty sent it, the token binds the request to *this* subscriptio
   200/204, the message posts without buttons, and the transport records success.
   Discord therefore stays on Phase 1 links and must NOT advertise an interactive
   capability.
-- **PagerDuty inbound is blocked on an architectural decision** not otherwise in
-  this change: the declarative tier structurally cannot own an inbound endpoint
-  (`declarative/definition.ex`), and PagerDuty is a declarative entry. It needs
-  promoting to a native transport, or a platform-level callback endpoint outside
-  the provider tiers. Additionally **snooze can never round-trip from PagerDuty** -
-  there is no `incident.snoozed` event in the v3 catalogue - so snooze stays on
-  the signed-link path there permanently.
+- **PagerDuty inbound needed an architectural decision, and the decision is: do
+  NOT promote it to a native transport.** The blocker was misstated. What the
+  declarative tier forbids is a *provider document* declaring an
+  `inbound_callback` capability (`declarative/definition.ex`); it says nothing
+  about the platform owning an endpoint. The callback path built for Slack is
+  already platform-level and tier-agnostic - the controller dispatches on a
+  closed provider map and never consults `provider_type` - so PagerDuty slots
+  into `Notifications.Callbacks` exactly as Slack did, and the declarative entry
+  stays, because it serves outbound well. Promoting it would have rewritten a
+  working outbound path to gain nothing.
+
+  Three PagerDuty specifics the implementation turns on. It signs the **body
+  alone** - no timestamp, no separator, no prefix in the signed material - so
+  neither the northbound `<ts>.<body>` scheme nor Slack's `v0:<ts>:<body>`
+  transfers. `X-PagerDuty-Signature` carries a **comma-separated list** for
+  secret rotation, any element may match, and elements that are not `v1=` are
+  skipped rather than rejected so a future `v2=` does not take the integration
+  down. And there is **no transport-level replay defence**, because the only
+  clock is `event.occurred_at` inside the signed body: bounding it does limit
+  replay, but the bound must be wider than PagerDuty's own ~20 minute retry span
+  or its legitimate retries are rejected and the subscription is disabled.
+
+  Correlation is direct: `event.data.incident_key` is the `dedup_key` we sent,
+  and the shipping document sets that to the alert id. The signing secret is
+  scoped per **webhook subscription**, named by `X-Webhook-Subscription`, so it
+  resolves through the same `NotificationCallbackApp` registry with the
+  subscription id as `external_app_id`.
+
+  Two limits are permanent rather than deferred: **snooze can never round-trip**
+  (there is no `incident.snoozed` event in the v3 catalogue), and
+  `incident.unacknowledged` / `incident.reopened` have **no inverse** in
+  `apply_native/2`. Both are refused explicitly rather than ignored, because
+  subscribing to an event whose handler silently drops it is how an operator
+  concludes an integration works when half of it does not.
 
 `ServiceRadarWebNGWeb.Api.RawBodyReader` buffers raw bodies **only for registered
 path prefixes**. `/api/notifications/callbacks/` is now registered alongside

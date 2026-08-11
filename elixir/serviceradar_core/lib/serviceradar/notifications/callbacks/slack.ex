@@ -58,9 +58,10 @@ defmodule ServiceRadar.Notifications.Callbacks.Slack do
   is refused rather than half-interpreted, because a payload whose shape we did
   not anticipate is not one to guess an alert id out of.
   """
-  @spec decode_interaction(map(), binary()) :: {:ok, map()} | {:error, atom()}
-  def decode_interaction(params, raw_body) do
-    with {:ok, json} <- payload_json(params, raw_body),
+  @spec decode_interaction(map()) :: {:ok, map()} | {:error, atom()}
+  def decode_interaction(%{} = request) do
+    with {:ok, json} <-
+           payload_json(Map.get(request, :params) || %{}, Map.get(request, :raw_body) || ""),
          {:ok, decoded} <- decode_json(json),
          :ok <- check_type(decoded),
          {:ok, app_id} <- non_empty(decoded, "api_app_id", :missing_app_id),

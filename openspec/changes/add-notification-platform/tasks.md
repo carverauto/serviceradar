@@ -2028,12 +2028,31 @@ one is a silent-failure source if done per-provider.
       links and must NOT advertise an interactive capability, because the refusal
       is silent (200/204, message posted without buttons, delivery recorded as a
       success).
-- [ ] 4.3.3 BLOCKED - PagerDuty acknowledgement webhooks. The declarative tier
-      structurally cannot own an inbound endpoint and PagerDuty is a declarative
-      entry, so this needs PagerDuty promoted to a native transport or a
-      platform-level callback endpoint outside the provider tiers. Snooze can
-      never round-trip (there is no `incident.snoozed` event in v3) and stays on
-      the signed-link path permanently.
+- [x] 4.3.3 PagerDuty acknowledgement webhooks. UNBLOCKED by rereading the
+      constraint: the declarative tier forbids a provider DOCUMENT declaring an
+      inbound capability, not the platform owning an endpoint, and the callback
+      path is already tier-agnostic. `Callbacks.PagerDuty` verifies the v1=
+      comma-list signature over the body alone, correlates on
+      `event.data.incident_key` (the dedup_key we sent, which is the alert id),
+      and maps incident.acknowledged / incident.resolved onto the alert
+      transitions. Snooze and the two no-inverse event types are refused
+      explicitly. Remaining for a live round trip: 4.3.3c.
+- [ ] 4.3.3c PagerDuty webhook subscription management. Creating the
+      subscription via `POST /webhook_subscriptions` and capturing
+      `delivery_method.secret` from the CREATE RESPONSE, which is the only time
+      PagerDuty ever returns it - a subscription whose secret was not captured is
+      unrecoverable and must be deleted and recreated. Until this exists an
+      operator registers the subscription by hand and posts the secret through
+      `POST /api/admin/notification-callback-apps` with
+      `provider_key: "pagerduty"` and the subscription id as
+      `external_app_id`. Consider the custom-header callback token from 4.3.4a at
+      the same time, since both are set at subscription-create.
+- [ ] 4.3.3d PagerDuty inbound idempotency on `event.id`. Lower priority than it
+      looks: `apply_native/2` already disposes an alert in the target state as
+      `:already_applied`, so a retry cannot double-transition. What a store would
+      add is suppressing the duplicate AUDIT row a retry writes. Worth doing
+      because PagerDuty has no transport replay defence, but it is an audit
+      cleanliness fix, not a correctness hole.
 - [x] 4.3.3a PagerDuty action links now ship in the top-level `links` array
       instead of `payload.custom_details`, where PagerDuty rendered them as inert
       text an on-call engineer had to select and paste. Catalog template_version

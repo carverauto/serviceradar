@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Api.NotificationCallbackAppController do
 
   # Mirrors the resource's closed provider list. A key outside it would create a
   # row nothing can ever resolve.
-  @providers %{"slack" => :slack}
+  @providers %{"slack" => :slack, "pagerduty" => :pagerduty}
 
   @doc """
   GET /api/admin/notification-callback-apps
