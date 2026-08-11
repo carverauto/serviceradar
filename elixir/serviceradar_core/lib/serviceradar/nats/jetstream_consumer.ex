@@ -494,7 +494,6 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-
   # An existing durable can have a non-mutable field (notably filter_subject) that no
   # longer matches the desired config. NATS forbids changing filter_subject via
   # CONSUMER.UPDATE, so when it has drifted we delete and recreate the durable; otherwise

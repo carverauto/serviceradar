@@ -4,6 +4,7 @@ alias Geolix.Adapter.MMDB2
 alias Oban.Plugins.Cron
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
+alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
@@ -1185,7 +1186,7 @@ if config_env() == :prod do
         # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
-        ServiceRadar.EventWriter.Config.analytics_predictions_stream(),
+        Config.analytics_predictions_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",
@@ -1198,22 +1199,19 @@ if config_env() == :prod do
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so
       # per-stream custom values are not clobbered by release defaults.
-      flow_streams: ServiceRadar.EventWriter.Config.default_flow_streams()
+      flow_streams: Config.default_flow_streams()
 
     # Optional flow pipeline overrides (env only — never inject hard-coded defaults).
     if v = System.get_env("EVENT_WRITER_FLOW_CONSUMER_PULL_BATCH_SIZE") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_consumer_pull_batch_size: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_consumer_pull_batch_size: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_MAX_ACK_PENDING") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_max_ack_pending: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_max_ack_pending: String.to_integer(v)
     end
 
     if v = System.get_env("EVENT_WRITER_FLOW_PULL_EXPIRES_NS") do
-      config :serviceradar_core, ServiceRadar.EventWriter,
-        flow_pull_expires_ns: String.to_integer(v)
+      config :serviceradar_core, ServiceRadar.EventWriter, flow_pull_expires_ns: String.to_integer(v)
     end
 
     config :serviceradar_core, :event_writer_enabled, true
