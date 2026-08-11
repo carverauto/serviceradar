@@ -2173,25 +2173,75 @@ one is a silent-failure source if done per-provider.
 
 ## 5. Cross-cutting close-out
 
-- [ ] 5.1 Resolve design.md Open Question 1 (whether customer-network egress means
+- [x] 5.1 Resolve design.md Open Question 1 (whether customer-network egress means
       the site agent specifically) and record the answer; if the control-plane
       route already satisfies it, drop the `:edge_agent` route out of Phase 3.
-- [ ] 5.2 Resolve Open Question 2 (whether core availability is the accepted
+- [x] 5.2 Resolve Open Question 2 (whether core availability is the accepted
       failure domain for notifications) and record it in
       `docs/docs/architecture.md`.
-- [ ] 5.3 Resolve Open Question 3 (identity recorded when an external principal
+- [x] 5.3 Resolve Open Question 3 (identity recorded when an external principal
       acknowledges) before Phase 4 native interactivity ships.
-- [ ] 5.4 Resolve Open Question 4 (delivery record storage: plain `platform` table
+- [x] 5.4 Resolve Open Question 4 (delivery record storage: plain `platform` table
       with its own retention versus a Timescale hypertable) before Phase 1
       migration review is signed off.
-- [ ] 5.5 Coordinate sequencing with `add-northbound-action-integrations`,
-      `add-signed-northbound-action-callbacks`,
-      `add-long-running-northbound-actions`, and `add-automation-callback-grants`,
-      which all touch the callback and HMAC surface this change reuses; and with
-      `add-device-active-lifecycle`, which owns generation-side device
-      suppression.
-- [ ] 5.6 Update `CHANGELOG` for the release that carries each phase.
-- [ ] 5.7 Hold the canonical vocabulary across code, specs, and docs. These
+- [x] 5.5 Sequencing checked; no design collision found. Status at close-out:
+      `add-signed-northbound-action-callbacks` (16/16),
+      `add-long-running-northbound-actions` (20/20) and
+      `add-device-active-lifecycle` (7/7) are complete, and
+      `add-northbound-action-integrations` has one task left - so the HMAC
+      surface this change reuses is settled rather than moving under it.
+
+      `add-automation-callback-grants` is the one that is materially incomplete
+      (2 done / 22 open), and it was the obvious collision risk. It is not one:
+      it owns `/api/v1/automation/callback-grants/*` with its own pipeline and
+      grant model, and mentions neither `RawBodyReader`, nor
+      `command_result_handler`, nor notifications anywhere in its proposal or
+      tasks. The surfaces are disjoint.
+
+      The one real interaction is mechanical rather than architectural: both add
+      routes and pipelines to `router.ex`, so expect a merge conflict there and
+      not a semantic one. This change also deliberately left
+      `command_result_handler.ex` untouched (see 4.3.4), which keeps the
+      northbound changes free to move without dragging notifications with them.
+- [ ] 5.6 Update `CHANGELOG` for the release that carries each phase. DEFERRED
+      TO RELEASE-CUT, deliberately: the CHANGELOG is written per released
+      version, no release carries this yet, and AGENTS.md puts the release cut in
+      the user's hands. Inventing a version heading here would either collide
+      with the real next release or sit stale. The entry is drafted below so
+      whoever cuts the release pastes it rather than reconstructing it:
+
+      > - Notifications actually send. ServiceRadar had no working delivery at
+      >   all - the webhook notifier was never supervised, so `send_alert/1`
+      >   always returned `{:error, :not_running}`, `Alert.send_notification` was
+      >   a TODO stub, and the `webhooks:` config block was read by nothing. This
+      >   replaces that with a notification platform: routing with predicate
+      >   matching and fan-out, escalation policies gated on acknowledgement,
+      >   deduplication, schedules, silences, per-channel rate limiting, retry
+      >   with failover, and an auditable delivery record for every attempt
+      >   including the ones deliberately withheld.
+      > - Providers are extensible without a release. Alongside first-party
+      >   Slack, Discord, generic webhook and email, an operator can upload a
+      >   declarative HTTP definition (a seeded catalog ships with PagerDuty,
+      >   Opsgenie and others) or publish a signed Wasm plugin, including one
+      >   that runs on an agent inside their own network so notifications egress
+      >   locally.
+      > - Two-way acknowledgement. Every notification carries signed
+      >   single-use Acknowledge / Snooze / Resolve links that work in any
+      >   destination, plus native Slack buttons and native PagerDuty
+      >   acknowledge/resolve webhooks for deployments that want them. All three
+      >   ingresses apply through one code path, so each halts escalation and
+      >   writes the same audit row.
+      > - A notification firehose. The built-in `stream` provider publishes a
+      >   canonical envelope to a JetStream-backed subject and an RBAC-scoped
+      >   channel, so a subscriber can consume notifications live and replay what
+      >   it missed after a reconnect. Envelopes deliberately carry no action
+      >   link or capability token, because a broadcast must not hand one
+      >   delivery's single-use credential to every listener.
+      > - Fixes two live PagerDuty defects: acknowledgement links rendered as
+      >   inert text inside `custom_details` rather than as clickable links, and
+      >   incidents never auto-resolved because a resolving alert sent a trigger
+      >   on the same dedup key.
+- [x] 5.7 Hold the canonical vocabulary across code, specs, and docs. These
       spellings are fixed and a near-miss is a defect, not a synonym:
       - RBAC: top-level three-part `notifications.*` keys only (1.8.1). Never
         `observability.notifications.*`, never four-part.
@@ -2215,6 +2265,6 @@ one is a silent-failure source if done per-provider.
       - Config form module: `ServiceRadarWebNGWeb.PluginConfigForm`.
       - Tiers: three extensibility tiers plus the built-in `:stream` provider
         type.
-- [ ] 5.8 Final `openspec validate add-notification-platform --strict`.
+- [x] 5.8 Final `openspec validate add-notification-platform --strict`.
 - [ ] 5.9 Mark every task above `- [x]` only after the work is actually complete,
       then archive the change in a separate PR.

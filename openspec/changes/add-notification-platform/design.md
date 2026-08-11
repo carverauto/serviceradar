@@ -1039,20 +1039,77 @@ and `add-automation-callback-grants` on the callback and HMAC surface is
 acknowledged and accepted. This change reuses those mechanisms rather than
 forking them, and lands alongside them.
 
+### R4. An external chat identity is recorded verbatim and never mapped to a platform user
+
+**RESOLVED** (Open Question 1). ServiceRadar does not map a Slack user onto a
+ServiceRadar user, in v1 or by default later. The acknowledgement is attributed
+to the external principal exactly as the provider named it - `"slack:U123"`,
+`"pagerduty:PLH1HKV"` - with `NotificationAcknowledgement.actor_kind` set to
+`:external_principal` and `acknowledged_by_user_id` left null.
+
+The question framed this as a forgery risk, and inverting the framing is what
+resolves it. The risk is not that an unmapped principal is untrustworthy; it is
+that a *mapped* one asserts something we cannot back. Slack's signature
+authenticates the app, and Slack itself asserts which member clicked; that
+assertion is exactly as good as the workspace. Turning it into "alice@corp
+acknowledged this alert" adds a claim ServiceRadar cannot verify - a workspace
+admin controls display names and profile emails, so verified-email matching is
+forgeable by the very party being authenticated.
+
+So the third candidate is chosen: refuse to map. What is recorded is what is
+known - a specific Slack member, in a specific workspace, acknowledged this
+alert - and the Delivery Log shows precisely that. Any member of a workspace a
+channel posts to can acknowledge, which is intended: they were sent the
+notification.
+
+A future explicit mapping resource is not precluded, but it must be an operator
+asserting the binding, never inferred from a profile field.
+
+### R5. Core availability is the accepted failure domain
+
+**RESOLVED** (Open Question 2). Yes. The alert engine is in core, so a core
+outage means there are no alerts to notify about - edge-only delivery would
+faithfully deliver nothing. Notification availability is therefore bounded by
+core availability by construction, and claiming otherwise would be a high
+availability story with no engine behind it.
+
+This is why the `:edge_agent` route exists for **egress locality** (R1) and not
+for surviving a core outage. The two are routinely conflated and the distinction
+is load-bearing: an agent-routed channel still needs core to decide that a
+notification should be sent at all.
+
+A true HA story requires an edge-resident rule engine, which is out of scope for
+this change and would be a different design. Recorded in
+`docs/docs/architecture.md` so it is not rediscovered as a surprise during an
+incident.
+
+### R6. Delivery records live in a plain `platform` table with their own retention
+
+**RESOLVED** (Open Question 3). `notification_deliveries` is an ordinary table in
+the `platform` schema, pruned by
+`ServiceRadar.Notifications.DeliveryRetentionWorker`, not a Timescale hypertable.
+
+A hypertable buys time-partitioned retention and compression for append-mostly
+time series that are read by time range. A delivery row is none of those things:
+it is **mutated** through a state machine (`pending -> dispatching -> sent |
+failed | retry_due`), it is read by id and by alert, and its most important index
+is the `NULLS NOT DISTINCT` partial unique index that makes suppression
+idempotent. Hypertable constraints on updates and unique indexes would fight all
+three, and chunk management would be overhead for an access pattern that is not
+time-ranged.
+
+If fan-out breadth ever makes volume the binding constraint, the answer is to
+tighten retention or move *aged* rows to cold storage
+(`openspec/changes/add-cold-telemetry-tiering`), not to convert a mutable state
+machine into a hypertable.
+
 ## Open Questions
 
-1. **External chat identity mapping.** When a Slack user clicks Acknowledge, what
-   platform identity is recorded? A Slack interaction payload is authenticated to
-   the *workspace* by the signing secret, not to an individual, so an unbound
-   mapping lets any workspace member forge another member's acknowledgement. The
-   candidate designs are an explicit external-identity mapping resource,
-   verified-email matching, or refusing to map at all and requiring a signed
-   action link that carries a platform session. This is a v1 blocker for native
-   Slack interactivity (Phase 4) but not for Phase 1, whose signed action links
-   already carry their own authorisation.
-2. Do notifications need to survive a **core** outage? The entire alert engine is
-   in core today, so a core outage means no alerts at all - implying edge-only
-   delivery is not a true high-availability story without an edge-resident rule
-   engine. Is core availability the accepted failure domain?
-3. Where do delivery records live long-term - a plain `platform` table with its
-   own retention, or a Timescale hypertable? Volume depends on fan-out breadth.
+None outstanding. The four questions this change opened are resolved above:
+
+- Customer-network egress -> **R1** (it means the site agent specifically).
+- External chat identity -> **R4** (recorded verbatim, never mapped).
+- Core as the failure domain -> **R5** (accepted, and why edge routing is not an
+  HA story).
+- Delivery record storage -> **R6** (plain table with retention, not a
+  hypertable).
