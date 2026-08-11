@@ -35,6 +35,22 @@ defmodule ServiceRadar.Notifications.SingleWasmHostTest do
 
   use ExUnit.Case, async: true
 
+  # Needs a full checkout, so it cannot run in the Bazel sandbox.
+  #
+  # This walks the whole repository - every Go file, every mix.exs, every
+  # Cargo.toml - to assert that exactly one Wasm host exists. `ex_unit_test`
+  # stages only declared srcs and data, so under Bazel the walk sees a handful of
+  # staged files and the guard becomes VACUOUS: "exactly one host" holds
+  # trivially when nothing else is present. Declaring the repository as data to
+  # fix that would make one architecture check an input to a unit-test target.
+  #
+  # So it is excluded from the sandboxed tier by tag rather than silently
+  # passing there. That is a real weakness and worth saying plainly: nothing runs
+  # it by default today. Run it deliberately from a full checkout with
+  # `mix test --include external test/serviceradar/notifications/single_wasm_host_test.exs`,
+  # and see task 4.4.7 for wiring it into a repo-scanning tier where it belongs.
+  @moduletag :external
+
   @repo_root Path.expand("../../../../..", __DIR__)
 
   # Every embedded Wasm runtime a caller might plausibly reach for. Spelled as

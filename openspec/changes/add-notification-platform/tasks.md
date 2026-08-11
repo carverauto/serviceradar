@@ -2157,6 +2157,15 @@ one is a silent-failure source if done per-provider.
       `notifications.stream.subscribe`, that suppressed dispatches publish nothing
       while still being recorded, and that stream envelopes deliberately carry no
       action link. ASCII only.
+- [ ] 4.4.7 Wire the repo-scanning architecture guards into a tier that actually
+      runs them. `single_wasm_host_test.exs` walks the whole repository to assert
+      exactly one Wasm host exists, which cannot work under Bazel: `ex_unit_test`
+      stages only declared inputs, so the walk sees a handful of files and the
+      guard passes VACUOUSLY. It is tagged `:external` so it fails loudly nowhere
+      rather than passing falsely in CI - but nothing runs `:external` today, so
+      it currently runs only on demand. Either add a repo-scanning job (a lint
+      tier, not a unit-test target) or declare the inputs deliberately; do not
+      leave it tagged and forgotten.
 - [ ] 4.4.6 BLOCKED ON A PRE-EXISTING FAILURE, not on this change. Both gates
       were run. `mix format --check-formatted` passes and `mix credo --strict`
       reports "found no issues" for both projects (2001 and 25596 mods/funs).

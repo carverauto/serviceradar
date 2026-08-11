@@ -14,6 +14,11 @@ defmodule ServiceRadarWebNGWeb.NotificationFirehoseChannelTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.NotificationFirehoseChannel, as: Channel
 
+  # web-ng's Bazel tier runs `ExUnit.configure(exclude: [:test], include: [:db_free])`,
+  # so an untagged file runs ZERO tests in CI while reporting success. These need no
+  # database - that is the point of the tag, not a workaround for one.
+  @moduletag :db_free
+
   @firehose "notifications:stream"
 
   @envelope %{

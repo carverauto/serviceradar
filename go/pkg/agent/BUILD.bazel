@@ -347,3 +347,18 @@ filegroup(
     srcs = glob(["testdata/addonconfig_contract/*.json"]),
     visibility = ["//visibility:public"],
 )
+
+# The two Go files ServiceRadar.Notifications.EdgeCommandContractTest reads at
+# runtime to assert that the agent's notify capability, envelope schema, and
+# credential injection modes still match what the Elixir manifest validator
+# allows. `ex_unit_test` stages only srcs and data, so a test that opens a file
+# outside its own project has to have it declared or it fails in the sandbox
+# with a bare File.Error - which is what happened.
+filegroup(
+    name = "notification_contract_srcs",
+    srcs = [
+        "plugin_runtime.go",
+        "plugin_runtime_notify.go",
+    ],
+    visibility = ["//visibility:public"],
+)
